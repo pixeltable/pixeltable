@@ -1010,6 +1010,51 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.video.scene_detect_adaptive" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;scene_detect_adaptive
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.video.scene_detect_content" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;scene_detect_content
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.video.scene_detect_hash" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;scene_detect_hash
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.video.scene_detect_histogram" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;scene_detect_histogram
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.video.scene_detect_threshold" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;scene_detect_threshold
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.video.segment_video" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;segment_video
@@ -1426,6 +1471,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../together/" class="md-nav__link">
         
   
@@ -1617,6 +1683,51 @@
 </li>
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.video.scene_detect_adaptive" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;scene_detect_adaptive
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.video.scene_detect_content" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;scene_detect_content
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.video.scene_detect_hash" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;scene_detect_hash
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.video.scene_detect_histogram" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;scene_detect_histogram
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.video.scene_detect_threshold" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;scene_detect_threshold
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.video.segment_video" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;segment_video
@@ -1791,12 +1902,12 @@
     <span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">start_time</span><span class="p">:</span> <span class="n">Float</span><span class="p">,</span>
-    <span class="n">end_time</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">duration</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">end_time</span><span class="p">:</span> <span class="n">Float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">duration</span><span class="p">:</span> <span class="n">Float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">mode</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;accurate&quot;</span><span class="p">,</span>
-    <span class="n">video_encoder</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">video_encoder_args</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Video</span><span class="p">]</span>
+    <span class="n">video_encoder</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">video_encoder_args</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Video</span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -1830,7 +1941,7 @@ If both <code>end_time</code> and <code>duration</code> are None, the clip goes 
         </li>
         <li class="doc-section-item field-body">
           <b><code>end_time</code></b>
-              (<code>Optional[Float]</code>, default:
+              (<code>Float | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1840,7 +1951,7 @@ If both <code>end_time</code> and <code>duration</code> are None, the clip goes 
         </li>
         <li class="doc-section-item field-body">
           <b><code>duration</code></b>
-              (<code>Optional[Float]</code>, default:
+              (<code>Float | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1864,7 +1975,7 @@ If both <code>end_time</code> and <code>duration</code> are None, the clip goes 
         </li>
         <li class="doc-section-item field-body">
           <b><code>video_encoder</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1875,7 +1986,7 @@ Only available for <code>mode='accurate'</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>video_encoder_args</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1889,7 +2000,7 @@ Only available for <code>mode='accurate'</code>.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>Optional[Video]</code>
+              <code>Video | None</code>
           –
           <div class="doc-md-description">
             <p>New video containing only the specified time range or None if start_time is beyond the end of the video.</p>
@@ -1961,7 +2072,7 @@ Only available for <code>mode='accurate'</code>.</p>
     <span class="n">video_path</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span>
     <span class="n">stream_idx</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
     <span class="nb">format</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;wav&quot;</span><span class="p">,</span>
-    <span class="n">codec</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">codec</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Audio</span>
 </code></pre></div>
 
@@ -1994,7 +2105,7 @@ Only available for <code>mode='accurate'</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>codec</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2036,7 +2147,7 @@ Only available for <code>mode='accurate'</code>.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">extract_frame</span><span class="p">(</span><span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">timestamp</span><span class="p">:</span> <span class="n">Float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Image</span><span class="p">]</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">extract_frame</span><span class="p">(</span><span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">timestamp</span><span class="p">:</span> <span class="n">Float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2068,7 +2179,7 @@ Only available for <code>mode='accurate'</code>.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>Optional[Image]</code>
+              <code>Image | None</code>
           –
           <div class="doc-md-description">
             <p>The extracted frame as a PIL Image, or None if the timestamp is beyond the video duration.</p>
@@ -2097,7 +2208,7 @@ Only available for <code>mode='accurate'</code>.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_duration</span><span class="p">(</span><span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">get_duration</span><span class="p">(</span><span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Float</span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2121,7 +2232,7 @@ Only available for <code>mode='accurate'</code>.</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code>Optional[Float]</code>
+              <code>Float | None</code>
           –
           <div class="doc-md-description">
             <p>The duration in seconds, or None if the duration cannot be determined.</p>
@@ -2228,7 +2339,7 @@ Only available for <code>mode='accurate'</code>.</p>
     <span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span>
     <span class="n">text</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">font</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">font</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">font_size</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">24</span><span class="p">,</span>
     <span class="n">color</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;white&quot;</span><span class="p">,</span>
     <span class="n">opacity</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
@@ -2239,7 +2350,7 @@ Only available for <code>mode='accurate'</code>.</p>
     <span class="n">box</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">box_color</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;black&quot;</span><span class="p">,</span>
     <span class="n">box_opacity</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
-    <span class="n">box_border</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">box_border</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Video</span>
 </code></pre></div>
 
@@ -2272,7 +2383,7 @@ Only available for <code>mode='accurate'</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>font</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2382,7 +2493,7 @@ Only available for <code>mode='accurate'</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>box_border</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2453,6 +2564,1001 @@ Only available for <code>mode='accurate'</code>.</p>
 <div class="doc doc-object doc-function">
 
 
+<h3 id="pixeltable.functions.video.scene_detect_adaptive" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">scene_detect_adaptive</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">scene_detect_adaptive</span><span class="p">(</span>
+    <span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">fps</span><span class="p">:</span> <span class="n">Float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">adaptive_threshold</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">3.0</span><span class="p">,</span>
+    <span class="n">min_scene_len</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">15</span><span class="p">,</span>
+    <span class="n">window_width</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+    <span class="n">min_content_val</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">15.0</span><span class="p">,</span>
+    <span class="n">delta_hue</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">delta_sat</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">delta_lum</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">delta_edges</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
+    <span class="n">luma_only</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">kernel_size</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Detect scene cuts in a video using PySceneDetect's
+<a href="https://www.scenedetect.com/docs/latest/api/detectors.html#scenedetect.detectors.adaptive_detector.AdaptiveDetector">AdaptiveDetector</a>.</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install scenedetect</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>video</code></b>
+              (<code>Video</code>)
+          –
+          <div class="doc-md-description">
+            <p>The video to analyze for scene cuts.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fps</code></b>
+              (<code>Float | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Number of frames to extract per second for analysis. If None or 0, analyzes all frames.
+Lower values process faster but may miss exact scene cuts.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>adaptive_threshold</code></b>
+              (<code>Float</code>, default:
+                  <code>3.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Threshold that the score ratio must exceed to trigger a new scene cut.
+Lower values will detect more scenes (more sensitive), higher values will detect fewer scenes.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>min_scene_len</code></b>
+              (<code>Int</code>, default:
+                  <code>15</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Once a cut is detected, this many frames must pass before a new one can be added to the scene
+list.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>window_width</code></b>
+              (<code>Int</code>, default:
+                  <code>2</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Size of window (number of frames) before and after each frame to average together in order to
+detect deviations from the mean. Must be at least 1.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>min_content_val</code></b>
+              (<code>Float</code>, default:
+                  <code>15.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Minimum threshold (float) that the content_val must exceed in order to register as a new scene.
+This is calculated the same way that <code>scene_detect_content()</code> calculates frame
+score based on weights/luma_only/kernel_size.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>delta_hue</code></b>
+              (<code>Float</code>, default:
+                  <code>1.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Weight for hue component changes. Higher values make hue changes more important.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>delta_sat</code></b>
+              (<code>Float</code>, default:
+                  <code>1.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Weight for saturation component changes. Higher values make saturation changes more important.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>delta_lum</code></b>
+              (<code>Float</code>, default:
+                  <code>1.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Weight for luminance component changes. Higher values make brightness changes more important.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>delta_edges</code></b>
+              (<code>Float</code>, default:
+                  <code>0.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Weight for edge detection changes. Higher values make edge changes more important.
+Edge detection can help detect cuts in scenes with similar colors but different content.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>luma_only</code></b>
+              (<code>Bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If True, only analyzes changes in the luminance (brightness) channel of the video,
+ignoring color information. This can be faster and may work better for grayscale content.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>kernel_size</code></b>
+              (<code>Int | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Size of kernel to use for post edge detection filtering. If None, automatically set based on video
+resolution.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>A list of dictionaries, one for each detected scene, with the following keys:</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>start_time</code> (float): The start time of the scene in seconds.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>start_pts</code> (int): The pts of the start of the scene.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>duration</code> (float): The duration of the scene in seconds.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Detect scene cuts with default parameters:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_adaptive</span><span class="p">())</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Detect more scenes by lowering the threshold:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_adaptive</span><span class="p">(</span><span class="n">adaptive_threshold</span><span class="o">=</span><span class="mf">1.5</span><span class="p">))</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Use luminance-only detection with a longer minimum scene length:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_adaptive</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="n">luma_only</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="n">min_scene_len</span><span class="o">=</span><span class="mi">30</span>
+<span class="gp">... </span>    <span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Add scene cuts as a computed column:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">scene_cuts</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_adaptive</span><span class="p">(</span><span class="n">adaptive_threshold</span><span class="o">=</span><span class="mf">2.0</span><span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span>
+</code></pre></div>
+    <p>Analyze at a lower frame rate for faster processing:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_adaptive</span><span class="p">(</span><span class="n">fps</span><span class="o">=</span><span class="mf">2.0</span><span class="p">))</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.video.scene_detect_content" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">scene_detect_content</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">scene_detect_content</span><span class="p">(</span>
+    <span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">fps</span><span class="p">:</span> <span class="n">Float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">threshold</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">27.0</span><span class="p">,</span>
+    <span class="n">min_scene_len</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">15</span><span class="p">,</span>
+    <span class="n">delta_hue</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">delta_sat</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">delta_lum</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+    <span class="n">delta_edges</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
+    <span class="n">luma_only</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">kernel_size</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">filter_mode</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;merge&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Detect scene cuts in a video using PySceneDetect's
+<a href="https://www.scenedetect.com/docs/latest/api/detectors.html#scenedetect.detectors.content_detector.ContentDetector">ContentDetector</a>.</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install scenedetect</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>video</code></b>
+              (<code>Video</code>)
+          –
+          <div class="doc-md-description">
+            <p>The video to analyze for scene cuts.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fps</code></b>
+              (<code>Float | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Number of frames to extract per second for analysis. If None, analyzes all frames.
+Lower values process faster but may miss exact scene cuts.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>threshold</code></b>
+              (<code>Float</code>, default:
+                  <code>27.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Threshold that the weighted sum of component changes must exceed to trigger a scene cut.
+Lower values detect more scenes (more sensitive), higher values detect fewer scenes.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>min_scene_len</code></b>
+              (<code>Int</code>, default:
+                  <code>15</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Once a cut is detected, this many frames must pass before a new one can be added to the scene
+list.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>delta_hue</code></b>
+              (<code>Float</code>, default:
+                  <code>1.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Weight for hue component changes. Higher values make hue changes more important.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>delta_sat</code></b>
+              (<code>Float</code>, default:
+                  <code>1.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Weight for saturation component changes. Higher values make saturation changes more important.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>delta_lum</code></b>
+              (<code>Float</code>, default:
+                  <code>1.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Weight for luminance component changes. Higher values make brightness changes more important.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>delta_edges</code></b>
+              (<code>Float</code>, default:
+                  <code>0.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Weight for edge detection changes. Higher values make edge changes more important.
+Edge detection can help detect cuts in scenes with similar colors but different content.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>luma_only</code></b>
+              (<code>Bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If True, only analyzes changes in the luminance (brightness) channel,
+ignoring color information. This can be faster and may work better for grayscale content.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>kernel_size</code></b>
+              (<code>Int | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Size of kernel for expanding detected edges. Must be odd integer greater than or equal to 3. If
+None, automatically set using video resolution.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>filter_mode</code></b>
+              (<code>String</code>, default:
+                  <code>&#39;merge&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>How to handle fast cuts/flashes. 'merge' combines quick cuts, 'suppress' filters them out.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>A list of dictionaries, one for each detected scene, with the following keys:</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>start_time</code> (float): The start time of the scene in seconds.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>start_pts</code> (int): The pts of the start of the scene.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>duration</code> (float): The duration of the scene in seconds.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Detect scene cuts with default parameters:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_content</span><span class="p">())</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Detect more scenes by lowering the threshold:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_content</span><span class="p">(</span><span class="n">threshold</span><span class="o">=</span><span class="mf">15.0</span><span class="p">))</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Use luminance-only detection:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_content</span><span class="p">(</span><span class="n">luma_only</span><span class="o">=</span><span class="kc">True</span><span class="p">))</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Emphasize edge detection for scenes with similar colors:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_content</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="n">delta_edges</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="n">delta_hue</span><span class="o">=</span><span class="mf">0.5</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="n">delta_sat</span><span class="o">=</span><span class="mf">0.5</span>
+<span class="gp">... </span>    <span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Add scene cuts as a computed column:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">scene_cuts</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_content</span><span class="p">(</span><span class="n">threshold</span><span class="o">=</span><span class="mf">20.0</span><span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.video.scene_detect_hash" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">scene_detect_hash</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">scene_detect_hash</span><span class="p">(</span>
+    <span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">fps</span><span class="p">:</span> <span class="n">Float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">threshold</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.395</span><span class="p">,</span>
+    <span class="n">size</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">16</span><span class="p">,</span>
+    <span class="n">lowpass</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">2</span><span class="p">,</span>
+    <span class="n">min_scene_len</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">15</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Detect scene cuts in a video using PySceneDetect's
+<a href="https://www.scenedetect.com/docs/latest/api/detectors.html#scenedetect.detectors.hash_detector.HashDetector">HashDetector</a>.</p>
+<p>HashDetector uses perceptual hashing for very fast scene detection. It computes a hash of each
+frame at reduced resolution and compares hash distances.</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install scenedetect</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>video</code></b>
+              (<code>Video</code>)
+          –
+          <div class="doc-md-description">
+            <p>The video to analyze for scene cuts.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fps</code></b>
+              (<code>Float | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Number of frames to extract per second for analysis. If None, analyzes all frames.
+Lower values process faster but may miss exact scene cuts.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>threshold</code></b>
+              (<code>Float</code>, default:
+                  <code>0.395</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Value from 0.0 and 1.0 representing the relative hamming distance between the perceptual hashes of
+adjacent frames. A distance of 0 means the image is the same, and 1 means no correlation. Smaller threshold
+values thus require more correlation, making the detector more sensitive. The Hamming distance is divided
+by size x size before comparing to threshold for normalization.
+Lower values detect more scenes (more sensitive), higher values detect fewer scenes.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>size</code></b>
+              (<code>Int</code>, default:
+                  <code>16</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Size of square of low frequency data to use for the DCT. Larger values are more precise but slower.
+Common values are 8, 16, or 32.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>lowpass</code></b>
+              (<code>Int</code>, default:
+                  <code>2</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>How much high frequency information to filter from the DCT. A value of 2 means keep lower 1/2 of the
+frequency data, 4 means only keep 1/4, etc. Larger values make the
+detector less sensitive to high-frequency details and noise.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>min_scene_len</code></b>
+              (<code>Int</code>, default:
+                  <code>15</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Once a cut is detected, this many frames must pass before a new one can be added to the scene
+list.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>A list of dictionaries, one for each detected scene, with the following keys:</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>start_time</code> (float): The start time of the scene in seconds.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>start_pts</code> (int): The pts of the start of the scene.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>duration</code> (float): The duration of the scene in seconds.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Detect scene cuts with default parameters:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_hash</span><span class="p">())</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Detect more scenes by lowering the threshold:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_hash</span><span class="p">(</span><span class="n">threshold</span><span class="o">=</span><span class="mf">0.3</span><span class="p">))</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Use larger hash size for more precision:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_hash</span><span class="p">(</span><span class="n">size</span><span class="o">=</span><span class="mi">32</span><span class="p">))</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Use for fast processing with lower frame rate:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_hash</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="n">fps</span><span class="o">=</span><span class="mf">1.0</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="n">threshold</span><span class="o">=</span><span class="mf">0.4</span>
+<span class="gp">... </span>    <span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Add scene cuts as a computed column:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">scene_cuts</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_hash</span><span class="p">()</span>
+<span class="gp">... </span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.video.scene_detect_histogram" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">scene_detect_histogram</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">scene_detect_histogram</span><span class="p">(</span>
+    <span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">fps</span><span class="p">:</span> <span class="n">Float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">threshold</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.05</span><span class="p">,</span>
+    <span class="n">bins</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">,</span>
+    <span class="n">min_scene_len</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">15</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Detect scene cuts in a video using PySceneDetect's
+<a href="https://www.scenedetect.com/docs/latest/api/detectors.html#scenedetect.detectors.histogram_detector.HistogramDetector">HistogramDetector</a>.</p>
+<p>HistogramDetector compares frame histograms on the Y (luminance) channel after YUV conversion.
+It detects scenes based on relative histogram differences and is more robust to gradual lighting
+changes than content-based detection.</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install scenedetect</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>video</code></b>
+              (<code>Video</code>)
+          –
+          <div class="doc-md-description">
+            <p>The video to analyze for scene cuts.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fps</code></b>
+              (<code>Float | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Number of frames to extract per second for analysis. If None or 0, analyzes all frames.
+Lower values process faster but may miss exact scene cuts.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>threshold</code></b>
+              (<code>Float</code>, default:
+                  <code>0.05</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Maximum relative difference between 0.0 and 1.0 that the histograms can differ. Histograms are
+calculated on the Y channel after converting the frame to YUV, and normalized based on the number of bins.
+Higher differences imply greater change in content, so larger threshold values are less sensitive to cuts.
+Lower values detect more scenes (more sensitive), higher values detect fewer scenes.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>bins</code></b>
+              (<code>Int</code>, default:
+                  <code>256</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Number of bins to use for histogram calculation (typically 16-256). More bins provide
+finer granularity but may be more sensitive to noise.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>min_scene_len</code></b>
+              (<code>Int</code>, default:
+                  <code>15</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Once a cut is detected, this many frames must pass before a new one can be added to the scene
+list.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>A list of dictionaries, one for each detected scene, with the following keys:</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>start_time</code> (float): The start time of the scene in seconds.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>start_pts</code> (int): The pts of the start of the scene.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>duration</code> (float): The duration of the scene in seconds.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Detect scene cuts with default parameters:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_histogram</span><span class="p">())</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Detect more scenes by lowering the threshold:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_histogram</span><span class="p">(</span><span class="n">threshold</span><span class="o">=</span><span class="mf">0.03</span><span class="p">))</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Use fewer bins for faster processing:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_histogram</span><span class="p">(</span><span class="n">bins</span><span class="o">=</span><span class="mi">64</span><span class="p">))</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Use with a longer minimum scene length:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_histogram</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="n">min_scene_len</span><span class="o">=</span><span class="mi">30</span>
+<span class="gp">... </span>    <span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Add scene cuts as a computed column:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">scene_cuts</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_histogram</span><span class="p">(</span><span class="n">threshold</span><span class="o">=</span><span class="mf">0.04</span><span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.video.scene_detect_threshold" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">scene_detect_threshold</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">scene_detect_threshold</span><span class="p">(</span>
+    <span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">fps</span><span class="p">:</span> <span class="n">Float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">threshold</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">12.0</span><span class="p">,</span>
+    <span class="n">min_scene_len</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">15</span><span class="p">,</span>
+    <span class="n">fade_bias</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
+    <span class="n">add_final_scene</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">method</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;floor&quot;</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Detect fade-in and fade-out transitions in a video using PySceneDetect's
+<a href="https://www.scenedetect.com/docs/latest/api/detectors.html#scenedetect.detectors.threshold_detector.ThresholdDetector">ThresholdDetector</a>.</p>
+<p>ThresholdDetector identifies scenes by detecting when pixel brightness falls below or rises above
+a threshold value, suitable for detecting fade-to-black, fade-to-white, and similar transitions.</p>
+<p><strong>Requirements:</strong></p>
+<ul>
+<li><code>pip install scenedetect</code></li>
+</ul>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>video</code></b>
+              (<code>Video</code>)
+          –
+          <div class="doc-md-description">
+            <p>The video to analyze for fade transitions.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fps</code></b>
+              (<code>Float | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Number of frames to extract per second for analysis. If None or 0, analyzes all frames.
+Lower values process faster but may miss exact transition points.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>threshold</code></b>
+              (<code>Float</code>, default:
+                  <code>12.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>8-bit intensity value that each pixel value (R, G, and B) must be &lt;= to in order to trigger a fade
+in/out.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>min_scene_len</code></b>
+              (<code>Int</code>, default:
+                  <code>15</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Once a cut is detected, this many frames must pass before a new one can be added to the scene
+list.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>fade_bias</code></b>
+              (<code>Float</code>, default:
+                  <code>0.0</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Float between -1.0 and +1.0 representing the percentage of timecode skew for the start of a scene
+(-1.0 causing a cut at the fade-to-black, 0.0 in the middle, and +1.0 causing the cut to be right at the
+position where the threshold is passed).</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>add_final_scene</code></b>
+              (<code>Bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Boolean indicating if the video ends on a fade-out to generate an additional scene at this
+timecode.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>method</code></b>
+              (<code>String</code>, default:
+                  <code>&#39;floor&#39;</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>How to treat threshold when detecting fade events
+- 'ceiling': Fade out happens when frame brightness rises above threshold.
+- 'floor': Fade out happens when frame brightness falls below threshold.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>A list of dictionaries, one for each detected scene, with the following keys:</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>start_time</code> (float): The start time of the scene in seconds.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>start_pts</code> (int): The pts of the start of the scene.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <ul>
+<li><code>duration</code> (float): The duration of the scene in seconds.</li>
+</ul>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+              <code>Json</code>
+          –
+          <div class="doc-md-description">
+            <p>The list is ordered chronologically. Returns the full duration of the video if no scenes are detected.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Detect fade-to-black transitions with default parameters:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_threshold</span><span class="p">())</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Use a lower threshold to detect darker fades:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_threshold</span><span class="p">(</span><span class="n">threshold</span><span class="o">=</span><span class="mf">8.0</span><span class="p">))</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Detect both fade-to-black and fade-to-white using absolute method:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_threshold</span><span class="p">(</span><span class="n">method</span><span class="o">=</span><span class="s1">&#39;absolute&#39;</span><span class="p">))</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Add final scene boundary:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">select</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_threshold</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="n">add_final_scene</span><span class="o">=</span><span class="kc">True</span>
+<span class="gp">... </span>    <span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span><span class="o">.</span><span class="n">collect</span><span class="p">()</span>
+</code></pre></div>
+    <p>Add fade transitions as a computed column:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">tbl</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">fade_cuts</span><span class="o">=</span><span class="n">tbl</span><span class="o">.</span><span class="n">video</span><span class="o">.</span><span class="n">scene_detect_threshold</span><span class="p">(</span><span class="n">threshold</span><span class="o">=</span><span class="mf">15.0</span><span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
 <h3 id="pixeltable.functions.video.segment_video" class="doc doc-heading">
 <code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">segment_video</span>
 
@@ -2461,11 +3567,11 @@ Only available for <code>mode='accurate'</code>.</p>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">segment_video</span><span class="p">(</span>
     <span class="n">video</span><span class="p">:</span> <span class="n">Video</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">duration</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">segment_times</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">duration</span><span class="p">:</span> <span class="n">Float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">segment_times</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">mode</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;accurate&quot;</span><span class="p">,</span>
-    <span class="n">video_encoder</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">video_encoder_args</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">video_encoder</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">video_encoder_args</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -2490,7 +3596,7 @@ Only available for <code>mode='accurate'</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>duration</code></b>
-              (<code>Optional[Float]</code>, default:
+              (<code>Float | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2502,7 +3608,7 @@ for <code>mode='accurate'</code>, segments will have exact durations. Cannot be 
         </li>
         <li class="doc-section-item field-body">
           <b><code>segment_times</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2528,7 +3634,7 @@ segment durations. If all segment times are less than the duration of the video,
         </li>
         <li class="doc-section-item field-body">
           <b><code>video_encoder</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2539,7 +3645,7 @@ Only available for <code>mode='accurate'</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>video_encoder_args</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2610,9 +3716,9 @@ and slow preset (for smaller output files):</p>
     <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">video_start_time</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-    <span class="n">video_duration</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">video_duration</span><span class="p">:</span> <span class="n">Float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">audio_start_time</span><span class="p">:</span> <span class="n">Float</span> <span class="o">=</span> <span class="mf">0.0</span><span class="p">,</span>
-    <span class="n">audio_duration</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">audio_duration</span><span class="p">:</span> <span class="n">Float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Video</span>
 </code></pre></div>
 
@@ -2657,7 +3763,7 @@ If the audio input (or selected time range) is longer than the video, the audio 
         </li>
         <li class="doc-section-item field-body">
           <b><code>video_duration</code></b>
-              (<code>Optional[Float]</code>, default:
+              (<code>Float | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2678,7 +3784,7 @@ If the audio input (or selected time range) is longer than the video, the audio 
         </li>
         <li class="doc-section-item field-body">
           <b><code>audio_duration</code></b>
-              (<code>Optional[Float]</code>, default:
+              (<code>Float | None</code>, default:
                   <code>None</code>
 )
           –

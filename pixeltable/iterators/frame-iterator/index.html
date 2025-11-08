@@ -1332,6 +1332,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../../functions/reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../functions/together/" class="md-nav__link">
         
   
@@ -1481,8 +1502,8 @@
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">FrameIterator</span><span class="p">(</span>
     <span class="n">video</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">fps</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">num_frames</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">fps</span><span class="p">:</span> <span class="n">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">num_frames</span><span class="p">:</span> <span class="n">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">all_frame_attrs</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="p">)</span>
 </code></pre></div>
@@ -1500,19 +1521,19 @@ frame of the video will always be extracted, and the remaining frames will be sp
     <ul>
         <li class="doc-section-item field-body">
           <b><code>fps</code></b>
-              (<code><span title="typing.Optional">Optional</span>[float]</code>, default:
+              (<code>float | None</code>, default:
                   <code>None</code>
 )
           –
           <div class="doc-md-description">
             <p>Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
-If omitted or set to 0.0, then the native framerate of the video will be used (all frames will be
-extracted). If <code>fps</code> is greater than the frame rate of the video, an error will be raised.</p>
+If omitted or set to 0.0, or if greater than the native framerate of the video,
+then the framerate of the video will be used (all frames will be extracted).</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
           <b><code>num_frames</code></b>
-              (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+              (<code>int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1534,9 +1555,9 @@ extracted). If <code>fps</code> is greater than the frame rate of the video, an 
 <a href="https://pyav.org/docs/develop/api/frame.html">Frame</a>):</p>
 <ul>
 <li><code>index</code> (<code>int</code>)</li>
-<li><code>pts</code> (<code>Optional[int]</code>)</li>
-<li><code>dts</code> (<code>Optional[int]</code>)</li>
-<li><code>time</code> (<code>Optional[float]</code>)</li>
+<li><code>pts</code> (<code>int | None</code>)</li>
+<li><code>dts</code> (<code>int | None</code>)</li>
+<li><code>time</code> (<code>float | None</code>)</li>
 <li><code>is_corrupt</code> (<code>bool</code>)</li>
 <li><code>key_frame</code> (<code>bool</code>)</li>
 <li><code>pict_type</code> (<code>int</code>)</li>

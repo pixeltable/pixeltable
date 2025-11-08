@@ -1426,6 +1426,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/together/" class="md-nav__link">
         
   
@@ -1696,12 +1717,12 @@
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_label_studio_project</span><span class="p">(</span>
     <span class="n">t</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.Table" href="../table/#pixeltable.Table">Table</a></span><span class="p">,</span>
     <span class="n">label_config</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
-    <span class="n">name</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">title</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">name</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">title</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">media_import_method</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;post&quot;</span><span class="p">,</span> <span class="s2">&quot;file&quot;</span><span class="p">,</span> <span class="s2">&quot;url&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;post&quot;</span><span class="p">,</span>
-    <span class="n">col_mapping</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">col_mapping</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">sync_immediately</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
-    <span class="n">s3_configuration</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">s3_configuration</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.update_status.UpdateStatus" href="../update-status/#pixeltable.UpdateStatus">UpdateStatus</a></span>
 </code></pre></div>
@@ -1759,7 +1780,7 @@ consistent with their corresponding Label Studio fields; otherwise, an exception
         </li>
         <li class="doc-section-item field-body">
           <b><code>name</code></b>
-              (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+              (<code>str | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1772,7 +1793,7 @@ linked to <code>t</code>. If not specified, a default name will be used of the f
         </li>
         <li class="doc-section-item field-body">
           <b><code>title</code></b>
-              (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+              (<code>str | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1804,7 +1825,7 @@ The default is <code>post</code>.</li>
         </li>
         <li class="doc-section-item field-body">
           <b><code>col_mapping</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, str]]</code>, default:
+              (<code>dict[str, str] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1825,7 +1846,7 @@ exporting all rows of the table as Label Studio tasks.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>s3_configuration</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2053,7 +2074,7 @@ not be available in the parquet format.</p>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">import_csv</span><span class="p">(</span>
     <span class="n">tbl_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">filepath_or_buffer</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n"><span title="os.PathLike">PathLike</span></span><span class="p">,</span>
-    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">primary_key</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
@@ -2096,7 +2117,7 @@ for more details.</p>
     <span class="n">tbl_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">io</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n"><span title="os.PathLike">PathLike</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">primary_key</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
@@ -2139,7 +2160,7 @@ for more details.</p>
     <span class="n">table_path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">dataset</span><span class="p">:</span> <span class="n"><span title="datasets.Dataset">Dataset</span></span> <span class="o">|</span> <span class="n"><span title="datasets.DatasetDict">DatasetDict</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">primary_key</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.Table" href="../table/#pixeltable.Table">Table</a></span>
@@ -2173,7 +2194,7 @@ to insert into the table.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>schema_overrides</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2236,7 +2257,7 @@ This column name will contain the split information. If None, no split informati
     <span class="n">tbl_path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">filepath_or_url</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">primary_key</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
@@ -2271,7 +2292,7 @@ is the contents of the specified <code>filepath_or_url</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>schema_overrides</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2351,7 +2372,7 @@ is the contents of the specified <code>filepath_or_url</code>.</p>
     <span class="n">tbl_name</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">df</span><span class="p">:</span> <span class="n"><span title="pandas.DataFrame">DataFrame</span></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">primary_key</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
@@ -2391,7 +2412,7 @@ the following procedure:
         </li>
         <li class="doc-section-item field-body">
           <b><code>schema_overrides</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2432,7 +2453,7 @@ Pixeltable identifiers).</p>
     <span class="n">table</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">parquet_path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
-    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">primary_key</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.Table" href="../table/#pixeltable.Table">Table</a></span>
@@ -2463,7 +2484,7 @@ Pixeltable identifiers).</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>schema_overrides</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2524,7 +2545,7 @@ Pixeltable identifiers).</p>
     <span class="n">tbl_path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">rows</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]],</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">primary_key</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span>
@@ -2563,7 +2584,7 @@ for that column).</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>schema_overrides</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
                   <code>None</code>
 )
           –

@@ -791,6 +791,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.audio.encode_audio" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;encode_audio
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.audio.get_metadata" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;get_metadata
@@ -1345,6 +1354,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../together/" class="md-nav__link">
         
   
@@ -1464,6 +1494,15 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#pixeltable.functions.audio.encode_audio" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;encode_audio
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#pixeltable.functions.audio.get_metadata" class="md-nav__link">
     <span class="md-ellipsis">
       <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;get_metadata
@@ -1522,6 +1561,83 @@
 
 
 
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.audio.encode_audio" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">encode_audio</span>
+
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">encode_audio</span><span class="p">(</span>
+    <span class="n">audio_data</span><span class="p">:</span> <span class="n">Array</span><span class="p">[</span><span class="n">Float</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">input_sample_rate</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span>
+    <span class="nb">format</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">output_sample_rate</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Audio</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Encodes an audio clip represented as an array into a specified audio format.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>audio_data</code></b>
+              (<code>Array[Float]</code>)
+          –
+          <div class="doc-md-description">
+            <p>An array of sampled amplitudes. The accepted array shapes are <code>(N,)</code> or <code>(1, N)</code> for mono audio
+or <code>(2, N)</code> for stereo.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>input_sample_rate</code></b>
+              (<code>Int</code>)
+          –
+          <div class="doc-md-description">
+            <p>The sample rate of the input audio data.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>format</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>The desired output audio format. The supported formats are 'wav', 'mp3', 'flac', and 'mp4'.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>output_sample_rate</code></b>
+              (<code>Int | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>The desired sample rate for the output audio. Defaults to the input sample rate if
+unspecified.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add a computed column with encoded FLAC audio files to a table with audio data (as arrays of floats) and sample
+rates:</p>
+<pre><code>t.add_computed_column(
+    audio_file=encode_audio(
+        t.audio_data, input_sample_rate=t.sample_rate, format='flac'
+    )
+)
+</code></pre>
+
+    </div>
+
+</div>
 
 <div class="doc doc-object doc-function">
 

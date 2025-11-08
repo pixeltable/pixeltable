@@ -1285,6 +1285,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../together/" class="md-nav__link">
         
   
@@ -1536,17 +1557,17 @@
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="n">diarize</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">compute_type</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">language</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">task</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">chunk_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">alignment_model_name</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">interpolate_method</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">return_char_alignments</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">diarization_model_name</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">num_speakers</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">min_speakers</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">max_speakers</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">compute_type</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">language</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">task</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">chunk_size</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">alignment_model_name</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">interpolate_method</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">return_char_alignments</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">diarization_model_name</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">num_speakers</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">min_speakers</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">max_speakers</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1594,7 +1615,7 @@ equivalent to the WhisperX <code>transcribe</code> function, as described in the
         </li>
         <li class="doc-section-item field-body">
           <b><code>compute_type</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1605,7 +1626,7 @@ defaults to <code>'float16'</code> on CUDA devices and <code>'int8'</code> other
         </li>
         <li class="doc-section-item field-body">
           <b><code>language</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1615,7 +1636,7 @@ defaults to <code>'float16'</code> on CUDA devices and <code>'int8'</code> other
         </li>
         <li class="doc-section-item field-body">
           <b><code>task</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1625,7 +1646,7 @@ defaults to <code>'float16'</code> on CUDA devices and <code>'int8'</code> other
         </li>
         <li class="doc-section-item field-body">
           <b><code>chunk_size</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1635,7 +1656,7 @@ defaults to <code>'float16'</code> on CUDA devices and <code>'int8'</code> other
         </li>
         <li class="doc-section-item field-body">
           <b><code>alignment_model_name</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1646,7 +1667,7 @@ language. Only valid if <code>diarize=True</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>interpolate_method</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1657,7 +1678,7 @@ WhisperX default (<code>'nearest'</code>). Only valid if <code>diarize=True</cod
         </li>
         <li class="doc-section-item field-body">
           <b><code>return_char_alignments</code></b>
-              (<code>Optional[Bool]</code>, default:
+              (<code>Bool | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1668,7 +1689,7 @@ Only valid if <code>diarize=True</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>diarization_model_name</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1679,7 +1700,7 @@ Only valid if <code>diarize=True</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>num_speakers</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1690,7 +1711,7 @@ number of speakers. Only valid if <code>diarize=True</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>min_speakers</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1701,7 +1722,7 @@ Only valid if <code>diarize=True</code>.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>max_speakers</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –

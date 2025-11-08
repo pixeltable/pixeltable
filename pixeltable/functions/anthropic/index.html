@@ -1354,6 +1354,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../together/" class="md-nav__link">
         
   
@@ -1580,9 +1601,9 @@ the <a href="https://pixeltable.readme.io/docs/working-with-anthropic">Working w
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="n">max_tokens</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span>
-    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">tools</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">tool_choice</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tools</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tool_choice</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1620,7 +1641,7 @@ request and token capacity. No configuration is necessary.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1631,7 +1652,7 @@ For details on the available parameters, see: <a href="https://docs.anthropic.co
         </li>
         <li class="doc-section-item field-body">
           <b><code>tools</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1641,7 +1662,7 @@ For details on the available parameters, see: <a href="https://docs.anthropic.co
         </li>
         <li class="doc-section-item field-body">
           <b><code>tool_choice</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –

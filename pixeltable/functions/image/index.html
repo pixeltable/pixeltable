@@ -1552,6 +1552,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../together/" class="md-nav__link">
         
   
@@ -2146,7 +2167,7 @@ coordinates.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">entropy</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Image</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">extrema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Image</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">extrema</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Float</span>
 </code></pre></div>
 
@@ -2161,7 +2182,7 @@ coordinates.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>mask</code></b>
-              (<code>Optional[Image]</code>, default:
+              (<code>Image | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2171,7 +2192,7 @@ coordinates.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>extrema</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2360,7 +2381,7 @@ trim pixels when all channels are zero.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getpalette</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">getpalette</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2374,7 +2395,7 @@ trim pixels when all channels are zero.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>mode</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2452,7 +2473,7 @@ trim pixels when all channels are zero.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">histogram</span><span class="p">(</span>
-    <span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Image</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">extrema</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">mask</span><span class="p">:</span> <span class="n">Image</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="n">extrema</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -2467,7 +2488,7 @@ trim pixels when all channels are zero.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>mask</code></b>
-              (<code>Optional[Image]</code>, default:
+              (<code>Image | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2477,7 +2498,7 @@ trim pixels when all channels are zero.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>extrema</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2499,7 +2520,7 @@ trim pixels when all channels are zero.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">point</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">lut</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">point</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">lut</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span> <span class="n">mode</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2536,9 +2557,9 @@ trim pixels when all channels are zero.</p>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">quantize</span><span class="p">(</span>
     <span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span>
     <span class="n">colors</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">256</span><span class="p">,</span>
-    <span class="n">method</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">method</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">kmeans</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span>
-    <span class="n">palette</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">palette</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">dither</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="n">PIL</span><span class="o">.</span><span class="n">Image</span><span class="o">.</span><span class="n">Dither</span><span class="o">.</span><span class="n">FLOYDSTEINBERG</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
@@ -2564,7 +2585,7 @@ trim pixels when all channels are zero.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>method</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2586,7 +2607,7 @@ for a list of supported methods.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>palette</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2620,7 +2641,7 @@ for a list of supported methods.</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reduce</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">factor</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span> <span class="n">box</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">reduce</span><span class="p">(</span><span class="bp">self</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">factor</span><span class="p">:</span> <span class="n">Int</span><span class="p">,</span> <span class="n">box</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2642,7 +2663,7 @@ for a list of supported methods.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>box</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –

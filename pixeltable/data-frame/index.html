@@ -1475,6 +1475,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/together/" class="md-nav__link">
         
   
@@ -1858,14 +1879,14 @@ Another difference to pandas is that query execution needs to be initiated expli
 
 </h2>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">DataFrame</span><span class="p">(</span>
-    <span class="n">from_clause</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.plan.FromClause">FromClause</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">select_list</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">list</span><span class="p">[</span><span class="n">tuple</span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">,</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">where_clause</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">group_by_clause</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">list</span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">grouping_tbl</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.catalog.TableVersion">TableVersion</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">order_by_clause</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">list</span><span class="p">[</span><span class="n">tuple</span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">,</span> <span class="n">bool</span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">limit</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">sample_clause</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.plan.SampleClause">SampleClause</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">from_clause</span><span class="p">:</span> <span class="n"><span title="pixeltable.plan.FromClause">FromClause</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">select_list</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">tuple</span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">,</span> <span class="n">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">where_clause</span><span class="p">:</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">group_by_clause</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">grouping_tbl</span><span class="p">:</span> <span class="n"><span title="pixeltable.catalog.TableVersion">TableVersion</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">order_by_clause</span><span class="p">:</span> <span class="n">list</span><span class="p">[</span><span class="n">tuple</span><span class="p">[</span><span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span><span class="p">,</span> <span class="n">bool</span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">limit</span><span class="p">:</span> <span class="n"><span title="pixeltable.exprs.Expr">Expr</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">sample_clause</span><span class="p">:</span> <span class="n"><span title="pixeltable.plan.SampleClause">SampleClause</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span>
 </code></pre></div>
 
@@ -2660,10 +2681,10 @@ In the absence of a select clause, by default, all columns are selected in the g
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">sample</span><span class="p">(</span>
-    <span class="n">n</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">n_per_stratum</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">fraction</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">float</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">seed</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">n</span><span class="p">:</span> <span class="n">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">n_per_stratum</span><span class="p">:</span> <span class="n">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">fraction</span><span class="p">:</span> <span class="n">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="n">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">stratify_by</span><span class="p">:</span> <span class="n"><span title="typing.Any">Any</span></span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.dataframe.DataFrame" href="#pixeltable.DataFrame">DataFrame</a></span>
 </code></pre></div>
@@ -2686,7 +2707,7 @@ be selected from each stratum separately.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>n</code></b>
-              (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+              (<code>int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2696,7 +2717,7 @@ be selected from each stratum separately.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>n_per_stratum</code></b>
-              (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+              (<code>int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2707,7 +2728,7 @@ be selected from each stratum separately.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>fraction</code></b>
-              (<code><span title="typing.Optional">Optional</span>[float]</code>, default:
+              (<code>float | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2718,7 +2739,7 @@ be selected from each stratum separately.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>seed</code></b>
-              (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+              (<code>int | None</code>, default:
                   <code>None</code>
 )
           –

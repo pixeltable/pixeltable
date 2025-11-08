@@ -1363,6 +1363,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../together/" class="md-nav__link">
         
   
@@ -1625,13 +1646,13 @@ t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">draw_bounding_boxes</span><span class="p">(</span>
     <span class="n">img</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span>
     <span class="n">boxes</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
-    <span class="n">labels</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">color</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">box_colors</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">labels</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">color</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">box_colors</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">fill</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
     <span class="n">width</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">1</span><span class="p">,</span>
-    <span class="n">font</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">font_size</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">font</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">font_size</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
@@ -1665,7 +1686,7 @@ RGB hex codes (e.g., '#FF0000').</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>labels</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1675,7 +1696,7 @@ RGB hex codes (e.g., '#FF0000').</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>color</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1685,7 +1706,7 @@ RGB hex codes (e.g., '#FF0000').</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>box_colors</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1715,7 +1736,7 @@ RGB hex codes (e.g., '#FF0000').</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>font</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1728,7 +1749,7 @@ If <code>None</code>, uses the default provided by
         </li>
         <li class="doc-section-item field-body">
           <b><code>font_size</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –

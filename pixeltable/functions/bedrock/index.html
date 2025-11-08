@@ -1354,6 +1354,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../together/" class="md-nav__link">
         
   
@@ -1555,10 +1576,10 @@ including Anthropic Claude, Amazon Titan, and other providers.</p>
     <span class="n">messages</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">system</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">inference_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">additional_model_request_fields</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">tool_config</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">system</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">inference_config</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">additional_model_request_fields</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tool_config</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1593,7 +1614,7 @@ For additional details, see: <a href="https://docs.aws.amazon.com/bedrock/latest
         </li>
         <li class="doc-section-item field-body">
           <b><code>system</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1603,7 +1624,7 @@ For additional details, see: <a href="https://docs.aws.amazon.com/bedrock/latest
         </li>
         <li class="doc-section-item field-body">
           <b><code>inference_config</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1613,7 +1634,7 @@ For additional details, see: <a href="https://docs.aws.amazon.com/bedrock/latest
         </li>
         <li class="doc-section-item field-body">
           <b><code>additional_model_request_fields</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –

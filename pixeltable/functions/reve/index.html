@@ -11,22 +11,22 @@
       
       
       
-        <link rel="prev" href="..">
+        <link rel="prev" href="../replicate/">
       
       
-        <link rel="next" href="../pixeltable/pixeltable/">
+        <link rel="next" href="../together/">
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.0, mkdocs-material-9.5.23">
     
     
       
-        <title>API Cheat Sheet - Pixeltable API</title>
+        <title>reve - Pixeltable API</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.6543a935.min.css">
+      <link rel="stylesheet" href="../../../assets/stylesheets/main.6543a935.min.css">
       
       
 
@@ -45,11 +45,11 @@
       
     
     
-      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+      <link rel="stylesheet" href="../../../assets/_mkdocstrings.css">
     
-      <link rel="stylesheet" href="../css/mkdocstrings.css">
+      <link rel="stylesheet" href="../../../css/mkdocstrings.css">
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../../..",location),__md_hash=e=>[...e].reduce((e,_)=>(e<<5)-e+_.charCodeAt(0),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -68,7 +68,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#api-cheat-sheet" class="md-skip">
+        <a href="#pixeltable.functions.reve" class="md-skip">
           Skip to content
         </a>
       
@@ -84,7 +84,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href=".." title="Pixeltable API" class="md-header__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
+    <a href="../../.." title="Pixeltable API" class="md-header__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -104,7 +104,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              API Cheat Sheet
+              reve
             
           </span>
         </div>
@@ -191,7 +191,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="Pixeltable API" class="md-nav__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
+    <a href="../../.." title="Pixeltable API" class="md-nav__button md-logo" aria-label="Pixeltable API" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54Z"/></svg>
@@ -221,7 +221,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../../.." class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -238,30 +238,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  <span class="md-ellipsis">
-    API Cheat Sheet
-  </span>
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../../api-cheat-sheet/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -270,131 +250,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#operations-summary" class="md-nav__link">
-    <span class="md-ellipsis">
-      Operations summary
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Operations summary">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#directories" class="md-nav__link">
-    <span class="md-ellipsis">
-      Directories
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#frame-extraction-for-video-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      Frame extraction for video data
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#audio-extraction-from-video-data-and-audio-chunking" class="md-nav__link">
-    <span class="md-ellipsis">
-      Audio extraction from video data and audio chunking
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#pixeltable-types" class="md-nav__link">
-    <span class="md-ellipsis">
-      Pixeltable types
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#table-operations-summary" class="md-nav__link">
-    <span class="md-ellipsis">
-      Table operations summary
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#querying-a-table" class="md-nav__link">
-    <span class="md-ellipsis">
-      Querying a table
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#selecting-and-transforming-columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      Selecting and transforming columns
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#computed-columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      Computed columns
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#inserting-data-into-a-table" class="md-nav__link">
-    <span class="md-ellipsis">
-      Inserting data into a table
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#attributes-and-methods-on-image-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      Attributes and methods on image data
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -461,7 +316,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/pixeltable/" class="md-nav__link">
+      <a href="../../pixeltable/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -482,7 +337,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/io/" class="md-nav__link">
+      <a href="../../io/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -538,7 +393,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/iterators/audio-splitter/" class="md-nav__link">
+      <a href="../../iterators/audio-splitter/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -559,7 +414,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/iterators/component-iterator/" class="md-nav__link">
+      <a href="../../iterators/component-iterator/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -580,7 +435,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/iterators/document-splitter/" class="md-nav__link">
+      <a href="../../iterators/document-splitter/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -601,7 +456,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/iterators/frame-iterator/" class="md-nav__link">
+      <a href="../../iterators/frame-iterator/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -622,7 +477,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/iterators/tile-iterator/" class="md-nav__link">
+      <a href="../../iterators/tile-iterator/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -643,7 +498,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/iterators/video-splitter/" class="md-nav__link">
+      <a href="../../iterators/video-splitter/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -672,7 +527,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/column-metadata/" class="md-nav__link">
+      <a href="../../column-metadata/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -693,7 +548,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/data-frame/" class="md-nav__link">
+      <a href="../../data-frame/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -714,7 +569,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/dir-contents/" class="md-nav__link">
+      <a href="../../dir-contents/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -735,7 +590,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/index-metadata/" class="md-nav__link">
+      <a href="../../index-metadata/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -756,7 +611,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/table/" class="md-nav__link">
+      <a href="../../table/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -777,7 +632,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/table-metadata/" class="md-nav__link">
+      <a href="../../table-metadata/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -798,7 +653,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/update-status/" class="md-nav__link">
+      <a href="../../update-status/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -819,7 +674,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/version-metadata/" class="md-nav__link">
+      <a href="../../version-metadata/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -882,7 +737,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/audio/" class="md-nav__link">
+      <a href="../audio/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -903,7 +758,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/date/" class="md-nav__link">
+      <a href="../date/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -924,7 +779,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/image/" class="md-nav__link">
+      <a href="../image/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -945,7 +800,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/json/" class="md-nav__link">
+      <a href="../json/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -966,7 +821,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/math/" class="md-nav__link">
+      <a href="../math/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -987,7 +842,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/string/" class="md-nav__link">
+      <a href="../string/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1008,7 +863,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/timestamp/" class="md-nav__link">
+      <a href="../timestamp/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1029,7 +884,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/video/" class="md-nav__link">
+      <a href="../video/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1092,7 +947,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/vision/" class="md-nav__link">
+      <a href="../vision/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1117,17 +972,19 @@
       
   
   
+    
   
   
+  
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
         
           
           <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
@@ -1141,7 +998,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             Model and Inference Functions
@@ -1155,7 +1012,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/anthropic/" class="md-nav__link">
+      <a href="../anthropic/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1176,7 +1033,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/bedrock/" class="md-nav__link">
+      <a href="../bedrock/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1197,7 +1054,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/deepseek/" class="md-nav__link">
+      <a href="../deepseek/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1218,7 +1075,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/fireworks/" class="md-nav__link">
+      <a href="../fireworks/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1239,7 +1096,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/gemini/" class="md-nav__link">
+      <a href="../gemini/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1260,7 +1117,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/groq/" class="md-nav__link">
+      <a href="../groq/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1281,7 +1138,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/huggingface/" class="md-nav__link">
+      <a href="../huggingface/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1302,7 +1159,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/llama_cpp/" class="md-nav__link">
+      <a href="../llama_cpp/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1323,7 +1180,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/mistralai/" class="md-nav__link">
+      <a href="../mistralai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1344,7 +1201,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/ollama/" class="md-nav__link">
+      <a href="../ollama/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1365,7 +1222,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/openai/" class="md-nav__link">
+      <a href="../openai/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1386,7 +1243,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/openrouter/" class="md-nav__link">
+      <a href="../openrouter/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1407,7 +1264,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/replicate/" class="md-nav__link">
+      <a href="../replicate/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1425,10 +1282,28 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../pixeltable/functions/reve/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   <span class="md-ellipsis">
@@ -1437,6 +1312,66 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#pixeltable.functions.reve" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;reve
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label=" reve">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.reve.create" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;create
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.reve.edit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;edit
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.reve.remix" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;remix
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1449,7 +1384,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/together/" class="md-nav__link">
+      <a href="../together/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1470,7 +1405,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/whisper/" class="md-nav__link">
+      <a href="../whisper/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1491,7 +1426,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/whisperx/" class="md-nav__link">
+      <a href="../whisperx/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1512,7 +1447,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pixeltable/functions/yolox/" class="md-nav__link">
+      <a href="../yolox/" class="md-nav__link">
         
   
   <span class="md-ellipsis">
@@ -1550,8 +1485,6 @@
   
   
   
-    
-  
   
     <label class="md-nav__title" for="__toc">
       <span class="md-nav__icon md-icon"></span>
@@ -1560,19 +1493,37 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#operations-summary" class="md-nav__link">
+  <a href="#pixeltable.functions.reve" class="md-nav__link">
     <span class="md-ellipsis">
-      Operations summary
+      <code class="doc-symbol doc-symbol-toc doc-symbol-module"></code>&nbsp;reve
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Operations summary">
+    <nav class="md-nav" aria-label=" reve">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#directories" class="md-nav__link">
+  <a href="#pixeltable.functions.reve.create" class="md-nav__link">
     <span class="md-ellipsis">
-      Directories
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;create
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.reve.edit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;edit
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pixeltable.functions.reve.remix" class="md-nav__link">
+    <span class="md-ellipsis">
+      <code class="doc-symbol doc-symbol-toc doc-symbol-udf"></code>&nbsp;remix
     </span>
   </a>
   
@@ -1580,87 +1531,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#frame-extraction-for-video-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      Frame extraction for video data
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#audio-extraction-from-video-data-and-audio-chunking" class="md-nav__link">
-    <span class="md-ellipsis">
-      Audio extraction from video data and audio chunking
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#pixeltable-types" class="md-nav__link">
-    <span class="md-ellipsis">
-      Pixeltable types
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#table-operations-summary" class="md-nav__link">
-    <span class="md-ellipsis">
-      Table operations summary
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#querying-a-table" class="md-nav__link">
-    <span class="md-ellipsis">
-      Querying a table
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#selecting-and-transforming-columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      Selecting and transforming columns
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#computed-columns" class="md-nav__link">
-    <span class="md-ellipsis">
-      Computed columns
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#inserting-data-into-a-table" class="md-nav__link">
-    <span class="md-ellipsis">
-      Inserting data into a table
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#attributes-and-methods-on-image-data" class="md-nav__link">
-    <span class="md-ellipsis">
-      Attributes and methods on image data
-    </span>
-  </a>
   
 </li>
       
@@ -1682,322 +1552,307 @@
   
 
 
-<h1 id="api-cheat-sheet">API Cheat Sheet</h1>
-<p>Import conventions:</p>
-<pre><code class="language-python">import pixeltable as pxt
-import pixeltable.functions as pxtf
-</code></pre>
-<h2 id="operations-summary">Operations summary</h2>
-<table>
-<thead>
-<tr>
-<th>Task</th>
-<th>Code</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Create a (mutable) table</td>
-<td>t = <a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.create_table"><code>pxt.create_table</code></a>('table_name', {'col_1': pxt.String, 'col_2': pxt.Int, ...})</td>
-</tr>
-<tr>
-<td>Create a view</td>
-<td>t = <a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>('view_name', base_tbl.where(base_tbl.col &gt; 10))</td>
-</tr>
-<tr>
-<td>Create a view with iterator</td>
-<td>t = <a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.create_view"><code>pxt.create_view</code></a>('view_name', base_tbl, iterator=FrameIterator.create(video=base_tbl.col, fps=0))</td>
-</tr>
-<tr>
-<td>Create a snapshot</td>
-<td>t = <a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.create_snapshot"><code>pxt.create_snapshot</code></a>('snapshot_name', base_tbl)</td>
-</tr>
-</tbody>
-</table>
-<p>The following functions apply to tables, views, and snapshots.</p>
-<table>
-<thead>
-<tr>
-<th>Task</th>
-<th>Code</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Use an existing table</td>
-<td>t = <a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.get_table"><code>pxt.get_table</code></a>('video_data')</td>
-</tr>
-<tr>
-<td>Rename a table</td>
-<td><a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.move"><code>pxt.move</code></a>('video_data', 'vd')</td>
-</tr>
-<tr>
-<td>Move a table</td>
-<td><a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.move"><code>pxt.move</code></a>('video_data', 'experiments.video_data')</td>
-</tr>
-<tr>
-<td>Delete a table</td>
-<td><a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.drop_table"><code>pxt.drop_table</code></a>('video_data')</td>
-</tr>
-<tr>
-<td>Delete a table and all its views</td>
-<td><a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.drop_table"><code>pxt.drop_table</code></a>('video_data', force=True)</td>
-</tr>
-</tbody>
-</table>
-<h3 id="directories">Directories</h3>
-<table>
-<thead>
-<tr>
-<th>Task</th>
-<th>Code</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Create a directory</td>
-<td><a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.create_dir"><code>pxt.create_dir</code></a>('experiments')</td>
-</tr>
-<tr>
-<td>Rename or move a directory</td>
-<td><a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.move"><code>pxt.move</code></a>('experiments', 'project_x.experiments')</td>
-</tr>
-<tr>
-<td>Delete a directory</td>
-<td><a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.drop_dir"><code>pxt.drop_dir</code></a>('experiments')</td>
-</tr>
-<tr>
-<td>Delete a directory and all its contents</td>
-<td><a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.drop_dir"><code>pxt.drop_dir</code></a>('experiments', force=True)</td>
-</tr>
-<tr>
-<td>Get the contents of a directory</td>
-<td><a class="autorefs autorefs-internal" href="../pixeltable/pixeltable/#pixeltable.get_dir_contents"><code>pxt.get_dir_contents</code></a>('experiments')</td>
-</tr>
-</tbody>
-</table>
-<h2 id="frame-extraction-for-video-data">Frame extraction for video data</h2>
-<p>Create a table with video data and view for the frames:</p>
-<pre><code class="language-python">import pixeltable as pxt
-from pixeltable.iterators import FrameIterator
-t = pxt.create_table('tbl_name', {'video': pxt.Video})
-f = pxt.create_view('frame_view_name', t, iterator=FrameIterator.create(video=t.video, fps=0))
-</code></pre>
-<p><code>fps=0</code> extracts frames at the original frame rate.</p>
-<h2 id="audio-extraction-from-video-data-and-audio-chunking">Audio extraction from video data and audio chunking</h2>
-<p>Extract audio from video data</p>
-<pre><code class="language-python">import pixeltable as pxt
-from pixeltable.iterators import AudioSplitter
-video_t = pxt.create_table('tbl_name', {'video': pxt.Video})
-video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
-audio_chunk_view = pxt.create_view(&quot;audio_chunks&quot;, video_t, iterator=AudioSplitter.create(audio=video_t.audio, chunk_duration_sec=5.0))
-</code></pre>
-<p><code>chunk_duration_sec</code> is the time duration of an audio chunk in seconds</p>
-<h2 id="pixeltable-types">Pixeltable types</h2>
-<table>
-<thead>
-<tr>
-<th>Pixeltable type</th>
-<th>Corresponding Python type</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>pxt.String</code></td>
-<td><code>str</code></td>
-</tr>
-<tr>
-<td><code>pxt.Int</code></td>
-<td><code>int</code></td>
-</tr>
-<tr>
-<td><code>pxt.Float</code></td>
-<td><code>float</code></td>
-</tr>
-<tr>
-<td><code>pxt.Bool</code></td>
-<td><code>bool</code></td>
-</tr>
-<tr>
-<td><code>pxt.Timestamp</code></td>
-<td><code>datetime.datetime</code></td>
-</tr>
-<tr>
-<td><code>pxt.Json</code></td>
-<td><code>list</code> or <code>dict</code></td>
-</tr>
-<tr>
-<td><code>pxt.Array</code></td>
-<td><code>numpy.ndarray</code></td>
-</tr>
-<tr>
-<td><code>pxt.Image</code></td>
-<td><code>PIL.Image.Image</code></td>
-</tr>
-<tr>
-<td><code>pxt.Video</code></td>
-<td><code>str</code> (the file path or URL)</td>
-</tr>
-<tr>
-<td><code>pxt.Audio</code></td>
-<td><code>str</code> (the file path or URL)</td>
-</tr>
-<tr>
-<td><code>pxt.Document</code></td>
-<td><code>str</code> (the file path or URL)</td>
-</tr>
-</tbody>
-</table>
-<h2 id="table-operations-summary">Table operations summary</h2>
-<table>
-<thead>
-<tr>
-<th>Action</th>
-<th>Code</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Print table schema</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.describe"><code>describe</code></a>()</td>
-</tr>
-<tr>
-<td>Query a table</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.select"><code>select</code></a>(t.col2, t.col3 + 5).show()</td>
-</tr>
-<tr>
-<td>Query a table with a filter</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.where"><code>where</code></a>(t.col1 == 'green').<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.select"><code>select</code></a>(t.col2).show()</td>
-</tr>
-<tr>
-<td>Insert a single row into a table</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.insert"><code>insert</code></a>(col1='green', ...)</td>
-</tr>
-<tr>
-<td>Insert multiple rows into a table</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.insert"><code>insert</code></a>([{'col1': 'green', ...}, {'col1': 'red', ...}, ...])</td>
-</tr>
-<tr>
-<td>Add a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.add_column"><code>add_column</code></a>(new_col_name=pxt.Int)</td>
-</tr>
-<tr>
-<td>Add a column (alternate form)</td>
-<td>t[new_col_name] = pxt.Int</td>
-</tr>
-<tr>
-<td>Rename a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.rename_column"><code>rename_column</code></a>('col_name', 'new_col_name')</td>
-</tr>
-<tr>
-<td>Drop a column</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.drop_column"><code>drop_column</code></a>('col_name')</td>
-</tr>
-<tr>
-<td>Undo the last update operation (add/rename/drop column or insert)</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.revert"><code>revert</code></a>()</td>
-</tr>
-</tbody>
-</table>
-<h2 id="querying-a-table">Querying a table</h2>
-<table>
-<thead>
-<tr>
-<th>Action</th>
-<th>Code</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Look at 10 rows</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.collect"><code>collect</code></a>(10)</td>
-</tr>
-<tr>
-<td>Look at the oldest 10 rows</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.head"><code>head</code></a>(10)</td>
-</tr>
-<tr>
-<td>Look at the most recently added 10 rows</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.tail"><code>tail</code></a>(10)</td>
-</tr>
-<tr>
-<td>Look at all rows</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.collect"><code>collect</code></a>()</td>
-</tr>
-<tr>
-<td>Iterate over all rows as dictionaries</td>
-<td>for row in t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.collect"><code>collect</code></a>(): ...</td>
-</tr>
-<tr>
-<td>Look at row for frame 15</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.where"><code>where</code></a>(t.pos  == 15).show()</td>
-</tr>
-<tr>
-<td>Look at rows before index 15</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.where"><code>where</code></a>(t.pos &lt; 15).show()</td>
-</tr>
-<tr>
-<td>Look at rows before index 15 with RGB frames</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.where"><code>where</code></a>((t.pos &lt; 15) &amp; (t.frame.mode == 'RGB')).collect()</td>
-</tr>
-</tbody>
-</table>
-<p>Pixeltable supports the standard comparison operators (<code>&gt;=</code>, <code>&gt;</code>, <code>==</code>, <code>&lt;=</code>, <code>&lt;</code>).
-<code>== None</code> is the equivalent of <code>isna()/isnull()</code> in Pandas.</p>
-<p>Boolean operators are the same as in Pandas: <code>&amp;</code> for <code>and</code>, <code>|</code> for <code>or</code>, <code>~</code> for <code>not</code>.
-They also require parentheses, for example: <code>(t.pos &lt; 15) &amp; (t.frame.mode == 'RGB')</code>
-or <code>~(t.frame.mode == 'RGB')</code>.</p>
-<h2 id="selecting-and-transforming-columns">Selecting and transforming columns</h2>
-<table>
-<thead>
-<tr>
-<th>Action</th>
-<th>Code</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>Only retrieve the frame index and frame</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.select"><code>select</code></a>(t.frame_idx, t.frame).collect()</td>
-</tr>
-<tr>
-<td>Look at frames rotated 90 degrees</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.select"><code>select</code></a>(t.frame.rotate(90)).collect()</td>
-</tr>
-<tr>
-<td>Overlay frame with itself rotated 90 degrees</td>
-<td>t.<a class="autorefs autorefs-internal" href="../pixeltable/table/#pixeltable.Table.select"><code>select</code></a>(pxt.functions.pil.image.blend(t.frame, t.frame.rotate(90))).collect()</td>
-</tr>
-</tbody>
-</table>
-<h2 id="computed-columns">Computed columns</h2>
-<p>The values in a computed column are automatically filled when data is added:</p>
-<pre><code class="language-python">t.add_column(c_added=t.frame.rotate(30))
-</code></pre>
-<p>Alternatively:</p>
-<pre><code class="language-python">t['c_added'] = t.frame.rotate(30)
-</code></pre>
-<p>Computed columns and media columns (video, image, audio) have attributes <code>errortype</code> and <code>errormsg</code>,
-which contain the exception type and string
-in rows where the computation expression or media type validation results in an exception
-(the column value itself will be <code>None</code>).</p>
-<p>Example:</p>
-<pre><code class="language-python">t.where(t.c_added.errortype != None).select(t.c_added.errortype, t.c_added.errormsg).show()
-</code></pre>
-<p>returns the exception type and message for rows with an exception.</p>
-<h2 id="inserting-data-into-a-table">Inserting data into a table</h2>
-<pre><code class="language-python">t.insert([{'video': '/path/to/video1.mp4'}, {'video': '/path/to/video2.mp4'}])
-</code></pre>
-<p>Each row is a dictionary mapping column names to column values (do not provide values for computed columns).</p>
-<h2 id="attributes-and-methods-on-image-data">Attributes and methods on image data</h2>
-<p>Images are represented as <code>PIL.Image.Image</code> instances in memory and support a lot of the
-attributes and methods documented
-<a href="https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image">here</a>.</p>
-<p>Available attributes are: <code>mode</code>, <code>height</code>, <code>width</code>.</p>
-<p>Available methods are: <code>convert</code>, <code>crop</code>, <code>effect_spread</code>, <code>entropy</code>, <code>filter</code>, <code>getbands</code>, <code>getbbox</code>,
-<code>getchannel</code>, <code>getcolors</code>, <code>getextrema</code>, <code>getpalette</code>, <code>getpixel</code>, <code>getprojection</code>, <code>histogram</code>,
-<code>point</code>, <code>quantize</code>, <code>reduce</code>, <code>remap_palette</code>, <code>resize</code>, <code>rotate</code>, <code>transform</code>, <code>transpose</code>.</p>
-<p>Methods can be chained, for example: <code>t.frame.resize((224, 224)).rotate(90).convert('L')</code></p>
+  <h1>reve</h1>
+
+<div class="doc doc-object doc-module">
+
+
+
+<h2 id="pixeltable.functions.reve" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-module"></code>            <span class="doc doc-object-name doc-module-name">pixeltable.functions.reve</span>
+
+
+</h2>
+
+    <div class="doc doc-contents first">
+
+      <p>Pixeltable <a href="https://docs.pixeltable.com/datastore/custom-functions">UDFs</a> that wrap <a href="https://app.reve.com/">Reve</a> image
+generation API. In order to use them, the API key must be specified either with <code>REVE_API_KEY</code> environment variable,
+or as <code>api_key</code> in the <code>reve</code> section of the Pixeltable config file.</p>
+
+
+
+  <div class="doc doc-children">
+
+
+
+
+
+
+
+
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.reve.create" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">create</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">create</span><span class="p">(</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">aspect_ratio</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">version</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Creates an image from a text prompt.</p>
+<p>This UDF wraps the <code>https://api.reve.com/v1/image/create</code> endpoint. For more information, refer to the official
+<a href="https://api.reve.com/console/docs/create">API documentation</a>.</p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>prompt</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>prompt describing the desired image</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>aspect_ratio</code></b>
+              (<code>String | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>version</code></b>
+              (<code>String | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>specific model version to use. Latest if not specified.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>Image</code>
+          –
+          <div class="doc-md-description">
+            <p>A generated image</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add a computed column with generated square images to a table with text prompts:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">t</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">img</span><span class="o">=</span><span class="n">reve</span><span class="o">.</span><span class="n">create</span><span class="p">(</span><span class="n">t</span><span class="o">.</span><span class="n">prompt</span><span class="p">,</span> <span class="n">aspect_ratio</span><span class="o">=</span><span class="s1">&#39;1:1&#39;</span><span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.reve.edit" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">edit</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">edit</span><span class="p">(</span>
+    <span class="n">image</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="n">edit_instruction</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">version</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Edits images based on a text prompt.</p>
+<p>This UDF wraps the <code>https://api.reve.com/v1/image/edit</code> endpoint. For more information, refer to the official
+<a href="https://api.reve.com/console/docs/edit">API documentation</a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>image</code></b>
+              (<code>Image</code>)
+          –
+          <div class="doc-md-description">
+            <p>image to edit</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>edit_instruction</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>text prompt describing the desired edit</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>version</code></b>
+              (<code>String | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>specific model version to use. Latest if not specified.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>Image</code>
+          –
+          <div class="doc-md-description">
+            <p>A generated image</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add a computed column with catalog-ready images to the table with product pictures:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">t</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">catalog_img</span><span class="o">=</span><span class="n">reve</span><span class="o">.</span><span class="n">edit</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="n">t</span><span class="o">.</span><span class="n">product_img</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="s1">&#39;Remove background and distractions from the product picture, improve lighting.&#39;</span>
+<span class="gp">... </span>    <span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+<div class="doc doc-object doc-function">
+
+
+<h3 id="pixeltable.functions.reve.remix" class="doc doc-heading">
+<code class="doc-symbol doc-symbol-heading doc-symbol-udf"></code>            <span class="doc doc-object-name doc-function-name">remix</span>
+
+
+  <span class="doc doc-labels">
+      <small class="doc doc-label doc-label-async"><code>async</code></small>
+  </span>
+
+</h3>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">remix</span><span class="p">(</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
+    <span class="n">images</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">aspect_ratio</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">version</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
+</code></pre></div>
+
+    <div class="doc doc-contents ">
+
+      <p>Creates images based on a text prompt and reference images.</p>
+<p>The prompt may include <code>&lt;img&gt;0&lt;/img&gt;</code>, <code>&lt;img&gt;1&lt;/img&gt;</code>, etc. tags to refer to the images in the <code>images</code> argument.</p>
+<p>This UDF wraps the <code>https://api.reve.com/v1/image/remix</code> endpoint. For more information, refer to the official
+<a href="https://api.reve.com/console/docs/remix">API documentation</a></p>
+
+
+<p><span class="doc-section-title">Parameters:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+          <b><code>prompt</code></b>
+              (<code>String</code>)
+          –
+          <div class="doc-md-description">
+            <p>prompt describing the desired image</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>images</code></b>
+              (<code>Json</code>)
+          –
+          <div class="doc-md-description">
+            <p>list of reference images</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>aspect_ratio</code></b>
+              (<code>String | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>version</code></b>
+              (<code>String | None</code>, default:
+                  <code>None</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>specific model version to use. Latest by default.</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Returns:</span></p>
+    <ul>
+        <li class="doc-section-item field-body">
+              <code>Image</code>
+          –
+          <div class="doc-md-description">
+            <p>A generated image</p>
+          </div>
+        </li>
+    </ul>
+
+
+<p><span class="doc-section-title">Examples:</span></p>
+    <p>Add a computed column with promotional collages to a table with original images:</p>
+    <div class="highlight"><pre><span></span><code><span class="gp">&gt;&gt;&gt; </span><span class="n">t</span><span class="o">.</span><span class="n">add_computed_column</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="n">promo_img</span><span class="o">=</span><span class="p">(</span>
+<span class="gp">... </span>        <span class="n">reve</span><span class="o">.</span><span class="n">remix</span><span class="p">(</span>
+<span class="gp">... </span>            <span class="s1">&#39;Generate a product promotional image by combining the image of the product&#39;</span>
+<span class="gp">... </span>            <span class="s1">&#39; from &lt;img&gt;0&lt;/img&gt; with the landmark scene from &lt;img&gt;1&lt;/img&gt;&#39;</span><span class="p">,</span>
+<span class="gp">... </span>            <span class="n">images</span><span class="o">=</span><span class="p">[</span><span class="n">t</span><span class="o">.</span><span class="n">product_img</span><span class="p">,</span> <span class="n">t</span><span class="o">.</span><span class="n">local_landmark_img</span><span class="p">],</span>
+<span class="gp">... </span>            <span class="n">aspect_ratio</span><span class="o">=</span><span class="s1">&#39;16:9&#39;</span><span class="p">,</span>
+<span class="gp">... </span>        <span class="p">)</span>
+<span class="gp">... </span>    <span class="p">)</span>
+<span class="gp">... </span><span class="p">)</span>
+</code></pre></div>
+
+    </div>
+
+</div>
+
+
+
+  </div>
+
+    </div>
+
+</div>
 
 
 
@@ -2049,10 +1904,10 @@ attributes and methods documented
     </div>
     
     
-    <script id="__config" type="application/json">{"base": "..", "features": [], "search": "../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
+    <script id="__config" type="application/json">{"base": "../../..", "features": [], "search": "../../../assets/javascripts/workers/search.b8dbb3d2.min.js", "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}}</script>
     
     
-      <script src="../assets/javascripts/bundle.ebd0bdb7.min.js"></script>
+      <script src="../../../assets/javascripts/bundle.ebd0bdb7.min.js"></script>
       
     
   </body>

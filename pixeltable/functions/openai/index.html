@@ -1417,6 +1417,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../together/" class="md-nav__link">
         
   
@@ -1686,9 +1707,9 @@ the <a href="https://pixeltable.readme.io/docs/working-with-openai">Working with
     <span class="n">messages</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">tools</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">tool_choice</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tools</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">tool_choice</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1726,7 +1747,7 @@ request and token capacity. No configuration is necessary.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1777,7 +1798,7 @@ of the table <code>tbl</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">embeddings</span><span class="p">(</span>
-    <span class="nb">input</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="nb">input</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Array</span><span class="p">[(</span><span class="kc">None</span><span class="p">,),</span> <span class="n">Float</span><span class="p">]</span>
 </code></pre></div>
 
@@ -1815,7 +1836,7 @@ request and token capacity. No configuration is necessary.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1868,7 +1889,7 @@ Pixeltable column <code>tbl.text</code> of the table <code>tbl</code>:</p>
     <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">String</span> <span class="o">=</span> <span class="s2">&quot;dall-e-2&quot;</span><span class="p">,</span>
-    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
@@ -1908,7 +1929,7 @@ limit is configured, uses a default of 600 RPM.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2053,7 +2074,7 @@ Pixeltable column <code>tbl.input</code> of the table <code>tbl</code>:</p>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="n">voice</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Audio</span>
 </code></pre></div>
 
@@ -2100,7 +2121,7 @@ limit is configured, uses a default of 600 RPM.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2147,7 +2168,7 @@ of the table <code>tbl</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">transcriptions</span><span class="p">(</span>
-    <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -2185,7 +2206,7 @@ limit is configured, uses a default of 600 RPM.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2232,7 +2253,7 @@ of the table <code>tbl</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">translations</span><span class="p">(</span>
-    <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -2270,7 +2291,7 @@ limit is configured, uses a default of 600 RPM.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2321,7 +2342,7 @@ of the table <code>tbl</code>:</p>
     <span class="n">image</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 

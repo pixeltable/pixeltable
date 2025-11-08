@@ -1507,6 +1507,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../together/" class="md-nav__link">
         
   
@@ -1863,8 +1884,8 @@ UDFs).</p>
     <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">language</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">chunk_length_s</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">language</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">chunk_length_s</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">return_timestamps</span><span class="p">:</span> <span class="n">Bool</span> <span class="o">=</span> <span class="kc">False</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
@@ -1909,7 +1930,7 @@ specific models, consider specialized functions like <code>whisper.transcribe()<
         </li>
         <li class="doc-section-item field-body">
           <b><code>language</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1919,7 +1940,7 @@ specific models, consider specialized functions like <code>whisper.transcribe()<
         </li>
         <li class="doc-section-item field-body">
           <b><code>chunk_length_s</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2268,7 +2289,7 @@ is the image for which detections were computed:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">image_captioning</span><span class="p">(</span>
-    <span class="n">image</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">image</span><span class="p">:</span> <span class="n">Image</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
@@ -2303,7 +2324,7 @@ Git, or LLaVA.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2353,8 +2374,8 @@ Git, or LLaVA.</p>
     <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">seed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
@@ -2397,7 +2418,7 @@ Git, or LLaVA.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>seed</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2407,7 +2428,7 @@ Git, or LLaVA.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2458,8 +2479,8 @@ Git, or LLaVA.</p>
     <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="n">num_frames</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">25</span><span class="p">,</span>
     <span class="n">fps</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">6</span><span class="p">,</span>
-    <span class="n">seed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Video</span>
 </code></pre></div>
 
@@ -2514,7 +2535,7 @@ Git, or LLaVA.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>seed</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2524,7 +2545,7 @@ Git, or LLaVA.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2728,7 +2749,7 @@ of the table <code>tbl</code>:</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">speech2text_for_conditional_generation</span><span class="p">(</span>
-    <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">language</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">audio</span><span class="p">:</span> <span class="n">Audio</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">language</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
@@ -2762,7 +2783,7 @@ pretrained <a href="https://huggingface.co/docs/transformers/en/model_doc/speech
         </li>
         <li class="doc-section-item field-body">
           <b><code>language</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2817,7 +2838,7 @@ Pixeltable column <code>audio</code> of the table <code>tbl</code>, translating 
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">summarization</span><span class="p">(</span>
-    <span class="n">text</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">text</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
@@ -2851,7 +2872,7 @@ Pixeltable column <code>audio</code> of the table <code>tbl</code>, translating 
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2973,7 +2994,7 @@ such as BERT, RoBERTa, or DistilBERT.</p>
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">text_generation</span><span class="p">(</span>
-    <span class="n">text</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">text</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
@@ -3007,7 +3028,7 @@ such as BERT, RoBERTa, or DistilBERT.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -3060,8 +3081,8 @@ for details.</p>
     <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="n">height</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">512</span><span class="p">,</span>
     <span class="n">width</span><span class="p">:</span> <span class="n">Int</span> <span class="o">=</span> <span class="mi">512</span><span class="p">,</span>
-    <span class="n">seed</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">seed</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
@@ -3116,7 +3137,7 @@ Stable Diffusion or FLUX.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>seed</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -3126,7 +3147,7 @@ Stable Diffusion or FLUX.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -3177,8 +3198,8 @@ Stable Diffusion or FLUX.</p>
     <span class="n">text</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">speaker_id</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">vocoder</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">speaker_id</span><span class="p">:</span> <span class="n">Int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">vocoder</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Audio</span>
 </code></pre></div>
 
@@ -3212,7 +3233,7 @@ pretrained <a href="https://huggingface.co/models?pipeline_tag=text-to-speech">t
         </li>
         <li class="doc-section-item field-body">
           <b><code>speaker_id</code></b>
-              (<code>Optional[Int]</code>, default:
+              (<code>Int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -3222,7 +3243,7 @@ pretrained <a href="https://huggingface.co/models?pipeline_tag=text-to-speech">t
         </li>
         <li class="doc-section-item field-body">
           <b><code>vocoder</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -3349,8 +3370,8 @@ pretrained <a href="https://huggingface.co/models?pipeline_tag=text-to-speech">t
     <span class="n">text</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">model_id</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span>
-    <span class="n">src_lang</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">target_lang</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">String</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">src_lang</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">target_lang</span><span class="p">:</span> <span class="n">String</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">String</span>
 </code></pre></div>
 
@@ -3384,7 +3405,7 @@ pretrained <a href="https://huggingface.co/models?pipeline_tag=text-to-speech">t
         </li>
         <li class="doc-section-item field-body">
           <b><code>src_lang</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –
@@ -3394,7 +3415,7 @@ pretrained <a href="https://huggingface.co/models?pipeline_tag=text-to-speech">t
         </li>
         <li class="doc-section-item field-body">
           <b><code>target_lang</code></b>
-              (<code>Optional[String]</code>, default:
+              (<code>String | None</code>, default:
                   <code>None</code>
 )
           –

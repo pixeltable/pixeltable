@@ -11,7 +11,7 @@
       
       
       
-        <link rel="prev" href="../replicate/">
+        <link rel="prev" href="../reve/">
       
       
         <link rel="next" href="../whisper/">
@@ -1282,6 +1282,27 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -1593,7 +1614,7 @@ the <a href="https://pixeltable.readme.io/docs/together-ai">Working with Togethe
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">chat_completions</span><span class="p">(</span>
-    <span class="n">messages</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">messages</span><span class="p">:</span> <span class="n">Json</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1631,7 +1652,7 @@ limit is configured, uses a default of 600 RPM.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1679,7 +1700,7 @@ For details on the available parameters, see: <a href="https://docs.together.ai/
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">completions</span><span class="p">(</span>
-    <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Json</span>
 </code></pre></div>
 
@@ -1717,7 +1738,7 @@ limit is configured, uses a default of 600 RPM.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1836,7 +1857,7 @@ to an existing Pixeltable column <code>tbl.text</code> of the table <code>tbl</c
 
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">image_generations</span><span class="p">(</span>
-    <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Json</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">prompt</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="n">String</span><span class="p">,</span> <span class="n">model_kwargs</span><span class="p">:</span> <span class="n">Json</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Image</span>
 </code></pre></div>
 
@@ -1874,7 +1895,7 @@ limit is configured, uses a default of 600 RPM.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>model_kwargs</code></b>
-              (<code>Optional[Json]</code>, default:
+              (<code>Json | None</code>, default:
                   <code>None</code>
 )
           –

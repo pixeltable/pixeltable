@@ -1475,6 +1475,27 @@
   
   
     <li class="md-nav__item">
+      <a href="../functions/reve/" class="md-nav__link">
+        
+  
+  <span class="md-ellipsis">
+    reve
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../functions/together/" class="md-nav__link">
         
   
@@ -1876,10 +1897,10 @@ below.</p>
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">configure_logging</span><span class="p">(</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">to_stdout</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">bool</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">level</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">int</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">add</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">remove</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">to_stdout</span><span class="p">:</span> <span class="n">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">level</span><span class="p">:</span> <span class="n">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">add</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">remove</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
@@ -1892,7 +1913,7 @@ below.</p>
     <ul>
         <li class="doc-section-item field-body">
           <b><code>to_stdout</code></b>
-              (<code><span title="typing.Optional">Optional</span>[bool]</code>, default:
+              (<code>bool | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1902,7 +1923,7 @@ below.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>level</code></b>
-              (<code><span title="typing.Optional">Optional</span>[int]</code>, default:
+              (<code>int | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1912,7 +1933,7 @@ below.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>add</code></b>
-              (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+              (<code>str | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1922,7 +1943,7 @@ below.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>remove</code></b>
-              (<code><span title="typing.Optional">Optional</span>[str]</code>, default:
+              (<code>str | None</code>, default:
                   <code>None</code>
 )
           –
@@ -1949,7 +1970,7 @@ below.</p>
     <span class="o">*</span><span class="p">,</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
     <span class="n">parents</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.catalog.Dir">Dir</span></span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="pixeltable.catalog.Dir">Dir</span></span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2000,7 +2021,7 @@ Must be one of the following:</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code><span title="typing.Optional">Optional</span>[<span title="pixeltable.catalog.Dir">Dir</span>]</code>
+              <code><span title="pixeltable.catalog.Dir">Dir</span> | None</code>
           –
           <div class="doc-md-description">
             <p>A handle to the newly created directory, or to an already existing directory at the path when
@@ -2060,13 +2081,13 @@ Must be one of the following:</p>
     <span class="n">path_str</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">base</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">additional_columns</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">iterator</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">tuple</span><span class="p">[</span><span class="n">type</span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.iterators.ComponentIterator" href="../iterators/component-iterator/#pixeltable.iterators.ComponentIterator">ComponentIterator</a></span><span class="p">],</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">additional_columns</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">iterator</span><span class="p">:</span> <span class="n">tuple</span><span class="p">[</span><span class="n">type</span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.iterators.ComponentIterator" href="../iterators/component-iterator/#pixeltable.iterators.ComponentIterator">ComponentIterator</a></span><span class="p">],</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="n">media_validation</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;on_read&quot;</span><span class="p">,</span> <span class="s2">&quot;on_write&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;on_write&quot;</span><span class="p">,</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2096,7 +2117,7 @@ base the snapshot on.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>additional_columns</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2108,7 +2129,7 @@ of the <code>additional_columns</code> parameter is identical to the format of t
         </li>
         <li class="doc-section-item field-body">
           <b><code>iterator</code></b>
-              (<code><span title="typing.Optional">Optional</span>[tuple[type[<a class="autorefs autorefs-internal" title="pixeltable.iterators.ComponentIterator" href="../iterators/component-iterator/#pixeltable.iterators.ComponentIterator">ComponentIterator</a>], dict[str, <span title="typing.Any">Any</span>]]]</code>, default:
+              (<code>tuple[type[<a class="autorefs autorefs-internal" title="pixeltable.iterators.ComponentIterator" href="../iterators/component-iterator/#pixeltable.iterators.ComponentIterator">ComponentIterator</a>], dict[str, <span title="typing.Any">Any</span>]] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2174,7 +2195,7 @@ Must be one of the following:</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code><span title="typing.Optional">Optional</span>[<a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a>]</code>
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a> | None</code>
           –
           <div class="doc-md-description">
             <p>A handle to the <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a> representing the newly created snapshot.
@@ -2233,18 +2254,19 @@ if <code>my_snapshot</code> does not already exist:</p>
 </h3>
 <div class="doc-signature highlight"><pre><span></span><code><span class="nf">create_table</span><span class="p">(</span>
     <span class="n">path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
-    <span class="n">schema</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">source</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="pixeltable.globals.TableDataSource">TableDataSource</span></span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">source_format</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;csv&quot;</span><span class="p">,</span> <span class="s2">&quot;excel&quot;</span><span class="p">,</span> <span class="s2">&quot;parquet&quot;</span><span class="p">,</span> <span class="s2">&quot;json&quot;</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
-    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">source</span><span class="p">:</span> <span class="n"><span title="pixeltable.globals.TableDataSource">TableDataSource</span></span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">source_format</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;csv&quot;</span><span class="p">,</span> <span class="s2">&quot;excel&quot;</span><span class="p">,</span> <span class="s2">&quot;parquet&quot;</span><span class="p">,</span> <span class="s2">&quot;json&quot;</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">schema_overrides</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">create_default_idxs</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">,</span>
     <span class="n">on_error</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;abort&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;abort&quot;</span><span class="p">,</span>
     <span class="n">primary_key</span><span class="p">:</span> <span class="n">str</span> <span class="o">|</span> <span class="n">list</span><span class="p">[</span><span class="n">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="n">media_validation</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;on_read&quot;</span><span class="p">,</span> <span class="s2">&quot;on_write&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;on_write&quot;</span><span class="p">,</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span><span class="p">,</span>
-    <span class="n">extra_args</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">extra_args</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span>
 </code></pre></div>
 
@@ -2269,7 +2291,7 @@ source format and/or schema can be specified directly via the <code>source_forma
         </li>
         <li class="doc-section-item field-body">
           <b><code>schema</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2279,17 +2301,17 @@ source format and/or schema can be specified directly via the <code>source_forma
         </li>
         <li class="doc-section-item field-body">
           <b><code>source</code></b>
-              (<code><span title="typing.Optional">Optional</span>[<span title="pixeltable.globals.TableDataSource">TableDataSource</span>]</code>, default:
+              (<code><span title="pixeltable.globals.TableDataSource">TableDataSource</span> | None</code>, default:
                   <code>None</code>
 )
           –
           <div class="doc-md-description">
-            <p>A data source (file, URL, DataFrame, or list of rows) to import from.</p>
+            <p>A data source (file, URL, Table, DataFrame, or list of rows) to import from.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
           <b><code>source_format</code></b>
-              (<code><span title="typing.Optional">Optional</span>[<span title="typing.Literal">Literal</span>[&#39;csv&#39;, &#39;excel&#39;, &#39;parquet&#39;, &#39;json&#39;]]</code>, default:
+              (<code><span title="typing.Literal">Literal</span>[&#39;csv&#39;, &#39;excel&#39;, &#39;parquet&#39;, &#39;json&#39;] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2301,7 +2323,7 @@ Pixeltable will attempt to infer the format from the source data.)</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>schema_overrides</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2309,6 +2331,17 @@ Pixeltable will attempt to infer the format from the source data.)</p>
             <p>Must be used in conjunction with a <code>source</code>.
 If specified, then columns in <code>schema_overrides</code> will be given the specified types.
 (Pixeltable will attempt to infer the types of any columns not specified.)</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
+          <b><code>create_default_idxs</code></b>
+              (<code>bool</code>, default:
+                  <code>True</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>If True, creates a B-tree index on every scalar and media column that is not computed,
+except for boolean columns.</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
@@ -2392,7 +2425,7 @@ table.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>extra_args</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2471,14 +2504,15 @@ containing the exact contents of the query):</p>
     <span class="n">path</span><span class="p">:</span> <span class="n">str</span><span class="p">,</span>
     <span class="n">base</span><span class="p">:</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span> <span class="o">|</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.DataFrame" href="../data-frame/#pixeltable.DataFrame">DataFrame</a></span><span class="p">,</span>
     <span class="o">*</span><span class="p">,</span>
-    <span class="n">additional_columns</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">additional_columns</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">is_snapshot</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
-    <span class="n">iterator</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">tuple</span><span class="p">[</span><span class="n">type</span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.iterators.ComponentIterator" href="../iterators/component-iterator/#pixeltable.iterators.ComponentIterator">ComponentIterator</a></span><span class="p">],</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">create_default_idxs</span><span class="p">:</span> <span class="n">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+    <span class="n">iterator</span><span class="p">:</span> <span class="n">tuple</span><span class="p">[</span><span class="n">type</span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.iterators.ComponentIterator" href="../iterators/component-iterator/#pixeltable.iterators.ComponentIterator">ComponentIterator</a></span><span class="p">],</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
     <span class="n">num_retained_versions</span><span class="p">:</span> <span class="n">int</span> <span class="o">=</span> <span class="mi">10</span><span class="p">,</span>
     <span class="n">comment</span><span class="p">:</span> <span class="n">str</span> <span class="o">=</span> <span class="s2">&quot;&quot;</span><span class="p">,</span>
     <span class="n">media_validation</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;on_read&quot;</span><span class="p">,</span> <span class="s2">&quot;on_write&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;on_write&quot;</span><span class="p">,</span>
     <span class="n">if_exists</span><span class="p">:</span> <span class="n"><span title="typing.Literal">Literal</span></span><span class="p">[</span><span class="s2">&quot;error&quot;</span><span class="p">,</span> <span class="s2">&quot;ignore&quot;</span><span class="p">,</span> <span class="s2">&quot;replace&quot;</span><span class="p">,</span> <span class="s2">&quot;replace_force&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;error&quot;</span>
-<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span><span class="p">]</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n"><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a></span> <span class="o">|</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -2508,7 +2542,7 @@ base the view on.</p>
         </li>
         <li class="doc-section-item field-body">
           <b><code>additional_columns</code></b>
-              (<code><span title="typing.Optional">Optional</span>[dict[str, <span title="typing.Any">Any</span>]]</code>, default:
+              (<code>dict[str, <span title="typing.Any">Any</span>] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2530,8 +2564,19 @@ of the <code>additional_columns</code> parameter is identical to the format of t
           </div>
         </li>
         <li class="doc-section-item field-body">
+          <b><code>create_default_idxs</code></b>
+              (<code>bool</code>, default:
+                  <code>False</code>
+)
+          –
+          <div class="doc-md-description">
+            <p>Whether to create default indexes on the view's columns (the base's columns are excluded).
+Cannot be <code>True</code> for snapshots.</p>
+          </div>
+        </li>
+        <li class="doc-section-item field-body">
           <b><code>iterator</code></b>
-              (<code><span title="typing.Optional">Optional</span>[tuple[type[<a class="autorefs autorefs-internal" title="pixeltable.iterators.ComponentIterator" href="../iterators/component-iterator/#pixeltable.iterators.ComponentIterator">ComponentIterator</a>], dict[str, <span title="typing.Any">Any</span>]]]</code>, default:
+              (<code>tuple[type[<a class="autorefs autorefs-internal" title="pixeltable.iterators.ComponentIterator" href="../iterators/component-iterator/#pixeltable.iterators.ComponentIterator">ComponentIterator</a>], dict[str, <span title="typing.Any">Any</span>]] | None</code>, default:
                   <code>None</code>
 )
           –
@@ -2597,7 +2642,7 @@ Must be one of the following:</p>
 <p><span class="doc-section-title">Returns:</span></p>
     <ul>
         <li class="doc-section-item field-body">
-              <code><span title="typing.Optional">Optional</span>[<a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a>]</code>
+              <code><a class="autorefs autorefs-internal" title="pixeltable.catalog.Table" href="../table/#pixeltable.Table">Table</a> | None</code>
           –
           <div class="doc-md-description">
             <p>A handle to the <a class="autorefs autorefs-internal" href="../table/#pixeltable.Table"><code>Table</code></a> representing the newly created view. If the path already
@@ -3012,7 +3057,7 @@ Must be one of the following:</p>
 
 
 </h3>
-<div class="doc-signature highlight"><pre><span></span><code><span class="nf">init</span><span class="p">(</span><span class="n">config_overrides</span><span class="p">:</span> <span class="n"><span title="typing.Optional">Optional</span></span><span class="p">[</span><span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
+<div class="doc-signature highlight"><pre><span></span><code><span class="nf">init</span><span class="p">(</span><span class="n">config_overrides</span><span class="p">:</span> <span class="n">dict</span><span class="p">[</span><span class="n">str</span><span class="p">,</span> <span class="n"><span title="typing.Any">Any</span></span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span>
 </code></pre></div>
 
     <div class="doc doc-contents ">
@@ -3240,7 +3285,8 @@ queried offline just as any other Pixeltable table.</p>
               (<code>str</code>)
           –
           <div class="doc-md-description">
-            <p>Remote URI of the table to be replicated, such as <code>'pxt://org_name/my_dir/my_table'</code>.</p>
+            <p>Remote URI of the table to be replicated, such as <code>'pxt://org_name/my_dir/my_table'</code> or
+<code>'pxt://org_name/my_dir/my_table:5'</code> (with version 5).</p>
           </div>
         </li>
         <li class="doc-section-item field-body">
