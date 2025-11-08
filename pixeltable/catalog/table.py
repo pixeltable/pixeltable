@@ -133,8 +133,7 @@ class Table(SchemaObject):
                 defined_in=col.get_tbl().name,
             )
 
-        # Pure snapshots have no indices
-        indices = {} if tv.tbl_md.is_pure_snapshot else tv.idxs_by_name.values()
+        indices = tv.idxs_by_name.values()
         index_info: dict[str, IndexMetadata] = {}
         for info in indices:
             if isinstance(info.idx, index.EmbeddingIndex):

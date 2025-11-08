@@ -121,6 +121,7 @@ class RowidRef(Expr):
 
     def _as_dict(self) -> dict:
         # TODO: Serialize the full TableVersionHandle, not just the UUID
+        assert self.tbl is None or self.tbl.anchor_tbl_id is None  # TODO: support anchor_tbl_id for view-over-replica
         return {
             'tbl_id': str(self.tbl_id),
             'normalized_base_id': str(self.normalized_base_id),

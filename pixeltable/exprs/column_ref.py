@@ -298,6 +298,7 @@ class ColumnRef(Expr):
         tbl_handle = self.col.tbl_handle
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
+        assert tbl_handle.anchor_tbl_id is None  # TODO: support anchor_tbl_id for view-over-replica
         return {
             'tbl_id': str(tbl_handle.id),
             'tbl_version': tbl_handle.effective_version,
