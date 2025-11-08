@@ -256,7 +256,6 @@
         </outline>
         <outline text="module|pixeltable.functions.llama_cpp">
           <outline text="udf|pixeltable.functions.llama_cpp.create_chat_completion" />
-          <outline text="func|pixeltable.functions.llama_cpp.cleanup" />
         </outline>
         <outline text="module|pixeltable.functions.mistralai">
           <outline text="udf|pixeltable.functions.mistralai.chat_completions" />
