@@ -16,5 +16,3 @@ target
 tests/target
 .DS_Store
 **/.DS_Store
-docs/mintlify/notebooks/
-docs/mintlify/changelog/

@@ -5001,7 +5001,7 @@ dev = [
     { name = "openai-whisper", specifier = ">=20250625" },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "pandas-stubs", specifier = ">=2.0" },
-    { name = "pixeltable-doctools", git = "https://github.com/pixeltable/pixeltable-doctools?rev=main" },
+    { name = "pixeltable-doctools", git = "https://github.com/pixeltable/pixeltable-doctools" },
     { name = "pixeltable-yolox", marker = "python_full_version < '3.13' or sys_platform != 'win32'", specifier = "==0.4.2" },
     { name = "psycopg2-binary", specifier = ">=2.9.10" },
     { name = "pyarrow-stubs", specifier = ">=19" },
@@ -5052,7 +5052,7 @@ test = [
 [[package]]
 name = "pixeltable-doctools"
 version = "0.1.0"
-source = { git = "https://github.com/pixeltable/pixeltable-doctools?rev=main#88c3aea3fdec1577004560c421b7629f1a53a655" }
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#3212bc68d18bfc845e610338facee66fede5e333" }
 dependencies = [
     { name = "docstring-parser" },
     { name = "nbformat" },

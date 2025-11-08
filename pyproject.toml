@@ -123,7 +123,7 @@ dev = [
     "mkdocs-material>=9.5.23,<10",
     "mkdocstrings-python>=1.10.2,<2",
     "black>=24.4",
-    "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools@main",
+    "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
     "tabulate>=0.9",
