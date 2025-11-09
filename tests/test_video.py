@@ -105,6 +105,9 @@ class TestVideo:
         frames_0_33 = pxt.create_view(
             'frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 3)
         )
+        frames_1000 = pxt.create_view(
+            'frames_1000', videos, iterator=FrameIterator.create(video=videos.video, fps=1000)
+        )
         num_frames_10 = pxt.create_view(
             'num_frames_10', videos, iterator=FrameIterator.create(video=videos.video, num_frames=10)
         )
@@ -119,6 +122,7 @@ class TestVideo:
         assert frames_1_0.count() == 15
         assert frames_0_5.count() == 8
         assert frames_0_33.count() == 5
+        assert frames_1000.count() == 449
         assert num_frames_10.count() == 10
         assert num_frames_50.count() == 50
         assert num_frames_1000.count() == 449

@@ -823,3 +823,24 @@ class TestPackager:
         assert_resultset_eq(sim_results_2, sim_results_2_replica)
 
         self.__validate_index_data(t, 15, 5)
+
+    def test_replicating_view_with_existing_base_tbl(self, reset_db: None) -> None:
+        """
+        Test restoring a view when its base table already exists in the catalog as a non-replica table.
+        """
+        t = pxt.create_table('base_tbl', {'c1': pxt.Int})
+        t.insert([{'c1': i} for i in range(100)])
+        v = pxt.create_view('view', t.where(t.c1 % 2 == 0))
+
+        v_bundle = self.__package_table(v)
+        # Drop just `v` without purging the DB
+        pxt.drop_table(v)
+
+        with pytest.raises(
+            pxt.Error,
+            match=(
+                r'(?s)An attempt was made to replicate a view whose base table already exists'
+                r".*pxt.drop_table\('base_tbl'\)"
+            ),
+        ):
+            self.__restore_and_check_table(v_bundle, 'replica_view')

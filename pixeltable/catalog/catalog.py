@@ -1243,12 +1243,18 @@ class Catalog:
                 ),
             )
             conn.execute(q)
-        else:
-            assert existing_md_row.md['is_replica']
-            if md.tbl_md.current_version > existing_md_row.md['current_version']:
-                # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
-                # in place in the DB.
-                new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
+        elif not existing_md_row.md['is_replica']:
+            raise excs.Error(
+                'An attempt was made to replicate a view whose base table already exists in the local catalog '
+                'in its original form.\n'
+                'If this is intentional, you must first drop the existing base table:\n'
+                f'  pxt.drop_table({str(path)!r})'
+            )
+        elif md.tbl_md.current_version > existing_md_row.md['current_version']:
+            # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
+            # in place in the DB.
+            new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
+
         # Now see if a TableVersion record already exists in the DB for this table version. If not, insert it. If
         # it already exists, check that the existing record is identical to the new one.
         q = (
