@@ -1135,8 +1135,8 @@ class Catalog:
         """
         assert self.in_write_xact
 
-        # Acquire locks for any tables in the ancestor hierarchy that might already exist (base table last).
-        for ancestor_md in md:
+        # Acquire locks for any tables in the ancestor hierarchy that might already exist (base table first).
+        for ancestor_md in md[::-1]:  # base table first
             self._acquire_tbl_lock(for_write=True, tbl_id=UUID(ancestor_md.tbl_md.tbl_id), raise_if_not_exists=False)
 
         tbl_id = UUID(md[0].tbl_md.tbl_id)
