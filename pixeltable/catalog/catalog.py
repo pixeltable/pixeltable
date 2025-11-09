@@ -1639,7 +1639,7 @@ class Catalog:
         tbl_count = conn.execute(q).scalar()
         if tbl_count == 0:
             raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
-        q = sql.select(schema.Table.id).where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
+        q = sql.select(schema.Table.id).where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex).where(self._active_tbl_clause())
         if for_update:
             q = q.with_for_update()
         result = [r[0] for r in conn.execute(q).all()]
@@ -2223,6 +2223,8 @@ class Catalog:
             tbl_version = TableVersion(tbl_id, tbl_md, version_md, effective_version, schema_version_md, mutable_views)
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
+            if tv_md.is_pure_snapshot:
+                pass
             assert (
                 not tv_md.is_pure_snapshot
             )  # a pure snapshot doesn't have a physical table backing it, no point in loading it
