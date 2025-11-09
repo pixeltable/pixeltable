@@ -1910,8 +1910,6 @@ class Catalog:
         """
         Loads metadata from the store for a given table UUID and version.
         """
-        assert key.effective_version is None or key.anchor_tbl_id is None
-
         anchor_timestamp: float | None = None
         if key.anchor_tbl_id is not None:
             anchored_version_md = self.head_version_md(key.anchor_tbl_id)

@@ -7,7 +7,7 @@ import itertools
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal
 from uuid import UUID
 
 import jsonschema.exceptions
@@ -63,10 +63,18 @@ class TableVersionCompleteMd:
         )
 
 
-class TableVersionKey(NamedTuple):
+@dataclasses.dataclass(frozen=True)
+class TableVersionKey:
     tbl_id: UUID
     effective_version: int | None
     anchor_tbl_id: UUID | None
+
+    def __post_init__(self) -> None:
+        assert self.effective_version is None or self.anchor_tbl_id is None
+
+    # Allow unpacking as a tuple
+    def __iter__(self) -> Iterator[Any]:
+        return iter((self.tbl_id, self.effective_version, self.anchor_tbl_id))
 
     def as_dict(self) -> dict:
         return {
@@ -181,7 +189,6 @@ class TableVersion:
         base_path: 'TableVersionPath' | None = None,
         base: TableVersionHandle | None = None,
     ):
-        assert key.effective_version is None or key.anchor_tbl_id is None
         assert key.anchor_tbl_id is None or isinstance(key.anchor_tbl_id, UUID)
 
         self.is_validated = True  # a freshly constructed instance is always valid
