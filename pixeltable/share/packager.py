@@ -21,7 +21,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
-from pixeltable.catalog.table_version import TableVersionCompleteMd
+from pixeltable.catalog.table_version import TableVersionCompleteMd, TableVersionKey
 from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
@@ -418,7 +418,7 @@ class TableRestorer:
             # replica_tbl itself if it's a pure snapshot.
             for md in tbl_md[::-1]:  # Base table first
                 if not md.is_pure_snapshot:
-                    tv = cat.get_tbl_version(UUID(md.tbl_md.tbl_id), md.version_md.version)
+                    tv = cat.get_tbl_version(TableVersionKey(UUID(md.tbl_md.tbl_id), md.version_md.version, None))
                     # Import data from Parquet.
                     _logger.info(f'Importing table {tv.name!r}.')
                     self.__import_table(self.tmp_dir, tv, md)

@@ -63,6 +63,34 @@ class TableVersionCompleteMd:
         )
 
 
+@dataclasses.dataclass(frozen=True)
+class TableVersionKey:
+    tbl_id: UUID
+    effective_version: int | None
+    anchor_tbl_id: UUID | None
+
+    def __post_init__(self) -> None:
+        assert self.effective_version is None or self.anchor_tbl_id is None
+
+    # Allow unpacking as a tuple
+    def __iter__(self) -> Iterator[Any]:
+        return iter((self.tbl_id, self.effective_version, self.anchor_tbl_id))
+
+    def as_dict(self) -> dict:
+        return {
+            'id': str(self.tbl_id),
+            'effective_version': self.effective_version,
+            'anchor_tbl_id': str(self.anchor_tbl_id) if self.anchor_tbl_id is not None else None,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> TableVersionKey:
+        tbl_id = UUID(d['id'])
+        effective_version = d['effective_version']
+        anchor_tbl_id = d.get('anchor_tbl_id')
+        return cls(tbl_id, effective_version, UUID(anchor_tbl_id) if anchor_tbl_id is not None else None)
+
+
 class TableVersion:
     """
     TableVersion represents a particular version of a table/view along with its physical representation:
@@ -82,17 +110,28 @@ class TableVersion:
 
     Only TableVersion and Catalog interact directly with stored metadata. Everything else needs to go through these
     two classes.
+
+    TableVersions come in three "flavors" depending on the `effective_version` and `anchor_tbl_id` settings:
+    - if both are None, it's a live table that tracks `tbl_md.current_version`
+    - if `effective_version` is defined, it's a snapshot of the specific version given by `effective_version`
+    - if `anchor_tbl_id` is defined, it's a replica table that is "anchored" to the given table, in the following
+        sense: if n is the latest non-fragment version of `anchor_tbl_id`, then the tracked version is m, where m
+        is the latest version of `tbl_id` (possibly a fragment) with created_at(m) <= created_at(n).
+        In the typical case, `anchor_tbl_id` is a descendant of `tbl_id` and the anchored TableVersion instance
+        appears along the TableVersionPath for `anchor_tbl_id`.
+        In the TableVersionPath for a replica, all path elements will have the same anchor_tbl_id, the tbl_id
+        of the primary (leaf) table. (It is also possible for one or more path elements at the base to be snapshots.)
+    At most one of `effective_version` and `anchor_tbl_id` can be specified.
     """
 
-    id: UUID
+    key: TableVersionKey
 
     # record metadata stored in catalog
     _tbl_md: schema.TableMd
     _version_md: schema.TableVersionMd
     _schema_version_md: schema.TableSchemaVersionMd
 
-    effective_version: int | None
-    path: 'TableVersionPath' | None  # only set for live tables; needed to resolve computed cols
+    path: 'TableVersionPath' | None  # only set for non-snapshots; needed to resolve computed cols
     base: TableVersionHandle | None  # only set for views
     predicate: exprs.Expr | None
     sample_clause: 'SampleClause' | None
@@ -142,22 +181,22 @@ class TableVersion:
 
     def __init__(
         self,
-        id: UUID,
+        key: TableVersionKey,
         tbl_md: schema.TableMd,
         version_md: schema.TableVersionMd,
-        effective_version: int | None,
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list[TableVersionHandle],
         base_path: 'TableVersionPath' | None = None,
         base: TableVersionHandle | None = None,
     ):
+        assert key.anchor_tbl_id is None or isinstance(key.anchor_tbl_id, UUID)
+
         self.is_validated = True  # a freshly constructed instance is always valid
         self.is_initialized = False
-        self.id = id
+        self.key = key
         self._tbl_md = copy.deepcopy(tbl_md)
         self._version_md = copy.deepcopy(version_md)
         self._schema_version_md = copy.deepcopy(schema_version_md)
-        self.effective_version = effective_version
         assert not (self.is_view and base is None)
         self.base = base
         self.store_tbl = None
@@ -169,7 +208,7 @@ class TableVersion:
         if self.is_snapshot:
             self.path = None
         else:
-            self_handle = TableVersionHandle(id, self.effective_version)
+            self_handle = TableVersionHandle(key)
             if self.is_view:
                 assert base_path is not None
             self.path = TableVersionPath(self_handle, base=base_path)
@@ -213,12 +252,6 @@ class TableVersion:
     def __hash__(self) -> int:
         return hash(self.id)
 
-    def create_snapshot_copy(self) -> TableVersion:
-        """Create a snapshot copy of this TableVersion"""
-        assert not self.is_snapshot
-        base = self.path.base.tbl_version if self.is_view else None
-        return TableVersion(self.id, self.tbl_md, self.version_md, self.version, self.schema_version_md, [], base=base)
-
     @property
     def versioned_name(self) -> str:
         if self.effective_version is None:
@@ -228,15 +261,15 @@ class TableVersion:
 
     def __repr__(self) -> str:
         return (
-            f'TableVersion(id={self.id!r}, name={self.name!r}, '
-            f'version={self.version}, effective_version={self.effective_version})'
+            f'TableVersion(id={self.id!r}, name={self.name!r}, effective_version={self.effective_version}, '
+            f'anchor_tbl_id={self.anchor_tbl_id}; version={self.version})'
         )
 
     @property
     def handle(self) -> 'TableVersionHandle':
         from .table_version_handle import TableVersionHandle
 
-        return TableVersionHandle(self.id, self.effective_version, self)
+        return TableVersionHandle(self.key, tbl_version=self)
 
     @classmethod
     def create_initial_md(
@@ -256,9 +289,9 @@ class TableVersion:
 
         tbl_id = uuid.uuid4()
         tbl_id_str = str(tbl_id)
-        tbl_handle = TableVersionHandle(tbl_id, None)
-        column_ids = itertools.count(0)
-        index_ids = itertools.count(0)
+        tbl_handle = TableVersionHandle(TableVersionKey(tbl_id, None, None))
+        column_ids = itertools.count()
+        index_ids = itertools.count()
 
         # assign ids, create metadata
         column_md: dict[int, schema.ColumnMd] = {}
@@ -383,24 +416,16 @@ class TableVersion:
         view_md = md.tbl_md.view_md
         base_path = TableVersionPath.from_md(view_md.base_versions) if view_md is not None else None
         base = base_path.tbl_version if base_path is not None else None
-        tbl_version = cls(
-            tbl_id,
-            md.tbl_md,
-            md.version_md,
-            md.version_md.version,
-            md.schema_version_md,
-            [],
-            base_path=base_path,
-            base=base,
-        )
+        key = TableVersionKey(tbl_id, md.version_md.version, None)
+        tbl_version = cls(key, md.tbl_md, md.version_md, md.schema_version_md, [], base_path=base_path, base=base)
         cat = Catalog.get()
         # We're creating a new TableVersion replica, so we should never have seen this particular
         # TableVersion instance before.
         # Actually this isn't true, because we might be re-creating a dropped replica.
         # TODO: Understand why old TableVersions are kept around even for a dropped table.
         # assert tbl_version.effective_version is not None
-        # assert (tbl_version.id, tbl_version.effective_version) not in cat._tbl_versions
-        cat._tbl_versions[tbl_version.id, tbl_version.effective_version] = tbl_version
+        # assert (tbl_version.id, tbl_version.effective_version, None) not in cat._tbl_versions
+        cat._tbl_versions[key] = tbl_version
         tbl_version.init()
         if create_store_tbl:
             tbl_version.store_tbl.create()
@@ -435,12 +460,13 @@ class TableVersion:
         from .catalog import Catalog
 
         cat = Catalog.get()
-        assert (self.id, self.effective_version) in cat._tbl_versions
+        assert self.key in cat._tbl_versions
         self._init_schema()
         if self.is_mutable:
             cat.record_column_dependencies(self)
         # init external stores; this needs to happen after the schema is created
         self._init_external_stores()
+
         self.is_initialized = True
 
     def _init_schema(self) -> None:
@@ -548,6 +574,11 @@ class TableVersion:
             tvp = Catalog.get().construct_tvp(
                 self.id, self.effective_version, self.tbl_md.ancestor_ids, self.version_md.created_at
             )
+        elif self.anchor_tbl_id is not None:
+            # for replica TableVersion instances, we also need to retarget the value_exprs, this time to the
+            # "anchored" TableVersionPath.
+            assert self.path is not None
+            tvp = self.path
         for col in self.cols_by_id.values():
             col.init_value_expr(tvp)
 
@@ -559,17 +590,17 @@ class TableVersion:
         else:
             self.store_tbl = StoreTable(self)
 
-    def _lookup_column(self, id: QColumnId) -> Column | None:
+    def _lookup_column(self, qid: QColumnId) -> Column | None:
         """
         Look up the column with the given table id and column id, searching through the ancestors of this TableVersion
         to find it. We avoid referencing TableVersionPath in order to work properly with snapshots as well.
 
         This will search through *all* known columns, including columns that are not visible in this TableVersion.
         """
-        if id.tbl_id == self.id:
-            return next(col for col in self.cols if col.id == id.col_id)
+        if qid.tbl_id == self.id:
+            return next(col for col in self.cols if col.id == qid.col_id)
         elif self.base is not None:
-            return self.base.get()._lookup_column(id)
+            return self.base.get()._lookup_column(qid)
         else:
             return None
 
@@ -1399,7 +1430,7 @@ class TableVersion:
 
         # force reload on next operation
         self.is_validated = False
-        Catalog.get().remove_tbl_version(self)
+        Catalog.get().remove_tbl_version(self.key)
 
         # delete newly-added data
         # Do this at the end, after all DB operations have completed.
@@ -1431,6 +1462,18 @@ class TableVersion:
         idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
         self._tbl_md.external_stores.pop(idx)
         self._write_md(new_version=True, new_schema_version=True)
+
+    @property
+    def id(self) -> UUID:
+        return self.key.tbl_id
+
+    @property
+    def effective_version(self) -> int | None:
+        return self.key.effective_version
+
+    @property
+    def anchor_tbl_id(self) -> UUID | None:
+        return self.key.anchor_tbl_id
 
     @property
     def tbl_md(self) -> schema.TableMd:
@@ -1480,8 +1523,7 @@ class TableVersion:
 
     @property
     def version(self) -> int:
-        # if this is a snapshot instance, we need to ignore current_version
-        return self._tbl_md.current_version if self.effective_version is None else self.effective_version
+        return self._version_md.version
 
     @property
     def created_at(self) -> float:
@@ -1672,12 +1714,11 @@ class TableVersion:
         ]
 
     def as_dict(self) -> dict:
-        return {'id': str(self.id), 'effective_version': self.effective_version}
+        return self.key.as_dict()
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersion:
         from pixeltable.catalog import Catalog
 
-        id = UUID(d['id'])
-        effective_version = d['effective_version']
-        return Catalog.get().get_tbl_version(id, effective_version)
+        key = TableVersionKey.from_dict(d)
+        return Catalog.get().get_tbl_version(key)
