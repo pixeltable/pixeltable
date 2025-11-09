@@ -236,11 +236,7 @@ class Catalog:
 
             assert anchor_tbl_id is None or tbl_version.is_replica
 
-            if (
-                tbl_version.is_view
-                and tbl_version.is_mutable
-                and tbl_version.is_validated
-            ):
+            if tbl_version.is_view and tbl_version.is_mutable and tbl_version.is_validated:
                 # make sure this mutable view is recorded in a mutable base
                 base = tbl_version.base
                 assert base is not None
