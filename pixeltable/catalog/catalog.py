@@ -171,7 +171,7 @@ class Catalog:
     # cached TableVersion instances; key: [id, version, anchor_tbl_id]
     # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
     # - snapshot versions: records the version of the snapshot
-    # - anchored versions: records the tbl_id of the anchor table
+    # - anchored versions: records the tbl_id of the anchor table (used when the table is a replica)
     _tbl_versions: dict[TableVersionKey, TableVersion]
     _tbls: dict[tuple[UUID, int | None], Table]
     _in_write_xact: bool  # True if we're in a write transaction
@@ -240,7 +240,6 @@ class Catalog:
                 tbl_version.is_view
                 and tbl_version.is_mutable
                 and tbl_version.is_validated
-                and not tbl_version.is_replica
             ):
                 # make sure this mutable view is recorded in a mutable base
                 base = tbl_version.base
@@ -591,6 +590,7 @@ class Catalog:
             if has_pending_ops:
                 raise PendingTableOpsError(row.id)
 
+        # TODO: properly handle concurrency for replicas with live views (once they are supported)
         if for_write and not tbl_md.is_mutable:
             return None  # nothing to lock
 
@@ -1139,6 +1139,10 @@ class Catalog:
         """
         assert self.in_write_xact
 
+        # Acquire locks for any tables in the ancestor hierarchy that might already exist (base table last).
+        for ancestor_md in md:
+            self._acquire_tbl_lock(for_write=True, tbl_id=UUID(ancestor_md.tbl_md.tbl_id), raise_if_not_exists=False)
+
         tbl_id = UUID(md[0].tbl_md.tbl_id)
 
         existing = self._handle_path_collision(path, Table, False, if_exists=IfExistsParam.IGNORE)  # type: ignore[type-abstract]
@@ -1621,12 +1625,12 @@ class Catalog:
 
                 else:
                     # live replica table; use the anchored version
-                    anchor_tbl_md = self.head_version_md(tv.anchor_tbl_id)
-                    assert anchor_tbl_md is not None
+                    anchor_tbl_version_md = self.head_version_md(tv.anchor_tbl_id)
+                    assert anchor_tbl_version_md is not None
                     q = (
                         sql.select(schema.TableVersion.md)
                         .where(schema.TableVersion.tbl_id == key.tbl_id)
-                        .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= anchor_tbl_md.created_at)
+                        .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= anchor_tbl_version_md.created_at)
                         .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
                         .limit(1)
                     )

@@ -111,6 +111,8 @@ class TableVersion:
         is the latest version of `tbl_id` (possibly a fragment) with created_at(m) <= created_at(n).
         In the typical case, `anchor_tbl_id` is a descendant of `tbl_id` and the anchored TableVersion instance
         appears along the TableVersionPath for `anchor_tbl_id`.
+        In the TableVersionPath for a replica, all path elements will have the same anchor_tbl_id, the tbl_id
+        of the primary (leaf) table. (It is also possible for one or more path elements at the base to be snapshots.)
     At most one of `effective_version` and `anchor_tbl_id` can be specified.
     """
 
