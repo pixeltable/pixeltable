@@ -17,7 +17,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
-from pixeltable.catalog import Catalog
+from pixeltable.catalog import Catalog, TableMetadata
 from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
@@ -183,6 +183,7 @@ class TestPackager:
         bundle_path: Path  # Path of the bundle on disk
         depth: int  # Depth of the table in the table hierarchy (= length of the table's TableVersionPath)
         schema: dict[str, ts.ColumnType]  # Schema of the table
+        metadata: TableMetadata  # User-facing metadata of the table
         store_col_schema: set[tuple[str, str]]  # Set of (column_name, data_type) for the store table's columns
         store_idx_schema: set[tuple[str, str]]  # Set of (indexname, indexdef) for the store table's indices
         result_set: DataFrameResultSet  # Resultset corresponding to the query `tbl.head(n=5000)`
@@ -192,6 +193,7 @@ class TestPackager:
         Runs the query `tbl.head(n=5000)`, packages the table into a bundle, and returns a BundleInfo.
         """
         schema = tbl._get_schema()
+        metadata = tbl.get_metadata()
         depth = tbl._tbl_version_path.path_len()
         result_set = tbl.head(n=5000)
         store_col_schema = self.__extract_store_col_schema(tbl)
@@ -201,7 +203,9 @@ class TestPackager:
         packager = TablePackager(tbl)
         bundle_path = packager.package()
 
-        return TestPackager.BundleInfo(bundle_path, depth, schema, store_col_schema, store_idx_schema, result_set)
+        return TestPackager.BundleInfo(
+            bundle_path, depth, schema, metadata, store_col_schema, store_idx_schema, result_set
+        )
 
     def __restore_and_check_table(self, bundle_info: BundleInfo, tbl_name: str, version: int | None = None) -> None:
         """
@@ -216,6 +220,19 @@ class TestPackager:
         t = pxt.get_table(tbl_name)
         assert bundle_info.schema == t._get_schema()
         assert bundle_info.depth == t._tbl_version_path.path_len()
+
+        # Certain metadata properties must be identical.
+        metadata = t.get_metadata()
+        for property in (
+            'columns',
+            'indices',
+            'version',
+            'version_created',
+            'schema_version',
+            'comment',
+            'media_validation',
+        ):
+            assert metadata[property] == bundle_info.metadata[property]
 
         # Verify that the postgres schema subsumes the original.
         # (There may be additional columns in the restored table depending on the order in which different versions are
@@ -815,3 +832,24 @@ class TestPackager:
         assert_resultset_eq(sim_results_2, sim_results_2_replica)
 
         self.__validate_index_data(t, 15, 5)
+
+    def test_replicating_view_with_existing_base_tbl(self, reset_db: None) -> None:
+        """
+        Test restoring a view when its base table already exists in the catalog as a non-replica table.
+        """
+        t = pxt.create_table('base_tbl', {'c1': pxt.Int})
+        t.insert([{'c1': i} for i in range(100)])
+        v = pxt.create_view('view', t.where(t.c1 % 2 == 0))
+
+        v_bundle = self.__package_table(v)
+        # Drop just `v` without purging the DB
+        pxt.drop_table(v)
+
+        with pytest.raises(
+            pxt.Error,
+            match=(
+                r'(?s)An attempt was made to replicate a view whose base table already exists'
+                r".*pxt.drop_table\('base_tbl'\)"
+            ),
+        ):
+            self.__restore_and_check_table(v_bundle, 'replica_view')
