@@ -748,7 +748,7 @@ class TestPackager:
             self.__restore_and_check_table(bundles[i], f'replica_{i}')
 
         assert pxt.list_tables() == [f'replica_{i}' for i in (2, 5, 7, 10)]  # 4 visible tables
-        x = pxt.globals._list_tables('_system', allow_system_paths=True)
+        _x = pxt.globals._list_tables('_system', allow_system_paths=True)
         assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 7  # 7 hidden tables
 
         # Now drop the visible tables one by one.

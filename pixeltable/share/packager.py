@@ -20,7 +20,7 @@ import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
-from pixeltable.catalog.table_version import TableVersionMd, TableVersionKey
+from pixeltable.catalog.table_version import TableVersionKey, TableVersionMd
 from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema

@@ -28,7 +28,7 @@ from .insertable_table import InsertableTable
 from .path import Path
 from .schema_object import SchemaObject
 from .table import Table
-from .table_version import TableVersion, TableVersionMd, TableVersionKey
+from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .tbl_ops import TableOp
@@ -632,7 +632,8 @@ class Catalog:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
         for tbl_id in self._roll_forward_ids:
             self._finalize_pending_ops(tbl_id)
-            self._clear_tv_cache(tbl_id, None)
+            # TODO: handle replicas
+            self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> None:
         """Finalizes all pending ops for the given table."""
@@ -1659,7 +1660,11 @@ class Catalog:
         tbl_count = conn.execute(q).scalar()
         if tbl_count == 0:
             raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
-        q = sql.select(schema.Table.id).where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex).where(self._active_tbl_clause())
+        q = (
+            sql.select(schema.Table.id)
+            .where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
+            .where(self._active_tbl_clause())
+        )
         if for_update:
             q = q.with_for_update()
         result = [r[0] for r in conn.execute(q).all()]
@@ -1718,13 +1723,11 @@ class Catalog:
                     assert anchor_tbl_version_md is not None
                     q = sql.select(schema.TableVersion.md)
                     if check_pending_ops:
-                        q = (
-                            q.join(schema.Table, schema.Table.id == schema.TableVersion.tbl_id)
-                            .where(self._active_tbl_clause(tbl_id=key.tbl_id))
+                        q = q.join(schema.Table, schema.Table.id == schema.TableVersion.tbl_id).where(
+                            self._active_tbl_clause(tbl_id=key.tbl_id)
                         )
                     q = (
-                        q
-                        .where(schema.TableVersion.tbl_id == key.tbl_id)
+                        q.where(schema.TableVersion.tbl_id == key.tbl_id)
                         .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= anchor_tbl_version_md.created_at)
                         .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
                         .limit(1)
@@ -1987,7 +1990,7 @@ class Catalog:
             for row in src_rows
         ]
 
-    def head_version_md(self, tbl_id: UUID) -> schema.TableVersionMd | None:
+    def head_version_md(self, tbl_id: UUID) -> schema.VersionMd | None:
         """
         Returns the TableVersionMd for the most recent non-fragment version of the given table.
         """
@@ -2004,7 +2007,7 @@ class Catalog:
         if row is None:
             return None
         assert isinstance(row[0], dict)
-        return schema.md_from_dict(schema.TableVersionMd, row[0])
+        return schema.md_from_dict(schema.VersionMd, row[0])
 
     def load_tbl_md(self, key: TableVersionKey) -> TableVersionMd:
         """
@@ -2276,7 +2279,7 @@ class Catalog:
         if check_pending_ops:
             # if we care about pending ops, we also care whether the table is in the process of getting dropped
             if tbl_md.pending_stmt == schema.TableStatement.DROP_TABLE:
-                raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
+                raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
 
             pending_ops_q = (
                 sql.select(sql.func.count())

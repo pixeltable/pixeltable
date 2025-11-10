@@ -68,7 +68,7 @@ class TableVersionMd:
         return dataclasses.asdict(self, dict_factory=md_dict_factory)
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True)
 class TableVersionKey:
     tbl_id: UUID
     effective_version: int | None
@@ -189,7 +189,7 @@ class TableVersion:
         key: TableVersionKey,
         tbl_md: schema.TableMd,
         version_md: schema.VersionMd,
-        #effective_version: int | None,
+        # effective_version: int | None,
         schema_version_md: schema.TableSchemaVersionMd,
         mutable_views: list[TableVersionHandle],
         base_path: 'TableVersionPath' | None = None,
