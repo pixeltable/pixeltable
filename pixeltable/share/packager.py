@@ -427,6 +427,7 @@ class TableRestorer:
             if pxt_uri is not None:
                 # Set pxt_uri for the newly created table
                 cat.update_additional_md(tbl._id, {'pxt_uri': pxt_uri})
+            tbl._tbl_version_path.clear_cached_md()  # TODO: Clear cached md for ancestors too?
             return tbl
 
     def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionCompleteMd) -> None:
