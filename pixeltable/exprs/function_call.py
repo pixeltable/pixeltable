@@ -189,7 +189,7 @@ class FunctionCall(Expr):
             # If this FunctionCall uses an ExprTemplateFunction with a nested FunctionCall, then resolve the
             # indirection by substitution into the ExprTemplateFunction.
             subst = self.fn.instantiate(self.args, self.kwargs)
-            return str(subst)
+            return subst.display_str(inline)
         if self.is_method_call:
             return f'{self.components[0]}.{self.fn.name}({self._print_args(1, inline)})'
         else:
