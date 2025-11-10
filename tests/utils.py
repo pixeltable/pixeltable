@@ -1,5 +1,6 @@
 import datetime
 import glob
+from io import StringIO
 import itertools
 import json
 import os
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 from unittest import TestCase
 from uuid import uuid4
+from contextlib import contextmanager
 
 import more_itertools
 import numpy as np
@@ -24,6 +26,7 @@ from pixeltable.catalog import Catalog
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
+from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
 from pixeltable.utils.object_stores import ObjectOps
 
 TESTS_DIR = Path(os.path.dirname(__file__))
@@ -666,6 +669,20 @@ def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) ->
 def reload_catalog() -> None:
     Catalog.clear()
     pxt.init()
+
+
+@contextmanager
+def capture_console_output() -> Iterator[StringIO]:
+    try:
+        sio = StringIO()
+        handler = ConsoleOutputHandler(stream=sio)
+        handler.setLevel(10)
+        handler.addFilter(ConsoleMessageFilter())
+        Env.get()._logger.addHandler(handler)
+        yield sio
+    finally:
+        Env.get()._logger.removeHandler(handler)
+        sio.flush()
 
 
 # Mock UDF for testing LLM tool invocations

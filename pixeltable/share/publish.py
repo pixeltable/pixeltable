@@ -142,6 +142,26 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     if response.status_code != 200:
         raise excs.Error(f'Error cloning replica: {response.text}')
     clone_response = ReplicateResponse.model_validate(response.json())
+
+    # Prevalidate destination path for replication. We do this before downloading the bundle so that we avoid
+    # having to download it if there is a collision or if this is a duplicate replica. This is done outside the
+    # transaction scope of the table restore operation (we don't want to hold a transaction open during the
+    # download); that's fine, since it will be validated again during TableRestorer's catalog operations.
+
+    t = pxt.get_table(dest_path, if_not_exists='ignore')
+    if t is not None:
+        if str(t._id) != clone_response.md[0].tbl_md.tbl_id:
+            raise excs.Error(
+                f'An attempt was made to create a replica table at {dest_path!r}, '
+                'but a different table already exists at that location.'
+            )
+        known_versions = tuple(v['version'] for v in t.get_versions())
+        if clone_response.md[0].version_md.version in known_versions:
+            Env.get().console_logger.info(
+                f'Replica {dest_path!r} is already up to date with source: {src_tbl_uri}'
+            )
+            return t
+
     primary_version_additional_md = clone_response.md[0].version_md.additional_md
     bundle_uri = str(clone_response.destination_uri)
     bundle_filename = primary_version_additional_md['cloud']['datafile']
