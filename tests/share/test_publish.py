@@ -76,7 +76,6 @@ class TestPublish:
         assert_resultset_eq(result_sets[2], tbl_replica.head(n=500))
 
         tbl_replica.pull()
-        tbl_replica = pxt.get_table('tbl_replica')
         assert tbl_replica.get_metadata()['version'] == len(result_sets)
         assert_resultset_eq(result_sets[-1], tbl_replica.head(n=500))
 

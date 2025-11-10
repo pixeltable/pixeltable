@@ -492,6 +492,8 @@ def main() -> None:
         for i in range(args.workers)
     ]
 
+    # Remove old logfile, if one exists
+    (Config.get().home / 'random-ops.log').unlink(missing_ok=True)
     run_workers(args.workers, args.duration, worker_args=worker_args)
 
 
