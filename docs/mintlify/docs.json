@@ -266,13 +266,13 @@
         ]
       },
       {
-        "tab": "Support",
+        "tab": "Pixeltable Cloud",
         "groups": [
           {
-            "group": "Support",
+            "group": "Cloud",
             "pages": [
-              "support/getting-help",
-              "support/faq"
+              "cloud/get-started",
+              "cloud/faq"
             ]
           }
         ]
