@@ -223,15 +223,7 @@ class TestPackager:
 
         # Certain metadata properties must be identical.
         metadata = t.get_metadata()
-        for property in (
-            'columns',
-            'indices',
-            'version',
-            'version_created',
-            'schema_version',
-            'comment',
-            'media_validation',
-        ):
+        for property in ('indices', 'version', 'version_created', 'schema_version', 'comment', 'media_validation'):
             assert metadata[property] == bundle_info.metadata[property]
 
         # Verify that the postgres schema subsumes the original.

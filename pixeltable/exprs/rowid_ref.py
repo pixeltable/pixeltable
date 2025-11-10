@@ -7,6 +7,7 @@ from uuid import UUID
 import sqlalchemy as sql
 
 from pixeltable import catalog, type_system as ts
+from pixeltable.catalog.table_version import TableVersionKey
 
 from .data_row import DataRow
 from .expr import Expr
@@ -77,7 +78,11 @@ class RowidRef(Expr):
         # check if this is the pos column of a component view
         from pixeltable import store
 
-        tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
+        tbl = (
+            self.tbl.get()
+            if self.tbl is not None
+            else catalog.Catalog.get().get_tbl_version(TableVersionKey(self.tbl_id, None, None))
+        )
         if (
             tbl.is_component_view
             and self.rowid_component_idx == cast(store.StoreComponentView, tbl.store_tbl).pos_col_idx
@@ -99,7 +104,11 @@ class RowidRef(Expr):
         self.tbl_id = self.tbl.id
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
-        tbl = self.tbl.get() if self.tbl is not None else catalog.Catalog.get().get_tbl_version(self.tbl_id, None)
+        tbl = (
+            self.tbl.get()
+            if self.tbl is not None
+            else catalog.Catalog.get().get_tbl_version(TableVersionKey(self.tbl_id, None, None))
+        )
         assert tbl.is_validated
         rowid_cols = tbl.store_tbl.rowid_columns()
         assert self.rowid_component_idx <= len(rowid_cols), (
@@ -111,6 +120,8 @@ class RowidRef(Expr):
         data_row[self.slot_idx] = data_row.pk[self.rowid_component_idx]
 
     def _as_dict(self) -> dict:
+        # TODO: Serialize the full TableVersionHandle, not just the UUID
+        assert self.tbl is None or self.tbl.anchor_tbl_id is None  # TODO: support anchor_tbl_id for view-over-replica
         return {
             'tbl_id': str(self.tbl_id),
             'normalized_base_id': str(self.normalized_base_id),
