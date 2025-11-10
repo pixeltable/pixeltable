@@ -185,9 +185,9 @@ class FunctionCall(Expr):
         return self._validation_error or super().validation_error
 
     def display_str(self, inline: bool = True) -> str:
-        if isinstance(self.fn, func.ExprTemplateFunction):
-            # If this FunctionCall uses an ExprTemplateFunction, then resolve the indirection by substitution into the
-            # ExprTemplateFunction.
+        if isinstance(self.fn, func.ExprTemplateFunction) and isinstance(self.fn.template.expr, FunctionCall):
+            # If this FunctionCall uses an ExprTemplateFunction with a nested FunctionCall, then resolve the
+            # indirection by substitution into the ExprTemplateFunction.
             subst = self.fn.instantiate(self.args, self.kwargs)
             return str(subst)
         if self.is_method_call:
