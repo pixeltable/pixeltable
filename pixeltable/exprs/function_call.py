@@ -174,11 +174,11 @@ class FunctionCall(Expr):
             ('order_by_start_idx', self.order_by_start_idx),
         ]
 
-    def __str__(self) -> str:
+    def __repr__(self) -> str:
         return self.display_str()
 
-    def __repr__(self) -> str:
-        return f'FunctionCall(fn={self.fn!r}, args={self.args!r}, kwargs={self.kwargs!r})'
+    # def __repr__(self) -> str:
+    #     return f'FunctionCall(fn={self.fn!r}, args={self.args!r}, kwargs={self.kwargs!r})'
 
     @property
     def validation_error(self) -> str | None:
