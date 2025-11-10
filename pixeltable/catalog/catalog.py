@@ -1797,25 +1797,40 @@ class Catalog:
         tbl_record, version_record = _unpack_row(row, [schema.Table, schema.TableVersion])
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         version_md = schema.md_from_dict(schema.TableVersionMd, version_record.md)
-        tvp = self.construct_tvp(tbl_id, version, tbl_md.ancestor_ids, version_md.created_at)
+        tvp = self.construct_tvp(tbl_id, version, tbl_md.ancestors, version_md.created_at)
 
         view = View(tbl_id, tbl_record.dir_id, tbl_md.name, tvp, snapshot_only=True)
         self._tbls[tbl_id, version] = view
         return view
 
-    def construct_tvp(self, tbl_id: UUID, version: int, ancestor_ids: list[str], created_at: float) -> TableVersionPath:
-        # Construct the TableVersionPath for the specified TableVersion. We do this by examining the created_at
-        # timestamps of this table and all its ancestors.
-        # TODO: Store the relevant TableVersionPaths in the database, so that we don't need to rely on timestamps
-        #     (which might be nondeterministic in the future).
+    def construct_tvp(
+        self, tbl_id: UUID, version: int, ancestors_of_live_tbl: schema.TableVersionPath, created_at: float
+    ) -> TableVersionPath:
+        """
+        Construct the TableVersionPath for the specified version of the given table. Here `live_ancestors` is the
+        list of ancestor table IDs and fixed versions (if any) from the table's metadata. The constructed
+        TableVersionPath will preserve any fixed versions from `live_ancestors` (corresponding to a view-over-snapshot
+        scenario), while "filling in" the implied versions for any `None` versions.
+        """
+        # TODO: Currently, we reconstruct the ancestors by inspecting the created_at timestamps of the table and its
+        #     ancestors' versions. In the future, we should store the relevant TableVersionPaths in the database, so
+        #     that we don't need to rely on timestamps (which might be nondeterministic in distributed execution
+        #     scenarios).
 
         assert Env.get().conn is not None
 
         # Build the list of ancestor versions, starting with the given table and traversing back to the base table.
-        # For each proper ancestor, we use the version whose created_at timestamp equals or most nearly precedes the
-        # given TableVersion's created_at timestamp.
+        # For each proper ancestor,
+        # - If it's an ancestor with a fixed version (view-over-snapshot scenario), we keep the given fixed version.
+        # - If it's an ancestor with a live (floating) version, we use the version whose created_at timestamp equals
+        #     or most nearly precedes the given TableVersion's created_at timestamp.
         ancestors: list[tuple[UUID, int]] = [(tbl_id, version)]
-        for ancestor_id in ancestor_ids:
+        for ancestor_id, ancestor_version in ancestors_of_live_tbl:
+            if ancestor_version is not None:
+                # fixed version; just use it
+                ancestors.append((UUID(ancestor_id), ancestor_version))
+                continue
+
             q = (
                 sql.select(schema.TableVersion)
                 .where(schema.TableVersion.tbl_id == ancestor_id)

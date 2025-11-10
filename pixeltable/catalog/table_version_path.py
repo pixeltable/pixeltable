@@ -83,8 +83,13 @@ class TableVersionPath:
             self._cached_tbl_version = self.tbl_version.get()
 
     def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
-        """Return a new TableVersionPath with all of its TableVersions pointing to the given anchor_tbl_id"""
-        assert self.tbl_version.effective_version is None
+        """
+        Return a new TableVersionPath with all of its non-snapshot TableVersions pointing to the given anchor_tbl_id.
+        (This will clear the existing anchor_tbl_id in the case anchor_tbl_id=None.)
+        """
+        if self.tbl_version.effective_version is not None:
+            return self
+
         return TableVersionPath(
             TableVersionHandle(TableVersionKey(self.tbl_version.id, None, anchor_tbl_id)),
             base=self.base.anchor_to(anchor_tbl_id) if self.base is not None else None,
