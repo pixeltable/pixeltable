@@ -1,6 +1,6 @@
 """WhisperX audio transcription and diarization functions."""
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -21,17 +21,17 @@ def transcribe(
     *,
     model: str,
     diarize: bool = False,
-    compute_type: Optional[str] = None,
-    language: Optional[str] = None,
-    task: Optional[str] = None,
-    chunk_size: Optional[int] = None,
-    alignment_model_name: Optional[str] = None,
-    interpolate_method: Optional[str] = None,
-    return_char_alignments: Optional[bool] = None,
-    diarization_model_name: Optional[str] = None,
-    num_speakers: Optional[int] = None,
-    min_speakers: Optional[int] = None,
-    max_speakers: Optional[int] = None,
+    compute_type: str | None = None,
+    language: str | None = None,
+    task: str | None = None,
+    chunk_size: int | None = None,
+    alignment_model_name: str | None = None,
+    interpolate_method: str | None = None,
+    return_char_alignments: bool | None = None,
+    diarization_model_name: str | None = None,
+    num_speakers: int | None = None,
+    min_speakers: int | None = None,
+    max_speakers: int | None = None,
 ) -> dict:
     """
     Transcribe an audio file using WhisperX.
@@ -144,7 +144,7 @@ def _lookup_transcription_model(model: str, device: str, compute_type: str) -> '
     return _model_cache[key]
 
 
-def _lookup_alignment_model(language_code: str, device: str, model_name: Optional[str]) -> tuple['Wav2Vec2Model', dict]:
+def _lookup_alignment_model(language_code: str, device: str, model_name: str | None) -> tuple['Wav2Vec2Model', dict]:
     import whisperx
 
     key = (language_code, device, model_name)
@@ -154,7 +154,7 @@ def _lookup_alignment_model(language_code: str, device: str, model_name: Optiona
     return _alignment_model_cache[key]
 
 
-def _lookup_diarization_model(device: str, model_name: Optional[str]) -> 'DiarizationPipeline':
+def _lookup_diarization_model(device: str, model_name: str | None) -> 'DiarizationPipeline':
     from whisperx.diarize import DiarizationPipeline
 
     key = (device, model_name)
@@ -168,8 +168,8 @@ def _lookup_diarization_model(device: str, model_name: Optional[str]) -> 'Diariz
 
 
 _model_cache: dict[tuple[str, str, str], 'FasterWhisperPipeline'] = {}
-_alignment_model_cache: dict[tuple[str, str, Optional[str]], tuple['Wav2Vec2Model', dict]] = {}
-_diarization_model_cache: dict[tuple[str, Optional[str]], 'DiarizationPipeline'] = {}
+_alignment_model_cache: dict[tuple[str, str, str | None], tuple['Wav2Vec2Model', dict]] = {}
+_diarization_model_cache: dict[tuple[str, str | None], 'DiarizationPipeline'] = {}
 
 
 __all__ = local_public_names(__name__)

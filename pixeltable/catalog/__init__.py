@@ -5,7 +5,6 @@ from .column import Column
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId, is_valid_identifier, is_valid_path
 from .insertable_table import InsertableTable
-from .named_function import NamedFunction
 from .path import Path
 from .schema_object import SchemaObject
 from .table import Table

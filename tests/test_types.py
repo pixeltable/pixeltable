@@ -185,7 +185,7 @@ class TestTypes:
             assert ColumnType.from_python_type(None | py_type, nullable_default=True) == nullable_pxt_type  # noqa: RUF036
 
             assert str(non_nullable_pxt_type) == string
-            assert str(nullable_pxt_type) == f'Optional[{string}]'
+            assert str(nullable_pxt_type) == f'{string} | None'
             assert non_nullable_pxt_type._to_str(as_schema=True) == f'Required[{string}]'
             assert nullable_pxt_type._to_str(as_schema=True) == string
 
@@ -259,7 +259,7 @@ class TestTypes:
         class SampleModel(pydantic.BaseModel):
             a: str
             b: int
-            c: Optional[bool]
+            c: bool | None
 
         json_type = ColumnType.from_python_type(Json[SampleModel.model_json_schema()])  # type: ignore[misc]
         assert isinstance(json_type, JsonType)

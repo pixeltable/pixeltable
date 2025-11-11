@@ -7,20 +7,48 @@ Command-line utility for CI/CD operations.
 
 import argparse
 import json
+import os
 import sys
+import uuid
+from datetime import datetime, timezone
 from typing import Literal, NamedTuple, NoReturn
 
 
 class MatrixConfig(NamedTuple):
+    display_name_prefix: str
     test_category: Literal['py', 'ipynb', 'lint', 'random-ops']
-    uv_options: str
     os: str
     python_version: str
+    uv_options: str = ''
+    pytest_options: str = "-m 'not expensive'"
+    extra_env: str = ''
+
+    @property
+    def display_name(self) -> str:
+        return f'{self.display_name_prefix}, {self.os}, {self.python_version}'
+
+    @property
+    def matrix_entry(self) -> dict[str, str]:
+        return {
+            'display-name': self.display_name,
+            'test-category': self.test_category,
+            'os': self.os,
+            'python-version': self.python_version,
+            'uv-options': self.uv_options,
+            'pytest-options': self.pytest_options,
+            'extra-env': self.extra_env,
+        }
 
 
 BASIC_PLATFORMS = ('ubuntu-24.04', 'macos-15', 'windows-2022')
 EXPENSIVE_PLATFORMS = ('ubuntu-x64-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
+
+
+def new_bucket_addr() -> str:
+    date_str = datetime.now(timezone.utc).strftime('%Y%m%d')
+    bucket_uuid = uuid.uuid4().hex
+    return f's3://pxt-test/pytest-media-dest/{date_str}/{bucket_uuid}'
 
 
 def generate_matrix(args: argparse.Namespace) -> None:
@@ -36,39 +64,77 @@ def generate_matrix(args: argparse.Namespace) -> None:
 
     # Special configs that are always run
     configs = [
-        MatrixConfig('py', '--no-dev', 'ubuntu-24.04', '3.10'),  # Minimal test (no dev deps)
-        MatrixConfig('ipynb', '', 'ubuntu-24.04', '3.10'),  # Notebook tests
-        MatrixConfig('lint', '', 'ubuntu-24.04', '3.10'),  # Linting, type checking, etc.
-        MatrixConfig('random-ops', '', 'ubuntu-24.04', '3.10'),  # Random operations tests
+        MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.10', uv_options='--no-dev'),  # Minimal test (no dev deps)
+        MatrixConfig('notebooks', 'ipynb', 'ubuntu-24.04', '3.10'),  # Notebook tests
+        MatrixConfig('static-checks', 'lint', 'ubuntu-24.04', '3.10'),  # Linting, type checking, etc.
+        MatrixConfig('random-ops', 'random-ops', 'ubuntu-24.04', '3.10', uv_options='--no-dev'),  # Random operations
     ]
 
     # Full test suite on basic platforms on Python 3.10
-    configs.extend(MatrixConfig('py', '', os, '3.10') for os in BASIC_PLATFORMS)
+    # Exclude expensive tests on everything except Ubuntu
+    configs.extend(
+        MatrixConfig(
+            'full', 'py', os, '3.10', pytest_options="-m ''" if os.startswith('ubuntu') else "-m 'not expensive'"
+        )
+        for os in BASIC_PLATFORMS
+    )
 
     if force_all or trigger != 'pull_request':
         # Full test suite on basic platforms on Python 3.13
-        configs.extend(MatrixConfig('py', '', os, '3.13') for os in BASIC_PLATFORMS)
+        configs.extend(MatrixConfig('full', 'py', os, '3.13') for os in BASIC_PLATFORMS)
 
         # Full test suite on Ubuntu on intermediate Python versions
-        configs.extend(MatrixConfig('py', '', 'ubuntu-24.04', py) for py in ('3.11', '3.12'))
+        configs.extend(MatrixConfig('full', 'py', 'ubuntu-24.04', py) for py in ('3.11', '3.12'))
 
         # Minimal test on Python 3.13
-        configs.append(MatrixConfig('py', '--no-dev', 'ubuntu-24.04', '3.13'))
+        configs.append(MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.13', uv_options='--no-dev'))
 
         # Minimal tests on alternative platforms (we don't run the full suite on these, since dev dependencies
         # can be hit-or-miss)
-        configs.extend(MatrixConfig('py', '--no-dev', os, '3.10') for os in ALTERNATIVE_PLATFORMS)
+        configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
+
+        # tests_table.py only, against CockroachDB backend
+        if trigger != 'merge_group':
+            # TODO For now, skip this in merge queue, until we're confident we can run multiple concurrent instances.
+            #     It will still run in the weekly suite or on-demand.
+            cockroachdb_connect_str = os.environ.get('PXTTEST_COCKROACHDB_CONNECT_STR')
+            if cockroachdb_connect_str:
+                configs.append(
+                    MatrixConfig(
+                        'cockroach',
+                        'py',
+                        'ubuntu-24.04',
+                        '3.10',
+                        uv_options='--no-dev',
+                        pytest_options='tests/test_table.py',
+                        extra_env=f'PIXELTABLE_DB_CONNECT_STR={cockroachdb_connect_str}',
+                    )
+                )
+
+        # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
+        # different test runs don't interfere with each other and any stale data is easy to clean up.
+        if os.environ.get('AWS_ACCESS_KEY_ID'):
+            configs.append(
+                MatrixConfig(
+                    's3-output-dest',
+                    'py',
+                    'ubuntu-24.04',
+                    '3.10',
+                    uv_options='--no-dev --group storage-sdks',
+                    extra_env=f'PIXELTABLE_OUTPUT_MEDIA_DEST={new_bucket_addr()}',
+                )
+            )
 
     if force_all or trigger == 'schedule':
         # Expensive tests on special hardware on Python 3.10
-        configs.extend(MatrixConfig('py', '', os, '3.10') for os in EXPENSIVE_PLATFORMS)
+        configs.extend(MatrixConfig('full', 'py', os, '3.10') for os in EXPENSIVE_PLATFORMS)
 
-    configs.sort(key=str)
+    configs.sort(key=lambda cfg: cfg.display_name)
 
-    matrix = {'include': [cfg._asdict() for cfg in configs]}
+    matrix = {'include': [cfg.matrix_entry for cfg in configs]}
 
-    print(json.dumps(matrix, indent=4).replace('_', '-'))
-    output = f'matrix={json.dumps(matrix).replace("_", "-")}\n'
+    print(json.dumps(matrix, indent=4))
+    output = f'matrix={json.dumps(matrix)}\n'
     with open(output_file, 'a', encoding='utf8') as fp:
         fp.write(output)
 

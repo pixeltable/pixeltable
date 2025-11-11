@@ -10,7 +10,7 @@ import urllib.request
 import uuid
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 import PIL.Image
@@ -35,7 +35,7 @@ class LocalStore(ObjectStoreBase):
 
     __base_dir: Path
 
-    soa: Optional[StorageObjectAddress]
+    soa: StorageObjectAddress | None
 
     def __init__(self, location: Path | StorageObjectAddress):
         if isinstance(location, Path):
@@ -69,7 +69,7 @@ class LocalStore(ObjectStoreBase):
             raise excs.Error(f'{error_col_name}`destination` must be a valid path. Error: {e}') from None
 
     @staticmethod
-    def file_url_to_path(url: str) -> Optional[Path]:
+    def file_url_to_path(url: str) -> Path | None:
         """Convert a file:// URI to a Path object with support for Windows UNC paths."""
         assert isinstance(url, str), type(url)
         parsed = urllib.parse.urlparse(url)
@@ -90,7 +90,7 @@ class LocalStore(ObjectStoreBase):
         return Path(path_str)
 
     @classmethod
-    def _save_binary_media_file(cls, file_data: bytes, dest_path: Path, format: Optional[str]) -> Path:
+    def _save_binary_media_file(cls, file_data: bytes, dest_path: Path, format: str | None) -> Path:
         """Save binary data to a file in a LocalStore. format is ignored for binary data."""
         assert isinstance(file_data, bytes)
         with open(dest_path, 'wb') as f:
@@ -100,7 +100,7 @@ class LocalStore(ObjectStoreBase):
         return dest_path
 
     @classmethod
-    def _save_pil_image_file(cls, image: PIL.Image.Image, dest_path: Path, format: Optional[str]) -> Path:
+    def _save_pil_image_file(cls, image: PIL.Image.Image, dest_path: Path, format: str | None) -> Path:
         """Save a PIL Image to a file in a LocalStore with the specified format."""
         if dest_path.suffix != f'.{format}':
             dest_path = dest_path.with_name(f'{dest_path.name}.{format}')
@@ -111,7 +111,7 @@ class LocalStore(ObjectStoreBase):
             os.fsync(f.fileno())  # Forces OS to write to physical storage
         return dest_path
 
-    def _prepare_path_raw(self, tbl_id: UUID, col_id: int, tbl_version: int, ext: Optional[str] = None) -> Path:
+    def _prepare_path_raw(self, tbl_id: UUID, col_id: int, tbl_version: int, ext: str | None = None) -> Path:
         """
         Construct a new, unique Path name in the __base_dir for a persisted file.
         Create the parent directory for the new Path if it does not already exist.
@@ -121,19 +121,19 @@ class LocalStore(ObjectStoreBase):
         parent.mkdir(parents=True, exist_ok=True)
         return parent / filename
 
-    def _prepare_path(self, col: Column, ext: Optional[str] = None) -> Path:
+    def _prepare_path(self, col: Column, ext: str | None = None) -> Path:
         """
         Construct a new, unique Path name in the __base_dir for a persisted file.
         Create the parent directory for the new Path if it does not already exist.
         """
-        assert col.tbl is not None, 'Column must be associated with a table'
-        return self._prepare_path_raw(col.tbl.id, col.id, col.tbl.version, ext)
+        assert col.get_tbl() is not None, 'Column must be associated with a table'
+        return self._prepare_path_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext)
 
     def contains_path(self, file_path: Path) -> bool:
         """Return True if the given path refers to a file managed by this LocalStore, else False."""
         return str(file_path).startswith(str(self.__base_dir))
 
-    def resolve_url(self, file_url: Optional[str]) -> Optional[Path]:
+    def resolve_url(self, file_url: str | None) -> Path | None:
         """Return path if the given url refers to a file managed by this LocalStore, else None.
 
         Args:
@@ -168,7 +168,7 @@ class LocalStore(ObjectStoreBase):
         _logger.debug(f'Media Storage: copied {src_path} to {new_file_url}')
         return new_file_url
 
-    def save_media_object(self, data: bytes | PIL.Image.Image, col: Column, format: Optional[str]) -> tuple[Path, str]:
+    def save_media_object(self, data: bytes | PIL.Image.Image, col: Column, format: str | None) -> tuple[Path, str]:
         """Save a data object to a file in a LocalStore
         Returns:
             dest_path: Path to the saved file
@@ -185,7 +185,7 @@ class LocalStore(ObjectStoreBase):
         new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
         return dest_path, new_file_url
 
-    def delete(self, tbl_id: UUID, tbl_version: Optional[int] = None) -> Optional[int]:
+    def delete(self, tbl_id: UUID, tbl_version: int | None = None) -> int | None:
         """Delete all files belonging to tbl_id. If tbl_version is not None, delete
         only those files belonging to the specified tbl_version.
 
@@ -209,7 +209,7 @@ class LocalStore(ObjectStoreBase):
                 os.remove(p)
             return len(paths)
 
-    def count(self, tbl_id: Optional[UUID], tbl_version: Optional[int] = None) -> int:
+    def count(self, tbl_id: UUID | None, tbl_version: int | None = None) -> int:
         """
         Return number of files for given tbl_id.
         """
@@ -277,7 +277,7 @@ class TempStore:
         return env.Env.get().tmp_dir
 
     @classmethod
-    def count(cls, tbl_id: Optional[UUID] = None, tbl_version: Optional[int] = None) -> int:
+    def count(cls, tbl_id: UUID | None = None, tbl_version: int | None = None) -> int:
         return LocalStore(cls._tmp_dir()).count(tbl_id, tbl_version)
 
     @classmethod
@@ -285,11 +285,11 @@ class TempStore:
         return LocalStore(cls._tmp_dir()).contains_path(file_path)
 
     @classmethod
-    def resolve_url(cls, file_url: Optional[str]) -> Optional[Path]:
+    def resolve_url(cls, file_url: str | None) -> Path | None:
         return LocalStore(cls._tmp_dir()).resolve_url(file_url)
 
     @classmethod
-    def save_media_object(cls, data: bytes | PIL.Image.Image, col: Column, format: Optional[str]) -> tuple[Path, str]:
+    def save_media_object(cls, data: bytes | PIL.Image.Image, col: Column, format: str | None) -> tuple[Path, str]:
         return LocalStore(cls._tmp_dir()).save_media_object(data, col, format)
 
     @classmethod
@@ -302,7 +302,7 @@ class TempStore:
         _logger.debug(f'Media Storage: deleted {file_path}')
 
     @classmethod
-    def create_path(cls, tbl_id: Optional[UUID] = None, extension: str = '') -> Path:
+    def create_path(cls, tbl_id: UUID | None = None, extension: str = '') -> Path:
         """Return a new, unique Path located in the temporary store.
         If tbl_id is provided, the path name will be similar to a LocalStore path based on the tbl_id.
         If tbl_id is None, a random UUID will be used to create the path."""

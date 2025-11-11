@@ -1,4 +1,4 @@
-from typing import Any, Optional, Sequence
+from typing import Any, Sequence
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 
@@ -34,6 +34,9 @@ class ExprTemplate:
                 continue
             self.defaults[param.name] = param.default
 
+    # def __repr__(self) -> str:
+    #     return f'ExprTemplate(expr={repr(self.expr)}, signature={self.signature})'
+
 
 class ExprTemplateFunction(Function):
     """A parameterized expression from which an executable Expr is created with a function call."""
@@ -41,7 +44,7 @@ class ExprTemplateFunction(Function):
     templates: list[ExprTemplate]
     self_name: str
 
-    def __init__(self, templates: list[ExprTemplate], self_path: Optional[str] = None, name: Optional[str] = None):
+    def __init__(self, templates: list[ExprTemplate], self_path: str | None = None, name: str | None = None):
         self.templates = templates
         self.self_name = name
 
@@ -59,7 +62,7 @@ class ExprTemplateFunction(Function):
         assert not self.is_polymorphic
         template = self.template
         bound_args = self.signature.py_signature.bind(*args, **kwargs).arguments
-        # apply defaults, otherwise we might have Parameters left over
+        # apply defaults; otherwise we might have Parameters left over
         bound_args.update(
             {param_name: default for param_name, default in template.defaults.items() if param_name not in bound_args}
         )
@@ -98,7 +101,7 @@ class ExprTemplateFunction(Function):
         )
         return substituted_expr.col_type
 
-    def comment(self) -> Optional[str]:
+    def comment(self) -> str | None:
         if isinstance(self.templates[0].expr, exprs.FunctionCall):
             return self.templates[0].expr.fn.comment()
         return None
@@ -129,6 +132,9 @@ class ExprTemplateFunction(Function):
 
     def __str__(self) -> str:
         return str(self.templates[0].expr)
+
+    # def __repr__(self) -> str:
+    #     return f'ExprTemplateFunction(name={self.name}, templates={self.templates})'
 
     def _as_dict(self) -> dict:
         if self.self_path is not None:

@@ -4,7 +4,7 @@ import inspect
 import logging
 import sys
 from textwrap import dedent
-from typing import Any, Optional, Sequence
+from typing import Any, Sequence
 
 import sqlalchemy as sql
 
@@ -24,7 +24,7 @@ class FunctionCall(Expr):
     fn: func.Function
     is_method_call: bool
     agg_init_args: dict[str, Any]
-    resource_pool: Optional[str]
+    resource_pool: str | None
 
     # These collections hold the component indices corresponding to the args and kwargs
     # that were passed to the FunctionCall. They're 1:1 with the original call pattern.
@@ -43,10 +43,10 @@ class FunctionCall(Expr):
     group_by_stop_idx: int
     fn_expr_idx: int
     order_by_start_idx: int
-    aggregator: Optional[Any]
-    current_partition_vals: Optional[list[Any]]
+    aggregator: Any | None
+    current_partition_vals: list[Any] | None
 
-    _validation_error: Optional[str]
+    _validation_error: str | None
 
     def __init__(
         self,
@@ -54,10 +54,10 @@ class FunctionCall(Expr):
         args: list[Expr],
         kwargs: dict[str, Expr],
         return_type: ts.ColumnType,
-        order_by_clause: Optional[list[Any]] = None,
-        group_by_clause: Optional[list[Any]] = None,
+        order_by_clause: list[Any] | None = None,
+        group_by_clause: list[Any] | None = None,
         is_method_call: bool = False,
-        validation_error: Optional[str] = None,
+        validation_error: str | None = None,
     ):
         assert not fn.is_polymorphic
         assert all(isinstance(arg, Expr) for arg in args)
@@ -149,7 +149,7 @@ class FunctionCall(Expr):
         target = tbl._tbl_version_path.tbl_version
         return [RowidRef(target, i) for i in range(target.get().num_rowid_columns())]
 
-    def default_column_name(self) -> Optional[str]:
+    def default_column_name(self) -> str | None:
         return self.fn.name
 
     def _equals(self, other: FunctionCall) -> bool:
@@ -177,11 +177,19 @@ class FunctionCall(Expr):
     def __repr__(self) -> str:
         return self.display_str()
 
+    # def __repr__(self) -> str:
+    #     return f'FunctionCall(fn={self.fn!r}, args={self.args!r}, kwargs={self.kwargs!r})'
+
     @property
-    def validation_error(self) -> Optional[str]:
+    def validation_error(self) -> str | None:
         return self._validation_error or super().validation_error
 
     def display_str(self, inline: bool = True) -> str:
+        if isinstance(self.fn, func.ExprTemplateFunction) and isinstance(self.fn.template.expr, FunctionCall):
+            # If this FunctionCall uses an ExprTemplateFunction with a nested FunctionCall, then resolve the
+            # indirection by substitution into the ExprTemplateFunction.
+            subst = self.fn.instantiate(self.args, self.kwargs)
+            return subst.display_str(inline)
         if self.is_method_call:
             return f'{self.components[0]}.{self.fn.name}({self._print_args(1, inline)})'
         else:
@@ -245,7 +253,7 @@ class FunctionCall(Expr):
         assert self.is_agg_fn_call
         return self.order_by
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         assert self.is_valid
 
         # we currently can't translate aggregate functions with grouping and/or ordering to SQL
@@ -313,6 +321,20 @@ class FunctionCall(Expr):
             self.col_type = self.return_type
         return self
 
+    @property
+    def args(self) -> list[Expr]:
+        return [self.components[idx] for idx in self.arg_idxs]
+
+    @property
+    def kwargs(self) -> dict[str, Expr]:
+        return {name: self.components[idx] for name, idx in self.kwarg_idxs.items()}
+
+    @property
+    def fn_expr(self) -> Expr | None:
+        if self.fn_expr_idx != sys.maxsize:
+            return self.components[self.fn_expr_idx]
+        return None
+
     def update(self, data_row: DataRow) -> None:
         """
         Update agg state
@@ -321,7 +343,7 @@ class FunctionCall(Expr):
         args, kwargs = self.make_args(data_row)
         self.aggregator.update(*args, **kwargs)
 
-    def make_args(self, data_row: DataRow) -> Optional[tuple[list[Any], dict[str, Any]]]:
+    def make_args(self, data_row: DataRow) -> tuple[list[Any], dict[str, Any]] | None:
         """Return args and kwargs, constructed for data_row; returns None if any non-nullable arg is None."""
         args: list[Any] = []
         parameters_by_pos = self.fn.signature.parameters_by_pos
@@ -448,7 +470,7 @@ class FunctionCall(Expr):
         group_by_exprs = components[group_by_start_idx:group_by_stop_idx]
         order_by_exprs = components[order_by_start_idx:]
 
-        validation_error: Optional[str] = None
+        validation_error: str | None = None
 
         if isinstance(fn, func.InvalidFunction):
             validation_error = (
@@ -489,7 +511,7 @@ class FunctionCall(Expr):
             ).strip()
         else:
             # Evaluate the call_return_type as defined in the current codebase.
-            call_return_type: Optional[ts.ColumnType] = None
+            call_return_type: ts.ColumnType | None = None
 
             if isinstance(resolved_fn, func.ExprTemplateFunction) and not resolved_fn.template.expr.is_valid:
                 # The FunctionCall is based on an ExprTemplateFunction, but the template expression is not valid

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import NamedTuple
 
 from pixeltable import exceptions as excs
 
@@ -10,14 +10,9 @@ from .globals import is_valid_identifier
 _logger = logging.getLogger('pixeltable')
 
 
-class Path:
+class Path(NamedTuple):
     components: list[str]
-    version: Optional[int]
-
-    def __init__(self, components: list[str], version: Optional[int] = None) -> None:
-        assert len(components) > 0
-        self.components = components
-        self.version = version
+    version: int | None = None
 
     @classmethod
     def parse(
@@ -28,7 +23,7 @@ class Path:
         allow_versioned_path: bool = False,
     ) -> Path:
         components: list[str]
-        version: Optional[int]
+        version: int | None
         if ':' in path:
             parts = path.split(':')
             if len(parts) != 2:
@@ -45,12 +40,15 @@ class Path:
         if components == [''] and not allow_empty_path:
             raise excs.Error(f'Invalid path: {path}')
 
-        if components != [''] and not all(is_valid_identifier(c, allow_system_path) for c in components):
+        if components != [''] and not all(
+            is_valid_identifier(c, allow_system_identifiers=allow_system_path, allow_hyphens=True) for c in components
+        ):
             raise excs.Error(f'Invalid path: {path}')
 
         if version is not None and not allow_versioned_path:
             raise excs.Error(f'Versioned path not allowed here: {path}')
 
+        assert len(components) > 0
         return Path(components, version)
 
     @property
@@ -118,9 +116,6 @@ class Path:
 
     def __hash__(self) -> int:
         return hash(str(self))
-
-    def __lt__(self, other: Path) -> bool:
-        return str(self) < str(other)
 
 
 ROOT_PATH = Path([''])

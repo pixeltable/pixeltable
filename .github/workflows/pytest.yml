@@ -43,30 +43,42 @@ on:
         default: false
 
 env:
-  PXTTEST_IN_CI: 1
+  # PIXELTABLE_API_KEY: ${{ secrets.PIXELTABLE_API_KEY }}
+  PIXELTABLE_B2_PROFILE: b2_profile
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
-  UV_VERSION: 0.8.2
+  PIXELTABLE_R2_PROFILE: r2_profile
+  PXTTEST_IN_CI: 1
+  UV_VERSION: 0.9.3
+
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
   # functionality in CI, we'll need to investigate further (it's likely due to a missing compiler dependency).
   # We also disable Metal (GPU) support on MacOS, which doesn't seem to work properly in CI.
   CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF -DGGML_METAL_EMBED_LIBRARY=OFF'
   # This is required to build onnxsim on Ubuntu / Python 3.12+ configurations.
   CMAKE_POLICY_VERSION_MINIMUM: 3.5
+
   # API keys for various services. In a PR, these secrets will be empty.
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_DEFAULT_REGION: us-west-2
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+  B2_ACCESS_KEY_ID: ${{ secrets.B2_ACCESS_KEY_ID }}
+  B2_SECRET_ACCESS_KEY: ${{ secrets.B2_SECRET_ACCESS_KEY }}
   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+  GCS_SERVICE_ACCOUNT_KEY: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  GOOGLE_APPLICATION_CREDENTIALS: '/tmp/gcs-key.json'
   GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
   HF_AUTH_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+  REVE_API_KEY: ${{ secrets.REVE_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
 
 jobs:
@@ -88,23 +100,34 @@ jobs:
           python tool/ci_tool.py generate-matrix "$GITHUB_OUTPUT" ${{ github.event_name }} $ARGS
 
   tests:
+    name: ${{ matrix.display-name }}
     needs: generate-matrix
+    runs-on: ${{ matrix.os }}
+
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
 
-    runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash -el {0}  # Needed for conda to work
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
         with:
           detached: true
+      - name: Google cloud auth
+        if: ${{ env.GCS_SERVICE_ACCOUNT_KEY != '' }}
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ env.GCS_SERVICE_ACCOUNT_KEY }}
       - name: Delete unnecessary files
         if: ${{ !startsWith(matrix.os, 'windows') }}
         run: |
@@ -155,6 +178,8 @@ jobs:
           ./scripts/retry.sh 3 60 uv sync --active ${{ matrix.uv-options }}
       - name: Clean the uv cache
         run: uv cache clean
+      - name: Set up credentials
+        run: ./scripts/set-up-ci-credentials.sh
       - name: Run the unit tests
         if: ${{ matrix.test-category == 'py' }}
         env:
@@ -163,23 +188,23 @@ jobs:
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
         run: |
-          PYTEST_MARKERS="${{ (matrix.os != 'ubuntu-24.04' || matrix.python-version != '3.10') && 'not expensive' || '' }}"
-          echo "Running tests with markers: $PYTEST_MARKERS"
-          coverage run -m --source=pixeltable pytest -v -m "$PYTEST_MARKERS" --strict-markers
+          echo "Running tests with options : ${{ matrix.pytest-options }}"
+          echo "Extra environment variables: ${{ matrix.extra-env }}"
+          ${{ matrix.extra-env }} coverage run -m --source=pixeltable pytest -v --strict-markers ${{ matrix.pytest-options }}
           coverage report -m
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/notebooks tests
+          ./scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/cookbook docs/notebooks tests
           set +e  # don't exit immediately on error, so that we can retry
           pytest -v -m '' --nbmake --nbmake-timeout=1800 tests/target/nb-tests/*.ipynb
           pytest -v -m '' --nbmake --nbmake-timeout=1800 --lf --lfnf=none  # retry failed tests once
           if [[ $? != 0 && $? != 5 ]]; then  # exit code 5 = no tests collected on 2nd run
             exit 1
           fi
-      - name: Run random table ops
+      - name: Run stress tests
         if: ${{ matrix.test-category == 'random-ops' }}
-        run: python tool/worker_harness.py 12 1800 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops-${{ matrix.os }}.log
+        run: ./scripts/stress-tests.sh 12 1800
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: mypy pixeltable tests tool
@@ -191,9 +216,6 @@ jobs:
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
         run: ruff check pixeltable tests tool
-      - name: Validate links in notebooks
-        if: ${{ matrix.test-category == 'lint' }}
-        run: ./scripts/lint-notebooks.sh
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |

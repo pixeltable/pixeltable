@@ -2,7 +2,6 @@ import hashlib
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Optional
 
 
 def print_perf_counter_delta(delta: float) -> str:
@@ -39,7 +38,7 @@ def sha256sum(path: Path | str) -> str:
     return h.hexdigest()
 
 
-def parse_local_file_path(file_or_url: str) -> Optional[Path]:
+def parse_local_file_path(file_or_url: str) -> Path | None:
     """
     Parses a string that may be either a URL or a local file path.
 

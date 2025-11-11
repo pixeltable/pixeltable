@@ -5,7 +5,7 @@ import re
 import urllib.parse
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Iterator
 
 from google.api_core.exceptions import GoogleAPIError
 from google.cloud import storage  # type: ignore[attr-defined]
@@ -81,7 +81,7 @@ class GCSStore(ObjectStoreBase):
         """Return the prefix from the base URI."""
         return self.__prefix_name
 
-    def validate(self, error_col_name: str) -> Optional[str]:
+    def validate(self, error_col_name: str) -> str | None:
         """
         Checks if the URI exists.
 
@@ -99,7 +99,7 @@ class GCSStore(ObjectStoreBase):
             self.handle_gcs_error(e, self.bucket_name, f'validate bucket {error_col_name}')
         return None
 
-    def _prepare_uri_raw(self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: Optional[str] = None) -> str:
+    def _prepare_uri_raw(self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
@@ -107,12 +107,12 @@ class GCSStore(ObjectStoreBase):
         parent = f'{self.__base_uri}{prefix}'
         return f'{parent}/{filename}'
 
-    def _prepare_uri(self, col: Column, ext: Optional[str] = None) -> str:
+    def _prepare_uri(self, col: Column, ext: str | None = None) -> str:
         """
         Construct a new, unique URI for a persisted media file.
         """
-        assert col.tbl is not None, 'Column must be associated with a table'
-        return self._prepare_uri_raw(col.tbl.id, col.id, col.tbl.version, ext=ext)
+        assert col.get_tbl() is not None, 'Column must be associated with a table'
+        return self._prepare_uri_raw(col.get_tbl().id, col.id, col.get_tbl().version, ext=ext)
 
     def copy_local_file(self, col: Column, src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
@@ -142,7 +142,7 @@ class GCSStore(ObjectStoreBase):
             self.handle_gcs_error(e, self.bucket_name, f'download file {src_path}')
             raise
 
-    def _get_filtered_objects(self, bucket: Any, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> Iterator:
+    def _get_filtered_objects(self, bucket: Any, tbl_id: uuid.UUID, tbl_version: int | None = None) -> Iterator:
         """Private method to get filtered objects for a table, optionally filtered by version.
 
         Args:
@@ -168,7 +168,7 @@ class GCSStore(ObjectStoreBase):
 
         return blob_iterator
 
-    def count(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
+    def count(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int:
         """Count the number of files belonging to tbl_id. If tbl_version is not None,
         count only those files belonging to the specified tbl_version.
 
@@ -193,7 +193,7 @@ class GCSStore(ObjectStoreBase):
             self.handle_gcs_error(e, self.bucket_name, f'setup iterator {self.prefix}')
             raise
 
-    def delete(self, tbl_id: uuid.UUID, tbl_version: Optional[int] = None) -> int:
+    def delete(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> int:
         """Delete all files belonging to tbl_id. If tbl_version is not None, delete
         only those files belonging to the specified tbl_version.
 

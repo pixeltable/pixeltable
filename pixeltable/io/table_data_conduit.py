@@ -4,11 +4,10 @@ import enum
 import json
 import logging
 import math
-import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Optional, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
 
 import numpy as np
 import pandas as pd
@@ -50,15 +49,15 @@ class TableDataConduitFormat(str, enum.Enum):
 @dataclass
 class TableDataConduit:
     source: 'TableDataSource'
-    source_format: Optional[str] = None
-    source_column_map: Optional[dict[str, str]] = None
+    source_format: str | None = None
+    source_column_map: dict[str, str] | None = None
     if_row_exists: Literal['update', 'ignore', 'error'] = 'error'
-    pxt_schema: Optional[dict[str, ts.ColumnType]] = None
-    src_schema_overrides: Optional[dict[str, ts.ColumnType]] = None
-    src_schema: Optional[dict[str, ts.ColumnType]] = None
-    pxt_pk: Optional[list[str]] = None
-    src_pk: Optional[list[str]] = None
-    valid_rows: Optional[RowData] = None
+    pxt_schema: dict[str, ts.ColumnType] | None = None
+    src_schema_overrides: dict[str, ts.ColumnType] | None = None
+    src_schema: dict[str, ts.ColumnType] | None = None
+    pxt_pk: list[str] | None = None
+    src_pk: list[str] | None = None
+    valid_rows: RowData | None = None
     extra_fields: dict[str, Any] = field(default_factory=dict)
 
     reqd_col_names: set[str] = field(default_factory=set)
@@ -135,8 +134,11 @@ class DFTableDataConduit(TableDataConduit):
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
-        assert isinstance(tds.source, pxt.DataFrame)
-        t.pxt_df = tds.source
+        if isinstance(tds.source, pxt.Table):
+            t.pxt_df = tds.source.select()
+        else:
+            assert isinstance(tds.source, pxt.DataFrame)
+            t.pxt_df = tds.source
         return t
 
     def infer_schema(self) -> dict[str, ts.ColumnType]:
@@ -151,7 +153,7 @@ class DFTableDataConduit(TableDataConduit):
 
 
 class RowDataTableDataConduit(TableDataConduit):
-    raw_rows: Optional[RowData] = None
+    raw_rows: RowData | None = None
     disable_mapping: bool = True
     batch_count: int = 0
 
@@ -332,7 +334,7 @@ class HFTableDataConduit(TableDataConduit):
     - use set_format('arrow') and convert ChunkedArrays to PIL.Image.Image instead of going through numpy, which is slow
     """
 
-    column_name_for_split: Optional[str] = None
+    column_name_for_split: str | None = None
     categorical_features: dict[str, dict[int, str]]
     dataset_dict: dict[str, datasets.Dataset] = None
     hf_schema_source: dict[str, Any] = None
@@ -478,7 +480,7 @@ class HFTableDataConduit(TableDataConduit):
 
 
 class ParquetTableDataConduit(TableDataConduit):
-    pq_ds: Optional[ParquetDataset] = None
+    pq_ds: ParquetDataset | None = None
 
     @classmethod
     def from_tds(cls, tds: TableDataConduit) -> 'ParquetTableDataConduit':
@@ -542,7 +544,7 @@ class UnkTableDataConduit(TableDataConduit):
     """Source type is not known at the time of creation"""
 
     def specialize(self) -> TableDataConduit:
-        if isinstance(self.source, pxt.DataFrame):
+        if isinstance(self.source, (pxt.Table, pxt.DataFrame)):
             return DFTableDataConduit.from_tds(self)
         if isinstance(self.source, pd.DataFrame):
             return PandasTableDataConduit.from_tds(self)

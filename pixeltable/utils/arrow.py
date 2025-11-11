@@ -1,7 +1,7 @@
 import datetime
 import io
 import json
-from typing import TYPE_CHECKING, Any, Iterator, Optional, cast
+from typing import TYPE_CHECKING, Any, Iterator, cast
 
 import numpy as np
 import PIL.Image
@@ -48,7 +48,7 @@ PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
 }
 
 
-def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> Optional[ts.ColumnType]:
+def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> ts.ColumnType | None:
     """Convert a pyarrow DataType to a pixeltable ColumnType if one is defined.
     Returns None if no conversion is currently implemented.
     """
@@ -66,7 +66,7 @@ def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> Optional[ts.C
         return None
 
 
-def to_arrow_type(pixeltable_type: ts.ColumnType) -> Optional[pa.DataType]:
+def to_arrow_type(pixeltable_type: ts.ColumnType) -> pa.DataType | None:
     """Convert a pixeltable DataType to a pyarrow datatype if one is defined.
     Returns None if no conversion is currently implemented.
     """
@@ -240,7 +240,7 @@ def _ar_val_to_pxt_val(val: Any, pxt_type: ts.ColumnType) -> Any:
 
 
 def iter_tuples2(
-    batch: pa.Table | pa.RecordBatch, col_mapping: Optional[dict[str, str]], schema: dict[str, ts.ColumnType]
+    batch: pa.Table | pa.RecordBatch, col_mapping: dict[str, str] | None, schema: dict[str, ts.ColumnType]
 ) -> Iterator[dict[str, Any]]:
     """Convert a RecordBatch to an iterator of dictionaries. also works with pa.Table and pa.RowGroup"""
     pydict = to_pydict(batch)

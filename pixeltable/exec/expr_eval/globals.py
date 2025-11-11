@@ -4,7 +4,7 @@ import abc
 import asyncio
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Iterable, Optional, Protocol
+from typing import Any, Iterable, Protocol
 
 import numpy as np
 
@@ -18,11 +18,11 @@ class FnCallArgs:
     fn_call: exprs.FunctionCall
     rows: list[exprs.DataRow]
     # single call
-    args: Optional[list[Any]] = None
-    kwargs: Optional[dict[str, Any]] = None
+    args: list[Any] | None = None
+    kwargs: dict[str, Any] | None = None
     # batch call
-    batch_args: Optional[list[list[Optional[Any]]]] = None
-    batch_kwargs: Optional[dict[str, list[Optional[Any]]]] = None
+    batch_args: list[list[Any | None]] | None = None
+    batch_kwargs: dict[str, list[Any | None]] | None = None
 
     @property
     def pxt_fn(self) -> func.CallableFunction:
@@ -56,7 +56,7 @@ class Scheduler(abc.ABC):
         request: FnCallArgs
         num_retries: int
         exec_ctx: ExecCtx
-        retry_after: Optional[float] = None  # time.monotonic()
+        retry_after: float | None = None  # time.monotonic()
 
         def __lt__(self, other: Scheduler.QueueItem) -> bool:
             # prioritize by number of retries (more retries = higher priority)

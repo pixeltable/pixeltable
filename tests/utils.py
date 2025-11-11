@@ -7,8 +7,10 @@ import random
 import shutil
 import subprocess
 import sysconfig
+from contextlib import contextmanager
+from io import StringIO
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, Iterator
 from unittest import TestCase
 from uuid import uuid4
 
@@ -24,6 +26,7 @@ from pixeltable.catalog import Catalog
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
+from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
 from pixeltable.utils.object_stores import ObjectOps
 
 TESTS_DIR = Path(os.path.dirname(__file__))
@@ -54,7 +57,7 @@ def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
     raise AssertionError()
 
 
-def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> pxt.Table:
+def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Table:
     if col_names is None:
         col_names = ['c1']
     schema: dict[str, ts.ColumnType] = {}
@@ -63,7 +66,7 @@ def make_tbl(name: str = 'test', col_names: Optional[list[str]] = None) -> pxt.T
     return pxt.create_table(name, schema)
 
 
-def create_table_data(t: pxt.Table, col_names: Optional[list[str]] = None, num_rows: int = 10) -> list[dict[str, Any]]:
+def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows: int = 10) -> list[dict[str, Any]]:
     if col_names is None:
         col_names = []
     data: dict[str, Any] = {}
@@ -290,12 +293,12 @@ def inf_array_iterator(
         if dtype is np.bool_:
             yield rng.integers(0, 2, size=size, dtype=bool)
         elif np.issubdtype(dtype, np.integer):
-            yield rng.integers(0, 100, size=size, dtype=dtype)  # type: ignore[arg-type]
+            yield rng.integers(0, 100, size=size, dtype=dtype)
         else:
             yield rng.random(size=size, dtype=dtype)  # type: ignore[arg-type]
 
 
-def read_data_file(dir_name: str, file_name: str, path_col_names: Optional[list[str]] = None) -> list[dict[str, Any]]:
+def read_data_file(dir_name: str, file_name: str, path_col_names: list[str] | None = None) -> list[dict[str, Any]]:
     """
     Locate dir_name, create df out of file_name.
     path_col_names: col names in csv file that contain file names; those will be converted to absolute paths
@@ -412,7 +415,7 @@ def get_audio_files(include_bad_audio: bool = False) -> list[str]:
     return glob_result
 
 
-def get_audio_file(name: str) -> Optional[str]:
+def get_audio_file(name: str) -> str | None:
     audio_dir = TESTS_DIR / 'data' / 'audio'
     file_path = audio_dir / name
     glob_result = glob.glob(f'{file_path}', recursive=True)
@@ -580,7 +583,7 @@ def skip_test_if_no_aws_credentials() -> None:
         pytest.skip(str(exc))
 
 
-def validate_update_status(status: pxt.UpdateStatus, expected_rows: Optional[int] = None) -> None:
+def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None = None) -> None:
     assert status.num_excs == 0
     if expected_rows is not None:
         assert status.num_rows == expected_rows, status
@@ -588,11 +591,11 @@ def validate_update_status(status: pxt.UpdateStatus, expected_rows: Optional[int
 
 def validate_sync_status(
     status: pxt.UpdateStatus,
-    expected_external_rows_created: Optional[int] = None,
-    expected_external_rows_updated: Optional[int] = None,
-    expected_external_rows_deleted: Optional[int] = None,
-    expected_pxt_rows_updated: Optional[int] = None,
-    expected_num_excs: Optional[int] = 0,
+    expected_external_rows_created: int | None = None,
+    expected_external_rows_updated: int | None = None,
+    expected_external_rows_deleted: int | None = None,
+    expected_pxt_rows_updated: int | None = None,
+    expected_num_excs: int | None = 0,
 ) -> None:
     if expected_external_rows_created is not None:
         assert status.external_rows_created == expected_external_rows_created, status
@@ -663,9 +666,25 @@ def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) ->
     assert diff.getbbox() is None, context
 
 
-def reload_catalog() -> None:
+def reload_catalog(reload: bool = True) -> None:
+    if not reload:
+        return
     Catalog.clear()
     pxt.init()
+
+
+@contextmanager
+def capture_console_output() -> Iterator[StringIO]:
+    try:
+        sio = StringIO()
+        handler = ConsoleOutputHandler(stream=sio)
+        handler.setLevel(10)
+        handler.addFilter(ConsoleMessageFilter())
+        Env.get()._logger.addHandler(handler)
+        yield sio
+    finally:
+        Env.get()._logger.removeHandler(handler)
+        sio.flush()
 
 
 # Mock UDF for testing LLM tool invocations

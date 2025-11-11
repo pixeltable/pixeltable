@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterator, Optional
+from typing import Iterator
 
 from pixeltable import exprs
 
@@ -19,11 +19,11 @@ class DataRowBatch:
     row_builder: exprs.RowBuilder
     rows: list[exprs.DataRow]
 
-    def __init__(self, row_builder: exprs.RowBuilder, rows: Optional[list[exprs.DataRow]] = None):
+    def __init__(self, row_builder: exprs.RowBuilder, rows: list[exprs.DataRow] | None = None):
         self.row_builder = row_builder
         self.rows = [] if rows is None else rows
 
-    def add_row(self, row: Optional[exprs.DataRow]) -> exprs.DataRow:
+    def add_row(self, row: exprs.DataRow | None) -> exprs.DataRow:
         if row is None:
             row = self.row_builder.make_row()
         self.rows.append(row)

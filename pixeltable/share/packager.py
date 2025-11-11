@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 import io
 import json
 import logging
@@ -6,8 +7,9 @@ import tarfile
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import timedelta
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator
 from uuid import UUID
 
 import more_itertools
@@ -19,7 +21,9 @@ import pyarrow.parquet as pq
 import sqlalchemy as sql
 
 import pixeltable as pxt
+import pixeltable.utils.av as av_utils
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
+from pixeltable.catalog.table_version import TableVersionCompleteMd, TableVersionKey
 from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
@@ -51,27 +55,27 @@ class TablePackager:
     tmp_dir: Path  # Temporary directory where the package will reside
     tables_dir: Path  # Directory where the Parquet tables will be written
     media_files: dict[Path, str]  # Mapping from local media file paths to their tarball names
-    md: dict[str, Any]
+    bundle_md: dict[str, Any]
 
     bundle_path: Path
     preview_header: dict[str, str]
     preview: list[list[Any]]
 
-    def __init__(self, table: catalog.Table, additional_md: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, table: catalog.Table, additional_md: dict[str, Any] | None = None) -> None:
         self.table = table
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
-        # Load metadata
+        # Load metadata and convert to JSON immediately
         with catalog.Catalog.get().begin_xact(for_write=False):
             tbl_md = catalog.Catalog.get().load_replica_md(table)
-            self.md = {
+            self.bundle_md = {
                 'pxt_version': pxt.__version__,
                 'pxt_md_version': metadata.VERSION,
-                'md': {'tables': [md.as_dict() for md in tbl_md]},
+                'md': [dataclasses.asdict(md) for md in tbl_md],
             }
         if additional_md is not None:
-            self.md.update(additional_md)
+            self.bundle_md.update(additional_md)
 
     def package(self) -> Path:
         """
@@ -82,7 +86,7 @@ class TablePackager:
         _logger.info(f'Packaging table {self.table._path()!r} and its ancestors in: {self.tmp_dir}')
         self.tmp_dir.mkdir()
         with open(self.tmp_dir / 'metadata.json', 'w', encoding='utf8') as fp:
-            json.dump(self.md, fp)
+            json.dump(self.bundle_md, fp)
         self.tables_dir = self.tmp_dir / 'tables'
         self.tables_dir.mkdir()
         with catalog.Catalog.get().begin_xact(for_write=False):
@@ -94,10 +98,10 @@ class TablePackager:
         self.bundle_path = self.__build_tarball()
 
         _logger.info('Extracting preview data.')
-        self.md['row_count'] = self.table.count()
+        self.bundle_md['row_count'] = self.table.count()
         preview_header, preview = self.__extract_preview_data()
-        self.md['preview_header'] = preview_header
-        self.md['preview_data'] = preview
+        self.bundle_md['preview_header'] = preview_header
+        self.bundle_md['preview_data'] = preview
 
         _logger.info(f'Packaging complete: {self.bundle_path}')
         return self.bundle_path
@@ -281,7 +285,7 @@ class TablePackager:
         preview = [
             [self.__encode_preview_data(val, col_type)]
             for row in rows
-            for val, col_type in zip(row.values(), preview_cols.values())
+            for val, col_type in zip(row.values(), preview_cols.values(), strict=True)
         ]
 
         return preview_header, preview
@@ -315,12 +319,13 @@ class TablePackager:
                 assert isinstance(val, PIL.Image.Image)
                 return self.__encode_image(val)
 
+            case ts.ColumnType.Type.AUDIO:
+                assert isinstance(val, str)
+                return self.__encode_audio(val)
+
             case ts.ColumnType.Type.VIDEO:
                 assert isinstance(val, str)
                 return self.__encode_video(val)
-
-            case ts.ColumnType.Type.AUDIO:
-                return None
 
             case ts.ColumnType.Type.DOCUMENT:
                 assert isinstance(val, str)
@@ -342,11 +347,23 @@ class TablePackager:
             scaled_img.save(buffer, 'webp')
             return base64.b64encode(buffer.getvalue()).decode()
 
-    def __encode_video(self, video_path: str) -> Optional[str]:
+    def __encode_audio(self, audio_path: str) -> str | None:
+        try:
+            audio_md = av_utils.get_metadata(audio_path)
+            if 'streams' in audio_md:
+                duration = audio_md['streams'][0]['duration_seconds']
+                assert isinstance(duration, float)
+                return f'{timedelta(seconds=round(duration))} audio clip'
+            return None
+        except Exception:
+            _logger.info(f'Could not extract audio metadata from file for data preview: {audio_path}', exc_info=True)
+            return None
+
+    def __encode_video(self, video_path: str) -> str | None:
         thumb = Formatter.extract_first_video_frame(video_path)
         return self.__encode_image(thumb) if thumb is not None else None
 
-    def __encode_document(self, doc_path: str) -> Optional[str]:
+    def __encode_document(self, doc_path: str) -> str | None:
         thumb = Formatter.make_document_thumbnail(doc_path)
         return self.__encode_image(thumb) if thumb is not None else None
 
@@ -358,34 +375,35 @@ class TableRestorer:
 
     Args:
         tbl_path: Pixeltable path (such as 'my_dir.my_table') where the materialized table will be made visible.
-        md: Optional metadata dictionary. If not provided, metadata will be read from the tarball's `metadata.json`.
+        bundle_md: Optional metadata dictionary.
+            If not provided, metadata will be read from the tarball's `metadata.json`.
             The metadata contains table_md, table_version_md, and table_schema_version_md entries for each ancestor
             of the table being restored, as written out by `TablePackager`.
     """
 
     tbl_path: str
-    md: Optional[dict[str, Any]]
+    bundle_md: dict[str, Any] | None
     tmp_dir: Path
     media_files: dict[str, str]  # Mapping from pxtmedia:// URLs to local file:// URLs
 
-    def __init__(self, tbl_path: str, md: Optional[dict[str, Any]] = None) -> None:
+    def __init__(self, tbl_path: str, bundle_md: dict[str, Any] | None = None) -> None:
         self.tbl_path = tbl_path
-        self.md = md
+        self.bundle_md = bundle_md
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
-    def restore(self, bundle_path: Path) -> pxt.Table:
+    def restore(self, bundle_path: Path, pxt_uri: str | None = None, explicit_version: int | None = None) -> pxt.Table:
         # Extract tarball
         print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
             tf.extractall(path=self.tmp_dir)
 
-        if self.md is None:
+        if self.bundle_md is None:
             # No metadata supplied; read it from the archive
             with open(self.tmp_dir / 'metadata.json', 'r', encoding='utf8') as fp:
-                self.md = json.load(fp)
+                self.bundle_md = json.load(fp)
 
-        pxt_md_version = self.md['pxt_md_version']
+        pxt_md_version = self.bundle_md['pxt_md_version']
         assert isinstance(pxt_md_version, int)
 
         if pxt_md_version != metadata.VERSION:
@@ -393,8 +411,9 @@ class TableRestorer:
                 f'Pixeltable metadata version mismatch: {pxt_md_version} != {metadata.VERSION}.\n'
                 'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable'
             )
+        # Convert tables metadata from dict to list of TableVersionCompleteMd
+        tbl_md = [schema.md_from_dict(TableVersionCompleteMd, t) for t in self.bundle_md['md']]
 
-        tbl_md = [schema.FullTableMd.from_dict(t) for t in self.md['md']['tables']]
         for md in tbl_md:
             md.tbl_md.is_replica = True
 
@@ -414,14 +433,19 @@ class TableRestorer:
             # replica_tbl itself if it's a pure snapshot.
             for md in tbl_md[::-1]:  # Base table first
                 if not md.is_pure_snapshot:
-                    tv = cat.get_tbl_version(UUID(md.tbl_md.tbl_id), md.version_md.version)
+                    tv = cat.get_tbl_version(TableVersionKey(UUID(md.tbl_md.tbl_id), md.version_md.version, None))
                     # Import data from Parquet.
                     _logger.info(f'Importing table {tv.name!r}.')
                     self.__import_table(self.tmp_dir, tv, md)
 
-            return cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
+            tbl = cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id), version=explicit_version)
+            if pxt_uri is not None:
+                # Set pxt_uri for the newly created table
+                cat.update_additional_md(tbl._id, {'pxt_uri': pxt_uri})
+            tbl._tbl_version_path.clear_cached_md()  # TODO: Clear cached md for ancestors too?
+            return tbl
 
-    def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: schema.FullTableMd) -> None:
+    def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionCompleteMd) -> None:
         """
         Import the Parquet table into the Pixeltable catalog.
         """
@@ -710,7 +734,7 @@ class TableRestorer:
         self,
         val: Any,
         sql_type: sql.types.TypeEngine[Any],
-        col: Optional[catalog.Column],
+        col: catalog.Column | None,
         is_media_col: bool,
         is_cellmd_col: bool,
     ) -> Any:

@@ -1,5 +1,5 @@
 import datetime
-from typing import Literal, Optional, TypedDict
+from typing import Literal, TypedDict
 
 
 class ColumnMetadata(TypedDict):
@@ -15,11 +15,11 @@ class ColumnMetadata(TypedDict):
     """`True` if this is a stored column; `False` if it is dynamically computed."""
     is_primary_key: bool
     """`True` if this column is part of the table's primary key."""
-    media_validation: Optional[Literal['on_read', 'on_write']]
+    media_validation: Literal['on_read', 'on_write'] | None
     """The media validation policy for this column."""
-    computed_with: Optional[str]
+    computed_with: str | None
     """Expression used to compute this column; `None` if this is not a computed column."""
-    defined_in: Optional[str]
+    defined_in: str | None
     """Name of the table where this column was originally defined.
 
     If the current table is a view, then `defined_in` may differ from the current table name."""
@@ -28,8 +28,10 @@ class ColumnMetadata(TypedDict):
 class EmbeddingIndexParams(TypedDict):
     metric: Literal['cosine', 'ip', 'l2']
     """Index metric."""
-    embeddings: list[str]
-    """List of embeddings defined for this index."""
+    embedding: str
+    """The index embedding."""
+    embedding_functions: list[str]
+    """List of embedding functions defined for this index."""
 
 
 class IndexMetadata(TypedDict):
@@ -68,11 +70,11 @@ class TableMetadata(TypedDict):
     """The timestamp when this table version was created."""
     schema_version: int
     """The current schema version of the table."""
-    comment: Optional[str]
+    comment: str | None
     """User-provided table comment, if one exists."""
     media_validation: Literal['on_read', 'on_write']
     """The media validation policy for this table."""
-    base: Optional[str]
+    base: str | None
     """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
 
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable
 
 import sqlalchemy as sql
 
@@ -16,13 +16,13 @@ from .sql_element_cache import SqlElementCache
 class InPredicate(Expr):
     """Predicate corresponding to the SQL IN operator."""
 
-    def __init__(self, lhs: Expr, value_set_literal: Optional[Iterable] = None, value_set_expr: Optional[Expr] = None):
+    def __init__(self, lhs: Expr, value_set_literal: Iterable | None = None, value_set_expr: Expr | None = None):
         assert (value_set_literal is None) != (value_set_expr is None)
         if not lhs.col_type.is_scalar_type():
             raise excs.Error(f'isin(): only supported for scalar types, not {lhs.col_type}')
         super().__init__(ts.BoolType())
 
-        self.value_list: Optional[list] = None  # only contains values of the correct type
+        self.value_list: list | None = None  # only contains values of the correct type
         if value_set_expr is not None:
             if not value_set_expr.col_type.is_json_type():
                 raise excs.Error(
@@ -73,7 +73,7 @@ class InPredicate(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('value_list', self.value_list)]
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         lhs_sql_exprs = sql_elements.get(self.components[0])
         if lhs_sql_exprs is None or self.value_list is None:
             return None

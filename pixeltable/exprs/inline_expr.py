@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable
 
 import numpy as np
 import sqlalchemy as sql
@@ -30,7 +30,7 @@ class InlineArray(Expr):
             else:
                 exprs.append(Literal(el))
 
-        inferred_element_type: Optional[ts.ColumnType] = ts.InvalidType()
+        inferred_element_type: ts.ColumnType | None = ts.InvalidType()
         for i, expr in enumerate(exprs):
             supertype = inferred_element_type.supertype(expr.col_type)
             if supertype is None:
@@ -61,7 +61,7 @@ class InlineArray(Expr):
     def _equals(self, _: InlineArray) -> bool:
         return True  # Always true if components match
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
@@ -81,7 +81,7 @@ class InlineArray(Expr):
             # loaded and their types are known.
             return InlineList(components)  # type: ignore[return-value]
 
-    def as_literal(self) -> Optional[Literal]:
+    def as_literal(self) -> Literal | None:
         assert isinstance(self.col_type, ts.ArrayType)
         if not all(isinstance(comp, Literal) for comp in self.components):
             return None
@@ -109,7 +109,7 @@ class InlineList(Expr):
     def _equals(self, _: InlineList) -> bool:
         return True  # Always true if components match
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
     def eval(self, data_row: DataRow, _: RowBuilder) -> None:
@@ -122,7 +122,7 @@ class InlineList(Expr):
     def _from_dict(cls, _: dict, components: list[Expr]) -> InlineList:
         return cls(components)
 
-    def as_literal(self) -> Optional[Literal]:
+    def as_literal(self) -> Literal | None:
         if not all(isinstance(comp, Literal) for comp in self.components):
             return None
         return Literal([c.as_literal().val for c in self.components], self.col_type)
@@ -159,7 +159,7 @@ class InlineDict(Expr):
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('keys', self.keys)]
 
-    def sql_expr(self, _: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         return None
 
     def eval(self, data_row: DataRow, _: RowBuilder) -> None:
@@ -191,7 +191,7 @@ class InlineDict(Expr):
         arg = dict(zip(d['keys'], components))
         return InlineDict(arg)
 
-    def as_literal(self) -> Optional[Literal]:
+    def as_literal(self) -> Literal | None:
         if not all(isinstance(comp, Literal) for comp in self.components):
             return None
         return Literal(dict(zip(self.keys, (c.as_literal().val for c in self.components))), self.col_type)

@@ -1,5 +1,5 @@
 import json
-from typing import TYPE_CHECKING, Any, Callable, Optional, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 import pydantic
 
@@ -29,8 +29,8 @@ class Tool(pydantic.BaseModel):
     model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
 
     fn: Function
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
 
     @property
     def parameters(self) -> dict[str, Parameter]:
@@ -78,7 +78,7 @@ class Tool(pydantic.BaseModel):
 class ToolChoice(pydantic.BaseModel):
     auto: bool
     required: bool
-    tool: Optional[str]
+    tool: str | None
     parallel_tool_calls: bool
 
 
@@ -105,7 +105,7 @@ class Tools(pydantic.BaseModel):
     ) -> ToolChoice:
         if sum([auto, required, tool is not None]) != 1:
             raise excs.Error('Exactly one of `auto`, `required`, or `tool` must be specified.')
-        tool_name: Optional[str] = None
+        tool_name: str | None = None
         if tool is not None:
             try:
                 tool_obj = next(
@@ -121,27 +121,27 @@ class Tools(pydantic.BaseModel):
 
 
 @udf
-def _extract_str_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[str]:
+def _extract_str_tool_arg(kwargs: dict[str, Any], param_name: str) -> str | None:
     return _extract_arg(str, kwargs, param_name)
 
 
 @udf
-def _extract_int_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[int]:
+def _extract_int_tool_arg(kwargs: dict[str, Any], param_name: str) -> int | None:
     return _extract_arg(int, kwargs, param_name)
 
 
 @udf
-def _extract_float_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[float]:
+def _extract_float_tool_arg(kwargs: dict[str, Any], param_name: str) -> float | None:
     return _extract_arg(float, kwargs, param_name)
 
 
 @udf
-def _extract_bool_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[bool]:
+def _extract_bool_tool_arg(kwargs: dict[str, Any], param_name: str) -> bool | None:
     return _extract_arg(bool, kwargs, param_name)
 
 
 @udf
-def _extract_json_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[ts.Json]:
+def _extract_json_tool_arg(kwargs: dict[str, Any], param_name: str) -> ts.Json | None:
     if param_name in kwargs:
         return json.loads(kwargs[param_name])
     return None
@@ -150,7 +150,7 @@ def _extract_json_tool_arg(kwargs: dict[str, Any], param_name: str) -> Optional[
 T = TypeVar('T')
 
 
-def _extract_arg(eval_fn: Callable[[Any], T], kwargs: dict[str, Any], param_name: str) -> Optional[T]:
+def _extract_arg(eval_fn: Callable[[Any], T], kwargs: dict[str, Any], param_name: str) -> T | None:
     if param_name in kwargs:
         return eval_fn(kwargs[param_name])
     return None

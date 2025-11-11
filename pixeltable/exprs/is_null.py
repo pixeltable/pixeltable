@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import sqlalchemy as sql
 
 import pixeltable.type_system as ts
@@ -24,7 +22,7 @@ class IsNull(Expr):
     def _equals(self, other: IsNull) -> bool:
         return True
 
-    def sql_expr(self, sql_elements: SqlElementCache) -> Optional[sql.ColumnElement]:
+    def sql_expr(self, sql_elements: SqlElementCache) -> sql.ColumnElement | None:
         e = sql_elements.get(self.components[0])
         if e is None:
             return None

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -15,12 +15,12 @@ if TYPE_CHECKING:
 def create_label_studio_project(
     t: Table,
     label_config: str,
-    name: Optional[str] = None,
-    title: Optional[str] = None,
+    name: str | None = None,
+    title: str | None = None,
     media_import_method: Literal['post', 'file', 'url'] = 'post',
-    col_mapping: Optional[dict[str, str]] = None,
+    col_mapping: dict[str, str] | None = None,
     sync_immediately: bool = True,
-    s3_configuration: Optional[dict[str, Any]] = None,
+    s3_configuration: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> UpdateStatus:
     """

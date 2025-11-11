@@ -7,7 +7,7 @@ import tarfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 import numpy as np
 import pyarrow.parquet as pq
@@ -17,10 +17,12 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
-from pixeltable.catalog import Catalog
+from pixeltable.catalog import Catalog, TableMetadata
+from pixeltable.catalog.table_version import TableVersionCompleteMd
 from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
+from pixeltable.metadata import schema
 from pixeltable.plan import FromClause
 from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.local_store import LocalStore, TempStore
@@ -30,6 +32,7 @@ from ..utils import (
     SAMPLE_IMAGE_URL,
     assert_resultset_eq,
     create_table_data,
+    get_audio_files,
     get_image_files,
     get_video_files,
     reload_catalog,
@@ -66,11 +69,13 @@ class TestPackager:
         self.__check_parquet_tbl(subview, dest, scope_tbl=subview)
 
     def test_media_packager(self, reset_db: None) -> None:
-        t = pxt.create_table('media_tbl', {'image': pxt.Image, 'video': pxt.Video})
+        t = pxt.create_table('media_tbl', {'image': pxt.Image, 'audio': pxt.Audio, 'video': pxt.Video})
         images = get_image_files()[:10]
+        audio = get_audio_files()[:5]
         videos = get_video_files()[:2]
-        t.insert({'image': image} for image in images)
         t.insert({'video': video} for video in videos)
+        t.insert({'audio': audio} for audio in audio)
+        t.insert({'image': image} for image in images)
         t.insert(image=SAMPLE_IMAGE_URL)  # Test an image from a remote URL
         # Test a bad image that generates an errormsg
         t.insert(image=get_image_files(include_bad_image=True)[0], on_error='ignore')
@@ -86,7 +91,7 @@ class TestPackager:
         metadata = json.loads((dest / 'metadata.json').read_text())
         self.__validate_metadata(metadata, t)
 
-        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=13)
+        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=17)
 
     def __extract_bundle(self, bundle_path: Path) -> Path:
         tmp_dir = TempStore.create_path()
@@ -97,17 +102,17 @@ class TestPackager:
     def __validate_metadata(self, md: dict, tbl: pxt.Table) -> None:
         assert md['pxt_version'] == pxt.__version__
         assert md['pxt_md_version'] == metadata.VERSION
-        assert len(md['md']['tables']) == len(tbl._get_base_tables()) + 1
-        for t_md, t in zip(md['md']['tables'], (tbl, *tbl._get_base_tables())):
-            assert t_md['table_id'] == str(t._tbl_version.id)
+        assert len(md['md']) == len(tbl._get_base_tables()) + 1
+        for t_md, t in zip(md['md'], (tbl, *tbl._get_base_tables())):
+            assert schema.md_from_dict(TableVersionCompleteMd, t_md).version_md.tbl_id == str(t._tbl_version.id)
 
     def __check_parquet_tbl(
         self,
         t: pxt.Table,
         bundle_path: Path,
-        media_dir: Optional[Path] = None,
-        scope_tbl: Optional[pxt.Table] = None,  # If specified, use instead of `tbl` to select rows
-        expected_cols: Optional[int] = None,
+        media_dir: Path | None = None,
+        scope_tbl: pxt.Table | None = None,  # If specified, use instead of `tbl` to select rows
+        expected_cols: int | None = None,
     ) -> None:
         parquet_dir = bundle_path / 'tables' / f'tbl_{t._id.hex}'
         parquet_table = pq.read_table(str(parquet_dir))
@@ -181,6 +186,9 @@ class TestPackager:
         bundle_path: Path  # Path of the bundle on disk
         depth: int  # Depth of the table in the table hierarchy (= length of the table's TableVersionPath)
         schema: dict[str, ts.ColumnType]  # Schema of the table
+        metadata: TableMetadata  # User-facing metadata of the table
+        store_col_schema: set[tuple[str, str]]  # Set of (column_name, data_type) for the store table's columns
+        store_idx_schema: set[tuple[str, str]]  # Set of (indexname, indexdef) for the store table's indices
         result_set: DataFrameResultSet  # Resultset corresponding to the query `tbl.head(n=5000)`
 
     def __package_table(self, tbl: pxt.Table) -> BundleInfo:
@@ -188,14 +196,19 @@ class TestPackager:
         Runs the query `tbl.head(n=5000)`, packages the table into a bundle, and returns a BundleInfo.
         """
         schema = tbl._get_schema()
+        metadata = tbl.get_metadata()
         depth = tbl._tbl_version_path.path_len()
         result_set = tbl.head(n=5000)
+        store_col_schema = self.__extract_store_col_schema(tbl)
+        store_idx_schema = self.__extract_store_idx_schema(tbl)
 
         # Package the snapshot into a tarball
         packager = TablePackager(tbl)
         bundle_path = packager.package()
 
-        return TestPackager.BundleInfo(bundle_path, depth, schema, result_set)
+        return TestPackager.BundleInfo(
+            bundle_path, depth, schema, metadata, store_col_schema, store_idx_schema, result_set
+        )
 
     def __restore_and_check_table(self, bundle_info: BundleInfo, tbl_name: str, version: int | None = None) -> None:
         """
@@ -208,10 +221,44 @@ class TestPackager:
 
     def __check_table(self, bundle_info: BundleInfo, tbl_name: str) -> None:
         t = pxt.get_table(tbl_name)
+
+        # Ensure repr() works.
+        _ = repr(t)
+
         assert bundle_info.schema == t._get_schema()
         assert bundle_info.depth == t._tbl_version_path.path_len()
+
+        # Certain metadata properties must be identical.
+        metadata = t.get_metadata()
+        for property in ('indices', 'version', 'version_created', 'schema_version', 'comment', 'media_validation'):
+            assert metadata[property] == bundle_info.metadata[property]
+
+        # Verify that the postgres schema subsumes the original.
+        # (There may be additional columns in the restored table depending on the order in which different versions are
+        # restored. But the columns present in the original table must be present and identical in the restored table.
+        # Regarding indices: the restored table omits indices that were dropped on the Table before the bundle was
+        # created.)
+        assert bundle_info.store_col_schema.issubset(self.__extract_store_col_schema(t))
+        t._tbl_version_path.tbl_version.get().store_tbl.validate()
+
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
+
+    def __extract_store_col_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
+        with Env.get().begin_xact():
+            store_tbl_name = tbl._tbl_version_path.tbl_version.get().store_tbl._storage_name()
+            sql_text = (
+                f'SELECT column_name, data_type FROM information_schema.columns WHERE table_name = {store_tbl_name!r}'
+            )
+            result = Env.get().conn.execute(sql.text(sql_text)).fetchall()
+            return {(col_name, data_type) for col_name, data_type in result}
+
+    def __extract_store_idx_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
+        with Env.get().begin_xact():
+            store_tbl_name = tbl._tbl_version_path.tbl_version.get().store_tbl._storage_name()
+            sql_text = f'SELECT indexname, indexdef FROM pg_indexes WHERE tablename = {store_tbl_name!r}'
+            result = Env.get().conn.execute(sql.text(sql_text)).fetchall()
+            return {(indexname, indexdef) for indexname, indexdef in result}
 
     def __purge_db(self) -> None:
         clean_db()
@@ -327,6 +374,14 @@ class TestPackager:
         v2.update({'x2': v1.x1 + 8})
         snapshot = pxt.create_snapshot('snapshot', v2)
         self.__do_round_trip(snapshot)
+
+    def test_restricted_view_round_trip(self, reset_db: None) -> None:
+        """Tests a view that only selects a subset of the columns from its base table."""
+        t = pxt.create_table('base_tbl', {'icol': pxt.Int, 'scol': pxt.String})
+        t.insert({'icol': i, 'scol': f'string {i}'} for i in range(100))
+        v = pxt.create_view('view', t.select(t.icol))
+
+        self.__do_round_trip(v)
 
     def test_iterator_view_round_trip(self, reset_db: None) -> None:
         t = pxt.create_table('base_tbl', {'video': pxt.Video})
@@ -606,6 +661,9 @@ class TestPackager:
             with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):
                 s.where(s.icol < 5).delete()
 
+            with pytest.raises(pxt.Error, match='Cannot create a view or snapshot on top of a replica'):
+                _ = pxt.create_view(f'subview_of_{name}', s)
+
     def test_drop_replica(self, reset_db: None) -> None:
         """
         Test dropping a replica table.
@@ -730,6 +788,36 @@ class TestPackager:
         for i, bundle in zip(versions, bundles, strict=True):
             self.__restore_and_check_table(bundle, 'replica', version=i)
 
+    def test_view_over_snapshot_round_trip(self, reset_db: None) -> None:
+        pxt.create_dir('dir')
+        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+
+        views: list[pxt.Table] = []
+        bundles: list[TestPackager.BundleInfo] = []
+
+        # Create 5 snapshots with views on top of them, modifying the base table in between.
+        for i in range(5):
+            t.insert(c1=i)
+            t.add_computed_column(**{f'x{i}': t.c1 + i * 10})
+            snap = pxt.create_snapshot(f'dir.test_snap_{i}', t)
+            view = pxt.create_view(f'dir.test_view_{i}', snap)
+            views.append(view)
+
+        # Now modify each of the views.
+        for i in range(5):
+            views[i].add_computed_column(**{f'y{i}': views[i].c1 + i * 100})
+
+        # Package the views.
+        for i in range(5):
+            bundles.append(self.__package_table(views[i]))
+
+        self.__purge_db()
+
+        # Now restore each of the views, ensuring that each view properly publishes and restores according
+        # to its underlying snapshot state.
+        for i in (3, 0, 1, 4, 2):
+            self.__restore_and_check_table(bundles[i], f'replica_view_{i}')
+
     def test_embedding_index(self, reset_db: None, clip_embed: pxt.Function) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP
 
@@ -772,3 +860,24 @@ class TestPackager:
         assert_resultset_eq(sim_results_2, sim_results_2_replica)
 
         self.__validate_index_data(t, 15, 5)
+
+    def test_replicating_view_with_existing_base_tbl(self, reset_db: None) -> None:
+        """
+        Test restoring a view when its base table already exists in the catalog as a non-replica table.
+        """
+        t = pxt.create_table('base_tbl', {'c1': pxt.Int})
+        t.insert([{'c1': i} for i in range(100)])
+        v = pxt.create_view('view', t.where(t.c1 % 2 == 0))
+
+        v_bundle = self.__package_table(v)
+        # Drop just `v` without purging the DB
+        pxt.drop_table(v)
+
+        with pytest.raises(
+            pxt.Error,
+            match=(
+                r'(?s)An attempt was made to replicate a view whose base table already exists'
+                r".*pxt.drop_table\('base_tbl'\)"
+            ),
+        ):
+            self.__restore_and_check_table(v_bundle, 'replica_view')

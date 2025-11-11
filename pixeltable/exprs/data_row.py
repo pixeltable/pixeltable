@@ -6,7 +6,7 @@ import io
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
@@ -126,10 +126,10 @@ class DataRow:
     _may_have_exc: bool
 
     # the primary key of a store row is a sequence of ints (the number is different for table vs view)
-    pk: Optional[tuple[int, ...]]
+    pk: tuple[int, ...] | None
     # for nested rows (ie, those produced by JsonMapperDispatcher)
-    parent_row: Optional[DataRow]
-    parent_slot_idx: Optional[int]
+    parent_row: DataRow | None
+    parent_slot_idx: int | None
 
     # state for table output (insert()/update()); key: column id
     cell_vals: dict[int, Any]  # materialized values of output columns, in the format required for the column
@@ -148,8 +148,8 @@ class DataRow:
         media_slot_idxs: list[int],
         array_slot_idxs: list[int],
         json_slot_idxs: list[int],
-        parent_row: Optional[DataRow] = None,
-        parent_slot_idx: Optional[int] = None,
+        parent_row: DataRow | None = None,
+        parent_slot_idx: int | None = None,
     ):
         self.init(size)
         self.parent_row = parent_row
@@ -176,7 +176,7 @@ class DataRow:
         self.parent_row = None
         self.parent_slot_idx = None
 
-    def clear(self, slot_idxs: Optional[np.ndarray] = None) -> None:
+    def clear(self, slot_idxs: np.ndarray | None = None) -> None:
         if slot_idxs is not None:
             self.has_val[slot_idxs] = False
             self.vals[slot_idxs] = None
@@ -209,7 +209,7 @@ class DataRow:
     def set_pk(self, pk: tuple[int, ...]) -> None:
         self.pk = pk
 
-    def has_exc(self, slot_idx: Optional[int] = None) -> bool:
+    def has_exc(self, slot_idx: int | None = None) -> bool:
         """
         Returns True if an exception has been set for the given slot index, or for any slot index if slot_idx is None
         """
@@ -220,12 +220,12 @@ class DataRow:
             return self.excs[slot_idx] is not None
         return (self.excs != None).any()
 
-    def get_exc(self, slot_idx: int) -> Optional[Exception]:
+    def get_exc(self, slot_idx: int) -> Exception | None:
         exc = self.excs[slot_idx]
         assert exc is None or isinstance(exc, Exception)
         return exc
 
-    def get_first_exc(self) -> Optional[Exception]:
+    def get_first_exc(self) -> Exception | None:
         mask = self.excs != None
         if not mask.any():
             return None
@@ -260,7 +260,7 @@ class DataRow:
 
         return self.vals[index]
 
-    def get_stored_val(self, index: int, sa_col_type: Optional[sql.types.TypeEngine] = None) -> Any:
+    def get_stored_val(self, index: int, sa_col_type: sql.types.TypeEngine | None = None) -> Any:
         """Return the value that gets stored in the db"""
         assert self.excs[index] is None
         if not self.has_val[index]:
@@ -328,7 +328,7 @@ class DataRow:
             self.vals[idx] = val
         self.has_val[idx] = True
 
-    def prepare_col_val_for_save(self, index: int, col: Optional[catalog.Column] = None) -> bool:
+    def prepare_col_val_for_save(self, index: int, col: catalog.Column | None = None) -> bool:
         """
         Prepare to save a column's value into the appropriate store. Discard unneeded values.
 

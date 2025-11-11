@@ -63,6 +63,7 @@ nav:
     - openai: pixeltable/functions/openai.md
     - openrouter: pixeltable/functions/openrouter.md
     - replicate: pixeltable/functions/replicate.md
+    - reve: pixeltable/functions/reve.md
     - together: pixeltable/functions/together.md
     - whisper: pixeltable/functions/whisper.md
     - whisperx: pixeltable/functions/whisperx.md

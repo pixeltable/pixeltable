@@ -1,9 +1,25 @@
-from typing import Any
+from __future__ import annotations
+
+from dataclasses import dataclass
+from fractions import Fraction
+from pathlib import Path
+from types import TracebackType
+from typing import Any, Iterator
 
 import av
 import av.stream
+import PIL.Image
+from typing_extensions import Self
 
 from pixeltable.env import Env
+
+# format -> (codec, extension)
+AUDIO_FORMATS: dict[str, tuple[str, str]] = {
+    'wav': ('pcm_s16le', 'wav'),
+    'mp3': ('libmp3lame', 'mp3'),
+    'flac': ('flac', 'flac'),
+    'mp4': ('aac', 'm4a'),
+}
 
 
 def get_metadata(path: str) -> dict:
@@ -91,25 +107,58 @@ def has_audio_stream(path: str) -> bool:
     return any(stream['type'] == 'audio' for stream in md['streams'])
 
 
-def ffmpeg_clip_cmd(input_path: str, output_path: str, start_time: float, duration: float | None = None) -> list[str]:
-    # the order of arguments is critical: -ss <start> -t <duration> -i <input>
-    cmd = ['ffmpeg', '-ss', str(start_time)]
+def ffmpeg_clip_cmd(
+    input_path: str,
+    output_path: str,
+    start_time: float,
+    duration: float | None = None,
+    fast: bool = True,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> list[str]:
+    cmd = ['ffmpeg']
+    if fast:
+        # fast: -ss before -i
+        cmd.extend(
+            [
+                '-ss',
+                str(start_time),
+                '-i',
+                input_path,
+                '-map',
+                '0',  # Copy all streams from input
+                '-c',
+                'copy',  # Stream copy (no re-encoding)
+            ]
+        )
+    else:
+        if video_encoder is None:
+            video_encoder = Env.get().default_video_encoder
+
+        # accurate: -ss after -i
+        cmd.extend(
+            [
+                '-i',
+                input_path,
+                '-ss',
+                str(start_time),
+                '-map',
+                '0',  # Copy all streams from input
+                '-c:a',
+                'copy',  # audio copy
+                '-c:s',
+                'copy',  # subtitle copy
+                '-c:v',
+                video_encoder,  # re-encode video
+            ]
+        )
+        if video_encoder_args is not None:
+            for k, v in video_encoder_args.items():
+                cmd.extend([f'-{k}', str(v)])
+
     if duration is not None:
         cmd.extend(['-t', str(duration)])
-    cmd.extend(
-        [
-            '-i',  # Input file
-            input_path,
-            '-y',  # Overwrite output file
-            '-loglevel',
-            'error',  # Only show errors
-            '-c',
-            'copy',  # Stream copy (no re-encoding)
-            '-map',
-            '0',  # Copy all streams from input
-            output_path,
-        ]
-    )
+    cmd.extend(['-loglevel', 'error', output_path])
     return cmd
 
 
@@ -130,47 +179,120 @@ def ffmpeg_segment_cmd(
         'ffmpeg',
         '-i',
         input_path,
-        '-f',
-        'segment',  # Use segment muxer
+        '-map',
+        '0',  # Copy all streams from input
+        '-c:a',
+        'copy',  # don't re-encode audio
+        '-c:v',
+        video_encoder,  # re-encode video
     ]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+    cmd.extend(['-f', 'segment'])
 
+    # -force_key_frames needs to precede -f segment
     if segment_duration is not None:
         cmd.extend(
             [
-                '-segment_time',
-                str(segment_duration),  # Target segment duration
-                '-break_non_keyframes',
-                '1',  # need to break at non-keyframes to get frame-accurate segments
                 '-force_key_frames',
                 f'expr:gte(t,n_forced*{segment_duration})',  # Force keyframe at each segment boundary
+                '-f',
+                'segment',
+                '-segment_time',
+                str(segment_duration),
             ]
         )
     else:
         assert segment_times is not None
         times_str = ','.join([str(t) for t in segment_times])
-        cmd.extend(['-segment_times', times_str, '-force_key_frames', times_str])
+        cmd.extend(['-force_key_frames', times_str, '-f', 'segment', '-segment_times', times_str])
 
     cmd.extend(
         [
             '-reset_timestamps',
             '1',  # Reset timestamps for each segment
-            '-map',
-            '0',  # Copy all streams from input
-            '-c:a',
-            'copy',  # don't re-encode audio
-            '-c:v',
-            video_encoder,  # re-encode video
-        ]
-    )
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
-
-    cmd.extend(
-        [
             '-loglevel',
             'error',  # Only show errors
             output_pattern,
         ]
     )
     return cmd
+
+
+class VideoFrames:
+    """
+    Context manager for iterating over video frames at a specified frame rate.
+
+    Args:
+        path: Path to the video file
+        fps: Number of frames to extract per second. If None or 0.0, extracts all frames.
+    """
+
+    path: Path
+    fps: float
+    container: av.container.input.InputContainer | None
+    video_framerate: Fraction | None
+    video_time_base: Fraction | None
+    video_start_time: int | None
+
+    @dataclass
+    class Item:
+        frame_idx: int
+        pts: int
+        dts: int
+        time: float
+        is_corrupt: bool
+        key_frame: bool
+        pict_type: int
+        interlaced_frame: bool
+        frame: PIL.Image.Image
+
+    def __init__(self, path: Path, fps: float | None = None) -> None:
+        self.path = path
+        self.fps = 0.0 if fps is None else fps
+        self.container = None
+        self.video_framerate = None
+        self.video_time_base = None
+        self.video_start_time = None
+
+    def __enter__(self) -> Self:
+        self.container = av.open(self.path)
+        stream = self.container.streams.video[0]
+        self.video_framerate = stream.average_rate
+        self.video_time_base = stream.time_base
+        self.video_start_time = stream.start_time or 0
+        return self
+
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+    ) -> None:
+        # Clean up
+        if self.container:
+            self.container.close()
+
+    def __iter__(self) -> Iterator[Item]:
+        num_returned = 0
+        frame_idx = -1
+        while True:
+            try:
+                frame = next(self.container.decode(video=0))
+            except (StopIteration, EOFError):
+                return
+
+            frame_idx += 1
+            if self.fps == 0.0 or (num_returned <= frame.time * self.fps):
+                img = frame.to_image()
+                assert isinstance(img, PIL.Image.Image)
+                yield VideoFrames.Item(
+                    frame_idx=frame_idx,
+                    pts=frame.pts,
+                    dts=frame.dts,
+                    time=frame.time,
+                    is_corrupt=frame.is_corrupt,
+                    key_frame=frame.key_frame,
+                    pict_type=frame.pict_type,
+                    interlaced_frame=frame.interlaced_frame,
+                    frame=img,
+                )
+                num_returned += 1

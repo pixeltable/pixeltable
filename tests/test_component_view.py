@@ -78,7 +78,7 @@ class TestComponentView:
         # bad parameter type
         with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps='1'))
-        assert 'argument type String does not match parameter type Optional[Float]' in str(excinfo.value)
+        assert 'argument type String does not match parameter type Float | None' in str(excinfo.value)
 
         # bad parameter type
         with pytest.raises(pxt.Error) as excinfo:
@@ -134,9 +134,8 @@ class TestComponentView:
         validate_update_status(video_t.insert(rows))
         assert view_t.count() == view_t.where(view_t.annotation == None).count()
 
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.Error, match='Duplicate column name: annotation'):
             view_t.add_column(annotation=pxt.Required[pxt.Json])
-        assert "Duplicate column name: 'annotation'" in str(excinfo.value)
 
     def test_update(self, reset_db: None) -> None:
         # create video table

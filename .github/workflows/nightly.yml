@@ -13,10 +13,10 @@ on:
 
 env:
   PXTTEST_IN_CI: 1
+  # PIXELTABLE_API_KEY: ${{ secrets.PIXELTABLE_API_KEY }}
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
   CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF'
   CMAKE_POLICY_VERSION_MINIMUM: 3.5
-  # in a PR, the secrets will be empty
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_DEFAULT_REGION: us-west-2
@@ -75,6 +75,8 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          fetch-tags: true
           ref: release
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
@@ -102,6 +104,8 @@ jobs:
         # cmake is needed for certain CI environments where it is not preinstalled.
         # libiconv and ffmpeg are needed by WhisperX.
         run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
+      - name: Delete source tree
+        run: rm -rf pixeltable  # Ensure we use pypi pixeltable package for testing, not local source tree
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -138,6 +142,8 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          fetch-tags: true
           ref: release
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}

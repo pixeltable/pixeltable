@@ -3,7 +3,7 @@ import re
 import pandas as pd
 
 from pixeltable.config import Config
-from tool.random_tbl_ops_2 import RandomTblOps
+from tool.random_ops import TABLE_OPS
 
 LINE_PARSER = re.compile(
     r'^\[(?P<timestamp>.+?)\] \[Worker (?P<worker_id>\d+)\] \[(?P<operation>.+?)\]: (?P<message>.*)$'
@@ -58,14 +58,14 @@ class StatsPrinter:
             err_dict[worker] += 1
 
     def print_stats(self) -> None:
-        with open(Config.get().home / 'random-tbl-ops.log', encoding='utf-8') as fp:
+        with open(Config.get().home / 'random-ops.log', encoding='utf-8') as fp:
             while True:
                 line = fp.readline()
                 if line == '':
                     break
                 self.process_line(line)
 
-        ops = tuple(op for op, *_ in RandomTblOps.RANDOM_OPS_DEF)
+        ops = tuple(op for op, *_ in TABLE_OPS)
         data: dict[str, list[str]] = {}
         for op in ops:
             key = op[:6]

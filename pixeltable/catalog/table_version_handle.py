@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pixeltable import exceptions as excs
 
-from .table_version import TableVersion
+from .table_version import TableVersion, TableVersionKey
 
 if TYPE_CHECKING:
     from pixeltable.catalog import Column
@@ -18,15 +18,15 @@ _logger = logging.getLogger('pixeltable')
 class TableVersionHandle:
     """
     Indirection mechanism for TableVersion instances, which get resolved against the catalog at runtime.
+
+    See the TableVersion docstring for details on the semantics of `effective_version` and `anchor_tbl_id`.
     """
 
-    id: UUID
-    effective_version: Optional[int]
-    _tbl_version: Optional[TableVersion]
+    key: TableVersionKey
+    _tbl_version: TableVersion | None
 
-    def __init__(self, tbl_id: UUID, effective_version: Optional[int], tbl_version: Optional[TableVersion] = None):
-        self.id = tbl_id
-        self.effective_version = effective_version
+    def __init__(self, key: TableVersionKey, *, tbl_version: TableVersion | None = None):
+        self.key = key
         self._tbl_version = tbl_version
 
     def __eq__(self, other: object) -> bool:
@@ -38,15 +38,26 @@ class TableVersionHandle:
         return hash((self.id, self.effective_version))
 
     def __repr__(self) -> str:
-        return f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version})'
+        return (
+            f'TableVersionHandle(id={self.id!r}, effective_version={self.effective_version}, '
+            f'anchor_tbl_id={self.anchor_tbl_id})'
+        )
+
+    @property
+    def id(self) -> UUID:
+        return self.key.tbl_id
+
+    @property
+    def effective_version(self) -> int | None:
+        return self.key.effective_version
+
+    @property
+    def anchor_tbl_id(self) -> UUID | None:
+        return self.key.anchor_tbl_id
 
     @property
     def is_snapshot(self) -> bool:
         return self.effective_version is not None
-
-    @classmethod
-    def create(cls, tbl_version: TableVersion) -> TableVersionHandle:
-        return cls(tbl_version.id, tbl_version.effective_version, tbl_version)
 
     def get(self) -> TableVersion:
         from .catalog import Catalog
@@ -57,22 +68,23 @@ class TableVersionHandle:
                 # this is a snapshot version; we need to make sure we refer to the instance cached
                 # in Catalog, in order to avoid mixing sa_tbl instances in the same transaction
                 # (which will lead to duplicates in the From clause generated in SqlNode.create_from_clause())
-                assert (self.id, self.effective_version) in cat._tbl_versions
-                self._tbl_version = cat._tbl_versions[self.id, self.effective_version]
+                assert self.key in cat._tbl_versions
+                self._tbl_version = cat._tbl_versions[self.key]
                 self._tbl_version.is_validated = True
             else:
-                self._tbl_version = Catalog.get().get_tbl_version(self.id, self.effective_version)
+                self._tbl_version = Catalog.get().get_tbl_version(self.key)
+                assert self._tbl_version.key == self.key
         if self.effective_version is None:
             tvs = list(Catalog.get()._tbl_versions.values())
-            assert self._tbl_version in tvs
+            assert self._tbl_version in tvs, self._tbl_version
         return self._tbl_version
 
     def as_dict(self) -> dict:
-        return {'id': str(self.id), 'effective_version': self.effective_version}
+        return self.key.as_dict()
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersionHandle:
-        return cls(UUID(d['id']), d['effective_version'])
+        return cls(TableVersionKey.from_dict(d))
 
 
 @dataclass(frozen=True)

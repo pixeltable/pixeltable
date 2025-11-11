@@ -5,3 +5,4 @@ pixeltable/catalog/** @mkornacker
 # Docs owners
 /docs/mintlify/** @mkornacker @aaron-siegel @pierrebrunelle @goodlux
 /docs/sample-apps/** @mkornacker @aaron-siegel @pierrebrunelle @goodlux
+/docs/cookbook/** @mkornacker @aaron-siegel @pierrebrunelle @goodlux @apreshill

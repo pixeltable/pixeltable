@@ -1,22 +1,37 @@
 import math
-from typing import Counter, Optional
+from typing import Counter
 
 import av
+import numpy as np
 import pytest
 
 import pixeltable as pxt
+import pixeltable.utils.av as av_utils
+from pixeltable.functions.audio import encode_audio
 from pixeltable.iterators.audio import AudioSplitter
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 
-from .utils import ReloadTester, get_audio_file, get_audio_files, get_video_files, validate_update_status
+from .utils import (
+    IN_CI,
+    ReloadTester,
+    get_audio_file,
+    get_audio_files,
+    get_video_files,
+    rerun,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 class TestAudio:
-    def check_audio_params(self, path: str, format: Optional[str] = None, codec: Optional[str] = None) -> None:
+    def check_audio_params(self, path: str, format: str | None = None, codec: str | None = None) -> None:
         with av.open(path) as container:
             audio_stream = container.streams.audio[0]
-            if format is not None:
+            if format == 'mp4':
+                # mov, the demuxer for mp4, happens to return a string such as 'mov,mp4,m4a,3gp,3g2,mj2'
+                assert 'mp4' in container.format.name
+            elif format is not None:
                 assert format == container.format.name
             if codec is not None:
                 assert codec == audio_stream.codec_context.codec.name
@@ -39,7 +54,7 @@ class TestAudio:
         status = video_t.insert({'video': p} for p in video_filepaths)
         assert status.num_rows == len(video_filepaths)
         assert status.num_excs == 0
-        assert ObjectOps.count(None, video_t._id) == len(video_filepaths) - 1
+        assert ObjectOps.count(video_t._id, default_output_dest=True) == len(video_filepaths) - 1
         assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
         tmp_files_before = TempStore.count()
 
@@ -57,7 +72,7 @@ class TestAudio:
         for path in [p for p in paths if p is not None]:
             self.check_audio_params(path, format='wav', codec='pcm_s32le')
 
-        for format in ['mp3', 'flac']:
+        for format in av_utils.AUDIO_FORMATS.keys() - 'wav':
             paths = video_t.select(output=video_t.video.extract_audio(format=format)).collect()['output']
             for path in [p for p in paths if p is not None]:
                 self.check_audio_params(path, format=format)
@@ -154,15 +169,15 @@ class TestAudio:
         video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.insert({'video': p} for p in video_filepaths)
 
-        pre_count = ObjectOps.count(None, video_t._id)
+        pre_count = ObjectOps.count(video_t._id, default_output_dest=True)
         # extract audio
         video_t.add_computed_column(audio=video_t.video.extract_audio(format='mp3'))
-        post_count = ObjectOps.count(None, video_t._id)
+        post_count = ObjectOps.count(video_t._id, default_output_dest=True)
         assert post_count > pre_count  # Some files should have been added
 
         print(video_t.history())
         video_t.revert()
-        final_count = ObjectOps.count(None, video_t._id)
+        final_count = ObjectOps.count(video_t._id, default_output_dest=True)
         assert final_count == pre_count  # Reverting should remove the added files
 
     def test_audio_iterator_on_videos(self, reset_db: None, reload_tester: ReloadTester) -> None:
@@ -327,3 +342,102 @@ class TestAudio:
                 ),
             )
         assert 'overlap_sec must be less than chunk_duration_sec' in str(excinfo.value)
+
+    @pytest.mark.parametrize(
+        'format,stereo,downsample,as_1d_array',
+        [
+            ('wav', False, False, False),  # wav_mono
+            ('mp3', True, False, False),  # mp3_stereo
+            ('mp3', False, False, False),  # mp3_mono
+            ('mp3', True, True, False),  # mp3_downsample_stereo
+            ('flac', True, False, False),  # flac_stereo
+            ('mp4', True, False, False),  # mp4_stereo
+            ('mp4', False, False, True),  # mp4_1d_array_mono
+        ],
+        ids=[
+            'wav_mono',
+            'mp3_stereo',
+            'mp3_mono',
+            'mp3_downsample_stereo',
+            'flac_stereo',
+            'mp4_stereo',
+            'mp4_1d_array_mono',
+        ],
+    )
+    def test_encode_array_to_audio(
+        self, format: str, stereo: bool, downsample: bool, as_1d_array: bool, reset_db: None
+    ) -> None:
+        # Load a sample mp3 file to an array
+        sample_path = './tests/data/audio/sample.mp3' if stereo else './docs/resources/10-minute tour of Pixeltable.mp3'
+        audio_data, sample_duration_sec, sample_rate = self._decode_audio_file(sample_path)
+        assert audio_data.dtype == np.float32
+        assert audio_data.ndim == 2
+        assert audio_data.shape[0] == 2 if stereo else 1
+        if as_1d_array:
+            # Validate the scenario in which the input is a mono clip as an (N)-shaped array, as opposed to (1, N)
+            assert not stereo
+            audio_data = audio_data.flatten()
+
+        # Use encode_audio to encode it to an audio file
+        t = pxt.create_table('test_encode_array_to_audio', {'audio_array': pxt.Array[pxt.Float]})  # type: ignore[misc]
+        output_sample_rate = sample_rate // 2 if downsample else sample_rate
+        t.add_computed_column(
+            audio_file=encode_audio(
+                t.audio_array, input_sample_rate=sample_rate, format=format, output_sample_rate=output_sample_rate
+            )
+        )
+        validate_update_status(t.insert(audio_array=audio_data), 1)
+
+        row = t.head(1)[0]
+        assert set(row.keys()) == {'audio_array', 'audio_file'}
+        encoded_path = row['audio_file']
+        assert encoded_path.endswith('.m4a' if format == 'mp4' else f'.{format}')
+        print(f'Encoded audio file: {row["audio_file"]}')
+
+        # Read back, decode, and validate the encoded file
+        _, encoded_duration_sec, encoded_sample_rate = self._decode_audio_file(encoded_path)
+        assert abs(encoded_duration_sec - sample_duration_sec) < 1
+        assert encoded_sample_rate == output_sample_rate
+
+    def _decode_audio_file(self, file_path: str) -> tuple[np.ndarray, float, int]:
+        with av.open(file_path) as container:
+            assert len(container.streams.audio) == 1
+            audio_stream = container.streams.audio[0]
+            duration_seconds = float(audio_stream.duration * audio_stream.time_base)
+            sample_rate = audio_stream.rate
+            audio_frames = [frame.to_ndarray() for frame in container.decode(audio_stream)]
+
+        audio_data = np.concatenate(audio_frames, axis=1)
+        assert len(audio_data) > 0
+        return audio_data, duration_seconds, sample_rate
+
+    @pytest.mark.skipif(IN_CI, reason='Runs out of disk space on CI')
+    @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
+    def test_encode_dataset_audio(self, reset_db: None) -> None:
+        """
+        The point of this test case is to validate encode_audio UDF on a real-world dataset.
+        """
+        skip_test_if_not_installed('datasets')
+        import datasets  # type: ignore[import-untyped]
+
+        hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset', split='test')
+        t = pxt.create_table('test_encode_dataset_audio', source=hf_dataset)
+        row = t.head(1)[0]
+        assert set(row.keys()) == {'audio', 'sentence'}
+        assert isinstance(row['audio'], dict)
+        assert set(row['audio'].keys()) == {'array', 'path', 'sampling_rate'}
+        assert isinstance(row['audio']['array'], np.ndarray)
+        assert isinstance(row['audio']['sampling_rate'], int)
+
+        update_status = t.add_computed_column(
+            audio_file=encode_audio(
+                t.audio.array.astype(pxt.Array[pxt.Float]),  # type: ignore[misc]
+                input_sample_rate=t.audio.sampling_rate.astype(pxt.Int),
+                format='flac',
+            )
+        )
+        validate_update_status(update_status)
+        assert update_status.num_computed_values > 1000
+        for row in t.head(10):
+            assert set(row.keys()) == {'audio', 'sentence', 'audio_file'}
+            print(f'Encoded audio file: {row["audio_file"]}')

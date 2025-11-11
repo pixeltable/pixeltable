@@ -4,7 +4,6 @@ import dataclasses
 import importlib
 import logging
 import sys
-from typing import Optional
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -23,7 +22,7 @@ class FunctionRegistry:
     Function are loaded from the store on demand.
     """
 
-    _instance: Optional[FunctionRegistry] = None
+    _instance: FunctionRegistry | None = None
 
     @classmethod
     def get(cls) -> FunctionRegistry:
@@ -94,7 +93,7 @@ class FunctionRegistry:
         #         stored_fn_md.append(md)
         return list(self.module_fns.values())
 
-    # def get_function(self, *, id: Optional[UUID] = None, fqn: Optional[str] = None) -> Function:
+    # def get_function(self, *, id: UUID | None = None, fqn: str | None = None) -> Function:
     #     assert (id is not None) != (fqn is not None)
     #     if id is not None:
     #         if id not in self.stored_fns_by_id:
@@ -143,7 +142,7 @@ class FunctionRegistry:
             return list(self.type_methods[base_type].values())
         return []
 
-    def lookup_type_method(self, base_type: ts.ColumnType.Type, name: str) -> Optional[Function]:
+    def lookup_type_method(self, base_type: ts.ColumnType.Type, name: str) -> Function | None:
         """
         Look up a method (or property) by name for a given base type. If no such method is registered, return None.
         """
@@ -151,8 +150,8 @@ class FunctionRegistry:
             return self.type_methods[base_type][name]
         return None
 
-    # def create_function(self, md: schema.FunctionMd, binary_obj: bytes, dir_id: Optional[UUID] = None) -> UUID:
-    def create_stored_function(self, pxt_fn: Function, dir_id: Optional[UUID] = None) -> UUID:
+    # def create_function(self, md: schema.FunctionMd, binary_obj: bytes, dir_id: UUID | None = None) -> UUID:
+    def create_stored_function(self, pxt_fn: Function, dir_id: UUID | None = None) -> UUID:
         fn_md, binary_obj = pxt_fn.to_store()
         md = schema.FunctionMd(name=pxt_fn.name, md=fn_md, py_version=sys.version, class_name=pxt_fn.__class__.__name__)
         with env.Env.get().engine.begin() as conn:
@@ -184,7 +183,7 @@ class FunctionRegistry:
             self.stored_fns_by_id[id] = instance
             return instance
 
-    # def create_function(self, fn: Function, dir_id: Optional[UUID] = None, name: Optional[str] = None) -> None:
+    # def create_function(self, fn: Function, dir_id: UUID | None = None, name: str | None = None) -> None:
     #     with env.Env.get().engine.begin() as conn:
     #         _logger.debug(f'Pickling function {name}')
     #         eval_fn_str = cloudpickle.dumps(fn.eval_fn) if fn.eval_fn is not None else None
