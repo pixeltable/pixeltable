@@ -25,7 +25,6 @@ from pixeltable.catalog.table_version import TableVersionCompleteMd, TableVersio
 from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
-from pixeltable.share.protocol.common import PxtUri
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.local_store import TempStore

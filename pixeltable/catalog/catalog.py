@@ -1235,16 +1235,11 @@ class Catalog:
 
         # Update md with the given name, current user, and is_replica flag.
         md = dataclasses.replace(
-            md,
-            tbl_md=dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True),
+            md, tbl_md=dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
         )
         if existing_md_row is None:
             # No existing table, so create a new record.
-            q = sql.insert(schema.Table.__table__).values(
-                id=tbl_id,
-                dir_id=dir._id,
-                md=dataclasses.asdict(md.tbl_md)
-            )
+            q = sql.insert(schema.Table.__table__).values(id=tbl_id, dir_id=dir._id, md=dataclasses.asdict(md.tbl_md))
             conn.execute(q)
         elif not existing_md_row.md['is_replica']:
             raise excs.Error(

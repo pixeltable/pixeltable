@@ -3,7 +3,6 @@ import uuid
 import pytest
 
 import pixeltable as pxt
-from pixeltable.share.protocol.common import PxtUri
 from tests.conftest import clean_db
 from tests.utils import assert_resultset_eq, get_image_files, reload_catalog, skip_test_if_no_pxt_credentials
 
@@ -110,18 +109,28 @@ class TestPublish:
         for version in range(1, 8):
             tbl.insert({'icol': i, 'scol': f'string {i}'} for i in range(version * 10, version * 10 + 10))
 
-        with pytest.raises(pxt.Error, match=r"push\(\): Table 'tbl' has not yet been published to Pixeltable Cloud. To publish it, use `pxt.publish\(\)` instead."):
+        with pytest.raises(
+            pxt.Error,
+            match=(
+                r"push\(\): Table 'tbl' has not yet been published to Pixeltable Cloud. "
+                r'To publish it, use `pxt.publish\(\)` instead.'
+            ),
+        ):
             tbl.push()
 
         pxt.publish('tbl', remote_uri)
 
-        with pytest.raises(pxt.Error, match=r"pull\(\): Table 'tbl' is not a replica of a Pixeltable Cloud table \(nothing to `pull\(\)`\)."):
+        with pytest.raises(
+            pxt.Error,
+            match=r"pull\(\): Table 'tbl' is not a replica of a Pixeltable Cloud table \(nothing to `pull\(\)`\).",
+        ):
             tbl.pull()
 
         tbl_3 = pxt.get_table('tbl:3')
         with pytest.raises(
             pxt.Error,
-            match = r'push\(\): Cannot push specific-version table handle \'tbl:3\'\. ' 'To push the latest version instead:',
+            match=r'push\(\): Cannot push specific-version table handle \'tbl:3\'\. '
+            'To push the latest version instead:',
         ):
             tbl_3.push()
 
@@ -131,21 +140,20 @@ class TestPublish:
         tbl_replica = pxt.replicate(f'{remote_uri}:7', 'tbl_replica')
         with pytest.raises(
             pxt.Error,
-            match = r'pull\(\): Cannot pull specific-version table handle \'tbl_replica:7\'\. ' 'To pull the latest version instead:',
+            match=r'pull\(\): Cannot pull specific-version table handle \'tbl_replica:7\'\. '
+            'To pull the latest version instead:',
         ):
             tbl_replica.pull()
 
         with pytest.raises(
-            pxt.Error,
-            match = r"push\(\): Cannot push replica table 'tbl_replica'. \(Did you mean `pull\(\)`\?\)",
+            pxt.Error, match=r"push\(\): Cannot push replica table 'tbl_replica'. \(Did you mean `pull\(\)`\?\)"
         ):
             tbl_replica.push()
 
         tbl_replica = pxt.get_table('tbl_replica')
 
         with pytest.raises(
-            pxt.Error,
-            match = r"push\(\): Cannot push replica table 'tbl_replica'. \(Did you mean `pull\(\)`\?\)",
+            pxt.Error, match=r"push\(\): Cannot push replica table 'tbl_replica'. \(Did you mean `pull\(\)`\?\)"
         ):
             tbl_replica.push()
 
