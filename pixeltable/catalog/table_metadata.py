@@ -28,8 +28,10 @@ class ColumnMetadata(TypedDict):
 class EmbeddingIndexParams(TypedDict):
     metric: Literal['cosine', 'ip', 'l2']
     """Index metric."""
-    embeddings: list[str]
-    """List of embeddings defined for this index."""
+    embedding: str
+    """The index embedding."""
+    embedding_functions: list[str]
+    """List of embedding functions defined for this index."""
 
 
 class IndexMetadata(TypedDict):

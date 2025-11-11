@@ -177,11 +177,19 @@ class FunctionCall(Expr):
     def __repr__(self) -> str:
         return self.display_str()
 
+    # def __repr__(self) -> str:
+    #     return f'FunctionCall(fn={self.fn!r}, args={self.args!r}, kwargs={self.kwargs!r})'
+
     @property
     def validation_error(self) -> str | None:
         return self._validation_error or super().validation_error
 
     def display_str(self, inline: bool = True) -> str:
+        if isinstance(self.fn, func.ExprTemplateFunction) and isinstance(self.fn.template.expr, FunctionCall):
+            # If this FunctionCall uses an ExprTemplateFunction with a nested FunctionCall, then resolve the
+            # indirection by substitution into the ExprTemplateFunction.
+            subst = self.fn.instantiate(self.args, self.kwargs)
+            return subst.display_str(inline)
         if self.is_method_call:
             return f'{self.components[0]}.{self.fn.name}({self._print_args(1, inline)})'
         else:
@@ -312,6 +320,20 @@ class FunctionCall(Expr):
             self.return_type = self.fn.call_return_type(self.bound_args)
             self.col_type = self.return_type
         return self
+
+    @property
+    def args(self) -> list[Expr]:
+        return [self.components[idx] for idx in self.arg_idxs]
+
+    @property
+    def kwargs(self) -> dict[str, Expr]:
+        return {name: self.components[idx] for name, idx in self.kwarg_idxs.items()}
+
+    @property
+    def fn_expr(self) -> Expr | None:
+        if self.fn_expr_idx != sys.maxsize:
+            return self.components[self.fn_expr_idx]
+        return None
 
     def update(self, data_row: DataRow) -> None:
         """
