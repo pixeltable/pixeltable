@@ -1444,13 +1444,14 @@ class Catalog:
             base_id = tvp.base.tbl_id
             base_tv = self.get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
             base_tv.tbl_md.view_sn += 1
-            self.mark_modified_tvs(base_tv.handle)
             result = Env.get().conn.execute(
                 sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md)})
                 .where(schema.Table.id == base_id)
             )
             assert result.rowcount == 1, result.rowcount
+            # force reload of base TV instance in order to make its state consistent with the stored metadata
+            self._clear_tv_cache(base_tv.key)
 
         if do_drop:
             if not is_pure_snapshot:

@@ -65,7 +65,8 @@ class TestView:
             join_df = t.join(u, on=t.c1 == u.c1)
             _ = pxt.create_view('join_view', join_df)
 
-    def test_basic(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True])
+    def test_basic(self, do_reload_catalog: bool, reset_db: None) -> None:
         t = self.create_tbl()
 
         # create view with filter and computed columns
@@ -101,7 +102,7 @@ class TestView:
         check_view(t, v)
 
         # check view md after reload
-        reload_catalog()
+        reload_catalog(do_reload_catalog)
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
         check_view(t, v)
@@ -136,16 +137,16 @@ class TestView:
 
         # test delete view
         pxt.drop_table('test_view')
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.get_table('test_view')
-        assert 'does not exist' in str(exc_info.value)
-        reload_catalog()
-        # still true after reload
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.get_table('test_view')
-        assert 'does not exist' in str(exc_info.value)
+        reload_catalog(do_reload_catalog)
 
+        with pytest.raises(pxt.Error, match='does not exist'):
+            _ = pxt.get_table('test_view')
+
+        # make sure the base table doesn't see the dropped view anymore
         t = pxt.get_table('test_tbl')
+        status = t.insert(rows)
+        assert status.num_rows == 30  # 20 in the base table, 10 in test_view_alt
+
         with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
         assert "invalid value for column 'v1'" in str(exc_info.value).lower()
@@ -684,7 +685,8 @@ class TestView:
         with pytest.raises(AttributeError, match='Unknown column: c1'):
             _ = v1.select(v1.c1).head(5)
 
-    def test_computed_cols(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True])
+    def test_computed_cols(self, do_reload_catalog: bool, reset_db: None) -> None:
         t = self.create_tbl()
 
         # create view with computed columns
@@ -696,7 +698,7 @@ class TestView:
         v.add_computed_column(v4=v.v2[0])
 
         # use view md after reload
-        reload_catalog()
+        reload_catalog(do_reload_catalog)
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
 
@@ -716,7 +718,8 @@ class TestView:
         assert t.count() == 190
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
-    def test_filter(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True])
+    def test_filter(self, do_reload_catalog: bool, reset_db: None) -> None:
         t = create_test_tbl()
 
         # create view with filter
@@ -724,7 +727,7 @@ class TestView:
         assert_resultset_eq(v.order_by(v.c2).collect(), t.where(t.c2 < 10).order_by(t.c2).collect())
 
         # use view md after reload
-        reload_catalog()
+        reload_catalog(do_reload_catalog)
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
 
@@ -747,7 +750,8 @@ class TestView:
         # create view with filter containing datetime
         _ = pxt.create_view('test_view_2', t.where(t.c5 < datetime.datetime.now()))
 
-    def test_view_of_snapshot(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True])
+    def test_view_of_snapshot(self, do_reload_catalog: bool, reset_db: None) -> None:
         """Test view over a snapshot"""
         t = self.create_tbl()
         snap = pxt.create_snapshot('test_snap', t)
@@ -772,7 +776,7 @@ class TestView:
         assert v.count() == t.where(t.c2 < 10).count()
 
         # use view md after reload
-        reload_catalog()
+        reload_catalog(do_reload_catalog)
         t = pxt.get_table('test_tbl')
         snap = pxt.get_table('test_snap')
         v = pxt.get_table('test_view')
@@ -793,7 +797,8 @@ class TestView:
         assert t.count() == 110
         check_view(snap, v)
 
-    def test_snapshots(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True])
+    def test_snapshots(self, do_reload_catalog: bool, reset_db: None) -> None:
         """Test snapshot of a view of a snapshot"""
         t = self.create_tbl()
         s = pxt.create_snapshot('test_snap', t)
@@ -839,7 +844,7 @@ class TestView:
         assert set(view_s._get_schema().keys()) == set(orig_view_cols)
 
         # check md after reload
-        reload_catalog()
+        reload_catalog(do_reload_catalog)
         t = pxt.get_table('test_tbl')
         view_s = pxt.get_table('test_view_snap')
         check(s, v, view_s)
