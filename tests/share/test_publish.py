@@ -110,7 +110,13 @@ class TestPublish:
         for version in range(1, 8):
             tbl.insert({'icol': i, 'scol': f'string {i}'} for i in range(version * 10, version * 10 + 10))
 
+        with pytest.raises(pxt.Error, match=r"push\(\): Table 'tbl' has not yet been published to Pixeltable Cloud. To publish it, use `pxt.publish\(\)` instead."):
+            tbl.push()
+
         pxt.publish('tbl', remote_uri)
+
+        with pytest.raises(pxt.Error, match=r"pull\(\): Table 'tbl' is not a replica of a Pixeltable Cloud table \(nothing to `pull\(\)`\)."):
+            tbl.pull()
 
         tbl_3 = pxt.get_table('tbl:3')
         with pytest.raises(
@@ -128,6 +134,20 @@ class TestPublish:
             match = r'pull\(\): Cannot pull specific-version table handle \'tbl_replica:7\'\. ' 'To pull the latest version instead:',
         ):
             tbl_replica.pull()
+
+        with pytest.raises(
+            pxt.Error,
+            match = r"push\(\): Cannot push replica table 'tbl_replica'. \(Did you mean `pull\(\)`\?\)",
+        ):
+            tbl_replica.push()
+
+        tbl_replica = pxt.get_table('tbl_replica')
+
+        with pytest.raises(
+            pxt.Error,
+            match = r"push\(\): Cannot push replica table 'tbl_replica'. \(Did you mean `pull\(\)`\?\)",
+        ):
+            tbl_replica.push()
 
         pxt.drop_table(remote_uri)
 
