@@ -1,6 +1,5 @@
 import datetime
 import glob
-from io import StringIO
 import itertools
 import json
 import os
@@ -8,11 +7,12 @@ import random
 import shutil
 import subprocess
 import sysconfig
+from contextlib import contextmanager
+from io import StringIO
 from pathlib import Path
 from typing import Any, Callable, Iterator
 from unittest import TestCase
 from uuid import uuid4
-from contextlib import contextmanager
 
 import more_itertools
 import numpy as np

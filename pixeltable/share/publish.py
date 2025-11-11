@@ -157,9 +157,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
             )
         known_versions = tuple(v['version'] for v in t.get_versions())
         if clone_response.md[0].version_md.version in known_versions:
-            Env.get().console_logger.info(
-                f'Replica {dest_path!r} is already up to date with source: {src_tbl_uri}'
-            )
+            Env.get().console_logger.info(f'Replica {dest_path!r} is already up to date with source: {src_tbl_uri}')
             return t
 
     primary_version_additional_md = clone_response.md[0].version_md.additional_md
