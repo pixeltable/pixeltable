@@ -191,6 +191,13 @@ class TableVersion:
     ):
         assert key.anchor_tbl_id is None or isinstance(key.anchor_tbl_id, UUID)
 
+        try:
+            assert not tbl_md.name.startswith('test_')
+        except AssertionError:
+            import traceback
+            import sys
+            print('-------------------------------')
+            traceback.print_stack(file=sys.stdout)
         self.is_validated = True  # a freshly constructed instance is always valid
         self.is_initialized = False
         self.key = key

@@ -102,6 +102,35 @@ class TestPublish:
 
         pxt.drop_table(remote_uri)
 
+    def test_push_pull_errors(self, reset_db: None) -> None:
+        skip_test_if_no_pxt_credentials()
+
+        tbl = pxt.create_table('tbl', {'icol': pxt.Int, 'scol': pxt.String})
+        remote_uri = f'pxt://pxt-test/test_{uuid.uuid4().hex}'
+        for version in range(1, 8):
+            tbl.insert({'icol': i, 'scol': f'string {i}'} for i in range(version * 10, version * 10 + 10))
+
+        pxt.publish('tbl', remote_uri)
+
+        tbl_3 = pxt.get_table('tbl:3')
+        with pytest.raises(
+            pxt.Error,
+            match = r'push\(\): Cannot push specific-version table handle \'tbl:3\'\. ' 'To push the latest version instead:',
+        ):
+            tbl_3.push()
+
+        clean_db()
+        reload_catalog()
+
+        tbl_replica = pxt.replicate(f'{remote_uri}:7', 'tbl_replica')
+        with pytest.raises(
+            pxt.Error,
+            match = r'pull\(\): Cannot pull specific-version table handle \'tbl_replica:7\'\. ' 'To pull the latest version instead:',
+        ):
+            tbl_replica.pull()
+
+        pxt.drop_table(remote_uri)
+
     def test_remote_tbl_ops_errors(self, reset_db: None) -> None:
         with pytest.raises(pxt.Error, match=r'Cannot use `force=True` with a cloud replica URI.'):
             pxt.drop_table('pxt://pxt-test/test', force=True)
