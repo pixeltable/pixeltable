@@ -239,7 +239,11 @@ def extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | No
 
         Extract a frame close to the end of each video in the `video` column of the table `tbl`:
 
-        >>> tbl.select(tbl.video.extract_frame(tbl.video.get_metadata().streams[0].duration_seconds - 0.1)).collect()
+        >>> tbl.select(
+        ...     tbl.video.extract_frame(
+        ...         tbl.video.get_metadata().streams[0].duration_seconds - 0.1
+        ...     )
+        ... ).collect()
     """
     if timestamp < 0:
         raise ValueError("'timestamp' must be non-negative")

@@ -1479,14 +1479,17 @@ class Table(SchemaObject):
             Update the `name` and `age` columns for the rows with ids 1 and 2 (assuming `id` is the primary key).
             If either row does not exist, this raises an error:
 
-            >>> tbl.update([{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 2, 'name': 'Bob', 'age': 40}])
+            >>> tbl.batch_update(
+            ...     [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 2, 'name': 'Bob', 'age': 40}]
+            ... )
 
             Update the `name` and `age` columns for the row with `id` 1 (assuming `id` is the primary key) and insert
             the row with new `id` 3 (assuming this key does not exist):
 
-            >>> tbl.update(
+            >>> tbl.batch_update(
             ...     [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 3, 'name': 'Bob', 'age': 40}],
-            ...     if_not_exists='insert')
+            ...     if_not_exists='insert'
+            ... )
         """
         from pixeltable.catalog import Catalog
 
