@@ -223,10 +223,10 @@ class TableMd:
         )
 
     @property
-    def ancestor_ids(self) -> list[str]:
+    def ancestors(self) -> TableVersionPath:
         if self.view_md is None:
             return []
-        return [id for id, _ in self.view_md.base_versions]
+        return self.view_md.base_versions
 
 
 class Table(Base):

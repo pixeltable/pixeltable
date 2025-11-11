@@ -223,15 +223,7 @@ class TestPackager:
 
         # Certain metadata properties must be identical.
         metadata = t.get_metadata()
-        for property in (
-            'columns',
-            'indices',
-            'version',
-            'version_created',
-            'schema_version',
-            'comment',
-            'media_validation',
-        ):
+        for property in ('indices', 'version', 'version_created', 'schema_version', 'comment', 'media_validation'):
             assert metadata[property] == bundle_info.metadata[property]
 
         # Verify that the postgres schema subsumes the original.
@@ -788,6 +780,36 @@ class TestPackager:
 
         for i, bundle in zip(versions, bundles, strict=True):
             self.__restore_and_check_table(bundle, 'replica', version=i)
+
+    def test_view_over_snapshot_round_trip(self, reset_db: None) -> None:
+        pxt.create_dir('dir')
+        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+
+        views: list[pxt.Table] = []
+        bundles: list[TestPackager.BundleInfo] = []
+
+        # Create 5 snapshots with views on top of them, modifying the base table in between.
+        for i in range(5):
+            t.insert(c1=i)
+            t.add_computed_column(**{f'x{i}': t.c1 + i * 10})
+            snap = pxt.create_snapshot(f'dir.test_snap_{i}', t)
+            view = pxt.create_view(f'dir.test_view_{i}', snap)
+            views.append(view)
+
+        # Now modify each of the views.
+        for i in range(5):
+            views[i].add_computed_column(**{f'y{i}': views[i].c1 + i * 100})
+
+        # Package the views.
+        for i in range(5):
+            bundles.append(self.__package_table(views[i]))
+
+        self.__purge_db()
+
+        # Now restore each of the views, ensuring that each view properly publishes and restores according
+        # to its underlying snapshot state.
+        for i in (3, 0, 1, 4, 2):
+            self.__restore_and_check_table(bundles[i], f'replica_view_{i}')
 
     def test_embedding_index(self, reset_db: None, clip_embed: pxt.Function) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP

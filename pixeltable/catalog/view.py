@@ -14,7 +14,7 @@ from pixeltable.iterators import ComponentIterator
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
 from .table import Table
-from .table_version import TableVersion, TableVersionCompleteMd
+from .table_version import TableVersion, TableVersionCompleteMd, TableVersionKey
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .tbl_ops import CreateStoreTableOp, LoadViewOp, TableOp
@@ -219,9 +219,8 @@ class View(Table):
             return md, None
         else:
             tbl_id = md.tbl_md.tbl_id
-            view_path = TableVersionPath(
-                TableVersionHandle(UUID(tbl_id), effective_version=0 if is_snapshot else None), base=base_version_path
-            )
+            key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
+            view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = [
                 TableOp(
                     tbl_id=tbl_id, op_sn=0, num_ops=2, needs_xact=False, create_store_table_op=CreateStoreTableOp()
@@ -248,13 +247,10 @@ class View(Table):
         if tbl_version_path.is_snapshot():
             return tbl_version_path
         tbl_version = tbl_version_path.tbl_version.get()
-        if not tbl_version.is_snapshot:
-            # create and register snapshot version
-            tbl_version = tbl_version.create_snapshot_copy()
-            assert tbl_version.is_snapshot
+        assert not tbl_version.is_snapshot
 
         return TableVersionPath(
-            TableVersionHandle(tbl_version.id, tbl_version.effective_version),
+            TableVersionHandle(TableVersionKey(tbl_version.id, tbl_version.version, None)),
             base=cls._get_snapshot_path(tbl_version_path.base) if tbl_version_path.base is not None else None,
         )
 

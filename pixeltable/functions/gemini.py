@@ -147,10 +147,10 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
         The generated image.
 
     Examples:
-        Add a computed column that applies the model `imagen-3.0-generate-002`
+        Add a computed column that applies the model `imagen-4.0-generate-001`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_images(tbl.prompt, model='imagen-3.0-generate-002'))
+        >>> tbl.add_computed_column(response=generate_images(tbl.prompt, model='imagen-4.0-generate-001'))
     """
     env.Env.get().require_package('google.genai')
     from google.genai.types import GenerateImagesConfig

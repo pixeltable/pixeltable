@@ -1114,6 +1114,40 @@ class TestView:
                 vmd,
             )
 
+    def test_time_travel_over_snapshot(self, reset_db: None) -> None:
+        pxt.create_dir('dir')
+        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+        assert t.get_metadata()['version'] == 0
+
+        views: list[pxt.Table] = []
+        view_results: list[pxt.dataframe.DataFrameResultSet] = []
+
+        # Create 5 snapshots with views on top of them, modifying the base table in between.
+        for i in range(5):
+            t.insert(c1=i)
+            t.add_computed_column(**{f'x{i}': t.c1 + i * 10})
+            assert t.get_metadata()['version'] == (i + 1) * 2
+            snap = pxt.create_snapshot(f'dir.test_snap_{i}', t)
+            view = pxt.create_view(f'dir.test_view_{i}', snap)
+            views.append(view)
+            view_results.append(view.order_by(view.c1).collect())
+
+        # Now modify each of the views. The view modifications are more recent than any modifications of the
+        # underlying table, but the views should continue to point to the snapshot versions on which they were created.
+        for i in range(5):
+            assert_resultset_eq(views[i].order_by(views[i].c1).collect(), view_results[i])
+            views[i].add_computed_column(**{f'y{i}': views[i].c1 + i * 100})
+            assert views[i].get_metadata()['version'] == 1
+            updated_rs = views[i].order_by(views[i].c1).collect()
+            assert len(updated_rs) == len(view_results[i])  # same number of rows as original snapshot
+            specific_version_0 = pxt.get_table(f'dir.test_view_{i}:0')
+            assert_resultset_eq(specific_version_0.order_by(specific_version_0.c1).collect(), view_results[i])
+
+            # Now the main point of the test: when we get a *time travel handle* to the updated view, it should
+            # still reflect the original snapshot data, not more recent data from the table.
+            specific_version_1 = pxt.get_table(f'dir.test_view_{i}:1')
+            assert_resultset_eq(specific_version_1.order_by(specific_version_1.c1).collect(), updated_rs)
+
     def test_column_defaults(self, reset_db: None) -> None:
         """
         Test that during insert() manually-supplied columns are materialized with their defaults and can be referenced

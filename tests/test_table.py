@@ -358,7 +358,8 @@ class TestTable:
                             'index_type': 'embedding',
                             'name': 'idx0',
                             'parameters': {
-                                'embeddings': [
+                                'embedding': "clip(col, model_id='openai/clip-vit-base-patch32')",
+                                'embedding_functions': [
                                     "clip(text, model_id='openai/clip-vit-base-patch32')",
                                     "clip(image, model_id='openai/clip-vit-base-patch32')",
                                 ],
@@ -2921,7 +2922,7 @@ class TestTable:
                      c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
 
             Index Name Column  Metric                                          Embedding
-                  idx0     c1  cosine  sentence_transformer(sentence, normalize_embed...
+                  idx0     c1  cosine  sentence_transformer(c1, model_id='all-mpnet-b...
 
             External Store         Type
                    project  MockProject
