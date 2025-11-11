@@ -65,7 +65,8 @@ class TestView:
             join_df = t.join(u, on=t.c1 == u.c1)
             _ = pxt.create_view('join_view', join_df)
 
-    def test_basic(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True])
+    def test_basic(self, do_reload_catalog: bool, reset_db: None) -> None:
         t = self.create_tbl()
 
         # create view with filter and computed columns
@@ -101,7 +102,7 @@ class TestView:
         check_view(t, v)
 
         # check view md after reload
-        reload_catalog()
+        reload_catalog(do_reload_catalog)
         t = pxt.get_table('test_tbl')
         v = pxt.get_table('test_view')
         check_view(t, v)
@@ -136,16 +137,16 @@ class TestView:
 
         # test delete view
         pxt.drop_table('test_view')
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.get_table('test_view')
-        assert 'does not exist' in str(exc_info.value)
-        reload_catalog()
-        # still true after reload
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.get_table('test_view')
-        assert 'does not exist' in str(exc_info.value)
+        reload_catalog(do_reload_catalog)
 
+        with pytest.raises(pxt.Error, match='does not exist'):
+            _ = pxt.get_table('test_view')
+
+        # make sure the base table doesn't see the dropped view anymore
         t = pxt.get_table('test_tbl')
+        status = t.insert(rows)
+        assert status.num_rows == 30  # 20 in the base table, 10 in test_view_alt
+
         with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
         assert "invalid value for column 'v1'" in str(exc_info.value).lower()

@@ -663,7 +663,9 @@ def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) ->
     assert diff.getbbox() is None, context
 
 
-def reload_catalog() -> None:
+def reload_catalog(reload: bool = True) -> None:
+    if not reload:
+        return
     Catalog.clear()
     pxt.init()
 
