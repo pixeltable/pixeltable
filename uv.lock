@@ -5052,7 +5052,7 @@ test = [
 [[package]]
 name = "pixeltable-doctools"
 version = "0.1.0"
-source = { git = "https://github.com/pixeltable/pixeltable-doctools#0b54e1648d3c2af235e6017d50e96be753aeaa82" }
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#3435952080bb135045d28c3321748c01fa60065a" }
 dependencies = [
     { name = "docstring-parser" },
     { name = "nbformat" },
