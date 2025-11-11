@@ -4,7 +4,13 @@ import pytest
 
 import pixeltable as pxt
 from tests.conftest import clean_db
-from tests.utils import assert_resultset_eq, get_image_files, reload_catalog, skip_test_if_no_pxt_credentials
+from tests.utils import (
+    assert_resultset_eq,
+    capture_console_output,
+    get_image_files,
+    reload_catalog,
+    skip_test_if_no_pxt_credentials,
+)
 
 
 class TestPublish:
@@ -44,6 +50,12 @@ class TestPublish:
 
         tbl_replica = pxt.replicate(tbl_remote_uri, 'tbl_replica')
         tbl_replica_data = tbl_replica.head(n=500)
+
+        with capture_console_output() as sio:
+            tbl_replica_2 = pxt.replicate(tbl_remote_uri, 'tbl_replica')
+
+        assert f"Replica 'tbl_replica' is already up to date with source: {tbl_remote_uri}" in sio.getvalue()
+        assert tbl_replica_2 is tbl_replica
 
         if ':' in org_slug:
             # Canonical URI; we expect the URIs to match exactly
