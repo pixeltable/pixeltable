@@ -3,6 +3,7 @@ import uuid
 import pytest
 
 import pixeltable as pxt
+from pixeltable.share.protocol.common import PxtUri
 from tests.conftest import clean_db
 from tests.utils import assert_resultset_eq, get_image_files, reload_catalog, skip_test_if_no_pxt_credentials
 
@@ -74,6 +75,26 @@ class TestPublish:
         tbl_replica = pxt.replicate(f'{remote_uri}:3', 'tbl_replica')
         assert tbl_replica.get_metadata()['version'] == 3
         assert_resultset_eq(result_sets[2], tbl_replica.head(n=500))
+
+        tbl_replica = pxt.get_table('tbl_replica')  # get live version handle
+        assert tbl_replica.get_metadata()['version'] == 3
+        assert_resultset_eq(result_sets[2], tbl_replica.head(n=500))
+
+        tbl_replica.pull()  # in-place pull()
+        assert tbl_replica.get_metadata()['version'] == len(result_sets)
+        assert_resultset_eq(result_sets[-1], tbl_replica.head(n=500))
+
+        pxt.drop_table('tbl_replica')
+
+        # Also try specific version replicate of various sorts in a random order
+        for version in (3, 5, 1, 2, 6, 4):
+            tbl_replica = pxt.replicate(f'{remote_uri}:{version}', 'tbl_replica')
+            assert tbl_replica.get_metadata()['version'] == version
+            assert_resultset_eq(result_sets[version - 1], tbl_replica.head(n=500))
+
+        tbl_replica = pxt.get_table('tbl_replica')
+        assert tbl_replica.get_metadata()['version'] == 6  # latest version that has been retrieved
+        assert_resultset_eq(result_sets[5], tbl_replica.head(n=500))
 
         tbl_replica.pull()
         assert tbl_replica.get_metadata()['version'] == len(result_sets)

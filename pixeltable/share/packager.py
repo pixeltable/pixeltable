@@ -25,6 +25,7 @@ from pixeltable.catalog.table_version import TableVersionCompleteMd, TableVersio
 from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
+from pixeltable.share.protocol.common import PxtUri
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.local_store import TempStore
@@ -377,7 +378,7 @@ class TableRestorer:
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
-    def restore(self, bundle_path: Path, pxt_uri: str | None = None) -> pxt.Table:
+    def restore(self, bundle_path: Path, pxt_uri: str | None = None, explicit_version: int | None = None) -> pxt.Table:
         # Extract tarball
         print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
@@ -423,7 +424,7 @@ class TableRestorer:
                     _logger.info(f'Importing table {tv.name!r}.')
                     self.__import_table(self.tmp_dir, tv, md)
 
-            tbl = cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
+            tbl = cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id), version=explicit_version)
             if pxt_uri is not None:
                 # Set pxt_uri for the newly created table
                 cat.update_additional_md(tbl._id, {'pxt_uri': pxt_uri})
