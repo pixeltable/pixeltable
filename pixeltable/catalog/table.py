@@ -137,18 +137,25 @@ class Table(SchemaObject):
         index_info: dict[str, IndexMetadata] = {}
         for info in indices:
             if isinstance(info.idx, index.EmbeddingIndex):
-                embeddings: list[str] = []
+                col_ref = ColumnRef(info.col)
+                embedding = (
+                    info.idx.string_embed(col_ref)
+                    if info.col.col_type.is_string_type()
+                    else info.idx.image_embed(col_ref)
+                )
+                embedding_functions: list[pxt.Function] = []
                 if info.idx.string_embed is not None:
-                    embeddings.append(str(info.idx.string_embed))
+                    embedding_functions.append(info.idx.string_embed)
                 if info.idx.image_embed is not None:
-                    embeddings.append(str(info.idx.image_embed))
+                    embedding_functions.append(info.idx.image_embed)
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
                     index_type='embedding',
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
-                        embeddings=embeddings,
+                        embedding=str(embedding),
+                        embedding_functions=[str(fn) for fn in embedding_functions],
                     ),
                 )
 
@@ -403,16 +410,17 @@ class Table(SchemaObject):
         pd_rows = []
         for name, info in self._tbl_version.get().idxs_by_name.items():
             if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
-                display_embed = info.idx.string_embed if info.col.col_type.is_string_type() else info.idx.image_embed
-                if info.idx.string_embed is not None and info.idx.image_embed is not None:
-                    embed_str = f'{display_embed} (+1)'
-                else:
-                    embed_str = str(display_embed)
+                col_ref = ColumnRef(info.col)
+                embedding = (
+                    info.idx.string_embed(col_ref)
+                    if info.col.col_type.is_string_type()
+                    else info.idx.image_embed(col_ref)
+                )
                 row = {
                     'Index Name': name,
                     'Column': info.col.name,
                     'Metric': str(info.idx.metric.name.lower()),
-                    'Embedding': embed_str,
+                    'Embedding': str(embedding),
                 }
                 pd_rows.append(row)
         return pd.DataFrame(pd_rows)
