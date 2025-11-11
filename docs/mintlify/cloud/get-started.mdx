@@ -8,42 +8,20 @@ icon: 'cloud'
 
 Build and share multimodal AI datasets without managing infrastructure. Work with your images, videos, audio, and documents through a unified Python API - process them with AI models, create embeddings, and publish your results for team collaboration or public research.
 
-## Replicate Datasets
+## Quick Start
 
-To replicate a dataset, you use the open-source Pixeltable SDK. You do not need an account or API key. For example, here is how you would replicate a mini-version of the COCO-2017 dataset (https://www.pixeltable.com/t/pixeltable:fiftyone/coco_mini_2017).
-
-```bash
-pip install pixeltable
-```
-
+**Replicate a dataset:**
 ```python
 import pixeltable as pxt
-
-# Replicate a dataset to your local environment
-coco_copy = pxt.replicate(
-    remote_uri='pxt://pixeltable:fiftyone/coco_mini_2017', # insert URI for a table
-    local_path='coco_copy'  # Your local table name
-)
-
-# Explore and query the read-only replica
-coco_copy.limit(5).collect()
+pxt.replicate('pxt://pixeltable:fiftyone/coco_mini_2017', 'local_copy')
 ```
 
-Learn more in the [SDK Reference](https://docs.pixeltable.com/sdk/latest/).
+**Publish your datasets** (requires account and API key from [signin.pixeltable.com](https://signin.pixeltable.com/)):
+```python
+pxt.publish('my_table', 'pxt://username/dataset', access='public')
+```
 
-## Publish Your Datasets
-
-To publish your own datasets to Pixeltable Cloud:
-
-1. **Create a Pixeltable account** at [signin.pixeltable.com](https://signin.pixeltable.com/)
-2. **Get your API key** from your [account dashboard](https://pixeltable.com/dashboard)
-3. **Set your key:** `export PIXELTABLE_API_KEY="your_key"`
-4. **Publish your table**:
-    ```
-    pxt.publish(source='my_table', destination_uri='pxt://username/dataset')
-    ```
-
-Once published, you can share your datasets publicly or privately with your team.
+Learn more in the [Data Sharing Guide](https://docs.pixeltable.com/notebooks/feature-guides/data-sharing).
 
 ## Resources
 
