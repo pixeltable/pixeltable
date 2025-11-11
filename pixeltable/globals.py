@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, NamedTuple, Union
+from typing import TYPE_CHECKING, Any, Iterable, Literal, TypedDict, Union
 
 import pandas as pd
 import pydantic
@@ -653,7 +653,7 @@ def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents
     _assemble_dir_contents(dir_path, catalog_entries, dirs, tables)
     dirs.sort()
     tables.sort()
-    return DirContents(dirs, tables)
+    return DirContents(dirs=dirs, tables=tables)
 
 
 def _assemble_dir_contents(
@@ -1010,7 +1010,7 @@ def array(elements: Iterable) -> exprs.Expr:
     return exprs.Expr.from_array(elements)
 
 
-class DirContents(NamedTuple):
+class DirContents(TypedDict):
     """
     Represents the contents of a Pixeltable directory.
     """
