@@ -1233,15 +1233,13 @@ class Catalog:
         q: sql.Executable = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
         existing_md_row = conn.execute(q).one_or_none()
 
+        # Update md with the given name, current user, and is_replica flag.
+        md = dataclasses.replace(
+            md, tbl_md=dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
+        )
         if existing_md_row is None:
             # No existing table, so create a new record.
-            q = sql.insert(schema.Table.__table__).values(
-                id=tbl_id,
-                dir_id=dir._id,
-                md=dataclasses.asdict(
-                    dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
-                ),
-            )
+            q = sql.insert(schema.Table.__table__).values(id=tbl_id, dir_id=dir._id, md=dataclasses.asdict(md.tbl_md))
             conn.execute(q)
         elif not existing_md_row.md['is_replica']:
             raise excs.Error(
@@ -1253,7 +1251,7 @@ class Catalog:
         elif md.tbl_md.current_version > existing_md_row.md['current_version']:
             # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
             # in place in the DB.
-            new_tbl_md = dataclasses.replace(md.tbl_md, name=path.name, user=Env.get().user, is_replica=True)
+            new_tbl_md = md.tbl_md
 
         # Now see if a TableVersion record already exists in the DB for this table version. If not, insert it. If
         # it already exists, check that the existing record is identical to the new one.

@@ -137,7 +137,8 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
 
 
 def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
-    clone_request = ReplicateRequest(table_uri=PxtUri(src_tbl_uri))
+    parsed_uri = PxtUri(src_tbl_uri)
+    clone_request = ReplicateRequest(table_uri=parsed_uri)
     response = requests.post(PIXELTABLE_API_URL, data=clone_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
         raise excs.Error(f'Error cloning replica: {response.text}')
@@ -178,7 +179,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
         dest_path, {'pxt_version': pxt.__version__, 'pxt_md_version': clone_response.pxt_md_version, 'md': md_list}
     )
 
-    tbl = restorer.restore(bundle_path, pxt_uri)
+    tbl = restorer.restore(bundle_path, pxt_uri, explicit_version=parsed_uri.version)
     Env.get().console_logger.info(f'Created local replica {tbl._path()!r} from URI: {src_tbl_uri}')
     return tbl
 
