@@ -311,6 +311,8 @@ class View(Table):
     def _get_base_table(self) -> 'Table' | None:
         """Returns None if there is no base table, or if the base table is hidden."""
         base_tbl_id = self._base_tbl_id
+        if base_tbl_id is None:
+            return None
         with catalog.Catalog.get().begin_xact(tbl_id=base_tbl_id, for_write=False):
             return catalog.Catalog.get().get_table_by_id(base_tbl_id)
 

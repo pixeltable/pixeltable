@@ -218,6 +218,10 @@ class TestPackager:
 
     def __check_table(self, bundle_info: BundleInfo, tbl_name: str) -> None:
         t = pxt.get_table(tbl_name)
+
+        # Ensure repr() works.
+        _ = repr(t)
+
         assert bundle_info.schema == t._get_schema()
         assert bundle_info.depth == t._tbl_version_path.path_len()
 
