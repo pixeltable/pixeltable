@@ -32,6 +32,7 @@ from ..utils import (
     SAMPLE_IMAGE_URL,
     assert_resultset_eq,
     create_table_data,
+    get_audio_files,
     get_image_files,
     get_video_files,
     reload_catalog,
@@ -68,11 +69,13 @@ class TestPackager:
         self.__check_parquet_tbl(subview, dest, scope_tbl=subview)
 
     def test_media_packager(self, reset_db: None) -> None:
-        t = pxt.create_table('media_tbl', {'image': pxt.Image, 'video': pxt.Video})
+        t = pxt.create_table('media_tbl', {'image': pxt.Image, 'audio': pxt.Audio, 'video': pxt.Video})
         images = get_image_files()[:10]
+        audio = get_audio_files()[:5]
         videos = get_video_files()[:2]
-        t.insert({'image': image} for image in images)
         t.insert({'video': video} for video in videos)
+        t.insert({'audio': audio} for audio in audio)
+        t.insert({'image': image} for image in images)
         t.insert(image=SAMPLE_IMAGE_URL)  # Test an image from a remote URL
         # Test a bad image that generates an errormsg
         t.insert(image=get_image_files(include_bad_image=True)[0], on_error='ignore')
@@ -88,7 +91,7 @@ class TestPackager:
         metadata = json.loads((dest / 'metadata.json').read_text())
         self.__validate_metadata(metadata, t)
 
-        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=13)
+        self.__check_parquet_tbl(t, dest, media_dir=(dest / 'media'), expected_cols=17)
 
     def __extract_bundle(self, bundle_path: Path) -> Path:
         tmp_dir = TempStore.create_path()
