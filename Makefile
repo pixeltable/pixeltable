@@ -126,6 +126,7 @@ endif
 .PHONY: install-deps
 install-deps:
 	@echo 'Installing dependencies from uv ...'
+	@$(TOUCH) pyproject.toml
 	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active $(UV_ARGS)
 
 # After running `uv sync`
@@ -214,16 +215,16 @@ release: install
 MINTLIFY_FILES := $(shell find docs/mintlify -name '*.md' -o -name '*.mdx' -o -name '*.json')
 NOTEBOOK_FILES := $(shell find docs/notebooks -name '*.ipynb' | grep -v .ipynb_checkpoints)
 
-docs/target/docs.json: docs/public_api.opml $(MINTLIFY_FILES) $(NOTEBOOK_FILES)
+target/docs/docs.json: docs/public_api.opml $(MINTLIFY_FILES) $(NOTEBOOK_FILES)
 	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active $(UV_ARGS) --upgrade-package pixeltable-doctools
 	@python -m pixeltable_doctools.build
 
 .PHONY: docs
-docs: install docs/target/docs.json
+docs: install target/docs/docs.json
 
 .PHONY: docs-serve
 docs-serve: docs
-	@cd docs/target && mintlify dev
+	@cd target/docs && mintlify dev
 
 .PHONY: docs-deploy
 docs-deploy: docs
@@ -241,4 +242,3 @@ clean:
 	@$(RMDIR) site || true
 	@$(RMDIR) target || true
 	@$(RMDIR) tests/target || true
-	@$(RMDIR) docs/target || true

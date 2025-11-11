@@ -5052,9 +5052,10 @@ test = [
 [[package]]
 name = "pixeltable-doctools"
 version = "0.1.0"
-source = { git = "https://github.com/pixeltable/pixeltable-doctools#4d51f06fa66cdb5530a9dbbbc39520a209e888ea" }
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#24afd51160ed02c0188957edb248707917ea35be" }
 dependencies = [
     { name = "docstring-parser" },
+    { name = "griffe" },
     { name = "nbformat" },
     { name = "pypandoc" },
 ]
