@@ -216,7 +216,7 @@ NOTEBOOK_FILES := $(shell find docs/notebooks -name '*.ipynb' | grep -v .ipynb_c
 
 docs/target/docs.json: docs/public_api.opml $(MINTLIFY_FILES) $(NOTEBOOK_FILES)
 	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active --upgrade-package pixeltable-doctools
-	@python -m doctools.build
+	@python -m pixeltable_doctools.build
 
 .PHONY: docs
 docs: install docs/target/docs.json
@@ -229,7 +229,7 @@ docs-serve: docs
 docs-deploy: docs
 ifdef TARGET
 	@git fetch https://github.com/pixeltable/pixeltable --tags --force
-	@python -m doctools.deploy $(TARGET)
+	@python -m pixeltable_doctools.deploy $(TARGET)
 else
 	$(error Usage: make docs-deploy TARGET=<dev|stage|prod>)
 endif
