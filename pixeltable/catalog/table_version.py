@@ -388,6 +388,7 @@ class TableVersion:
 
     def exec_op(self, op: TableOp) -> None:
         from pixeltable.store import StoreBase
+
         assert op.delete_table_md_op is None  # that needs to get handled by Catalog
 
         if op.create_store_table_op is not None:
@@ -624,18 +625,6 @@ class TableVersion:
             return self.base.get()._lookup_column(qid)
         else:
             return None
-
-    def _init_sa_schema(self) -> None:
-        # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they
-        # need to record errors
-        from pixeltable.store import StoreComponentView, StoreTable, StoreView
-
-        if self.is_component_view:
-            self.store_tbl = StoreComponentView(self)
-        elif self.is_view:
-            self.store_tbl = StoreView(self)
-        else:
-            self.store_tbl = StoreTable(self)
 
     def _write_md(self, new_version: bool, new_schema_version: bool) -> None:
         from pixeltable.catalog import Catalog
