@@ -10,6 +10,8 @@ t.select(t.img_col.convert('L')).collect()
 ```
 """
 
+from typing import Literal
+
 import PIL.Image
 
 import pixeltable as pxt
@@ -211,7 +213,7 @@ def effect_spread(self: PIL.Image.Image, distance: int) -> PIL.Image.Image:
 
 
 @pxt.udf(is_method=True)
-def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
+def transpose(self: PIL.Image.Image, method: Literal[0, 1, 2, 3, 4, 5, 6]) -> PIL.Image.Image:
     """
     Transpose the image.
 
@@ -245,11 +247,11 @@ def entropy(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema:
         mask: An optional mask image.
         extrema: An optional list of extrema.
     """
-    return self.entropy(mask, extrema)
+    return self.entropy(mask, extrema)  # type: ignore[arg-type]
 
 
 @pxt.udf(is_method=True)
-def getbands(self: PIL.Image.Image) -> tuple[str]:
+def getbands(self: PIL.Image.Image) -> tuple[str, ...]:
     """
     Return a tuple containing the names of the image bands.
 
@@ -260,7 +262,7 @@ def getbands(self: PIL.Image.Image) -> tuple[str]:
 
 
 @pxt.udf(is_method=True)
-def getbbox(self: PIL.Image.Image, *, alpha_only: bool = True) -> tuple[int, int, int, int]:
+def getbbox(self: PIL.Image.Image, *, alpha_only: bool = True) -> tuple[int, int, int, int] | None:
     """
     Return a bounding box for the non-zero regions of the image.
 
@@ -274,7 +276,7 @@ def getbbox(self: PIL.Image.Image, *, alpha_only: bool = True) -> tuple[int, int
 
 
 @pxt.udf(is_method=True)
-def getcolors(self: PIL.Image.Image, maxcolors: int = 256) -> tuple[tuple[int, int, int], int]:
+def getcolors(self: PIL.Image.Image, maxcolors: int = 256) -> list[tuple[int, int]]:
     """
     Return a list of colors used in the image, up to a maximum of `maxcolors`.
 
@@ -299,7 +301,7 @@ def getextrema(self: PIL.Image.Image) -> tuple[int, int]:
 
 
 @pxt.udf(is_method=True)
-def getpalette(self: PIL.Image.Image, mode: str | None = None) -> tuple[int]:
+def getpalette(self: PIL.Image.Image, mode: str | None = None) -> list[int] | None:
     """
     Return the palette of the image, optionally converting it to a different mode.
 
@@ -328,7 +330,7 @@ def getpixel(self: PIL.Image.Image, xy: list) -> tuple[int]:
 
 
 @pxt.udf(is_method=True)
-def getprojection(self: PIL.Image.Image) -> tuple[int]:
+def getprojection(self: PIL.Image.Image) -> tuple[list[int], list[int]]:
     """
     Return two sequences representing the horizontal and vertical projection of the image.
 
@@ -350,16 +352,16 @@ def histogram(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrem
         mask: An optional mask image.
         extrema: An optional list of extrema.
     """
-    return self.histogram(mask, extrema)
+    return self.histogram(mask, extrema)  # type: ignore[arg-type]
 
 
 @pxt.udf(is_method=True)
 def quantize(
     self: PIL.Image.Image,
     colors: int = 256,
-    method: int | None = None,
+    method: Literal[0, 1, 2, 3] | None = None,
     kmeans: int = 0,
-    palette: int | None = None,
+    palette: PIL.Image.Image | None = None,
     dither: int = PIL.Image.Dither.FLOYDSTEINBERG,
 ) -> PIL.Image.Image:
     """
