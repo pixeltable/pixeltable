@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+Pixeltable UDFs
 that wrap various endpoints from the Groq API. In order to use them, you must
 first `pip install groq` and configure your Groq credentials, as described in
 the [Working with Groq](https://pixeltable.readme.io/docs/working-with-groq) tutorial.

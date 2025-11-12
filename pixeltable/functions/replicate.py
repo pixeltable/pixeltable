@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+Pixeltable UDFs
 that wrap various endpoints from the Replicate API. In order to use them, you must
 first `pip install replicate` and configure your Replicate credentials, as described in
 the [Working with Replicate](https://pixeltable.readme.io/docs/working-with-replicate) tutorial.

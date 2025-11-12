@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+Pixeltable UDFs
 that wrap various endpoints from the Google Gemini API. In order to use them, you must
 first `pip install google-genai` and configure your Gemini credentials, as described in
 the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini) tutorial.

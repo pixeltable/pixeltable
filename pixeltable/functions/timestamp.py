@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `TimestampType`.
+Pixeltable UDFs for `TimestampType`.
 
 Usage example:
 ```python
