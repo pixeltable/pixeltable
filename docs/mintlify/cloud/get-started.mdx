@@ -10,13 +10,15 @@ Build and share multimodal AI datasets without managing infrastructure. Work wit
 
 ## Quick Start
 
+**Requirements:** Pixeltable >= 0.4.24
+
 **Replicate a dataset:**
 ```python
 import pixeltable as pxt
 
 coco_copy = pxt.replicate(
     remote_uri='pxt://pixeltable:fiftyone/coco_mini_2017',
-    local_path='coco_copy'
+    local_path='coco-copy'
 )
 ```
 
@@ -24,10 +26,13 @@ Replicas are read-only locally, but you can query them, perform similarity searc
 
 **Publish your datasets** (requires account and API key from [signin.pixeltable.com](https://signin.pixeltable.com/)):
 ```python
-pxt.publish('my_table', 'pxt://username/dataset', access='private')
+pxt.publish(
+    source='my-table',
+    destination_uri='pxt://username/my-dataset'
+)
 ```
 
-After publishing, use `push()` to update the cloud replica with local changes.
+After publishing, use `push()` to update the cloud replica with local changes. Access defaults to private; add `access='public'` to make it publicly accessible.
 
 Learn more in the [Data Sharing Guide](https://docs.pixeltable.com/notebooks/feature-guides/data-sharing).
 
