@@ -1086,16 +1086,14 @@ class RateLimitsInfo:
     def reset(self) -> None:
         self.resource_limits.clear()
 
-    def record(self, request_timestamp: datetime.datetime, reset_exc: bool = False, **kwargs: Any) -> None:
+    def record(self, request_ts: datetime.datetime, reset_exc: bool = False, **kwargs: Any) -> None:
         """Update self.resource_limits with the provided rate limit info.
         Args:
-            - request_timestamp: time at which the request was made
+            - request_ts: time at which the request was made
             - reset_exc: if True, reset the has_exc flag
         """
         if len(self.resource_limits) == 0:
-            self.resource_limits = {
-                k: RateLimitInfo(k, request_timestamp, *v) for k, v in kwargs.items() if v is not None
-            }
+            self.resource_limits = {k: RateLimitInfo(k, request_ts, *v) for k, v in kwargs.items() if v is not None}
             # TODO: remove
             for info in self.resource_limits.values():
                 _logger.debug(f'Updated resource state: {info}')
@@ -1107,13 +1105,13 @@ class RateLimitsInfo:
             self.has_exc = False
             for k, v in kwargs.items():
                 if v is not None:
-                    self.resource_limits[k].update(request_timestamp, *v)
+                    self.resource_limits[k].update(request_ts, *v)
                     _logger.debug(f'Updated resource state: {self.resource_limits[k]}')
 
-    def record_exc(self, request_timestamp: datetime.datetime, exc: Exception) -> None:
+    def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:
         """Update self.resource_limits based on the exception headers
         Args:
-            - request_timestamp: time at which the request that caused the exception was made
+            - request_ts: time at which the request that caused the exception was made
             - exc: the exception raised"""
         self.has_exc = True
 

@@ -110,7 +110,7 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
                 input_len += len(message['content'])
         return {'requests': 1, 'input_tokens': int(input_len / 4), 'output_tokens': max_tokens}
 
-    def record_exc(self, request_timestamp: datetime.datetime, exc: Exception) -> None:
+    def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:
         import anthropic
 
         if (
@@ -121,11 +121,11 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
             return
         requests_info, input_tokens_info, output_tokens_info = _get_header_info(exc.response.headers)
         _logger.debug(
-            f'record_exc(): request_timestamp: {request_timestamp}, requests_info={requests_info} '
+            f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} '
             f'input_tokens_info={input_tokens_info} output_tokens_info={output_tokens_info}'
         )
         self.record(
-            request_timestamp=request_timestamp,
+            request_ts=request_ts,
             requests=requests_info,
             input_tokens=input_tokens_info,
             output_tokens=output_tokens_info,
@@ -244,7 +244,7 @@ async def messages(
     #     _logger.debug(f'retry-after: {retry_after_str}')
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
     rate_limits_info.record(
-        request_timestamp=start_ts,
+        request_ts=start_ts,
         requests=requests_info,
         input_tokens=input_tokens_info,
         output_tokens=output_tokens_info,

@@ -205,7 +205,7 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
             openai.InternalServerError,
         )
 
-    def record_exc(self, request_timestamp: datetime.datetime, exc: Exception) -> None:
+    def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:
         import openai
 
         _ = isinstance(exc, openai.APIError)
@@ -214,10 +214,9 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
 
         requests_info, tokens_info = _get_header_info(exc.response.headers)
         _logger.debug(
-            f'record_exc(): request_timestamp: {request_timestamp}, requests_info={requests_info} '
-            f'tokens_info={tokens_info}'
+            f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} tokens_info={tokens_info}'
         )
-        self.record(request_timestamp=request_timestamp, requests=requests_info, tokens=tokens_info)
+        self.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info)
         self.has_exc = True
 
     def _retry_delay_from_exception(self, exc: Exception) -> float | None:
@@ -484,16 +483,14 @@ async def chat_completions(
         resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
     )
 
-    request_timestamp = datetime.datetime.now(tz=datetime.timezone.utc)
+    request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages, model=model, **model_kwargs
     )
 
     requests_info, tokens_info = _get_header_info(result.headers)
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
-    rate_limits_info.record(
-        request_timestamp=request_timestamp, requests=requests_info, tokens=tokens_info, reset_exc=is_retry
-    )
+    rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     return json.loads(result.text)
 
@@ -595,7 +592,7 @@ async def vision(
         resource_pool, lambda: OpenAIRateLimitsInfo(_vision_get_request_resources)
     )
 
-    request_timestamp = datetime.datetime.now(tz=datetime.timezone.utc)
+    request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,  # type: ignore
         model=model,
@@ -605,9 +602,7 @@ async def vision(
     # _logger.debug(f'vision(): headers={result.headers}')
     requests_info, tokens_info = _get_header_info(result.headers)
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
-    rate_limits_info.record(
-        request_timestamp=request_timestamp, requests=requests_info, tokens=tokens_info, reset_exc=is_retry
-    )
+    rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     result = json.loads(result.text)
     return result['choices'][0]['message']['content']
@@ -677,15 +672,13 @@ async def embeddings(
     rate_limits_info = env.Env.get().get_resource_pool_info(
         resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources)
     )
-    request_timestamp = datetime.datetime.now(tz=datetime.timezone.utc)
+    request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     result = await _openai_client().embeddings.with_raw_response.create(
         input=input, model=model, encoding_format='float', **model_kwargs
     )
     requests_info, tokens_info = _get_header_info(result.headers)
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
-    rate_limits_info.record(
-        request_timestamp=request_timestamp, requests=requests_info, tokens=tokens_info, reset_exc=is_retry
-    )
+    rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
     return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
 
 
