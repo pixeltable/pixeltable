@@ -1146,6 +1146,9 @@ class RateLimitInfo:
     def update(
         self, request_start_ts: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime
     ) -> None:
+        # Responses can come out of order, especially for failed requests. We need to be careful not to overwrite
+        # the current state with less up-to-date information. We use request_start_ts as a proxy for rate limit info
+        # recency.
         if self.request_start_ts > request_start_ts:
             # The current state is more up-to-date than the update
             _logger.debug(
