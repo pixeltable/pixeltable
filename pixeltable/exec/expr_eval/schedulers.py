@@ -159,10 +159,10 @@ class RateLimitsScheduler(Scheduler):
         highest_wait_resource = None
         for resource, usage in request_resources.items():
             info = self.pool_info.resource_limits[resource]
-            # Note: usage is an estimated cost of the new request before it is executed, and it may be way off (for
-            # example, if max tokens is unspecified for an openAI request).
+            # Note: usage and est_usage are estimated costs of requests, and it may be way off (for example, if max
+            # tokens is unspecified for an openAI request).
             time_until = info.estimated_time_until_balance(
-                math.ceil(info.limit * env.TARGET_RATE_LIMIT_RESOURCE_FRACT + usage)
+                math.ceil(info.limit * env.TARGET_RATE_LIMIT_RESOURCE_FRACT + usage + self.est_usage.get(resource, 0))
             )
             if time_until is not None and highest_wait < time_until:
                 highest_wait = time_until
