@@ -1119,7 +1119,7 @@ class RateLimitsInfo:
         # Find the highest wait until at least 5% availability of all resources
         max_wait = 0.0
         for limit_info in self.resource_limits.values():
-            time_until = limit_info.estimated_time_until_balance(
+            time_until = limit_info.estimated_resource_refill_delay(
                 math.ceil(TARGET_RATE_LIMIT_RESOURCE_FRACT * limit_info.limit)
             )
             if time_until is not None:
@@ -1161,7 +1161,7 @@ class RateLimitInfo:
         self.remaining = remaining
         self.reset_at = reset_at
 
-    def estimated_time_until_balance(self, target_remaining: int) -> float | None:
+    def estimated_resource_refill_delay(self, target_remaining: int) -> float | None:
         """Estimate time in seconds until remaining resources reaches target_remaining.
         Assumes linear replenishment of resources over time.
         Returns None if unable to estimate.
