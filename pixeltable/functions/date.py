@@ -28,8 +28,11 @@ _SQL_ZERO = sql.literal(0)
 @pxt.udf(is_property=True)
 def year(self: date) -> int:
     """
-    Between [`MINYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MINYEAR) and
-    [`MAXYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MAXYEAR) inclusive.
+    Between 1 and 9999 inclusive.
+
+    (Between [`MINYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MINYEAR) and
+    [`MAXYEAR`](https://docs.python.org/3/library/datetime.html#datetime.MAXYEAR) as defined by the Python `datetime`
+    library).
 
     Equivalent to [`date.year`](https://docs.python.org/3/library/datetime.html#datetime.date.year).
     """

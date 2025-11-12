@@ -28,8 +28,10 @@ class ColumnMetadata(TypedDict):
 class EmbeddingIndexParams(TypedDict):
     metric: Literal['cosine', 'ip', 'l2']
     """Index metric."""
-    embeddings: list[str]
-    """List of embeddings defined for this index."""
+    embedding: str
+    """The index embedding."""
+    embedding_functions: list[str]
+    """List of embedding functions defined for this index."""
 
 
 class IndexMetadata(TypedDict):
@@ -79,23 +81,23 @@ class TableMetadata(TypedDict):
 class VersionMetadata(TypedDict):
     """Metadata for a specific version of a Pixeltable table."""
 
-    """The version number."""
     version: int
-    """The timestamp when this version was created."""
+    """The version number."""
     created_at: datetime.datetime
-    """The user who created this version, if defined."""
+    """The timestamp when this version was created."""
     user: str | None
-    """The type of table transformation that this version represents (`'data'` or `'schema'`)."""
+    """The user who created this version, if defined."""
     change_type: Literal['data', 'schema']
-    """The number of rows inserted in this version."""
+    """The type of table transformation that this version represents (`'data'` or `'schema'`)."""
     inserts: int
-    """The number of rows updated in this version."""
+    """The number of rows inserted in this version."""
     updates: int
-    """The number of rows deleted in this version."""
+    """The number of rows updated in this version."""
     deletes: int
-    """The number of errors encountered during this version."""
+    """The number of rows deleted in this version."""
     errors: int
-    """The number of computed values calculated in this version."""
+    """The number of errors encountered during this version."""
     computed: int
-    """A description of the schema change that occurred in this version, if any."""
+    """The number of computed values calculated in this version."""
     schema_change: str | None
+    """A description of the schema change that occurred in this version, if any."""

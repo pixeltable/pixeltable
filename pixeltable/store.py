@@ -46,9 +46,7 @@ class StoreBase:
     __INSERT_BATCH_SIZE = 10_000
 
     def __init__(self, tbl_version: catalog.TableVersion):
-        self.tbl_version = catalog.TableVersionHandle(
-            tbl_version.id, tbl_version.effective_version, tbl_version=tbl_version
-        )
+        self.tbl_version = tbl_version.handle
         self.sa_md = sql.MetaData()
         self.sa_tbl = None
         # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
