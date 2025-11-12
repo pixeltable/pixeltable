@@ -2330,8 +2330,6 @@ class Catalog:
             tbl_version = TableVersion(key, tbl_md, version_md, schema_version_md, mutable_views)
         else:
             assert len(view_md.base_versions) > 0  # a view needs to have a base
-            if tv_md.is_pure_snapshot:
-                pass
             assert (
                 not tv_md.is_pure_snapshot
             )  # a pure snapshot doesn't have a physical table backing it, no point in loading it

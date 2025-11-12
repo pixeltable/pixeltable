@@ -54,12 +54,13 @@ class StoreBase:
         self.sa_md = sql.MetaData()
         self.sa_tbl = None
         self._pk_cols = []
-        # we're passing in tbl_version to avoid a circular call to TableVersionHandle.get()
-        self.create_sa_tbl(tbl_version)
 
         # we initialize _base lazily, because the base may not exist anymore at this point
-        # (but we might still need sa_table to access our store table)
+        # (but we might still need sa_table to access our store table); do this before create_sa_tbl()
         self._base = None
+
+        # we're passing in tbl_version to avoid a circular call to TableVersionHandle.get()
+        self.create_sa_tbl(tbl_version)
 
     @property
     def base(self) -> StoreBase | None:
