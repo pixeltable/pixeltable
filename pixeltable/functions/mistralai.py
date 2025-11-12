@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the Mistral AI API. In order to use them, you must
 first `pip install mistralai` and configure your Mistral AI credentials, as described in
-the [Working with Mistral AI](https://pixeltable.readme.io/docs/working-with-mistralai) tutorial.
+the [Working with Mistral AI](https://docs.pixeltable.com/notebooks/integrations/working-with-mistralai) tutorial.
 """
 
 from typing import TYPE_CHECKING, Any

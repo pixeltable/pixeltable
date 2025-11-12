@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the Replicate API. In order to use them, you must
 first `pip install replicate` and configure your Replicate credentials, as described in
-the [Working with Replicate](https://pixeltable.readme.io/docs/working-with-replicate) tutorial.
+the [Working with Replicate](https://docs.pixeltable.com/notebooks/integrations/working-with-replicate) tutorial.
 """
 
 from typing import TYPE_CHECKING, Any

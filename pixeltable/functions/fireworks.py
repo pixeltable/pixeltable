@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the Fireworks AI API. In order to use them, you must
 first `pip install fireworks-ai` and configure your Fireworks AI credentials, as described in
-the [Working with Fireworks](https://pixeltable.readme.io/docs/working-with-fireworks) tutorial.
+the [Working with Fireworks](https://docs.pixeltable.com/notebooks/integrations/working-with-fireworks) tutorial.
 """
 
 from typing import TYPE_CHECKING, Any

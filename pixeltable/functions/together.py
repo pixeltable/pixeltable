@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the Together AI API. In order to use them, you must
 first `pip install together` and configure your Together AI credentials, as described in
-the [Working with Together AI](https://pixeltable.readme.io/docs/together-ai) tutorial.
+the [Working with Together AI](https://docs.pixeltable.com/notebooks/integrations/working-with-together-ai) tutorial.
 """
 
 import base64

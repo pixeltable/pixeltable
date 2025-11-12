@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the TwelveLabs API. In order to use them, you must
 first `pip install twelvelabs` and configure your TwelveLabs credentials, as described in
-the [Working with TwelveLabs](https://pixeltable.readme.io/docs/working-with-twelvelabs) tutorial.
+the [Working with TwelveLabs](https://docs.pixeltable.com/notebooks/integrations/working-with-twelvelabs) tutorial.
 """
 
 from typing import TYPE_CHECKING, Any, Literal
