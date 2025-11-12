@@ -387,6 +387,7 @@ class TableVersion:
         return TableVersionMd(tbl_md, table_version_md, schema_version_md)
 
     def exec_op(self, op: TableOp) -> None:
+        from pixeltable.store import StoreBase
         assert op.delete_table_md_op is None  # that needs to get handled by Catalog
 
         if op.create_store_table_op is not None:
@@ -414,8 +415,11 @@ class TableVersion:
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
         elif op.drop_store_table_op is not None:
-            with Env.get().begin_xact():
-                self.store_tbl.drop()
+            # don't reference self.store_tbl here, it needs to reference the metadata for our base table, which at
+            # this point may not exist anymore
+            with Env.get().begin_xact() as conn:
+                drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(self.id, self.is_view)}'
+                conn.execute(sql.text(drop_stmt))
 
         elif op.delete_table_media_files_op:
             self.delete_media()

@@ -529,7 +529,7 @@ class Catalog:
         tbl: TableVersionPath,
         for_write: bool = False,
         lock_mutable_tree: bool = False,
-        check_pending_ops: bool | None = None,
+        check_pending_ops: bool = True,
     ) -> bool:
         """
         Path locking protocol:
@@ -568,7 +568,7 @@ class Catalog:
         tbl_name: str | None = None,
         lock_mutable_tree: bool = False,
         raise_if_not_exists: bool = True,
-        check_pending_ops: bool | None = None,
+        check_pending_ops: bool = True,
     ) -> TableVersionHandle | None:
         """
         For writes: force acquisition of an X-lock on a Table record via a blind update.
@@ -1289,7 +1289,9 @@ class Catalog:
         )
         if existing_md_row is None:
             # No existing table, so create a new record.
-            q = sql.insert(schema.Table.__table__).values(id=tbl_id, dir_id=dir._id, md=dataclasses.asdict(md.tbl_md, dict_factory=md_dict_factory))
+            q = sql.insert(schema.Table.__table__).values(
+                id=tbl_id, dir_id=dir._id, md=dataclasses.asdict(md.tbl_md, dict_factory=md_dict_factory)
+            )
             conn.execute(q)
         elif not existing_md_row.md['is_replica']:
             raise excs.Error(
@@ -1504,13 +1506,14 @@ class Catalog:
             base_id = tvp.base.tbl_id
             base_tv = self.get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
             base_tv.tbl_md.view_sn += 1
-            self.mark_modified_tvs(base_tv.handle)
+            # self.mark_modified_tvs(base_tv.handle)
             result = Env.get().conn.execute(
                 sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=md_dict_factory)})
                 .where(schema.Table.id == base_id)
             )
             assert result.rowcount == 1, result.rowcount
+            self._clear_tv_cache(base_tv.handle.key)
 
         if do_drop:
             if is_pure_snapshot:
@@ -1668,7 +1671,7 @@ class Catalog:
         return result
 
     def get_tbl_version(
-        self, key: TableVersionKey, *, check_pending_ops: bool | None = None, validate_initialized: bool = False
+        self, key: TableVersionKey, *, check_pending_ops: bool = True, validate_initialized: bool = False
     ) -> TableVersion | None:
         """
         Returns the TableVersion instance for the given table and version and updates the cache.
