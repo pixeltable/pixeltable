@@ -101,11 +101,11 @@ class RateLimitsScheduler(Scheduler):
 
             # check rate limits
             request_resources = self._get_request_resources(item.request)
-            sleep_dur = self._sleep_duration_for_resources(request_resources)
+            resource_delay = self._resource_delay(request_resources)
             aws: list[Awaitable[None]] = []
             completed_aw: asyncio.Task | None = None
             wait_for_reset: asyncio.Task | None = None
-            if sleep_dur > 0:
+            if resource_delay > 0:
                 # Some resource or resources are nearing depletion
 
                 if self.num_in_flight > 0:
@@ -116,9 +116,9 @@ class RateLimitsScheduler(Scheduler):
                     _logger.debug(f'waiting for completed request for {self.resource_pool}')
 
                 # Schedule a sleep until sufficient resources are available
-                wait_for_reset = asyncio.create_task(asyncio.sleep(sleep_dur))
+                wait_for_reset = asyncio.create_task(asyncio.sleep(resource_delay))
                 aws.append(wait_for_reset)
-                _logger.debug(f'waiting {sleep_dur:.1f}s for resource availability')
+                _logger.debug(f'waiting {resource_delay:.1f}s for resource availability')
 
             if len(aws) > 0:
                 # we have something to wait for
@@ -152,7 +152,7 @@ class RateLimitsScheduler(Scheduler):
             constant_kwargs, batch_kwargs = request.pxt_fn.create_batch_kwargs(batch_kwargs)
             return self.pool_info.get_request_resources(**constant_kwargs, **batch_kwargs)
 
-    def _sleep_duration_for_resources(self, request_resources: dict[str, int]) -> float:
+    def _resource_delay(self, request_resources: dict[str, int]) -> float:
         """For the provided resources and usage, attempts to estimate the time to wait until sufficient resources are
         available."""
         highest_wait = 0.0
