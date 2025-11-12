@@ -11,7 +11,7 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Documentation",
+        "tab": "User Guide",
         "groups": [
           {
             "group": "Welcome to Pixeltable",
@@ -95,66 +95,11 @@
                 ]
               }
             ]
-          },
-          {
-            "group": "Tutorials",
-            "pages": [
-              "tutorials/fundamentals",
-              "tutorials/feature-guide"
-            ]
-          },
-          {
-            "group": "Libraries",
-            "pages": [
-              "libraries/pixelagent",
-              "libraries/mcp",
-              "libraries/yolox"
-            ]
           }
         ]
       },
       {
-        "tab": "Examples",
-        "groups": [
-          {
-            "group": "Explore",
-            "pages": [
-              "examples/use-cases",
-              "examples/interactive-demos",
-              "examples/sample-apps"
-            ]
-          },
-          {
-            "group": "Chatbot",
-            "pages": [
-              "examples/chat/multimodal",
-              "examples/chat/memory",
-              "examples/chat/tools",
-              "examples/chat/evals"
-            ]
-          },
-          {
-            "group": "Computer Vision",
-            "pages": [
-              "examples/vision/label-studio",
-              "examples/vision/voxel51",
-              "examples/vision/yolox"
-            ]
-          },
-          {
-            "group": "Semantic Search",
-            "pages": [
-              "examples/search/audio",
-              "examples/search/images",
-              "examples/search/PDF",
-              "examples/search/website",
-              "examples/search/video"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Pixeltable SDK",
+        "tab": "SDK",
         "dropdowns": [
           {
             "dropdown": "latest",
@@ -238,6 +183,58 @@
         ]
       },
       {
+        "tab": "Cloud",
+        "groups": [
+          {
+            "group": "Cloud",
+            "pages": [
+              "cloud/get-started",
+              "cloud/faq"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Explore",
+            "pages": [
+              "examples/use-cases",
+              "examples/interactive-demos",
+              "examples/sample-apps"
+            ]
+          },
+          {
+            "group": "Chatbot",
+            "pages": [
+              "examples/chat/multimodal",
+              "examples/chat/memory",
+              "examples/chat/tools",
+              "examples/chat/evals"
+            ]
+          },
+          {
+            "group": "Computer Vision",
+            "pages": [
+              "examples/vision/label-studio",
+              "examples/vision/voxel51",
+              "examples/vision/yolox"
+            ]
+          },
+          {
+            "group": "Semantic Search",
+            "pages": [
+              "examples/search/audio",
+              "examples/search/images",
+              "examples/search/PDF",
+              "examples/search/website",
+              "examples/search/video"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Integrations",
         "groups": [
           {
@@ -262,18 +259,6 @@
             "group": "Release History",
             "pages": [
               "changelog/changelog"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Pixeltable Cloud",
-        "groups": [
-          {
-            "group": "Cloud",
-            "pages": [
-              "cloud/get-started",
-              "cloud/faq"
             ]
           }
         ]
