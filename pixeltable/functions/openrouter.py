@@ -63,12 +63,12 @@ async def chat_completions(
 
     Args:
         messages: A list of messages comprising the conversation so far.
-        model: ID of the model to use (e.g., 'anthropic/claude-3.5-sonnet', 'openai/gpt-4').
+        model: ID of the model to use (e.g., `'anthropic/claude-3.5-sonnet'`, `'openai/gpt-4'`).
         model_kwargs: Additional OpenAI-compatible parameters.
         tools: List of tools available to the model.
         tool_choice: Controls which (if any) tool is called by the model.
-        provider: OpenRouter-specific provider preferences (e.g., {'order': ['Anthropic', 'OpenAI']}).
-        transforms: List of message transforms to apply (e.g., ['middle-out']).
+        provider: OpenRouter-specific provider preferences (e.g., `{'order': ['Anthropic', 'OpenAI']}`).
+        transforms: List of message transforms to apply (e.g., `['middle-out']`).
 
     Returns:
         A dictionary containing the response in OpenAI format.

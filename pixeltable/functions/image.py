@@ -31,34 +31,34 @@ def b64_encode(img: PIL.Image.Image, image_format: str = 'png') -> str:
     return to_base64(img, format=image_format)
 
 
-@pxt.udf(substitute_fn=PIL.Image.alpha_composite, is_method=True)
+@pxt.udf(is_method=True)
 def alpha_composite(im1: PIL.Image.Image, im2: PIL.Image.Image) -> PIL.Image.Image:
     """
     Alpha composite `im2` over `im1`.
 
     Equivalent to [`PIL.Image.alpha_composite()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.alpha_composite)
     """
-    pass
+    return PIL.Image.alpha_composite(im1, im2)
 
 
-@pxt.udf(substitute_fn=PIL.Image.blend, is_method=True)
+@pxt.udf(is_method=True)
 def blend(im1: PIL.Image.Image, im2: PIL.Image.Image, alpha: float) -> PIL.Image.Image:
     """
     Return a new image by interpolating between two input images, using a constant alpha.
 
     Equivalent to [`PIL.Image.blend()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.blend)
     """
-    pass
+    return PIL.Image.blend(im1, im2, alpha)
 
 
-@pxt.udf(substitute_fn=PIL.Image.composite, is_method=True)
+@pxt.udf(is_method=True)
 def composite(image1: PIL.Image.Image, image2: PIL.Image.Image, mask: PIL.Image.Image) -> PIL.Image.Image:
     """
     Return a composite image by blending two images using a mask.
 
     Equivalent to [`PIL.Image.composite()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.composite)
     """
-    pass
+    return PIL.Image.composite(image1, image2, mask)
 
 
 # PIL.Image.Image methods
@@ -89,7 +89,7 @@ def _(self: Expr, mode: str) -> ts.ColumnType:
 
 
 # Image.crop()
-@pxt.udf(substitute_fn=PIL.Image.Image.crop, is_method=True)
+@pxt.udf(is_method=True)
 def crop(self: PIL.Image.Image, box: tuple[int, int, int, int]) -> PIL.Image.Image:
     """
     Return a rectangular region from the image. The box is a 4-tuple defining the left, upper, right, and lower pixel
@@ -98,7 +98,7 @@ def crop(self: PIL.Image.Image, box: tuple[int, int, int, int]) -> PIL.Image.Ima
     Equivalent to
     [`PIL.Image.Image.crop()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.crop)
     """
-    pass
+    return self.crop(box)
 
 
 @crop.conditional_return_type
@@ -111,7 +111,7 @@ def _(self: Expr, box: tuple[int, int, int, int]) -> ts.ColumnType:
 
 
 # Image.getchannel()
-@pxt.udf(substitute_fn=PIL.Image.Image.getchannel, is_method=True)
+@pxt.udf(is_method=True)
 def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     """
     Return an L-mode image containing a single channel of the original image.
@@ -122,7 +122,7 @@ def getchannel(self: PIL.Image.Image, channel: int) -> PIL.Image.Image:
     Args:
         channel: The channel to extract. This is a 0-based index.
     """
-    pass
+    return self.getchannel(channel)
 
 
 @getchannel.conditional_return_type
@@ -196,7 +196,7 @@ def rotate(self: PIL.Image.Image, angle: int) -> PIL.Image.Image:
     return self.rotate(angle)
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.effect_spread, is_method=True)
+@pxt.udf(is_method=True)
 def effect_spread(self: PIL.Image.Image, distance: int) -> PIL.Image.Image:
     """
     Randomly spread pixels in an image.
@@ -207,10 +207,10 @@ def effect_spread(self: PIL.Image.Image, distance: int) -> PIL.Image.Image:
     Args:
         distance: The distance to spread pixels.
     """
-    pass
+    return self.effect_spread(distance)
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.transpose, is_method=True)
+@pxt.udf(is_method=True)
 def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
     """
     Transpose the image.
@@ -223,7 +223,7 @@ def transpose(self: PIL.Image.Image, method: int) -> PIL.Image.Image:
             [Pillow documentation](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.transpose)
             for a list of supported methods.
     """
-    pass
+    return self.transpose(method)
 
 
 @rotate.conditional_return_type
@@ -233,7 +233,7 @@ def _(self: Expr) -> ts.ColumnType:
     return self.col_type
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.entropy, is_method=True)
+@pxt.udf(is_method=True)
 def entropy(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema: list | None = None) -> float:
     """
     Returns the entropy of the image, optionally using a mask and extrema.
@@ -245,10 +245,10 @@ def entropy(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema:
         mask: An optional mask image.
         extrema: An optional list of extrema.
     """
-    pass
+    return self.entropy(mask, extrema)
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.getbands, is_method=True)
+@pxt.udf(is_method=True)
 def getbands(self: PIL.Image.Image) -> tuple[str]:
     """
     Return a tuple containing the names of the image bands.
@@ -256,10 +256,10 @@ def getbands(self: PIL.Image.Image) -> tuple[str]:
     Equivalent to
     [`PIL.Image.Image.getbands()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getbands)
     """
-    pass
+    return self.getbands()
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.getbbox, is_method=True)
+@pxt.udf(is_method=True)
 def getbbox(self: PIL.Image.Image, *, alpha_only: bool = True) -> tuple[int, int, int, int]:
     """
     Return a bounding box for the non-zero regions of the image.
@@ -270,10 +270,10 @@ def getbbox(self: PIL.Image.Image, *, alpha_only: bool = True) -> tuple[int, int
         alpha_only: If `True`, and the image has an alpha channel, trim transparent pixels. Otherwise,
             trim pixels when all channels are zero.
     """
-    pass
+    return self.getbbox(alpha_only=alpha_only)
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.getcolors, is_method=True)
+@pxt.udf(is_method=True)
 def getcolors(self: PIL.Image.Image, maxcolors: int = 256) -> tuple[tuple[int, int, int], int]:
     """
     Return a list of colors used in the image, up to a maximum of `maxcolors`.
@@ -284,10 +284,10 @@ def getcolors(self: PIL.Image.Image, maxcolors: int = 256) -> tuple[tuple[int, i
     Args:
         maxcolors: The maximum number of colors to return.
     """
-    pass
+    return self.getcolors(maxcolors)
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.getextrema, is_method=True)
+@pxt.udf(is_method=True)
 def getextrema(self: PIL.Image.Image) -> tuple[int, int]:
     """
     Return a 2-tuple containing the minimum and maximum pixel values of the image.
@@ -295,10 +295,10 @@ def getextrema(self: PIL.Image.Image) -> tuple[int, int]:
     Equivalent to
     [`PIL.Image.Image.getextrema()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getextrema)
     """
-    pass
+    return self.getextrema()
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.getpalette, is_method=True)
+@pxt.udf(is_method=True)
 def getpalette(self: PIL.Image.Image, mode: str | None = None) -> tuple[int]:
     """
     Return the palette of the image, optionally converting it to a different mode.
@@ -309,7 +309,7 @@ def getpalette(self: PIL.Image.Image, mode: str | None = None) -> tuple[int]:
     Args:
         mode: The mode to convert the palette to.
     """
-    pass
+    return self.getpalette(mode)
 
 
 @pxt.udf(is_method=True)
@@ -327,7 +327,7 @@ def getpixel(self: PIL.Image.Image, xy: list) -> tuple[int]:
     return self.getpixel(tuple(xy))
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.getprojection, is_method=True)
+@pxt.udf(is_method=True)
 def getprojection(self: PIL.Image.Image) -> tuple[int]:
     """
     Return two sequences representing the horizontal and vertical projection of the image.
@@ -335,10 +335,10 @@ def getprojection(self: PIL.Image.Image) -> tuple[int]:
     Equivalent to
     [`PIL.Image.Image.getprojection()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.getprojection)
     """
-    pass
+    return self.getprojection()
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.histogram, is_method=True)
+@pxt.udf(is_method=True)
 def histogram(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrema: list | None = None) -> list[int]:
     """
     Return a histogram for the image.
@@ -350,10 +350,10 @@ def histogram(self: PIL.Image.Image, mask: PIL.Image.Image | None = None, extrem
         mask: An optional mask image.
         extrema: An optional list of extrema.
     """
-    pass
+    return self.histogram(mask, extrema)
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.quantize, is_method=True)
+@pxt.udf(is_method=True)
 def quantize(
     self: PIL.Image.Image,
     colors: int = 256,
@@ -379,10 +379,10 @@ def quantize(
             [Pillow documentation](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.quantize)
             for a list of supported methods.
     """
-    pass
+    return self.quantize(colors, method, kmeans, palette, dither)
 
 
-@pxt.udf(substitute_fn=PIL.Image.Image.reduce, is_method=True)
+@pxt.udf(is_method=True)
 def reduce(self: PIL.Image.Image, factor: int, box: tuple[int, int, int, int] | None = None) -> PIL.Image.Image:
     """
     Reduce the image by the given factor.
@@ -395,21 +395,30 @@ def reduce(self: PIL.Image.Image, factor: int, box: tuple[int, int, int, int] | 
         box: An optional 4-tuple of ints providing the source image region to be reduced. The values must be within
             (0, 0, width, height) rectangle. If omitted or None, the entire source is used.
     """
-    pass
+    return self.reduce(factor, box)
 
 
 @pxt.udf(is_property=True)
 def width(self: PIL.Image.Image) -> int:
+    """
+    Return the width of the image.
+    """
     return self.width
 
 
 @pxt.udf(is_property=True)
 def height(self: PIL.Image.Image) -> int:
+    """
+    Return the height of the image.
+    """
     return self.height
 
 
 @pxt.udf(is_property=True)
 def mode(self: PIL.Image.Image) -> str:
+    """
+    Return the image mode.
+    """
     return self.mode
 
 
