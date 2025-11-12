@@ -1595,6 +1595,14 @@ class TestTable:
         for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
 
+    def test_x(self, reset_db: None) -> None:
+        t = pxt.create_table('test_tbl', {'data': pxt.Array[(256, 256, 3), pxt.Float]})
+        status = t.insert({'data': np.random.rand(256, 256, 3).astype(np.float32)} for i in range(4))
+        x = t.count()
+        y = t.where(t.data == None).collect()
+        z = t.where(t.data == None).count()
+        pass
+
     def test_insert_arrays(self, reset_db: None) -> None:
         """Test storing arrays of various sizes and dtypes."""
         # 5 columns: cycle through different shapes and sizes in each row
