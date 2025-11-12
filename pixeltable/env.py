@@ -1132,26 +1132,28 @@ class RateLimitInfo:
     """Container for rate limit-related information for a single resource."""
 
     resource: str
-    recorded_at: datetime.datetime
+    request_start_ts: datetime.datetime
     limit: int
     remaining: int
     reset_at: datetime.datetime
 
     def debug_str(self) -> str:
         return (
-            f'{self.resource}@{self.recorded_at.strftime(TIME_FORMAT)}: '
+            f'{self.resource}@{self.request_start_ts.strftime(TIME_FORMAT)}: '
             f'{self.limit}/{self.remaining}/{self.reset_at.strftime(TIME_FORMAT)}'
         )
 
-    def update(self, recorded_at: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime) -> None:
-        if self.recorded_at > recorded_at:
+    def update(
+        self, request_start_ts: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime
+    ) -> None:
+        if self.request_start_ts > request_start_ts:
             # The current state is more up-to-date than the update
             _logger.debug(
-                f'Ignoring out-of-date update for {self.resource}. Current recorded_at: '
-                f'{self.recorded_at}, update: {recorded_at}'
+                f'Ignoring out-of-date update for {self.resource}. Current request_start_ts: '
+                f'{self.request_start_ts}, update: {request_start_ts}'
             )
             return
-        self.recorded_at = recorded_at
+        self.request_start_ts = request_start_ts
         self.limit = limit
         self.remaining = remaining
         self.reset_at = reset_at
@@ -1163,22 +1165,22 @@ class RateLimitInfo:
         """
         if self.remaining >= target_remaining:
             return 0
-        if self.recorded_at >= self.reset_at:
+        if self.request_start_ts >= self.reset_at:
             return 0
         if self.limit < target_remaining:
             return None
 
         # Estimate resource refill rate based on the recorded state and timestamps. Assumes linear refill.
-        refill_rate = (self.limit - self.remaining) / (self.reset_at - self.recorded_at).total_seconds()
+        refill_rate = (self.limit - self.remaining) / (self.reset_at - self.request_start_ts).total_seconds()
         assert refill_rate > 0, f'self={self}, target_remaining={target_remaining}'
 
         now = datetime.datetime.now(tz=datetime.timezone.utc)
-        time_until = (target_remaining - self.remaining) / refill_rate - (now - self.recorded_at).total_seconds()
+        time_until = (target_remaining - self.remaining) / refill_rate - (now - self.request_start_ts).total_seconds()
         return max(0, math.ceil(time_until))
 
     def __repr__(self) -> str:
         return (
-            f'RateLimitInfo(resource={self.resource}, recorded_at={self.recorded_at}, '
+            f'RateLimitInfo(resource={self.resource}, request_start_ts={self.request_start_ts}, '
             f'remaining={self.remaining}/{self.limit} ({(100 * self.remaining / self.limit):.1f}%), '
             f'reset_at={self.reset_at})'
         )
