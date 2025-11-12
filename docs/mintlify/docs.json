@@ -57,6 +57,7 @@
               {
                 "group": "Feature Guides",
                 "pages": [
+                  "notebooks/feature-guides/data-sharing",
                   "notebooks/feature-guides/embedding-indexes",
                   "notebooks/feature-guides/time-zones",
                   "notebooks/feature-guides/udfs-in-pixeltable",
