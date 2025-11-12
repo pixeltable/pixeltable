@@ -40,7 +40,6 @@ from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter,
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
 from pixeltable.utils.object_stores import ObjectPath
-from pixeltable.utils.retry import exponential_backoff
 
 if TYPE_CHECKING:
     import spacy
@@ -1125,7 +1124,7 @@ class RateLimitsInfo:
             )
             if time_until is not None:
                 max_wait = max(max_wait, time_until)
-        return max_wait if max_wait > 0 else exponential_backoff(attempt)
+        return max_wait if max_wait > 0 else None
 
 
 @dataclass
