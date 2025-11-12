@@ -239,7 +239,11 @@ def extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | No
 
         Extract a frame close to the end of each video in the `video` column of the table `tbl`:
 
-        >>> tbl.select(tbl.video.extract_frame(tbl.video.get_metadata().streams[0].duration_seconds - 0.1)).collect()
+        >>> tbl.select(
+        ...     tbl.video.extract_frame(
+        ...         tbl.video.get_metadata().streams[0].duration_seconds - 0.1
+        ...     )
+        ... ).collect()
     """
     if timestamp < 0:
         raise ValueError("'timestamp' must be non-negative")
@@ -409,7 +413,11 @@ def segment_video(
     Examples:
         Split a video at 1 minute intervals using fast mode:
 
-        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=60, mode='fast')).collect()
+        >>> tbl.select
+        ...     segment_paths=tbl.video.segment_video(
+        ...         duration=60, mode='fast'
+        ...     )
+        ... ).collect()
 
         Split video into exact 10-second segments with default accurate mode, using the libx264 encoder with a CRF of 23
         and slow preset (for smaller output files):
@@ -425,7 +433,11 @@ def segment_video(
         Split video into two parts at the midpoint:
 
         >>> duration = tbl.video.get_duration()
-        >>> tbl.select(segment_paths=tbl.video.segment_video(segment_times=[duration / 2])).collect()
+        >>> tbl.select(
+        ...     segment_paths=tbl.video.segment_video(
+        ...         segment_times=[duration / 2]
+        ...     )
+        ... ).collect()
     """
     Env.get().require_binary('ffmpeg')
     if duration is not None and segment_times is not None:

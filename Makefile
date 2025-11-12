@@ -56,7 +56,7 @@ help:
 	@echo '  check         Run typecheck, docscheck, lint, and formatcheck'
 	@echo '  format        Run `ruff format` (updates .py files in place)'
 	@echo '  release       Create a pypi release and post to github'
-	@echo '  docs-local    Build documentation for local preview (auto-updates doctools)'
+	@echo '  docs          Build mintlify documentation'
 	@echo '  docs-dev      Deploy versioned docs to dev with errors visible (auto-updates doctools)'
 	@echo '  docs-stage    Deploy versioned documentation to staging (auto-updates doctools)'
 	@echo '  docs-prod     Deploy documentation from staging to production (auto-updates doctools)'
@@ -73,16 +73,21 @@ help:
 	@echo '  lint          Run `ruff check`'
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
 	@echo ''
-	@echo 'Parameters:'
-	@echo '  DURATION      Duration in seconds for stress tests (default = 120)'
+	@echo 'Global parameters:'
 	@echo '  UV_ARGS       Additional arguments to pass to `uv sync` (default = '\''--group extra-dev'\'')'
-	@echo '  VERSION       Version to use for docs deployment'
+	@echo ''
+	@echo '`make stresstest` parameters:'
+	@echo '  DURATION      Duration in seconds for stress tests (default = 120)'
 	@echo '  WORKERS       Number of workers for stress tests (default = 12)'
+	@echo ''
+	@echo '`make docs-deploy` parameters:'
+	@echo "  TARGET        Deployment target ('dev', 'stage', or 'prod')"
 	@echo ''
 	@echo 'Example command lines:'
 	@echo '  make install UV_ARGS=--no-dev   Switch to minimal Pixeltable installation (no dev packages)'
 	@echo '  make test UV_ARGS=--no-dev      Run tests with minimal Pixeltable installation'
 	@echo '  make stresstest DURATION=7200   Run stress tests for 2 hours'
+	@echo '  make docs-deploy TARGET=dev     Deploy docs to dev environment'
 
 .PHONY: setup-install
 setup-install:
@@ -121,6 +126,7 @@ endif
 .PHONY: install-deps
 install-deps:
 	@echo 'Installing dependencies from uv ...'
+	@$(TOUCH) pyproject.toml
 	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active $(UV_ARGS)
 
 # After running `uv sync`
@@ -182,8 +188,6 @@ typecheck: install
 docscheck: install
 	@echo 'Running `mkdocs build --strict` ...'
 	@python -W ignore::DeprecationWarning -m mkdocs build --strict
-	@echo 'Running `pydoclint` ...'
-	@pydoclint -q pixeltable tests tool
 
 .PHONY: lint
 lint: install
@@ -208,42 +212,28 @@ format: install
 release: install
 	@$(SHELL_PREFIX) scripts/release.sh
 
-.PHONY: release-docs
-release-docs: install
-	@mkdocs gh-deploy
+MINTLIFY_FILES := $(shell find docs/mintlify -name '*.md' -o -name '*.mdx' -o -name '*.json')
+NOTEBOOK_FILES := $(shell find docs/notebooks -name '*.ipynb' | grep -v .ipynb_checkpoints)
 
-# Shared target to update doctools (with force-reinstall to bypass pip/git caches)
-.PHONY: update-doctools
-update-doctools:
-	@echo 'Updating pixeltable-doctools...'
-	@python -m pip uninstall -y -q pixeltable-doctools 2>/dev/null || true
-	@python -m pip install -q --upgrade --no-cache-dir --force-reinstall --no-deps git+https://github.com/pixeltable/pixeltable-doctools.git
+target/docs/docs.json: docs/public_api.opml $(MINTLIFY_FILES) $(NOTEBOOK_FILES)
+	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active $(UV_ARGS) --upgrade-package pixeltable-doctools
+	@python -m pixeltable_doctools.build
 
-.PHONY: docs-local
-docs-local: install update-doctools
-	@echo 'Building documentation for local preview...'
-	@python -m doctools.build_mintlify.build_mintlify
-	@echo ''
-	@echo 'Documentation built successfully!'
-	@echo 'To preview, run: cd $(CURDIR)/docs/target && npx mintlify dev'
+.PHONY: docs
+docs: install target/docs/docs.json
 
-.PHONY: docs-dev
-docs-dev: install update-doctools
-	@echo 'Building and deploying documentation to dev for pre-release validation (with errors visible)...'
-	@python -m doctools.deploy.deploy_docs_dev
+.PHONY: docs-serve
+docs-serve: docs
+	@cd target/docs && mintlify dev
 
-.PHONY: docs-stage
-docs-stage: install update-doctools
-	@test -n "$(VERSION)" || (echo "ERROR: VERSION required. Usage: make docs-stage VERSION=0.4.17" && exit 1)
-	@echo 'Building and deploying documentation for $(VERSION) to staging...'
-	@python -m doctools.deploy.deploy_docs_stage --version=$(VERSION)
-
-.PHONY: docs-prod
-docs-prod: install update-doctools
-	@echo 'Deploying documentation from stage to production...'
-	@echo 'This will completely replace production with staging content.'
-	@read -p "Are you sure? (yes/no): " confirm && [ "$$confirm" = "yes" ] || (echo "Deployment cancelled." && exit 1)
-	@python -m doctools.deploy.deploy_docs_prod
+.PHONY: docs-deploy
+docs-deploy: docs
+ifdef TARGET
+	@git fetch https://github.com/pixeltable/pixeltable --tags --force
+	@python -m pixeltable_doctools.deploy $(TARGET)
+else
+	$(error Usage: make docs-deploy TARGET=<dev|stage|prod>)
+endif
 
 .PHONY: clean
 clean:
@@ -252,4 +242,3 @@ clean:
 	@$(RMDIR) site || true
 	@$(RMDIR) target || true
 	@$(RMDIR) tests/target || true
-	@$(RMDIR) docs/target || true

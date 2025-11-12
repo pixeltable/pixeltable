@@ -1451,12 +1451,12 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/a2/55/8f8cab2afd404cf578136ef2cc5dfb50baa1761b68c9da1fb1e4eed343c9/docopt-0.6.2.tar.gz", hash = "sha256:49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491", size = 25901, upload-time = "2014-06-16T11:18:57.406Z" }
 
 [[package]]
-name = "docstring-parser-fork"
-version = "0.0.13"
+name = "docstring-parser"
+version = "0.17.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/81/d7/b248fb8556f5180913c26c94d16a0f0ae999e419c027047e22c29e07b6ee/docstring_parser_fork-0.0.13.tar.gz", hash = "sha256:3635d3ef6438766882c25046cf2cc073c0a471e1d5cb36ee674f7de948d77749", size = 34512, upload-time = "2025-08-17T18:52:54.003Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b2/9d/c3b43da9515bd270df0f80548d9944e389870713cc1fe2b8fb35fe2bcefd/docstring_parser-0.17.0.tar.gz", hash = "sha256:583de4a309722b3315439bb31d64ba3eebada841f2e2cee23b99df001434c912", size = 27442, upload-time = "2025-07-21T07:35:01.868Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/eb/a4/49da1e9655465d88ce82e355158f16f17526721b3630ccac25d41cb0c8e9/docstring_parser_fork-0.0.13-py3-none-any.whl", hash = "sha256:77219f949721de65916514dfcdfefc6651f92145a811927025e3f7df7cf222a8", size = 43012, upload-time = "2025-08-17T18:52:52.643Z" },
+    { url = "https://files.pythonhosted.org/packages/55/e2/2537ebcff11c1ee1ff17d8d0b6f4db75873e3b0fb32c2d4a2ee31ecb310a/docstring_parser-0.17.0-py3-none-any.whl", hash = "sha256:cf2569abd23dce8099b300f9b4fa8191e9582dda731fd533daf54c4551658708", size = 36896, upload-time = "2025-07-21T07:35:00.684Z" },
 ]
 
 [[package]]
@@ -4042,17 +4042,6 @@ wheels = [
 ]
 
 [[package]]
-name = "npx"
-version = "0.1.6"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-]
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/10/5f/bedde14c7f0a03af8e1c06a66f3cf4bc44646ce67d1adfa455851e70c2cf/npx-0.1.6-py3-none-any.whl", hash = "sha256:42311219c2af12470c6785f49c366798d67f3583aea18d73c2679d3eb13359a9", size = 10620, upload-time = "2024-06-21T14:46:58.624Z" },
-]
-
-[[package]]
 name = "numba"
 version = "0.61.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4868,7 +4857,6 @@ dev = [
     { name = "botocore" },
     { name = "datasets" },
     { name = "diffusers" },
-    { name = "docstring-parser-fork" },
     { name = "fiftyone" },
     { name = "fireworks-ai" },
     { name = "google-cloud-storage" },
@@ -4887,7 +4875,6 @@ dev = [
     { name = "mypy" },
     { name = "nbmake" },
     { name = "notebook" },
-    { name = "npx" },
     { name = "ollama" },
     { name = "openai" },
     { name = "openai-whisper" },
@@ -4898,9 +4885,7 @@ dev = [
     { name = "psycopg2-binary" },
     { name = "pyarrow-stubs" },
     { name = "pycocotools" },
-    { name = "pydoclint" },
     { name = "pyiceberg" },
-    { name = "pypandoc" },
     { name = "replicate" },
     { name = "ruff" },
     { name = "scenedetect" },
@@ -4993,7 +4978,6 @@ dev = [
     { name = "botocore", specifier = "==1.36.23" },
     { name = "datasets", specifier = ">=3.2.0" },
     { name = "diffusers", specifier = ">=0.34" },
-    { name = "docstring-parser-fork", specifier = "<0.0.14" },
     { name = "fiftyone", specifier = ">=1.7" },
     { name = "fireworks-ai", specifier = ">=0.17.6" },
     { name = "google-cloud-storage", specifier = ">=2.18.0" },
@@ -5012,7 +4996,6 @@ dev = [
     { name = "mypy", specifier = ">=1.16" },
     { name = "nbmake", specifier = ">=1.5,<2" },
     { name = "notebook", specifier = ">=7.1.0,<8" },
-    { name = "npx" },
     { name = "ollama", specifier = ">=0.5.1" },
     { name = "openai", specifier = ">=1.86.0" },
     { name = "openai-whisper", specifier = ">=20250625" },
@@ -5023,9 +5006,7 @@ dev = [
     { name = "psycopg2-binary", specifier = ">=2.9.10" },
     { name = "pyarrow-stubs", specifier = ">=19" },
     { name = "pycocotools", specifier = ">=2.0.10" },
-    { name = "pydoclint", specifier = ">=0.7" },
     { name = "pyiceberg", specifier = ">=0.6.0" },
-    { name = "pypandoc" },
     { name = "replicate", specifier = ">=1.0.7,<2" },
     { name = "ruff", specifier = ">=0.9.3,<0.10" },
     { name = "scenedetect", specifier = ">=0.6.0.1" },
@@ -5071,9 +5052,10 @@ test = [
 [[package]]
 name = "pixeltable-doctools"
 version = "0.1.0"
-source = { git = "https://github.com/pixeltable/pixeltable-doctools#8c401d0c660bd04860633a994e7b2d79b645a2a8" }
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#f5e432250926655b2c7a5c894e308a0f2732a186" }
 dependencies = [
-    { name = "docstring-parser-fork" },
+    { name = "docstring-parser" },
+    { name = "griffe" },
     { name = "nbformat" },
     { name = "pypandoc" },
 ]
@@ -5939,20 +5921,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/2f/24/91c037f47e434172c2112d65c00c84d475a6715425e3315ba2cbb7a87e66/pydash-8.0.5.tar.gz", hash = "sha256:7cc44ebfe5d362f4f5f06c74c8684143c5ac481376b059ff02570705523f9e2e", size = 164861, upload-time = "2025-01-17T16:08:50.562Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2c/86/e74c978800131c657fc5145f2c1c63e0cea01a49b6216f729cf77a2e1edf/pydash-8.0.5-py3-none-any.whl", hash = "sha256:b2625f8981862e19911daa07f80ed47b315ce20d9b5eb57aaf97aaf570c3892f", size = 102077, upload-time = "2025-01-17T16:08:47.91Z" },
-]
-
-[[package]]
-name = "pydoclint"
-version = "0.7.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "click" },
-    { name = "docstring-parser-fork" },
-    { name = "tomli", marker = "python_full_version < '3.11'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a5/9a/004c6d139a1ded034d300e46f094b806df7cc37ac8939e0b7eedccf44664/pydoclint-0.7.3.tar.gz", hash = "sha256:3351d5eeb19f8831d992714f71f5ea1175af649503d39b9da0071445a4002138", size = 170392, upload-time = "2025-09-03T00:43:25.865Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/96/79/8222ae794558d24bbd827631d343ea9f3e54edbf67345128bf799f667d7d/pydoclint-0.7.3-py3-none-any.whl", hash = "sha256:a656b0e863565644670ded19a4b506450364e4f1f5e8ff7705d6ba8bb5a82982", size = 71586, upload-time = "2025-09-03T00:43:24.665Z" },
 ]
 
 [[package]]

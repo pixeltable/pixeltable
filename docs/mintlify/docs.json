@@ -192,23 +192,23 @@
                   {
                     "group": "AI Integrations",
                     "pages": [
-                      "sdk/latest/openai",
                       "sdk/latest/anthropic",
-                      "sdk/latest/huggingface",
-                      "sdk/latest/gemini",
                       "sdk/latest/bedrock",
+                      "sdk/latest/deepseek",
+                      "sdk/latest/fireworks",
+                      "sdk/latest/gemini",
                       "sdk/latest/groq",
+                      "sdk/latest/huggingface",
+                      "sdk/latest/llama_cpp",
+                      "sdk/latest/mistralai",
+                      "sdk/latest/ollama",
+                      "sdk/latest/openai",
                       "sdk/latest/replicate",
                       "sdk/latest/together",
-                      "sdk/latest/fireworks",
-                      "sdk/latest/mistralai",
-                      "sdk/latest/deepseek",
-                      "sdk/latest/ollama",
-                      "sdk/latest/llama_cpp",
-                      "sdk/latest/whisper",
                       "sdk/latest/vision",
-                      "sdk/latest/yolox",
-                      "sdk/latest/whisperx"
+                      "sdk/latest/whisper",
+                      "sdk/latest/whisperx",
+                      "sdk/latest/yolox"
                     ]
                   },
                   {
@@ -232,20 +232,6 @@
                   }
                 ]
               }
-            ]
-          },
-          {
-            "dropdown": "v0.4.9",
-            "icon": "tag",
-            "pages": [
-              "sdk/v0.4.9/index"
-            ]
-          },
-          {
-            "dropdown": "v0.4.8",
-            "icon": "tag",
-            "pages": [
-              "sdk/v0.4.8/index"
             ]
           }
         ]
