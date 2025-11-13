@@ -24,21 +24,18 @@ _logger = logging.getLogger('pixeltable')
 
 class FrameIterator(ComponentIterator):
     """
-    Iterator over frames of a video. At most one of `fps` or `num_frames` may be specified. If `fps` is specified,
-    then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified, then the
-    exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The first
-    frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
+    Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be specified. If `fps`
+    is specified, then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified,
+    then the exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The
+    first frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
 
     Args:
         fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
             If omitted or set to 0.0, or if greater than the native framerate of the video,
             then the framerate of the video will be used (all frames will be extracted).
-            Cannot be used with `keyframes_only`.
         num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
             `num_frames` is greater than the number of frames in the video, all frames will be extracted.
-            Cannot be used with `keyframes_only`.
         keyframes_only: If True, only extract keyframes.
-            Cannot be used with `fps` or `num_frames`.
         all_frame_attrs:
             If True, outputs a `pxt.Json` column `frame_attrs` with the following `pyav`-provided attributes
             (for more information, see `pyav`'s documentation on

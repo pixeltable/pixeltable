@@ -151,7 +151,7 @@ class TestVideo:
         # Verify keyframes were extracted
         keyframes_count = keyframes.count()
         res = frames.order_by(frames.pos).collect()
-        assert keyframes_count == sum(int(attrs['key_frame']) for attrs in res['frame_attrs'])
+        assert keyframes_count == sum(attrs['key_frame'] for attrs in res['frame_attrs'])
 
         with pytest.raises(pxt.Error, match='At most one of'):
             _ = pxt.create_view(
