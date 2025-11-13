@@ -1,8 +1,8 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+Pixeltable UDFs
 that wrap various endpoints from the Anthropic API. In order to use them, you must
 first `pip install anthropic` and configure your Anthropic credentials, as described in
-the [Working with Anthropic](https://pixeltable.readme.io/docs/working-with-anthropic) tutorial.
+the [Working with Anthropic](https://docs.pixeltable.com/notebooks/integrations/working-with-anthropic) tutorial.
 """
 
 import datetime
