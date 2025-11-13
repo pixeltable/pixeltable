@@ -629,7 +629,7 @@ class StoreComponentView(StoreView):
 
     @property
     def pos_col_idx(self) -> int:
-        return len(self.rowid_columns())
+        return len(self.rowid_columns()) - 1
 
     def create_sa_tbl(self, tbl_version: catalog.TableVersion | None = None) -> None:
         if tbl_version is None:
