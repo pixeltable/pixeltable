@@ -5052,7 +5052,7 @@ test = [
 [[package]]
 name = "pixeltable-doctools"
 version = "0.1.0"
-source = { git = "https://github.com/pixeltable/pixeltable-doctools#bcea1bf8ccb620579e2976e87e999e4b7e18260c" }
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#d5c6135e7012cc16b8aa2aa2a3f4f8531ccd6ba9" }
 dependencies = [
     { name = "docstring-parser" },
     { name = "griffe" },

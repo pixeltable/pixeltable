@@ -233,7 +233,7 @@ endif
 
 .PHONY: clean
 clean:
-	@$(RM) *.mp4 docs/source/tutorials/*.mp4 || true
+	@$(RM) *.mp4 docs/source/tutorials/*.mp4 docs/notebooks/**/.gitignore || true
 	@$(RMDIR) .make-install || true
 	@$(RMDIR) site || true
 	@$(RMDIR) target || true
