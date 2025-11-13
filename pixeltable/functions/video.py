@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
+Pixeltable UDFs for `VideoType`.
 """
 
 import glob
@@ -1185,8 +1185,8 @@ def scene_detect_threshold(
         video: The video to analyze for fade transitions.
         fps: Number of frames to extract per second for analysis. If None or 0, analyzes all frames.
             Lower values process faster but may miss exact transition points.
-        threshold: 8-bit intensity value that each pixel value (R, G, and B) must be <= to in order to trigger a fade
-            in/out.
+        threshold: 8-bit intensity value that each pixel value (R, G, and B) must be less than or equal to in order
+            to trigger a fade in/out.
         min_scene_len: Once a cut is detected, this many frames must pass before a new one can be added to the scene
             list.
         fade_bias: Float between -1.0 and +1.0 representing the percentage of timecode skew for the start of a scene
