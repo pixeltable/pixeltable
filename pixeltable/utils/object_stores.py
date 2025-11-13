@@ -23,6 +23,7 @@ class StorageTarget(enum.Enum):
     S3_STORE = 's3'  # Amazon S3
     R2_STORE = 'r2'  # Cloudflare R2
     B2_STORE = 'b2'  # Backblaze B2
+    TIGRIS_STORE = 'tigris' # Tigris
     GCS_STORE = 'gs'  # Google Cloud Storage
     AZURE_STORE = 'az'  # Azure Blob Storage
     HTTP_STORE = 'http'  # HTTP/HTTPS
@@ -65,6 +66,7 @@ class StorageObjectAddress(NamedTuple):
             StorageTarget.S3_STORE,
             StorageTarget.R2_STORE,
             StorageTarget.B2_STORE,
+            StorageTarget.TIGRIS_STORE,
             StorageTarget.GCS_STORE,
             StorageTarget.AZURE_STORE,
             StorageTarget.HTTP_STORE,
@@ -234,6 +236,7 @@ class ObjectPath:
                 StorageTarget.AZURE_STORE,
                 StorageTarget.R2_STORE,
                 StorageTarget.B2_STORE,
+                StorageTarget.TIGRIS_STORE,
             ):
                 account_name = parsed.netloc.split('.', 1)[0]
                 account_extension = parsed.netloc.split('.', 1)[1]
@@ -366,7 +369,7 @@ class ObjectOps:
         soa = ObjectPath.parse_object_storage_addr(dest, allow_obj_name=allow_obj_name)
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
-        if soa.storage_target in (StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE):
+        if soa.storage_target in (StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE):
             env.Env.get().require_package('boto3')
             from pixeltable.utils.s3_store import S3Store
 
