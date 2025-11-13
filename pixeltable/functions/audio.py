@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `AudioType`.
+Pixeltable UDFs for `AudioType`.
 """
 
 import av

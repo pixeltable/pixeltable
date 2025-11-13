@@ -27,7 +27,7 @@ def create_label_studio_project(
     Create a new Label Studio project and link it to the specified [`Table`][pixeltable.Table].
 
     - A tutorial notebook with fully worked examples can be found here:
-      [Using Label Studio for Annotations with Pixeltable](https://pixeltable.readme.io/docs/label-studio)
+      [Using Label Studio for Annotations with Pixeltable](https://docs.pixeltable.com/notebooks/integrations/using-label-studio-with-pixeltable)
 
     The required parameter `label_config` specifies the Label Studio project configuration,
     in XML format, as described in the Label Studio documentation. The linked project will

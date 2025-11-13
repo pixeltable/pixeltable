@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for Computer Vision.
+Pixeltable UDFs for Computer Vision.
 
 Example:
 ```python

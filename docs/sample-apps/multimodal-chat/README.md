@@ -28,7 +28,7 @@ sequenceDiagram
 ## Features
 
 - **Multimodal Data Support**: Process and analyze documents, videos, and audio files
-- **Advanced Processing**: Leverages [Pixeltable's data types and formats](https://docs.pixeltable.com/docs/data-types-and-formats)
+- **Advanced Processing**: Leverages [Pixeltable's data types and formats](https://docs.pixeltable.com/data-types-and-formats)
 - **Flexible LLM Integration**: 
   - Default: [OpenAI](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-openai.ipynb)
   - Alternative options: [Ollama](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-ollama.ipynb), [LLama.cpp](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-llama-cpp.ipynb)
