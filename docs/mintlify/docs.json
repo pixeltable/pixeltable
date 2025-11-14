@@ -11,7 +11,7 @@
   "navigation": {
     "tabs": [
       {
-        "tab": "Documentation",
+        "tab": "User Guide",
         "groups": [
           {
             "group": "Welcome to Pixeltable",
@@ -57,6 +57,7 @@
               {
                 "group": "Feature Guides",
                 "pages": [
+                  "notebooks/feature-guides/data-sharing",
                   "notebooks/feature-guides/embedding-indexes",
                   "notebooks/feature-guides/time-zones",
                   "notebooks/feature-guides/udfs-in-pixeltable",
@@ -94,20 +95,101 @@
                 ]
               }
             ]
-          },
+          }
+        ]
+      },
+      {
+        "tab": "Pixeltable SDK",
+        "dropdowns": [
           {
-            "group": "Tutorials",
-            "pages": [
-              "tutorials/fundamentals",
-              "tutorials/feature-guide"
+            "dropdown": "latest",
+            "icon": "rocket",
+            "groups": [
+              {
+                "group": "SDK Reference",
+                "pages": [
+                  {
+                    "group": "Core API",
+                    "pages": [
+                      "sdk/latest/pixeltable",
+                      "sdk/latest/table",
+                      "sdk/latest/dataframe",
+                      "sdk/latest/columnmetadata",
+                      "sdk/latest/dircontents",
+                      "sdk/latest/indexmetadata",
+                      "sdk/latest/tablemetadata",
+                      "sdk/latest/updatestatus",
+                      "sdk/latest/versionmetadata"
+                    ]
+                  },
+                  {
+                    "group": "Built-in Functions and Operators",
+                    "pages": [
+                      "sdk/latest/audio",
+                      "sdk/latest/date",
+                      "sdk/latest/image",
+                      "sdk/latest/json",
+                      "sdk/latest/math",
+                      "sdk/latest/string",
+                      "sdk/latest/timestamp",
+                      "sdk/latest/video"
+                    ]
+                  },
+                  {
+                    "group": "AI Integrations",
+                    "pages": [
+                      "sdk/latest/anthropic",
+                      "sdk/latest/bedrock",
+                      "sdk/latest/deepseek",
+                      "sdk/latest/fireworks",
+                      "sdk/latest/gemini",
+                      "sdk/latest/groq",
+                      "sdk/latest/huggingface",
+                      "sdk/latest/llama_cpp",
+                      "sdk/latest/mistralai",
+                      "sdk/latest/ollama",
+                      "sdk/latest/openai",
+                      "sdk/latest/replicate",
+                      "sdk/latest/together",
+                      "sdk/latest/vision",
+                      "sdk/latest/whisper",
+                      "sdk/latest/whisperx",
+                      "sdk/latest/yolox"
+                    ]
+                  },
+                  {
+                    "group": "Iterators",
+                    "pages": [
+                      "sdk/latest/iterators",
+                      "sdk/latest/audiosplitter",
+                      "sdk/latest/componentiterator",
+                      "sdk/latest/documentsplitter",
+                      "sdk/latest/frameiterator",
+                      "sdk/latest/stringsplitter",
+                      "sdk/latest/tileiterator",
+                      "sdk/latest/videosplitter"
+                    ]
+                  },
+                  {
+                    "group": "Import/Export",
+                    "pages": [
+                      "sdk/latest/io"
+                    ]
+                  }
+                ]
+              }
             ]
-          },
+          }
+        ]
+      },
+      {
+        "tab": "Cloud",
+        "groups": [
           {
-            "group": "Libraries",
+            "group": "Cloud",
             "pages": [
-              "libraries/pixelagent",
-              "libraries/mcp",
-              "libraries/yolox"
+              "cloud/get-started",
+              "cloud/faq"
             ]
           }
         ]
@@ -153,104 +235,6 @@
         ]
       },
       {
-        "tab": "Pixeltable SDK",
-        "dropdowns": [
-          {
-            "dropdown": "latest",
-            "icon": "rocket",
-            "groups": [
-              {
-                "group": "SDK Reference",
-                "pages": [
-                  {
-                    "group": "Core API",
-                    "pages": [
-                      "sdk/latest/pixeltable",
-                      "sdk/latest/table",
-                      "sdk/latest/dataframe",
-                      "sdk/latest/columnmetadata",
-                      "sdk/latest/dircontents",
-                      "sdk/latest/indexmetadata",
-                      "sdk/latest/tablemetadata",
-                      "sdk/latest/updatestatus",
-                      "sdk/latest/versionmetadata"
-                    ]
-                  },
-                  {
-                    "group": "Built-in Functions and Operators",
-                    "pages": [
-                      "sdk/latest/audio",
-                      "sdk/latest/date",
-                      "sdk/latest/image",
-                      "sdk/latest/json",
-                      "sdk/latest/math",
-                      "sdk/latest/string",
-                      "sdk/latest/timestamp",
-                      "sdk/latest/video"
-                    ]
-                  },
-                  {
-                    "group": "AI Integrations",
-                    "pages": [
-                      "sdk/latest/openai",
-                      "sdk/latest/anthropic",
-                      "sdk/latest/huggingface",
-                      "sdk/latest/gemini",
-                      "sdk/latest/bedrock",
-                      "sdk/latest/groq",
-                      "sdk/latest/replicate",
-                      "sdk/latest/together",
-                      "sdk/latest/fireworks",
-                      "sdk/latest/mistralai",
-                      "sdk/latest/deepseek",
-                      "sdk/latest/ollama",
-                      "sdk/latest/llama_cpp",
-                      "sdk/latest/whisper",
-                      "sdk/latest/vision",
-                      "sdk/latest/yolox",
-                      "sdk/latest/whisperx"
-                    ]
-                  },
-                  {
-                    "group": "Iterators",
-                    "pages": [
-                      "sdk/latest/iterators",
-                      "sdk/latest/audiosplitter",
-                      "sdk/latest/componentiterator",
-                      "sdk/latest/documentsplitter",
-                      "sdk/latest/frameiterator",
-                      "sdk/latest/stringsplitter",
-                      "sdk/latest/tileiterator",
-                      "sdk/latest/videosplitter"
-                    ]
-                  },
-                  {
-                    "group": "Import/Export",
-                    "pages": [
-                      "sdk/latest/io"
-                    ]
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "dropdown": "v0.4.9",
-            "icon": "tag",
-            "pages": [
-              "sdk/v0.4.9/index"
-            ]
-          },
-          {
-            "dropdown": "v0.4.8",
-            "icon": "tag",
-            "pages": [
-              "sdk/v0.4.8/index"
-            ]
-          }
-        ]
-      },
-      {
         "tab": "Integrations",
         "groups": [
           {
@@ -275,18 +259,6 @@
             "group": "Release History",
             "pages": [
               "changelog/changelog"
-            ]
-          }
-        ]
-      },
-      {
-        "tab": "Support",
-        "groups": [
-          {
-            "group": "Support",
-            "pages": [
-              "support/getting-help",
-              "support/faq"
             ]
           }
         ]

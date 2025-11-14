@@ -40,7 +40,9 @@ class Path(NamedTuple):
         if components == [''] and not allow_empty_path:
             raise excs.Error(f'Invalid path: {path}')
 
-        if components != [''] and not all(is_valid_identifier(c, allow_system_path) for c in components):
+        if components != [''] and not all(
+            is_valid_identifier(c, allow_system_identifiers=allow_system_path, allow_hyphens=True) for c in components
+        ):
             raise excs.Error(f'Invalid path: {path}')
 
         if version is not None and not allow_versioned_path:

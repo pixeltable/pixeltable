@@ -1479,14 +1479,17 @@ class Table(SchemaObject):
             Update the `name` and `age` columns for the rows with ids 1 and 2 (assuming `id` is the primary key).
             If either row does not exist, this raises an error:
 
-            >>> tbl.update([{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 2, 'name': 'Bob', 'age': 40}])
+            >>> tbl.batch_update(
+            ...     [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 2, 'name': 'Bob', 'age': 40}]
+            ... )
 
             Update the `name` and `age` columns for the row with `id` 1 (assuming `id` is the primary key) and insert
             the row with new `id` 3 (assuming this key does not exist):
 
-            >>> tbl.update(
+            >>> tbl.batch_update(
             ...     [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 3, 'name': 'Bob', 'age': 40}],
-            ...     if_not_exists='insert')
+            ...     if_not_exists='insert'
+            ... )
         """
         from pixeltable.catalog import Catalog
 
@@ -1639,14 +1642,24 @@ class Table(SchemaObject):
         from pixeltable.share import push_replica
         from pixeltable.share.protocol import PxtUri
 
-        if self._tbl_version_path.tbl_version.get().is_replica:
+        pxt_uri = self._get_pxt_uri()
+        tbl_version = self._tbl_version_path.tbl_version.get()
+
+        if tbl_version.is_replica:
             raise excs.Error(f'push(): Cannot push replica table {self._name!r}. (Did you mean `pull()`?)')
 
-        pxt_uri = self._get_pxt_uri()
         if pxt_uri is None:
             raise excs.Error(
                 f'push(): Table {self._name!r} has not yet been published to Pixeltable Cloud. '
                 'To publish it, use `pxt.publish()` instead.'
+            )
+
+        if isinstance(self, catalog.View) and self._is_anonymous_snapshot():
+            raise excs.Error(
+                f'push(): Cannot push specific-version table handle {tbl_version.versioned_name!r}. '
+                'To push the latest version instead:\n'
+                f'  t = pxt.get_table({self._name!r})\n'
+                f'  t.push()'
             )
 
         if self._tbl_version is None:
@@ -1671,6 +1684,14 @@ class Table(SchemaObject):
         if not tbl_version.is_replica or pxt_uri is None:
             raise excs.Error(
                 f'pull(): Table {self._name!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).'
+            )
+
+        if isinstance(self, catalog.View) and self._is_anonymous_snapshot():
+            raise excs.Error(
+                f'pull(): Cannot pull specific-version table handle {tbl_version.versioned_name!r}. '
+                'To pull the latest version instead:\n'
+                f'  t = pxt.get_table({self._name!r})\n'
+                f'  t.pull()'
             )
 
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling

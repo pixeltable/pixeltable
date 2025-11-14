@@ -141,6 +141,10 @@ class TestTable:
         pxt.drop_table('test2')
         pxt.drop_table('dir1.test')
 
+        # test create with hyphens
+        pxt.create_dir('hyphenated-dir')
+        _ = pxt.create_table('hyphenated-dir.hyphenated-table', schema)
+
         with pytest.raises(pxt.Error, match="Path 'test' does not exist"):
             pxt.drop_table('test')
         with pytest.raises(pxt.Error, match=r"Path 'dir1.test2' does not exist"):
@@ -2340,6 +2344,16 @@ class TestTable:
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_column(c1=pxt.Int)
         assert 'duplicate column name' in str(exc_info.value).lower()
+
+        with pytest.raises(pxt.Error, match=r'Invalid column name: _invalid'):
+            # leading underscore
+            _ = t.add_column(_invalid=pxt.Int)
+        with pytest.raises(pxt.Error, match=r'Invalid column name: 123'):
+            # not an identifier
+            _ = t.add_column(**{'123': pxt.Int})
+        with pytest.raises(pxt.Error, match=r'Invalid column name: hyphenated-column'):
+            # not an identifier (hyphenated)
+            _ = t.add_column(**{'hyphenated-column': pxt.Int})
 
         # 'stored' kwarg only applies to computed image columns
         with pytest.raises(pxt.Error):
