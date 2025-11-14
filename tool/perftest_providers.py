@@ -163,8 +163,8 @@ Examples:
 
     provider_configs = create_provider_configs(args.t)
     # Load wordlist
-    with open('/usr/share/dict/american-english', encoding='utf-8') as f:
-        wordlist = [word.strip() for word in f]
+    with open('tests/data/random_words', encoding='utf-8') as f:
+        wordlist = [word.strip() for word in f if not word.startswith('#')]
 
     pxt.configure_logging(level=args.log_level)
     provider_config = provider_configs[args.provider]

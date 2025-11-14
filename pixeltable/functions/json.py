@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `JsonType`.
+Pixeltable UDFs for `JsonType`.
 
 Example:
 ```python

@@ -1,0 +1,54 @@
+---
+title: 'Get Started'
+description: 'Explore and share multimodal AI datasets with Pixeltable Cloud'
+icon: 'cloud'
+---
+
+## Overview
+
+Build and share multimodal AI datasets without managing infrastructure. Work with your images, videos, audio, and documents through a unified Python API - process them with AI models, create embeddings, and publish your results for team collaboration or public research.
+
+## Quick Start
+
+**Requirements:** Pixeltable >= 0.4.24
+
+**Replicate a dataset:**
+```python
+import pixeltable as pxt
+
+coco_copy = pxt.replicate(
+    remote_uri='pxt://pixeltable:fiftyone/coco_mini_2017',
+    local_path='coco-copy'
+)
+```
+
+Replicas are read-only locally, but you can query them, perform similarity searches, update them with `pull()`, or create independent copies.
+
+**Publish your datasets** (requires account and API key from [signin.pixeltable.com](https://signin.pixeltable.com/)):
+```python
+pxt.publish(
+    source='my-table',
+    destination_uri='pxt://username/my-dataset'
+)
+```
+
+After publishing, use `push()` to update the cloud replica with local changes. Access defaults to private; add `access='public'` to make it publicly accessible.
+
+Learn more in the [Data Sharing Guide](https://docs.pixeltable.com/notebooks/feature-guides/data-sharing).
+
+## Resources
+
+<CardGroup cols={4}>
+  <Card title="Discord" icon="discord" href="https://discord.gg/QPyqFYx2UN">
+    Get real-time help from our community
+  </Card>
+  <Card title="GitHub" icon="github" href="https://github.com/pixeltable/pixeltable">
+    Report issues and contribute code
+  </Card>
+  <Card title="Docs" icon="book" href="https://docs.pixeltable.com/">
+    Browse our documentation
+  </Card>
+  <Card title="Office Hours" icon="calendar" href="https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM">
+    Schedule time with our team
+  </Card>
+</CardGroup>

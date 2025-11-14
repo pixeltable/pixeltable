@@ -904,10 +904,10 @@ class DataFrame:
         """Add a group-by clause to this DataFrame.
 
         Variants:
-        - group_by(<base table>): group a component view by their respective base table rows
-        - group_by(<expr>, ...): group by the given expressions
+        - group_by(base_tbl): group a component view by their respective base table rows
+        - group_by(expr1, expr2, expr3): group by the given expressions
 
-        Note, that grouping will be applied to the rows and take effect when
+        Note that grouping will be applied to the rows and take effect when
         used with an aggregation function like sum(), count() etc.
 
         Args:
@@ -1369,6 +1369,8 @@ class DataFrame:
     def to_coco_dataset(self) -> Path:
         """Convert the dataframe to a COCO dataset.
         This dataframe must return a single json-typed output column in the following format:
+
+        ```python
         {
             'image': PIL.Image.Image,
             'annotations': [
@@ -1379,6 +1381,7 @@ class DataFrame:
                 ...
             ],
         }
+        ```
 
         Returns:
             Path to the COCO dataset file.

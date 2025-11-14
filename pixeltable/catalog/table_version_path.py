@@ -8,7 +8,7 @@ from pixeltable.metadata import schema
 
 from .column import Column
 from .globals import MediaValidation
-from .table_version import TableVersion
+from .table_version import TableVersion, TableVersionKey
 from .table_version_handle import TableVersionHandle
 
 _logger = logging.getLogger('pixeltable')
@@ -47,13 +47,17 @@ class TableVersionPath:
         self.base = base
         self._cached_tbl_version = None
 
+        if self.base is not None and tbl_version.anchor_tbl_id is not None:
+            self.base = self.base.anchor_to(tbl_version.anchor_tbl_id)
+
     @classmethod
     def from_md(cls, path: schema.TableVersionPath) -> TableVersionPath:
         assert len(path) > 0
         result: TableVersionPath | None = None
         for tbl_id_str, effective_version in path[::-1]:
             tbl_id = UUID(tbl_id_str)
-            result = TableVersionPath(TableVersionHandle(tbl_id, effective_version), base=result)
+            key = TableVersionKey(tbl_id, effective_version, None)
+            result = TableVersionPath(TableVersionHandle(key), base=result)
         return result
 
     def as_md(self) -> schema.TableVersionPath:
@@ -77,6 +81,19 @@ class TableVersionPath:
 
         with Catalog.get().begin_xact(tbl_id=self.tbl_version.id, for_write=False):
             self._cached_tbl_version = self.tbl_version.get()
+
+    def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
+        """
+        Return a new TableVersionPath with all of its non-snapshot TableVersions pointing to the given anchor_tbl_id.
+        (This will clear the existing anchor_tbl_id in the case anchor_tbl_id=None.)
+        """
+        if self.tbl_version.effective_version is not None:
+            return self
+
+        return TableVersionPath(
+            TableVersionHandle(TableVersionKey(self.tbl_version.id, None, anchor_tbl_id)),
+            base=self.base.anchor_to(anchor_tbl_id) if self.base is not None else None,
+        )
 
     def clear_cached_md(self) -> None:
         self._cached_tbl_version = None
