@@ -5,7 +5,7 @@ icon: 'wand-magic-sparkles'
 ---
 
 <Note>
-This guide will get you from zero to a working AI application in under 5 minutes. Learn more by looking at this tutorial on [Github](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/pixeltable-basics.ipynb).
+This guide will get you from zero to a working AI application in under 5 minutes. Learn more by looking at this tutorial on [Github](/notebooks/pixeltable-basics).
 </Note>
 
 ## Create Your First Multimodal AI Application
@@ -14,8 +14,8 @@ Let's build an image analysis application that combines object detection and Ope
 
 ## Installation
 
-  Please refer to our installation section [here](/docs/overview/installation).
-  
+  Please refer to our installation section [here](/overview/installation).
+
   ```bash
   pip install -qU torch transformers openai pixeltable
   ```
@@ -24,11 +24,11 @@ Let's build an image analysis application that combines object detection and Ope
   <Step title="Create Table Structure">
     ```python
     import pixeltable as pxt
-    
+
     # Create directory for our tables
-    pxt.drop_dir('demo', force=True)  
+    pxt.drop_dir('demo', force=True)
     pxt.create_dir('demo')
-    
+
     # Create table with image column
     t = pxt.create_table('demo.first', {'input_image': pxt.Image})
     ```
@@ -45,11 +45,11 @@ Let's build an image analysis application that combines object detection and Ope
     # Add ResNet-50 object detection
     t.add_computed_column(
         detections=huggingface.detr_for_object_detection(
-            t.input_image, 
+            t.input_image,
             model_id='facebook/detr-resnet-50'
         )
     )
-    
+
     # Extract just the labels
     t.add_computed_column(detections_text=t.detections.label_text)
     ```
@@ -64,10 +64,10 @@ Let's build an image analysis application that combines object detection and Ope
     import os
     import getpass
 
-    from pixeltable.functions import openai    
+    from pixeltable.functions import openai
 
     if 'OPENAI_API_KEY' not in os.environ:
-      os.environ['OPENAI_API_KEY'] = getpass.getpass('Enter your OpenAI API key:')        
+      os.environ['OPENAI_API_KEY'] = getpass.getpass('Enter your OpenAI API key:')
 
     t.add_computed_column(
         vision=openai.vision(
@@ -79,7 +79,7 @@ Let's build an image analysis application that combines object detection and Ope
     ```
   <Tip>
   Pixeltable handles parallelization, rate limiting, and incremental processing automatically.
-  </Tip>     
+  </Tip>
   </Step>
 
   <Step title="Use Your Application">
@@ -96,7 +96,7 @@ Let's build an image analysis application that combines object detection and Ope
     ```
   <Tip>
   The query engine uses lazy evaluation, only computing what's needed.
-  </Tip>    
+  </Tip>
   </Step>
 </Steps>
 
@@ -145,10 +145,10 @@ t.add_computed_column(top=top_detection(t.detections))
 ## Next Steps
 
 <CardGroup cols={3}>
-  <Card title="RAG Tutorial" icon="books" href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/rag-demo.ipynb">
+  <Card title="RAG Tutorial" icon="books" href="/notebooks/use-cases/rag-demo">
     Build a production-grade RAG system
   </Card>
-  <Card title="Video Analysis" icon="video" href="https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/use-cases/object-detection-in-videos.ipynb">
+  <Card title="Video Analysis" icon="video" href="/notebooks/use-cases/object-detection-in-videos">
     Process video with object detection
   </Card>
   <Card title="LLM Integration" icon="message" href="/integrations/frameworks#local-llm-runtimes">

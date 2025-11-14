@@ -212,15 +212,11 @@ format: install
 release: install
 	@$(SHELL_PREFIX) scripts/release.sh
 
-MINTLIFY_FILES := $(shell find docs/mintlify -name '*.md' -o -name '*.mdx' -o -name '*.json')
-NOTEBOOK_FILES := $(shell find docs/notebooks -name '*.ipynb' | grep -v .ipynb_checkpoints)
-
-target/docs/docs.json: docs/public_api.opml $(MINTLIFY_FILES) $(NOTEBOOK_FILES)
+.PHONY: docs
+docs: install
 	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active $(UV_ARGS) --upgrade-package pixeltable-doctools
 	@python -m pixeltable_doctools.build
-
-.PHONY: docs
-docs: install target/docs/docs.json
+	@cd target/docs && mintlify broken-links || true
 
 .PHONY: docs-serve
 docs-serve: docs
@@ -237,7 +233,7 @@ endif
 
 .PHONY: clean
 clean:
-	@$(RM) *.mp4 docs/source/tutorials/*.mp4 || true
+	@$(RM) *.mp4 docs/source/tutorials/*.mp4 docs/notebooks/**/.gitignore || true
 	@$(RMDIR) .make-install || true
 	@$(RMDIR) site || true
 	@$(RMDIR) target || true

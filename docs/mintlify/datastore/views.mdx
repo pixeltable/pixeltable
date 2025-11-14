@@ -101,10 +101,10 @@ print(chunks.collect())
     ```python
     # Basic filtering on view
     chunks.where(chunks.text.contains('specific topic')).collect()
-    
+
     # Select specific columns
     chunks.select(chunks.text, chunks.pos).collect()
-    
+
     # Order results
     chunks.order_by(chunks.pos).limit(5).collect()
     ```
@@ -145,19 +145,5 @@ print(chunks.collect())
   </Card>
   <Card title="Workflow Integration" icon="diagram-project">
     Views can be part of larger data workflows
-  </Card>
-</CardGroup>
-
-## Additional Resources
-
-<CardGroup cols={3}>
-  <Card title="API Documentation" icon="book" href="https://pixeltable.github.io/pixeltable/">
-    Complete API reference
-  </Card>
-  <Card title="View Examples" icon="lightbulb" href="/examples/views">
-    Sample view implementations
-  </Card>
-  <Card title="RAG Tutorial" icon="graduation-cap" href="/tutorials/rag">
-    Build a RAG system using views
   </Card>
 </CardGroup>

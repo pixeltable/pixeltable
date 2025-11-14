@@ -8,10 +8,12 @@
 .vscode
 __pycache__
 *.iml
+**/*.quarto_ipynb
 
-/dist
-/docs/local
-/local
+/docs/notebooks/.quarto/
+/dist/
+/docs/local/
+/local/
 /pixeltable/_version.py
-/target
-/tests/target
+/target/
+/tests/target/
