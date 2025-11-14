@@ -6,6 +6,7 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sql
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
 
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
@@ -260,6 +261,11 @@ class Column:
             self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call)
         )
         return len(window_fn_calls) > 0
+
+    def stores_external_array(self) -> bool:
+        assert self.sa_col_type is not None
+        # Vector: if this is a vector column (ie, used for a vector index), it stores the array itself
+        return self.col_type.is_array_type() and not isinstance(self.sa_col_type, pgvector.sqlalchemy.Vector)
 
     @property
     def is_computed(self) -> bool:

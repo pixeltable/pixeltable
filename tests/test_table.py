@@ -1598,9 +1598,13 @@ class TestTable:
     def test_x(self, reset_db: None) -> None:
         t = pxt.create_table('test_tbl', {'data': pxt.Array[(256, 256, 3), pxt.Float]})
         status = t.insert({'data': np.random.rand(256, 256, 3).astype(np.float32)} for i in range(4))
+        #status = t.insert({'data': None} for i in range(4))
         x = t.count()
         y = t.where(t.data == None).collect()
         z = t.where(t.data == None).count()
+        s = t.select(t.data).sample(n=10)
+        r = s.collect()
+        p = t.select(t.data).collect()
         pass
 
     def test_insert_arrays(self, reset_db: None) -> None:
