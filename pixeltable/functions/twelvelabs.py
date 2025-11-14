@@ -43,8 +43,8 @@ async def embed(
     Creates an embedding vector for the given `text`, `audio`, or `image` parameter. Only one of `text`, `audio`, or
     `image` may be specified.
 
-    Equivalent to the TwelveLabs Embed API.
-    https://docs.twelvelabs.io/v1.3/docs/guides/create-embeddings
+    Equivalent to the TwelveLabs Embed API:
+    <https://docs.twelvelabs.io/v1.3/docs/guides/create-embeddings>
 
     Request throttling:
     Applies the rate limit set in the config (section `twelvelabs`, key `rate_limit`). If no rate
@@ -73,15 +73,14 @@ async def embed(
         ... )
     """
     cl = _twelvelabs_client()
-    res = await cl.embed.create(
-        model_name=model_name, text=text, text_truncate=text_truncate, audio_file=audio, **kwargs
-    )
     if text is not None:
+        res = await cl.embed.create(model_name=model_name, text=text, text_truncate=text_truncate, **kwargs)
         if res.text_embedding is None:
             raise pxt.Error(f"Didn't receive embedding for text: {text}\n{res}")
         vector = res.text_embedding.segments[0].float_
         return np.array(vector, dtype=np.float64)
     if audio is not None:
+        res = await cl.embed.create(model_name=model_name, audio_file=audio, **kwargs)
         if res.audio_embedding is None or res.audio_embedding.segments is None:
             raise pxt.Error(f"Didn't receive embedding for audio: {audio}\n{res}")
         vector = res.audio_embedding.segments[0].float_
