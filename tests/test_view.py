@@ -1125,7 +1125,7 @@ class TestView:
         assert t.get_metadata()['version'] == 0
 
         views: list[pxt.Table] = []
-        view_results: list[pxt.dataframe.DataFrameResultSet] = []
+        view_results: list[pxt.ResultSet] = []
 
         # Create 5 snapshots with views on top of them, modifying the base table in between.
         for i in range(5):
