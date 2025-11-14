@@ -12,7 +12,7 @@ from uuid import UUID
 
 from pydantic import AnyUrl, BaseModel
 
-from pixeltable.catalog.table_version import TableVersionCompleteMd
+from pixeltable.catalog.table_version import TableVersionMd
 
 from .common import PxtUri, RequestBaseModel, StorageDestination
 from .operation_types import ReplicaOperationType
@@ -25,7 +25,7 @@ class PublishRequest(RequestBaseModel):
     table_uri: PxtUri  # If PxtUri#id is not None then it's considered a push replica request
     pxt_version: str
     pxt_md_version: int
-    md: list[TableVersionCompleteMd]
+    md: list[TableVersionMd]
     is_public: bool = False
     bucket_name: str | None = None  # Optional bucket name, falls back to org's default bucket if not provided
 
@@ -105,5 +105,5 @@ class ReplicateResponse(BaseModel):
     pxt_md_version: int
     destination: StorageDestination
     destination_uri: AnyUrl
-    md: list[TableVersionCompleteMd]
+    md: list[TableVersionMd]
     version: int | None = None

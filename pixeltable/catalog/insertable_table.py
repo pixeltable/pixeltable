@@ -16,7 +16,7 @@ from pixeltable.utils.pydantic import is_json_convertible
 
 from .globals import MediaValidation
 from .table import Table
-from .table_version import TableVersion, TableVersionCompleteMd
+from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .tbl_ops import CreateStoreTableOp, TableOp
@@ -73,7 +73,7 @@ class InsertableTable(Table):
         comment: str,
         media_validation: MediaValidation,
         create_default_idxs: bool,
-    ) -> tuple[TableVersionCompleteMd, list[TableOp]]:
+    ) -> tuple[TableVersionMd, list[TableOp]]:
         columns = cls._create_columns(schema)
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]

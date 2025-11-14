@@ -1,5 +1,4 @@
 import base64
-import dataclasses
 import io
 import json
 import logging
@@ -23,7 +22,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
-from pixeltable.catalog.table_version import TableVersionCompleteMd, TableVersionKey
+from pixeltable.catalog.table_version import TableVersionKey, TableVersionMd
 from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
@@ -72,7 +71,7 @@ class TablePackager:
             self.bundle_md = {
                 'pxt_version': pxt.__version__,
                 'pxt_md_version': metadata.VERSION,
-                'md': [dataclasses.asdict(md) for md in tbl_md],
+                'md': [md.as_dict() for md in tbl_md],
             }
         if additional_md is not None:
             self.bundle_md.update(additional_md)
@@ -412,7 +411,7 @@ class TableRestorer:
                 'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable'
             )
         # Convert tables metadata from dict to list of TableVersionCompleteMd
-        tbl_md = [schema.md_from_dict(TableVersionCompleteMd, t) for t in self.bundle_md['md']]
+        tbl_md = [schema.md_from_dict(TableVersionMd, t) for t in self.bundle_md['md']]
 
         for md in tbl_md:
             md.tbl_md.is_replica = True
@@ -445,7 +444,7 @@ class TableRestorer:
             tbl._tbl_version_path.clear_cached_md()  # TODO: Clear cached md for ancestors too?
             return tbl
 
-    def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionCompleteMd) -> None:
+    def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionMd) -> None:
         """
         Import the Parquet table into the Pixeltable catalog.
         """
