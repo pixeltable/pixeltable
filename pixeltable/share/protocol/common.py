@@ -10,6 +10,10 @@ from uuid import UUID
 from pydantic import BaseModel, model_validator
 
 
+# Protocol version for replica operations. Used by both client and server
+# to determine request/response format and maintain backward compatibility.
+PROTOCOL_VERSION = 1
+
 class StorageDestination(str, Enum):
     """Storage destination types for table snapshots."""
 
