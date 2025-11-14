@@ -228,6 +228,7 @@ class Catalog:
     def _active_tbl_clause(
         self, *, tbl_id: UUID | None = None, dir_id: UUID | None = None, tbl_name: str | None = None
     ) -> sql.ColumnElement[bool]:
+        """Create a clause that filters out dropped tables in addition to the specified conditions."""
         # avoid tables that are in the process of getting dropped
         clause = sql.func.coalesce(schema.Table.md['pending_stmt'].astext, '-1') != str(
             schema.TableStatement.DROP_TABLE.value
@@ -1272,7 +1273,7 @@ class Catalog:
 
         new_tbl_md: schema.TableMd | None = None
         new_version_md: schema.VersionMd | None = None
-        new_schema_version_md: schema.TableSchemaVersionMd | None = None
+        new_schema_version_md: schema.SchemaVersionMd | None = None
         is_new_tbl_version: bool = False
 
         # We need to ensure that the table metadata in the catalog always reflects the latest observed version of
@@ -1350,9 +1351,7 @@ class Catalog:
         if existing_schema_version_md_row is None:
             new_schema_version_md = md.schema_version_md
         else:
-            existing_schema_version_md = schema.md_from_dict(
-                schema.TableSchemaVersionMd, existing_schema_version_md_row.md
-            )
+            existing_schema_version_md = schema.md_from_dict(schema.SchemaVersionMd, existing_schema_version_md_row.md)
             # Validate that the existing metadata are identical to the new metadata.
             if existing_schema_version_md != md.schema_version_md:
                 raise excs.Error(
@@ -2000,7 +1999,7 @@ class Catalog:
             TableVersionMd(
                 tbl_md=schema.md_from_dict(schema.TableMd, row.Table.md),
                 version_md=schema.md_from_dict(schema.VersionMd, row.TableVersion.md),
-                schema_version_md=schema.md_from_dict(schema.TableSchemaVersionMd, row.TableSchemaVersion.md),
+                schema_version_md=schema.md_from_dict(schema.SchemaVersionMd, row.TableSchemaVersion.md),
             )
             for row in src_rows
         ]
@@ -2100,7 +2099,7 @@ class Catalog:
         assert tbl_record.id == key.tbl_id
         tbl_md = schema.md_from_dict(schema.TableMd, tbl_record.md)
         version_md = schema.md_from_dict(schema.VersionMd, version_record.md)
-        schema_version_md = schema.md_from_dict(schema.TableSchemaVersionMd, schema_version_record.md)
+        schema_version_md = schema.md_from_dict(schema.SchemaVersionMd, schema_version_record.md)
 
         return TableVersionMd(tbl_md, version_md, schema_version_md)
 
@@ -2110,7 +2109,7 @@ class Catalog:
         dir_id: UUID | None,
         tbl_md: schema.TableMd | None,
         version_md: schema.VersionMd | None,
-        schema_version_md: schema.TableSchemaVersionMd | None,
+        schema_version_md: schema.SchemaVersionMd | None,
         pending_ops: list[TableOp] | None = None,
         remove_from_dir: bool = False,
     ) -> None:

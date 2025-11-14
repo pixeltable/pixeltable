@@ -50,7 +50,7 @@ class TableVersionMd:
 
     tbl_md: schema.TableMd
     version_md: schema.VersionMd
-    schema_version_md: schema.TableSchemaVersionMd
+    schema_version_md: schema.SchemaVersionMd
 
     @property
     def is_pure_snapshot(self) -> bool:
@@ -134,7 +134,7 @@ class TableVersion:
     # record metadata stored in catalog
     _tbl_md: schema.TableMd
     _version_md: schema.VersionMd
-    _schema_version_md: schema.TableSchemaVersionMd
+    _schema_version_md: schema.SchemaVersionMd
 
     path: 'TableVersionPath' | None  # only set for non-snapshots; needed to resolve computed cols
     base: TableVersionHandle | None  # only set for views
@@ -189,8 +189,7 @@ class TableVersion:
         key: TableVersionKey,
         tbl_md: schema.TableMd,
         version_md: schema.VersionMd,
-        # effective_version: int | None,
-        schema_version_md: schema.TableSchemaVersionMd,
+        schema_version_md: schema.SchemaVersionMd,
         mutable_views: list[TableVersionHandle],
         base_path: 'TableVersionPath' | None = None,
         base: TableVersionHandle | None = None,
@@ -374,7 +373,7 @@ class TableVersion:
             additional_md={},
         )
 
-        schema_version_md = schema.TableSchemaVersionMd(
+        schema_version_md = schema.SchemaVersionMd(
             tbl_id=tbl_id_str,
             schema_version=0,
             preceding_schema_version=None,
@@ -1494,7 +1493,7 @@ class TableVersion:
         return self._version_md
 
     @property
-    def schema_version_md(self) -> schema.TableSchemaVersionMd:
+    def schema_version_md(self) -> schema.SchemaVersionMd:
         return self._schema_version_md
 
     @property

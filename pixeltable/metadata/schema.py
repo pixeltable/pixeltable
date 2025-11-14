@@ -326,7 +326,7 @@ class SchemaColumn:
 
 
 @dataclasses.dataclass
-class TableSchemaVersionMd:
+class SchemaVersionMd:
     """
     Records all versioned table metadata.
     """
