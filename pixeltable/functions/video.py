@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `VideoType`.
+Pixeltable UDFs for `VideoType`.
 """
 
 import glob
@@ -239,7 +239,11 @@ def extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | No
 
         Extract a frame close to the end of each video in the `video` column of the table `tbl`:
 
-        >>> tbl.select(tbl.video.extract_frame(tbl.video.get_metadata().streams[0].duration_seconds - 0.1)).collect()
+        >>> tbl.select(
+        ...     tbl.video.extract_frame(
+        ...         tbl.video.get_metadata().streams[0].duration_seconds - 0.1
+        ...     )
+        ... ).collect()
     """
     if timestamp < 0:
         raise ValueError("'timestamp' must be non-negative")
@@ -409,7 +413,11 @@ def segment_video(
     Examples:
         Split a video at 1 minute intervals using fast mode:
 
-        >>> tbl.select(segment_paths=tbl.video.segment_video(duration=60, mode='fast')).collect()
+        >>> tbl.select
+        ...     segment_paths=tbl.video.segment_video(
+        ...         duration=60, mode='fast'
+        ...     )
+        ... ).collect()
 
         Split video into exact 10-second segments with default accurate mode, using the libx264 encoder with a CRF of 23
         and slow preset (for smaller output files):
@@ -425,7 +433,11 @@ def segment_video(
         Split video into two parts at the midpoint:
 
         >>> duration = tbl.video.get_duration()
-        >>> tbl.select(segment_paths=tbl.video.segment_video(segment_times=[duration / 2])).collect()
+        >>> tbl.select(
+        ...     segment_paths=tbl.video.segment_video(
+        ...         segment_times=[duration / 2]
+        ...     )
+        ... ).collect()
     """
     Env.get().require_binary('ffmpeg')
     if duration is not None and segment_times is not None:
@@ -1173,8 +1185,8 @@ def scene_detect_threshold(
         video: The video to analyze for fade transitions.
         fps: Number of frames to extract per second for analysis. If None or 0, analyzes all frames.
             Lower values process faster but may miss exact transition points.
-        threshold: 8-bit intensity value that each pixel value (R, G, and B) must be <= to in order to trigger a fade
-            in/out.
+        threshold: 8-bit intensity value that each pixel value (R, G, and B) must be less than or equal to in order
+            to trigger a fade in/out.
         min_scene_len: Once a cut is detected, this many frames must pass before a new one can be added to the scene
             list.
         fade_bias: Float between -1.0 and +1.0 representing the percentage of timecode skew for the start of a scene

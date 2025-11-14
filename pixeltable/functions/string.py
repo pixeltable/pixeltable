@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `StringType`.
+Pixeltable UDFs for `StringType`.
 It closely follows the Pandas `pandas.Series.str` API.
 
 Example:

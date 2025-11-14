@@ -572,7 +572,7 @@ class TableVersion:
             # otherwise they'll incorrectly refer to the live table. So, construct a full TableVersionPath to
             # use for retargeting.
             tvp = Catalog.get().construct_tvp(
-                self.id, self.effective_version, self.tbl_md.ancestor_ids, self.version_md.created_at
+                self.id, self.effective_version, self.tbl_md.ancestors, self.version_md.created_at
             )
         elif self.anchor_tbl_id is not None:
             # for replica TableVersion instances, we also need to retarget the value_exprs, this time to the

@@ -7,6 +7,7 @@ import tarfile
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Iterator
 from uuid import UUID
@@ -20,6 +21,7 @@ import pyarrow.parquet as pq
 import sqlalchemy as sql
 
 import pixeltable as pxt
+import pixeltable.utils.av as av_utils
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
 from pixeltable.catalog.table_version import TableVersionCompleteMd, TableVersionKey
 from pixeltable.env import Env
@@ -283,7 +285,7 @@ class TablePackager:
         preview = [
             [self.__encode_preview_data(val, col_type)]
             for row in rows
-            for val, col_type in zip(row.values(), preview_cols.values())
+            for val, col_type in zip(row.values(), preview_cols.values(), strict=True)
         ]
 
         return preview_header, preview
@@ -317,12 +319,13 @@ class TablePackager:
                 assert isinstance(val, PIL.Image.Image)
                 return self.__encode_image(val)
 
+            case ts.ColumnType.Type.AUDIO:
+                assert isinstance(val, str)
+                return self.__encode_audio(val)
+
             case ts.ColumnType.Type.VIDEO:
                 assert isinstance(val, str)
                 return self.__encode_video(val)
-
-            case ts.ColumnType.Type.AUDIO:
-                return None
 
             case ts.ColumnType.Type.DOCUMENT:
                 assert isinstance(val, str)
@@ -343,6 +346,18 @@ class TablePackager:
         with io.BytesIO() as buffer:
             scaled_img.save(buffer, 'webp')
             return base64.b64encode(buffer.getvalue()).decode()
+
+    def __encode_audio(self, audio_path: str) -> str | None:
+        try:
+            audio_md = av_utils.get_metadata(audio_path)
+            if 'streams' in audio_md:
+                duration = audio_md['streams'][0]['duration_seconds']
+                assert isinstance(duration, float)
+                return f'{timedelta(seconds=round(duration))} audio clip'
+            return None
+        except Exception:
+            _logger.info(f'Could not extract audio metadata from file for data preview: {audio_path}', exc_info=True)
+            return None
 
     def __encode_video(self, video_path: str) -> str | None:
         thumb = Formatter.extract_first_video_frame(video_path)
@@ -377,7 +392,7 @@ class TableRestorer:
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
-    def restore(self, bundle_path: Path, pxt_uri: str | None = None) -> pxt.Table:
+    def restore(self, bundle_path: Path, pxt_uri: str | None = None, explicit_version: int | None = None) -> pxt.Table:
         # Extract tarball
         print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
@@ -423,10 +438,11 @@ class TableRestorer:
                     _logger.info(f'Importing table {tv.name!r}.')
                     self.__import_table(self.tmp_dir, tv, md)
 
-            tbl = cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
+            tbl = cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id), version=explicit_version)
             if pxt_uri is not None:
                 # Set pxt_uri for the newly created table
                 cat.update_additional_md(tbl._id, {'pxt_uri': pxt_uri})
+            tbl._tbl_version_path.clear_cached_md()  # TODO: Clear cached md for ancestors too?
             return tbl
 
     def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionCompleteMd) -> None:

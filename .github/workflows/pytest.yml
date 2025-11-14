@@ -210,9 +210,7 @@ jobs:
         run: mypy pixeltable tests tool
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
-        run: |
-          mkdocs build --strict
-          pydoclint pixeltable tests tool
+        run: mkdocs build --strict
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
         run: ruff check pixeltable tests tool

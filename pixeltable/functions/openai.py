@@ -1,8 +1,8 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+Pixeltable UDFs
 that wrap various endpoints from the OpenAI API. In order to use them, you must
 first `pip install openai` and configure your OpenAI credentials, as described in
-the [Working with OpenAI](https://pixeltable.readme.io/docs/working-with-openai) tutorial.
+the [Working with OpenAI](https://docs.pixeltable.com/notebooks/integrations/working-with-openai) tutorial.
 """
 
 import base64
@@ -92,50 +92,97 @@ def _rate_limits_pool(model: str) -> str:
     return f'rate-limits:openai:{model}'
 
 
-# RE pattern for duration in '*-reset' headers;
-# examples: 1d2h3ms, 4m5.6s; # fractional seconds can be reported as 0.5s or 500ms
-_header_duration_pattern = re.compile(r'(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)ms)|(?:(\d+)m)?(?:([\d.]+)s)?')
+def _parse_header_duration(duration_str: str) -> float | None:
+    """Parses the value of x-ratelimit-reset-* header into seconds.
 
+    Returns None if the input cannot be parsed.
 
-def _parse_header_duration(duration_str: str) -> datetime.timedelta:
-    match = _header_duration_pattern.match(duration_str)
-    if not match:
-        raise ValueError(f'Invalid duration format: {duration_str}')
-
-    days = int(match.group(1) or 0)
-    hours = int(match.group(2) or 0)
-    milliseconds = int(match.group(3) or 0)
-    minutes = int(match.group(4) or 0)
-    seconds = float(match.group(5) or 0)
-
-    return datetime.timedelta(days=days, hours=hours, minutes=minutes, seconds=seconds, milliseconds=milliseconds)
+    Real life examples of header values:
+    * '1m33.792s'
+    * '857ms'
+    * '0s'
+    * '47.874s'
+    * '156h58m48.601s'
+    """
+    if duration_str is None or duration_str.strip() == '':
+        return None
+    units = {
+        86400: r'(\d+)d',  # days
+        3600: r'(\d+)h',  # hours
+        60: r'(\d+)m(?:[^s]|$)',  # minutes
+        1: r'([\d.]+)s',  # seconds
+        0.001: r'(\d+)ms',  # millis
+    }
+    seconds = None
+    for unit_value, pattern in units.items():
+        match = re.search(pattern, duration_str)
+        if match:
+            seconds = seconds or 0.0
+            seconds += float(match.group(1)) * unit_value
+    _logger.debug(f'Parsed duration header value "{duration_str}" into {seconds} seconds')
+    return seconds
 
 
 def _get_header_info(
     headers: httpx.Headers,
 ) -> tuple[tuple[int, int, datetime.datetime] | None, tuple[int, int, datetime.datetime] | None]:
-    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    """Parses rate limit related headers"""
+    # Requests and project-requests are two separate limits of requests per minute. project-requests headers will be
+    # present if an RPM limit is configured on the project limit.
+    requests_info = _get_resource_info(headers, 'requests')
+    requests_fraction_remaining = _fract_remaining(requests_info)
+    project_requests_info = _get_resource_info(headers, 'project-requests')
+    project_requests_fraction_remaining = _fract_remaining(project_requests_info)
 
-    requests_limit_str = headers.get('x-ratelimit-limit-requests')
-    requests_limit = int(requests_limit_str) if requests_limit_str is not None else None
-    requests_remaining_str = headers.get('x-ratelimit-remaining-requests')
-    requests_remaining = int(requests_remaining_str) if requests_remaining_str is not None else None
-    requests_reset_str = headers.get('x-ratelimit-reset-requests', '5s')  # Default to 5 seconds
-    requests_reset_ts = now + _parse_header_duration(requests_reset_str)
-    requests_info = (requests_limit, requests_remaining, requests_reset_ts) if requests_remaining is not None else None
+    # If both limit infos are present, pick the one with the least percentage remaining
+    best_requests_info = requests_info or project_requests_info
+    if (
+        requests_fraction_remaining is not None
+        and project_requests_fraction_remaining is not None
+        and project_requests_fraction_remaining < requests_fraction_remaining
+    ):
+        best_requests_info = project_requests_info
 
-    tokens_limit_str = headers.get('x-ratelimit-limit-tokens')
-    tokens_limit = int(tokens_limit_str) if tokens_limit_str is not None else None
-    tokens_remaining_str = headers.get('x-ratelimit-remaining-tokens')
-    tokens_remaining = int(tokens_remaining_str) if tokens_remaining_str is not None else None
-    tokens_reset_str = headers.get('x-ratelimit-reset-tokens', '5s')  # Default to 5 seconds
-    tokens_reset_ts = now + _parse_header_duration(tokens_reset_str)
-    tokens_info = (tokens_limit, tokens_remaining, tokens_reset_ts) if tokens_remaining is not None else None
+    # Same story with tokens
+    tokens_info = _get_resource_info(headers, 'tokens')
+    tokens_fraction_remaining = _fract_remaining(tokens_info)
+    project_tokens_info = _get_resource_info(headers, 'project-tokens')
+    project_tokens_fraction_remaining = _fract_remaining(project_tokens_info)
 
-    if requests_info is None or tokens_info is None:
+    best_tokens_info = tokens_info or project_tokens_info
+    if (
+        tokens_fraction_remaining is not None
+        and project_tokens_fraction_remaining is not None
+        and project_tokens_fraction_remaining < tokens_fraction_remaining
+    ):
+        best_tokens_info = project_tokens_info
+
+    if best_requests_info is None or best_tokens_info is None:
         _logger.debug(f'get_header_info(): incomplete rate limit info: {headers}')
 
-    return requests_info, tokens_info
+    return best_requests_info, best_tokens_info
+
+
+def _get_resource_info(headers: httpx.Headers, resource: str) -> tuple[int, int, datetime.datetime] | None:
+    remaining_str = headers.get(f'x-ratelimit-remaining-{resource}')
+    if remaining_str is None:
+        return None
+    remaining = int(remaining_str)
+    limit_str = headers.get(f'x-ratelimit-limit-{resource}')
+    limit = int(limit_str) if limit_str is not None else None
+    reset_str = headers.get(f'x-ratelimit-reset-{resource}')
+    reset_in_seconds = _parse_header_duration(reset_str) or 5.0  # Default to 5 seconds
+    reset_ts = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(seconds=reset_in_seconds)
+    return (limit, remaining, reset_ts)
+
+
+def _fract_remaining(resource_info: tuple[int, int, datetime.datetime] | None) -> float | None:
+    if resource_info is None:
+        return None
+    limit, remaining, _ = resource_info
+    if limit is None or remaining is None:
+        return None
+    return remaining / limit
 
 
 class OpenAIRateLimitsInfo(env.RateLimitsInfo):
@@ -158,24 +205,36 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
             openai.InternalServerError,
         )
 
-    def record_exc(self, exc: Exception) -> None:
+    def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:
         import openai
 
         _ = isinstance(exc, openai.APIError)
         if not isinstance(exc, openai.APIError) or not hasattr(exc, 'response') or not hasattr(exc.response, 'headers'):
             return
+
         requests_info, tokens_info = _get_header_info(exc.response.headers)
-        _logger.debug(f'record_exc(): requests_info={requests_info} tokens_info={tokens_info}')
-        self.record(requests=requests_info, tokens=tokens_info)
+        _logger.debug(
+            f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} tokens_info={tokens_info}'
+        )
+        self.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info)
         self.has_exc = True
 
-    def get_retry_delay(self, exc: Exception) -> float | None:
+    def _retry_delay_from_exception(self, exc: Exception) -> float | None:
+        try:
+            retry_after_str = exc.response.headers.get('retry-after')  # type: ignore
+        except AttributeError:
+            return None
+        if retry_after_str is not None and re.fullmatch(r'\d{1,4}', retry_after_str):
+            return float(retry_after_str)
+        return None
+
+    def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
         import openai
 
         if not isinstance(exc, self.retryable_errors):
             return None
         assert isinstance(exc, openai.APIError)
-        return super().get_retry_delay(exc)
+        return self._retry_delay_from_exception(exc) or super().get_retry_delay(exc, attempt)
 
 
 #####################################
@@ -424,13 +483,14 @@ async def chat_completions(
         resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
     )
 
+    request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages, model=model, **model_kwargs
     )
 
     requests_info, tokens_info = _get_header_info(result.headers)
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
-    rate_limits_info.record(requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
+    rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     return json.loads(result.text)
 
@@ -532,6 +592,7 @@ async def vision(
         resource_pool, lambda: OpenAIRateLimitsInfo(_vision_get_request_resources)
     )
 
+    request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     result = await _openai_client().chat.completions.with_raw_response.create(
         messages=messages,  # type: ignore
         model=model,
@@ -541,7 +602,7 @@ async def vision(
     # _logger.debug(f'vision(): headers={result.headers}')
     requests_info, tokens_info = _get_header_info(result.headers)
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
-    rate_limits_info.record(requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
+    rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     result = json.loads(result.text)
     return result['choices'][0]['message']['content']
@@ -611,12 +672,13 @@ async def embeddings(
     rate_limits_info = env.Env.get().get_resource_pool_info(
         resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources)
     )
+    request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     result = await _openai_client().embeddings.with_raw_response.create(
         input=input, model=model, encoding_format='float', **model_kwargs
     )
     requests_info, tokens_info = _get_header_info(result.headers)
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
-    rate_limits_info.record(requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
+    rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
     return [np.array(data['embedding'], dtype=np.float64) for data in json.loads(result.content)['data']]
 
 
