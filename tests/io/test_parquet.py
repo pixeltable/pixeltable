@@ -248,10 +248,10 @@ class TestParquet:
 
         export_path = tmp_path / 'exported_image.parquet'
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.io.export_parquet(tab._df(), export_path)
-        assert 'Cannot export Dataframe with image columns' in str(exc_info.value)
+            pxt.io.export_parquet(tab.select(), export_path)
+        assert 'Cannot export Query with image columns' in str(exc_info.value)
 
-        pxt.io.export_parquet(tab._df(), export_path, inline_images=True)
+        pxt.io.export_parquet(tab.select(), export_path, inline_images=True)
         assert export_path.exists()
 
         # Right now we cannot import a table with inlined image back into pixeltable

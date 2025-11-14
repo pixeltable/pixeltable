@@ -494,8 +494,8 @@ class TestExprs:
 
     def test_inline_dict(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
-        df = t.select({'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}})
-        result = df.show()
+        query = t.select({'a': t.c1, 'b': {'c': t.c2}, 'd': 1, 'e': {'f': 2}})
+        result = query.show()
         print(result)
 
     def test_constant_literals(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
@@ -1021,8 +1021,8 @@ class TestExprs:
         t = img_tbl
         result = t.select(t.img).show(n=100)
         _ = result._repr_html_()
-        df = t.select(t.img, t.img.rotate(60))
-        _ = df.show(n=100)._repr_html_()
+        query = t.select(t.img, t.img.rotate(60))
+        _ = query.show(n=100)._repr_html_()
 
         with pytest.raises(pxt.Error):
             _ = t.select(t.img.rotate)

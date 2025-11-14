@@ -228,7 +228,7 @@ class TestOpenai:
         else:
 
             @pxt.query
-            def get_customer_info(customer_id: str) -> pxt.DataFrame:
+            def get_customer_info(customer_id: str) -> pxt.Query:
                 """
                 Get customer information for a given customer ID.
 

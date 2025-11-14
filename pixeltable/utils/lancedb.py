@@ -14,14 +14,14 @@ _logger = logging.getLogger('pixeltable')
 
 
 def export_lancedb(
-    table_or_df: pxt.Table | pxt.DataFrame,
+    table_or_query: pxt.Table | pxt.Query,
     db_uri: Path,
     table_name: str,
     batch_size_bytes: int = 128 * 2**20,
     if_exists: Literal['error', 'overwrite', 'append'] = 'error',
 ) -> None:
     """
-    Exports a dataframe's data to a LanceDB table.
+    Exports a Query's data to a LanceDB table.
 
     This utilizes LanceDB's streaming interface for efficient table creation, via a sequence of in-memory pyarrow
     `RecordBatches`, the size of which can be controlled with the `batch_size_bytes` parameter.
@@ -31,7 +31,7 @@ def export_lancedb(
     - `pip install lancedb`
 
     Args:
-        table_or_df : Table or Dataframe to export.
+        table_or_query : Table or Query to export.
         db_uri: Local Path to the LanceDB database.
         table_name : Name of the table in the LanceDB database.
         batch_size_bytes : Maximum size in bytes for each batch.
@@ -50,11 +50,11 @@ def export_lancedb(
     if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.Error("export_lancedb(): 'if_exists' must be one of: ['error', 'overwrite', 'append']")
 
-    df: pxt.DataFrame
-    if isinstance(table_or_df, pxt.catalog.Table):
-        df = table_or_df._df()
+    query: pxt.Query
+    if isinstance(table_or_query, pxt.catalog.Table):
+        query = table_or_query.select()
     else:
-        df = table_or_df
+        query = table_or_query
 
     db_exists = False
     if db_uri.exists():
@@ -76,10 +76,12 @@ def export_lancedb(
         with Catalog.get().begin_xact(for_write=False):
             if lance_tbl is None or if_exists == 'overwrite':
                 mode = 'overwrite' if lance_tbl is not None else 'create'
-                arrow_schema = to_arrow_schema(df.schema)
-                _ = db.create_table(table_name, to_record_batches(df, batch_size_bytes), schema=arrow_schema, mode=mode)
+                arrow_schema = to_arrow_schema(query.schema)
+                _ = db.create_table(
+                    table_name, to_record_batches(query, batch_size_bytes), schema=arrow_schema, mode=mode
+                )
             else:
-                lance_tbl.add(to_record_batches(df, batch_size_bytes))
+                lance_tbl.add(to_record_batches(query, batch_size_bytes))
 
     except Exception as e:
         # cleanup

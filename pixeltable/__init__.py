@@ -4,6 +4,7 @@ Core Pixeltable API for table operations, data processing, and UDF management.
 
 # ruff: noqa: F401
 
+from ._query import Query, ResultSet
 from ._version import __version__
 from .catalog import (
     Column,
@@ -16,7 +17,6 @@ from .catalog import (
     VersionMetadata,
     View,
 )
-from .dataframe import DataFrame
 from .exceptions import Error, ExprEvalError, PixeltableWarning
 from .func import Aggregator, Function, Tool, ToolChoice, Tools, expr_udf, mcp_udfs, query, retrieval_udf, uda, udf
 from .globals import (
@@ -52,8 +52,8 @@ from . import functions, io, iterators  # isort: skip
 
 __default_dir = {symbol for symbol in dir() if not symbol.startswith('_')}
 __removed_symbols = {
+    '_query',
     'catalog',
-    'dataframe',
     'env',
     'exceptions',
     'exec',

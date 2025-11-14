@@ -81,8 +81,8 @@ class TableDataConduit:
             return False
         return all(isinstance(row, dict) for row in d)
 
-    def is_direct_df(self) -> bool:
-        return isinstance(self.source, pxt.DataFrame) and self.source_column_map is None
+    def is_direct_query(self) -> bool:
+        return isinstance(self.source, pxt.Query) and self.source_column_map is None
 
     def normalize_pxt_schema_types(self) -> None:
         for name, coltype in self.pxt_schema.items():
@@ -126,30 +126,30 @@ class TableDataConduit:
             raise excs.Error(f'Missing required column(s) ({", ".join(missing_cols)})')
 
 
-class DFTableDataConduit(TableDataConduit):
-    pxt_df: pxt.DataFrame = None
+class QueryTableDataConduit(TableDataConduit):
+    pxt_query: pxt.Query = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'DFTableDataConduit':
+    def from_tds(cls, tds: TableDataConduit) -> 'QueryTableDataConduit':
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         if isinstance(tds.source, pxt.Table):
-            t.pxt_df = tds.source.select()
+            t.pxt_query = tds.source.select()
         else:
-            assert isinstance(tds.source, pxt.DataFrame)
-            t.pxt_df = tds.source
+            assert isinstance(tds.source, pxt.Query)
+            t.pxt_query = tds.source
         return t
 
     def infer_schema(self) -> dict[str, ts.ColumnType]:
-        self.pxt_schema = self.pxt_df.schema
+        self.pxt_schema = self.pxt_query.schema
         self.pxt_pk = self.src_pk
         return self.pxt_schema
 
     def prepare_for_insert_into_table(self) -> None:
         if self.source_column_map is None:
             self.source_column_map = {}
-        self.check_source_columns_are_insertable(self.pxt_df.schema.keys())
+        self.check_source_columns_are_insertable(self.pxt_query.schema.keys())
 
 
 class RowDataTableDataConduit(TableDataConduit):
@@ -544,8 +544,8 @@ class UnkTableDataConduit(TableDataConduit):
     """Source type is not known at the time of creation"""
 
     def specialize(self) -> TableDataConduit:
-        if isinstance(self.source, (pxt.Table, pxt.DataFrame)):
-            return DFTableDataConduit.from_tds(self)
+        if isinstance(self.source, (pxt.Table, pxt.Query)):
+            return QueryTableDataConduit.from_tds(self)
         if isinstance(self.source, pd.DataFrame):
             return PandasTableDataConduit.from_tds(self)
         if HFTableDataConduit.is_applicable(self):

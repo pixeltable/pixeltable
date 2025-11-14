@@ -48,10 +48,10 @@ class TestIndex:
         with pytest.raises(pxt.Error, match="Column 'img' has multiple embedding indices"):
             _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(1).collect()
         # but we can specify the index to use, and the query should work
-        df = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='img_idx1'), asc=False).limit(1)
-        _ = reload_tester.run_query(df)
-        df = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='img_idx2'), asc=False).limit(1)
-        _ = reload_tester.run_query(df)
+        query = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='img_idx1'), asc=False).limit(1)
+        _ = reload_tester.run_query(query)
+        query = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='img_idx2'), asc=False).limit(1)
+        _ = reload_tester.run_query(query)
 
         # verify that the result is the same as the original query after reload
         reload_tester.run_reload_test(clear=False)
@@ -91,22 +91,22 @@ class TestIndex:
                 embed_args = {'embedding': clip_embed}
             t.add_embedding_index('img', idx_name=iname, metric=metric, **embed_args)  # type: ignore[arg-type]
 
-            df = (
+            query = (
                 t.select(img=t.img, sim=t.img.similarity(sample_img, idx=iname))
                 .order_by(t.img.similarity(sample_img, idx=iname), asc=is_asc)
                 .limit(1)
             )
-            res = reload_tester.run_query(df)
+            res = reload_tester.run_query(query)
             out_img = res[0, 'img']
             assert_img_eq(sample_img, out_img, f'{metric} failed when using index {iname}')
 
             # TODO:  how to verify the output?
-            df = (
+            query = (
                 t.select(path=t.img.localpath, sim=t.img.similarity('parachute', idx=iname))
                 .order_by(t.img.similarity('parachute', idx=iname), asc=is_asc)
                 .limit(1)
             )
-            _ = reload_tester.run_query(df)
+            _ = reload_tester.run_query(query)
 
             # can also be used in a computed column
             validate_update_status(t.add_computed_column(sim=t.img.similarity('parachute')))
@@ -140,7 +140,7 @@ class TestIndex:
         chunks.add_embedding_index(column='text', string_embed=clip_embed)
 
         @pxt.query
-        def top_k_chunks(query_text: str) -> pxt.DataFrame:
+        def top_k_chunks(query_text: str) -> pxt.Query:
             return (
                 chunks.select(chunks.text, sim=chunks.text.similarity(query_text))
                 .order_by(chunks.text.similarity(query_text), asc=False)
@@ -168,7 +168,7 @@ class TestIndex:
         _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
 
         @pxt.query
-        def img_matches(img: PIL.Image.Image) -> pxt.DataFrame:
+        def img_matches(img: PIL.Image.Image) -> pxt.Query:
             return t.select(t.img.localpath).order_by(t.img.similarity(img), asc=False).limit(3)
 
         _ = list(t.select(img=t.img.localpath, matches=img_matches(t.img)).head(1))
@@ -503,8 +503,8 @@ class TestIndex:
         img_t.revert()
 
         # make sure we can still do DML after reloading the metadata
-        df = img_t.select()
-        _ = reload_tester.run_query(df)
+        query = img_t.select()
+        _ = reload_tester.run_query(query)
         reload_tester.run_reload_test(clear=True)
         img_t = pxt.get_table(tbl_name)
         status = img_t.insert(rows)
@@ -595,19 +595,19 @@ class TestIndex:
         v = pxt.create_view('v', t.where(t.n % 2 == 0))
         v.add_embedding_index('s', string_embed=all_mpnet_embed)
 
-        df1 = v.select(sim1=v.s.similarity(sentences[1]))
-        res1 = reload_tester.run_query(df1)
+        query1 = v.select(sim1=v.s.similarity(sentences[1]))
+        res1 = reload_tester.run_query(query1)
 
         # Now add an index to the base table, which should be independent of the view index
         t.add_embedding_index('s', string_embed=e5_embed)
-        df2 = t.where(t.n % 2 == 0).select(sim2=t.s.similarity(sentences[1]))
-        res2 = reload_tester.run_query(df2)
+        query2 = t.where(t.n % 2 == 0).select(sim2=t.s.similarity(sentences[1]))
+        res2 = reload_tester.run_query(query2)
 
         # Now query the view again twice: once with the column referenced as `v.s`, and once as `t.s`
-        df3 = v.select(sim3=v.s.similarity(sentences[1]))
-        res3 = reload_tester.run_query(df3)
-        df4 = v.select(sim4=t.s.similarity(sentences[1]))
-        res4 = reload_tester.run_query(df4)
+        query3 = v.select(sim3=v.s.similarity(sentences[1]))
+        res3 = reload_tester.run_query(query3)
+        query4 = v.select(sim4=t.s.similarity(sentences[1]))
+        res4 = reload_tester.run_query(query4)
 
         # `v.s` should use the view index, while `t.s` should use the base table index
         assert_resultset_eq(res1, res3)

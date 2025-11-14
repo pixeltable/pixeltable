@@ -19,11 +19,11 @@ _logger = logging.getLogger('pixeltable')
 class Formatter:
     """
     A factory for constructing HTML formatters for Pixeltable data. The formatters are used to customize
-    the rendering of `DataFrameResultSet`s in notebooks.
+    the rendering of `ResultSet`s in notebooks.
 
     Args:
-        num_rows: Number of rows in the DataFrame being rendered.
-        num_cols: Number of columns in the DataFrame being rendered.
+        num_rows: Number of rows in the `ResultSet` being rendered.
+        num_cols: Number of columns in the `ResultSet` being rendered.
         http_address: Root address of the Pixeltable HTTP server (used to construct URLs for media references).
     """
 

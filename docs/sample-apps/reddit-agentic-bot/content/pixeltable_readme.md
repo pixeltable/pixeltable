@@ -297,7 +297,7 @@ embed_model = huggingface.sentence_transformer.using(model_id='all-MiniLM-L6-v2'
 # Add embedding index using the function object
 chunks.add_embedding_index('text', string_embed=embed_model)
 
-# Define query function for retrieval - Returns a DataFrame expression
+# Define query function for retrieval - Returns a Query expression
 @pxt.query
 def get_relevant_context(query_text: str, limit: int = 3):
     sim = chunks.text.similarity(query_text)

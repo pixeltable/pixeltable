@@ -33,7 +33,7 @@ class TableVersionPath:
       runs a local transaction, at the end of which the instance is again invalidated)
     - supplying metadata from an unvalidated instance is okay, because it needs to get revalidated anyway when a
       query actually runs (at which point there is a transaction context) - there is no guarantee that in between
-      constructing a DataFrame and executing it, the underlying table schema hasn't changed (eg, a concurrent process
+      constructing a Query and executing it, the underlying table schema hasn't changed (eg, a concurrent process
       could have dropped a column referenced in the query).
     """
 

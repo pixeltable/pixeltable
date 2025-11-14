@@ -220,7 +220,7 @@ class TestComponentView:
         orig_resultset = view_query.collect()
 
         # create snapshot of view
-        query: pxt.Table | pxt.DataFrame = view_t.where(view_t.frame_idx < 10) if has_filter else view_t
+        query: pxt.Table | pxt.Query = view_t.where(view_t.frame_idx < 10) if has_filter else view_t
         schema = {'c1': view_t.cropped.width * view_t.cropped.height} if has_column else {}
         snap_t = pxt.create_snapshot(snap_path, query, additional_columns=schema)
         snap_cols = [snap_t.c1] if has_column else []
