@@ -6,6 +6,7 @@ import sys
 import time
 import warnings
 from typing import Any, Iterable, Iterator
+from uuid import UUID
 
 import more_itertools
 import psycopg
@@ -38,7 +39,10 @@ class StoreBase:
     _pk_cols: list[sql.Column]
     v_min_col: sql.Column
     v_max_col: sql.Column
-    base: StoreBase | None
+
+    # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
+    # since it's referenced by various methods of `StoreBase`
+    _base: StoreBase | None
 
     # In my cursory experiments this was the optimal batch size: it was an improvement over 5_000 and there was no real
     # benefit to going higher.
@@ -49,11 +53,25 @@ class StoreBase:
         self.tbl_version = tbl_version.handle
         self.sa_md = sql.MetaData()
         self.sa_tbl = None
-        # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
-        # since it's referenced by various methods of `StoreBase`
-        self.base = tbl_version.base.get().store_tbl if tbl_version.base is not None else None
+        self._pk_cols = []
+
+        # we initialize _base lazily, because the base may not exist anymore at this point
+        # (but we might still need sa_table to access our store table); do this before create_sa_tbl()
+        self._base = None
+
         # we're passing in tbl_version to avoid a circular call to TableVersionHandle.get()
         self.create_sa_tbl(tbl_version)
+
+    @property
+    def base(self) -> StoreBase | None:
+        if self._base is None:
+            tv = self.tbl_version.get()
+            self._base = tv.base.get().store_tbl if tv.base is not None else None
+        return self._base
+
+    @classmethod
+    def storage_name(cls, tbl_id: UUID, is_view: bool) -> str:
+        return f'{"view" if is_view else "tbl"}_{tbl_id.hex}'
 
     def system_columns(self) -> list[sql.Column]:
         return [*self._pk_cols, self.v_max_col]
@@ -70,7 +88,23 @@ class StoreBase:
 
     def _create_system_columns(self) -> list[sql.Column]:
         """Create and return system columns"""
-        rowid_cols = self._create_rowid_columns()
+        rowid_cols: list[sql.Column]
+        if self._store_tbl_exists():
+            # derive our rowid Columns from the existing table, without having to access self.base.store_tbl:
+            # self.base may not exist anymore (both this table and our base got dropped in the same transaction, and
+            # the base was finalized before this table)
+            with Env.get().begin_xact(for_write=False) as conn:
+                q = (
+                    f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r} '
+                    'ORDER BY ordinal_position'
+                )
+                col_names = [row[0] for row in conn.execute(sql.text(q)).fetchall()]
+                num_rowid_cols = col_names.index('v_min')
+                rowid_cols = [
+                    sql.Column(col_name, sql.BigInteger, nullable=False) for col_name in col_names[:num_rowid_cols]
+                ]
+        else:
+            rowid_cols = self._create_rowid_columns()
         self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
         self.v_max_col = sql.Column(
             'v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION)
@@ -243,7 +277,8 @@ class StoreBase:
     def drop(self) -> None:
         """Drop store table"""
         conn = Env.get().conn
-        self.sa_md.drop_all(bind=conn)
+        drop_stmt = f'DROP TABLE IF EXISTS {self._storage_name()}'
+        conn.execute(sql.text(drop_stmt))
 
     def _add_column_stmt(self, sa_col: sql.Column) -> str:
         col_type_str = sa_col.type.compile(dialect=sql.dialects.postgresql.dialect())
@@ -577,21 +612,24 @@ class StoreComponentView(StoreView):
     PK: now also includes pos, the position returned by the ComponentIterator for the base row identified by base_rowid
     """
 
-    rowid_cols: list[sql.Column]
-    pos_col: sql.Column
-    pos_col_idx: int
-
     def __init__(self, catalog_view: catalog.TableVersion):
         super().__init__(catalog_view)
 
     def _create_rowid_columns(self) -> list[sql.Column]:
         # each base row is expanded into n view rows
-        self.rowid_cols = [sql.Column(c.name, c.type) for c in self.base.rowid_columns()]
+        rowid_cols = [sql.Column(c.name, c.type) for c in self.base.rowid_columns()]
         # name of pos column: avoid collisions with bases' pos columns
-        self.pos_col = sql.Column(f'pos_{len(self.rowid_cols) - 1}', sql.BigInteger, nullable=False)
-        self.pos_col_idx = len(self.rowid_cols)
-        self.rowid_cols.append(self.pos_col)
-        return self.rowid_cols
+        pos_col = sql.Column(f'pos_{len(rowid_cols) - 1}', sql.BigInteger, nullable=False)
+        rowid_cols.append(pos_col)
+        return rowid_cols
+
+    @property
+    def pos_col(self) -> sql.Column:
+        return self.rowid_columns()[-1]
+
+    @property
+    def pos_col_idx(self) -> int:
+        return len(self.rowid_columns()) - 1
 
     def create_sa_tbl(self, tbl_version: catalog.TableVersion | None = None) -> None:
         if tbl_version is None:

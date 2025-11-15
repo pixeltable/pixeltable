@@ -1,44 +1,18 @@
-# Detect OS and set shell accordingly
-ifeq ($(OS),Windows_NT)
-    SHELL := pwsh.exe
-    # PowerShell command to get directory name
-    # Define Windows-specific commands
-    SHELL_PREFIX := pwsh.exe
-    MKDIR := powershell -Command New-Item -ItemType Directory -Path
-    TOUCH := powershell -Command New-Item -ItemType File -Path -Force
-    RM := powershell -Command Remove-Item -Force
-    RMDIR := powershell -Command Remove-Item -Force -Recurse
-    SET_ENV := set
-    KERNEL_NAME := $(shell powershell -Command "(Get-Item .).Name")
-    ULIMIT_CMD :=
-else
-    SHELL := /bin/bash
-    # Define Unix-specific commands
-    SHELL_PREFIX :=
-    MKDIR := mkdir -p
-    TOUCH := touch
-    RM := rm -f
-    RMDIR := rm -rf
-    SET_ENV := export
-    KERNEL_NAME := $(shell basename `pwd`)
-    ULIMIT_CMD := ulimit -n 4000;
-endif
-
-# Defaults
+# Parameter defaults
 DURATION := 120
 UV_ARGS := --group extra-dev
 WORKERS := 12
 
-# Common test parameters
+# Common test args
 PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 --reruns 2 \
 	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with'
 
-# We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal to the timeout
-NB_CELL_TIMEOUT := 3600
-TQDM_MININTERVAL := $(NB_CELL_TIMEOUT)
-
 # Needed for LLaMA build to work correctly on some Linux systems
 CMAKE_ARGS := -DLLAVA_BUILD=OFF
+NB_CELL_TIMEOUT := 3600
+# We ensure the TQDM progress bar is updated exactly once per cell execution, by setting the refresh rate equal to the timeout
+TQDM_MININTERVAL := $(NB_CELL_TIMEOUT)
+ULIMIT_CMD := ulimit -n 4000;
 
 .DEFAULT_GOAL := help
 
@@ -91,11 +65,7 @@ help:
 
 .PHONY: setup-install
 setup-install:
-ifeq ($(OS),Windows_NT)
-	@powershell -Command "if (-not (Test-Path '.make-install')) { New-Item -ItemType Directory -Path '.make-install' }"
-else
-	@$(MKDIR) .make-install
-endif
+	@mkdir -p .make-install
 ifdef CONDA_DEFAULT_ENV
 ifeq ($(CONDA_DEFAULT_ENV),base)
 	$(error Pixeltable must be installed from a conda environment (not `base`))
@@ -121,19 +91,19 @@ endif
 		target=$$(basename $$dir); \
 		ln -sf $$dir $(CONDA_PREFIX)/share/$$target 2>/dev/null || true; \
 	done
-	@$(TOUCH) .make-install/env
+	@touch .make-install/env
 
 .PHONY: install-deps
 install-deps:
 	@echo 'Installing dependencies from uv ...'
-	@$(TOUCH) pyproject.toml
-	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active $(UV_ARGS)
+	@touch pyproject.toml
+	@VIRTUAL_ENV="$(CONDA_PREFIX)" uv sync --active $(UV_ARGS)
 
 # After running `uv sync`
 .make-install/others:
 	@echo 'Installing Jupyter kernel ...'
-	@python -m ipykernel install --user --name=$(KERNEL_NAME)
-	@$(TOUCH) .make-install/others
+	@python -m ipykernel install --user --name=pixeltable
+	@touch .make-install/others
 
 .PHONY: install
 install: setup-install .make-install/env install-deps .make-install/others
@@ -167,17 +137,17 @@ fullpytest: install
 .PHONY: slimpytest
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,view}.py
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,packager,snapshot,table,view}.py
 
 .PHONY: nbtest
 nbtest: install
 	@echo 'Running `pytest` on notebooks ...'
-	@$(SHELL_PREFIX) scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/notebooks tests
+	@scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/notebooks tests
 	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) tests/target/nb-tests/*.ipynb
 
 .PHONY: stresstest
 stresstest: install
-	@$(SHELL_PREFIX) scripts/stress-tests.sh $(WORKERS) $(DURATION)
+	@scripts/stress-tests.sh $(WORKERS) $(DURATION)
 
 .PHONY: typecheck
 typecheck: install
@@ -210,13 +180,13 @@ format: install
 
 .PHONY: release
 release: install
-	@$(SHELL_PREFIX) scripts/release.sh
+	@scripts/release.sh
 
 MINTLIFY_FILES := $(shell find docs/mintlify -name '*.md' -o -name '*.mdx' -o -name '*.json')
 NOTEBOOK_FILES := $(shell find docs/notebooks -name '*.ipynb' | grep -v .ipynb_checkpoints)
 
 target/docs/docs.json: docs/public_api.opml $(MINTLIFY_FILES) $(NOTEBOOK_FILES)
-	@$(SET_ENV) VIRTUAL_ENV="$(CONDA_PREFIX)"; uv sync --active $(UV_ARGS) --upgrade-package pixeltable-doctools
+	@VIRTUAL_ENV="$(CONDA_PREFIX)" uv sync --active $(UV_ARGS) --upgrade-package pixeltable-doctools
 	@python -m pixeltable_doctools.build
 
 .PHONY: docs
@@ -237,8 +207,8 @@ endif
 
 .PHONY: clean
 clean:
-	@$(RM) *.mp4 docs/source/tutorials/*.mp4 || true
-	@$(RMDIR) .make-install || true
-	@$(RMDIR) site || true
-	@$(RMDIR) target || true
-	@$(RMDIR) tests/target || true
+	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
+	@rm -rf .make-install || true
+	@rm -rf site || true
+	@rm -rf target || true
+	@rm -rf tests/target || true
