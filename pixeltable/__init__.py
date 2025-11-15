@@ -47,6 +47,39 @@ from .type_system import Array, Audio, Bool, Date, Document, Float, Image, Int, 
 # This import must go last to avoid circular imports.
 from . import functions, io, iterators  # isort: skip
 
+# Register classes as public API after all imports complete (to avoid circular imports)
+from .func import public_api
+from .iterators import ComponentIterator, FrameIterator
+from .iterators.image import TileIterator
+public_api(ComponentIterator)
+public_api(FrameIterator)
+public_api(TileIterator)
+
+# Register type system classes (use already-imported module)
+import pixeltable.type_system as ts  # noqa: E402
+public_api(ts.Json)
+public_api(ts.Video)
+public_api(ts.Audio)
+
+# Register catalog classes (use already-imported classes)
+from .catalog.update_status import RowCountStats  # noqa: E402
+public_api(UpdateStatus)  # Already imported above
+public_api(RowCountStats)
+public_api(TableMetadata)  # Already imported above
+public_api(Table)  # Already imported above
+
+# Register dataframe classes
+import pixeltable.dataframe as df_module  # noqa: E402
+public_api(df_module.DataFrameResultSet)
+
+# Register expression classes
+import pixeltable.exprs.expr as expr_module  # noqa: E402
+public_api(expr_module.Expr)
+
+# Register tool classes (use already-imported classes)
+public_api(Tool)  # Already imported above
+public_api(Tools)  # Already imported above
+
 # This is the safest / most maintainable way to construct __all__: start with the default and "blacklist"
 # stuff that we don't want in there. (Using a "whitelist" is considerably harder to maintain.)
 

@@ -15,6 +15,7 @@ import pydantic
 import sqlalchemy.exc as sql_exc
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
+from pixeltable.func import public_api
 from pixeltable.catalog import Catalog, is_valid_identifier
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
@@ -383,12 +384,14 @@ class DataFrame:
     def _has_joins(self) -> bool:
         return len(self._from_clause.join_clauses) > 0
 
+    @public_api
     def show(self, n: int = 20) -> DataFrameResultSet:
         if self.sample_clause is not None:
             raise excs.Error('show() cannot be used with sample()')
         assert n is not None
         return self.limit(n).collect()
 
+    @public_api
     def head(self, n: int = 10) -> DataFrameResultSet:
         """Return the first n rows of the DataFrame, in insertion order of the underlying Table.
 
@@ -416,6 +419,7 @@ class DataFrame:
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
+    @public_api
     def tail(self, n: int = 10) -> DataFrameResultSet:
         """Return the last n rows of the DataFrame, in insertion order of the underlying Table.
 
@@ -534,6 +538,7 @@ class DataFrame:
                 Catalog.get().convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
                 raise  # just re-raise if not converted to a Pixeltable error
 
+    @public_api
     def collect(self) -> DataFrameResultSet:
         return DataFrameResultSet(list(self._output_row_iterator()), self.schema)
 
@@ -631,6 +636,7 @@ class DataFrame:
     def _repr_html_(self) -> str:
         return self._descriptors().to_html()
 
+    @public_api
     def select(self, *items: Any, **named_items: Any) -> DataFrame:
         """Select columns or expressions from the DataFrame.
 
@@ -717,6 +723,7 @@ class DataFrame:
             limit=self.limit_val,
         )
 
+    @public_api
     def where(self, pred: exprs.Expr) -> DataFrame:
         """Filter rows based on a predicate.
 
@@ -822,6 +829,7 @@ class DataFrame:
         else:
             return exprs.CompoundPredicate(operator=exprs.LogicalOperator.AND, operands=predicates)
 
+    @public_api
     def join(
         self,
         other: catalog.Table,
@@ -900,6 +908,7 @@ class DataFrame:
             limit=self.limit_val,
         )
 
+    @public_api
     def group_by(self, *grouping_items: Any) -> DataFrame:
         """Add a group-by clause to this DataFrame.
 
@@ -976,6 +985,7 @@ class DataFrame:
             limit=self.limit_val,
         )
 
+    @public_api
     def distinct(self) -> DataFrame:
         """
         Remove duplicate rows from this DataFrame.
@@ -999,6 +1009,7 @@ class DataFrame:
         exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
         return self.group_by(*exps)
 
+    @public_api
     def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
         """Add an order-by clause to this DataFrame.
 
@@ -1046,6 +1057,7 @@ class DataFrame:
             limit=self.limit_val,
         )
 
+    @public_api
     def limit(self, n: int) -> DataFrame:
         """Limit the number of rows in the DataFrame.
 
@@ -1069,6 +1081,7 @@ class DataFrame:
             limit=limit_expr,
         )
 
+    @public_api
     def sample(
         self,
         n: int | None = None,
@@ -1366,6 +1379,7 @@ class DataFrame:
         summary_string = json.dumps(d)
         return hashlib.sha256(summary_string.encode()).hexdigest()
 
+    @public_api
     def to_coco_dataset(self) -> Path:
         """Convert the dataframe to a COCO dataset.
         This dataframe must return a single json-typed output column in the following format:
@@ -1401,6 +1415,7 @@ class DataFrame:
             with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
                 return write_coco_dataset(self, dest_path)
 
+    @public_api
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """
         Convert the dataframe to a pytorch IterableDataset suitable for parallel loading

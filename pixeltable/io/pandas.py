@@ -10,8 +10,10 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.env import Env
+from pixeltable.func import public_api
 
 
+@public_api
 def import_pandas(
     tbl_name: str,
     df: pd.DataFrame,
@@ -53,6 +55,7 @@ def import_pandas(
     )
 
 
+@public_api
 def import_csv(
     tbl_name: str,
     filepath_or_buffer: str | os.PathLike,
@@ -82,6 +85,7 @@ def import_csv(
     )
 
 
+@public_api
 def import_excel(
     tbl_name: str,
     io: str | os.PathLike,
