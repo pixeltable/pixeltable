@@ -8,7 +8,8 @@ import math
 import re
 import sys
 import time
-from typing import Any, Awaitable, Collection
+from http import HTTPStatus
+from typing import Any, Awaitable, ClassVar, Collection
 
 from pixeltable import env, func
 from pixeltable.config import Config
@@ -269,6 +270,12 @@ class RequestRateScheduler(Scheduler):
         r'wait (\d+(?:\.\d+)?)\s*seconds?',
         r'retry-after:\s*(\d+(?:\.\d+)?)',
     )
+    RETRIABLE_HTTP_STATUSES: ClassVar[dict[str, int]] = {
+        'TOO_MANY_REQUESTS': HTTPStatus.TOO_MANY_REQUESTS.value,
+        'SERVICE_UNAVAILABLE': HTTPStatus.SERVICE_UNAVAILABLE.value,
+        'REQUEST_TIMEOUT': HTTPStatus.REQUEST_TIMEOUT.value,
+        'GATEWAY_TIMEOUT': HTTPStatus.GATEWAY_TIMEOUT.value,
+    }
 
     # Exponential backoff defaults
     BASE_RETRY_DELAY = 1.0  # in seconds
@@ -367,8 +374,8 @@ class RequestRateScheduler(Scheduler):
             _logger.debug(f'exception for {self.resource_pool}: type={type(exc)}\n{exc}')
             if hasattr(exc, 'response') and hasattr(exc.response, 'headers'):
                 _logger.debug(f'scheduler {self.resource_pool}: exception headers: {exc.response.headers}')
-            is_rate_limit_error, retry_after = self._is_rate_limit_error(exc)
-            if is_rate_limit_error and num_retries < self.MAX_RETRIES:
+            is_retriable_error, retry_after = self._is_retriable_error(exc)
+            if is_retriable_error and num_retries < self.MAX_RETRIES:
                 retry_delay = self._compute_retry_delay(num_retries, retry_after)
                 _logger.debug(f'scheduler {self.resource_pool}: retrying after {retry_delay}')
                 now = time.monotonic()
@@ -391,45 +398,46 @@ class RequestRateScheduler(Scheduler):
             if is_task:
                 self.num_in_flight -= 1
 
-    def _is_rate_limit_error(self, exc: Exception) -> tuple[bool, float | None]:
-        """Returns True if the exception indicates a rate limit error, and the retry delay in seconds."""
-        from http import HTTPStatus
+    @classmethod
+    def _is_retriable_error(cls, exc: Exception) -> tuple[bool, float | None]:
+        """Returns True if the exception indicates a retriable error, and the retry delay in seconds."""
 
         # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
         # We look for attributes that contain status codes, instead of checking the type of the exception,
         # in order to handle a wider variety of exception classes.
-        is_rate_limit_error = False
-        retry_delay: float | None = None
+        err_md = cls._extract_error_metadata(exc)
+        if (err_md is None or not err_md[0]) and hasattr(exc, 'response'):
+            err_md = cls._extract_error_metadata(exc.response)
 
-        # requests.HTTPError/httpx.HTTPStatusError
-        if (
-            hasattr(exc, 'response')
-            and hasattr(exc.response, 'status_code')
-            and exc.response.status_code == HTTPStatus.TOO_MANY_REQUESTS.value
-        ):
-            is_rate_limit_error = True
-            retry_delay = self._extract_retry_delay_from_headers(exc.response.headers)
-        elif (
-            # urllib.error.HTTPError
-            (hasattr(exc, 'code') and exc.code == HTTPStatus.TOO_MANY_REQUESTS.value)
-            # aiohttp.ClientResponseError
-            or (hasattr(exc, 'status') and exc.status == HTTPStatus.TOO_MANY_REQUESTS.value)
-        ) and hasattr(exc, 'headers'):
-            is_rate_limit_error = True
-            retry_delay = self._extract_retry_delay_from_headers(exc.headers)
-
-        if is_rate_limit_error:
-            return True, retry_delay
+        if err_md is not None and err_md[0]:
+            return err_md
 
         # Check common rate limit keywords in exception message
         error_msg = str(exc).lower()
-        if any(indicator in error_msg for indicator in self.RATE_LIMIT_INDICATORS):
-            retry_delay = self._extract_retry_delay_from_message(error_msg)
+        if any(indicator in error_msg for indicator in cls.RATE_LIMIT_INDICATORS):
+            retry_delay = cls._extract_retry_delay_from_message(error_msg)
             return True, retry_delay
 
         return False, None
 
-    def _extract_retry_delay_from_headers(self, headers: Any | None) -> float | None:
+    @classmethod
+    def _extract_error_metadata(cls, obj: Any) -> tuple[bool, float | None] | None:
+        is_retriable: bool | None = None
+        retry_delay: float | None = None
+        for attr in ['status', 'code', 'status_code']:
+            if hasattr(obj, attr):
+                is_retriable = getattr(obj, attr) in cls.RETRIABLE_HTTP_STATUSES.values()
+                is_retriable |= str(getattr(obj, attr)).upper() in cls.RETRIABLE_HTTP_STATUSES
+
+        if hasattr(obj, 'headers'):
+            retry_delay = cls._extract_retry_delay_from_headers(obj.headers)
+            if retry_delay is not None:
+                is_retriable = True
+
+        return (is_retriable, retry_delay) if is_retriable is not None else None
+
+    @classmethod
+    def _extract_retry_delay_from_headers(cls, headers: Any | None) -> float | None:
         """Extract retry delay from HTTP headers."""
         if headers is None:
             return None
@@ -475,9 +483,10 @@ class RequestRateScheduler(Scheduler):
 
         return None
 
-    def _extract_retry_delay_from_message(self, msg: str) -> float | None:
+    @classmethod
+    def _extract_retry_delay_from_message(cls, msg: str) -> float | None:
         msg_lower = msg.lower()
-        for pattern in self.RETRY_AFTER_PATTERNS:
+        for pattern in cls.RETRY_AFTER_PATTERNS:
             match = re.search(pattern, msg_lower)
             if match is not None:
                 try:
