@@ -2,6 +2,7 @@ import dataclasses
 import types
 import typing
 import uuid
+from enum import Enum
 from typing import Any, TypeVar, Union, get_type_hints
 
 import sqlalchemy as sql
@@ -21,15 +22,15 @@ base_metadata = Base.metadata
 T = TypeVar('T')
 
 
-def md_from_dict(data_class_type: type[T], data: Any) -> T:
+def md_from_dict(type_: type[T], data: Any) -> T:
     """Re-instantiate a dataclass instance that contains nested dataclasses from a dict."""
-    if dataclasses.is_dataclass(data_class_type):
-        fieldtypes = get_type_hints(data_class_type)
-        return data_class_type(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
+    if dataclasses.is_dataclass(type_):
+        fieldtypes = get_type_hints(type_)
+        return type_(**{f: md_from_dict(fieldtypes[f], data[f]) for f in data})
 
-    origin = typing.get_origin(data_class_type)
+    origin = typing.get_origin(type_)
     if origin is not None:
-        type_args = typing.get_args(data_class_type)
+        type_args = typing.get_args(type_)
         if (origin is Union or origin is types.UnionType) and type(None) in type_args:
             # handling T | None, T | None
             non_none_args = [arg for arg in type_args if arg is not type(None)]
@@ -45,8 +46,16 @@ def md_from_dict(data_class_type: type[T], data: Any) -> T:
             return tuple(md_from_dict(arg_type, elem) for arg_type, elem in zip(type_args, data))  # type: ignore[return-value]
         else:
             raise AssertionError(origin)
+    elif isinstance(type_, type) and issubclass(type_, Enum):
+        return type_(data)
     else:
         return data
+
+
+def _md_dict_factory(data: list[tuple[str, Any]]) -> dict:
+    """Use this to serialize <>Md instances with dataclasses.asdict()"""
+    # serialize enums to their values
+    return {k: v.value if isinstance(v, Enum) else v for k, v in data}
 
 
 # structure of the stored metadata:
@@ -165,6 +174,26 @@ class ViewMd:
     iterator_args: dict[str, Any] | None
 
 
+class TableState(Enum):
+    """The operational state of the table"""
+
+    LIVE = 0
+    ROLLFORWARD = 1  # finalizing pending table ops
+    ROLLBACK = 2  # rolling back pending table ops
+
+
+class TableStatement(Enum):
+    """The top-level DDL/DML operation (corresponding to a statement in SQL; not: a TableOp) currently being executed"""
+
+    CREATE_TABLE = 0
+    CREATE_VIEW = 1
+    DROP_TABLE = 2
+    ADD_COLUMNS = 3
+    DROP_COLUMNS = 4
+    ADD_INDEX = 5
+    DROP_INDEX = 6
+
+
 @dataclasses.dataclass
 class TableMd:
     tbl_id: str  # uuid.UUID
@@ -202,7 +231,11 @@ class TableMd:
     #     column in all cases)
     additional_md: dict[str, Any]  # deprecated
 
+    # deprecated
     has_pending_ops: bool = False
+
+    tbl_state: TableState = TableState.LIVE
+    pending_stmt: TableStatement | None = None
 
     @property
     def is_snapshot(self) -> bool:
@@ -236,6 +269,8 @@ class Table(Base):
     Views are in essence a subclass of tables, because they also store materialized columns. The differences are:
     - views have a base, which is either a (live) table or a snapshot
     - views can have a filter predicate
+
+    dir_id: NULL for dropped tables
     """
 
     __tablename__ = 'tables'
@@ -243,7 +278,7 @@ class Table(Base):
     MAX_VERSION = 9223372036854775807  # 2^63 - 1
 
     id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), primary_key=True, nullable=False)
-    dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=False)
+    dir_id: orm.Mapped[uuid.UUID] = orm.mapped_column(UUID(as_uuid=True), ForeignKey('dirs.id'), nullable=True)
     md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableMd
     additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
@@ -252,7 +287,7 @@ class Table(Base):
 
 
 @dataclasses.dataclass
-class TableVersionMd:
+class VersionMd:
     tbl_id: str  # uuid.UUID
     created_at: float  # time.time()
     version: int
@@ -291,7 +326,7 @@ class SchemaColumn:
 
 
 @dataclasses.dataclass
-class TableSchemaVersionMd:
+class SchemaVersionMd:
     """
     Records all versioned table metadata.
     """

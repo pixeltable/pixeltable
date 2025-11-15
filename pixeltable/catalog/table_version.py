@@ -27,7 +27,7 @@ from pixeltable.utils.object_stores import ObjectOps
 from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
-from .tbl_ops import TableOp
+from .tbl_ops import DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp, TableOp
 from .update_status import RowCountStats, UpdateStatus
 
 if TYPE_CHECKING:
@@ -43,27 +43,32 @@ _logger = logging.getLogger('pixeltable')
 
 
 @dataclasses.dataclass(frozen=True)
-class TableVersionCompleteMd:
+class TableVersionMd:
     """
     Complete set of md records for a specific TableVersion instance.
     """
 
     tbl_md: schema.TableMd
-    version_md: schema.TableVersionMd
-    schema_version_md: schema.TableSchemaVersionMd
+    version_md: schema.VersionMd
+    schema_version_md: schema.SchemaVersionMd
 
     @property
     def is_pure_snapshot(self) -> bool:
         return (
-            self.tbl_md is not None
-            and self.tbl_md.view_md is not None
+            self.tbl_md.view_md is not None
             and self.tbl_md.view_md.is_snapshot
             and self.tbl_md.view_md.predicate is None
+            and self.tbl_md.view_md.sample_clause is None
             and len(self.schema_version_md.columns) == 0
         )
 
+    def as_dict(self) -> dict:
+        from .catalog import md_dict_factory
 
-@dataclasses.dataclass(frozen=True)
+        return dataclasses.asdict(self, dict_factory=md_dict_factory)
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class TableVersionKey:
     tbl_id: UUID
     effective_version: int | None
@@ -128,8 +133,8 @@ class TableVersion:
 
     # record metadata stored in catalog
     _tbl_md: schema.TableMd
-    _version_md: schema.TableVersionMd
-    _schema_version_md: schema.TableSchemaVersionMd
+    _version_md: schema.VersionMd
+    _schema_version_md: schema.SchemaVersionMd
 
     path: 'TableVersionPath' | None  # only set for non-snapshots; needed to resolve computed cols
     base: TableVersionHandle | None  # only set for views
@@ -183,8 +188,8 @@ class TableVersion:
         self,
         key: TableVersionKey,
         tbl_md: schema.TableMd,
-        version_md: schema.TableVersionMd,
-        schema_version_md: schema.TableSchemaVersionMd,
+        version_md: schema.VersionMd,
+        schema_version_md: schema.SchemaVersionMd,
         mutable_views: list[TableVersionHandle],
         base_path: 'TableVersionPath' | None = None,
         base: TableVersionHandle | None = None,
@@ -281,7 +286,7 @@ class TableVersion:
         media_validation: MediaValidation,
         create_default_idxs: bool,
         view_md: schema.ViewMd | None = None,
-    ) -> TableVersionCompleteMd:
+    ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
 
         user = Env.get().user
@@ -358,7 +363,7 @@ class TableVersion:
             additional_md={},
         )
 
-        table_version_md = schema.TableVersionMd(
+        table_version_md = schema.VersionMd(
             tbl_id=tbl_id_str,
             created_at=timestamp,
             version=0,
@@ -368,7 +373,7 @@ class TableVersion:
             additional_md={},
         )
 
-        schema_version_md = schema.TableSchemaVersionMd(
+        schema_version_md = schema.SchemaVersionMd(
             tbl_id=tbl_id_str,
             schema_version=0,
             preceding_schema_version=None,
@@ -378,9 +383,13 @@ class TableVersion:
             media_validation=media_validation.name.lower(),
             additional_md={},
         )
-        return TableVersionCompleteMd(tbl_md, table_version_md, schema_version_md)
+        return TableVersionMd(tbl_md, table_version_md, schema_version_md)
 
     def exec_op(self, op: TableOp) -> None:
+        from pixeltable.store import StoreBase
+
+        assert op.delete_table_md_op is None  # that needs to get handled by Catalog
+
         if op.create_store_table_op is not None:
             # this needs to be called outside of a transaction
             self.store_tbl.create()
@@ -405,8 +414,19 @@ class TableVersion:
             Catalog.get().store_update_status(self.id, self.version, status)
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
+        elif op.drop_store_table_op is not None:
+            # don't reference self.store_tbl here, it needs to reference the metadata for our base table, which at
+            # this point may not exist anymore
+            with Env.get().begin_xact() as conn:
+                drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(self.id, self.is_view)}'
+                conn.execute(sql.text(drop_stmt))
+
+        elif op.delete_table_media_files_op:
+            self.delete_media()
+            FileCache.get().clear(tbl_id=self.id)
+
     @classmethod
-    def create_replica(cls, md: TableVersionCompleteMd, create_store_tbl: bool = True) -> TableVersion:
+    def create_replica(cls, md: TableVersionMd, create_store_tbl: bool = True) -> TableVersion:
         from .catalog import Catalog, TableVersionPath
 
         assert Env.get().in_xact
@@ -438,19 +458,20 @@ class TableVersion:
         for dest in destinations:
             ObjectOps.delete(dest, self.id, tbl_version=tbl_version)
 
-    def drop(self) -> None:
-        # if self.is_view and self.is_mutable:
-        #     # update mutable_views
-        #     # TODO: invalidate base to force reload
-        #     from .table_version_handle import TableVersionHandle
-        #
-        #     assert self.base is not None
-        #     if self.base.get().is_mutable:
-        #         self.base.get().mutable_views.remove(TableVersionHandle.create(self))
-
-        self.delete_media()
-        FileCache.get().clear(tbl_id=self.id)
-        self.store_tbl.drop()
+    def drop(self) -> list[TableOp]:
+        id_str = str(self.id)
+        ops = [
+            TableOp(
+                tbl_id=id_str,
+                op_sn=0,
+                num_ops=3,
+                needs_xact=False,
+                delete_table_media_files_op=DeleteTableMediaFilesOp(),
+            ),
+            TableOp(tbl_id=id_str, op_sn=1, num_ops=3, needs_xact=False, drop_store_table_op=DropStoreTableOp()),
+            TableOp(tbl_id=id_str, op_sn=2, num_ops=3, needs_xact=True, delete_table_md_op=DeleteTableMdOp()),
+        ]
+        return ops
 
     def init(self) -> None:
         """
@@ -604,22 +625,10 @@ class TableVersion:
         else:
             return None
 
-    def _init_sa_schema(self) -> None:
-        # create the sqlalchemy schema; do this after instantiating columns, in order to determine whether they
-        # need to record errors
-        from pixeltable.store import StoreComponentView, StoreTable, StoreView
-
-        if self.is_component_view:
-            self.store_tbl = StoreComponentView(self)
-        elif self.is_view:
-            self.store_tbl = StoreView(self)
-        else:
-            self.store_tbl = StoreTable(self)
-
     def _write_md(self, new_version: bool, new_schema_version: bool) -> None:
         from pixeltable.catalog import Catalog
 
-        Catalog.get().store_tbl_md(
+        Catalog.get().write_tbl_md(
             self.id,
             None,
             self._tbl_md,
@@ -1480,11 +1489,11 @@ class TableVersion:
         return self._tbl_md
 
     @property
-    def version_md(self) -> schema.TableVersionMd:
+    def version_md(self) -> schema.VersionMd:
         return self._version_md
 
     @property
-    def schema_version_md(self) -> schema.TableSchemaVersionMd:
+    def schema_version_md(self) -> schema.SchemaVersionMd:
         return self._schema_version_md
 
     @property

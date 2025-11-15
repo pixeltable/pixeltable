@@ -179,12 +179,9 @@ class TestTable:
             "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
         )
 
-        # scenario 1: a table exists at the path already
+        # scenario 1: a table already exists at the path
         with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_table('test', schema)
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.create_table('test', schema)
-        assert 'is an existing' in str(exc_info.value)
         assert len(tbl.select().collect()) == 5
         # if_exists='ignore' should return the existing table
         tbl2 = pxt.create_table('test', schema, if_exists='ignore')
@@ -973,12 +970,39 @@ class TestTable:
             pxt.create_table('empty_table', {})
 
     def test_drop_table(self, test_tbl: pxt.Table) -> None:
-        pxt.drop_table('test_tbl')
+        t = pxt.create_table('test1', {'c1': pxt.String})
+        pxt.drop_table('test1')
         with pytest.raises(pxt.Error, match='does not exist'):
-            _ = pxt.get_table('test_tbl')
-        # TODO: deal with concurrent drop_table() in another process
-        # with pytest.raises(pxt.Error, match='has been dropped') as exc_info:
+            _ = pxt.get_table('test1')
+        # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
+        # assert 'table test1 has been dropped' in str(exc_info.value).lower()
+        t = pxt.create_table('test2', {'c1': pxt.String})
+        t = pxt.get_table('test2')
+        pxt.drop_table('test2')
+        with pytest.raises(pxt.Error, match='does not exist'):
+            _ = pxt.get_table('test2')
+        # with pytest.raises(pxt.Error) as exc_info:
+        #     _ = t.show(1)
+        # assert 'table test2 has been dropped' in str(exc_info.value).lower()
+        t = pxt.create_table('test3', {'c1': pxt.String})
+        _ = pxt.create_view('view3', t)
+        pxt.drop_table('view3')
+        with pytest.raises(pxt.Error, match='does not exist'):
+            _ = pxt.get_table('view3')
+        # with pytest.raises(pxt.Error) as exc_info:
+        #     _ = v.show(1)
+        # assert 'view view3 has been dropped' in str(exc_info.value).lower()
+        _ = pxt.get_table('test3')
+        _ = pxt.create_view('view4', t)
+        pxt.drop_table('view4')
+        with pytest.raises(pxt.Error, match='does not exist'):
+            _ = pxt.get_table('view4')
+        # with pytest.raises(pxt.Error) as exc_info:
+        #     _ = v.show(1)
+        # assert 'view view4 has been dropped' in str(exc_info.value).lower()
+        _ = pxt.get_table('test3')
+        pxt.drop_table('test3')
 
     def test_drop_table_via_handle(self, test_tbl: pxt.Table) -> None:
         t = pxt.create_table('test1', {'c1': pxt.String})
@@ -1005,7 +1029,7 @@ class TestTable:
         #     _ = v.show(1)
         # assert 'view view3 has been dropped' in str(exc_info.value).lower()
         _ = pxt.get_table('test3')
-        v = pxt.create_view('view4', t)
+        _ = pxt.create_view('view4', t)
         v = pxt.get_table('view4')
         pxt.drop_table(v)
         with pytest.raises(pxt.Error, match='does not exist'):

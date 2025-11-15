@@ -48,3 +48,6 @@ class TableOp:
     create_store_table_op: CreateStoreTableOp | None = None
     create_index_op: CreateIndexOp | None = None
     load_view_op: LoadViewOp | None = None
+    delete_table_md_op: DeleteTableMdOp | None = None
+    delete_table_media_files_op: DeleteTableMediaFilesOp | None = None
+    drop_store_table_op: DropStoreTableOp | None = None
