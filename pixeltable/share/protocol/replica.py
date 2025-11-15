@@ -35,7 +35,7 @@ class PublishRequest(RequestBaseModel):
 
     @field_validator('md')
     @classmethod
-    def validate_md_not_empty(cls, v: list[TableVersionCompleteMd]) -> list[TableVersionCompleteMd]:
+    def validate_md_not_empty(cls, v: list[TableVersionMd]) -> list[TableVersionMd]:
         """Ensure md list has at least one element."""
         if len(v) == 0:
             raise ValueError('md list must contain at least one element')
