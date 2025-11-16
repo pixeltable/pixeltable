@@ -6,6 +6,7 @@ import numpy as np
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore
+
 from .utils import assert_json_eq, inf_array_iterator, inf_image_iterator, validate_update_status
 
 
