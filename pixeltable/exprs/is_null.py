@@ -27,7 +27,7 @@ class IsNull(Expr):
         c = self.components[0]
         if isinstance(c, ColumnRef) and c.col.stores_external_array():
             # we also need to check CellMd.file_urls for null
-            e = sql.and_(c.col.sa_cellmd_col.op('->>')('file_urls') == None, c.col.sa_col == None)
+            e = sql.and_(c.col.sa_cellmd_col['file_urls'] == None, c.col.sa_col == None)
             return e
         e = sql_elements.get(self.components[0])
         if e is None:
