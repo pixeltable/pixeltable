@@ -80,7 +80,7 @@ endif
 	@python -m pip install -qU pip
 	@python -m pip install -q uv==0.9.3
 	@echo 'Installing conda packages ...'
-	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' quarto nodejs
+	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' quarto nodejs lychee
 	@echo 'Installing mintlify ...'
 	@npm install --silent -g @mintlify/cli
 	@echo 'Fixing quarto conda packaging bugs ...'
@@ -201,9 +201,14 @@ else
 	$(error Usage: make docs-deploy TARGET=<dev|stage|prod>)
 endif
 
+# TODO: incorporate this into a new/expanded docscheck
+.PHONY: linkscheck
+linkscheck: docs
+	lychee target/docs/ --exclude-path target/docs/changelog/ --max-concurrency 3 --exclude 'file://*' --exclude-loopback -q
+
 .PHONY: clean
 clean:
-	@rm -f *.mp4 docs/source/tutorials/*.mp4 docs/notebooks/**/.gitignore || true
+	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
 	@rm -rf .make-install || true
 	@rm -rf site || true
 	@rm -rf target || true
