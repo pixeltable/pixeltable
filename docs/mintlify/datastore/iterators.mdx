@@ -63,7 +63,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   <Tab title="DocumentSplitter">
     ```python
     from pixeltable.iterators import DocumentSplitter
-    
+
     # Create view with document chunks
     chunks_view = pxt.create_view(
         'docs.chunks',
@@ -83,11 +83,11 @@ Iterators are powerful tools for processing large media files. They work seamles
     - `metadata`: Optional fields like 'title', 'heading', 'sourceline', 'page', 'bounding_box'
     - `overlap`: Optional overlap between chunks
   </Tab>
-  
+
   <Tab title="FrameIterator">
     ```python
     from pixeltable.iterators import FrameIterator
-    
+
     # Extract frames at 1 FPS
     frames_view = pxt.create_view(
         'videos.frames',
@@ -97,7 +97,7 @@ Iterators are powerful tools for processing large media files. They work seamles
             fps=1.0
         )
     )
-    
+
     # Extract exact number of frames
     frames_view = pxt.create_view(
         'videos.keyframes',
@@ -118,7 +118,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   <Tab title="TileIterator">
     ```python
     from pixeltable.iterators import TileIterator
-    
+
     # Create tiles with overlap
     tiles_view = pxt.create_view(
         'images.tiles',
@@ -139,7 +139,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   <Tab title="AudioSplitter">
     ```python
     from pixeltable.iterators import AudioSplitter
-    
+
     # Split audio into chunks
     chunks_view = pxt.create_view(
         'audio.chunks',
@@ -180,7 +180,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     - Text analysis
     - Content extraction
   </Card>
-  
+
   <Card title="Video Analysis" icon="film">
     Extract frames for:
     - Object detection
@@ -218,7 +218,7 @@ Iterators are powerful tools for processing large media files. They work seamles
             limit=500
         )
     )
-    
+
     # Add embeddings
     chunks.add_embedding_index(
         'text',
@@ -240,7 +240,7 @@ Iterators are powerful tools for processing large media files. They work seamles
             fps=1.0
         )
     )
-    
+
     # Add object detection
     frames.add_computed_column(detections=detect_objects(frames.frame))
     ```
@@ -257,7 +257,7 @@ Iterators are powerful tools for processing large media files. They work seamles
             chunk_duration_sec=30.0
         )
     )
-    
+
     # Add transcription
     chunks.add_computed_column(text=whisper_transcribe(chunks.audio_chunk))
     ```
@@ -266,7 +266,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   <Accordion title="Video Generation" icon="film-simple">
     ```python
     from pixeltable.functions.video import make_video
-    
+
     # Extract frames at 1 FPS
     frames = pxt.create_view(
         'video.frames',
@@ -276,10 +276,10 @@ Iterators are powerful tools for processing large media files. They work seamles
             fps=1.0
         )
     )
-    
+
     # Process frames (e.g., apply a filter)
     frames.add_computed_column(processed=frames.frame.filter('BLUR'))
-    
+
     # Create new videos from processed frames
     processed_videos = frames.select(
         frames.video_id,
@@ -297,7 +297,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     - Consider overlap requirements
     - Monitor memory usage with large files
   </Card>
-  
+
   <Card title="Performance" icon="gauge">
     - Balance chunk size vs. processing time
     - Use batch processing when possible
@@ -314,7 +314,7 @@ When using `token_limit` with DocumentSplitter, ensure the limit accounts for an
 ## Additional Resources
 
 <CardGroup cols={3}>
-  <Card title="API Reference" icon="book-bookmark" href="https://pixeltable.github.io/pixeltable/pixeltable/iterators/">
+  <Card title="SDK Reference" icon="book-bookmark" href="https://docs.pixeltable.com/sdk/latest/iterators/">
     Complete iterator documentation
   </Card>
   <Card title="Examples" icon="lightbulb" href="/examples">

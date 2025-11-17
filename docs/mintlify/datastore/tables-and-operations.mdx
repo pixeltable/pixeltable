@@ -39,7 +39,7 @@ films = pxt.create_table('example.films', {
 
 <Tabs>
   <Tab title="Basic Types">
-    ```python    
+    ```python
     # Schema definition
     table = pxt.create_table('example', {
         'text': pxt.String,     # Text data
@@ -50,7 +50,7 @@ films = pxt.create_table('example.films', {
     })
     ```
   </Tab>
-  
+
   <Tab title="Media Types">
     ```python
     # Media handling
@@ -62,7 +62,7 @@ films = pxt.create_table('example.films', {
     })
     ```
   </Tab>
-  
+
   <Tab title="ML Types">
     ```python
     # ML-specific types
@@ -105,18 +105,18 @@ Column casting helps maintain data consistency and prevents type errors when pro
     ```python
     # Basic row count
     films.count()  # Returns total number of rows
-    
+
     # Basic filtering
     films.where(films.budget >= 200.0).collect()
-    
+
     # Select specific columns
     films.select(films.title, films.year).collect()
-    
+
     # Limit results
     films.limit(5).collect()  # First 5 rows (no specific order)
     films.head(5)  # First 5 rows by insertion order
     films.tail(5)  # Last 5 rows by insertion order
-    
+
     # Order results
     films.order_by(films.budget, asc=False).limit(5).collect()
     ```
@@ -127,12 +127,12 @@ Column casting helps maintain data consistency and prevents type errors when pro
     ```python
     # String contains
     films.where(films.title.contains('Inception')).collect()
-    
+
     # String replacement
     films.update({
         'plot': films.plot.replace('corporate secrets', 'subconscious secrets')
     })
-    
+
     # String functions
     films.update({
         'title': films.title.upper(),        # Convert to uppercase
@@ -151,18 +151,18 @@ Column casting helps maintain data consistency and prevents type errors when pro
         plot='Emotions navigate puberty',
         budget=200.0
     )
-    
+
     # Insert multiple rows
     films.insert([
         {
-            'title': 'Jurassic Park', 
-            'year': 1993, 
+            'title': 'Jurassic Park',
+            'year': 1993,
             'plot': 'Dinosaur theme park disaster',
             'budget': 63.0
         },
         {
-            'title': 'Titanic', 
-            'year': 1997, 
+            'title': 'Titanic',
+            'year': 1997,
             'plot': 'Ill-fated ocean liner romance',
             'budget': 200.0
         }
@@ -175,10 +175,10 @@ Column casting helps maintain data consistency and prevents type errors when pro
     ```python
     import pixeltable as pxt
     import pandas as pd
-    
+
     # Create a table from a CSV file
     table = pxt.create_table('world_population', source='https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/world-population-data.csv')
-    
+
     # Create a table from a pandas DataFrame
     df = pd.DataFrame({
         'cca3': ['FRA', 'DEU', 'ITA'],
@@ -187,7 +187,7 @@ Column casting helps maintain data consistency and prevents type errors when pro
         'pop_2023': [68_000_000, 83_000_000, 59_000_000]
     })
     table = pxt.create_table('europe_population', source=df)
-    
+
     # Insert data from a pandas DataFrame into an existing table
     new_df = pd.DataFrame({
         'cca3': ['ESP', 'GBR', 'POL'],
@@ -197,7 +197,7 @@ Column casting helps maintain data consistency and prevents type errors when pro
     })
     table.insert(new_df)
     ```
-    
+
     Pixeltable supports importing from various data sources:
     - CSV files (`.csv`)
     - Excel files (`.xls`, `.xlsx`)
@@ -215,14 +215,14 @@ Column casting helps maintain data consistency and prevents type errors when pro
     films.update({
         'budget': films.budget * 1.1  # Increase all budgets by 10%
     })
-    
+
     # Conditional updates
     films.where(
         films.year < 2000
     ).update({
         'plot': films.plot + ' (Classic Film)'
     })
-    
+
     # Batch updates for multiple rows
     updates = [
         {'id': 1, 'budget': 175.0},
@@ -239,13 +239,13 @@ Column casting helps maintain data consistency and prevents type errors when pro
     films.where(
         films.year < 1995
     ).delete()
-    
+
     # Delete with complex conditions
     films.where(
-        (films.budget < 100.0) & 
+        (films.budget < 100.0) &
         (films.year < 2000)
     ).delete()
-    
+
     # WARNING: Delete all rows (use with caution!)
     # films.delete()  # Without where clause deletes all rows
     ```
@@ -256,10 +256,10 @@ Column casting helps maintain data consistency and prevents type errors when pro
     ```python
     # Add new column
     films.add_column(rating=pxt.String)
-    
+
     # Drop column
     films.drop_column('rating')
-    
+
     # View schema
     films.describe()
     ```
@@ -270,7 +270,7 @@ Column casting helps maintain data consistency and prevents type errors when pro
     ```python
     # Revert the last operation
     films.revert()  # Cannot be undone!
-    
+
     # Revert multiple times to go back further
     films.revert()
     films.revert()  # Goes back two operations
@@ -284,7 +284,7 @@ Column casting helps maintain data consistency and prevents type errors when pro
     result = films.limit(5).collect()
     first_row = result[0]  # Get first row as dict
     timestamps = result['timestamp']  # Get list of values for one column
-    
+
     # Convert to Pandas
     df = result
     df['revenue'].describe()  # Get statistics for revenue column
@@ -292,10 +292,10 @@ Column casting helps maintain data consistency and prevents type errors when pro
   </Card>
   <Card title="Join Tables" icon="link">
     Combine data from multiple tables using different join types.
-    
+
     ```python
     import pixeltable as pxt
-    
+
     # Define the customers table
     customers = pxt.create_table(
         "customers",
@@ -310,7 +310,7 @@ Column casting helps maintain data consistency and prevents type errors when pro
         if_exists="replace",
     )
 
-    
+
     # Populate the tables with sample data
     customers.insert([
         {'customer_id': 1, 'name': 'Alice Johnson', 'total_spent': 250.0},
@@ -319,7 +319,7 @@ Column casting helps maintain data consistency and prevents type errors when pro
         {'customer_id': 4, 'name': 'David Brown', 'total_spent': 150.0},
         {'customer_id': 5, 'name': 'Eve Davis', 'total_spent': 90.0}
     ])
-    
+
     orders.insert([
         {'order_id': 101, 'customer_id': 1, 'amount': 75.0},
         {'order_id': 102, 'customer_id': 1, 'amount': 30.0},
@@ -327,67 +327,67 @@ Column casting helps maintain data consistency and prevents type errors when pro
         {'order_id': 104, 'customer_id': 4, 'amount': 60.0}
     ])
     ```
-    
+
     ### Inner Join
     Returns only matching records from both tables.
-    
+
     ```python
     inner_join_result = customers.join(
-        orders, 
-        on=customers.customer_id == orders.customer_id, 
+        orders,
+        on=customers.customer_id == orders.customer_id,
         how='inner'
     ).select(
-        customers.name, 
+        customers.name,
         orders.amount
     )
     inner_df = inner_join_result.collect()
     print(inner_df)
     # Output will show only customers with matching orders (customer_id 1, 2, 4)
     ```
-    
+
     ### Left Outer Join
     Returns all records from the left table and matching records from the right table.
-    
+
     ```python
     left_join_result = customers.join(
-        orders, 
-        on=customers.customer_id == orders.customer_id, 
+        orders,
+        on=customers.customer_id == orders.customer_id,
         how='left'
     ).select(
-        customers.name, 
+        customers.name,
         orders.amount
     )
     left_df = left_join_result.collect()
     print(left_df)
     # Output will show all customers (1-5), with null for amount where no order exists
     ```
-    
+
     ### Right Outer Join
     Returns all records from the right table and matching records from the left table.
-    
+
     ```python
     right_join_result = customers.join(
-        orders, 
-        on=customers.customer_id == orders.customer_id, 
+        orders,
+        on=customers.customer_id == orders.customer_id,
         how='right'
     ).select(
-        customers.name, 
+        customers.name,
         orders.amount
     )
     right_df = right_join_result.collect()
     print(right_df)
     # Output will show all orders (order_id 101-104), with null for name where no customer exists
     ```
-    
+
     ### Cross Join
     Returns all possible combinations of records from both tables.
-    
+
     ```python
     cross_join_result = customers.join(
-        orders, 
+        orders,
         how='cross'
     ).select(
-        customers.name, 
+        customers.name,
         orders.amount
     )
     cross_df = cross_join_result.collect()
@@ -404,7 +404,7 @@ Column casting helps maintain data consistency and prevents type errors when pro
     - Use clear naming for directories and tables
     - Document computed column dependencies
   </Card>
-  
+
   <Card title="Application Code" icon="code">
     - Use `get_table()` to fetch existing tables
     - Use batch operations for multiple rows
@@ -425,7 +425,7 @@ Column casting helps maintain data consistency and prevents type errors when pro
     ```python
     # table.py - Run once to set up
     pxt.create_table(..., if_exists="ignore")
-    
+
     # app.py - Production code
     table = pxt.get_table("myapp.mytable")
     if table is None:
@@ -437,14 +437,11 @@ Column casting helps maintain data consistency and prevents type errors when pro
 ## Additional Resources
 
 <CardGroup cols={3}>
-  <Card title="API Documentation" icon="book" href="https://pixeltable.github.io/pixeltable/">
-    Complete API reference
+  <Card title="SDK Reference" icon="book" href="https://docs.pixeltable.com/sdk/latest">
+    Complete SDK reference
   </Card>
   <Card title="Examples" icon="lightbulb" href="/examples">
     Sample workflows
-  </Card>
-  <Card title="Cheat Sheet" icon="file" href="https://pixeltable.github.io/pixeltable/api-cheat-sheet/">
-    Quick reference
   </Card>
 </CardGroup>
 
