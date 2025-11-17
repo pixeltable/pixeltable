@@ -410,7 +410,7 @@ class TableRestorer:
                 f'Pixeltable metadata version mismatch: {pxt_md_version} != {metadata.VERSION}.\n'
                 'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable'
             )
-        # Convert tables metadata from dict to list of TableVersionCompleteMd
+        # Convert tables metadata from dict to list of TableVersionMd
         tbl_md = [schema.md_from_dict(TableVersionMd, t) for t in self.bundle_md['md']]
 
         for md in tbl_md:
