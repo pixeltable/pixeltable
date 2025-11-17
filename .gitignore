@@ -8,9 +8,7 @@
 .vscode
 __pycache__
 *.iml
-**/*.quarto_ipynb
 
-/docs/notebooks/.quarto/
 /dist/
 /docs/local/
 /local/
