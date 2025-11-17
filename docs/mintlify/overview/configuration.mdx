@@ -25,7 +25,7 @@ api_key = 'my-openai-api-key'
 tts-1 = 500  # OpenAI uses a per-model rate limit configuration (see below for details)
 
 [mistral]
-api_key = 'my-openai-api-key'
+api_key = 'my-mistral-api-key'
 rate_limit = 600  # Mistral uses a single rate limit for all models
 
 [label_studio]
@@ -125,9 +125,7 @@ When configuring API keys and sensitive information:
 
 ## Applying Configuration Changes
 
-Configuration changes take effect:
-- For environment variables: When you restart your Python session
-- For config file changes: When you restart your Python session or call `pxt.init()` again
+Configuration changes take effect when you restart your Python session.
 
 <Card title="Installation Guide" icon="computer" href="/overview/installation">
   Return to the installation guide for setup instructions
