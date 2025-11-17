@@ -171,7 +171,7 @@ async def generate_videos(
 ) -> pxt.Video:
     """
     Generates videos based on a text description and configuration. For additional details, see:
-    <https://ai.google.dev/gemini-api/docs/video-generation>
+    <https://ai.google.dev/gemini-api/docs/video>
 
     Request throttling:
     Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
