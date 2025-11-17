@@ -307,12 +307,12 @@
         <outline text="module|pixeltable.functions.whisper">
           <outline text="udf|pixeltable.functions.whisper.transcribe" />
         </outline>
+        <outline text="module|pixeltable.functions.whisperx">
+          <outline text="udf|pixeltable.functions.whisperx.transcribe" />
+        </outline>
         <outline text="module|pixeltable.functions.yolox">
           <outline text="udf|pixeltable.functions.yolox.yolox" />
           <outline text="udf|pixeltable.functions.yolox.yolo_to_coco" />
-        </outline>
-        <outline text="module|pixeltable.functions.whisperx">
-          <outline text="udf|pixeltable.functions.whisperx.transcribe" />
         </outline>
       </outline>
 

@@ -589,7 +589,7 @@ class Table(SchemaObject):
 
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
-                - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has
+                - `'replace'` or `'replace_force'`: drop the existing column and add the new column, if it has
                     no dependents.
 
         Returns:
