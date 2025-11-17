@@ -18,7 +18,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
 from pixeltable.catalog import Catalog
-from pixeltable.catalog.table_version import TableVersionCompleteMd
+from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
 from pixeltable.metadata import schema
@@ -103,7 +103,7 @@ class TestPackager:
         assert md['pxt_md_version'] == metadata.VERSION
         assert len(md['md']) == len(tbl._get_base_tables()) + 1
         for t_md, t in zip(md['md'], (tbl, *tbl._get_base_tables())):
-            assert schema.md_from_dict(TableVersionCompleteMd, t_md).version_md.tbl_id == str(t._tbl_version.id)
+            assert schema.md_from_dict(TableVersionMd, t_md).version_md.tbl_id == str(t._tbl_version.id)
 
     def __check_parquet_tbl(
         self,
@@ -754,6 +754,7 @@ class TestPackager:
             self.__restore_and_check_table(bundles[i], f'replica_{i}')
 
         assert pxt.list_tables() == [f'replica_{i}' for i in (2, 5, 7, 10)]  # 4 visible tables
+        _x = pxt.globals._list_tables('_system', allow_system_paths=True)
         assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 7  # 7 hidden tables
 
         # Now drop the visible tables one by one.
@@ -766,6 +767,7 @@ class TestPackager:
             # The total number of tables remaining should be equal to 1 + max(tables); any tables beyond this no longer
             # have dependents and should have been purged. Of these, len(tables) are visible, so the rest are hidden.
             expected_hidden_tables = 0 if len(tables) == 0 else 1 + max(tables) - len(tables)
+            _ = pxt.globals._list_tables('_system', allow_system_paths=True)
             assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == expected_hidden_tables
             for j in tables:
                 # Re-check all tables that are still present

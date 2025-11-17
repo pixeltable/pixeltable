@@ -1226,3 +1226,36 @@ class TestView:
         # Should work
         v1.update({'v1': 101})
         v2.update({'v2': 102})
+
+    def test_circular_view_def(self, reset_db: None) -> None:
+        # tests for a specific scenario in which:
+        # - A view `my_view` is created
+        # - A subview of `my_view` is created with the identical name `my_view`, using if_exists='replace'
+        # If this situation not detected, it will lead to permanent catalog corruption.
+        t = pxt.create_table('my_tbl', {'col': pxt.Int})
+        v1 = pxt.create_view('my_view', t)
+        with pytest.raises(
+            pxt.Error, match=r"Cannot use if_exists='replace' with the same name as one of the view's own ancestors."
+        ):
+            _ = pxt.create_view('my_view', v1, if_exists='replace')
+        v1.collect()
+        pxt.drop_table('my_view')
+        pxt.drop_table('my_tbl')
+
+        # The same problem also exists if there are additional tables in between: if creating a view with
+        # if_exists='replace', the name of the view cannot match any existing name in its ancestor chain.
+        t = pxt.create_table('my_tbl', {'col': pxt.Int})
+        v1 = pxt.create_view('my_view_1', t)
+        v2 = pxt.create_view('my_view_2', v1)
+        v3 = pxt.create_view('my_view_3', v2)
+        with pytest.raises(
+            pxt.Error, match=r"Cannot use if_exists='replace' with the same name as one of the view's own ancestors."
+        ):
+            _ = pxt.create_view('my_view_1', v3, if_exists='replace')
+        v1.collect()
+        v2.collect()
+        v3.collect()
+        pxt.drop_table('my_view_3')
+        pxt.drop_table('my_view_2')
+        pxt.drop_table('my_view_1')
+        pxt.drop_table('my_tbl')

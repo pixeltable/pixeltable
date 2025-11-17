@@ -10,9 +10,9 @@ from __future__ import annotations
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import AnyUrl, BaseModel
+from pydantic import AnyUrl, BaseModel, field_validator
 
-from pixeltable.catalog.table_version import TableVersionCompleteMd
+from pixeltable.catalog.table_version import TableVersionMd
 
 from .common import PxtUri, RequestBaseModel, StorageDestination
 from .operation_types import ReplicaOperationType
@@ -25,7 +25,7 @@ class PublishRequest(RequestBaseModel):
     table_uri: PxtUri  # If PxtUri#id is not None then it's considered a push replica request
     pxt_version: str
     pxt_md_version: int
-    md: list[TableVersionCompleteMd]
+    md: list[TableVersionMd]
     is_public: bool = False
     bucket_name: str | None = None  # Optional bucket name, falls back to org's default bucket if not provided
 
@@ -33,14 +33,23 @@ class PublishRequest(RequestBaseModel):
         """Get the PxtUri from this request."""
         return self.table_uri
 
+    @field_validator('md')
+    @classmethod
+    def validate_md_not_empty(cls, v: list[TableVersionMd]) -> list[TableVersionMd]:
+        """Ensure md list has at least one element."""
+        if len(v) == 0:
+            raise ValueError('md list must contain at least one element')
+        return v
+
 
 class PublishResponse(BaseModel):
     """Response from publishing a table replica."""
 
-    upload_id: UUID
-    destination: StorageDestination
-    destination_uri: AnyUrl
+    upload_id: UUID | None = None
+    destination: StorageDestination | None = None
+    destination_uri: AnyUrl | None = None
     max_size: int | None = None  # Maximum size that can be used by this replica, used for R2 home buckets
+    table_uri: PxtUri | None = None  # If replica already exists, return the uri for it
 
 
 class FinalizeRequest(RequestBaseModel):
@@ -105,5 +114,5 @@ class ReplicateResponse(BaseModel):
     pxt_md_version: int
     destination: StorageDestination
     destination_uri: AnyUrl
-    md: list[TableVersionCompleteMd]
+    md: list[TableVersionMd]
     version: int | None = None
