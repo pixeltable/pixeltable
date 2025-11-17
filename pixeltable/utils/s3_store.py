@@ -100,9 +100,12 @@ class S3Store(ObjectStoreBase):
         self.soa = soa
         self.__bucket_name = self.soa.container
         self.__prefix_name = self.soa.prefix
-        assert self.soa.storage_target in {StorageTarget.R2_STORE, StorageTarget.S3_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE}, (
-            f'Expected storage_target "s3", "r2", "b2", or "tigris", but got: {self.soa.storage_target}'
-        )
+        assert self.soa.storage_target in {
+            StorageTarget.R2_STORE,
+            StorageTarget.S3_STORE,
+            StorageTarget.B2_STORE,
+            StorageTarget.TIGRIS_STORE,
+        }, f'Expected storage_target "s3", "r2", "b2", or "tigris", but got: {self.soa.storage_target}'
         self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
     def client(self) -> Any:
