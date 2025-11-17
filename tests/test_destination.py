@@ -22,6 +22,7 @@ class TestDestination:
         StorageTarget.LOCAL_STORE,
         StorageTarget.R2_STORE,
         StorageTarget.S3_STORE,
+        StorageTarget.TIGRIS_STORE,
     )
 
     @classmethod
@@ -46,6 +47,8 @@ class TestDestination:
                 uri = 's3://pxt-test/pytest'
             case StorageTarget.R2_STORE:
                 uri = 'https://ae60fad96d33636287c3b2e76b88241f.r2.cloudflarestorage.com/pxt-test/pytest'
+            case StorageTarget.TIGRIS_STORE:
+                uri = 'https://t3.storage.dev/pxt-test/pytest'
 
         try:
             ObjectOps.validate_destination(uri)
@@ -119,6 +122,7 @@ class TestDestination:
             f'https://{a_name}.blob.core.windows.net/container',
             f'https://{a_name}.r2.cloudflarestorage.com/container',
             'https://s3.us-east-005.backblazeb2.com/container',
+            'https://t3.storage.dev/container',
             'https://raw.github.com',
             'file://dir1/dir2/dir3',
             'dir1/dir2/dir3',
