@@ -203,7 +203,7 @@ endif
 
 .PHONY: clean
 clean:
-	@rm -f *.mp4 docs/source/tutorials/*.mp4 docs/notebooks/**/.gitignore || true
+	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
 	@rm -rf .make-install || true
 	@rm -rf site || true
 	@rm -rf target || true
