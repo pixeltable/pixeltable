@@ -4,6 +4,7 @@
 .ipynb_checkpoints
 .make-install
 .mypy_cache
+.quarto/
 .venv
 .vscode
 __pycache__
