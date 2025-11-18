@@ -1,8 +1,7 @@
 """
-Pydantic serialization mixin for Pixeltable classes.
+Pydantic serialization for Pixeltable classes.
 
-This mixin provides automatic Pydantic serialization/deserialization
-using the as_dict() and from_dict() class methods.
+This base class provides automatic Pydantic serialization/deserialization using the as_dict() and from_dict() methods.
 """
 
 from __future__ import annotations
@@ -61,8 +60,6 @@ class PydanticSerializable(ABC):
 
         def serialize_to_dict(obj: Any, handler: Any) -> dict[str, Any]:
             """Serialize object using as_dict() method."""
-            if not isinstance(obj, cls):
-                raise TypeError(f'Expected {cls.__name__}, got {type(obj).__name__}')
             return obj.as_dict()
 
         # Return a schema that handles both serialization and deserialization
