@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, Mock
 
 from pixeltable import func
 from pixeltable.exec.expr_eval.globals import Dispatcher, ExecCtx, FnCallArgs
-from pixeltable.exec.expr_eval.schedulers import RateLimitsScheduler, RequestRateScheduler
+from pixeltable.exec.expr_eval.schedulers import RateLimitsScheduler, _is_retriable_error
 
 
 class DummyError(Exception):
@@ -16,69 +16,69 @@ class DummyError(Exception):
 class TestSchedulers:
     def test_non_retriable_errors(self) -> None:
         exc = DummyError('dummy')
-        assert not RequestRateScheduler._is_retriable_error(exc)[0]
+        assert not _is_retriable_error(exc)[0]
 
         exc.status = 400
-        assert not RequestRateScheduler._is_retriable_error(exc)[0]
+        assert not _is_retriable_error(exc)[0]
 
         exc = DummyError('dummy')
         exc.status_code = 500
-        assert not RequestRateScheduler._is_retriable_error(exc)[0]
+        assert not _is_retriable_error(exc)[0]
 
         exc = DummyError('dummy')
         exc.status_code = 'IM_A_TEAPOT'
-        assert not RequestRateScheduler._is_retriable_error(exc)[0]
+        assert not _is_retriable_error(exc)[0]
 
     def test_non_retriable_errors_inside_response(self) -> None:
         exc = DummyError('dummy')
         exc.response = types.SimpleNamespace()
-        assert not RequestRateScheduler._is_retriable_error(exc)[0]
+        assert not _is_retriable_error(exc)[0]
 
         exc.response.status = 404
-        assert not RequestRateScheduler._is_retriable_error(exc)[0]
+        assert not _is_retriable_error(exc)[0]
 
         exc = DummyError('dummy')
         exc.response = types.SimpleNamespace()
         exc.response.code = 'BAD_REQUEST'
-        assert not RequestRateScheduler._is_retriable_error(exc)[0]
+        assert not _is_retriable_error(exc)[0]
 
     def test_retriable_errors(self) -> None:
         exc = DummyError('dummy')
         exc.status = 429
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, None)
+        assert _is_retriable_error(exc) == (True, None)
         exc.headers = {'Retry-After': '3'}
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, 3)
+        assert _is_retriable_error(exc) == (True, 3)
 
         exc = DummyError('dummy')
         exc.code = 503
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, None)
+        assert _is_retriable_error(exc) == (True, None)
         exc.headers = {'retryafter': '4', 'Some-Other-Header': 'value'}
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, 4)
+        assert _is_retriable_error(exc) == (True, 4)
 
         exc = DummyError('dummy')
         exc.code = 'too_many_requests'
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, None)
+        assert _is_retriable_error(exc) == (True, None)
 
     def test_retriable_errors_inside_response(self) -> None:
         exc = DummyError('dummy')
         exc.response = types.SimpleNamespace()
         exc.response.status = 429
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, None)
+        assert _is_retriable_error(exc) == (True, None)
         exc.response.headers = {'Retry-After': '3'}
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, 3)
+        assert _is_retriable_error(exc) == (True, 3)
 
     def test_retriable_errors_based_on_msg(self) -> None:
         exc = DummyError('blah-blah-blah too many requests blah-blah-blah')
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, None)
+        assert _is_retriable_error(exc) == (True, None)
 
         exc = DummyError('rate exceeded, retry after 123 seconds')
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, 123)
+        assert _is_retriable_error(exc) == (True, 123)
 
         exc = DummyError('（╯ ͡° ل͜ ͡°）╯︵ ┻━┻  request throttled, retry-after:7')  # noqa: RUF001
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, 7)
+        assert _is_retriable_error(exc) == (True, 7)
 
         exc = DummyError('429, try again in 5 seconds')
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, 5)
+        assert _is_retriable_error(exc) == (True, 5)
 
     def test_twelvelabs_exc(self) -> None:
         # Almost the actual error received from TwelveLabs
@@ -105,7 +105,7 @@ class TestSchedulers:
             'x-ratelimit-used': '100',
             'x-trace-id': '122506435189331138',
         }
-        assert RequestRateScheduler._is_retriable_error(exc) == (True, 11382)
+        assert _is_retriable_error(exc) == (True, 11382)
 
     def test_rate_limits_scheduler_exception_before_pool(self) -> None:
         """Test that RateLimitsScheduler properly handles exceptions if pool_info is not yet set."""

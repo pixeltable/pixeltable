@@ -30,19 +30,60 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
+# These are somewhat arbitrary numbers chosen to balance the throughput and the rate of errors on MacOS
+MAX_KEEPALIVE_CONNECTIONS = 500
+MAX_CONNECTIONS = 2000
+TIMEOUT = 60.0
+
+
+def _adjust_fd_limit() -> None:
+    """Checks and possibly updates the file descriptor limits to accommodate the max connections.
+    Returns the max connections limit to use for the OpenAI client."""
+    try:
+        import resource
+    except ImportError:
+        # ⊞ Windows
+        _logger.info('Module resource not available; skipping FD limit adjustment')
+        return
+
+    soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
+    _logger.info(f'Current RLIMIT_NOFILE soft limit: {soft_limit}, hard limit: {hard_limit}')
+    preferred_limit = MAX_CONNECTIONS * 2  # OpenAI client is not the only one using file descriptors
+    if soft_limit < preferred_limit and soft_limit < hard_limit:
+        new_limit = min(hard_limit, preferred_limit)
+        _logger.info(f'Setting RLIMIT_NOFILE soft limit to: {new_limit}')
+        resource.setrlimit(resource.RLIMIT_NOFILE, (new_limit, hard_limit))
+        soft_limit = new_limit
+
+    if soft_limit < preferred_limit:
+        _logger.warning(
+            f'RLIMIT_NOFILE soft limit is {soft_limit}, which is less than the preferred {preferred_limit}. '
+            'You may experience suboptimal network performance.'
+        )
+
 
 @env.register_client('openai')
 def _(api_key: str, base_url: str | None = None, api_version: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 
+    _adjust_fd_limit()
     default_query = None if api_version is None else {'api-version': api_version}
 
+    # Pixeltable scheduler's retry logic takes into account the rate limit-related response headers, so in theory we can
+    # benefit from disabling retries in the OpenAI client (max_retries=0). However to do that, we need to get smarter
+    # about idempotency keys and possibly more.
     return openai.AsyncOpenAI(
         api_key=api_key,
         base_url=base_url,
         default_query=default_query,
         # recommended to increase limits for async client to avoid connection errors
-        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
+        http_client=httpx.AsyncClient(
+            limits=httpx.Limits(max_keepalive_connections=MAX_KEEPALIVE_CONNECTIONS, max_connections=MAX_CONNECTIONS),
+            timeout=TIMEOUT,
+            # HTTP1 tends to perform better on this kind of workloads
+            http2=False,
+            http1=True,
+        ),
     )
 
 
