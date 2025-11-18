@@ -1125,7 +1125,7 @@ class Catalog:
                 )
                 assert result.rowcount == 1, result.rowcount
 
-            existing = self._handle_path_collision(path, View, is_snapshot, if_exists)
+            existing = self._handle_path_collision(path, View, is_snapshot, if_exists, base=base)
             if existing is not None:
                 assert isinstance(existing, View)
                 return existing._id
@@ -2378,7 +2378,13 @@ class Catalog:
             _logger.info(f'Added root directory record for user: {user!r}')
 
     def _handle_path_collision(
-        self, path: Path, expected_obj_type: type[SchemaObject], expected_snapshot: bool, if_exists: IfExistsParam
+        self,
+        path: Path,
+        expected_obj_type: type[SchemaObject],
+        expected_snapshot: bool,
+        if_exists: IfExistsParam,
+        *,
+        base: TableVersionPath | None = None,
     ) -> SchemaObject | None:
         obj, _, _ = self._prepare_dir_op(add_dir_path=path.parent, add_name=path.name)
 
@@ -2403,6 +2409,16 @@ class Catalog:
             return None
         if if_exists == IfExistsParam.IGNORE:
             return obj
+
+        assert if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
+
+        # Check for circularity
+        if obj is not None and base is not None:
+            assert isinstance(obj, Table)  # or else it would have been caught above
+            if obj._id in tuple(version.id for version in base.get_tbl_versions()):
+                raise excs.Error(
+                    "Cannot use if_exists='replace' with the same name as one of the view's own ancestors."
+                )
 
         # drop the existing schema object
         if isinstance(obj, Dir):

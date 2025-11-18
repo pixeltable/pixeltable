@@ -9,9 +9,9 @@
 __pycache__
 *.iml
 
-/dist
-/docs/local
-/local
+/dist/
+/docs/local/
+/local/
 /pixeltable/_version.py
-/target
-/tests/target
+/target/
+/tests/target/
