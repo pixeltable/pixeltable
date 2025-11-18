@@ -13,8 +13,8 @@ from uuid import UUID
 from pydantic import AnyUrl, BaseModel, field_validator
 
 from pixeltable.catalog.table_version import TableVersionMd
+from pixeltable.utils.object_stores import StorageTarget
 
-from ...utils.object_stores import StorageTarget
 from .common import PxtUri, RequestBaseModel
 from .operation_types import ReplicaOperationType
 
