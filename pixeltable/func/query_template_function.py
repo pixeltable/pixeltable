@@ -10,13 +10,13 @@ from .function import Function
 from .signature import Signature
 
 if TYPE_CHECKING:
-    from pixeltable import DataFrame
+    from pixeltable import Query
 
 
 class QueryTemplateFunction(Function):
-    """A parameterized query/DataFrame from which an executable DataFrame is created with a function call."""
+    """A parameterized query from which an executable Query is created with a function call."""
 
-    template_df: 'DataFrame' | None
+    template_df: 'Query' | None
     self_name: str | None
     _comment: str | None
 
@@ -28,19 +28,19 @@ class QueryTemplateFunction(Function):
         py_sig = inspect.signature(template_callable)
         py_params = list(py_sig.parameters.values())
         params = Signature.create_parameters(py_params=py_params, param_types=param_types)
-        # invoke template_callable with parameter expressions to construct a DataFrame with parameters
+        # invoke template_callable with parameter expressions to construct a Query with parameters
         var_exprs = [exprs.Variable(param.name, param.col_type) for param in params]
         template_df = template_callable(*var_exprs)
-        from pixeltable import DataFrame
+        from pixeltable import Query
 
-        assert isinstance(template_df, DataFrame)
+        assert isinstance(template_df, Query)
         # we take params and return json
         sig = Signature(return_type=ts.JsonType(), parameters=params)
         return QueryTemplateFunction(template_df, sig, path=path, name=name, comment=inspect.getdoc(template_callable))
 
     def __init__(
         self,
-        template_df: 'DataFrame' | None,
+        template_df: 'Query' | None,
         sig: Signature,
         path: str | None = None,
         name: str | None = None,
@@ -90,9 +90,9 @@ class QueryTemplateFunction(Function):
 
     @classmethod
     def _from_dict(cls, d: dict) -> Function:
-        from pixeltable.dataframe import DataFrame
+        from pixeltable._query import Query
 
-        return cls(DataFrame.from_dict(d['df']), Signature.from_dict(d['signature']), name=d['name'])
+        return cls(Query.from_dict(d['df']), Signature.from_dict(d['signature']), name=d['name'])
 
 
 @overload
@@ -170,7 +170,7 @@ def retrieval_udf(
     if len(col_refs) == 0:
         raise excs.Error('Parameter list cannot be empty.')
 
-    # Construct the dataframe
+    # Construct the Query
     predicates = [col_ref == exprs.Variable(col_ref.col.name, col_ref.col.col_type) for col_ref in col_refs]
     where_clause = reduce(lambda c1, c2: c1 & c2, predicates)
     df = table.select().where(where_clause)

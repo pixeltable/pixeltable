@@ -129,7 +129,7 @@ class TablePackager:
         _logger.info(f'Creating parquet table: {parquet_file}')
 
         # Populate the Parquet table with data.
-        # The data is first loaded from the DataFrame into a sequence of pyarrow tables, batched in order to avoid
+        # The data is first loaded from the Query into a sequence of pyarrow tables, batched in order to avoid
         # excessive memory usage. The pyarrow tables are then amalgamated into the (single) Parquet table on disk.
         # We use snappy compression for the Parquet tables; the entire bundle will be bzip2-compressed later, so
         # faster compression should provide good performance while still reducing temporary storage utilization.

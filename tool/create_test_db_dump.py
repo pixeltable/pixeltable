@@ -285,7 +285,7 @@ class Dumper:
 
         # query()
         @pxt.query
-        def q1(i: int) -> pxt.DataFrame:
+        def q1(i: int) -> pxt.Query:
             # this breaks; TODO: why?
             # return t.where(t.c2 < i)
             return t.where(t.c2 < i).select(t.c1, t.c2)
@@ -293,7 +293,7 @@ class Dumper:
         add_computed_column('query_output', q1(t.c2))
 
         @pxt.query
-        def q2(s: str) -> pxt.DataFrame:
+        def q2(s: str) -> pxt.Query:
             sim = t[f'{col_prefix}_function_call'].similarity(s)
             return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
 

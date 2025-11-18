@@ -129,7 +129,7 @@ class TestView:
         assert t.count() == 110
         check_view(t, v)
 
-        # check alternate view creation syntax (via a DataFrame)
+        # check alternate view creation syntax (via a Query)
         v2 = pxt.create_view('test_view_alt', t.where(t.c2 < 10), additional_columns=schema)
         validate_update_status(v2.add_computed_column(v3=v2.v1 * 2.0), expected_rows=10)
         validate_update_status(v2.add_computed_column(v4=v2.v2[0]), expected_rows=10)
@@ -329,7 +329,7 @@ class TestView:
             with pytest.raises(pxt.Error, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
-    def test_from_dataframe(self, reset_db: None) -> None:
+    def test_from_query(self, reset_db: None) -> None:
         t = self.create_tbl()
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -1125,7 +1125,7 @@ class TestView:
         assert t.get_metadata()['version'] == 0
 
         views: list[pxt.Table] = []
-        view_results: list[pxt.dataframe.DataFrameResultSet] = []
+        view_results: list[pxt.ResultSet] = []
 
         # Create 5 snapshots with views on top of them, modifying the base table in between.
         for i in range(5):
