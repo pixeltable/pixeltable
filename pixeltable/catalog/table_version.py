@@ -23,7 +23,6 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
-from pixeltable.utils.pydantic_serializable import PydanticSerializable
 
 from ..func.globals import resolve_symbol
 from .column import Column
@@ -44,7 +43,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 @dataclasses.dataclass(frozen=True)
-class TableVersionMd(PydanticSerializable):
+class TableVersionMd:
     """
     Complete set of md records for a specific TableVersion instance.
     """
