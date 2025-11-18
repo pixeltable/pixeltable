@@ -46,8 +46,8 @@ for i in range(10):
 pop_data.insert(data)
 
 # Get a random sample of 10 countries
-sample_df = pop_data.sample(n=10, seed=42)
-sample_df.collect()
+sample = pop_data.sample(n=10, seed=42)
+sample.collect()
 ```
 
 ## Basic Sampling Methods
@@ -95,8 +95,8 @@ Stratified sampling is an advanced technique that ensures subgroups within your 
     ```python
     # Sample 2 countries from each continent
     stratified_sample = pop_data.sample(
-        n_per_stratum=2, 
-        stratify_by=[pop_data.continent], 
+        n_per_stratum=2,
+        stratify_by=[pop_data.continent],
         seed=42
     )
     stratified_sample.collect()
@@ -108,8 +108,8 @@ Stratified sampling is an advanced technique that ensures subgroups within your 
     ```python
     # Sample a total of 20 countries, stratified by continent
     proportional_sample = pop_data.sample(
-        n=20, 
-        stratify_by=[pop_data.continent], 
+        n=20,
+        stratify_by=[pop_data.continent],
         seed=42
     )
     proportional_sample.collect()
@@ -121,8 +121,8 @@ Stratified sampling is an advanced technique that ensures subgroups within your 
     ```python
     # Sample 10% of countries from each continent
     fractional_stratified = pop_data.sample(
-        fraction=0.1, 
-        stratify_by=[pop_data.continent], 
+        fraction=0.1,
+        stratify_by=[pop_data.continent],
         seed=42
     )
     fractional_stratified.collect()
@@ -143,7 +143,7 @@ The `sample()` operation has specific rules about how it can be used in a query 
     asian_countries_sample = pop_data.where(
         pop_data.continent == 'Asia'
     ).sample(n=5, seed=42)
-    
+
     asian_countries_sample.collect()
     ```
   </Card>
@@ -151,18 +151,18 @@ The `sample()` operation has specific rules about how it can be used in a query 
     A common use case for `sample()` is to create a smaller, persistent snapshot or a new table for development, testing, or analysis.
 
     ```python
-    # Create a sample DataFrame
-    sample_df = pop_data.sample(fraction=0.1, seed=42)
+    # Create a sample Query
+    sample = pop_data.sample(fraction=0.1, seed=42)
 
     # Create a persistent snapshot from the sample
-    pxt.create_snapshot('population_sample_snapshot', sample_df, if_exists='replace')
+    pxt.create_snapshot('population_sample_snapshot', sample, if_exists='replace')
 
     # Create a new table from the sample
-    pxt.create_table('population_sample_table', source=sample_df, if_exists='replace')
+    pxt.create_table('population_sample_table', source=sample, if_exists='replace')
     ```
   </Card>
   <Card title="Limitations" icon="ban">
-    The `sample()` operation cannot be chained with most other DataFrame operations like `join()`, `group_by()`, `order_by()`, or `limit()`. It also cannot be used to create a `view`. These limitations exist to ensure the statistical properties of the sample are well-defined.
+    The `sample()` operation cannot be chained with most other Query operations like `join()`, `group_by()`, `order_by()`, or `limit()`. It also cannot be used to create a `view`. These limitations exist to ensure the statistical properties of the sample are well-defined.
 
     ```python
     # This will raise an error

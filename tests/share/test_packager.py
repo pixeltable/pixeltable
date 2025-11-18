@@ -17,9 +17,8 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
-from pixeltable.catalog import Catalog, TableMetadata
+from pixeltable.catalog import Catalog
 from pixeltable.catalog.table_version import TableVersionMd
-from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
 from pixeltable.metadata import schema
@@ -186,10 +185,10 @@ class TestPackager:
         bundle_path: Path  # Path of the bundle on disk
         depth: int  # Depth of the table in the table hierarchy (= length of the table's TableVersionPath)
         schema: dict[str, ts.ColumnType]  # Schema of the table
-        metadata: TableMetadata  # User-facing metadata of the table
+        metadata: pxt.TableMetadata  # User-facing metadata of the table
         store_col_schema: set[tuple[str, str]]  # Set of (column_name, data_type) for the store table's columns
         store_idx_schema: set[tuple[str, str]]  # Set of (indexname, indexdef) for the store table's indices
-        result_set: DataFrameResultSet  # Resultset corresponding to the query `tbl.head(n=5000)`
+        result_set: pxt.ResultSet  # Resultset corresponding to the query `tbl.head(n=5000)`
 
     def __package_table(self, tbl: pxt.Table) -> BundleInfo:
         """
@@ -400,9 +399,9 @@ class TestPackager:
         assert snapshot_replica._snapshot_only
         assert snapshot_replica.count() == snapshot_row_count
         # We can't query the base table directly via snapshot_replica.get_base_table(), because it doesn't exist as a
-        # visible catalog object (it's hidden in _system). But we can manually construct the DataFrame and check that.
-        t_replica_df = pxt.DataFrame(FromClause(tbls=[snapshot_replica._tbl_version_path.base]))
-        assert t_replica_df.count() == 2
+        # visible catalog object (it's hidden in _system). But we can manually construct the Query and check that.
+        t_replica_query = pxt.Query(FromClause(tbls=[snapshot_replica._tbl_version_path.base]))
+        assert t_replica_query.count() == 2
 
     def test_multi_view_round_trip_1(self, reset_db: None) -> None:
         """
@@ -655,7 +654,7 @@ class TestPackager:
             with pytest.raises(pxt.Error, match=f'{display_str}: Cannot revert a replica.'):
                 s.revert()
 
-            # TODO: Align these DataFrame error messages with Table error messages
+            # TODO: Align these Query error messages with Table error messages
             with pytest.raises(pxt.Error, match=r'Cannot use `update` on a replica.'):
                 s.where(s.icol < 5).update({'icol': 100})
             with pytest.raises(pxt.Error, match=r'Cannot use `delete` on a replica.'):

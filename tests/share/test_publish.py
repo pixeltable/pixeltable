@@ -74,7 +74,7 @@ class TestPublish:
         tbl = pxt.create_table('tbl', {'icol': pxt.Int, 'scol': pxt.String})
         remote_uri = f'pxt://pxt-test/test_{uuid.uuid4().hex}'
         pxt.publish(tbl, remote_uri)
-        result_sets: list[pxt.dataframe.DataFrameResultSet] = []
+        result_sets: list[pxt.ResultSet] = []
         for version in range(1, 8):
             tbl.insert({'icol': i, 'scol': f'string {i}'} for i in range(version * 10, version * 10 + 10))
             result_sets.append(tbl.head(n=500))

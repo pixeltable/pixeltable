@@ -32,8 +32,8 @@ from .update_status import RowCountStats, UpdateStatus
 
 if TYPE_CHECKING:
     from pixeltable import exec, store
+    from pixeltable._query import Query
     from pixeltable.catalog.table_version_handle import TableVersionHandle
-    from pixeltable.dataframe import DataFrame
     from pixeltable.io import ExternalStore
     from pixeltable.plan import SampleClause
 
@@ -1005,22 +1005,22 @@ class TableVersion:
     def insert(
         self,
         rows: list[dict[str, Any]] | None,
-        df: DataFrame | None,
+        query: Query | None,
         print_stats: bool = False,
         fail_on_exception: bool = True,
     ) -> UpdateStatus:
         """
-        Insert rows into this table, either from an explicit list of dicts or from a `DataFrame`.
+        Insert rows into this table, either from an explicit list of dicts or from a `Query`.
         """
         from pixeltable.plan import Planner
 
         assert self.is_insertable
-        assert (rows is None) != (df is None)  # Exactly one must be specified
+        assert (rows is None) != (query is None)  # Exactly one must be specified
         if rows is not None:
             plan = Planner.create_insert_plan(self, rows, ignore_errors=not fail_on_exception)
 
         else:
-            plan = Planner.create_df_insert_plan(self, df, ignore_errors=not fail_on_exception)
+            plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
 
         # this is a base table; we generate rowids during the insert
         def rowids() -> Iterator[int]:
