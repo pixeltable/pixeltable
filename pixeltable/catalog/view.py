@@ -14,7 +14,7 @@ from pixeltable.iterators import ComponentIterator
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
 from .table import Table
-from .table_version import TableVersion, TableVersionCompleteMd
+from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .tbl_ops import CreateStoreTableOp, LoadViewOp, TableOp
@@ -55,13 +55,13 @@ class View(Table):
     @classmethod
     def select_list_to_additional_columns(cls, select_list: list[tuple[exprs.Expr, str | None]]) -> dict[str, dict]:
         """Returns a list of columns in the same format as the additional_columns parameter of View.create.
-        The source is the list of expressions from a select() statement on a DataFrame.
+        The source is the list of expressions from a select() statement on a Query.
         If the column is a ColumnRef, to a base table column, it is marked to not be stored.sy
         """
-        from pixeltable.dataframe import DataFrame
+        from pixeltable._query import Query
 
         r: dict[str, dict] = {}
-        exps, names = DataFrame._normalize_select_list([], select_list)
+        exps, names = Query._normalize_select_list([], select_list)
         for expr, name in zip(exps, names):
             stored = not isinstance(expr, exprs.ColumnRef)
             r[name] = {'value': expr, 'stored': stored}
@@ -84,7 +84,7 @@ class View(Table):
         media_validation: MediaValidation,
         iterator_cls: type[ComponentIterator] | None,
         iterator_args: dict | None,
-    ) -> tuple[TableVersionCompleteMd, list[TableOp] | None]:
+    ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.plan import SampleClause
 
         # Convert select_list to more additional_columns if present
@@ -219,9 +219,8 @@ class View(Table):
             return md, None
         else:
             tbl_id = md.tbl_md.tbl_id
-            view_path = TableVersionPath(
-                TableVersionHandle(UUID(tbl_id), effective_version=0 if is_snapshot else None), base=base_version_path
-            )
+            key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
+            view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = [
                 TableOp(
                     tbl_id=tbl_id, op_sn=0, num_ops=2, needs_xact=False, create_store_table_op=CreateStoreTableOp()
@@ -248,13 +247,10 @@ class View(Table):
         if tbl_version_path.is_snapshot():
             return tbl_version_path
         tbl_version = tbl_version_path.tbl_version.get()
-        if not tbl_version.is_snapshot:
-            # create and register snapshot version
-            tbl_version = tbl_version.create_snapshot_copy()
-            assert tbl_version.is_snapshot
+        assert not tbl_version.is_snapshot
 
         return TableVersionPath(
-            TableVersionHandle(tbl_version.id, tbl_version.effective_version),
+            TableVersionHandle(TableVersionKey(tbl_version.id, tbl_version.version, None)),
             base=cls._get_snapshot_path(tbl_version_path.base) if tbl_version_path.base is not None else None,
         )
 
@@ -315,6 +311,8 @@ class View(Table):
     def _get_base_table(self) -> 'Table' | None:
         """Returns None if there is no base table, or if the base table is hidden."""
         base_tbl_id = self._base_tbl_id
+        if base_tbl_id is None:
+            return None
         with catalog.Catalog.get().begin_xact(tbl_id=base_tbl_id, for_write=False):
             return catalog.Catalog.get().get_table_by_id(base_tbl_id)
 

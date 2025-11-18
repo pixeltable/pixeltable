@@ -1,11 +1,11 @@
 import copy
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, TypeVar
 from uuid import UUID
 
 import sqlalchemy as sql
 
-from pixeltable.metadata.schema import Function, Table, TableSchemaVersion, TableVersion
+from pixeltable.metadata.schema import Function, Table, TableSchemaVersion
 
 __logger = logging.getLogger('pixeltable')
 
@@ -147,19 +147,13 @@ def __update_schema_column(table_schema_version_md: dict, schema_column_updater:
         schema_column_updater(schema_col)
 
 
-def convert_table_version_record(
-    engine: sql.engine.Engine, table_version_record_updater: Callable[[TableVersion], None] | None
-) -> None:
-    with sql.orm.Session(engine, future=True) as session:
-        for record in session.query(TableVersion).all():
-            table_version_record_updater(record)
-        session.commit()
+T = TypeVar('T')
 
 
-def convert_table_schema_version_record(
-    engine: sql.engine.Engine, table_schema_version_record_updater: Callable[[TableSchemaVersion], None] | None
+def convert_sql_table_record(
+    schema: type[T], engine: sql.engine.Engine, record_updater: Callable[[T], None] | None
 ) -> None:
     with sql.orm.Session(engine, future=True) as session:
-        for record in session.query(TableSchemaVersion).all():
-            table_schema_version_record_updater(record)
+        for record in session.query(schema).all():
+            record_updater(record)
         session.commit()

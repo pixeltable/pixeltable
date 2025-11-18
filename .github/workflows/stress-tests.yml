@@ -12,7 +12,7 @@ on:
         default: false
 
 jobs:
-  random-tbl-ops:
+  random-ops:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -53,22 +53,11 @@ jobs:
         run: |
           export VIRTUAL_ENV="$CONDA_PREFIX"
           ./scripts/retry.sh 3 60 uv sync --active --no-dev
-      - name: Run the stress tests
-        run: python tool/worker_harness.py 12 18000 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops.log
-      - name: Check for errors
-        run: |
-          echo "Checking for errors."
-          IGNORE_ERRORS='That Pixeltable operation could not be completed|Table was dropped|Path.*does not exist'
-          if [ -n "$(grep ERROR random-tbl-ops.log | grep -vP "$IGNORE_ERRORS")" ]; then
-            echo "Errors occurred during the stress test, such as:"
-            echo "$(grep ERROR random-tbl-ops.log | grep -vP "$IGNORE_ERRORS" | head -5)"
-            echo "See the logs for more details."
-            exit 1
-          fi
-          echo "No errors."
+      - name: Run stress tests
+        run: ./scripts/stress-tests.sh 12 18000
       - name: Archive log files
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: random-tbl-ops-log
-          path: random-tbl-ops.log
+          name: random-ops-log
+          path: ~/.pixeltable/random-ops.log

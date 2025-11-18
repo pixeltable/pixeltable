@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for mathematical operations.
+Pixeltable UDFs for mathematical operations.
 
 Example:
 ```python

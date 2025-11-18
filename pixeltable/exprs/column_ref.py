@@ -8,6 +8,7 @@ import sqlalchemy as sql
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.iterators as iters
+from pixeltable.catalog.table_version import TableVersionKey
 
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
@@ -17,7 +18,7 @@ from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
 if TYPE_CHECKING:
-    from pixeltable.dataframe import DataFrame, DataFrameResultSet
+    from pixeltable._query import Query, ResultSet
 
 
 class ColumnRef(Expr):
@@ -108,7 +109,7 @@ class ColumnRef(Expr):
     # override
     def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> ColumnRef:
         target = tbl_versions[self.col.tbl_handle.id]
-        assert self.col.id in target.cols_by_id
+        assert self.col.id in target.cols_by_id, f'{target}: {self.col.id} not in {list(target.cols_by_id.keys())}'
         col = target.cols_by_id[self.col.id]
         return ColumnRef(col, self.reference_tbl)
 
@@ -180,33 +181,33 @@ class ColumnRef(Expr):
     def _equals(self, other: ColumnRef) -> bool:
         return self.col == other.col and self.perform_validation == other.perform_validation
 
-    def _df(self) -> 'DataFrame':
+    def select(self) -> 'Query':
         import pixeltable.plan as plan
-        from pixeltable.dataframe import DataFrame
+        from pixeltable._query import Query
 
         if self.reference_tbl is None:
             # No reference table; use the current version of the table to which the column belongs
             tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl_handle.id)
             return tbl.select(self)
         else:
-            # Explicit reference table; construct a DataFrame directly from it
-            return DataFrame(plan.FromClause([self.reference_tbl])).select(self)
+            # Explicit reference table; construct a Query directly from it
+            return Query(plan.FromClause([self.reference_tbl])).select(self)
 
-    def show(self, *args: Any, **kwargs: Any) -> 'DataFrameResultSet':
-        return self._df().show(*args, **kwargs)
+    def show(self, *args: Any, **kwargs: Any) -> 'ResultSet':
+        return self.select().show(*args, **kwargs)
 
-    def head(self, *args: Any, **kwargs: Any) -> 'DataFrameResultSet':
-        return self._df().head(*args, **kwargs)
+    def head(self, *args: Any, **kwargs: Any) -> 'ResultSet':
+        return self.select().head(*args, **kwargs)
 
-    def tail(self, *args: Any, **kwargs: Any) -> 'DataFrameResultSet':
-        return self._df().tail(*args, **kwargs)
+    def tail(self, *args: Any, **kwargs: Any) -> 'ResultSet':
+        return self.select().tail(*args, **kwargs)
 
     def count(self) -> int:
-        return self._df().count()
+        return self.select().count()
 
-    def distinct(self) -> 'DataFrame':
+    def distinct(self) -> 'Query':
         """Return distinct values in this column."""
-        return self._df().distinct()
+        return self.select().distinct()
 
     def __str__(self) -> str:
         if self.col.name is None:
@@ -297,6 +298,7 @@ class ColumnRef(Expr):
         tbl_handle = self.col.tbl_handle
         # we omit self.components, even if this is a validating ColumnRef, because init() will recreate the
         # non-validating component ColumnRef
+        assert tbl_handle.anchor_tbl_id is None  # TODO: support anchor_tbl_id for view-over-replica
         return {
             'tbl_id': str(tbl_handle.id),
             'tbl_version': tbl_handle.effective_version,
@@ -314,7 +316,10 @@ class ColumnRef(Expr):
     def get_column(cls, d: dict) -> catalog.Column:
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
         # validate_initialized=False: this gets called as part of TableVersion.init()
-        tbl_version = catalog.Catalog.get().get_tbl_version(tbl_id, version, validate_initialized=False)
+        # TODO: When we have views on replicas, we will need to store anchor_tbl_id in metadata as well.
+        tbl_version = catalog.Catalog.get().get_tbl_version(
+            TableVersionKey(tbl_id, version, None), validate_initialized=False
+        )
         # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
         col = next(col for col in tbl_version.cols if col.id == col_id)
         return col

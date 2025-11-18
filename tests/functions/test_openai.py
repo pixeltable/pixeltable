@@ -49,11 +49,11 @@ class TestOpenai:
         )
         # The audio generation -> transcription loop on these examples should be simple and clear enough
         # that the unit test can reliably expect the output closely enough to pass these checks.
-        results = t.head()
-        assert results[0]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
-        assert results[0]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
-        assert len(results[1]['translation']['text']) > 0
-        assert len(results[1]['translation_2']['text']) > 0
+        results = t.order_by(t.input).collect()
+        assert len(results[0]['translation']['text']) > 0
+        assert len(results[0]['translation_2']['text']) > 0
+        assert results[1]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
+        assert results[1]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
 
     def test_chat_completions(self, reset_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -228,7 +228,7 @@ class TestOpenai:
         else:
 
             @pxt.query
-            def get_customer_info(customer_id: str) -> pxt.DataFrame:
+            def get_customer_info(customer_id: str) -> pxt.Query:
                 """
                 Get customer information for a given customer ID.
 
@@ -494,3 +494,30 @@ class TestOpenai:
         validate_update_status(t.insert(input='Where did the game of Backgammon originate?'), 1)
         result = t.collect()
         assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']
+
+    def test_parse_duration_header(self) -> None:
+        from pixeltable.functions.openai import _parse_header_duration
+
+        assert _parse_header_duration(None) is None
+        assert _parse_header_duration('') is None
+        assert _parse_header_duration('invalid') is None
+        assert _parse_header_duration('10x') is None
+
+        assert _parse_header_duration('0s') == 0
+        assert _parse_header_duration('0ms') == 0
+
+        assert _parse_header_duration('6ms') == 0.006
+        assert _parse_header_duration('857ms') == 0.857
+        assert _parse_header_duration('10s') == 10
+        assert _parse_header_duration('10.123s') == 10.123
+        assert _parse_header_duration('10s123ms') == 10.123
+        assert _parse_header_duration('1m') == 60
+        assert _parse_header_duration('1m7s') == 67
+        assert _parse_header_duration('1m33.792s') == 93.792
+        assert _parse_header_duration('0m7s') == 7
+        assert _parse_header_duration('1h') == 3600
+        assert _parse_header_duration('1h10m3s') == 4203
+        assert _parse_header_duration('156h58m48.601s') == 565128.601
+        assert _parse_header_duration('1d') == 86400
+        assert _parse_header_duration('1d2h3m4s') == 93784
+        assert _parse_header_duration('47.874s') == 47.874

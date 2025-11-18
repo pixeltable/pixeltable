@@ -105,6 +105,9 @@ class TestVideo:
         frames_0_33 = pxt.create_view(
             'frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 3)
         )
+        frames_1000 = pxt.create_view(
+            'frames_1000', videos, iterator=FrameIterator.create(video=videos.video, fps=1000)
+        )
         num_frames_10 = pxt.create_view(
             'num_frames_10', videos, iterator=FrameIterator.create(video=videos.video, num_frames=10)
         )
@@ -119,14 +122,46 @@ class TestVideo:
         assert frames_1_0.count() == 15
         assert frames_0_5.count() == 8
         assert frames_0_33.count() == 5
+        assert frames_1000.count() == 449
         assert num_frames_10.count() == 10
         assert num_frames_50.count() == 50
         assert num_frames_1000.count() == 449
-        with pytest.raises(pxt.Error) as exc_info:
+
+        with pytest.raises(pxt.Error, match='At most one of'):
             _ = pxt.create_view(
                 'invalid_args', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 2, num_frames=10)
             )
-        assert 'At most one of `fps` or `num_frames` may be specified' in str(exc_info.value)
+
+    def test_keyframes_only(self, reset_db: None) -> None:
+        path = get_video_files()[0]
+        videos = pxt.create_table('videos', {'video': pxt.Video})
+
+        # Test keyframes_only=True extracts all keyframes
+        keyframes = pxt.create_view(
+            'keyframes',
+            videos,
+            iterator=FrameIterator.create(video=videos.video, keyframes_only=True, all_frame_attrs=True),
+        )
+        frames = pxt.create_view(
+            'frames', videos, iterator=FrameIterator.create(video=videos.video, fps=0, all_frame_attrs=True)
+        )
+
+        videos.insert(video=path)
+
+        # Verify keyframes were extracted
+        keyframes_count = keyframes.count()
+        res = frames.order_by(frames.pos).collect()
+        assert keyframes_count == sum(attrs['key_frame'] for attrs in res['frame_attrs'])
+
+        with pytest.raises(pxt.Error, match='At most one of'):
+            _ = pxt.create_view(
+                'invalid', videos, iterator=FrameIterator.create(video=videos.video, keyframes_only=True, fps=1)
+            )
+
+        with pytest.raises(pxt.Error, match='At most one of'):
+            _ = pxt.create_view(
+                'invalid', videos, iterator=FrameIterator.create(video=videos.video, keyframes_only=True, num_frames=10)
+            )
 
     def test_computed_cols(self, reset_db: None) -> None:
         video_filepaths = get_video_files()

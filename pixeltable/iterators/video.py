@@ -24,17 +24,18 @@ _logger = logging.getLogger('pixeltable')
 
 class FrameIterator(ComponentIterator):
     """
-    Iterator over frames of a video. At most one of `fps` or `num_frames` may be specified. If `fps` is specified,
-    then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified, then the
-    exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The first
-    frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
+    Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be specified. If `fps`
+    is specified, then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified,
+    then the exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The
+    first frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
 
     Args:
         fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
-            If omitted or set to 0.0, then the native framerate of the video will be used (all frames will be
-            extracted). If `fps` is greater than the frame rate of the video, an error will be raised.
+            If omitted or set to 0.0, or if greater than the native framerate of the video,
+            then the framerate of the video will be used (all frames will be extracted).
         num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
             `num_frames` is greater than the number of frames in the video, all frames will be extracted.
+        keyframes_only: If True, only extract keyframes.
         all_frame_attrs:
             If True, outputs a `pxt.Json` column `frame_attrs` with the following `pyav`-provided attributes
             (for more information, see `pyav`'s documentation on
@@ -57,6 +58,7 @@ class FrameIterator(ComponentIterator):
     video_path: Path
     fps: float | None
     num_frames: int | None
+    keyframes_only: bool
     all_frame_attrs: bool
 
     # Video info
@@ -74,10 +76,16 @@ class FrameIterator(ComponentIterator):
     next_pos: int
 
     def __init__(
-        self, video: str, *, fps: float | None = None, num_frames: int | None = None, all_frame_attrs: bool = False
+        self,
+        video: str,
+        *,
+        fps: float | None = None,
+        num_frames: int | None = None,
+        keyframes_only: bool = False,
+        all_frame_attrs: bool = False,
     ):
-        if fps is not None and num_frames is not None:
-            raise excs.Error('At most one of `fps` or `num_frames` may be specified')
+        if int(fps is not None) + int(num_frames is not None) + int(keyframes_only) > 1:
+            raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
 
         video_path = Path(video)
         assert video_path.exists() and video_path.is_file()
@@ -85,6 +93,7 @@ class FrameIterator(ComponentIterator):
         self.container = av.open(str(video_path))
         self.fps = fps
         self.num_frames = num_frames
+        self.keyframes_only = keyframes_only
         self.all_frame_attrs = all_frame_attrs
 
         self.video_framerate = self.container.streams.video[0].average_rate
@@ -110,7 +119,9 @@ class FrameIterator(ComponentIterator):
             else:
                 raise excs.Error(f'Video {video}: failed to get number of frames')
 
-        if num_frames is not None:
+        if keyframes_only:
+            self.frames_to_extract = None
+        elif num_frames is not None:
             # specific number of frames
             if num_frames > self.video_frame_count:
                 # Extract all frames
@@ -119,20 +130,19 @@ class FrameIterator(ComponentIterator):
                 spacing = float(self.video_frame_count) / float(num_frames)
                 self.frames_to_extract = [round(i * spacing) for i in range(num_frames)]
                 assert len(self.frames_to_extract) == num_frames
-        elif fps is None or fps == 0.0:
+        elif fps is None or fps == 0.0 or fps > float(self.video_framerate):
             # Extract all frames
             self.frames_to_extract = None
-        elif fps > float(self.video_framerate):
-            raise excs.Error(
-                f'Video {video}: requested fps ({fps}) exceeds that of the video ({float(self.video_framerate)})'
-            )
         else:
             # Extract frames at the implied frequency
             freq = fps / float(self.video_framerate)
             n = math.ceil(self.video_frame_count * freq)  # number of frames to extract
             self.frames_to_extract = [round(i / freq) for i in range(n)]
 
-        _logger.debug(f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames}')
+        _logger.debug(
+            f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames} '
+            f'keyframes_only={self.keyframes_only}'
+        )
         self.next_pos = 0
 
     @classmethod
@@ -141,6 +151,7 @@ class FrameIterator(ComponentIterator):
             'video': ts.VideoType(nullable=False),
             'fps': ts.FloatType(nullable=True),
             'num_frames': ts.IntType(nullable=True),
+            'keyframes_only': ts.BoolType(nullable=False),
             'all_frame_attrs': ts.BoolType(nullable=False),
         }
 
@@ -179,15 +190,21 @@ class FrameIterator(ComponentIterator):
             # Compute the index of the current frame in the video based on the presentation timestamp (pts);
             # this ensures we have a canonical understanding of frame index, regardless of how we got here
             # (seek or iteration)
+            # TODO: this computation is incorrect for variable frame rate videos, we need to use the actual
+            # ordinal position in the stream
             pts = frame.pts - self.video_start_time
             video_idx = round(pts * self.video_time_base * self.video_framerate)
             assert isinstance(video_idx, int)
+
+            if self.keyframes_only and not frame.key_frame:
+                continue
+
             if video_idx < next_video_idx:
                 # We haven't reached the desired frame yet
                 continue
 
-            # Sanity check that we're at the right frame.
-            if video_idx != next_video_idx:
+            # Sanity check that we're at the right frame
+            if not self.keyframes_only and video_idx != next_video_idx:
                 raise excs.Error(f'Frame {next_video_idx} is missing from the video (video file is corrupt)')
             img = frame.to_image()
             assert isinstance(img, PIL.Image.Image)
@@ -220,6 +237,7 @@ class FrameIterator(ComponentIterator):
         video_idx = pos if self.frames_to_extract is None else self.frames_to_extract[pos]
         _logger.debug(f'seeking to frame number {video_idx} (at iterator index {pos})')
         # compute the frame position in time_base units
+        # TODO: this computation is wrong for variable frame rate videos
         seek_pos = int(video_idx / self.video_framerate / self.video_time_base + self.video_start_time)
         # This will seek to the nearest keyframe before the desired frame. If the frame being sought is not a keyframe,
         # then the iterator will step forward to the desired frame on the subsequent call to next().

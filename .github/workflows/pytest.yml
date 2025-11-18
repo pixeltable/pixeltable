@@ -43,6 +43,7 @@ on:
         default: false
 
 env:
+  # PIXELTABLE_API_KEY: ${{ secrets.PIXELTABLE_API_KEY }}
   PIXELTABLE_B2_PROFILE: b2_profile
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
   PIXELTABLE_R2_PROFILE: r2_profile
@@ -77,6 +78,7 @@ env:
   R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
   R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+  REVE_API_KEY: ${{ secrets.REVE_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
 
 jobs:
@@ -200,9 +202,9 @@ jobs:
           if [[ $? != 0 && $? != 5 ]]; then  # exit code 5 = no tests collected on 2nd run
             exit 1
           fi
-      - name: Run random table ops
+      - name: Run stress tests
         if: ${{ matrix.test-category == 'random-ops' }}
-        run: python tool/worker_harness.py 12 1800 tool/random_tbl_ops.py 2>&1 | tee random-tbl-ops-${{ matrix.os }}.log
+        run: ./scripts/stress-tests.sh 12 1800
       - name: Type check
         if: ${{ matrix.test-category == 'lint' }}
         run: mypy pixeltable tests tool
@@ -210,7 +212,11 @@ jobs:
         if: ${{ matrix.test-category == 'lint' }}
         run: |
           mkdocs build --strict
-          pydoclint pixeltable tests tool
+          # Install quarto and mintlify in order to build the docs
+          conda install -y -c conda-forge quarto nodejs
+          npm install -g @mintlify/cli
+          python -m pixeltable_doctools.build
+          cd target/docs && mintlify broken-links
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
         run: ruff check pixeltable tests tool

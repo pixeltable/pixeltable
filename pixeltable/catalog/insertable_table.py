@@ -16,7 +16,7 @@ from pixeltable.utils.pydantic import is_json_convertible
 
 from .globals import MediaValidation
 from .table import Table
-from .table_version import TableVersion, TableVersionCompleteMd
+from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .tbl_ops import CreateStoreTableOp, TableOp
@@ -73,7 +73,7 @@ class InsertableTable(Table):
         comment: str,
         media_validation: MediaValidation,
         create_default_idxs: bool,
-    ) -> tuple[TableVersionCompleteMd, list[TableOp]]:
+    ) -> tuple[TableVersionMd, list[TableOp]]:
         columns = cls._create_columns(schema)
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
@@ -180,19 +180,19 @@ class InsertableTable(Table):
     ) -> pxt.UpdateStatus:
         """Insert row batches into this table from a `TableDataConduit`."""
         from pixeltable.catalog import Catalog
-        from pixeltable.io.table_data_conduit import DFTableDataConduit
+        from pixeltable.io.table_data_conduit import QueryTableDataConduit
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            if isinstance(data_source, DFTableDataConduit):
+            if isinstance(data_source, QueryTableDataConduit):
                 status = pxt.UpdateStatus()
                 status += self._tbl_version.get().insert(
-                    rows=None, df=data_source.pxt_df, print_stats=print_stats, fail_on_exception=fail_on_exception
+                    rows=None, query=data_source.pxt_query, print_stats=print_stats, fail_on_exception=fail_on_exception
                 )
             else:
                 status = pxt.UpdateStatus()
                 for row_batch in data_source.valid_row_batch():
                     status += self._tbl_version.get().insert(
-                        rows=row_batch, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
+                        rows=row_batch, query=None, print_stats=print_stats, fail_on_exception=fail_on_exception
                     )
 
         Env.get().console_logger.info(status.insert_msg)
@@ -226,7 +226,7 @@ class InsertableTable(Table):
                     raise excs.Error(f'Missing required column {col_name!r} in row {i}')
 
         status = self._tbl_version.get().insert(
-            rows=pxt_rows, df=None, print_stats=print_stats, fail_on_exception=fail_on_exception
+            rows=pxt_rows, query=None, print_stats=print_stats, fail_on_exception=fail_on_exception
         )
         return status
 

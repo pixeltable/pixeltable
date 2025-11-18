@@ -9,7 +9,7 @@ icon: 'robot'
   View the source code and contribute to Pixelagent
 </Card>
 
-# Pixelagent: An Agent Engineering Blueprint 
+# Pixelagent: An Agent Engineering Blueprint
 
 We see agents as the intersection of an LLM, storage, and orchestration. Pixeltable unifies this interface into a single declarative framework, making it the de-facto choice for engineers to build custom agentic applications with build-your-own functionality for memory, tool-calling, and more.
 
@@ -26,15 +26,15 @@ We start with fundamental patterns and gradually introduce complexity, allowing 
 ### Start with a single-provider `Agent()` class
 
 <CardGroup cols={2}>
-  <Card 
-    title="Anthropic Agent" 
+  <Card
+    title="Anthropic Agent"
     icon="brain"
     href="https://github.com/pixeltable/pixelagent/tree/main/guides/anthropic/README.md"
   >
     Learn how we craft an agent using Claude, with cost-saving tricks like skipping chat history in tool calls
   </Card>
-  <Card 
-    title="OpenAI Agent" 
+  <Card
+    title="OpenAI Agent"
     icon="sparkles"
     href="https://github.com/pixeltable/pixelagent/tree/main/guides/openai/README.md"
   >
@@ -56,44 +56,44 @@ Once you've mastered building an agent for a single LLM provider, the next step 
 
 By implementing a BaseAgent abstract class that handles common functionality, you can create specialized provider-specific implementations that override only what's unique to each provider. This architecture allows you to maintain a consistent interface while adapting to the nuances of different LLM APIs.
 
-<Card 
-  title="Build with Multiple Providers" 
+<Card
+  title="Build with Multiple Providers"
   icon="layer-group"
-  href="https://github.com/pixeltable/pixelagent/blob/main/guides/multi_provider/README.md"
+  href="https://github.com/pixeltable/pixelagent/tree/main/blueprints/multi_provider/README.md"
 >
   Learn how to extend the Agent class to support multiple LLM providers
 </Card>
 
-## Plug-and-Play Extensions 
+## Plug-and-Play Extensions
 
 With a solid agent foundation in place, the final step is adding specialized capabilities that transform a basic conversational agent into a sophisticated AI system. Our blueprint includes detailed implementations of the most important agentic patterns, each designed as modular extensions that can be mixed and matched based on your specific requirements.
 
 These extensions leverage Pixeltable's data management capabilities to implement complex features like long-term memory, reflection loops, and multi-step reasoning—all while maintaining a clean, maintainable codebase. Each extension is explained with both theoretical background and practical implementation details, allowing you to understand not just how to use them, but how they work under the hood.
 
 <CardGroup cols={2}>
-  <Card 
-    title="Tools" 
+  <Card
+    title="Tools"
     icon="wrench"
     href="https://github.com/pixeltable/pixelagent/tree/main/examples/tool-calling"
   >
     Add custom python functions as tools to enable your agent to interact with external systems, retrieve information, and perform actions beyond just conversation.
   </Card>
-  <Card 
-    title="Memory" 
+  <Card
+    title="Memory"
     icon="database"
     href="https://github.com/pixeltable/pixelagent/tree/main/examples/memory"
   >
     Implement sophisticated memory systems that allow your agent to recall past interactions, store knowledge, and perform semantic search over its memory.
   </Card>
-  <Card 
-    title="Reflection" 
+  <Card
+    title="Reflection"
     icon="rotate"
     href="https://github.com/pixeltable/pixelagent/blob/main/examples/reflection/reflection.md"
   >
     Add self-improvement capabilities through reflection loops where agents can evaluate their own performance and adjust their behavior accordingly.
   </Card>
-  <Card 
-    title="Reasoning" 
+  <Card
+    title="Reasoning"
     icon="brain"
     href="https://github.com/pixeltable/pixelagent/tree/main/examples/planning"
   >
@@ -240,24 +240,24 @@ Beyond the basics, Pixelagent provides sophisticated capabilities that allow you
                 step=step,
                 max_steps=max_steps,
             )
-            
+
             # Agent with updated system prompt
             agent = Agent(
                 agent_name="financial_planner",
                 system_prompt=react_system_prompt,
                 reset=False,  # Maintain memory between steps
             )
-            
+
             # Get agent's response for current step
             response = agent.chat(question)
-            
+
             # Extract action to determine next step
             action = extract_section(response, "ACTION")
-            
+
             # Check if agent is ready for final answer
             if "FINAL" in action.upper():
                 break
-                
+
             # Call tool if needed
             if "stock_info" in action.lower():
                 tool_agent = Agent(
@@ -265,9 +265,9 @@ Beyond the basics, Pixelagent provides sophisticated capabilities that allow you
                     tools=pxt.tools(stock_info)
                 )
                 tool_agent.tool_call(question)
-                
+
             step += 1
-        
+
         # Generate final recommendation
         return Agent(agent_name="financial_planner").chat(question)
 
@@ -289,11 +289,11 @@ flowchart TB
         Tools["Tools\n(Python Functions)"]
         Orchestration["Orchestration\n(Pixeltable Core)"]
     end
-    
+
     LLM <--> Orchestration
     Memory <--> Orchestration
     Tools <--> Orchestration
-    
+
     User["User"] <--> Agent
 ```
 
@@ -302,22 +302,22 @@ flowchart TB
 We provide comprehensive examples and tutorials to help you get started quickly and master advanced concepts. These resources range from basic implementation guides to sophisticated patterns for specialized use cases, ensuring you have the knowledge to build exactly what you need.
 
 <CardGroup cols={3}>
-  <Card 
-    title="Getting Started" 
+  <Card
+    title="Getting Started"
     icon="book"
     href="https://github.com/pixeltable/pixelagent/tree/main/examples/getting-started"
   >
     Step-by-step introduction to core concepts
   </Card>
-  <Card 
-    title="Advanced Patterns" 
+  <Card
+    title="Advanced Patterns"
     icon="lightbulb"
     href="https://github.com/pixeltable/pixelagent/tree/main/examples"
   >
     Explore reflection and planning techniques
   </Card>
-  <Card 
-    title="Specialized Techniques" 
+  <Card
+    title="Specialized Techniques"
     icon="puzzle-piece"
     href="https://github.com/pixeltable/pixelagent/tree/main/examples"
   >

@@ -236,15 +236,15 @@ class TestFunction:
         validate_update_status(t.insert(rows))
 
         @pxt.query
-        def lt_x(x: int) -> pxt.DataFrame:
+        def lt_x(x: int) -> pxt.Query:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
         @pxt.query
-        def lt_x_with_default(x: int, mult: int = 2) -> pxt.DataFrame:
+        def lt_x_with_default(x: int, mult: int = 2) -> pxt.Query:
             return t.where(t.c2 < x * mult).select(t.c2, t.c1).order_by(t.c1)
 
         @pxt.query
-        def lt_x_with_unused_default(x: int, mult: int = 2) -> pxt.DataFrame:
+        def lt_x_with_unused_default(x: int, mult: int = 2) -> pxt.Query:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
         res1 = reload_tester.run_query(t.select(out=lt_x(t.c1)).order_by(t.c1))
@@ -296,7 +296,7 @@ class TestFunction:
         )
 
         @pxt.query
-        def retrieval(s: str, n: int) -> pxt.DataFrame:
+        def retrieval(s: str, n: int) -> pxt.Query:
             """simply returns 2 passages from the table"""
             return chunks.select(chunks.text).limit(2)
 
@@ -320,7 +320,7 @@ class TestFunction:
         v = pxt.create_view('test.view', t, additional_columns={'text': pxt.String})
 
         @pxt.query
-        def retrieve() -> pxt.DataFrame:
+        def retrieve() -> pxt.Query:
             return v.select(v.text).limit(20)
 
         t = pxt.create_table('test.retrieval', {'n': pxt.Int})
@@ -343,7 +343,7 @@ class TestFunction:
         validate_update_status(t.insert(t_rows), 100)
 
         @pxt.query
-        def lt_x(x: int) -> pxt.DataFrame:
+        def lt_x(x: int) -> pxt.Query:
             return t.where(t.c2 < x).select(t.c2, t.c1).order_by(t.c1)
 
         u = pxt.create_table('test2', {'c': pxt.Json})
@@ -359,7 +359,7 @@ class TestFunction:
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
         @pxt.query
-        def c(x: int, y: int) -> pxt.DataFrame:
+        def c(x: int, y: int) -> pxt.Query:
             return t.order_by(t.a).where(t.a > x).select(c=t.a + y).limit(10)
 
     @staticmethod

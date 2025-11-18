@@ -68,14 +68,19 @@ class IfNotExistsParam(enum.Enum):
             raise excs.Error(f'{param_name} must be one of: [{val_strs}]') from None
 
 
-def is_valid_identifier(name: str, allow_system_identifiers: bool = False) -> bool:
-    return name.isidentifier() and (allow_system_identifiers or not name.startswith('_'))
+def is_valid_identifier(name: str, *, allow_system_identifiers: bool = False, allow_hyphens: bool = False) -> bool:
+    # If allow_hyphens=True, we allow hyphens to appear in the name, but we still do not permit a name to start with
+    # one (even if allow_system_identifiers=True)
+    adj_name = name.replace('-', '_') if allow_hyphens else name
+    return (
+        adj_name.isidentifier() and not name.startswith('-') and (allow_system_identifiers or not name.startswith('_'))
+    )
 
 
 def is_valid_path(path: str, empty_is_valid: bool, allow_system_paths: bool = False) -> bool:
     if path == '':
         return empty_is_valid
-    return all(is_valid_identifier(part, allow_system_paths) for part in path.split('.'))
+    return all(is_valid_identifier(part, allow_system_identifiers=allow_system_paths) for part in path.split('.'))
 
 
 def is_system_column_name(name: str) -> bool:

@@ -1,5 +1,4 @@
 import base64
-import dataclasses
 import io
 import json
 import logging
@@ -7,6 +6,7 @@ import tarfile
 import urllib.parse
 import urllib.request
 import uuid
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Iterator
 from uuid import UUID
@@ -20,8 +20,9 @@ import pyarrow.parquet as pq
 import sqlalchemy as sql
 
 import pixeltable as pxt
+import pixeltable.utils.av as av_utils
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
-from pixeltable.catalog.table_version import TableVersionCompleteMd
+from pixeltable.catalog.table_version import TableVersionKey, TableVersionMd
 from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
@@ -70,7 +71,7 @@ class TablePackager:
             self.bundle_md = {
                 'pxt_version': pxt.__version__,
                 'pxt_md_version': metadata.VERSION,
-                'md': [dataclasses.asdict(md) for md in tbl_md],
+                'md': [md.as_dict() for md in tbl_md],
             }
         if additional_md is not None:
             self.bundle_md.update(additional_md)
@@ -128,7 +129,7 @@ class TablePackager:
         _logger.info(f'Creating parquet table: {parquet_file}')
 
         # Populate the Parquet table with data.
-        # The data is first loaded from the DataFrame into a sequence of pyarrow tables, batched in order to avoid
+        # The data is first loaded from the Query into a sequence of pyarrow tables, batched in order to avoid
         # excessive memory usage. The pyarrow tables are then amalgamated into the (single) Parquet table on disk.
         # We use snappy compression for the Parquet tables; the entire bundle will be bzip2-compressed later, so
         # faster compression should provide good performance while still reducing temporary storage utilization.
@@ -283,7 +284,7 @@ class TablePackager:
         preview = [
             [self.__encode_preview_data(val, col_type)]
             for row in rows
-            for val, col_type in zip(row.values(), preview_cols.values())
+            for val, col_type in zip(row.values(), preview_cols.values(), strict=True)
         ]
 
         return preview_header, preview
@@ -317,12 +318,13 @@ class TablePackager:
                 assert isinstance(val, PIL.Image.Image)
                 return self.__encode_image(val)
 
+            case ts.ColumnType.Type.AUDIO:
+                assert isinstance(val, str)
+                return self.__encode_audio(val)
+
             case ts.ColumnType.Type.VIDEO:
                 assert isinstance(val, str)
                 return self.__encode_video(val)
-
-            case ts.ColumnType.Type.AUDIO:
-                return None
 
             case ts.ColumnType.Type.DOCUMENT:
                 assert isinstance(val, str)
@@ -343,6 +345,18 @@ class TablePackager:
         with io.BytesIO() as buffer:
             scaled_img.save(buffer, 'webp')
             return base64.b64encode(buffer.getvalue()).decode()
+
+    def __encode_audio(self, audio_path: str) -> str | None:
+        try:
+            audio_md = av_utils.get_metadata(audio_path)
+            if 'streams' in audio_md:
+                duration = audio_md['streams'][0]['duration_seconds']
+                assert isinstance(duration, float)
+                return f'{timedelta(seconds=round(duration))} audio clip'
+            return None
+        except Exception:
+            _logger.info(f'Could not extract audio metadata from file for data preview: {audio_path}', exc_info=True)
+            return None
 
     def __encode_video(self, video_path: str) -> str | None:
         thumb = Formatter.extract_first_video_frame(video_path)
@@ -377,7 +391,7 @@ class TableRestorer:
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}
 
-    def restore(self, bundle_path: Path) -> pxt.Table:
+    def restore(self, bundle_path: Path, pxt_uri: str | None = None, explicit_version: int | None = None) -> pxt.Table:
         # Extract tarball
         print(f'Extracting table data into: {self.tmp_dir}')
         with tarfile.open(bundle_path, 'r:bz2') as tf:
@@ -396,8 +410,8 @@ class TableRestorer:
                 f'Pixeltable metadata version mismatch: {pxt_md_version} != {metadata.VERSION}.\n'
                 'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable'
             )
-        # Convert tables metadata from dict to list of TableVersionCompleteMd
-        tbl_md = [schema.md_from_dict(TableVersionCompleteMd, t) for t in self.bundle_md['md']]
+        # Convert tables metadata from dict to list of TableVersionMd
+        tbl_md = [schema.md_from_dict(TableVersionMd, t) for t in self.bundle_md['md']]
 
         for md in tbl_md:
             md.tbl_md.is_replica = True
@@ -418,14 +432,19 @@ class TableRestorer:
             # replica_tbl itself if it's a pure snapshot.
             for md in tbl_md[::-1]:  # Base table first
                 if not md.is_pure_snapshot:
-                    tv = cat.get_tbl_version(UUID(md.tbl_md.tbl_id), md.version_md.version)
+                    tv = cat.get_tbl_version(TableVersionKey(UUID(md.tbl_md.tbl_id), md.version_md.version, None))
                     # Import data from Parquet.
                     _logger.info(f'Importing table {tv.name!r}.')
                     self.__import_table(self.tmp_dir, tv, md)
 
-            return cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id))
+            tbl = cat.get_table_by_id(UUID(tbl_md[0].tbl_md.tbl_id), version=explicit_version)
+            if pxt_uri is not None:
+                # Set pxt_uri for the newly created table
+                cat.update_additional_md(tbl._id, {'pxt_uri': pxt_uri})
+            tbl._tbl_version_path.clear_cached_md()  # TODO: Clear cached md for ancestors too?
+            return tbl
 
-    def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionCompleteMd) -> None:
+    def __import_table(self, bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionMd) -> None:
         """
         Import the Parquet table into the Pixeltable catalog.
         """
