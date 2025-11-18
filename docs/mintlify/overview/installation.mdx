@@ -5,18 +5,18 @@ icon: "computer"
 ---
 
 <Tip>
-  Use Pixeltable directly in Google Colab: [Pixeltable Basics Tutorial](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/pixeltable-basics.ipynb).
+  Use Pixeltable directly in Google Colab: [Pixeltable Basics Tutorial](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/notebooks/pixeltable-basics).
 </Tip>
 
 ## Local Pixeltable Runtime
-![](technical-diagram.png)
+![](./technical-diagram.png)
 
 ## System Requirements
 
 Before installing, ensure your system meets these requirements:
 
-- Python 3.9 or higher
-- Linux, MacOs, or Windows
+- Python 3.10 or higher
+- Linux, MacOS, or Windows
 
 <Tabs>
   <Tab title="Python venv">
@@ -29,11 +29,11 @@ Before installing, ensure your system meets these requirements:
       </Step>
       <Step title="Activate environment">
         <CodeGroup>
-          ```bash Windows
-          venv\Scripts\activate
-          ```
           ```bash Linux/MacOS
           source venv/bin/activate
+          ```
+          ```bash Windows
+          venv\Scripts\activate
           ```
         </CodeGroup>
       </Step>
@@ -47,11 +47,11 @@ Before installing, ensure your system meets these requirements:
   <Tab title="Conda/Miniconda">
     <Steps>
       <Step title="Install Miniconda">
-        Download and install from [Miniconda Installation Guide](https://docs.anaconda.com/free/miniconda/miniconda-install/)
+        Download and install from [Miniconda Installation Guide](https://www.anaconda.com/docs/getting-started/miniconda/main)
       </Step>
       <Step title="Create environment">
         ```bash
-        conda create --name pxt python=3.11
+        conda create --name pxt python=3.12
         conda activate pxt
         ```
       </Step>
@@ -111,7 +111,7 @@ Common installation issues and solutions:
     pip install -U pixeltable --no-cache-dir
     ```
   </Accordion>
-  
+
   <Accordion title="Database connection issues">
     If Pixeltable fails to initialize:
     1. First, restart your Python session or kernel
@@ -121,7 +121,7 @@ Common installation issues and solutions:
     pxt.init()
     ```
   </Accordion>
-  
+
   <Accordion title="GPU support">
     1. Install [pytorch](https://pytorch.org/get-started/locally/)
     2. Pixeltable will automatically use GPU once torch is installed.
@@ -134,7 +134,7 @@ Common installation issues and solutions:
   <Card title="Quick Start Tutorial" icon="play" href="/overview/quick-start">
     Build your first AI application with Pixeltable
   </Card>
-  <Card title="Example Gallery" icon="images" href="/resources/sample-apps">
+  <Card title="Example Gallery" icon="images" href="/examples/sample-apps">
     Explore example applications and use cases
   </Card>
 </CardGroup>
