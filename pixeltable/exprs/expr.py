@@ -47,7 +47,7 @@ class Expr(abc.ABC):
     """
     Rules for using state in subclasses:
     - all state except for components and slot_idx is shared between copies of an Expr
-    - slot_idx is set during analysis (DataFrame.show())
+    - slot_idx is set during analysis (Query.show())
     - during eval(), components can only be accessed via self.components; any Exprs outside of that won't
       have slot_idx set
     """
