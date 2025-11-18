@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from enum import Enum
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
 from pydantic import BaseModel, model_validator
-
-from pixeltable.utils.object_stores import StorageTarget
 
 # Protocol version for replica operations. Used by both client and server
 # to determine request/response format and maintain backward compatibility.

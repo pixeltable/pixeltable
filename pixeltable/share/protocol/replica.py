@@ -14,9 +14,9 @@ from pydantic import AnyUrl, BaseModel, field_validator
 
 from pixeltable.catalog.table_version import TableVersionMd
 
+from ...utils.object_stores import StorageTarget
 from .common import PxtUri, RequestBaseModel
 from .operation_types import ReplicaOperationType
-from ...utils.object_stores import StorageTarget
 
 
 class PublishRequest(RequestBaseModel):
