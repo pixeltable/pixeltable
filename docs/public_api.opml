@@ -25,11 +25,6 @@
           <outline text="func|pixeltable.init" />
           <outline text="func|pixeltable.publish" />
           <outline text="func|pixeltable.replicate" />
-<<<<<<< HEAD
-          <outline text="udf|pixeltable.udf" />
-          <outline text="func|pixeltable.query" />
-=======
->>>>>>> main
 
           <!-- Core classes with ALL their methods -->
           <outline text="class|pixeltable.Table">
