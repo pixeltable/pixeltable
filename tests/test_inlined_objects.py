@@ -239,8 +239,8 @@ class TestInlinedObjects:
         status = t.insert(rows)
         assert status.num_excs == 0
 
-        def check_sample(df: pxt.DataFrame, n: int, rel_error: float = 0.0) -> None:
-            res = df.collect()
+        def check_sample(q: pxt.Query, n: int, rel_error: float = 0.0) -> None:
+            res = q.collect()
             if n is not None:
                 assert len(res) >= n * (1.0 - rel_error)
                 assert len(res) <= n * (1.0 + rel_error)
@@ -258,13 +258,13 @@ class TestInlinedObjects:
             )
             assert all(row['d']['b'].size == (row['id'] + 10, row['id'] + 10) for row in res if row['id'] % 2 == 1)
 
-        df_n = t.sample(n=10, seed=1)
-        check_sample(df_n, 10)
-        df_stratified_n = t.sample(n=10, seed=1, stratify_by=[t.c])
-        check_sample(df_stratified_n, 10)
-        df_per_stratum = t.sample(n_per_stratum=2, seed=1, stratify_by=[t.c])
-        check_sample(df_per_stratum, 20)
-        df_fraction = t.sample(fraction=0.1, seed=1)
-        check_sample(df_fraction, 10, rel_error=0.1)
-        df_stratified_fraction = t.sample(fraction=0.1, seed=1, stratify_by=[t.c])
-        check_sample(df_stratified_fraction, 10, rel_error=0.1)
+        q_n = t.sample(n=10, seed=1)
+        check_sample(q_n, 10)
+        q_stratified_n = t.sample(n=10, seed=1, stratify_by=[t.c])
+        check_sample(q_stratified_n, 10)
+        q_per_stratum = t.sample(n_per_stratum=2, seed=1, stratify_by=[t.c])
+        check_sample(q_per_stratum, 20)
+        q_fraction = t.sample(fraction=0.1, seed=1)
+        check_sample(q_fraction, 10, rel_error=0.1)
+        q_stratified_fraction = t.sample(fraction=0.1, seed=1, stratify_by=[t.c])
+        check_sample(q_stratified_fraction, 10, rel_error=0.1)
