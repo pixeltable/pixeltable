@@ -61,6 +61,15 @@ def push_replica(
     _logger.debug(f'Sending PublishRequest: {publish_request}')
 
     response = requests.post(PIXELTABLE_API_URL, data=publish_request.model_dump_json(), headers=_api_headers())
+    if response.status_code == 204:
+        publish_response = PublishResponse.model_validate(response.json())
+        existing_table_uri = str(publish_response.table_uri)
+        Env.get().console_logger.info(
+            f'Replica for version {publish_request.md[0].version_md.version} already exists at {existing_table_uri}.'
+        )
+        with Catalog.get().begin_xact(tbl_id=src_tbl._id, for_write=True):
+            Catalog.get().update_additional_md(src_tbl._id, {'pxt_uri': existing_table_uri})
+        return existing_table_uri
     if response.status_code != 200:
         raise excs.Error(f'Error publishing {src_tbl._display_name()}: {response.text}')
     publish_response = PublishResponse.model_validate(response.json())

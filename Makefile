@@ -80,7 +80,7 @@ endif
 	@python -m pip install -qU pip
 	@python -m pip install -q uv==0.9.3
 	@echo 'Installing conda packages ...'
-	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' quarto nodejs
+	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' quarto nodejs lychee
 	@echo 'Installing mintlify ...'
 	@npm install --silent -g @mintlify/cli
 	@echo 'Fixing quarto conda packaging bugs ...'
@@ -137,7 +137,7 @@ fullpytest: install
 .PHONY: slimpytest
 slimpytest: install
 	@echo 'Running `pytest` on a slim configuration ...'
-	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,packager,snapshot,table,view}.py
+	@$(ULIMIT_CMD) pytest $(PYTEST_COMMON_ARGS) tests/test_{catalog,dirs,env,exprs,function,index,snapshot,table,view}.py tests/share/test_packager.py
 
 .PHONY: nbtest
 nbtest: install
@@ -182,15 +182,11 @@ format: install
 release: install
 	@scripts/release.sh
 
-MINTLIFY_FILES := $(shell find docs/mintlify -name '*.md' -o -name '*.mdx' -o -name '*.json')
-NOTEBOOK_FILES := $(shell find docs/notebooks -name '*.ipynb' | grep -v .ipynb_checkpoints)
-
-target/docs/docs.json: docs/public_api.opml $(MINTLIFY_FILES) $(NOTEBOOK_FILES)
-	@VIRTUAL_ENV="$(CONDA_PREFIX)" uv sync --active $(UV_ARGS) --upgrade-package pixeltable-doctools
-	@python -m pixeltable_doctools.build
-
 .PHONY: docs
-docs: install target/docs/docs.json
+docs: install
+	VIRTUAL_ENV="$(CONDA_PREFIX)" uv sync --active $(UV_ARGS) --upgrade-package pixeltable-doctools
+	@python -m pixeltable_doctools.build
+	@cd target/docs && mintlify broken-links || true
 
 .PHONY: docs-serve
 docs-serve: docs
@@ -204,6 +200,11 @@ ifdef TARGET
 else
 	$(error Usage: make docs-deploy TARGET=<dev|stage|prod>)
 endif
+
+# TODO: incorporate this into a new/expanded docscheck
+.PHONY: linkscheck
+linkscheck: docs
+	lychee target/docs/ --exclude-path target/docs/changelog/ --max-concurrency 3 --exclude 'file://*' --exclude-loopback -q
 
 .PHONY: clean
 clean:
