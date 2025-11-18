@@ -48,6 +48,7 @@ class PydanticSerializable(ABC):
         Returns:
             CoreSchema that uses as_dict() and from_dict() for serialization
         """
+
         def deserialize_from_dict(data: Any) -> Any:
             """Deserialize object using from_dict() class method."""
             if isinstance(data, cls):
@@ -71,4 +72,3 @@ class PydanticSerializable(ABC):
                 serialize_to_dict, return_schema=core_schema.dict_schema()
             ),
         )
-
