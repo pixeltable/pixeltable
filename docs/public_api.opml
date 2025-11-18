@@ -53,21 +53,21 @@
             <outline text="method|pixeltable.Table.unlink_external_stores" />
           </outline>
 
-          <outline text="class|pixeltable.DataFrame">
-            <outline text="method|pixeltable.DataFrame.select" />
-            <outline text="method|pixeltable.DataFrame.where" />
-            <outline text="method|pixeltable.DataFrame.join" />
-            <outline text="method|pixeltable.DataFrame.group_by" />
-            <outline text="method|pixeltable.DataFrame.order_by" />
-            <outline text="method|pixeltable.DataFrame.limit" />
-            <outline text="method|pixeltable.DataFrame.distinct" />
-            <outline text="method|pixeltable.DataFrame.sample" />
-            <outline text="method|pixeltable.DataFrame.collect" />
-            <outline text="method|pixeltable.DataFrame.show" />
-            <outline text="method|pixeltable.DataFrame.head" />
-            <outline text="method|pixeltable.DataFrame.tail" />
-            <outline text="method|pixeltable.DataFrame.to_pytorch_dataset" />
-            <outline text="method|pixeltable.DataFrame.to_coco_dataset" />
+          <outline text="class|pixeltable.Query">
+            <outline text="method|pixeltable.Query.select" />
+            <outline text="method|pixeltable.Query.where" />
+            <outline text="method|pixeltable.Query.join" />
+            <outline text="method|pixeltable.Query.group_by" />
+            <outline text="method|pixeltable.Query.order_by" />
+            <outline text="method|pixeltable.Query.limit" />
+            <outline text="method|pixeltable.Query.distinct" />
+            <outline text="method|pixeltable.Query.sample" />
+            <outline text="method|pixeltable.Query.collect" />
+            <outline text="method|pixeltable.Query.show" />
+            <outline text="method|pixeltable.Query.head" />
+            <outline text="method|pixeltable.Query.tail" />
+            <outline text="method|pixeltable.Query.to_pytorch_dataset" />
+            <outline text="method|pixeltable.Query.to_coco_dataset" />
           </outline>
 
           <outline text="class|pixeltable.ColumnMetadata" />
