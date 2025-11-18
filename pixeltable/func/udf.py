@@ -193,6 +193,10 @@ def make_function(
         validate_symbol_path(function_path)
         FunctionRegistry.get().register_function(function_path, result)
 
+    # All UDFs are public API - automatically register them
+    from .public_api import public_api
+    public_api(result)
+
     return result
 
 
