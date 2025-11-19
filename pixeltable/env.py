@@ -513,7 +513,7 @@ class Env:
         """
         Initialize the pixeltable database along with its associated DBMS.
         """
-        db_connect_str = config.get_string_value('db_connect_str')
+        db_connect_str = config.get_string_value('DB_CONNECT_STR')
         if db_connect_str is not None:
             try:
                 db_url = sql.make_url(db_connect_str)
@@ -576,15 +576,6 @@ class Env:
         self._sa_engine = sql.create_engine(
             self.db_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level, connect_args=connect_args
         )
-
-        # Set search_path using connection pool event if schema is specified
-        db_schema = os.environ.get('PIXELTABLE_SCHEMA')
-        if db_schema:
-            @sql.event.listens_for(self._sa_engine, 'connect')
-            def set_search_path(dbapi_connection, connection_record):
-                with dbapi_connection.cursor() as cursor:
-                    cursor.execute(f'SET search_path TO {db_schema}, public')
-            self._logger.info(f'Registered search_path listener for schema: {db_schema}')
 
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
         self._logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
