@@ -7,10 +7,10 @@ from typing import Callable, Iterator
 
 import pytest
 import requests
+import sqlalchemy as sql
 import tenacity
 from _pytest.config import Config as PytestConfig, argparsing
 from filelock import FileLock
-import sqlalchemy as sql
 from sqlalchemy import orm, text
 
 import pixeltable as pxt
@@ -19,6 +19,15 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import create_system_info
+from pixeltable.metadata.schema import (
+    Dir,
+    Function,
+    PendingTableOp,
+    SystemInfo,
+    Table,
+    TableSchemaVersion,
+    TableVersion,
+)
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 
@@ -38,16 +47,13 @@ _logger = logging.getLogger('pixeltable')
 # Order matters for dependencies: most dependent first for dropping
 METADATA_TABLES_DROP_ORDER = [
     'tableschemaversions',  # depends on tables
-    'tableversions',        # depends on tables
-    'pendingtableops',      # may depend on tables
-    'tables',              # depends on dirs
-    'functions',           # depends on dirs
-    'dirs',                # no dependencies
-    'systeminfo',          # standalone
+    'tableversions',  # depends on tables
+    'pendingtableops',  # may depend on tables
+    'tables',  # depends on dirs
+    'functions',  # depends on dirs
+    'dirs',  # no dependencies
+    'systeminfo',  # standalone
 ]
-
-# Module-level variable to store schema name for use in clean_db
-_current_schema_name: str | None = None
 
 DO_RERUN: bool
 
@@ -75,17 +81,13 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
     _logger.info(f'Finished Pixeltable test: {current_test}')
 
 
-def _setup_external_db_schema(worker_id: int) -> str:
-    """Set up schema-isolated connection string for this worker.
-
-    pytest-xdist creates separate processes (not threads), so each worker process
-    has its own copy of os.environ. This makes it safe to modify the connection
-    string per worker without any synchronization needed.
-
-    Returns:
-        The schema name that was created and configured.
-    """
-    schema_name = f'test_{worker_id}'
+def _setup_external_db_schema(worker_id: int | str) -> str:
+    # When running without -n (no parallel), worker_id is 'master' for all processes
+    # Use process ID to ensure isolation when running same command in multiple terminals
+    if worker_id == 'master':
+        schema_name = f'test_master_{os.getpid()}'
+    else:
+        schema_name = f'test_{worker_id}'
     original_connect_str = os.environ['PIXELTABLE_DB_CONNECT_STR']
 
     # Create schema first
@@ -120,7 +122,7 @@ def _setup_external_db_schema(worker_id: int) -> str:
 
 
 @pytest.fixture(scope='session')
-def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterator[None]:
+def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterator[str | None]:
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
 
     # Set the relevant env vars for the test db.
@@ -136,14 +138,12 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterat
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
     reinit_db = True
-    global _current_schema_name
-    _current_schema_name = None
+    schema_name = None
     if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
         print('Using external database connection for test configuration')
         reinit_db = False
-        _current_schema_name = _setup_external_db_schema(worker_id)
+        schema_name = _setup_external_db_schema(worker_id)
 
-    # Print environment configuration
     env_vars_to_show = [
         'PIXELTABLE_HOME',
         'PIXELTABLE_CONFIG',
@@ -163,51 +163,40 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterat
     # don't have several processes trying to initialize pgserver in parallel.
     root_tmp_dir = tmp_path_factory.getbasetemp().parent
     with FileLock(str(root_tmp_dir / 'pxt-init.lock')):
-        # Clean up public schema if using external DB with schema isolation
-        # This handles legacy tables from before schema isolation was implemented
-        if _current_schema_name and os.environ.get('PIXELTABLE_DB_CONNECT_STR'):
-            try:
-                temp_engine = sql.create_engine(os.environ['PIXELTABLE_DB_CONNECT_STR'])
-                try:
-                    _cleanup_schema_tables(temp_engine, 'public')
-                finally:
-                    temp_engine.dispose()
-            except Exception as e:
-                _logger.warning(f'Failed to cleanup public schema before initialization: {e}')
-
-        # Initialize Pixeltable
-        # The connection string already has search_path embedded in it, so schema isolation
-        # is handled automatically. reinit_db=True handles interrupted previous runs.
+        # We need to call `Env._init_env()` with `reinit_db=True`. This is because if a previous test run was
+        # interrupted (e.g., by an inopportune Ctrl-C), there may be residual DB artifacts that interfere with
+        # initialization.
         Env._init_env(reinit_db=reinit_db)
         pxt.init()
 
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
 
-    # Yield control to tests
-    yield
+    # Yield schema name to tests (None if not using schema isolation)
+    yield schema_name
 
     # Cleanup: Drop schema on fixture teardown
-    if _current_schema_name:
+    if schema_name:
         try:
             db_connect_str = os.environ.get('PIXELTABLE_DB_CONNECT_STR')
             if db_connect_str:
                 engine = sql.create_engine(db_connect_str)
                 try:
                     with engine.connect() as conn:
-                        conn.execute(text(f'DROP SCHEMA IF EXISTS "{_current_schema_name}" CASCADE'))
+                        conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
                         conn.commit()
-                    _logger.info(f'Dropped test schema: {_current_schema_name}')
+                    _logger.info(f'Dropped test schema: {schema_name}')
                 finally:
                     engine.dispose()
         except Exception as e:
-            _logger.warning(f'Failed to cleanup test schema {_current_schema_name}: {e}')
+            _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
 
 
 @pytest.fixture(scope='function')
-def reset_db(init_env: None) -> None:
+def reset_db(init_env: str | None) -> None:
+    """Reset database state between tests."""
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
-    clean_db()
+    clean_db(schema_name=init_env)
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
@@ -272,76 +261,18 @@ def _clear_hf_caches() -> None:
             )
 
 
-def _cleanup_schema_tables(engine: sql.Engine, schema_names: str | list[str]) -> None:
-    """
-    Unified function to clean up tables in any schema (public or worker-specific).
-    
-    Args:
-        engine: SQLAlchemy engine
-        schema_names: Single schema name (str) or list of schema names to clean
-    """
-    if isinstance(schema_names, str):
-        schema_names = [schema_names]
-
-    with engine.begin() as conn:
-        for schema_name in schema_names:
-            try:
-                result = conn.execute(
-                    text(
-                        """
-                        SELECT table_name
-                        FROM information_schema.tables
-                        WHERE table_schema = :schema_name
-                        AND table_type = 'BASE TABLE'
-                    """
-                    ),
-                    {'schema_name': schema_name},
-                )
-                all_table_names = {row[0] for row in result}
-
-                if not all_table_names:
-                    _logger.debug(f"No tables found in schema '{schema_name}'")
-                    continue
-
-                _logger.info(f"Cleaning {len(all_table_names)} tables from schema '{schema_name}'")
-
-                metadata_set = set(METADATA_TABLES_DROP_ORDER)
-                for table_name in METADATA_TABLES_DROP_ORDER:
-                    if table_name in all_table_names:
-                        if schema_name == 'public':
-                            conn.execute(text(f'DROP TABLE IF EXISTS public."{table_name}" CASCADE'))
-                        else:
-                            conn.execute(text(f'DROP TABLE IF EXISTS "{schema_name}"."{table_name}" CASCADE'))
-                        _logger.debug(f"Dropped metadata table '{table_name}' from schema '{schema_name}'")
-
-                data_tables = all_table_names - metadata_set
-                for table_name in data_tables:
-                    if schema_name == 'public':
-                        conn.execute(text(f'DROP TABLE IF EXISTS public."{table_name}" CASCADE'))
-                    else:
-                        conn.execute(text(f'DROP TABLE IF EXISTS "{schema_name}"."{table_name}" CASCADE'))
-                    _logger.debug(f"Dropped data table '{table_name}' from schema '{schema_name}'")
-
-                _logger.info(f"Cleaned {len(all_table_names)} tables from schema '{schema_name}'")
-            except Exception as e:
-                # Schema might not exist yet, which is fine - just log and continue
-                _logger.debug(f"Could not clean schema '{schema_name}': {e}")
-                continue
-
-
-def clean_db(restore_md_tables: bool = True) -> None:
-    from pixeltable.env import Env
-
+def clean_db(restore_md_tables: bool = True, schema_name: str | None = None) -> None:
     engine = Env.get().engine
-    schema_name = _current_schema_name
 
+    # Drop all tables from the DB, including data tables. Dropping the data tables is necessary for certain tests,
+    # such as test_db_migration, that may lead to UUID collisions if interrupted.
+    # The search_path in the connection string ensures tables are dropped from the correct schema.
+    sql_md = orm.declarative_base().metadata
+    sql_md.reflect(engine)
+    sql_md.drop_all(bind=engine)
+
+    # Also clean metadata tables from public schema (legacy cleanup for schema isolation mode)
     if schema_name:
-        # Schema isolation mode: clean worker schema completely, and only metadata tables from public schema
-        # Public schema may have metadata tables from before schema isolation was implemented
-        # We need to clean public metadata tables to ensure no stale metadata is found by the catalog
-        # Clean worker schema first (all tables)
-        _cleanup_schema_tables(engine, schema_name)
-        # Then clean only metadata tables from public schema
         with engine.begin() as conn:
             for table_name in METADATA_TABLES_DROP_ORDER:
                 try:
@@ -349,28 +280,16 @@ def clean_db(restore_md_tables: bool = True) -> None:
                     _logger.debug(f"Dropped metadata table '{table_name}' from public schema")
                 except Exception as e:
                     _logger.debug(f"Could not drop metadata table '{table_name}' from public schema: {e}")
-    else:
-        # Drop all tables from the DB, including data tables. Dropping the data tables is necessary for certain tests,
-        # such as test_db_migration, that may lead to UUID collisions if interrupted.
-        sql_md = orm.declarative_base().metadata
-        sql_md.reflect(engine)
-        sql_md.drop_all(bind=engine)
-
-        # The following lines may be uncommented as a replacement for the above, if one wishes to drop only metadata
-        # tables for testing purposes.
-        # SystemInfo.__table__.drop(engine, checkfirst=True)
-        # TableSchemaVersion.__table__.drop(engine, checkfirst=True)
-        # TableVersion.__table__.drop(engine, checkfirst=True)
-        # Table.__table__.drop(engine, checkfirst=True)
-        # Function.__table__.drop(engine, checkfirst=True)
-        # Dir.__table__.drop(engine, checkfirst=True)
 
     if restore_md_tables:
         # Restore metadata tables and system info
-        # The connection string already has search_path embedded, so tables are created
-        # in the correct schema automatically
-        from pixeltable.metadata.schema import base_metadata
-        base_metadata.create_all(engine, checkfirst=True)
+        Dir.__table__.create(engine)
+        Function.__table__.create(engine)
+        Table.__table__.create(engine)
+        TableVersion.__table__.create(engine)
+        TableSchemaVersion.__table__.create(engine)
+        PendingTableOp.__table__.create(engine)
+        SystemInfo.__table__.create(engine)
         create_system_info(engine)
 
 
