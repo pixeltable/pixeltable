@@ -5,7 +5,7 @@ This module contains the core protocol structures for pixeltable table operation
 that can be shared between pixeltable core and cloud implementations.
 """
 
-from .common import PxtUri, RequestBaseModel, StorageDestination
+from .common import PxtUri, RequestBaseModel
 from .operation_types import ReplicaOperationType
 from .replica import (
     DeleteRequest,
@@ -30,5 +30,4 @@ __all__ = [
     'ReplicateRequest',
     'ReplicateResponse',
     'RequestBaseModel',
-    'StorageDestination',
 ]

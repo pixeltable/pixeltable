@@ -61,7 +61,7 @@ def push_replica(
     _logger.debug(f'Sending PublishRequest: {publish_request}')
 
     response = requests.post(PIXELTABLE_API_URL, data=publish_request.model_dump_json(), headers=_api_headers())
-    if response.status_code == 204:
+    if response.status_code == 201:
         publish_response = PublishResponse.model_validate(response.json())
         existing_table_uri = str(publish_response.table_uri)
         Env.get().console_logger.info(
