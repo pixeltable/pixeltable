@@ -571,10 +571,24 @@ class Env:
         metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
-        connect_args = {'options': f'-c timezone={time_zone_name}'}
-        self._logger.info(f'Creating SQLAlchemy engine with connection arguments: {connect_args}')
+        # Parse the database URL
+        db_url = sql.make_url(self.db_url)
+
+        # Get existing options and parse them
+        existing_options = db_url.query.get('options', '') if db_url.query else ''
+        option_parts = existing_options.split() if existing_options else []
+
+        # Add timezone option
+        option_parts.extend(['-c', f'timezone={time_zone_name}'])
+        options_str = ' '.join(option_parts)
+
+        # Create new URL with updated options
+        updated_query = dict(db_url.query) if db_url.query else {}
+        updated_query['options'] = options_str
+        updated_url = db_url.set(query=updated_query)
+
         self._sa_engine = sql.create_engine(
-            self.db_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level, connect_args=connect_args
+            updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
         )
 
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')

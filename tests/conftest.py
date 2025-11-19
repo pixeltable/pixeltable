@@ -18,8 +18,7 @@ from pixeltable import exprs, functions as pxtf
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
-from pixeltable.metadata import SystemInfo, create_system_info
-from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
+from pixeltable.metadata import create_system_info
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 
@@ -37,15 +36,14 @@ _logger = logging.getLogger('pixeltable')
 
 # Centralized metadata table configuration
 # Order matters for dependencies: most dependent first for dropping
-# Each entry is (table_name, table_class)
 METADATA_TABLES_DROP_ORDER = [
-    ('tableschemaversions', TableSchemaVersion),  # depends on tables
-    ('tableversions', TableVersion),  # depends on tables
-    ('pendingtableops', PendingTableOp),  # may depend on tables
-    ('tables', Table),  # depends on dirs
-    ('functions', Function),  # depends on dirs
-    ('dirs', Dir),  # no dependencies
-    ('systeminfo', SystemInfo),  # standalone
+    'tableschemaversions',  # depends on tables
+    'tableversions',        # depends on tables
+    'pendingtableops',      # may depend on tables
+    'tables',              # depends on dirs
+    'functions',           # depends on dirs
+    'dirs',                # no dependencies
+    'systeminfo',          # standalone
 ]
 
 # Module-level variable to store schema name for use in clean_db
@@ -77,6 +75,50 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
     _logger.info(f'Finished Pixeltable test: {current_test}')
 
 
+def _setup_external_db_schema(worker_id: int) -> str:
+    """Set up schema-isolated connection string for this worker.
+
+    pytest-xdist creates separate processes (not threads), so each worker process
+    has its own copy of os.environ. This makes it safe to modify the connection
+    string per worker without any synchronization needed.
+
+    Returns:
+        The schema name that was created and configured.
+    """
+    schema_name = f'test_{worker_id}'
+    original_connect_str = os.environ['PIXELTABLE_DB_CONNECT_STR']
+
+    # Create schema first
+    engine = sql.create_engine(original_connect_str)
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
+            conn.commit()
+    finally:
+        engine.dispose()
+
+    # Modify connection string with search_path for THIS worker process
+    # Each worker process has its own os.environ, so this is process-safe
+    db_url = sql.make_url(original_connect_str)
+    search_path_option = f'-c search_path={schema_name},public'
+
+    query_dict = dict(db_url.query) if db_url.query else {}
+    existing_options = query_dict.get('options', '')
+
+    if existing_options:
+        query_dict['options'] = f'{existing_options} {search_path_option}'
+    else:
+        query_dict['options'] = search_path_option
+
+    # Update environment with worker-specific connection string
+    # PostgreSQL will automatically apply the search_path from the connection string
+    modified_url = db_url.set(query=query_dict)
+    os.environ['PIXELTABLE_DB_CONNECT_STR'] = modified_url.render_as_string(hide_password=False)
+
+    _logger.info(f'Created schema and configured connection string with search_path: {schema_name}')
+    return schema_name
+
+
 @pytest.fixture(scope='session')
 def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterator[None]:
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
@@ -99,53 +141,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterat
     if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
         print('Using external database connection for test configuration')
         reinit_db = False
+        _current_schema_name = _setup_external_db_schema(worker_id)
 
-        # Create unique schema name based on worker ID
-        schema_name = f'test_{worker_id}'
-        _current_schema_name = schema_name
-
-        # Create the schema before initializing Env
-        original_db_connect_str = os.environ['PIXELTABLE_DB_CONNECT_STR']
-
-        # Parse the connection string and add schema to options parameter
-        # This sets search_path directly in the connection string, avoiding the need for PIXELTABLE_SCHEMA env var
-        db_url = sql.make_url(original_db_connect_str)
-
-        # Create schema using original connection string (without schema in options)
-        engine = sql.create_engine(original_db_connect_str)
-        try:
-            with engine.connect() as conn:
-                conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS {schema_name}'))
-                conn.commit()
-        finally:
-            engine.dispose()
-
-        # Add search_path to connection string via options parameter
-        # Format: options=-csearch_path=schema_name,public
-        if db_url.query:
-            # If options already exists, append to it
-            existing_options = db_url.query.get('options', '')
-            if existing_options:
-                # Append search_path to existing options
-                new_options = f'{existing_options} -c search_path={schema_name},public'
-            else:
-                new_options = f'-c search_path={schema_name},public'
-            # Update query dict with new options
-            query_dict = dict(db_url.query)
-            query_dict['options'] = new_options
-        else:
-            new_options = f'-c search_path={schema_name},public'
-            query_dict = {'options': new_options}
-
-        # Update the connection string with the new options
-        db_url = db_url.set(query=query_dict)
-        modified_db_connect_str = db_url.render_as_string(hide_password=False)
-
-        # Update environment variable with modified connection string
-        os.environ['PIXELTABLE_DB_CONNECT_STR'] = modified_db_connect_str
-        print(f'Updated connection string with schema {schema_name} in options parameter')
-
-    for var in (
+    # Print environment configuration
+    env_vars_to_show = [
         'PIXELTABLE_HOME',
         'PIXELTABLE_CONFIG',
         'PIXELTABLE_DB',
@@ -153,7 +152,8 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterat
         'PIXELTABLE_API_URL',
         'FIFTYONE_DATABASE_DIR',
         'PIXELTABLE_DB_CONNECT_STR',
-    ):
+    ]
+    for var in env_vars_to_show:
         print(f'{var:25} = {os.environ.get(var)}')
 
     # Ensure the shared home directory exists.
@@ -163,8 +163,8 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterat
     # don't have several processes trying to initialize pgserver in parallel.
     root_tmp_dir = tmp_path_factory.getbasetemp().parent
     with FileLock(str(root_tmp_dir / 'pxt-init.lock')):
-        # Clean up any tables in public schema before initialization if using schema isolation
-        # This prevents conflicts if tables were created in public schema from previous runs
+        # Clean up public schema if using external DB with schema isolation
+        # This handles legacy tables from before schema isolation was implemented
         if _current_schema_name and os.environ.get('PIXELTABLE_DB_CONNECT_STR'):
             try:
                 temp_engine = sql.create_engine(os.environ['PIXELTABLE_DB_CONNECT_STR'])
@@ -173,46 +173,20 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterat
                 finally:
                     temp_engine.dispose()
             except Exception as e:
-                # If cleanup fails, log but don't fail initialization
                 _logger.warning(f'Failed to cleanup public schema before initialization: {e}')
 
-        # We need to call `Env._init_env()` with `reinit_db=True`. This is because if a previous test run was
-        # interrupted (e.g., by an inopportune Ctrl-C), there may be residual DB artifacts that interfere with
-        # initialization.
+        # Initialize Pixeltable
+        # The connection string already has search_path embedded in it, so schema isolation
+        # is handled automatically. reinit_db=True handles interrupted previous runs.
         Env._init_env(reinit_db=reinit_db)
-
-        # Set search_path on connections if using schema isolation (before pxt.init() to ensure it's set)
-        if _current_schema_name:
-            engine = Env.get().engine
-
-            @sql.event.listens_for(engine, 'connect')
-            def set_search_path(dbapi_connection, connection_record):
-                with dbapi_connection.cursor() as cursor:
-                    cursor.execute(f'SET search_path TO {_current_schema_name}, public')
-
-            _logger.info(f'Registered search_path listener for schema: {_current_schema_name}')
-            
-            # Metadata tables were created in public schema during Env._init_env()
-            # Drop them from public and recreate in worker schema
-            from pixeltable.metadata.schema import base_metadata
-            with engine.begin() as conn:
-                # Drop metadata tables from public schema
-                for table_name, _ in METADATA_TABLES_DROP_ORDER:
-                    try:
-                        conn.execute(text(f'DROP TABLE IF EXISTS public."{table_name}" CASCADE'))
-                    except Exception:
-                        pass
-            # Recreate in worker schema (search_path will route them to worker schema)
-            base_metadata.create_all(engine, checkfirst=True)
-            create_system_info(engine)
-
         pxt.init()
 
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
 
-    # Cleanup: Drop schema on fixture teardown
+    # Yield control to tests
     yield
 
+    # Cleanup: Drop schema on fixture teardown
     if _current_schema_name:
         try:
             db_connect_str = os.environ.get('PIXELTABLE_DB_CONNECT_STR')
@@ -220,9 +194,9 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterat
                 engine = sql.create_engine(db_connect_str)
                 try:
                     with engine.connect() as conn:
-                        conn.execute(text(f'DROP SCHEMA IF EXISTS {_current_schema_name} CASCADE'))
+                        conn.execute(text(f'DROP SCHEMA IF EXISTS "{_current_schema_name}" CASCADE'))
                         conn.commit()
-                    print(f'Dropped test schema: {_current_schema_name}')
+                    _logger.info(f'Dropped test schema: {_current_schema_name}')
                 finally:
                     engine.dispose()
         except Exception as e:
@@ -331,8 +305,8 @@ def _cleanup_schema_tables(engine: sql.Engine, schema_names: str | list[str]) ->
 
                 _logger.info(f"Cleaning {len(all_table_names)} tables from schema '{schema_name}'")
 
-                metadata_set = {table_name for table_name, _ in METADATA_TABLES_DROP_ORDER}
-                for table_name, _ in METADATA_TABLES_DROP_ORDER:
+                metadata_set = set(METADATA_TABLES_DROP_ORDER)
+                for table_name in METADATA_TABLES_DROP_ORDER:
                     if table_name in all_table_names:
                         if schema_name == 'public':
                             conn.execute(text(f'DROP TABLE IF EXISTS public."{table_name}" CASCADE'))
@@ -369,7 +343,7 @@ def clean_db(restore_md_tables: bool = True) -> None:
         _cleanup_schema_tables(engine, schema_name)
         # Then clean only metadata tables from public schema
         with engine.begin() as conn:
-            for table_name, _ in METADATA_TABLES_DROP_ORDER:
+            for table_name in METADATA_TABLES_DROP_ORDER:
                 try:
                     conn.execute(text(f'DROP TABLE IF EXISTS public."{table_name}" CASCADE'))
                     _logger.debug(f"Dropped metadata table '{table_name}' from public schema")
@@ -393,7 +367,8 @@ def clean_db(restore_md_tables: bool = True) -> None:
 
     if restore_md_tables:
         # Restore metadata tables and system info
-        # Use base_metadata.create_all() which respects search_path set by connection event listener
+        # The connection string already has search_path embedded, so tables are created
+        # in the correct schema automatically
         from pixeltable.metadata.schema import base_metadata
         base_metadata.create_all(engine, checkfirst=True)
         create_system_info(engine)
