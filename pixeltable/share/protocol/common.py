@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from enum import Enum
 from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
@@ -12,14 +11,6 @@ from pydantic import BaseModel, model_validator
 # Protocol version for replica operations. Used by both client and server
 # to determine request/response format and maintain backward compatibility.
 PROTOCOL_VERSION = 1
-
-
-class StorageDestination(str, Enum):
-    """Storage destination types for table snapshots."""
-
-    S3 = 's3'
-    R2 = 'r2'
-    GCS = 'gcs'
 
 
 def is_valid_uuid(uuid_string: str) -> bool:
