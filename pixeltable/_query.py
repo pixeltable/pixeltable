@@ -535,6 +535,11 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
+        """Return all rows selected by this query.
+
+        Returns:
+            A ResultSet containing all rows selected by this query.
+        """
         return ResultSet(list(self._output_row_iterator()), self.schema)
 
     async def _acollect(self) -> ResultSet:

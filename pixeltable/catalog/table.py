@@ -164,21 +164,35 @@ class Table(SchemaObject):
             n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
         )
 
-    def collect(self) -> 'pxt._query.ResultSet':
-        """Return rows from this table."""
+    def collect(self) -> 'pxt.ResultSet':
+        """Return all rows from the table."""
         return self.select().collect()
 
-    def show(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
+    def show(self, n: int = 20) -> 'pxt.ResultSet':
         """Return rows from this table."""
-        return self.select().show(*args, **kwargs)
+        return self.select().show(n)
 
-    def head(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
-        """Return the first n rows inserted into this table."""
-        return self.select().head(*args, **kwargs)
+    def head(self, n: int = 10) -> 'pxt.ResultSet':
+        """Return the first `n` rows of this Table, in insertion order.
 
-    def tail(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
-        """Return the last n rows inserted into this table."""
-        return self.select().tail(*args, **kwargs)
+        Args:
+            n: Number of rows to select. Default is 10.
+
+        Returns:
+            A [`ResultSet`][pixeltable.ResultSet] with the first `n` rows of the Table.
+        """
+        return self.select().head(n)
+
+    def tail(self, n: int = 10) -> 'pxt.ResultSet':
+        """Return the last `n` rows of this Table, in insertion order.
+
+        Args:
+            n: Number of rows to select. Default is 10.
+
+        Returns:
+            A [`ResultSet`][pixeltable.ResultSet] with the last `n` rows of the Table.
+        """
+        return self.select().tail(n)
 
     def count(self) -> int:
         """Return the number of rows in this table."""
