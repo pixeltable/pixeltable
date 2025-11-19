@@ -874,6 +874,8 @@ class Query:
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
+        assert isinstance(other, catalog.table.LocalTable)  # TODO Print a real error message when we have RemoteTables
+
         if self.sample_clause is not None:
             raise excs.Error('join() cannot be used with sample()')
         join_pred: exprs.Expr | None

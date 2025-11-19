@@ -61,6 +61,7 @@ class Table(SchemaObject):
     A handle to a table, view, or snapshot. This class is the primary interface through which table operations
     (queries, insertions, updates, etc.) are performed in Pixeltable.
     """
+
     # Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
     # FileCache.emit_eviction_warnings() at the end of the operation.
 
@@ -82,6 +83,14 @@ class Table(SchemaObject):
         """
 
     @abc.abstractmethod
+    def __getattr__(self, name: str) -> 'exprs.ColumnRef':
+        """Return a ColumnRef for the given name."""
+
+    def __getitem__(self, name: str) -> 'exprs.ColumnRef':
+        """Return a ColumnRef for the given name."""
+        return getattr(self, name)
+
+    @abc.abstractmethod
     def list_views(self, *, recursive: bool = True) -> list[str]:
         """
         Return a list of all views and snapshots of this `Table`.
@@ -100,6 +109,10 @@ class Table(SchemaObject):
 
         See [`Query.select`][pixeltable.Query.select] for more details.
         """
+
+    @abc.abstractmethod
+    def columns(self) -> list[str]:
+        """Return the names of the columns in this table."""
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
         """Filter rows from this table based on the expression.
@@ -1039,15 +1052,10 @@ class LocalTable(Table):
         return hash(self._tbl_version_path.tbl_id)
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':
-        """Return a ColumnRef for the given name."""
         col = self._tbl_version_path.get_column(name)
         if col is None:
             raise AttributeError(f'Unknown column: {name}')
         return ColumnRef(col, reference_tbl=self._tbl_version_path)
-
-    def __getitem__(self, name: str) -> 'exprs.ColumnRef':
-        """Return a ColumnRef for the given name."""
-        return getattr(self, name)
 
     def list_views(self, *, recursive: bool = True) -> list[str]:
         # we need retry_loop() here, because we end up loading Tables for the views
@@ -1057,10 +1065,10 @@ class LocalTable(Table):
 
         return op()
 
-    def _get_views(self, *, recursive: bool = True, mutable_only: bool = False) -> list['Table']:
+    def _get_views(self, *, recursive: bool = True, mutable_only: bool = False) -> list[Table]:
         cat = catalog.Catalog.get()
         view_ids = cat.get_view_ids(self._id)
-        views = [cat.get_table_by_id(id) for id in view_ids]
+        views: list[Table] = [cat.get_table_by_id(id) for id in view_ids]
         if mutable_only:
             views = [t for t in views if t._tbl_version_path.is_mutable()]
         if recursive:
@@ -1078,7 +1086,6 @@ class LocalTable(Table):
             return query.select(*items, **named_items)
 
     def columns(self) -> list[str]:
-        """Return the names of the columns in this table."""
         cols = self._tbl_version_path.columns()
         return [c.name for c in cols]
 
@@ -1666,7 +1673,9 @@ class LocalTable(Table):
         # Find out if anything depends on this index
         val_col = idx_info.val_col
         dependent_user_cols = [
-            c for c in catalog.Catalog.get().get_column_dependents(val_col.get_tbl().id, val_col.id) if c.name is not None
+            c
+            for c in catalog.Catalog.get().get_column_dependents(val_col.get_tbl().id, val_col.id)
+            if c.name is not None
         ]
         if len(dependent_user_cols) > 0:
             raise excs.Error(

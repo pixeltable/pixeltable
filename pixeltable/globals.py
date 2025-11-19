@@ -292,7 +292,7 @@ def create_view(
     tbl_version_path: TableVersionPath
     select_list: list[tuple[exprs.Expr, str | None]] | None = None
     where: exprs.Expr | None = None
-    if isinstance(base, catalog.Table):
+    if isinstance(base, catalog.table.LocalTable):  # TODO Handle remote tables
         tbl_version_path = base._tbl_version_path
         sample_clause = None
     elif isinstance(base, Query):
@@ -449,6 +449,9 @@ def publish(
 
     if isinstance(source, str):
         source = get_table(source)
+
+    if not isinstance(source, catalog.table.LocalTable):
+        raise excs.Error('`source` must be a local table')
 
     share.push_replica(destination_uri, source, bucket_name, access)
 
