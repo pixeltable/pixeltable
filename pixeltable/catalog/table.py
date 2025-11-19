@@ -65,6 +65,230 @@ class Table(SchemaObject):
     FileCache.emit_eviction_warnings() at the end of the operation.
     """
 
+    @classmethod
+    def validate_column_name(cls, name: str) -> None:
+        """Check that a name is usable as a pixeltable column name"""
+        if is_system_column_name(name) or is_python_keyword(name):
+            raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
+        if not is_valid_identifier(name):
+            raise excs.Error(f'Invalid column name: {name}')
+
+    @abc.abstractmethod
+    def get_metadata(self) -> TableMetadata:
+        """
+        Retrieves metadata associated with this table.
+
+        Returns:
+            A [TableMetadata][pixeltable.TableMetadata] instance containing this table's metadata.
+        """
+
+    @abc.abstractmethod
+    def list_views(self, *, recursive: bool = True) -> list[str]:
+        """
+        Returns a list of all views and snapshots of this `Table`.
+
+        Args:
+            recursive: If `False`, returns only the immediate successor views of this `Table`. If `True`, returns
+                all sub-views (including views of views, etc.)
+
+        Returns:
+            A list of view paths.
+        """
+
+    @abc.abstractmethod
+    def select(self, *items: Any, **named_items: Any) -> 'pxt.Query':
+        """Select columns or expressions from this table.
+
+        See [`Query.select`][pixeltable.Query.select] for more details.
+        """
+
+    def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
+        """Filter rows from this table based on the expression.
+
+        See [`Query.where`][pixeltable.Query.where] for more details.
+        """
+        return self.select().where(pred)
+
+    def join(
+        self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
+    ) -> 'pxt.Query':
+        """Join this table with another table."""
+        return self.select().join(other, on=on, how=how)
+
+    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
+        """Order the rows of this table based on the expression.
+
+        See [`Query.order_by`][pixeltable.Query.order_by] for more details.
+        """
+        return self.select().order_by(*items, asc=asc)
+
+    def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
+        """Group the rows of this table based on the expression.
+
+        See [`Query.group_by`][pixeltable.Query.group_by] for more details.
+        """
+        return self.select().group_by(*items)
+
+    def distinct(self) -> 'pxt.Query':
+        """Remove duplicate rows from table."""
+        return self.select().distinct()
+
+    def limit(self, n: int) -> 'pxt.Query':
+        return self.select().limit(n)
+
+    def sample(
+        self,
+        n: int | None = None,
+        n_per_stratum: int | None = None,
+        fraction: float | None = None,
+        seed: int | None = None,
+        stratify_by: Any = None,
+    ) -> pxt.Query:
+        """Choose a shuffled sample of rows
+
+        See [`Query.sample`][pixeltable.Query.sample] for more details.
+        """
+        return self.select().sample(
+            n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
+        )
+
+    def collect(self) -> 'pxt._query.ResultSet':
+        """Return rows from this table."""
+        return self.select().collect()
+
+    def show(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
+        """Return rows from this table."""
+        return self.select().show(*args, **kwargs)
+
+    def head(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
+        """Return the first n rows inserted into this table."""
+        return self.select().head(*args, **kwargs)
+
+    def tail(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
+        """Return the last n rows inserted into this table."""
+        return self.select().tail(*args, **kwargs)
+
+    def count(self) -> int:
+        """Return the number of rows in this table."""
+        return self.select().count()
+
+    def describe(self) -> None:
+        """
+        Print the table schema.
+        """
+        if getattr(builtins, '__IPYTHON__', False):
+            from IPython.display import Markdown, display
+
+            display(Markdown(self._repr_html_()))
+        else:
+            print(repr(self))
+
+    # TODO Factor this out into a separate module.
+    # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
+    def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
+        """Return a PyTorch Dataset for this table.
+        See Query.to_pytorch_dataset()
+        """
+        return self.select().to_pytorch_dataset(image_format=image_format)
+
+    def to_coco_dataset(self) -> Path:
+        """Return the path to a COCO json file for this table.
+        See Query.to_coco_dataset()
+        """
+        return self.select().to_coco_dataset()
+
+    @abc.abstractmethod
+    def add_columns(
+        self,
+        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias],
+        if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+    ) -> UpdateStatus:
+        """
+        Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
+        columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
+
+        The format of the `schema` argument is a dict mapping column names to their types.
+
+        Args:
+            schema: A dictionary mapping column names to types.
+            if_exists: Determines the behavior if a column already exists. Must be one of the following:
+
+                - `'error'`: an exception will be raised.
+                - `'ignore'`: do nothing and return.
+                - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no
+                    dependents.
+
+                Note that the `if_exists` parameter is applied to all columns in the schema.
+                To apply different behaviors to different columns, please use
+                [`add_column()`][pixeltable.Table.add_column] for each column.
+
+        Returns:
+            Information about the execution status of the operation.
+
+        Raises:
+            Error: If any column name is invalid, or already exists and `if_exists='error'`,
+                or `if_exists='replace*'` but the column has dependents or is a basetable column.
+
+        Examples:
+            Add multiple columns to the table `my_table`:
+
+            >>> tbl = pxt.get_table('my_table')
+            ... schema = {
+            ...     'new_col_1': pxt.Int,
+            ...     'new_col_2': pxt.String,
+            ... }
+            ... tbl.add_columns(schema)
+        """
+
+    def add_column(
+        self,
+        *,
+        if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
+        **kwargs: ts.ColumnType | builtins.type | _GenericAlias | exprs.Expr,
+    ) -> UpdateStatus:
+        """
+        Adds an ordinary (non-computed) column to the table.
+
+        Args:
+            kwargs: Exactly one keyword argument of the form `col_name=col_type`.
+            if_exists: Determines the behavior if the column already exists. Must be one of the following:
+
+                - `'error'`: an exception will be raised.
+                - `'ignore'`: do nothing and return.
+                - `'replace'` or `'replace_force'`: drop the existing column and add the new column, if it has
+                    no dependents.
+
+        Returns:
+            Information about the execution status of the operation.
+
+        Raises:
+            Error: If the column name is invalid, or already exists and `if_exists='erorr'`,
+                or `if_exists='replace*'` but the column has dependents or is a basetable column.
+
+        Examples:
+            Add an int column:
+
+            >>> tbl.add_column(new_col=pxt.Int)
+
+            Alternatively, this can also be expressed as:
+
+            >>> tbl.add_columns({'new_col': pxt.Int})
+        """
+        # verify kwargs and construct column schema dict
+        if len(kwargs) != 1:
+            raise excs.Error(
+                f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
+                f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
+            )
+        col_type = next(iter(kwargs.values()))
+        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
+            raise excs.Error(
+                'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
+            )
+        return self.add_columns(kwargs, if_exists=if_exists)
+
+
+class LocalTable(Table):
     # the chain of TableVersions needed to run queries and supply metadata (eg, schema)
     _tbl_version_path: TableVersionPath
 
@@ -101,17 +325,9 @@ class Table(SchemaObject):
         conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
 
     # this is duplicated from SchemaObject so that our API docs show the docstring for Table
-    def get_metadata(self) -> 'TableMetadata':
-        """
-        Retrieves metadata associated with this table.
-
-        Returns:
-            A [TableMetadata][pixeltable.TableMetadata] instance containing this table's metadata.
-        """
-        from pixeltable.catalog import retry_loop
-
-        @retry_loop(for_write=False)
-        def op() -> 'TableMetadata':
+    def get_metadata(self) -> TableMetadata:
+        @catalog.retry_loop(for_write=False)
+        def op() -> TableMetadata:
             return self._get_metadata()
 
         return op()
@@ -198,20 +414,8 @@ class Table(SchemaObject):
         return getattr(self, name)
 
     def list_views(self, *, recursive: bool = True) -> list[str]:
-        """
-        Returns a list of all views and snapshots of this `Table`.
-
-        Args:
-            recursive: If `False`, returns only the immediate successor views of this `Table`. If `True`, returns
-                all sub-views (including views of views, etc.)
-
-        Returns:
-            A list of view paths.
-        """
-        from pixeltable.catalog import retry_loop
-
         # we need retry_loop() here, because we end up loading Tables for the views
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @catalog.retry_loop(tbl=self._tbl_version_path, for_write=False)
         def op() -> list[str]:
             return [t._path() for t in self._get_views(recursive=recursive)]
 
@@ -228,101 +432,14 @@ class Table(SchemaObject):
         return views
 
     def select(self, *items: Any, **named_items: Any) -> 'pxt.Query':
-        """Select columns or expressions from this table.
-
-        See [`Query.select`][pixeltable.Query.select] for more details.
-        """
-        from pixeltable.catalog import Catalog
         from pixeltable.plan import FromClause
 
         query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
         if len(items) == 0 and len(named_items) == 0:
             return query  # Select(*); no further processing is necessary
 
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
+        with catalog.Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
             return query.select(*items, **named_items)
-
-    def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
-        """Filter rows from this table based on the expression.
-
-        See [`Query.where`][pixeltable.Query.where] for more details.
-        """
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self.select().where(pred)
-
-    def join(
-        self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
-    ) -> 'pxt.Query':
-        """Join this table with another table."""
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self.select().join(other, on=on, how=how)
-
-    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
-        """Order the rows of this table based on the expression.
-
-        See [`Query.order_by`][pixeltable.Query.order_by] for more details.
-        """
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self.select().order_by(*items, asc=asc)
-
-    def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
-        """Group the rows of this table based on the expression.
-
-        See [`Query.group_by`][pixeltable.Query.group_by] for more details.
-        """
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self.select().group_by(*items)
-
-    def distinct(self) -> 'pxt.Query':
-        """Remove duplicate rows from table."""
-        return self.select().distinct()
-
-    def limit(self, n: int) -> 'pxt.Query':
-        return self.select().limit(n)
-
-    def sample(
-        self,
-        n: int | None = None,
-        n_per_stratum: int | None = None,
-        fraction: float | None = None,
-        seed: int | None = None,
-        stratify_by: Any = None,
-    ) -> pxt.Query:
-        """Choose a shuffled sample of rows
-
-        See [`Query.sample`][pixeltable.Query.sample] for more details.
-        """
-        return self.select().sample(
-            n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
-        )
-
-    def collect(self) -> 'pxt._query.ResultSet':
-        """Return rows from this table."""
-        return self.select().collect()
-
-    def show(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
-        """Return rows from this table."""
-        return self.select().show(*args, **kwargs)
-
-    def head(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
-        """Return the first n rows inserted into this table."""
-        return self.select().head(*args, **kwargs)
-
-    def tail(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
-        """Return the last n rows inserted into this table."""
-        return self.select().tail(*args, **kwargs)
-
-    def count(self) -> int:
-        """Return the number of rows in this table."""
-        return self.select().count()
 
     def columns(self) -> list[str]:
         """Return the names of the columns in this table."""
@@ -430,31 +547,6 @@ class Table(SchemaObject):
             pd_rows.append(row)
         return pd.DataFrame(pd_rows)
 
-    def describe(self) -> None:
-        """
-        Print the table schema.
-        """
-        if getattr(builtins, '__IPYTHON__', False):
-            from IPython.display import Markdown, display
-
-            display(Markdown(self._repr_html_()))
-        else:
-            print(repr(self))
-
-    # TODO Factor this out into a separate module.
-    # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
-    def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
-        """Return a PyTorch Dataset for this table.
-        See Query.to_pytorch_dataset()
-        """
-        return self.select().to_pytorch_dataset(image_format=image_format)
-
-    def to_coco_dataset(self) -> Path:
-        """Return the path to a COCO json file for this table.
-        See Query.to_coco_dataset()
-        """
-        return self.select().to_coco_dataset()
-
     def _column_has_dependents(self, col: Column) -> bool:
         """Returns True if the column has dependents, False otherwise."""
         assert col is not None
@@ -506,46 +598,8 @@ class Table(SchemaObject):
         schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
-        """
-        Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
-        columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
-
-        The format of the `schema` argument is a dict mapping column names to their types.
-
-        Args:
-            schema: A dictionary mapping column names to types.
-            if_exists: Determines the behavior if a column already exists. Must be one of the following:
-
-                - `'error'`: an exception will be raised.
-                - `'ignore'`: do nothing and return.
-                - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has no
-                    dependents.
-
-                Note that the `if_exists` parameter is applied to all columns in the schema.
-                To apply different behaviors to different columns, please use
-                [`add_column()`][pixeltable.Table.add_column] for each column.
-
-        Returns:
-            Information about the execution status of the operation.
-
-        Raises:
-            Error: If any column name is invalid, or already exists and `if_exists='error'`,
-                or `if_exists='replace*'` but the column has dependents or is a basetable column.
-
-        Examples:
-            Add multiple columns to the table `my_table`:
-
-            >>> tbl = pxt.get_table('my_table')
-            ... schema = {
-            ...     'new_col_1': pxt.Int,
-            ...     'new_col_2': pxt.String,
-            ... }
-            ... tbl.add_columns(schema)
-        """
-        from pixeltable.catalog import Catalog
-
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with catalog.Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('add columns to')
             col_schema = {
                 col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)}
@@ -571,53 +625,6 @@ class Table(SchemaObject):
             result += self._tbl_version.get().add_columns(new_cols, print_stats=False, on_error='abort')
             FileCache.get().emit_eviction_warnings()
             return result
-
-    def add_column(
-        self,
-        *,
-        if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: ts.ColumnType | builtins.type | _GenericAlias | exprs.Expr,
-    ) -> UpdateStatus:
-        """
-        Adds an ordinary (non-computed) column to the table.
-
-        Args:
-            kwargs: Exactly one keyword argument of the form `col_name=col_type`.
-            if_exists: Determines the behavior if the column already exists. Must be one of the following:
-
-                - `'error'`: an exception will be raised.
-                - `'ignore'`: do nothing and return.
-                - `'replace'` or `'replace_force'`: drop the existing column and add the new column, if it has
-                    no dependents.
-
-        Returns:
-            Information about the execution status of the operation.
-
-        Raises:
-            Error: If the column name is invalid, or already exists and `if_exists='erorr'`,
-                or `if_exists='replace*'` but the column has dependents or is a basetable column.
-
-        Examples:
-            Add an int column:
-
-            >>> tbl.add_column(new_col=pxt.Int)
-
-            Alternatively, this can also be expressed as:
-
-            >>> tbl.add_columns({'new_col': pxt.Int})
-        """
-        # verify kwargs and construct column schema dict
-        if len(kwargs) != 1:
-            raise excs.Error(
-                f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
-                f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
-            )
-        col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
-            raise excs.Error(
-                'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
-            )
-        return self.add_columns(kwargs, if_exists=if_exists)
 
     def add_computed_column(
         self,
@@ -806,14 +813,6 @@ class Table(SchemaObject):
             columns.append(column)
 
         return columns
-
-    @classmethod
-    def validate_column_name(cls, name: str) -> None:
-        """Check that a name is usable as a pixeltable column name"""
-        if is_system_column_name(name) or is_python_keyword(name):
-            raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
-        if not is_valid_identifier(name):
-            raise excs.Error(f'Invalid column name: {name}')
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
