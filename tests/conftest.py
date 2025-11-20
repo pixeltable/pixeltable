@@ -80,16 +80,17 @@ def _setup_external_db_schema(worker_id: int | str) -> str:
     db_url = sql.make_url(original_connect_str)
     search_path_option = f'-c search_path={schema_name},public'
 
-    query_dict = dict(db_url.query) if db_url.query else {}
+    # Get existing options and parse them
     # Query parameters can be strings or tuples (if multiple values exist)
-    existing_options_raw = query_dict.get('options', '')
-    existing_options = (
-        ' '.join(existing_options_raw) if isinstance(existing_options_raw, tuple) else existing_options_raw
+    existing_options_raw = db_url.query.get('options', '') if db_url.query else ''
+    option_parts = (
+        list(existing_options_raw) if isinstance(existing_options_raw, tuple) else existing_options_raw.split()
     )
+    option_parts.extend([search_path_option])
+    options_str = ' '.join(option_parts)
 
-    query_dict['options'] = f'{existing_options} {search_path_option}' if existing_options else search_path_option
-
-    modified_url = db_url.set(query=query_dict)
+    # Create new URL with updated options
+    modified_url = db_url.set(query={**(dict(db_url.query) if db_url.query else {}), 'options': options_str})
     os.environ['PIXELTABLE_DB_CONNECT_STR'] = modified_url.render_as_string(hide_password=False)
     _logger.info(f'Created schema and configured connection string with search_path: {schema_name}')
     return schema_name

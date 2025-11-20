@@ -577,19 +577,16 @@ class Env:
         # Get existing options and parse them
         # Query parameters can be strings or tuples (if multiple values exist)
         existing_options_raw = db_url.query.get('options', '') if db_url.query else ''
-        existing_options = (
-            ' '.join(existing_options_raw) if isinstance(existing_options_raw, tuple) else existing_options_raw
+        option_parts = (
+            list(existing_options_raw) if isinstance(existing_options_raw, tuple) else existing_options_raw.split()
         )
-        option_parts = existing_options.split() if existing_options else []
 
         # Add timezone option
         option_parts.extend(['-c', f'timezone={time_zone_name}'])
         options_str = ' '.join(option_parts)
 
         # Create new URL with updated options
-        updated_query = dict(db_url.query) if db_url.query else {}
-        updated_query['options'] = options_str
-        updated_url = db_url.set(query=updated_query)
+        updated_url = db_url.set(query={**(dict(db_url.query) if db_url.query else {}), 'options': options_str})
 
         self._sa_engine = sql.create_engine(
             updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
