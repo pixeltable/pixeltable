@@ -3,7 +3,8 @@ import logging
 import os
 import pathlib
 import shutil
-from typing import Callable, Iterator
+import uuid
+from typing import Callable
 
 import pytest
 import requests
@@ -22,6 +23,7 @@ from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
+from pixeltable.utils.sql import add_option_to_db_url
 
 from .utils import (
     IN_CI,
@@ -37,6 +39,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 DO_RERUN: bool
+_SCHEMA_NAME: str | None = None
 
 
 def pytest_addoption(parser: argparsing.Parser) -> None:
@@ -62,8 +65,26 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
     _logger.info(f'Finished Pixeltable test: {current_test}')
 
 
-def _setup_external_db_schema(worker_id: int | str) -> str:
-    schema_name = f'test_{worker_id}_{os.getpid()}'
+def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
+    """Clean up test schema at the end of the test session."""
+    if _SCHEMA_NAME:
+        try:
+            db_connect_str = os.environ.get('PIXELTABLE_DB_CONNECT_STR')
+            if db_connect_str:
+                engine = sql.create_engine(db_connect_str)
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(text(f'DROP SCHEMA IF EXISTS "{_SCHEMA_NAME}" CASCADE'))
+                        conn.commit()
+                    _logger.info(f'Dropped test schema: {_SCHEMA_NAME}')
+                finally:
+                    engine.dispose()
+        except Exception as e:
+            _logger.warning(f'Failed to cleanup test schema {_SCHEMA_NAME}: {e}')
+
+
+def _set_up_external_db_schema(worker_id: int | str) -> str:
+    schema_name = f'test_{worker_id}_{uuid.uuid4().hex[:16]}'
     original_connect_str = os.environ['PIXELTABLE_DB_CONNECT_STR']
 
     # Create schema first
@@ -77,27 +98,15 @@ def _setup_external_db_schema(worker_id: int | str) -> str:
 
     # Modify connection string with search_path for THIS worker process
     # Each worker process has its own os.environ, so this is process-safe
-    db_url = sql.make_url(original_connect_str)
-    search_path_option = f'-c search_path={schema_name},public'
-
-    # Get existing options and parse them
-    # Query parameters can be strings or tuples (if multiple values exist)
-    existing_options_raw = db_url.query.get('options', '') if db_url.query else ''
-    option_parts = (
-        list(existing_options_raw) if isinstance(existing_options_raw, tuple) else existing_options_raw.split()
-    )
-    option_parts.extend([search_path_option])
-    options_str = ' '.join(option_parts)
-
-    # Create new URL with updated options
-    modified_url = db_url.set(query={**(dict(db_url.query) if db_url.query else {}), 'options': options_str})
+    modified_url = add_option_to_db_url(original_connect_str, f'-c search_path={schema_name},public')
     os.environ['PIXELTABLE_DB_CONNECT_STR'] = modified_url.render_as_string(hide_password=False)
     _logger.info(f'Created schema and configured connection string with search_path: {schema_name}')
     return schema_name
 
 
 @pytest.fixture(scope='session')
-def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterator[str | None]:
+def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
+    global _SCHEMA_NAME  # noqa: PLW0603
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
 
     # Set the relevant env vars for the test db.
@@ -113,11 +122,11 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterat
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
     reinit_db = True
-    schema_name = None
+    _SCHEMA_NAME = None
     if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
         print('Using external database connection for test configuration')
         reinit_db = False
-        schema_name = _setup_external_db_schema(worker_id)
+        _SCHEMA_NAME = _set_up_external_db_schema(worker_id)
 
     for var in (
         'PIXELTABLE_HOME',
@@ -145,32 +154,13 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterat
 
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
 
-    # Yield schema name to tests (None if not using schema isolation)
-    yield schema_name
-
-    # Cleanup: Drop schema on fixture teardown
-    if schema_name:
-        try:
-            db_connect_str = os.environ.get('PIXELTABLE_DB_CONNECT_STR')
-            if db_connect_str:
-                engine = sql.create_engine(db_connect_str)
-                try:
-                    with engine.connect() as conn:
-                        conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
-                        conn.commit()
-                    _logger.info(f'Dropped test schema: {schema_name}')
-                finally:
-                    engine.dispose()
-        except Exception as e:
-            _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
-
 
 @pytest.fixture(scope='function')
-def reset_db(init_env: str | None) -> None:
+def reset_db(init_env: None) -> None:
     """Reset database state between tests."""
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
-    clean_db(schema_name=init_env)
+    clean_db()
     Config.init({}, reinit=True)
     Env.get().default_time_zone = None
     Env.get().user = None
@@ -235,7 +225,7 @@ def _clear_hf_caches() -> None:
             )
 
 
-def clean_db(restore_md_tables: bool = True, schema_name: str | None = None) -> None:
+def clean_db(restore_md_tables: bool = True) -> None:
     engine = Env.get().engine
 
     # Drop all tables from the DB, including data tables. Dropping the data tables is necessary for certain tests,

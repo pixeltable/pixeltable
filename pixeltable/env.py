@@ -40,6 +40,7 @@ from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter,
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
 from pixeltable.utils.object_stores import ObjectPath
+from pixeltable.utils.sql import add_option_to_db_url
 
 if TYPE_CHECKING:
     import spacy
@@ -571,22 +572,8 @@ class Env:
         metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
-        # Parse the database URL
-        db_url = sql.make_url(self.db_url)
-
-        # Get existing options and parse them
-        # Query parameters can be strings or tuples (if multiple values exist)
-        existing_options_raw = db_url.query.get('options', '') if db_url.query else ''
-        option_parts = (
-            list(existing_options_raw) if isinstance(existing_options_raw, tuple) else existing_options_raw.split()
-        )
-
-        # Add timezone option
-        option_parts.extend(['-c', f'timezone={time_zone_name}'])
-        options_str = ' '.join(option_parts)
-
-        # Create new URL with updated options
-        updated_url = db_url.set(query={**(dict(db_url.query) if db_url.query else {}), 'options': options_str})
+        # Add timezone option to connection string
+        updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
 
         self._sa_engine = sql.create_engine(
             updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
