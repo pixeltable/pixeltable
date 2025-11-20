@@ -34,35 +34,43 @@ class TestArrayType:
             (pxt.String, [np.str_]),
         ]
         for col_dtype, acceptable_dtypes in test_cases:
-            schema = {
-                'array_col_req': pxt.Required[pxt.Array[col_dtype]],
-                'array_col_opt': pxt.Array[col_dtype],  # type: ignore[misc]
-            }
-            pxt.create_table('test_numpy_dtypes', schema, if_exists='replace')
-            reload_catalog(do_reload_catalog)
-            t = pxt.get_table('test_numpy_dtypes')
+            try:
+                self._test_array_dtype(col_dtype, acceptable_dtypes, do_reload_catalog)
+            except Exception as e:
+                raise type(e)(f'Failed for col_dtype={col_dtype}') from e
 
-            if col_dtype not in acceptable_dtypes:
-                acceptable_dtypes.append(col_dtype)
+    def _test_array_dtype(
+        self, col_dtype: type[np.generic] | ColumnType, acceptable_dtypes: list, do_reload_catalog: bool
+    ) -> None:
+        schema = {
+            'array_col_req': pxt.Required[pxt.Array[col_dtype]],
+            'array_col_opt': pxt.Array[col_dtype],  # type: ignore[misc]
+        }
+        pxt.create_table('test_numpy_dtypes', schema, if_exists='replace')
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('test_numpy_dtypes')
 
-            # Generate inserts for all dtypes that these columns should accept
-            validate_update_status(
-                t.insert(
-                    {
-                        'array_col_req': self._make_array(acceptable_dtype),
-                        'array_col_opt': self._make_array(acceptable_dtype),
-                    }
-                    for acceptable_dtype in acceptable_dtypes
-                ),
-                len(acceptable_dtypes),
-            )
-            assert t.count() == len(acceptable_dtypes)
-            rows = t.select().collect()
-            for row, dtype in zip(rows, acceptable_dtypes):
-                for col in ['array_col_req', 'array_col_opt']:
-                    val = row[col]
-                    assert isinstance(val, np.ndarray)
-                    self._validate_dtype(val, dtype)
+        if col_dtype not in acceptable_dtypes:
+            acceptable_dtypes.append(col_dtype)
+
+        # Generate inserts for all dtypes that these columns should accept
+        validate_update_status(
+            t.insert(
+                {
+                    'array_col_req': self._make_array(acceptable_dtype),
+                    'array_col_opt': self._make_array(acceptable_dtype),
+                }
+                for acceptable_dtype in acceptable_dtypes
+            ),
+            len(acceptable_dtypes),
+        )
+        assert t.count() == len(acceptable_dtypes)
+        rows = t.select().collect()
+        for row, dtype in zip(rows, acceptable_dtypes):
+            for col in ['array_col_req', 'array_col_opt']:
+                val = row[col]
+                assert isinstance(val, np.ndarray)
+                self._validate_dtype(val, dtype)
 
     def _make_array(self, dtype: type[np.generic] | ColumnType) -> np.ndarray:
         if isinstance(dtype, type) and issubclass(dtype, np.generic):
