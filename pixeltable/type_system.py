@@ -1111,7 +1111,7 @@ class ArrayType(ColumnType):
         if self.dtype == self.Type.INT:
             return np.dtype(np.int64)
         if self.dtype == self.Type.FLOAT:
-            return np.dtype(np.float64)
+            return np.dtype(np.float32)
         if self.dtype == self.Type.BOOL:
             return np.dtype(np.bool_)
         if self.dtype == self.Type.STRING:
