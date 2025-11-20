@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    43: 'Changing tables.dir_id to nullable',
     42: 'Add additional_md columns to metadata tables',
     41: 'Cellmd columns for array and json columns',
     40: 'Convert error property columns to cellmd columns',
