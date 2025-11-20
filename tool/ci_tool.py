@@ -94,9 +94,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
         # tests_table.py only, against CockroachDB backend
-        if trigger != 'merge_group' and os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
-            # TODO For now, skip this in merge queue, until we're confident we can run multiple concurrent instances.
-            #     It will still run in the weekly suite or on-demand.
+        if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
             configs.append(
                 MatrixConfig(
                     'cockroach',
