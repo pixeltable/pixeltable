@@ -160,6 +160,10 @@ class TestArrayType:
             pxt.Array[1,]  # type: ignore[misc]
 
     def test_supertype(self) -> None:
+        assert ArrayType(None, None).supertype(ArrayType(None, None)) == ArrayType(None, None)
+        # TODO finish this
+
+    def test_is_supertype_of(self) -> None:
         assert not ArrayType(None, None).is_supertype_of(IntType())
         assert not IntType().is_supertype_of(ArrayType(None, None))
 
@@ -192,6 +196,10 @@ class TestArrayType:
         assert ArrayType((1, 2, None), np.dtype('int32')).is_supertype_of(ArrayType((1, 2, None), np.dtype('int32')))
         assert not ArrayType((1, 2, 3), np.dtype('int32')).is_supertype_of(ArrayType((4, 2, 3), np.dtype('int32')))
         assert not ArrayType((1, 2, 3), np.dtype('int32')).is_supertype_of(ArrayType((None, 2, 3), np.dtype('int32')))
+
+    def test_matches(self) -> None:
+        assert ArrayType(None, None).matches(ArrayType(None, None))
+        # TODO finish this
 
     def test_array_unsupported_dtypes(self) -> None:
         test_cases = [
