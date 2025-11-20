@@ -18,16 +18,8 @@ from pixeltable import exprs, functions as pxtf
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
-from pixeltable.metadata import create_system_info
-from pixeltable.metadata.schema import (
-    Dir,
-    Function,
-    PendingTableOp,
-    SystemInfo,
-    Table,
-    TableSchemaVersion,
-    TableVersion,
-)
+from pixeltable.metadata import SystemInfo, create_system_info
+from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 
@@ -43,17 +35,6 @@ from .utils import (
 
 _logger = logging.getLogger('pixeltable')
 
-# Centralized metadata table configuration
-# Order matters for dependencies: most dependent first for dropping
-METADATA_TABLES_DROP_ORDER = [
-    'tableschemaversions',  # depends on tables
-    'tableversions',  # depends on tables
-    'pendingtableops',  # may depend on tables
-    'tables',  # depends on dirs
-    'functions',  # depends on dirs
-    'dirs',  # no dependencies
-    'systeminfo',  # standalone
-]
 
 DO_RERUN: bool
 
@@ -82,12 +63,7 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
 
 
 def _setup_external_db_schema(worker_id: int | str) -> str:
-    # When running without -n (no parallel), worker_id is 'master' for all processes
-    # Use process ID to ensure isolation when running same command in multiple terminals
-    if worker_id == 'master':
-        schema_name = f'test_master_{os.getpid()}'
-    else:
-        schema_name = f'test_{worker_id}'
+    schema_name = f'test_{worker_id}_{os.getpid()}'
     original_connect_str = os.environ['PIXELTABLE_DB_CONNECT_STR']
 
     # Create schema first
@@ -144,7 +120,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterat
         reinit_db = False
         schema_name = _setup_external_db_schema(worker_id)
 
-    env_vars_to_show = [
+    for var in (
         'PIXELTABLE_HOME',
         'PIXELTABLE_CONFIG',
         'PIXELTABLE_DB',
@@ -152,8 +128,7 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> Iterat
         'PIXELTABLE_API_URL',
         'FIFTYONE_DATABASE_DIR',
         'PIXELTABLE_DB_CONNECT_STR',
-    ]
-    for var in env_vars_to_show:
+    ):
         print(f'{var:25} = {os.environ.get(var)}')
 
     # Ensure the shared home directory exists.
@@ -266,20 +241,18 @@ def clean_db(restore_md_tables: bool = True, schema_name: str | None = None) -> 
 
     # Drop all tables from the DB, including data tables. Dropping the data tables is necessary for certain tests,
     # such as test_db_migration, that may lead to UUID collisions if interrupted.
-    # The search_path in the connection string ensures tables are dropped from the correct schema.
     sql_md = orm.declarative_base().metadata
     sql_md.reflect(engine)
     sql_md.drop_all(bind=engine)
 
-    # Also clean metadata tables from public schema (legacy cleanup for schema isolation mode)
-    if schema_name:
-        with engine.begin() as conn:
-            for table_name in METADATA_TABLES_DROP_ORDER:
-                try:
-                    conn.execute(text(f'DROP TABLE IF EXISTS public."{table_name}" CASCADE'))
-                    _logger.debug(f"Dropped metadata table '{table_name}' from public schema")
-                except Exception as e:
-                    _logger.debug(f"Could not drop metadata table '{table_name}' from public schema: {e}")
+    # The following lines may be uncommented as a replacement for the above, if one wishes to drop only metadata
+    # tables for testing purposes.
+    # SystemInfo.__table__.drop(engine, checkfirst=True)
+    # TableSchemaVersion.__table__.drop(engine, checkfirst=True)
+    # TableVersion.__table__.drop(engine, checkfirst=True)
+    # Table.__table__.drop(engine, checkfirst=True)
+    # Function.__table__.drop(engine, checkfirst=True)
+    # Dir.__table__.drop(engine, checkfirst=True)
 
     if restore_md_tables:
         # Restore metadata tables and system info

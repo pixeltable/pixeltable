@@ -600,7 +600,6 @@ class Env:
             assert isinstance(tz_name, str)
             self._logger.info(f'Database time zone is now: {tz_name}')
             self._default_time_zone = ZoneInfo(tz_name)
-
             if self.is_using_cockroachdb:
                 # This could be set when the database is created, but we set it now
                 conn.execute(sql.text('SET null_ordered_last = true;'))
