@@ -269,3 +269,26 @@ class TestArrayType:
         ]
         for arr, expected_json_schema in test_cases:
             assert arr.to_json_schema() == expected_json_schema
+
+    def test_to_dict(self) -> None:
+        as_dict = ArrayType((1, None, 3), np.dtype('uint8'), nullable=True)._as_dict()
+        assert as_dict == {'shape': [1, None, 3], 'numpy_dtype': 'uint8', 'nullable': True}
+
+    def test_to_from_dict(self) -> None:
+        test_cases = [
+            ArrayType(dtype=None, shape=None),
+            ArrayType(dtype=np.dtype('int32')),
+            ArrayType(dtype=np.dtype('float16')),
+            ArrayType(shape=(2, 3), dtype=np.dtype('bool')),
+            ArrayType(shape=(None, 4, 4), dtype=np.dtype('uint8')),
+            ArrayType(dtype=np.dtype('float64'), nullable=True),
+            ArrayType(shape=(42,), dtype=np.dtype('uint64'), nullable=True),
+        ]
+        for type in test_cases:
+            as_dict = type._as_dict()
+            from_dict = ArrayType._from_dict(as_dict)
+            assert type == from_dict, type
+
+    def test_schema_backward_compatibility(self) -> None:
+        # TODO
+        pass
