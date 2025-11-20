@@ -29,7 +29,7 @@ class TestArrayType:
             (np.float32, [np.bool, np.float16]),
             (np.float64, [np.bool, np.float16, np.float32]),
             (pxt.Int, [np.bool, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32]),
-            (pxt.Float, [np.float16, np.float32, np.float64]),
+            (pxt.Float, [np.float16, np.float32]),
             (pxt.Bool, [np.bool]),
             (pxt.String, [np.str_]),
         ]
@@ -92,7 +92,7 @@ class TestArrayType:
             case pxt.Bool:
                 assert val.dtype == np.bool
             case pxt.Float:
-                assert val.dtype == np.float64
+                assert val.dtype == np.float32
             case _:
                 raise ValueError(f'Unsupported dtype: {literal_dtype}')
 
