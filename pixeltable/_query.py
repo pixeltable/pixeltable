@@ -555,7 +555,6 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        # Create the query plan within a transaction context (needed for table version validation)
         with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
             # Create the query plan
             plan = self._create_query_plan()
