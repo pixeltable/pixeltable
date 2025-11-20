@@ -62,9 +62,9 @@ class TestGemini:
         from pixeltable.functions.gemini import generate_images
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
-        t.add_computed_column(output=generate_images(t.prompt, model='imagen-3.0-generate-002'))
+        t.add_computed_column(output=generate_images(t.prompt, model='imagen-4.0-generate-001'))
         config = GenerateImagesConfigDict(aspect_ratio='4:3')
-        t.add_computed_column(output2=generate_images(t.prompt, model='imagen-3.0-generate-002', config=config))
+        t.add_computed_column(output2=generate_images(t.prompt, model='imagen-4.0-generate-001', config=config))
 
         validate_update_status(
             t.insert(prompt='A giant pixel floating over the open ocean in a sea of data'), expected_rows=1

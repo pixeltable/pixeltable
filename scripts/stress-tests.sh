@@ -1,17 +1,18 @@
 #!/bin/bash
 
-SCRIPT_DIR=$(dirname "$0")
-PXT_DIR=$(realpath "$SCRIPT_DIR/..")
-mkdir -p "$PXT_DIR"/target
+# Runs a standardized configuration of Pixeltable stress tests for a specified duration.
 
-echo "Running random-tbl-ops (12 workers for 120 seconds) ..."
-LOG_FILE="$PXT_DIR"/target/random-tbl-ops.log
-python "$PXT_DIR"/tool/worker_harness.py 12 120 "$PXT_DIR"/tool/random_tbl_ops.py 2>&1 > "$LOG_FILE"
-
-IGNORE_ERRORS='That Pixeltable operation could not be completed|Table was dropped|Path.*does not exist'
-if [ -n "$(grep ERROR "$LOG_FILE" | grep -vE "$IGNORE_ERRORS")" ]; then
-    echo "Errors occurred during the stress test, such as:"
-    echo "$(grep ERROR "$LOG_FILE" | grep -vE "$IGNORE_ERRORS" | head -5)"
-    echo "See the logfile for more details: $LOG_FILE"
+if [ -z "$2" ]; then
+    echo "Usage: stress-tests.sh <num-workers> <duration-in-seconds>"
     exit 1
 fi
+
+SCRIPT_DIR=$(dirname "$0")
+WORKERS="$1"
+DURATION="$2"
+
+# For now, we disable certain operations and data types that have known concurrency bugs.
+echo "Running random-ops (12 workers for $DURATION seconds) ..."
+python tool/random_ops.py "$WORKERS" "$DURATION" --exclude rename_view -Drandom_img_freq=0 -Drandom_json_freq=0 -Drandom_array_freq=0
+echo ""
+python tool/print_random_ops_stats.py

@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs) for `TimestampType`.
+Pixeltable UDFs for `TimestampType`.
 
 Usage example:
 ```python
@@ -133,7 +133,8 @@ def astimezone(self: datetime, tz: str) -> datetime:
     Convert the datetime to the given time zone.
 
     Args:
-        tz: The time zone to convert to. Must be a valid time zone name from the IANA Time Zone Database.
+        tz: The time zone to convert to. Must be a valid time zone name from the
+            [IANA Time Zone Database](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones).
     """
     from zoneinfo import ZoneInfo
 

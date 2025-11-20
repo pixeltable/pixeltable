@@ -93,6 +93,7 @@ class SqlNode(ExecNode):
     sql_elements: exprs.SqlElementCache
 
     # execution state
+    sql_select_list_exprs: exprs.ExprSet
     cellmd_item_idxs: exprs.ExprDict[int]  # cellmd expr -> idx in sql select list
     column_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
     column_cellmd_item_idxs: dict[catalog.Column, int]  # column -> idx in sql select list
@@ -174,23 +175,25 @@ class SqlNode(ExecNode):
             return self.tbl.tbl_version.get().store_tbl.pk_columns()
         return []
 
-    def _create_stmt(self) -> sql.Select:
-        """Create Select from local state"""
-
+    def _init_exec_state(self) -> None:
         assert self.sql_elements.contains_all(self.select_list)
-        sql_select_list_exprs = exprs.ExprSet(self.select_list)
-        self.cellmd_item_idxs = exprs.ExprDict((ref, sql_select_list_exprs.add(ref)) for ref in self.cell_md_refs)
+        self.sql_select_list_exprs = exprs.ExprSet(self.select_list)
+        self.cellmd_item_idxs = exprs.ExprDict((ref, self.sql_select_list_exprs.add(ref)) for ref in self.cell_md_refs)
         column_refs = [exprs.ColumnRef(col) for col in self.columns]
-        self.column_item_idxs = {col_ref.col: sql_select_list_exprs.add(col_ref) for col_ref in column_refs}
+        self.column_item_idxs = {col_ref.col: self.sql_select_list_exprs.add(col_ref) for col_ref in column_refs}
         column_cellmd_refs = [
             exprs.ColumnPropertyRef(col_ref, exprs.ColumnPropertyRef.Property.CELLMD)
             for col_ref in column_refs
             if col_ref.col.stores_cellmd
         ]
         self.column_cellmd_item_idxs = {
-            cellmd_ref.col_ref.col: sql_select_list_exprs.add(cellmd_ref) for cellmd_ref in column_cellmd_refs
+            cellmd_ref.col_ref.col: self.sql_select_list_exprs.add(cellmd_ref) for cellmd_ref in column_cellmd_refs
         }
-        sql_select_list = [self.sql_elements.get(e) for e in sql_select_list_exprs] + self._pk_col_items()
+
+    def _create_stmt(self) -> sql.Select:
+        """Create Select from local state"""
+        self._init_exec_state()
+        sql_select_list = [self.sql_elements.get(e) for e in self.sql_select_list_exprs] + self._pk_col_items()
         stmt = sql.select(*sql_select_list)
 
         where_clause_element = (
@@ -672,6 +675,8 @@ class SqlSampleNode(SqlNode):
 
     def _create_stmt(self) -> sql.Select:
         from pixeltable.plan import SampleClause
+
+        self._init_exec_state()
 
         if self.sample_clause.fraction is not None:
             if len(self.stratify_exprs) == 0:

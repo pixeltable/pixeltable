@@ -5,7 +5,7 @@ icon: 'filter'
 ---
 
 <Info>
-Learn more about queries and expressions with this [in-depth guide](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/fundamentals/queries-and-expressions.ipynb).
+Learn more about queries and expressions with this [in-depth guide](/notebooks/fundamentals/queries-and-expressions).
 </Info>
 
 ## What are Queries?
@@ -36,7 +36,7 @@ result = movies.where(
 ## Basic Filtering
 
 <Note>
-This guide builds on tables created in previous sections. The `movies` table from [Tables](/docs/datastore/tables-and-operations)
+This guide builds on tables created in previous sections. The `movies` table from [Tables](/datastore/tables-and-operations)
 </Note>
 
 <Tabs>
@@ -48,7 +48,7 @@ This guide builds on tables created in previous sections. The `movies` table fro
         movies.budget >= 200.0
     ).collect()
     ```
-    
+
   | title | year | budget |
   |-----------|------|---------|
   | Titanic | 1997 | 200.0 |
@@ -60,7 +60,7 @@ This guide builds on tables created in previous sections. The `movies` table fro
     ```python
     # Get titles and release years
     movies.select(
-        movies.title, 
+        movies.title,
         movies.year
     ).collect()
     ```
@@ -72,7 +72,7 @@ This guide builds on tables created in previous sections. The `movies` table fro
     | Titanic | 1997 |
     | Avengers: Endgame | 2019 |
     | Inside Out 2 | 2024 |
-    
+
   </Tab>
 
   <Tab title="Column Naming">
@@ -92,7 +92,7 @@ This guide builds on tables created in previous sections. The `movies` table fro
     | Titanic | 2.0 |
     | Avengers: Endgame | 3.56 |
     | Inside Out 2 | 2.0 |
-    
+
   </Tab>
 </Tabs>
 
@@ -136,13 +136,13 @@ This guide builds on tables created in previous sections. The `movies` table fro
     ```python
     # Sort by budget (highest first)
     movies.order_by(
-        movies.budget, 
+        movies.budget,
         asc=False
     ).collect()
 
     # Sort by year then budget
     movies.order_by(
-        [movies.year, movies.budget], 
+        [movies.year, movies.budget],
         asc=[True, False]
     ).collect()
     ```
@@ -177,12 +177,12 @@ This guide builds on tables created in previous sections. The `movies` table fro
         total_budget=movies.budget.sum(),
         movie_count=movies.title.count()
     ).collect()
-    
+
     # Movies above average budget
     avg_budget = movies.select(
         movies.budget.avg()
     ).collect()[0][0]
-    
+
     movies.where(
         movies.budget > avg_budget
     ).collect()
@@ -196,13 +196,13 @@ This guide builds on tables created in previous sections. The `movies` table fro
     movies.where(
         movies.year >= 2000
     ).order_by(
-        movies.budget, 
+        movies.budget,
         asc=False
     ).limit(3).collect()
-    
+
     # Analyze plots excluding specific keywords
     movies.where(
-        ~(movies.plot.contains('secret') | 
+        ~(movies.plot.contains('secret') |
           movies.plot.contains('dream'))
     ).select(
         movies.title,

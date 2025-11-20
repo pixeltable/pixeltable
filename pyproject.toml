@@ -70,6 +70,7 @@ dependencies = [
     "pyarrow>=19",
     "pixeltable-pgserver==0.4.0",
     "tzlocal>=5.0",
+    "aiohttp>=3.9",
 ]
 
 [project.urls]
@@ -122,10 +123,6 @@ dev = [
     "mkdocs-material>=9.5.23,<10",
     "mkdocstrings-python>=1.10.2,<2",
     "black>=24.4",
-    "pydoclint>=0.7",
-    "docstring-parser-fork<0.0.14",  # pin to avoid breaking changes in 0.0.14
-    "npx",
-    "pypandoc",
     "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",

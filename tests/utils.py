@@ -7,6 +7,8 @@ import random
 import shutil
 import subprocess
 import sysconfig
+from contextlib import contextmanager
+from io import StringIO
 from pathlib import Path
 from typing import Any, Callable, Iterator
 from unittest import TestCase
@@ -20,10 +22,11 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable._query import ResultSet
 from pixeltable.catalog import Catalog
-from pixeltable.dataframe import DataFrameResultSet
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
+from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
 from pixeltable.utils.object_stores import ObjectOps
 
 TESTS_DIR = Path(os.path.dirname(__file__))
@@ -432,7 +435,7 @@ def get_sentences(n: int = 100) -> list[str]:
     return [q['question'].replace("'", '') for q in questions_list[:n]]
 
 
-def assert_resultset_eq(r1: DataFrameResultSet, r2: DataFrameResultSet, compare_col_names: bool = False) -> None:
+def assert_resultset_eq(r1: ResultSet, r2: ResultSet, compare_col_names: bool = False) -> None:
     assert len(r1) == len(r2)
     assert len(r1.schema) == len(r2.schema)
     assert all(type1.matches(type2) for type1, type2 in zip(r1.schema.values(), r2.schema.values()))
@@ -663,9 +666,25 @@ def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) ->
     assert diff.getbbox() is None, context
 
 
-def reload_catalog() -> None:
+def reload_catalog(reload: bool = True) -> None:
+    if not reload:
+        return
     Catalog.clear()
     pxt.init()
+
+
+@contextmanager
+def capture_console_output() -> Iterator[StringIO]:
+    try:
+        sio = StringIO()
+        handler = ConsoleOutputHandler(stream=sio)
+        handler.setLevel(10)
+        handler.addFilter(ConsoleMessageFilter())
+        Env.get()._logger.addHandler(handler)
+        yield sio
+    finally:
+        Env.get()._logger.removeHandler(handler)
+        sio.flush()
 
 
 # Mock UDF for testing LLM tool invocations
@@ -693,30 +712,30 @@ SAMPLE_IMAGE_URL = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main
 class ReloadTester:
     """Utility to verify that queries return identical results after a catalog reload"""
 
-    df_info: list[tuple[dict[str, Any], DataFrameResultSet]]  # list of (df.as_dict(), df.collect())
+    query_info: list[tuple[dict[str, Any], ResultSet]]  # list of (query.as_dict(), query.collect())
 
     def __init__(self) -> None:
-        self.df_info = []
+        self.query_info = []
 
     def clear(self) -> None:
-        self.df_info = []
+        self.query_info = []
 
-    def run_query(self, df: pxt.DataFrame) -> DataFrameResultSet:
-        df_dict = df.as_dict()
-        result_set = df.collect()
-        self.df_info.append((df_dict, result_set))
+    def run_query(self, query: pxt.Query) -> ResultSet:
+        query_dict = query.as_dict()
+        result_set = query.collect()
+        self.query_info.append((query_dict, result_set))
         return result_set
 
     def run_reload_test(self, clear: bool = True) -> None:
         reload_catalog()
         # enumerate(): the list index is useful for debugging
-        for _idx, (df_dict, result_set) in enumerate(self.df_info):
-            df = pxt.DataFrame.from_dict(df_dict)
-            new_result_set = df.collect()
+        for _idx, (query_dict, result_set) in enumerate(self.query_info):
+            query = pxt.Query.from_dict(query_dict)
+            new_result_set = query.collect()
             try:
                 assert_resultset_eq(result_set, new_result_set, compare_col_names=True)
             except Exception as e:
-                s = f'Reload test failed for query:\n{df}\n{e}'
+                s = f'Reload test failed for query:\n{query}\n{e}'
                 raise RuntimeError(s) from e
         if clear:
             self.clear()

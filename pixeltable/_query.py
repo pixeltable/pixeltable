@@ -27,12 +27,12 @@ if TYPE_CHECKING:
     import torch
     import torch.utils.data
 
-__all__ = ['DataFrame']
+__all__ = ['Query']
 
 _logger = logging.getLogger('pixeltable')
 
 
-class DataFrameResultSet:
+class ResultSet:
     _rows: list[list[Any]]
     _col_names: list[str]
     __schema: dict[str, ColumnType]
@@ -76,7 +76,7 @@ class DataFrameResultSet:
 
     def to_pydantic(self, model: type[BaseModelT]) -> Iterator[BaseModelT]:
         """
-        Convert the DataFrameResultSet to a list of Pydantic model instances.
+        Convert the ResultSet to a list of Pydantic model instances.
 
         Args:
             model: A Pydantic model class.
@@ -134,7 +134,7 @@ class DataFrameResultSet:
         return (self._row_to_dict(i) for i in range(len(self)))
 
     def __eq__(self, other: object) -> bool:
-        if not isinstance(other, DataFrameResultSet):
+        if not isinstance(other, ResultSet):
             return False
         return self.to_pandas().equals(other.to_pandas())
 
@@ -174,7 +174,7 @@ class DataFrameResultSet:
 #             self.filter.release()
 
 
-class DataFrame:
+class Query:
     """Represents a query for retrieving and transforming data from Pixeltable tables."""
 
     _from_clause: plan.FromClause
@@ -203,7 +203,7 @@ class DataFrame:
 
         # exprs contain execution state and therefore cannot be shared
         select_list = copy.deepcopy(select_list)
-        select_list_exprs, column_names = DataFrame._normalize_select_list(self._from_clause.tbls, select_list)
+        select_list_exprs, column_names = Query._normalize_select_list(self._from_clause.tbls, select_list)
         # check select list after expansion to catch early
         # the following two lists are always non empty, even if select list is None.
         assert len(column_names) == len(select_list_exprs)
@@ -264,7 +264,7 @@ class DataFrame:
 
     def _vars(self) -> dict[str, exprs.Variable]:
         """
-        Return a dict mapping variable name to Variable for all Variables contained in any component of the DataFrame
+        Return a dict mapping variable name to Variable for all Variables contained in any component of the Query
         """
         all_exprs: list[exprs.Expr] = []
         all_exprs.extend(self._select_list_exprs)
@@ -318,13 +318,13 @@ class DataFrame:
     def parameters(self) -> dict[str, ColumnType]:
         """Return a dict mapping parameter name to parameter type.
 
-        Parameters are Variables contained in any component of the DataFrame.
+        Parameters are Variables contained in any component of the Query.
         """
         return {name: var.col_type for name, var in self._vars().items()}
 
     def _exec(self) -> Iterator[exprs.DataRow]:
         """Run the query and return rows as a generator.
-        This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
+        This function must not modify the state of the Query, otherwise it breaks dataset caching.
         """
         plan = self._create_query_plan()
 
@@ -340,7 +340,7 @@ class DataFrame:
 
     async def _aexec(self) -> AsyncIterator[exprs.DataRow]:
         """Run the query and return rows as a generator.
-        This function must not modify the state of the DataFrame, otherwise it breaks dataset caching.
+        This function must not modify the state of the Query, otherwise it breaks dataset caching.
         """
         plan = self._create_query_plan()
         plan.open()
@@ -383,14 +383,14 @@ class DataFrame:
     def _has_joins(self) -> bool:
         return len(self._from_clause.join_clauses) > 0
 
-    def show(self, n: int = 20) -> DataFrameResultSet:
+    def show(self, n: int = 20) -> ResultSet:
         if self.sample_clause is not None:
             raise excs.Error('show() cannot be used with sample()')
         assert n is not None
         return self.limit(n).collect()
 
-    def head(self, n: int = 10) -> DataFrameResultSet:
-        """Return the first n rows of the DataFrame, in insertion order of the underlying Table.
+    def head(self, n: int = 10) -> ResultSet:
+        """Return the first n rows of the Query, in insertion order of the underlying Table.
 
         head() is not supported for joins.
 
@@ -398,11 +398,11 @@ class DataFrame:
             n: Number of rows to select. Default is 10.
 
         Returns:
-            A DataFrameResultSet with the first n rows of the DataFrame.
+            A ResultSet with the first n rows of the Query.
 
         Raises:
-            Error: If the DataFrame is the result of a join or
-                if the DataFrame has an order_by clause.
+            Error: If the Query is the result of a join or
+                if the Query has an order_by clause.
         """
         if self.order_by_clause is not None:
             raise excs.Error('head() cannot be used with order_by()')
@@ -416,8 +416,8 @@ class DataFrame:
         order_by_clause = [exprs.RowidRef(self._first_tbl.tbl_version, idx) for idx in range(num_rowid_cols)]
         return self.order_by(*order_by_clause, asc=True).limit(n).collect()
 
-    def tail(self, n: int = 10) -> DataFrameResultSet:
-        """Return the last n rows of the DataFrame, in insertion order of the underlying Table.
+    def tail(self, n: int = 10) -> ResultSet:
+        """Return the last n rows of the Query, in insertion order of the underlying Table.
 
         tail() is not supported for joins.
 
@@ -425,11 +425,11 @@ class DataFrame:
             n: Number of rows to select. Default is 10.
 
         Returns:
-            A DataFrameResultSet with the last n rows of the DataFrame.
+            A ResultSet with the last n rows of the Query.
 
         Raises:
-            Error: If the DataFrame is the result of a join or
-                if the DataFrame has an order_by clause.
+            Error: If the Query is the result of a join or
+                if the Query has an order_by clause.
         """
         if self.order_by_clause is not None:
             raise excs.Error('tail() cannot be used with order_by()')
@@ -447,11 +447,11 @@ class DataFrame:
 
     @property
     def schema(self) -> dict[str, ColumnType]:
-        """Column names and types in this DataFrame."""
+        """Column names and types in this Query."""
         return self._schema
 
-    def bind(self, args: dict[str, Any]) -> DataFrame:
-        """Bind arguments to parameters and return a new DataFrame."""
+    def bind(self, args: dict[str, Any]) -> Query:
+        """Bind arguments to parameters and return a new Query."""
         # substitute Variables with the corresponding values according to 'args', converted to Literals
         select_list_exprs = copy.deepcopy(self._select_list_exprs)
         where_clause = copy.deepcopy(self.where_clause)
@@ -494,7 +494,7 @@ class DataFrame:
             if limit_val is not None and not isinstance(limit_val, exprs.Literal):
                 raise excs.Error(f'limit(): parameter must be a constant; got: {limit_val}')
 
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=select_list,
             where_clause=where_clause,
@@ -534,14 +534,14 @@ class DataFrame:
                 Catalog.get().convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
                 raise  # just re-raise if not converted to a Pixeltable error
 
-    def collect(self) -> DataFrameResultSet:
-        return DataFrameResultSet(list(self._output_row_iterator()), self.schema)
+    def collect(self) -> ResultSet:
+        return ResultSet(list(self._output_row_iterator()), self.schema)
 
-    async def _acollect(self) -> DataFrameResultSet:
+    async def _acollect(self) -> ResultSet:
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
         try:
             result = [[row[e.slot_idx] for e in self._select_list_exprs] async for row in self._aexec()]
-            return DataFrameResultSet(result, self.schema)
+            return ResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
         except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
@@ -549,10 +549,10 @@ class DataFrame:
             raise  # just re-raise if not converted to a Pixeltable error
 
     def count(self) -> int:
-        """Return the number of rows in the DataFrame.
+        """Return the number of rows in the Query.
 
         Returns:
-            The number of rows in the DataFrame.
+            The number of rows in the Query.
         """
         if self.group_by_clause is not None:
             raise excs.Error('count() cannot be used with group_by()')
@@ -614,7 +614,7 @@ class DataFrame:
 
     def describe(self) -> None:
         """
-        Prints a tabular description of this DataFrame.
+        Prints a tabular description of this Query.
         The description has two columns, heading and info, which list the contents of each 'component'
                 (select list, where clause, ...) vertically.
         """
@@ -631,35 +631,35 @@ class DataFrame:
     def _repr_html_(self) -> str:
         return self._descriptors().to_html()
 
-    def select(self, *items: Any, **named_items: Any) -> DataFrame:
-        """Select columns or expressions from the DataFrame.
+    def select(self, *items: Any, **named_items: Any) -> Query:
+        """Select columns or expressions from the Query.
 
         Args:
             items: expressions to be selected
             named_items: named expressions to be selected
 
         Returns:
-            A new DataFrame with the specified select list.
+            A new Query with the specified select list.
 
         Raises:
             Error: If the select list is already specified,
                 or if any of the specified expressions are invalid,
-                or refer to tables not in the DataFrame.
+                or refer to tables not in the Query.
 
         Examples:
-            Given the DataFrame person from a table t with all its columns and rows:
+            Given the Query person from a table t with all its columns and rows:
 
             >>> person = t.select()
 
-            Select the columns 'name' and 'age' (referenced in table t) from the DataFrame person:
+            Select the columns 'name' and 'age' (referenced in table t) from the Query person:
 
-            >>> df = person.select(t.name, t.age)
+            >>> query = person.select(t.name, t.age)
 
-            Select the columns 'name' (referenced in table t) from the DataFrame person,
+            Select the columns 'name' (referenced in table t) from the Query person,
             and a named column 'is_adult' from the expression `age >= 18` where 'age' is
             another column in table t:
 
-            >>> df = person.select(t.name, is_adult=(t.age >= 18))
+            >>> query = person.select(t.name, is_adult=(t.age >= 18))
 
         """
         if self.select_list is not None:
@@ -699,7 +699,7 @@ class DataFrame:
 
         # check user provided names do not conflict among themselves or with auto-generated ones
         seen: set[str] = set()
-        _, names = DataFrame._normalize_select_list(self._from_clause.tbls, select_list)
+        _, names = Query._normalize_select_list(self._from_clause.tbls, select_list)
         for name in names:
             if name in seen:
                 repeated_names = [j for j, x in enumerate(names) if x == name]
@@ -707,7 +707,7 @@ class DataFrame:
                 raise excs.Error(f'Repeated column name {name!r} in select() at positions: {pretty}')
             seen.add(name)
 
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=select_list,
             where_clause=self.where_clause,
@@ -717,29 +717,29 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def where(self, pred: exprs.Expr) -> DataFrame:
+    def where(self, pred: exprs.Expr) -> Query:
         """Filter rows based on a predicate.
 
         Args:
             pred: the predicate to filter rows
 
         Returns:
-            A new DataFrame with the specified predicates replacing the where-clause.
+            A new Query with the specified predicates replacing the where-clause.
 
         Raises:
             Error: If the predicate is not a Pixeltable expression,
                 or if it does not return a boolean value,
-                or refers to tables not in the DataFrame.
+                or refers to tables not in the Query.
 
         Examples:
-            Given the DataFrame person from a table t with all its columns and rows:
+            Given the Query person from a table t with all its columns and rows:
 
             >>> person = t.select()
 
-            Filter the above DataFrame person to only include rows where the column 'age'
+            Filter the above Query person to only include rows where the column 'age'
             (referenced in table t) is greater than 30:
 
-            >>> df = person.where(t.age > 30)
+            >>> query = person.where(t.age > 30)
         """
         if self.where_clause is not None:
             raise excs.Error('where() clause already specified')
@@ -749,7 +749,7 @@ class DataFrame:
             raise excs.Error(f'where() expects a Pixeltable expression; got: {pred}')
         if not pred.col_type.is_bool_type():
             raise excs.Error(f'where() expression needs to return `Bool`, but instead returns `{pred.col_type}`')
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=pred,
@@ -827,9 +827,9 @@ class DataFrame:
         other: catalog.Table,
         on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None,
         how: plan.JoinType.LiteralType = 'inner',
-    ) -> DataFrame:
+    ) -> Query:
         """
-        Join this DataFrame with a table.
+        Join this Query with a table.
 
         Args:
             other: the table to join with
@@ -837,23 +837,23 @@ class DataFrame:
                 expression.
 
                 - column references: implies an equality predicate that matches columns in both this
-                    DataFrame and `other` by name.
+                    Query and `other` by name.
 
-                    - column in `other`: A column with that same name must be present in this DataFrame, and **it must
+                    - column in `other`: A column with that same name must be present in this Query, and **it must
                         be unique** (otherwise the join is ambiguous).
-                    - column in this DataFrame: A column with that same name must be present in `other`.
+                    - column in this Query: A column with that same name must be present in `other`.
 
                 - boolean expression: The expressions must be valid in the context of the joined tables.
             how: the type of join to perform.
 
                 - `'inner'`: only keep rows that have a match in both
-                - `'left'`: keep all rows from this DataFrame and only matching rows from the other table
-                - `'right'`: keep all rows from the other table and only matching rows from this DataFrame
-                - `'full_outer'`: keep all rows from both this DataFrame and the other table
+                - `'left'`: keep all rows from this Query and only matching rows from the other table
+                - `'right'`: keep all rows from the other table and only matching rows from this Query
+                - `'full_outer'`: keep all rows from both this Query and the other table
                 - `'cross'`: Cartesian product; no `on` condition allowed
 
         Returns:
-            A new DataFrame.
+            A new Query.
 
         Examples:
             Perform an inner join between t1 and t2 on the column id:
@@ -872,7 +872,7 @@ class DataFrame:
             Join t with d, which has a composite primary key (columns pk1 and pk2, with corresponding foreign
             key columns d1 and d2 in t):
 
-            >>> df = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
+            >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
         if self.sample_clause is not None:
             raise excs.Error('join() cannot be used with sample()')
@@ -890,7 +890,7 @@ class DataFrame:
             tbls=[*self._from_clause.tbls, other._tbl_version_path],
             join_clauses=[*self._from_clause.join_clauses, join_clause],
         )
-        return DataFrame(
+        return Query(
             from_clause=from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -900,46 +900,46 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def group_by(self, *grouping_items: Any) -> DataFrame:
-        """Add a group-by clause to this DataFrame.
+    def group_by(self, *grouping_items: Any) -> Query:
+        """Add a group-by clause to this Query.
 
         Variants:
-        - group_by(<base table>): group a component view by their respective base table rows
-        - group_by(<expr>, ...): group by the given expressions
+        - group_by(base_tbl): group a component view by their respective base table rows
+        - group_by(expr1, expr2, expr3): group by the given expressions
 
-        Note, that grouping will be applied to the rows and take effect when
+        Note that grouping will be applied to the rows and take effect when
         used with an aggregation function like sum(), count() etc.
 
         Args:
             grouping_items: expressions to group by
 
         Returns:
-            A new DataFrame with the specified group-by clause.
+            A new Query with the specified group-by clause.
 
         Raises:
             Error: If the group-by clause is already specified,
                 or if the specified expression is invalid,
-                or refer to tables not in the DataFrame,
-                or if the DataFrame is a result of a join.
+                or refer to tables not in the Query,
+                or if the Query is a result of a join.
 
         Examples:
-            Given the DataFrame book from a table t with all its columns and rows:
+            Given the Query book from a table t with all its columns and rows:
 
             >>> book = t.select()
 
-            Group the above DataFrame book by the 'genre' column (referenced in table t):
+            Group the above Query book by the 'genre' column (referenced in table t):
 
-            >>> df = book.group_by(t.genre)
+            >>> query = book.group_by(t.genre)
 
-            Use the above DataFrame df grouped by genre to count the number of
+            Use the above Query grouped by genre to count the number of
             books for each 'genre':
 
-            >>> df = book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
+            >>> query = book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
 
-            Use the above DataFrame df grouped by genre to the total price of
+            Use the above Query grouped by genre to the total price of
             books for each 'genre':
 
-            >>> df = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
+            >>> query = book.group_by(t.genre).select(t.genre, total=sum(t.price)).show()
         """
         if self.group_by_clause is not None:
             raise excs.Error('group_by() already specified')
@@ -966,7 +966,7 @@ class DataFrame:
                 raise excs.Error(f'Invalid expression in group_by(): {item}')
         if grouping_tbl is None:
             group_by_clause = list(grouping_items)
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -976,11 +976,11 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def distinct(self) -> DataFrame:
+    def distinct(self) -> Query:
         """
-        Remove duplicate rows from this DataFrame.
+        Remove duplicate rows from this Query.
 
-        Note that grouping will be applied to the rows based on the select clause of this Dataframe.
+        Note that grouping will be applied to the rows based on the select clause of this Query.
         In the absence of a select clause, by default, all columns are selected in the grouping.
 
         Examples:
@@ -999,8 +999,8 @@ class DataFrame:
         exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
         return self.group_by(*exps)
 
-    def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> DataFrame:
-        """Add an order-by clause to this DataFrame.
+    def order_by(self, *expr_list: exprs.Expr, asc: bool = True) -> Query:
+        """Add an order-by clause to this Query.
 
         Args:
             expr_list: expressions to order by
@@ -1008,26 +1008,26 @@ class DataFrame:
                 Default is True.
 
         Returns:
-            A new DataFrame with the specified order-by clause.
+            A new Query with the specified order-by clause.
 
         Raises:
             Error: If the order-by clause is already specified,
                 or if the specified expression is invalid,
-                or refer to tables not in the DataFrame.
+                or refer to tables not in the Query.
 
         Examples:
-            Given the DataFrame book from a table t with all its columns and rows:
+            Given the Query book from a table t with all its columns and rows:
 
             >>> book = t.select()
 
-            Order the above DataFrame book by two columns (price, pages) in descending order:
+            Order the above Query book by two columns (price, pages) in descending order:
 
-            >>> df = book.order_by(t.price, t.pages, asc=False)
+            >>> query = book.order_by(t.price, t.pages, asc=False)
 
-            Order the above DataFrame book by price in descending order, but order the pages
+            Order the above Query book by price in descending order, but order the pages
             in ascending order:
 
-            >>> df = book.order_by(t.price, asc=False).order_by(t.pages)
+            >>> query = book.order_by(t.price, asc=False).order_by(t.pages)
         """
         if self.sample_clause is not None:
             raise excs.Error('order_by() cannot be used with sample()')
@@ -1036,7 +1036,7 @@ class DataFrame:
                 raise excs.Error(f'Invalid expression in order_by(): {e}')
         order_by_clause = self.order_by_clause if self.order_by_clause is not None else []
         order_by_clause.extend([(e.copy(), asc) for e in expr_list])
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -1046,20 +1046,20 @@ class DataFrame:
             limit=self.limit_val,
         )
 
-    def limit(self, n: int) -> DataFrame:
-        """Limit the number of rows in the DataFrame.
+    def limit(self, n: int) -> Query:
+        """Limit the number of rows in the Query.
 
         Args:
             n: Number of rows to select.
 
         Returns:
-            A new DataFrame with the specified limited rows.
+            A new Query with the specified limited rows.
         """
         if self.sample_clause is not None:
             raise excs.Error('limit() cannot be used with sample()')
 
         limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -1076,9 +1076,9 @@ class DataFrame:
         fraction: float | None = None,
         seed: int | None = None,
         stratify_by: Any = None,
-    ) -> DataFrame:
+    ) -> Query:
         """
-        Return a new DataFrame specifying a sample of rows from the DataFrame, considered in a shuffled order.
+        Return a new Query specifying a sample of rows from the Query, considered in a shuffled order.
 
         The size of the sample can be specified in three ways:
 
@@ -1101,30 +1101,30 @@ class DataFrame:
             stratify_by: If specified, the sample will be stratified by these values.
 
         Returns:
-            A new DataFrame which specifies the sampled rows
+            A new Query which specifies the sampled rows
 
         Examples:
             Given the Table `person` containing the field 'age', we can create samples of the table in various ways:
 
             Sample 100 rows from the above Table:
 
-            >>> df = person.sample(n=100)
+            >>> query = person.sample(n=100)
 
             Sample 10% of the rows from the above Table:
 
-            >>> df = person.sample(fraction=0.1)
+            >>> query = person.sample(fraction=0.1)
 
             Sample 10% of the rows from the above Table, stratified by the column 'age':
 
-            >>> df = person.sample(fraction=0.1, stratify_by=t.age)
+            >>> query = person.sample(fraction=0.1, stratify_by=t.age)
 
             Equal allocation sampling: Sample 2 rows from each age present in the above Table:
 
-            >>> df = person.sample(n_per_stratum=2, stratify_by=t.age)
+            >>> query = person.sample(n_per_stratum=2, stratify_by=t.age)
 
-            Sampling is compatible with the where clause, so we can also sample from a filtered DataFrame:
+            Sampling is compatible with the where clause, so we can also sample from a filtered Query:
 
-            >>> df = person.where(t.age > 30).sample(n=100)
+            >>> query = person.where(t.age > 30).sample(n=100)
         """
         # Check context of usage
         if self.sample_clause is not None:
@@ -1175,7 +1175,7 @@ class DataFrame:
 
         sample_clause = SampleClause(None, n, n_per_stratum, fraction, seed, stratify_exprs)
 
-        return DataFrame(
+        return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
             where_clause=self.where_clause,
@@ -1187,7 +1187,7 @@ class DataFrame:
         )
 
     def update(self, value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus:
-        """Update rows in the underlying table of the DataFrame.
+        """Update rows in the underlying table of the Query.
 
         Update rows in the table with the specified value_spec.
 
@@ -1200,16 +1200,16 @@ class DataFrame:
             UpdateStatus: the status of the update operation.
 
         Example:
-            Given the DataFrame person from a table t with all its columns and rows:
+            Given the Query person from a table t with all its columns and rows:
 
             >>> person = t.select()
 
-            Via the above DataFrame person, update the column 'city' to 'Oakland'
+            Via the above Query person, update the column 'city' to 'Oakland'
             and 'state' to 'CA' in the table t:
 
             >>> person.update({'city': 'Oakland', 'state': 'CA'})
 
-            Via the above DataFrame person, update the column 'age' to 30 for any
+            Via the above Query person, update the column 'age' to 30 for any
             rows where 'year' is 2014 in the table t:
 
             >>> person.where(t.year == 2014).update({'age': 30})
@@ -1221,7 +1221,7 @@ class DataFrame:
     def recompute_columns(
         self, *columns: str | exprs.ColumnRef, errors_only: bool = False, cascade: bool = True
     ) -> UpdateStatus:
-        """Recompute one or more computed columns of the underlying table of the DataFrame.
+        """Recompute one or more computed columns of the underlying table of the Query.
 
         Args:
             columns: The names or references of the computed columns to recompute.
@@ -1236,7 +1236,7 @@ class DataFrame:
             For table `person` with column `age` and computed column `height`, recompute the value of `height` for all
             rows where `age` is less than 18:
 
-            >>> df = person.where(t.age < 18).recompute_columns(person.height)
+            >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
         self._validate_mutable('recompute_columns', False)
         with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
@@ -1244,9 +1244,9 @@ class DataFrame:
             return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
-        """Delete rows form the underlying table of the DataFrame.
+        """Delete rows form the underlying table of the Query.
 
-        The delete operation is only allowed for DataFrames on base tables.
+        The delete operation is only allowed for Queries on base tables.
 
         Returns:
             UpdateStatus: the status of the delete operation.
@@ -1263,11 +1263,11 @@ class DataFrame:
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
-        """Tests whether this DataFrame can be mutated (such as by an update operation).
+        """Tests whether this Query can be mutated (such as by an update operation).
 
         Args:
             op_name: The name of the operation for which the test is being performed.
-            allow_select: If True, allow a select() specification in the Dataframe.
+            allow_select: If True, allow a select() specification in the Query.
         """
         self._validate_mutable_op_sequence(op_name, allow_select)
 
@@ -1280,7 +1280,7 @@ class DataFrame:
             raise excs.Error(f'Cannot use `{op_name}` on a snapshot.')
 
     def _validate_mutable_op_sequence(self, op_name: str, allow_select: bool) -> None:
-        """Tests whether the sequence of operations on this DataFrame is valid for a mutation operation."""
+        """Tests whether the sequence of operations on this Query is valid for a mutation operation."""
         if self.group_by_clause is not None or self.grouping_tbl is not None:
             raise excs.Error(f'Cannot use `{op_name}` after `group_by`.')
         if self.order_by_clause is not None:
@@ -1295,10 +1295,10 @@ class DataFrame:
     def as_dict(self) -> dict[str, Any]:
         """
         Returns:
-            Dictionary representing this dataframe.
+            Dictionary representing this Query.
         """
         d = {
-            '_classname': 'DataFrame',
+            '_classname': 'Query',
             'from_clause': {
                 'tbls': [tbl.as_dict() for tbl in self._from_clause.tbls],
                 'join_clauses': [dataclasses.asdict(clause) for clause in self._from_clause.join_clauses],
@@ -1320,7 +1320,7 @@ class DataFrame:
         return d
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> 'DataFrame':
+    def from_dict(cls, d: dict[str, Any]) -> 'Query':
         # we need to wrap the construction with a transaction, because it might need to load metadata
         with Catalog.get().begin_xact(for_write=False):
             tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
@@ -1344,7 +1344,7 @@ class DataFrame:
             limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
             sample_clause = SampleClause.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
 
-            return DataFrame(
+            return Query(
                 from_clause=from_clause,
                 select_list=select_list,
                 where_clause=where_clause,
@@ -1367,8 +1367,10 @@ class DataFrame:
         return hashlib.sha256(summary_string.encode()).hexdigest()
 
     def to_coco_dataset(self) -> Path:
-        """Convert the dataframe to a COCO dataset.
-        This dataframe must return a single json-typed output column in the following format:
+        """Convert the Query to a COCO dataset.
+        This Query must return a single json-typed output column in the following format:
+
+        ```python
         {
             'image': PIL.Image.Image,
             'annotations': [
@@ -1379,6 +1381,7 @@ class DataFrame:
                 ...
             ],
         }
+        ```
 
         Returns:
             Path to the COCO dataset file.
@@ -1400,7 +1403,7 @@ class DataFrame:
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """
-        Convert the dataframe to a pytorch IterableDataset suitable for parallel loading
+        Convert the Query to a pytorch IterableDataset suitable for parallel loading
         with torch.utils.data.DataLoader.
 
         This method requires pyarrow >= 13, torch and torchvision to work.

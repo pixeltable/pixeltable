@@ -19,7 +19,7 @@ class TestSnapshot:
     def run_basic_test(
         self,
         tbl: pxt.Table,
-        orig_query: pxt.Table | pxt.DataFrame,
+        orig_query: pxt.Table | pxt.Query,
         snap: pxt.Table,
         extra_items: dict[str, Any],
         reload_md: bool,
@@ -96,7 +96,7 @@ class TestSnapshot:
                         else {}
                     )
                     extra_items = {'v1': tbl.c3 * 2.0, 'v2': tbl.c3 * 2.0} if has_cols else {}
-                    query: pxt.Table | pxt.DataFrame = tbl.where(tbl.c2 < 10) if has_filter else tbl
+                    query: pxt.Table | pxt.Query = tbl.where(tbl.c2 < 10) if has_filter else tbl
                     snap = pxt.create_snapshot(snap_path, query, additional_columns=schema)
                     self.run_basic_test(tbl, query, snap, extra_items=extra_items, reload_md=reload_md)
 
@@ -380,6 +380,15 @@ class TestSnapshot:
         assert 'v2_snap' not in str(e.value).lower()
         assert 'view_snap1' not in str(e.value).lower()
         assert 'view_snap2' not in str(e.value).lower()
+
+    def test_unstored_snapshot(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        """Tests that a snapshot of a table with unstored columns is queryable."""
+        t = pxt.create_table('tbl', {'c1': pxt.Int})
+        t.add_computed_column(c2=(t.c1 + 1), stored=False)
+        t.insert({'c1': i} for i in range(100))
+        snap = pxt.create_snapshot('snap', t)
+        reload_tester.run_query(snap.order_by(t.c1))
+        reload_tester.run_reload_test()
 
     def test_rename_column(self, reset_db: None) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})

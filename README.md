@@ -173,12 +173,12 @@ for efficient processing without data duplication.
 # Document chunking with overlap & metadata and many more options to build your own iterator
 chunks = pxt.create_view('chunks', docs,
    iterator=DocumentSplitter.create(
-       document=docs.doc, 
+       document=docs.doc,
        separators='sentence,token_limit',
        overlap=50, limit=500
    ))
 
-# Video frame extraction  
+# Video frame extraction
 frames = pxt.create_view('frames', videos,
    iterator=FrameIterator.create(video=videos.video, fps=0.5))
 ```
@@ -215,7 +215,7 @@ def format_prompt(context: list, question: str) -> str:
    return f"Context: {context}\nQuestion: {question}"
 ```
 
-**[Agentic Workflows / Tool Calling:](https://docs.pixeltable.com/examples/chat/tools)** Register `@pxt.udf`, 
+**[Agentic Workflows / Tool Calling:](https://docs.pixeltable.com/examples/chat/tools)** Register `@pxt.udf`,
 `@pxt.query` functions, or **MCP tools** as tools.
 
 ```python
@@ -260,24 +260,24 @@ results = (
 )
 ```
 
-**[I/O & Integration:](https://pixeltable.github.io/pixeltable/pixeltable/io/)** Export to multiple 
+**[I/O & Integration:](https://pixeltable.github.io/pixeltable/pixeltable/io/)** Export to multiple
 formats and integrate with ML/AI tools ecosystem.
 
 ```python
-# Export to analytics/ML formats  
+# Export to analytics/ML formats
 pxt.export_parquet(table, 'data.parquet', partition_size_bytes=100_000_000)
 pxt.export_lancedb(table, 'vector_db')
 
 # DataFrame conversions
 results = table.select(table.image, table.labels).collect()
-df = results.to_pandas()                           # → pandas DataFrame  
+df = results.to_pandas()                           # → pandas DataFrame
 models = results.to_pydantic(MyModel)              # → Pydantic models
 
 # Specialized ML dataset formats
 coco_path = table.to_coco_dataset()                # → COCO annotations
 pytorch_ds = table.to_pytorch_dataset('pt')        # → PyTorch DataLoader ready
 
-# ML tool integrations  
+# ML tool integrations
 pxt.create_label_studio_project(table, label_config)  # Annotation
 pxt.export_images_as_fo_dataset(table, table.image)   # FiftyOne
 ```
@@ -430,7 +430,7 @@ embed_model = huggingface.sentence_transformer.using(model_id='all-MiniLM-L6-v2'
 # Add embedding index using the function object
 chunks.add_embedding_index('text', string_embed=embed_model)
 
-# Define query function for retrieval - Returns a DataFrame expression
+# Define query function for retrieval - Returns a Query expression
 @pxt.query
 def get_relevant_context(query_text: str, limit: int = 3):
     sim = chunks.text.similarity(query_text)

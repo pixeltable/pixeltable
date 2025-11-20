@@ -1,8 +1,8 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+Pixeltable UDFs
 that wrap various endpoints from the Google Gemini API. In order to use them, you must
 first `pip install google-genai` and configure your Gemini credentials, as described in
-the [Working with Gemini](https://pixeltable.readme.io/docs/working-with-gemini) tutorial.
+the [Working with Gemini](https://docs.pixeltable.com/notebooks/integrations/working-with-gemini) tutorial.
 """
 
 import asyncio
@@ -147,10 +147,10 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
         The generated image.
 
     Examples:
-        Add a computed column that applies the model `imagen-3.0-generate-002`
+        Add a computed column that applies the model `imagen-4.0-generate-001`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_images(tbl.prompt, model='imagen-3.0-generate-002'))
+        >>> tbl.add_computed_column(response=generate_images(tbl.prompt, model='imagen-4.0-generate-001'))
     """
     env.Env.get().require_package('google.genai')
     from google.genai.types import GenerateImagesConfig
@@ -171,7 +171,7 @@ async def generate_videos(
 ) -> pxt.Video:
     """
     Generates videos based on a text description and configuration. For additional details, see:
-    <https://ai.google.dev/gemini-api/docs/video-generation>
+    <https://ai.google.dev/gemini-api/docs/video>
 
     Request throttling:
     Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate

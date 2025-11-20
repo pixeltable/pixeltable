@@ -1,8 +1,8 @@
 """
-Pixeltable [UDFs](https://pixeltable.readme.io/docs/user-defined-functions-udfs)
+Pixeltable UDFs
 that wrap various endpoints from the Anthropic API. In order to use them, you must
 first `pip install anthropic` and configure your Anthropic credentials, as described in
-the [Working with Anthropic](https://pixeltable.readme.io/docs/working-with-anthropic) tutorial.
+the [Working with Anthropic](https://docs.pixeltable.com/notebooks/integrations/working-with-anthropic) tutorial.
 """
 
 import datetime
@@ -16,6 +16,7 @@ import pixeltable as pxt
 from pixeltable import env, exprs
 from pixeltable.func import Tools
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.retry import exponential_backoff
 
 if TYPE_CHECKING:
     import anthropic
@@ -109,7 +110,7 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
                 input_len += len(message['content'])
         return {'requests': 1, 'input_tokens': int(input_len / 4), 'output_tokens': max_tokens}
 
-    def record_exc(self, exc: Exception) -> None:
+    def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:
         import anthropic
 
         if (
@@ -120,22 +121,27 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
             return
         requests_info, input_tokens_info, output_tokens_info = _get_header_info(exc.response.headers)
         _logger.debug(
-            f'record_exc(): requests_info={requests_info} input_tokens_info={input_tokens_info} '
-            f'output_tokens_info={output_tokens_info}'
+            f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} '
+            f'input_tokens_info={input_tokens_info} output_tokens_info={output_tokens_info}'
         )
-        self.record(requests=requests_info, input_tokens=input_tokens_info, output_tokens=output_tokens_info)
+        self.record(
+            request_ts=request_ts,
+            requests=requests_info,
+            input_tokens=input_tokens_info,
+            output_tokens=output_tokens_info,
+        )
         self.has_exc = True
 
         retry_after_str = exc.response.headers.get('retry-after')
         if retry_after_str is not None:
             _logger.debug(f'retry-after: {retry_after_str}')
 
-    def get_retry_delay(self, exc: Exception) -> float | None:
+    def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
         import anthropic
 
         # deal with timeouts separately, they don't come with headers
         if isinstance(exc, anthropic.APITimeoutError):
-            return 1.0
+            return exponential_backoff(attempt)
 
         if not isinstance(exc, anthropic.APIStatusError):
             return None
@@ -143,7 +149,7 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
         should_retry_str = exc.response.headers.get('x-should-retry', '')
         if should_retry_str.lower() != 'true':
             return None
-        return super().get_retry_delay(exc)
+        return super().get_retry_delay(exc, attempt)
 
 
 @pxt.udf
@@ -226,6 +232,8 @@ async def messages(
     # TODO: timeouts should be set system-wide and be user-configurable
     from anthropic.types import MessageParam
 
+    start_ts = datetime.datetime.now(tz=datetime.timezone.utc)
+
     result = await _anthropic_client().messages.with_raw_response.create(
         messages=cast(Iterable[MessageParam], messages), model=model, max_tokens=max_tokens, **model_kwargs
     )
@@ -236,7 +244,11 @@ async def messages(
     #     _logger.debug(f'retry-after: {retry_after_str}')
     is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
     rate_limits_info.record(
-        requests=requests_info, input_tokens=input_tokens_info, output_tokens=output_tokens_info, reset_exc=is_retry
+        request_ts=start_ts,
+        requests=requests_info,
+        input_tokens=input_tokens_info,
+        output_tokens=output_tokens_info,
+        reset_exc=is_retry,
     )
 
     result_dict = json.loads(result.text)

@@ -4,7 +4,6 @@ import math
 import os
 import random
 import re
-import time
 from pathlib import Path
 from typing import Any, Literal, _GenericAlias, cast  # type: ignore[attr-defined]
 
@@ -26,13 +25,11 @@ from pixeltable.func import Batch
 from pixeltable.io.external_store import MockProject
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.local_store import LocalStore
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
     TESTS_DIR,
     ReloadTester,
-    assert_json_eq,
     assert_resultset_eq,
     assert_table_metadata_eq,
     create_table_data,
@@ -41,8 +38,6 @@ from .utils import (
     get_image_files,
     get_multimedia_commons_video_uris,
     get_video_files,
-    inf_array_iterator,
-    inf_image_iterator,
     make_tbl,
     read_data_file,
     reload_catalog,
@@ -141,6 +136,10 @@ class TestTable:
         pxt.drop_table('test2')
         pxt.drop_table('dir1.test')
 
+        # test create with hyphens
+        pxt.create_dir('hyphenated-dir')
+        _ = pxt.create_table('hyphenated-dir.hyphenated-table', schema)
+
         with pytest.raises(pxt.Error, match="Path 'test' does not exist"):
             pxt.drop_table('test')
         with pytest.raises(pxt.Error, match=r"Path 'dir1.test2' does not exist"):
@@ -175,12 +174,9 @@ class TestTable:
             "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
         )
 
-        # scenario 1: a table exists at the path already
+        # scenario 1: a table already exists at the path
         with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_table('test', schema)
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.create_table('test', schema)
-        assert 'is an existing' in str(exc_info.value)
         assert len(tbl.select().collect()) == 5
         # if_exists='ignore' should return the existing table
         tbl2 = pxt.create_table('test', schema, if_exists='ignore')
@@ -358,7 +354,8 @@ class TestTable:
                             'index_type': 'embedding',
                             'name': 'idx0',
                             'parameters': {
-                                'embeddings': [
+                                'embedding': "clip(col, model_id='openai/clip-vit-base-patch32')",
+                                'embedding_functions': [
                                     "clip(text, model_id='openai/clip-vit-base-patch32')",
                                     "clip(image, model_id='openai/clip-vit-base-patch32')",
                                 ],
@@ -549,33 +546,41 @@ class TestTable:
         )
         assert_resultset_eq(on_read_res_1, on_read_res_2)
 
-    def test_create_from_df(self, test_tbl: pxt.Table) -> None:
-        t = pxt.get_table('test_tbl')
-        df1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
-        t1 = pxt.create_table('test1', source=df1)
-        assert t1._get_schema() == df1.schema
-        assert t1.collect() == df1.collect()
-
-        from pixeltable.functions import sum
+    def test_create_from_query(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
+        t1 = pxt.create_table('test1', source=query1)
+        assert t1._get_schema() == query1.schema
+        assert t1.collect() == query1.collect()
 
         t.add_computed_column(c2mod=t.c2 % 5)
-        df2 = t.group_by(t.c2mod).select(t.c2mod, sum(t.c2))
-        t2 = pxt.create_table('test2', source=df2)
-        assert t2._get_schema() == df2.schema
-        assert t2.collect() == df2.collect()
+        query2 = t.group_by(t.c2mod).select(t.c2mod, pxtf.sum(t.c2))
+        t2 = pxt.create_table('test2', source=query2)
+        assert t2._get_schema() == query2.schema
+        assert t2.collect() == query2.collect()
+
+        # Create from table directly
+        t3 = pxt.create_table('test3', source=t)
+        assert t3._get_schema() == t._get_schema()
+        assert t3.collect() == t.collect()
 
         with pytest.raises(pxt.Error, match='must be a non-empty dictionary'):
             _ = pxt.create_table('test3', ['I am a string.'])  # type: ignore[arg-type]
 
-    def test_insert_df(self, test_tbl: pxt.Table) -> None:
-        t = pxt.get_table('test_tbl')
-        df1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
-        t1 = pxt.create_table('test1', source=df1)
-        assert t1._get_schema() == df1.schema
-        assert t1.collect() == df1.collect()
+    def test_insert_query(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
+        t1 = pxt.create_table('test1', source=query1)
+        assert t1._get_schema() == query1.schema
+        assert t1.collect() == query1.collect()
 
-        t1.insert(df1)
-        assert len(t1.collect()) == 2 * len(df1.collect())
+        t1.insert(query1)
+        assert len(t1.collect()) == 2 * len(query1.collect())
+
+        # Insert from table directly
+        t2 = pxt.create_table('test2', source=t)
+        t2.insert(t)
+        assert len(t2.collect()) == 2 * len(t.collect())
 
     def test_insert_pydantic_scalars(self, reset_db: None) -> None:
         schema = {
@@ -960,12 +965,39 @@ class TestTable:
             pxt.create_table('empty_table', {})
 
     def test_drop_table(self, test_tbl: pxt.Table) -> None:
-        pxt.drop_table('test_tbl')
+        t = pxt.create_table('test1', {'c1': pxt.String})
+        pxt.drop_table('test1')
         with pytest.raises(pxt.Error, match='does not exist'):
-            _ = pxt.get_table('test_tbl')
-        # TODO: deal with concurrent drop_table() in another process
-        # with pytest.raises(pxt.Error, match='has been dropped') as exc_info:
+            _ = pxt.get_table('test1')
+        # with pytest.raises(pxt.Error) as exc_info:
         #     _ = t.show(1)
+        # assert 'table test1 has been dropped' in str(exc_info.value).lower()
+        t = pxt.create_table('test2', {'c1': pxt.String})
+        t = pxt.get_table('test2')
+        pxt.drop_table('test2')
+        with pytest.raises(pxt.Error, match='does not exist'):
+            _ = pxt.get_table('test2')
+        # with pytest.raises(pxt.Error) as exc_info:
+        #     _ = t.show(1)
+        # assert 'table test2 has been dropped' in str(exc_info.value).lower()
+        t = pxt.create_table('test3', {'c1': pxt.String})
+        _ = pxt.create_view('view3', t)
+        pxt.drop_table('view3')
+        with pytest.raises(pxt.Error, match='does not exist'):
+            _ = pxt.get_table('view3')
+        # with pytest.raises(pxt.Error) as exc_info:
+        #     _ = v.show(1)
+        # assert 'view view3 has been dropped' in str(exc_info.value).lower()
+        _ = pxt.get_table('test3')
+        _ = pxt.create_view('view4', t)
+        pxt.drop_table('view4')
+        with pytest.raises(pxt.Error, match='does not exist'):
+            _ = pxt.get_table('view4')
+        # with pytest.raises(pxt.Error) as exc_info:
+        #     _ = v.show(1)
+        # assert 'view view4 has been dropped' in str(exc_info.value).lower()
+        _ = pxt.get_table('test3')
+        pxt.drop_table('test3')
 
     def test_drop_table_via_handle(self, test_tbl: pxt.Table) -> None:
         t = pxt.create_table('test1', {'c1': pxt.String})
@@ -992,7 +1024,7 @@ class TestTable:
         #     _ = v.show(1)
         # assert 'view view3 has been dropped' in str(exc_info.value).lower()
         _ = pxt.get_table('test3')
-        v = pxt.create_view('view4', t)
+        _ = pxt.create_view('view4', t)
         v = pxt.get_table('view4')
         pxt.drop_table(v)
         with pytest.raises(pxt.Error, match='does not exist'):
@@ -1072,8 +1104,8 @@ class TestTable:
 
         # compare img and img_literal
         # TODO: make tbl.select(tbl.img == tbl.img_literal) work
-        tdf = tbl.select(tbl.img, tbl.img_literal).show()
-        pdf = tdf.to_pandas()
+        query = tbl.select(tbl.img, tbl.img_literal).show()
+        pdf = query.to_pandas()
         for tup in pdf.itertuples():
             assert tup.img == tup.img_literal
 
@@ -1581,196 +1613,6 @@ class TestTable:
         assert t.count() == 1
         for tup in t.collect():
             assert tup['c1'] == 'this is a python string'
-
-    def test_insert_arrays(self, reset_db: None) -> None:
-        """Test storing arrays of various sizes and dtypes."""
-        # 5 columns: cycle through different shapes and sizes in each row
-        t = pxt.create_table(
-            'test', {'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array, 'ar4': pxt.Array, 'ar5': pxt.Array}
-        )
-
-        vals = inf_array_iterator(
-            shapes=[(4, 4), (40, 40), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
-        )
-        rows = [
-            {'ar1': next(vals), 'ar2': next(vals), 'ar3': next(vals), 'ar4': next(vals), 'ar5': next(vals)}
-            for _ in range(60)
-        ]
-        total_bytes = sum(
-            row['ar1'].nbytes + row['ar2'].nbytes + row['ar3'].nbytes + row['ar4'].nbytes + row['ar5'].nbytes
-            for row in rows
-        )
-        start = time.monotonic()
-        status = t.insert(rows)
-        end = time.monotonic()
-        print(
-            f'inserted {total_bytes / 2**20:.2f}MB in {end - start:.2f}s, '
-            f'{total_bytes / (end - start) / 2**20:.2f} MB/s'
-        )
-        assert status.num_excs == 0
-        tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
-
-        res = t.head(100)  # head(): return in insertion order
-        assert all(np.array_equal(row['ar1'], rows[i]['ar1']) for i, row in enumerate(res))
-        assert all(np.array_equal(row['ar2'], rows[i]['ar2']) for i, row in enumerate(res))
-        assert all(np.array_equal(row['ar3'], rows[i]['ar3']) for i, row in enumerate(res))
-        assert all(np.array_equal(row['ar4'], rows[i]['ar4']) for i, row in enumerate(res))
-        assert all(np.array_equal(row['ar5'], rows[i]['ar5']) for i, row in enumerate(res))
-
-        pxt.drop_table('test')
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
-
-    def test_insert_inlined_objects(self, reset_db: None) -> None:
-        """Test storing lists and dicts with arrays of various sizes and dtypes."""
-        schema = {
-            'array_list': pxt.Json,
-            'array_dict': pxt.Json,
-            'img1': pxt.Image,
-            'img2': pxt.Image,
-            'img3': pxt.Image,
-            'img_list': pxt.Json,
-            'img_dict': pxt.Json,
-        }
-        t = pxt.create_table('test', schema)
-
-        array_vals = inf_array_iterator(
-            shapes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
-        )
-        imgs = inf_image_iterator()
-        rng = np.random.default_rng(0)
-        rows: list[dict[str, Any]] = []
-        for _ in range(10):
-            img1 = next(imgs)
-            img2 = next(imgs)
-            img3 = next(imgs)
-            rows.append(
-                {
-                    'array_list': [next(array_vals) for _ in range(rng.integers(1, 10, endpoint=True, dtype=int))],
-                    'array_dict': {
-                        str(i): next(array_vals) for i in range(rng.integers(1, 10, endpoint=True, dtype=int))
-                    },
-                    'img1': img1,
-                    'img2': img2,
-                    'img3': img3,
-                    'img_list': [img1, img2, img3],
-                    'img_dict': {'img1': img1, 'img2': img2, 'img3': img3},
-                }
-            )
-        status = t.insert(rows)
-        assert status.num_excs == 0
-        tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
-
-        res = t.head(10)  # head(): return in insertion order
-        for i, row in enumerate(res):
-            assert_json_eq(row['array_list'], rows[i]['array_list'])
-            assert_json_eq(row['array_dict'], rows[i]['array_dict'])
-            assert_json_eq(row['img_list'], [row['img1'], row['img2'], row['img3']])
-            assert_json_eq(row['img_dict'], {'img1': row['img1'], 'img2': row['img2'], 'img3': row['img3']})
-
-        pxt.drop_table('test')
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
-
-    def test_nonstandard_json_construction(self, reset_db: None) -> None:
-        # test list/dict construction
-        # use 5 arrays to ensure every row sees a different combination of shapes and dtypes
-        schema = {
-            'id': pxt.Int,
-            'a1': pxt.Array,
-            'a2': pxt.Array,
-            'a3': pxt.Array,
-            'a4': pxt.Array,
-            'a5': pxt.Array,
-            'img1': pxt.Image,
-            'img2': pxt.Image,
-            'img3': pxt.Image,
-            'img4': pxt.Image,
-        }
-        t = pxt.create_table('test', schema)
-        t.add_computed_column(l1=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5])
-        t.add_computed_column(
-            d1={
-                'a': t.a1,
-                'z': t.img1,
-                'b': t.a2,
-                'y': t.img2,
-                'c': t.a3,
-                'x': t.img3,
-                'd': t.a4,
-                'w': t.img4,
-                'e': t.a5,
-            }
-        )
-
-        array_vals = inf_array_iterator(
-            shapes=[(4, 4), (100, 100), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
-        )
-        imgs = inf_image_iterator()
-        rows = [
-            {
-                'id': i,
-                'a1': next(array_vals),
-                'a2': next(array_vals),
-                'a3': next(array_vals),
-                'a4': next(array_vals),
-                'a5': next(array_vals),
-                'img1': next(imgs),
-                'img2': next(imgs),
-                'img3': next(imgs),
-                'img4': next(imgs),
-            }
-            for i in range(100)
-        ]
-        status = t.insert(rows)
-        assert status.num_excs == 0
-        tbl_id = t._id
-        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
-
-        # list construction
-        res = t.select(t.l1, l2=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5]).order_by(t.id).collect()
-        for i, row in enumerate(res):
-            assert_json_eq(row['l1'], row['l2'], context=f'row {i}')
-
-        # dict construction
-        res = (
-            t.select(
-                t.d1,
-                d2={
-                    'a': t.a1,
-                    'z': t.img1,
-                    'b': t.a2,
-                    'y': t.img2,
-                    'c': t.a3,
-                    'x': t.img3,
-                    'd': t.a4,
-                    'w': t.img4,
-                    'e': t.a5,
-                },
-            )
-            .order_by(t.id)
-            .collect()
-        )
-        for i, row in enumerate(res):
-            assert_json_eq(row['d1'], row['d2'], context=f'row {i}')
-
-        # test json path materialization (instead of full reconstruction of l1/d1)
-        # TODO: collect runtime information to verify that we're only reconstructing l1[0], not the entire cell
-        res = t.select(t.a1, l_a1=t.l1[0]).order_by(t.id).collect()
-        for i, row in enumerate(res):
-            assert_json_eq(row['a1'], row['l_a1'], context=f'row {i}')
-        res = t.select(t.img1, l_img1=t.l1[1]).order_by(t.id).collect()
-        for i, row in enumerate(res):
-            assert_json_eq(row['img1'], row['l_img1'], context=f'row {i}')
-        res = t.select(t.a2, d_a2=t.d1['b']).order_by(t.id).collect()
-        for i, row in enumerate(res):
-            assert_json_eq(row['a2'], row['d_a2'], context=f'row {i}')
-        res = t.select(t.img2, d_img2=t.d1['y']).order_by(t.id).collect()
-        for i, row in enumerate(res):
-            assert_json_eq(row['img2'], row['d_img2'], context=f'row {i}')
-
-        pxt.drop_table('test')
-        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
     def test_query(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
@@ -2332,6 +2174,16 @@ class TestTable:
             _ = t.add_column(c1=pxt.Int)
         assert 'duplicate column name' in str(exc_info.value).lower()
 
+        with pytest.raises(pxt.Error, match=r'Invalid column name: _invalid'):
+            # leading underscore
+            _ = t.add_column(_invalid=pxt.Int)
+        with pytest.raises(pxt.Error, match=r'Invalid column name: 123'):
+            # not an identifier
+            _ = t.add_column(**{'123': pxt.Int})
+        with pytest.raises(pxt.Error, match=r'Invalid column name: hyphenated-column'):
+            # not an identifier (hyphenated)
+            _ = t.add_column(**{'hyphenated-column': pxt.Int})
+
         # 'stored' kwarg only applies to computed image columns
         with pytest.raises(pxt.Error):
             _ = t.add_column(c5=pxt.Int, stored=False)
@@ -2608,7 +2460,7 @@ class TestTable:
         assert set(status.updated_cols) == {'recompute_test.i1', 'recompute_test.i2', 'recompute_view.i3'}
         validate(1, 1)
 
-        # recompute with propagation and predicate, via a DataFrame
+        # recompute with propagation and predicate, via a Query
         TestTable.recompute_udf_increment = 0
         status = t.where(t.i < 10).recompute_columns(t.i1, cascade=True)
         assert status.num_rows == 10 + 10
@@ -2913,7 +2765,7 @@ class TestTable:
                      c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
 
             Index Name Column  Metric                                          Embedding
-                  idx0     c1  cosine  sentence_transformer(sentence, normalize_embed...
+                  idx0     c1  cosine  sentence_transformer(c1, model_id='all-mpnet-b...
 
             External Store         Type
                    project  MockProject

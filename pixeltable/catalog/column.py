@@ -5,6 +5,7 @@ import warnings
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
@@ -18,12 +19,13 @@ from .globals import MediaValidation, QColumnId, is_valid_identifier
 if TYPE_CHECKING:
     from .table_version import TableVersion
     from .table_version_handle import ColumnHandle, TableVersionHandle
+    from .table_version_path import TableVersionPath
 
 _logger = logging.getLogger('pixeltable')
 
 
 class Column:
-    """Representation of a column in the schema of a Table/DataFrame.
+    """Representation of a column in the schema of a Table/Query.
 
     A Column contains all the metadata necessary for executing queries and updates against a particular version of a
     table/view.
@@ -162,26 +164,38 @@ class Column:
         )
         return col_md, sch_md
 
-    def init_value_expr(self) -> None:
+    def init_value_expr(self, tvp: 'TableVersionPath' | None) -> None:
+        """
+        Initialize the value_expr from its dict representation, if necessary.
+
+        If `tvp` is not None, retarget the value_expr to the given TableVersionPath.
+        """
         from pixeltable import exprs
 
-        if self._value_expr is not None or self.value_expr_dict is None:
+        if self._value_expr is None and self.value_expr_dict is None:
             return
-        self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
-        self._value_expr.bind_rel_paths()
-        if not self._value_expr.is_valid:
-            message = (
-                dedent(
-                    f"""
-                    The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
-                    {{validation_error}}
-                    You can continue to query existing data from this column, but evaluating it on new data will raise an error.
-                    """  # noqa: E501
+
+        if self._value_expr is None:
+            # Instantiate the Expr from its dict
+            self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
+            self._value_expr.bind_rel_paths()
+            if not self._value_expr.is_valid:
+                message = (
+                    dedent(
+                        f"""
+                        The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
+                        {{validation_error}}
+                        You can continue to query existing data from this column, but evaluating it on new data will raise an error.
+                        """  # noqa: E501
+                    )
+                    .strip()
+                    .format(validation_error=self._value_expr.validation_error)
                 )
-                .strip()
-                .format(validation_error=self._value_expr.validation_error)
-            )
-            warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
+                warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
+
+        if tvp is not None:
+            # Retarget the Expr
+            self._value_expr = self._value_expr.retarget(tvp)
 
     def get_tbl(self) -> TableVersion:
         tv = self.tbl_handle.get()
@@ -247,6 +261,12 @@ class Column:
             self.value_expr.subexprs(filter=lambda e: isinstance(e, exprs.FunctionCall) and e.is_window_fn_call)
         )
         return len(window_fn_calls) > 0
+
+    def stores_external_array(self) -> bool:
+        """Returns True if this is an Array column that might store its values externally."""
+        assert self.sa_col_type is not None
+        # Vector: if this is a vector column (ie, used for a vector index), it stores the array itself
+        return self.col_type.is_array_type() and not isinstance(self.sa_col_type, pgvector.sqlalchemy.Vector)
 
     @property
     def is_computed(self) -> bool:

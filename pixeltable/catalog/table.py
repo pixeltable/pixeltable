@@ -117,7 +117,9 @@ class Table(SchemaObject):
         return op()
 
     def _get_metadata(self) -> TableMetadata:
-        columns = self._tbl_version_path.columns()
+        tvp = self._tbl_version_path
+        tv = tvp.tbl_version.get()
+        columns = tvp.columns()
         column_info: dict[str, ColumnMetadata] = {}
         for col in columns:
             column_info[col.name] = ColumnMetadata(
@@ -130,38 +132,44 @@ class Table(SchemaObject):
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
                 defined_in=col.get_tbl().name,
             )
-        # Pure snapshots have no indices
-        indices = self._tbl_version.get().idxs_by_name.values() if self._tbl_version is not None else {}
+
+        indices = tv.idxs_by_name.values()
         index_info: dict[str, IndexMetadata] = {}
         for info in indices:
             if isinstance(info.idx, index.EmbeddingIndex):
-                embeddings: list[str] = []
+                col_ref = ColumnRef(info.col)
+                embedding = (
+                    info.idx.string_embed(col_ref)
+                    if info.col.col_type.is_string_type()
+                    else info.idx.image_embed(col_ref)
+                )
+                embedding_functions: list[pxt.Function] = []
                 if info.idx.string_embed is not None:
-                    embeddings.append(str(info.idx.string_embed))
+                    embedding_functions.append(info.idx.string_embed)
                 if info.idx.image_embed is not None:
-                    embeddings.append(str(info.idx.image_embed))
+                    embedding_functions.append(info.idx.image_embed)
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
                     index_type='embedding',
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
-                        embeddings=embeddings,
+                        embedding=str(embedding),
+                        embedding_functions=[str(fn) for fn in embedding_functions],
                     ),
                 )
+
         return TableMetadata(
             name=self._name,
             path=self._path(),
             columns=column_info,
             indices=index_info,
-            is_replica=self._tbl_version_path.is_replica(),
+            is_replica=tv.is_replica,
             is_view=False,
             is_snapshot=False,
             version=self._get_version(),
-            version_created=datetime.datetime.fromtimestamp(
-                self._tbl_version_path.tbl_version.get().created_at, tz=datetime.timezone.utc
-            ),
-            schema_version=self._tbl_version_path.schema_version(),
+            version_created=datetime.datetime.fromtimestamp(tv.created_at, tz=datetime.timezone.utc),
+            schema_version=tvp.schema_version(),
             comment=self._get_comment(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
             base=None,
@@ -170,6 +178,10 @@ class Table(SchemaObject):
     def _get_version(self) -> int:
         """Return the version of this table. Used by tests to ascertain version changes."""
         return self._tbl_version_path.version()
+
+    def _get_pxt_uri(self) -> str | None:
+        with catalog.Catalog.get().begin_xact(tbl_id=self._id):
+            return catalog.Catalog.get().get_additional_md(self._id).get('pxt_uri')
 
     def __hash__(self) -> int:
         return hash(self._tbl_version_path.tbl_id)
@@ -215,68 +227,66 @@ class Table(SchemaObject):
             views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
         return views
 
-    def _df(self) -> 'pxt.dataframe.DataFrame':
-        """Return a DataFrame for this table."""
-        # local import: avoid circular imports
-        from pixeltable.plan import FromClause
-
-        return pxt.DataFrame(FromClause(tbls=[self._tbl_version_path]))
-
-    def select(self, *items: Any, **named_items: Any) -> 'pxt.DataFrame':
+    def select(self, *items: Any, **named_items: Any) -> 'pxt.Query':
         """Select columns or expressions from this table.
 
-        See [`DataFrame.select`][pixeltable.DataFrame.select] for more details.
+        See [`Query.select`][pixeltable.Query.select] for more details.
         """
         from pixeltable.catalog import Catalog
+        from pixeltable.plan import FromClause
+
+        query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
+        if len(items) == 0 and len(named_items) == 0:
+            return query  # Select(*); no further processing is necessary
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self._df().select(*items, **named_items)
+            return query.select(*items, **named_items)
 
-    def where(self, pred: 'exprs.Expr') -> 'pxt.DataFrame':
+    def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
         """Filter rows from this table based on the expression.
 
-        See [`DataFrame.where`][pixeltable.DataFrame.where] for more details.
+        See [`Query.where`][pixeltable.Query.where] for more details.
         """
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self._df().where(pred)
+            return self.select().where(pred)
 
     def join(
         self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
-    ) -> 'pxt.DataFrame':
+    ) -> 'pxt.Query':
         """Join this table with another table."""
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self._df().join(other, on=on, how=how)
+            return self.select().join(other, on=on, how=how)
 
-    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.DataFrame':
+    def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
         """Order the rows of this table based on the expression.
 
-        See [`DataFrame.order_by`][pixeltable.DataFrame.order_by] for more details.
+        See [`Query.order_by`][pixeltable.Query.order_by] for more details.
         """
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self._df().order_by(*items, asc=asc)
+            return self.select().order_by(*items, asc=asc)
 
-    def group_by(self, *items: 'exprs.Expr') -> 'pxt.DataFrame':
+    def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
         """Group the rows of this table based on the expression.
 
-        See [`DataFrame.group_by`][pixeltable.DataFrame.group_by] for more details.
+        See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
         from pixeltable.catalog import Catalog
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=False):
-            return self._df().group_by(*items)
+            return self.select().group_by(*items)
 
-    def distinct(self) -> 'pxt.DataFrame':
+    def distinct(self) -> 'pxt.Query':
         """Remove duplicate rows from table."""
-        return self._df().distinct()
+        return self.select().distinct()
 
-    def limit(self, n: int) -> 'pxt.DataFrame':
-        return self._df().limit(n)
+    def limit(self, n: int) -> 'pxt.Query':
+        return self.select().limit(n)
 
     def sample(
         self,
@@ -285,34 +295,34 @@ class Table(SchemaObject):
         fraction: float | None = None,
         seed: int | None = None,
         stratify_by: Any = None,
-    ) -> pxt.DataFrame:
+    ) -> pxt.Query:
         """Choose a shuffled sample of rows
 
-        See [`DataFrame.sample`][pixeltable.DataFrame.sample] for more details.
+        See [`Query.sample`][pixeltable.Query.sample] for more details.
         """
-        return self._df().sample(
+        return self.select().sample(
             n=n, n_per_stratum=n_per_stratum, fraction=fraction, seed=seed, stratify_by=stratify_by
         )
 
-    def collect(self) -> 'pxt.dataframe.DataFrameResultSet':
+    def collect(self) -> 'pxt._query.ResultSet':
         """Return rows from this table."""
-        return self._df().collect()
+        return self.select().collect()
 
-    def show(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
+    def show(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
         """Return rows from this table."""
-        return self._df().show(*args, **kwargs)
+        return self.select().show(*args, **kwargs)
 
-    def head(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
+    def head(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
         """Return the first n rows inserted into this table."""
-        return self._df().head(*args, **kwargs)
+        return self.select().head(*args, **kwargs)
 
-    def tail(self, *args: Any, **kwargs: Any) -> 'pxt.dataframe.DataFrameResultSet':
+    def tail(self, *args: Any, **kwargs: Any) -> 'pxt._query.ResultSet':
         """Return the last n rows inserted into this table."""
-        return self._df().tail(*args, **kwargs)
+        return self.select().tail(*args, **kwargs)
 
     def count(self) -> int:
         """Return the number of rows in this table."""
-        return self._df().count()
+        return self.select().count()
 
     def columns(self) -> list[str]:
         """Return the names of the columns in this table."""
@@ -398,16 +408,17 @@ class Table(SchemaObject):
         pd_rows = []
         for name, info in self._tbl_version.get().idxs_by_name.items():
             if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
-                display_embed = info.idx.string_embed if info.col.col_type.is_string_type() else info.idx.image_embed
-                if info.idx.string_embed is not None and info.idx.image_embed is not None:
-                    embed_str = f'{display_embed} (+1)'
-                else:
-                    embed_str = str(display_embed)
+                col_ref = ColumnRef(info.col)
+                embedding = (
+                    info.idx.string_embed(col_ref)
+                    if info.col.col_type.is_string_type()
+                    else info.idx.image_embed(col_ref)
+                )
                 row = {
                     'Index Name': name,
                     'Column': info.col.name,
                     'Metric': str(info.idx.metric.name.lower()),
-                    'Embedding': embed_str,
+                    'Embedding': str(embedding),
                 }
                 pd_rows.append(row)
         return pd.DataFrame(pd_rows)
@@ -434,15 +445,15 @@ class Table(SchemaObject):
     # The return type is unresolvable, but torch can't be imported since it's an optional dependency.
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
         """Return a PyTorch Dataset for this table.
-        See DataFrame.to_pytorch_dataset()
+        See Query.to_pytorch_dataset()
         """
-        return self._df().to_pytorch_dataset(image_format=image_format)
+        return self.select().to_pytorch_dataset(image_format=image_format)
 
     def to_coco_dataset(self) -> Path:
         """Return the path to a COCO json file for this table.
-        See DataFrame.to_coco_dataset()
+        See Query.to_coco_dataset()
         """
-        return self._df().to_coco_dataset()
+        return self.select().to_coco_dataset()
 
     def _column_has_dependents(self, col: Column) -> bool:
         """Returns True if the column has dependents, False otherwise."""
@@ -576,7 +587,7 @@ class Table(SchemaObject):
 
                 - `'error'`: an exception will be raised.
                 - `'ignore'`: do nothing and return.
-                - `'replace' or 'replace_force'`: drop the existing column and add the new column, if it has
+                - `'replace'` or `'replace_force'`: drop the existing column and add the new column, if it has
                     no dependents.
 
         Returns:
@@ -1466,14 +1477,17 @@ class Table(SchemaObject):
             Update the `name` and `age` columns for the rows with ids 1 and 2 (assuming `id` is the primary key).
             If either row does not exist, this raises an error:
 
-            >>> tbl.update([{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 2, 'name': 'Bob', 'age': 40}])
+            >>> tbl.batch_update(
+            ...     [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 2, 'name': 'Bob', 'age': 40}]
+            ... )
 
             Update the `name` and `age` columns for the row with `id` 1 (assuming `id` is the primary key) and insert
             the row with new `id` 3 (assuming this key does not exist):
 
-            >>> tbl.update(
+            >>> tbl.batch_update(
             ...     [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 3, 'name': 'Bob', 'age': 40}],
-            ...     if_not_exists='insert')
+            ...     if_not_exists='insert'
+            ... )
         """
         from pixeltable.catalog import Catalog
 
@@ -1616,13 +1630,74 @@ class Table(SchemaObject):
         .. warning::
             This operation is irreversible.
         """
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with catalog.Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('revert')
             self._tbl_version.get().revert()
             # remove cached md in order to force a reload on the next operation
             self._tbl_version_path.clear_cached_md()
+
+    def push(self) -> None:
+        from pixeltable.share import push_replica
+        from pixeltable.share.protocol import PxtUri
+
+        pxt_uri = self._get_pxt_uri()
+        tbl_version = self._tbl_version_path.tbl_version.get()
+
+        if tbl_version.is_replica:
+            raise excs.Error(f'push(): Cannot push replica table {self._name!r}. (Did you mean `pull()`?)')
+
+        if pxt_uri is None:
+            raise excs.Error(
+                f'push(): Table {self._name!r} has not yet been published to Pixeltable Cloud. '
+                'To publish it, use `pxt.publish()` instead.'
+            )
+
+        if isinstance(self, catalog.View) and self._is_anonymous_snapshot():
+            raise excs.Error(
+                f'push(): Cannot push specific-version table handle {tbl_version.versioned_name!r}. '
+                'To push the latest version instead:\n'
+                f'  t = pxt.get_table({self._name!r})\n'
+                f'  t.push()'
+            )
+
+        if self._tbl_version is None:
+            # Named snapshots never have new versions to push.
+            env.Env.get().console_logger.info('push(): Everything up to date.')
+            return
+
+        # Parse the pxt URI to extract org/db and create a UUID-based URI for pushing
+        parsed_uri = PxtUri(uri=pxt_uri)
+        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
+        uuid_uri = str(uuid_uri_obj)
+
+        push_replica(uuid_uri, self)
+
+    def pull(self) -> None:
+        from pixeltable.share import pull_replica
+        from pixeltable.share.protocol import PxtUri
+
+        pxt_uri = self._get_pxt_uri()
+        tbl_version = self._tbl_version_path.tbl_version.get()
+
+        if not tbl_version.is_replica or pxt_uri is None:
+            raise excs.Error(
+                f'pull(): Table {self._name!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).'
+            )
+
+        if isinstance(self, catalog.View) and self._is_anonymous_snapshot():
+            raise excs.Error(
+                f'pull(): Cannot pull specific-version table handle {tbl_version.versioned_name!r}. '
+                'To pull the latest version instead:\n'
+                f'  t = pxt.get_table({self._name!r})\n'
+                f'  t.pull()'
+            )
+
+        # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
+        parsed_uri = PxtUri(uri=pxt_uri)
+        uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
+        uuid_uri = str(uuid_uri_obj)
+
+        pull_replica(self._path(), uuid_uri)
 
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.get().external_stores.keys())
