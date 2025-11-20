@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterat
 
 import pandas as pd
 import pydantic
+import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
@@ -554,14 +555,20 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        if self.group_by_clause is not None:
-            raise excs.Error('count() cannot be used with group_by()')
-
-        from pixeltable.plan import Planner
-
+        # Create the query plan within a transaction context (needed for table version validation)
         with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
-            stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
-            result: int = conn.execute(stmt).scalar_one()
+            # Create the query plan
+            plan = self._create_query_plan()
+            sql_node = plan.get_node(exec.SqlNode)
+            assert sql_node is not None
+
+            if sql_node.py_filter is not None:
+                raise excs.Error('count() is not supported for queries with Python-only filters.')
+
+            # Get the SQL statement from the SqlNode as a CTE
+            cte, _ = sql_node.to_cte(keep_pk=True)
+            count_stmt = sql.select(sql.func.count().label('all_count')).select_from(cte)
+            result: int = conn.execute(count_stmt).scalar_one()
             assert isinstance(result, int)
             return result
 
