@@ -81,7 +81,12 @@ def _setup_external_db_schema(worker_id: int | str) -> str:
     search_path_option = f'-c search_path={schema_name},public'
 
     query_dict = dict(db_url.query) if db_url.query else {}
-    existing_options = query_dict.get('options', '')
+    existing_options_raw = query_dict.get('options', '')
+    # Query parameters can be strings or tuples (if multiple values exist)
+    if isinstance(existing_options_raw, tuple):
+        existing_options = ' '.join(existing_options_raw)
+    else:
+        existing_options = existing_options_raw
 
     if existing_options:
         query_dict['options'] = f'{existing_options} {search_path_option}'
