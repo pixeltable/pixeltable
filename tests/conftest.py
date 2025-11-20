@@ -39,7 +39,6 @@ _logger = logging.getLogger('pixeltable')
 
 
 DO_RERUN: bool
-_SCHEMA_NAME: str | None = None
 
 
 def pytest_addoption(parser: argparsing.Parser) -> None:
@@ -65,24 +64,6 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
     _logger.info(f'Finished Pixeltable test: {current_test}')
 
 
-def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
-    """Clean up test schema at the end of the test session."""
-    if _SCHEMA_NAME:
-        try:
-            db_connect_str = os.environ.get('PIXELTABLE_DB_CONNECT_STR')
-            if db_connect_str:
-                engine = sql.create_engine(db_connect_str)
-                try:
-                    with engine.connect() as conn:
-                        conn.execute(text(f'DROP SCHEMA IF EXISTS "{_SCHEMA_NAME}" CASCADE'))
-                        conn.commit()
-                    _logger.info(f'Dropped test schema: {_SCHEMA_NAME}')
-                finally:
-                    engine.dispose()
-        except Exception as e:
-            _logger.warning(f'Failed to cleanup test schema {_SCHEMA_NAME}: {e}')
-
-
 def _set_up_external_db_schema(worker_id: int | str) -> str:
     schema_name = f'test_{worker_id}_{uuid.uuid4().hex[:16]}'
     original_connect_str = os.environ['PIXELTABLE_DB_CONNECT_STR']
@@ -105,8 +86,7 @@ def _set_up_external_db_schema(worker_id: int | str) -> str:
 
 
 @pytest.fixture(scope='session')
-def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
-    global _SCHEMA_NAME  # noqa: PLW0603
+def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:  # type: ignore[misc]
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
 
     # Set the relevant env vars for the test db.
@@ -122,11 +102,11 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
     reinit_db = True
-    _SCHEMA_NAME = None
+    schema_name = None
     if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
         print('Using external database connection for test configuration')
         reinit_db = False
-        _SCHEMA_NAME = _set_up_external_db_schema(worker_id)
+        schema_name = _set_up_external_db_schema(worker_id)
 
     for var in (
         'PIXELTABLE_HOME',
@@ -153,6 +133,24 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
         pxt.init()
 
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
+
+    yield
+
+    # Cleanup: Drop schema on fixture teardown
+    if schema_name:
+        try:
+            db_connect_str = os.environ.get('PIXELTABLE_DB_CONNECT_STR')
+            if db_connect_str:
+                engine = sql.create_engine(db_connect_str)
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
+                        conn.commit()
+                    _logger.info(f'Dropped test schema: {schema_name}')
+                finally:
+                    engine.dispose()
+        except Exception as e:
+            _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
 
 
 @pytest.fixture(scope='function')
