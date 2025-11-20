@@ -117,6 +117,8 @@ class TestMigration:
                 self._verify_v33()
             # self._verify_v24(old_version)
 
+            pxt.drop_table('sample_table', force=True)
+
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, (
             f'No DB dump found for current schema version {VERSION}. You can generate one with:\n'

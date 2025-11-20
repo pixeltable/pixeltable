@@ -16,6 +16,7 @@ from urllib3.util.retry import Retry
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Catalog
+from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 from pixeltable.utils.local_store import TempStore
@@ -47,13 +48,12 @@ def push_replica(
     _logger.info(f'Publishing replica for {src_tbl._name!r} to: {dest_tbl_uri}')
 
     packager = TablePackager(src_tbl)
-
     # Create the publish request using packager's bundle_md
     publish_request = PublishRequest(
         table_uri=PxtUri(uri=dest_tbl_uri),
         pxt_version=packager.bundle_md['pxt_version'],
         pxt_md_version=packager.bundle_md['pxt_md_version'],
-        md=packager.bundle_md['md'],
+        md=[TableVersionMd.from_dict(md_dict) for md_dict in packager.bundle_md['md']],
         bucket_name=bucket,
         is_public=access == 'public',
     )
@@ -61,7 +61,7 @@ def push_replica(
     _logger.debug(f'Sending PublishRequest: {publish_request}')
 
     response = requests.post(PIXELTABLE_API_URL, data=publish_request.model_dump_json(), headers=_api_headers())
-    if response.status_code == 204:
+    if response.status_code == 201:
         publish_response = PublishResponse.model_validate(response.json())
         existing_table_uri = str(publish_response.table_uri)
         Env.get().console_logger.info(

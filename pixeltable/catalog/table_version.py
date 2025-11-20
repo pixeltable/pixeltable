@@ -67,6 +67,10 @@ class TableVersionMd:
 
         return dataclasses.asdict(self, dict_factory=md_dict_factory)
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> TableVersionMd:
+        return schema.md_from_dict(cls, data)
+
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class TableVersionKey:

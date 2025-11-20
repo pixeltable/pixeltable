@@ -2,6 +2,7 @@ import time
 from typing import Any
 
 import numpy as np
+import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -216,3 +217,54 @@ class TestInlinedObjects:
 
         pxt.drop_table('test')
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+
+    def test_samples(self, reset_db: None) -> None:
+        schema = {'id': pxt.Int, 'c': pxt.Int, 'a': pxt.Array, 'd': pxt.Json}
+        t = pxt.create_table('test', schema)
+
+        rows = [
+            {
+                'id': i,
+                'c': i % 10,
+                'a': np.ones((256, 256, 3), dtype=np.float32) * i if i % 2 == 0 else None,
+                'd': {
+                    'a': np.ones((256, 256, 3), dtype=np.float32) * i,
+                    'b': PIL.Image.new('RGB', (i + 10, i + 10), color=(0, 0, 0)),
+                }
+                if i % 2 == 1
+                else None,
+            }
+            for i in range(100)
+        ]
+        status = t.insert(rows)
+        assert status.num_excs == 0
+
+        def check_sample(q: pxt.Query, n: int, rel_error: float = 0.0) -> None:
+            res = q.collect()
+            if n is not None:
+                assert len(res) >= n * (1.0 - rel_error)
+                assert len(res) <= n * (1.0 + rel_error)
+            assert all(row['a'] is None for row in res if row['id'] % 2 == 1)
+            assert all(
+                np.array_equal(row['a'], np.ones((256, 256, 3), dtype=np.float32) * row['id'])
+                for row in res
+                if row['id'] % 2 == 0
+            )
+            assert all(row['d'] is None for row in res if row['id'] % 2 == 0)
+            assert all(
+                np.array_equal(row['d']['a'], np.ones((256, 256, 3), dtype=np.float32) * row['id'])
+                for row in res
+                if row['id'] % 2 == 1
+            )
+            assert all(row['d']['b'].size == (row['id'] + 10, row['id'] + 10) for row in res if row['id'] % 2 == 1)
+
+        q_n = t.sample(n=10, seed=1)
+        check_sample(q_n, 10)
+        q_stratified_n = t.sample(n=10, seed=1, stratify_by=[t.c])
+        check_sample(q_stratified_n, 10)
+        q_per_stratum = t.sample(n_per_stratum=2, seed=1, stratify_by=[t.c])
+        check_sample(q_per_stratum, 20)
+        q_fraction = t.sample(fraction=0.1, seed=1)
+        check_sample(q_fraction, 10, rel_error=0.1)
+        q_stratified_fraction = t.sample(fraction=0.1, seed=1, stratify_by=[t.c])
+        check_sample(q_stratified_fraction, 10, rel_error=0.1)
