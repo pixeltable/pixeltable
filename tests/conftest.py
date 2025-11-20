@@ -81,23 +81,16 @@ def _setup_external_db_schema(worker_id: int | str) -> str:
     search_path_option = f'-c search_path={schema_name},public'
 
     query_dict = dict(db_url.query) if db_url.query else {}
-    existing_options_raw = query_dict.get('options', '')
     # Query parameters can be strings or tuples (if multiple values exist)
-    if isinstance(existing_options_raw, tuple):
-        existing_options = ' '.join(existing_options_raw)
-    else:
-        existing_options = existing_options_raw
+    existing_options_raw = query_dict.get('options', '')
+    existing_options = (
+        ' '.join(existing_options_raw) if isinstance(existing_options_raw, tuple) else existing_options_raw
+    )
 
-    if existing_options:
-        query_dict['options'] = f'{existing_options} {search_path_option}'
-    else:
-        query_dict['options'] = search_path_option
+    query_dict['options'] = f'{existing_options} {search_path_option}' if existing_options else search_path_option
 
-    # Update environment with worker-specific connection string
-    # PostgreSQL will automatically apply the search_path from the connection string
     modified_url = db_url.set(query=query_dict)
     os.environ['PIXELTABLE_DB_CONNECT_STR'] = modified_url.render_as_string(hide_password=False)
-
     _logger.info(f'Created schema and configured connection string with search_path: {schema_name}')
     return schema_name
 

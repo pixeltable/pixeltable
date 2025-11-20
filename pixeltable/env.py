@@ -577,10 +577,9 @@ class Env:
         # Get existing options and parse them
         # Query parameters can be strings or tuples (if multiple values exist)
         existing_options_raw = db_url.query.get('options', '') if db_url.query else ''
-        if isinstance(existing_options_raw, tuple):
-            existing_options = ' '.join(existing_options_raw)
-        else:
-            existing_options = existing_options_raw
+        existing_options = (
+            ' '.join(existing_options_raw) if isinstance(existing_options_raw, tuple) else existing_options_raw
+        )
         option_parts = existing_options.split() if existing_options else []
 
         # Add timezone option
