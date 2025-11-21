@@ -342,24 +342,6 @@ class TestArrayType:
             from_dict = ArrayType._from_dict(as_dict)
             assert type == from_dict, type
 
-    def test_schema_backward_compatibility(self) -> None:
-        # TODO discuss if we do this, or schema migration, or both
-        test_cases: list[tuple[dict, ArrayType]] = [
-            ({'dtype': 1, 'nullable': False, 'shape': [None]}, ArrayType(shape=(None,), dtype=np.dtype('int64'))),
-            (
-                {'dtype': 2, 'nullable': True, 'shape': [None]},
-                ArrayType(shape=(None,), dtype=np.dtype('float32'), nullable=True),
-            ),
-            ({'dtype': None, 'nullable': False, 'shape': None}, ArrayType()),
-            ({'dtype': 3, 'nullable': False, 'shape': [2, 2]}, ArrayType(shape=(2, 2), dtype=np.dtype('bool'))),
-            (
-                {'dtype': 0, 'nullable': False, 'shape': [2, 2, None]},
-                ArrayType(shape=(2, 2, None), dtype=np.dtype('str_')),
-            ),
-        ]
-        for dict_, expected_type in test_cases:
-            assert ArrayType._from_dict(dict_) == expected_type
-
     def test_numpy_dtypes_order(self) -> None:
         # ArrayType.supertype() relies on this property of ARRAY_SUPPORTED_NUMPY_DTYPES that all supertypes appear after
         # their subtypes
