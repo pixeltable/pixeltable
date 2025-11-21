@@ -207,23 +207,23 @@ class RateLimitsScheduler(Scheduler):
             _logger.debug(f'scheduler {self.resource_pool}: exception in slot {request.fn_call.slot_idx}: {exc}')
             if hasattr(exc, 'response') and hasattr(exc.response, 'headers'):
                 _logger.debug(f'scheduler {self.resource_pool}: exception headers: {exc.response.headers}')
-            if self.pool_info is None:
-                # our pool info should be available at this point
-                self._set_pool_info()
-            assert self.pool_info is not None
-            self.pool_info.record_exc(start_ts, exc)
 
-            if num_retries < self.MAX_RETRIES:
-                retry_delay = self.pool_info.get_retry_delay(exc, num_retries)
-                if retry_delay is not None:
-                    self.total_retried += 1
-                    _logger.debug(
-                        f'scheduler {self.resource_pool}: sleeping {retry_delay}s before retrying attempt {num_retries}'
-                        ' based on the information in the error'
-                    )
-                    await asyncio.sleep(retry_delay)
-                    self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx))
-                    return
+            # If pool info is available, attempt to retry based on the resource information
+            # Pool info may not be available yet if the exception occurred before the UDF set it
+            if self.pool_info is not None:
+                self.pool_info.record_exc(start_ts, exc)
+
+                if num_retries < self.MAX_RETRIES:
+                    retry_delay = self.pool_info.get_retry_delay(exc, num_retries)
+                    if retry_delay is not None:
+                        self.total_retried += 1
+                        _logger.debug(
+                            f'scheduler {self.resource_pool}: sleeping {retry_delay}s before retrying'
+                            f' attempt {num_retries} based on the information in the error'
+                        )
+                        await asyncio.sleep(retry_delay)
+                        self.queue.put_nowait(self.QueueItem(request, num_retries + 1, exec_ctx))
+                        return
 
             # record the exception
             _, _, exc_tb = sys.exc_info()
