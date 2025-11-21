@@ -112,6 +112,9 @@ class RowBuilder:
         input_exprs: Iterable[Expr],
         tbl: catalog.TableVersion | None = None,
     ):
+        from .column_property_ref import ColumnPropertyRef
+        from .column_ref import ColumnRef
+
         self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
 
@@ -134,7 +137,6 @@ class RowBuilder:
         # - media validation:
         #   * for write-validated columns, we need to create validating ColumnRefs
         #   * further references to that column (eg, computed cols) need to resolve to the validating ColumnRef
-        from .column_ref import ColumnRef
 
         self.tbl = tbl
         self.table_columns = {}
@@ -170,9 +172,6 @@ class RowBuilder:
             self.add_table_column(col, expr.slot_idx)
             self.output_exprs.add(expr)
 
-        # default eval ctx: all output exprs
-        self.default_eval_ctx = self.create_eval_ctx(list(self.output_exprs), exclude=unique_input_exprs)
-
         # references to unstored iterator columns:
         # - those ColumnRefs need to instantiate iterators
         # - we create and record the iterator args here and pass them to their respective ColumnRefs
@@ -190,12 +189,21 @@ class RowBuilder:
         component_views = [col_ref.col.get_tbl() for col_ref in unstored_iter_col_refs]
         unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
         self.unstored_iter_args = {
-            id: self._record_unique_expr(arg, recursive=True) for id, arg in unstored_iter_args.items()
+            id: self._record_unique_expr(args, recursive=True) for id, args in unstored_iter_args.items()
         }
+        # the *stored* output columns of the unstored iterators
+        unstored_iter_outputs = {
+            view.id: [self._record_unique_expr(ColumnRef(col), recursive=True) for col in view.iterator_columns() if col.is_stored]
+            for view in component_views
+        }
+
+        # default eval ctx: all output exprs
+        self.default_eval_ctx = self.create_eval_ctx(list(self.output_exprs), exclude=unique_input_exprs)
 
         for col_ref in unstored_iter_col_refs:
             iter_arg_ctx = self.create_eval_ctx([unstored_iter_args[col_ref.col.get_tbl().id]])
-            col_ref.set_iter_arg_ctx(iter_arg_ctx)
+            iter_outputs = unstored_iter_outputs[col_ref.col.get_tbl().id]
+            col_ref.set_iter_arg_ctx(iter_arg_ctx, iter_outputs)
 
         # we guarantee that we can compute the expr DAG in a single front-to-back pass
         for i, expr in enumerate(self.unique_exprs):
@@ -206,7 +214,6 @@ class RowBuilder:
         # self.dependents = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
         self.dependencies = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
         exc_dependencies: list[set[int]] = [set() for _ in range(self.num_materialized)]
-        from .column_property_ref import ColumnPropertyRef
 
         for expr in self.unique_exprs:
             if expr.slot_idx in self.input_expr_slot_idxs:
