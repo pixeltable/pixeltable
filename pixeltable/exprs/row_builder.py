@@ -124,10 +124,8 @@ class RowBuilder:
 
         resolve_cols = set(columns)
         self.output_exprs = ExprSet(
-            [
-                self._record_unique_expr(e.copy().resolve_computed_cols(resolve_cols=resolve_cols), recursive=True)
-                for e in output_exprs
-            ]
+            self._record_unique_expr(e.copy().resolve_computed_cols(resolve_cols=resolve_cols), recursive=True)
+            for e in output_exprs
         )
 
         # if init(columns):

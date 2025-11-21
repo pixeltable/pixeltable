@@ -230,7 +230,7 @@ class FrameIterator(ComponentIterator):
     def close(self) -> None:
         self.container.close()
 
-    def set_pos(self, pos: int) -> None:
+    def set_pos(self, pos: int, **kwargs: Any) -> None:
         if pos == self.next_pos:
             return  # already there
 
