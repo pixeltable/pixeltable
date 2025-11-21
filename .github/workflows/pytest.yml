@@ -47,6 +47,8 @@ env:
   PIXELTABLE_B2_PROFILE: b2_profile
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
   PIXELTABLE_R2_PROFILE: r2_profile
+  PXTTEST_COCKROACH_DB_CONNECT_STR: ${{ secrets.PXTTEST_COCKROACH_DB_CONNECT_STR }}
+  PXTTEST_COCKROACH_DB_ROOT_CERT: ${{ secrets.PXTTEST_COCKROACH_DB_ROOT_CERT }}
   PXTTEST_IN_CI: 1
   UV_VERSION: 0.9.3
 
@@ -188,9 +190,10 @@ jobs:
         # (including tests with the 'remote_api' marker that are not also marked 'expensive') will run on all matrix
         # configurations.
         run: |
-          echo "Running tests with options : ${{ matrix.pytest-options }}"
-          echo "Extra environment variables: ${{ matrix.extra-env }}"
-          ${{ matrix.extra-env }} coverage run -m --source=pixeltable pytest -v --strict-markers ${{ matrix.pytest-options }}
+          echo 'Running tests with options: ${{ matrix.pytest-options }}'
+          echo 'Extra pre-test command    : ${{ matrix.pre-test-cmd }}'
+          ${{ matrix.pre-test-cmd }}
+          coverage run -m --source=pixeltable pytest -v --strict-markers ${{ matrix.pytest-options }}
           coverage report -m
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
@@ -230,8 +233,7 @@ jobs:
         if: ${{ always() && startsWith(matrix.os, 'ubuntu') }}
         uses: actions/upload-artifact@v4
         with:
-          name: pixeltable-pytest-logs-${{ matrix.os }}-${{ matrix.python-version }}-${{
-            matrix.test-category }}${{ matrix.uv-options }}
+          name: pixeltable-pytest-logs-${{ matrix.display-name }}-${{ matrix.os }}-${{ matrix.python-version }}
           path: /tmp/pytest-of-runner/pytest-0/base0/.pixeltable/logs
       - name: Print utilization info
         if: ${{ startsWith(matrix.os, 'ubuntu') }}
