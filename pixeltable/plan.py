@@ -10,7 +10,6 @@ import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
@@ -348,35 +347,18 @@ class Analyzer:
 
 class Planner:
     @classmethod
-    def create_count_plan(
-        cls,
-        from_clause: FromClause,
-        where_clause: exprs.Expr | None = None,
-        group_by_clause: list[exprs.Expr] | None = None,
-        sample_clause: SampleClause | None = None,
-    ) -> exec.ExecNode:
-        """
-        Creates an execution plan that counts rows.
-        """
-        # Create the query plan (with empty select_list, as we just need to count rows)
-        plan = cls.create_query_plan(
-            from_clause=from_clause,
-            select_list=[],  # Empty select list - we just need rows to count
-            where_clause=where_clause,
-            group_by_clause=group_by_clause,
-            sample_clause=sample_clause,
-        )
-
-        # Check for Python filter - reject if present
+    def create_count_stmt(cls, query: 'pxt.Query') -> sql.Select:
+        """Creates a SQL SELECT COUNT(*) statement for counting rows in a Query."""
+        # Create the query plan
+        plan = query._create_query_plan()
         sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
         if sql_node.py_filter is not None:
-            raise excs.Error('count() with Python-only filters is not supported, use collect() instead.')
-
-        # Create RowBuilder for CountNode - use a Literal as a placeholder to register a slot
-        count_expr = exprs.Literal(0, ts.IntType())
-        context_tbl = from_clause.tbls[0].tbl_version.get() if len(from_clause.tbls) == 1 else None
-        row_builder = exprs.RowBuilder([count_expr], [], [], context_tbl)
-        return exec.SqlCountNode(row_builder, input=sql_node)
+            raise excs.Error('count() cannot be used with Python-only filters. Use collect() instead.')
+        # Get the SQL statement from the SqlNode as a CTE
+        cte, _ = sql_node.to_cte(keep_pk=True)
+        count_stmt = sql.select(sql.func.count().label('all_count')).select_from(cte)
+        return count_stmt
 
     @classmethod
     def create_insert_plan(

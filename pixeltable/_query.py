@@ -366,7 +366,7 @@ class Query:
         for item in self._select_list_exprs:
             item.bind_rel_paths()
 
-        return plan.Planner.create_query_plan(
+        return Planner.create_query_plan(
             self._from_clause,
             self._select_list_exprs,
             where_clause=self.where_clause,
@@ -554,26 +554,11 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
-            count_plan = plan.Planner.create_count_plan(
-                from_clause=self._from_clause,
-                where_clause=self.where_clause,
-                group_by_clause=self.group_by_clause,
-                sample_clause=self.sample_clause,
-            )
-
-            # Execute the count plan
-            count_plan.open()
-            try:
-                result_batch = next(iter(count_plan))
-                assert len(result_batch) == 1
-                count_expr = next(iter(count_plan.row_builder.output_exprs))
-                assert count_expr.slot_idx is not None
-                result: int = result_batch[0][count_expr.slot_idx]
-                assert isinstance(result, int)
-                return result
-            finally:
-                count_plan.close()
+        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
+            count_stmt = Planner.create_count_stmt(self)
+            result: int = conn.execute(count_stmt).scalar_one()
+            assert isinstance(result, int)
+            return result
 
     def _descriptors(self) -> DescriptionHelper:
         helper = DescriptionHelper()

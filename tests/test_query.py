@@ -429,7 +429,7 @@ class TestQuery:
 
         # count() does not support Python-only filters
         t = small_img_tbl
-        with pytest.raises(pxt.Error, match='count\\(\\) with Python-only filters is not supported'):
+        with pytest.raises(pxt.Error, match='count\\(\\) cannot be used with Python-only filters'):
             _ = t.where(t.img.width > 100).count()
 
     def test_count_with_group_by(self, test_tbl: pxt.Table) -> None:
