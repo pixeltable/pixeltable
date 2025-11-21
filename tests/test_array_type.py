@@ -249,7 +249,21 @@ class TestArrayType:
 
     def test_matches(self) -> None:
         assert ArrayType(None, None).matches(ArrayType(None, None))
-        # TODO finish this
+        assert ArrayType(None, np.dtype('uint8')).matches(ArrayType(None, np.dtype('uint8')))
+        assert ArrayType(None, IntType()).matches(ArrayType(None, np.dtype('int64')))
+        assert not ArrayType(None, np.dtype('uint8')).matches(ArrayType(None, np.dtype('uint16')))
+        assert not ArrayType(None, np.dtype('uint16')).matches(ArrayType(None, np.dtype('uint8')))
+
+        assert ArrayType((2, 2), np.dtype('uint8')).matches(ArrayType((2, 2), np.dtype('uint8')))
+        assert not ArrayType((2, 1), np.dtype('uint8')).matches(ArrayType((2, 2), np.dtype('uint8')))
+        assert not ArrayType((2, None), np.dtype('uint8')).matches(ArrayType((2, 2), np.dtype('uint8')))
+        assert not ArrayType((2, 2), np.dtype('uint8')).matches(ArrayType(None, np.dtype('uint8')))
+
+        assert ArrayType(None, np.dtype('uint8'), nullable=True).matches(
+            ArrayType(None, np.dtype('uint8'), nullable=False)
+        )
+
+        assert not ArrayType(None, None).matches(IntType())
 
     def test_array_unsupported_dtypes(self) -> None:
         test_cases = [
