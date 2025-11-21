@@ -3,14 +3,16 @@ import logging
 import os
 import pathlib
 import shutil
+import uuid
 from typing import Callable
 
 import pytest
 import requests
+import sqlalchemy as sql
 import tenacity
 from _pytest.config import Config as PytestConfig, argparsing
 from filelock import FileLock
-from sqlalchemy import orm
+from sqlalchemy import orm, text
 
 import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
@@ -21,6 +23,7 @@ from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
+from pixeltable.utils.sql import add_option_to_db_url
 
 from .utils import (
     IN_CI,
@@ -61,8 +64,29 @@ def pytest_runtest_teardown(item: pytest.Item) -> None:
     _logger.info(f'Finished Pixeltable test: {current_test}')
 
 
+def _set_up_external_db_schema(worker_id: int | str) -> str:
+    schema_name = f'test_{worker_id}_{uuid.uuid4().hex[:16]}'
+    original_connect_str = os.environ['PIXELTABLE_DB_CONNECT_STR']
+
+    # Create schema first
+    engine = sql.create_engine(original_connect_str)
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{schema_name}"'))
+            conn.commit()
+    finally:
+        engine.dispose()
+
+    # Modify connection string with search_path for THIS worker process
+    # Each worker process has its own os.environ, so this is process-safe
+    modified_url = add_option_to_db_url(original_connect_str, f'-c search_path={schema_name},public')
+    os.environ['PIXELTABLE_DB_CONNECT_STR'] = modified_url.render_as_string(hide_password=False)
+    _logger.info(f'Created schema and configured connection string with search_path: {schema_name}')
+    return schema_name
+
+
 @pytest.fixture(scope='session')
-def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
+def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:  # type: ignore[misc]
     os.chdir(os.path.dirname(os.path.dirname(__file__)))  # Project root directory
 
     # Set the relevant env vars for the test db.
@@ -78,9 +102,11 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
     reinit_db = True
+    schema_name = None
     if os.environ.get('PIXELTABLE_DB_CONNECT_STR') is not None:
         print('Using external database connection for test configuration')
         reinit_db = False
+        schema_name = _set_up_external_db_schema(worker_id)
 
     for var in (
         'PIXELTABLE_HOME',
@@ -108,9 +134,28 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None:
 
     Env.get().configure_logging(level=logging.DEBUG, to_stdout=True)
 
+    yield
+
+    # Cleanup: Drop schema on fixture teardown
+    if schema_name:
+        try:
+            db_connect_str = os.environ.get('PIXELTABLE_DB_CONNECT_STR')
+            if db_connect_str:
+                engine = sql.create_engine(db_connect_str)
+                try:
+                    with engine.connect() as conn:
+                        conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema_name}" CASCADE'))
+                        conn.commit()
+                    _logger.info(f'Dropped test schema: {schema_name}')
+                finally:
+                    engine.dispose()
+        except Exception as e:
+            _logger.warning(f'Failed to cleanup test schema {schema_name}: {e}')
+
 
 @pytest.fixture(scope='function')
 def reset_db(init_env: None) -> None:
+    """Reset database state between tests."""
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
@@ -179,11 +224,10 @@ def _clear_hf_caches() -> None:
 
 
 def clean_db(restore_md_tables: bool = True) -> None:
-    from pixeltable.env import Env
+    engine = Env.get().engine
 
     # Drop all tables from the DB, including data tables. Dropping the data tables is necessary for certain tests,
     # such as test_db_migration, that may lead to UUID collisions if interrupted.
-    engine = Env.get().engine
     sql_md = orm.declarative_base().metadata
     sql_md.reflect(engine)
     sql_md.drop_all(bind=engine)
