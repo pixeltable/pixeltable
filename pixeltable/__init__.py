@@ -56,7 +56,7 @@ from .type_system import (
     String,
     Timestamp,
     Video,
-    from_np_dtype,
+    column_type_from_np_dtype,
 )
 
 # This import must go last to avoid circular imports.

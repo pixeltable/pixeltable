@@ -1424,7 +1424,7 @@ class Document(str, _PxtType):
 ALL_PIXELTABLE_TYPES = (String, Bool, Int, Float, Timestamp, Json, Array, Image, Video, Audio, Document)
 
 
-def from_np_dtype(dtype: np.dtype, nullable: bool) -> ColumnType | None:
+def column_type_from_np_dtype(dtype: np.dtype, nullable: bool) -> ColumnType | None:
     """
     Return pixeltable type corresponding to a given simple numpy dtype
     """

@@ -160,7 +160,7 @@ def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> ts.ColumnType 
         return None
     # Most other pandas dtypes are directly NumPy compatible
     assert isinstance(pd_dtype, np.dtype)
-    return ts.from_np_dtype(pd_dtype, nullable)
+    return ts.column_type_from_np_dtype(pd_dtype, nullable)
 
 
 def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: bool) -> ts.ColumnType:
