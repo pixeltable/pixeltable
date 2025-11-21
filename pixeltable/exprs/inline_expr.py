@@ -92,7 +92,7 @@ class InlineArray(Expr):
         if not all(isinstance(comp, Literal) for comp in self.components):
             return None
         return Literal(
-            np.array([c.as_literal().val for c in self.components], dtype=self.col_type.numpy_dtype()), self.col_type
+            np.array([c.as_literal().val for c in self.components], dtype=self.col_type.dtype), self.col_type
         )
 
 

@@ -224,8 +224,8 @@ class TestArrayType:
 
     def test_array_literal(self) -> None:
         test_cases: list[Iterable] = [
-            ([1, 2, 3], (3,), ts.ColumnType.Type.INT),
-            ([[1, 2, 3.0]], (1, 3), ts.ColumnType.Type.FLOAT),
+            ([1, 2, 3], (3,), np.dtype('int64')),
+            ([[1, 2, 3.0]], (1, 3), np.dtype('float32')),
             ([np.ones((1, 1), dtype=np.float32), np.zeros((1, 1), dtype=np.float32)], (2, 1, 1), np.float32),
             ([np.ones((1, 1), dtype=np.str_), np.zeros((1, 1), dtype=np.bool)], None, None),
         ]
@@ -251,8 +251,8 @@ class TestArrayType:
     def test_repr(self) -> None:
         test_cases = [
             (ArrayType(), 'Array'),
-            (ArrayType(None, IntType()), 'Array[Int]'),
-            (ArrayType((3,), ts.FloatType()), 'Array[(3,), Float]'),
+            (ArrayType(None, IntType()), 'Array[int64]'),
+            (ArrayType((3,), ts.FloatType()), 'Array[(3,), float32]'),
             (ArrayType(None, np.dtype('uint8')), 'Array[uint8]'),
             (ArrayType((1, 2, 3), np.dtype('bool')), 'Array[(1, 2, 3), bool]'),
         ]
@@ -262,8 +262,8 @@ class TestArrayType:
     def test_json_schema(self) -> None:
         test_cases = [
             (ArrayType(), {'type': 'array'}),
-            (ArrayType(None, IntType()), {'type': 'array', 'items': {'type': 'integer'}}),
-            (ArrayType((3,), ts.FloatType()), {'type': 'array', 'items': {'type': 'number'}}),
+            (ArrayType(None, IntType()), {'type': 'array', 'items': {'type': 'int64'}}),
+            (ArrayType((3,), ts.FloatType()), {'type': 'array', 'items': {'type': 'float32'}}),
             (ArrayType(None, np.dtype('uint8')), {'type': 'array', 'items': {'type': 'uint8'}}),
             (ArrayType((1, 2, 3), np.dtype('bool')), {'type': 'array', 'items': {'type': 'bool'}}),
         ]

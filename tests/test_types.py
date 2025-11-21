@@ -145,12 +145,12 @@ class TestTypes:
             Audio: (AudioType(nullable=False), 'Audio'),
             Document: (DocumentType(nullable=False), 'Document'),
             # Pixeltable types with specialized parameters
-            Array[Int]: (ArrayType(dtype=IntType(), nullable=False), 'Array[Int]'),  # type: ignore[misc]
-            Array[(None,), Int]: (ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), Int]'),  # type: ignore[misc]
-            Array[(5,), Bool]: (ArrayType((5,), dtype=BoolType(), nullable=False), 'Array[(5,), Bool]'),  # type: ignore[misc]
+            Array[Int]: (ArrayType(dtype=IntType(), nullable=False), 'Array[int64]'),  # type: ignore[misc]
+            Array[(None,), Int]: (ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), int64]'),  # type: ignore[misc]
+            Array[(5,), Bool]: (ArrayType((5,), dtype=BoolType(), nullable=False), 'Array[(5,), bool]'),  # type: ignore[misc]
             Array[(5, None, 3), Float]: (  # type: ignore[misc]
                 ArrayType((5, None, 3), dtype=FloatType(), nullable=False),
-                'Array[(5, None, 3), Float]',
+                'Array[(5, None, 3), float32]',
             ),
             Image[100, 200]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),  # type: ignore[misc]
             Image[100, None]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),  # type: ignore[misc]

@@ -73,7 +73,7 @@ def to_arrow_type(pixeltable_type: ts.ColumnType) -> pa.DataType | None:
     if pixeltable_type.__class__ in PXT_TO_PA_TYPES:
         return PXT_TO_PA_TYPES[pixeltable_type.__class__]
     elif isinstance(pixeltable_type, ts.ArrayType):
-        return pa.fixed_shape_tensor(pa.from_numpy_dtype(pixeltable_type.numpy_dtype()), pixeltable_type.shape)
+        return pa.fixed_shape_tensor(pa.from_numpy_dtype(pixeltable_type.dtype), pixeltable_type.shape)
     else:
         return None
 

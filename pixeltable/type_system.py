@@ -886,9 +886,15 @@ ARRAY_SUPPORTED_NUMPY_DTYPES = [
 
 
 class ArrayType(ColumnType):
+    pxt_dtype_to_numpy_dtype: ClassVar[dict[ColumnType.Type, np.dtype]] = {
+        ColumnType.Type.INT: np.dtype(np.int64),
+        ColumnType.Type.FLOAT: np.dtype(np.float32),
+        ColumnType.Type.BOOL: np.dtype(np.bool_),
+        ColumnType.Type.STRING: np.dtype(np.str_),
+    }
+
     shape: tuple[int | None, ...] | None
-    pxt_dtype: ColumnType | np.dtype | None
-    dtype: ColumnType.Type | np.dtype | None
+    dtype: np.dtype | None
 
     def __init__(
         self,
@@ -899,15 +905,15 @@ class ArrayType(ColumnType):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         assert shape is None or dtype is not None, (shape, dtype)  # cannot specify a shape without a dtype
         self.shape = shape
-        self.pxt_dtype = dtype  # we need this for copy() and __str__()
         if dtype is None or isinstance(dtype, np.dtype):
             self.dtype = dtype
-        else:
-            assert dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type()
-            self.dtype = dtype._type
+        elif isinstance(dtype, ColumnType):
+            self.dtype = self.pxt_dtype_to_numpy_dtype.get(dtype._type, None)
+            if self.dtype is None:
+                raise ValueError(f'Unsupported dtype: {dtype}')
 
     def copy(self, nullable: bool) -> ColumnType:
-        return ArrayType(self.shape, self.pxt_dtype, nullable=nullable)
+        return ArrayType(self.shape, self.dtype, nullable=nullable)
 
     def matches(self, other: ColumnType) -> bool:
         return isinstance(other, ArrayType) and self.shape == other.shape and self.dtype == other.dtype
@@ -924,11 +930,7 @@ class ArrayType(ColumnType):
         # Check dtypes
         if self.dtype is not None and other.dtype is None:
             return False
-        if (
-            self.dtype is not None
-            and other.dtype is not None
-            and not np.can_cast(other.numpy_dtype(), self.numpy_dtype())
-        ):
+        if self.dtype is not None and other.dtype is not None and not np.can_cast(other.dtype, self.dtype):
             return False
 
         # If self has shape, compare to the other's shape. Otherwise it is supertype by shape.
@@ -995,9 +997,9 @@ class ArrayType(ColumnType):
         if self.shape is None and self.dtype is None:
             return 'Array'
         if self.shape is None:
-            return f'Array[{self.pxt_dtype}]'
+            return f'Array[{self.dtype}]'
         assert self.dtype is not None
-        return f'Array[{self.shape}, {self.pxt_dtype}]'
+        return f'Array[{self.shape}, {self.dtype}]'
 
     @classmethod
     def _from_dict(cls, d: dict) -> ColumnType:
@@ -1053,10 +1055,8 @@ class ArrayType(ColumnType):
 
     def _to_json_schema(self) -> dict[str, Any]:
         schema: dict[str, Any] = {'type': 'array'}
-        if isinstance(self.pxt_dtype, np.dtype):
-            schema.update({'items': {'type': str(self.pxt_dtype)}})
-        elif self.pxt_dtype is not None:
-            schema.update({'items': self.pxt_dtype._to_json_schema()})
+        if self.dtype is not None:
+            schema.update({'items': {'type': str(self.dtype)}})
         return schema
 
     def _validate_literal(self, val: Any) -> None:
@@ -1065,10 +1065,8 @@ class ArrayType(ColumnType):
 
         # If column type has a dtype, check for compatibility. Note: the exact dtype match is not required. We allow
         # literals whose dtypes can be cast to the column's.
-        if self.dtype is not None and not np.can_cast(val.dtype, self.numpy_dtype()):
-            raise TypeError(
-                f'Expected numpy.ndarray of dtype {self.numpy_dtype()}, got numpy.ndarray of dtype {val.dtype}'
-            )
+        if self.dtype is not None and not np.can_cast(val.dtype, self.dtype):
+            raise TypeError(f'Expected numpy.ndarray of dtype {self.dtype}, got numpy.ndarray of dtype {val.dtype}')
 
         # If no dtype is specified, we still need to check that the dtype is one of the supported types
         if self.dtype is None and not any(np.issubdtype(val.dtype, ndtype) for ndtype in ARRAY_SUPPORTED_NUMPY_DTYPES):
@@ -1078,7 +1076,7 @@ class ArrayType(ColumnType):
         if self.shape is not None:
             if len(val.shape) != len(self.shape):
                 raise TypeError(
-                    f'Expected numpy.ndarray({self.shape}, dtype={self.numpy_dtype()}), '
+                    f'Expected numpy.ndarray({self.shape}, dtype={self.dtype}), '
                     f'got numpy.ndarray({val.shape}, dtype={val.dtype})'
                 )
             # check that the shapes are compatible
@@ -1088,7 +1086,7 @@ class ArrayType(ColumnType):
                     continue  # wildcard
                 if n1 != n2:
                     raise TypeError(
-                        f'Expected numpy.ndarray({self.shape}, dtype={self.numpy_dtype()}), '
+                        f'Expected numpy.ndarray({self.shape}, dtype={self.dtype}), '
                         f'got numpy.ndarray({val.shape}, dtype={val.dtype})'
                     )
 
@@ -1096,27 +1094,12 @@ class ArrayType(ColumnType):
         if isinstance(val, (list, tuple)):
             # map python float to whichever numpy float is
             # declared for this type, rather than assume float64
-            return np.array(val, dtype=self.numpy_dtype())
+            return np.array(val, dtype=self.dtype)
         return val
 
     @classmethod
     def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.LargeBinary()
-
-    def numpy_dtype(self) -> np.dtype | None:
-        if isinstance(self.dtype, np.dtype):
-            return self.dtype
-        if self.dtype is None:
-            return None
-        if self.dtype == self.Type.INT:
-            return np.dtype(np.int64)
-        if self.dtype == self.Type.FLOAT:
-            return np.dtype(np.float32)
-        if self.dtype == self.Type.BOOL:
-            return np.dtype(np.bool_)
-        if self.dtype == self.Type.STRING:
-            return np.dtype(np.str_)
-        raise AssertionError(self.dtype)
 
 
 class ImageType(ColumnType):

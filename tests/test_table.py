@@ -940,10 +940,10 @@ class TestTable:
             'Required[Date]',
             'Json',
             'Required[Json]',
-            'Array[(5, None, 3), Int]',
-            'Required[Array[(5, None, 3), Int]]',
-            'Array[Float]',
-            'Required[Array[Float]]',
+            'Array[(5, None, 3), int64]',
+            'Required[Array[(5, None, 3), int64]]',
+            'Array[float32]',
+            'Required[Array[float32]]',
             'Array',
             'Required[Array]',
             'Image',
@@ -2752,17 +2752,17 @@ class TestTable:
             """view 'test_subview' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
-            Column Name                          Type           Computed With
-              computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
+            Column Name                            Type           Computed With
+              computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]
 
             Index Name Column  Metric                                          Embedding
                   idx0     c1  cosine  sentence_transformer(c1, model_id='all-mpnet-b...
@@ -2781,17 +2781,17 @@ class TestTable:
             """snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
-            Column Name                          Type           Computed With
-              computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
+            Column Name                            Type           Computed With
+              computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]
 
             External Store         Type
                    project  MockProject
@@ -2805,16 +2805,16 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap2' (of 'test_tbl:2')
 
-            Column Name                          Type           Computed With
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]"""
+            Column Name                            Type           Computed With
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]"""
         )
 
         # test case: snapshot with additional columns
@@ -2823,17 +2823,17 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap3' (of 'test_tbl:2')
 
-            Column Name                          Type           Computed With
-              computed1               Required[Float]                 c2 + c3
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]"""
+            Column Name                            Type           Computed With
+              computed1                 Required[Float]                 c2 + c3
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]"""
         )
 
         c = repr(v2.c1)
