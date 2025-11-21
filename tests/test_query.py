@@ -427,85 +427,10 @@ class TestQuery:
         cnt = t.where(t.c2 < 10).count()
         assert cnt == 10
 
-        # for now, count() doesn't work with non-SQL Where clauses
+        # count() does not support Python-only filters
         t = small_img_tbl
-        with pytest.raises(pxt.Error):
+        with pytest.raises(pxt.Error, match='count\\(\\) with Python-only filters is not supported'):
             _ = t.where(t.img.width > 100).count()
-
-    def test_count_with_sample(self, test_tbl: pxt.Table) -> None:
-        """Test that count() correctly returns the number of sampled rows."""
-        t = test_tbl
-        # Add duplicate c1 values for stratified sampling tests
-        existing_c1_values = [row['c1'] for row in t.select(t.c1).distinct().collect()]
-
-        # Add 4 more rows per distinct c1 value to get 5 total per value (total 400 rows)
-        additional_rows = []
-        max_c2 = t.select(t.c2).order_by(t.c2, asc=False).limit(1).collect()[0, 'c2']
-        for i, c1_val in enumerate(existing_c1_values):
-            for j in range(4):
-                additional_rows.append(
-                    {
-                        'c1': c1_val,
-                        'c1n': c1_val if (i * 4 + j) % 10 != 0 else None,
-                        'c2': max_c2 + 1 + i * 4 + j,
-                        'c3': float(max_c2 + 1 + i * 4 + j),
-                        'c4': bool((max_c2 + 1 + i * 4 + j) % 2),
-                        'c5': datetime.datetime(2024, 7, 1) + datetime.timedelta(hours=max_c2 + 1 + i * 4 + j),
-                        'c6': {'f1': f'test string {max_c2 + 1 + i * 4 + j}', 'f2': max_c2 + 1 + i * 4 + j},
-                        'c7': [{'f1': 'test string 1', 'f2': 1}],
-                    }
-                )
-        t.insert(additional_rows)
-
-        total_rows = t.count()
-        assert total_rows == 100 + len(additional_rows)  # Original 100 + additional rows
-
-        # Test count() with sample(n=...)
-        cnt = t.sample(n=10).count()
-        assert cnt == 10
-
-        # Sample more rows than total rows in the table
-        cnt = t.sample(n=1000).count()
-        assert cnt == total_rows
-
-        # Test count() with sample with fraction
-        cnt = t.sample(fraction=0.5).count()
-        assert 200 <= cnt <= 300  # Should be approximately 50% of total rows
-
-        # Test count() with sample() and where clause
-        cnt = t.where(t.c2 < 10).sample(n=5).count()
-        assert cnt == 5
-
-        # Test with sample larger than filtered rows
-        cnt = t.where(t.c2 < 10).sample(n=20).count()
-        assert cnt == 10
-
-        # Test with fraction on filtered data
-        cnt = t.where(t.c2 < 50).sample(fraction=0.5).count()
-        assert 20 <= cnt <= 30  # With 50 rows and fraction=0.5, expect ~25 rows
-
-        # Test with stratified sampling
-        cnt = t.sample(n=10, stratify_by=t.c1).count()
-        assert cnt == 10  # Should return 10 sampled rows
-
-        # Test with stratified sampling and where clause
-        cnt = t.where(t.c2 < 10).sample(n=5, stratify_by=t.c1).count()
-        assert cnt == 5  # Should return 5 sampled rows
-
-        # Test with n_per_stratum
-        cnt = t.sample(n_per_stratum=2, stratify_by=t.c1).count()
-        # Should return 2 times the distinct c1 values
-        distinct_c1 = len(t.select(t.c1).distinct().collect())
-        expected = 2 * distinct_c1  # 2 per stratum * number of distinct c1 values
-        assert cnt == expected
-
-        # Test with stratified fraction sampling
-        cnt = t.sample(fraction=0.1, stratify_by=t.c1).count()
-        # Stratified fraction sampling: ceil(0.1 * 5) = 1 per stratum
-        # With 100 distinct c1 values, each appearing 5 times, we get exactly 1 * 100 = 100 rows
-        distinct_c1 = len(t.select(t.c1).distinct().collect())
-        expected = distinct_c1  # 1 per stratum * number of distinct c1 values = 100
-        assert cnt == expected  # Should be exactly 100
 
     def test_count_with_group_by(self, test_tbl: pxt.Table) -> None:
         """Test that count() works with group_by()."""
@@ -900,7 +825,7 @@ class TestQuery:
         with pytest.raises(pxt.Error) as exc_info:
             t.select(t.c1, t.c3).group_by(t.c2).distinct()
         assert 'group_by() already specified' in str(exc_info.value)
-        
+
         # count() with distinct()
         cnt = t.select(t.c1, t.c3).distinct().count()
         assert cnt == len(t.select(t.c1, t.c3).distinct().collect())

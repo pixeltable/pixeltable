@@ -10,6 +10,7 @@ import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
@@ -346,21 +347,36 @@ class Analyzer:
 
 
 class Planner:
-    # TODO: create an exec.CountNode and change this to create_count_plan()
     @classmethod
-    def create_count_stmt(cls, tbl: catalog.TableVersionPath, where_clause: exprs.Expr | None = None) -> sql.Select:
-        stmt = sql.select(sql.func.count().label('all_count'))
-        refd_tbl_ids: set[UUID] = set()
-        if where_clause is not None:
-            analyzer = cls.analyze(tbl, where_clause)
-            if analyzer.filter is not None:
-                raise excs.Error(f'Filter {analyzer.filter} not expressible in SQL')
-            clause_element = analyzer.sql_where_clause.sql_expr(analyzer.sql_elements)
-            assert clause_element is not None
-            stmt = stmt.where(clause_element)
-            refd_tbl_ids = where_clause.tbl_ids()
-        stmt = exec.SqlScanNode.create_from_clause(tbl, stmt, refd_tbl_ids)
-        return stmt
+    def create_count_plan(
+        cls,
+        from_clause: FromClause,
+        where_clause: exprs.Expr | None = None,
+        group_by_clause: list[exprs.Expr] | None = None,
+        sample_clause: SampleClause | None = None,
+    ) -> exec.ExecNode:
+        """
+        Creates an execution plan that counts rows.
+        """
+        # Create the query plan (with empty select_list, as we just need to count rows)
+        plan = cls.create_query_plan(
+            from_clause=from_clause,
+            select_list=[],  # Empty select list - we just need rows to count
+            where_clause=where_clause,
+            group_by_clause=group_by_clause,
+            sample_clause=sample_clause,
+        )
+
+        # Check for Python filter - reject if present
+        sql_node = plan.get_node(exec.SqlNode)
+        if sql_node.py_filter is not None:
+            raise excs.Error('count() with Python-only filters is not supported, use collect() instead.')
+
+        # Create RowBuilder for CountNode - use a Literal as a placeholder to register a slot
+        count_expr = exprs.Literal(0, ts.IntType())
+        context_tbl = from_clause.tbls[0].tbl_version.get() if len(from_clause.tbls) == 1 else None
+        row_builder = exprs.RowBuilder([count_expr], [], [], context_tbl)
+        return exec.SqlCountNode(row_builder, input=sql_node)
 
     @classmethod
     def create_insert_plan(

@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterat
 
 import pandas as pd
 import pydantic
-import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
@@ -555,21 +554,26 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
-            # Create the query plan
-            plan = self._create_query_plan()
-            sql_node = plan.get_node(exec.SqlNode)
-            assert sql_node is not None
+        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
+            count_plan = plan.Planner.create_count_plan(
+                from_clause=self._from_clause,
+                where_clause=self.where_clause,
+                group_by_clause=self.group_by_clause,
+                sample_clause=self.sample_clause,
+            )
 
-            if sql_node.py_filter is not None:
-                raise excs.Error('count() is not supported for queries with Python-only filters.')
-
-            # Get the SQL statement from the SqlNode as a CTE
-            cte, _ = sql_node.to_cte(keep_pk=True)
-            count_stmt = sql.select(sql.func.count().label('all_count')).select_from(cte)
-            result: int = conn.execute(count_stmt).scalar_one()
-            assert isinstance(result, int)
-            return result
+            # Execute the count plan
+            count_plan.open()
+            try:
+                result_batch = next(iter(count_plan))
+                assert len(result_batch) == 1
+                count_expr = next(iter(count_plan.row_builder.output_exprs))
+                assert count_expr.slot_idx is not None
+                result: int = result_batch[0][count_expr.slot_idx]
+                assert isinstance(result, int)
+                return result
+            finally:
+                count_plan.close()
 
     def _descriptors(self) -> DescriptionHelper:
         helper = DescriptionHelper()

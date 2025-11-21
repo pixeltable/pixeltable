@@ -760,3 +760,25 @@ class SqlSampleNode(SqlNode):
         )
 
         return stmt
+
+
+class SqlCountNode(SqlNode):
+    """
+    Counts the number of rows from the input node.
+
+    Args:
+        input: SqlNode to count rows from
+    """
+
+    input_cte: sql.CTE
+
+    def __init__(self, row_builder: exprs.RowBuilder, input: SqlNode):
+        assert isinstance(input, SqlNode)
+        self.input_cte, input_col_map = input.to_cte()
+        sql_elements = exprs.SqlElementCache(input_col_map)
+        super().__init__(input.tbl, row_builder, list(row_builder.output_exprs), columns=[], sql_elements=sql_elements)
+        self.ctx = input.ctx if input is not None else None
+
+    def _create_stmt(self) -> sql.Select:
+        """Create a SELECT COUNT(*) statement from the input CTE."""
+        return sql.select(sql.func.count().label('all_count')).select_from(self.input_cte)
