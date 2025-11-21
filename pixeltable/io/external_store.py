@@ -201,6 +201,9 @@ class Project(ExternalStore, abc.ABC):
         TODO: return columns as names or qualified ids
         """
         from pixeltable import exprs
+        from pixeltable.catalog.table import LocalTable
+
+        assert isinstance(table, LocalTable)  # TODO Handle remote tables
 
         is_user_specified_col_mapping = col_mapping is not None
         if col_mapping is None:

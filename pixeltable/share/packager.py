@@ -22,6 +22,7 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
+from pixeltable.catalog.table import LocalTable
 from pixeltable.catalog.table_version import TableVersionKey, TableVersionMd
 from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
@@ -50,7 +51,7 @@ class TablePackager:
       'media/{uuid}{extension}', and the Parquet table will contain the ephemeral URI 'pxtmedia://{uuid}{extension}'.
     """
 
-    table: catalog.Table  # The table to be packaged
+    table: LocalTable  # The table to be packaged
     tmp_dir: Path  # Temporary directory where the package will reside
     tables_dir: Path  # Directory where the Parquet tables will be written
     media_files: dict[Path, str]  # Mapping from local media file paths to their tarball names
@@ -60,7 +61,9 @@ class TablePackager:
     preview_header: dict[str, str]
     preview: list[list[Any]]
 
-    def __init__(self, table: catalog.Table, additional_md: dict[str, Any] | None = None) -> None:
+    def __init__(self, table: pxt.Table, additional_md: dict[str, Any] | None = None) -> None:
+        assert isinstance(table, LocalTable)
+
         self.table = table
         self.tmp_dir = TempStore.create_path()
         self.media_files = {}

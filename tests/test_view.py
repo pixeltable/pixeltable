@@ -819,6 +819,7 @@ class TestView:
         v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
         orig_view_cols = v._get_schema().keys()
         view_s = pxt.create_snapshot('test_view_snap', v)
+        assert isinstance(view_s, pxt.catalog.table.LocalTable)
         with Catalog.get().begin_xact(for_write=False):
             _ = Catalog.get().load_replica_md(view_s)
         assert set(view_s._get_schema().keys()) == set(orig_view_cols)
