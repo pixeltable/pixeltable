@@ -983,14 +983,8 @@ class ArrayType(ColumnType):
         shape_as_list = None if self.shape is None else list(self.shape)
         result.update(shape=shape_as_list)
 
-        if isinstance(self.dtype, np.dtype):
-            # 'uint8', 'int32', 'bool', etc.
-            numpy_dtype_value = str(self.dtype)
-            result.update(numpy_dtype=numpy_dtype_value)
-        else:
-            dtype_value = None if self.dtype is None else self.dtype.value
-            result.update(dtype=dtype_value)
-
+        # 'None', 'uint8', 'int32', 'bool', etc.
+        result.update(numpy_dtype=str(self.dtype))
         return result
 
     def _to_base_str(self) -> str:
@@ -1005,9 +999,10 @@ class ArrayType(ColumnType):
     def _from_dict(cls, d: dict) -> ColumnType:
         if 'numpy_dtype' in d:
             assert 'dtype' not in d
-            assert d['numpy_dtype'] is not None
-            dtype = np.dtype(d['numpy_dtype'])
+            dtype_str = d['numpy_dtype']
+            dtype = np.dtype(dtype_str) if dtype_str != 'None' else None
         else:
+            # TODO if we do schema migration, this branch will not be needed
             assert 'dtype' in d
             dtype = None if d['dtype'] is None else cls.make_type(cls.Type(d['dtype']))
         assert 'shape' in d
