@@ -40,6 +40,7 @@ from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter,
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
 from pixeltable.utils.object_stores import ObjectPath
+from pixeltable.utils.sql import add_option_to_db_url
 
 if TYPE_CHECKING:
     import spacy
@@ -571,10 +572,11 @@ class Env:
         metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
-        connect_args = {'options': f'-c timezone={time_zone_name}'}
-        self._logger.info(f'Creating SQLAlchemy engine with connection arguments: {connect_args}')
+        # Add timezone option to connection string
+        updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
+
         self._sa_engine = sql.create_engine(
-            self.db_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level, connect_args=connect_args
+            updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
         )
 
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
