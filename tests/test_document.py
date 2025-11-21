@@ -1,11 +1,18 @@
+import ctypes
+import numpy as np
+from collections.abc import Callable
 import difflib
 import itertools
 import json
 import os
 import re
+from dataclasses import dataclass
 from typing import Any
 
 import PIL.Image
+from PIL import ImageDraw
+import pypdfium2 as pdfium
+import pypdfium2.raw as pdfium_c
 import pytest
 
 import pixeltable as pxt
@@ -38,6 +45,20 @@ def diff_snippet(text1: str, text2: str, diff_line_limit: int | None = 20) -> st
     else:
         snippet = list(diff)
     return '\n'.join(snippet)
+
+@dataclass
+class BoundingBox:
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+@dataclass
+class PdfChar:
+    value: str
+    bounding_box: BoundingBox
+    center_x: float
+    center_y: float
 
 
 class TestDocument:
@@ -372,3 +393,366 @@ class TestDocument:
 
         res = chunks.collect()
         assert all(isinstance(r['image'], PIL.Image.Image) for r in res)
+
+    def test_pdf_libs(self, reset_db: None) -> None:
+        path = './docs/resources/rag-demo/Zacks-Nvidia-Report.pdf'
+        path = './gilbert.pdf'
+        page_num = 2
+
+        print('====== pdfminer ======')
+        from io import StringIO
+
+        from pdfminer.converter import TextConverter
+        from pdfminer.layout import LAParams
+        from pdfminer.pdfdocument import PDFDocument
+        from pdfminer.pdfinterp import PDFPageInterpreter, PDFResourceManager
+        from pdfminer.pdfpage import PDFPage
+        from pdfminer.pdfparser import PDFParser
+        # from pdfminer.high_level import extract_text
+        # text = extract_text(path)
+        # print(text)
+
+        output_string = StringIO()
+        with open(path, 'rb') as in_file:
+            parser = PDFParser(in_file)
+            doc = PDFDocument(parser)
+            rsrcmgr = PDFResourceManager()
+            device = TextConverter(rsrcmgr, output_string, laparams=LAParams())
+            interpreter = PDFPageInterpreter(rsrcmgr, device)
+            for i, page in enumerate(PDFPage.create_pages(doc)):
+                if i != page_num:
+                    continue
+                interpreter.process_page(page)
+        print(output_string.getvalue())
+
+        print('====== pdfminer using extract_pages ======')
+        from collections.abc import Iterable
+
+        from pdfminer.high_level import extract_pages
+        from pdfminer.layout import LTChar, LTFigure, LTTextContainer
+
+        def print_text(obj: Any):
+            print(f'type: {type(obj)}')
+            if isinstance(obj, LTTextContainer):
+                print(obj.get_text())
+            elif isinstance(obj, LTFigure):
+                text = ''
+                for element in obj:
+                    if isinstance(element, LTChar):
+                        text = text + element.get_text()
+                print(text)
+            elif isinstance(obj, Iterable):
+                for o in obj:
+                    print_text(o)
+
+        for i, page_layout in enumerate(extract_pages(path)):
+            if i != page_num:
+                continue
+            print_text(page_layout)
+            # for element in page_layout:
+            #     print (f': {type(element)}')
+            #     if isinstance(element, LTTextContainer):
+            #         print(element.get_text())
+            # print('-- page break --')
+
+        import pypdfium2 as pdfium
+        import pypdfium2.raw as pdfium_c
+
+        pdf = pdfium.PdfDocument(path)
+        page = pdf[page_num]
+        print('====== pdfium objects ======')
+        for obj in page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_TEXT, pdfium_c.FPDF_PAGEOBJ_IMAGE]):
+            txt = None
+            if obj.type == pdfium_c.FPDF_PAGEOBJ_TEXT:
+                # txt = obj.get_text()
+                pass
+            elif obj.type == pdfium_c.FPDF_PAGEOBJ_IMAGE:
+                txt = '<image object>'
+            print(f'type {obj.type} level {obj.level} bounds {obj.get_bounds()} text: {txt}')
+
+        textpage = page.get_textpage()
+        # Can retrieve text inside a box
+        # text_all = textpage.get_text_bounded()
+        text_all = textpage.get_text_range()
+        print('====== pdfium text ======')
+        print(text_all)
+
+        print('====== pymupdf blocks ======')
+        doc = get_document_handle(path).pdf_doc
+        assert doc is not None
+        for i, page in enumerate(doc.pages()):
+            if i != page_num:
+                continue
+            for block in page.get_text('blocks'):
+                print(block)
+                print('-----')
+            break
+
+    def test_pdfium(self) -> None:
+        path = './gilbert.pdf'
+        page_num = 2
+
+        # path = './docs/resources/rag-demo/Argus-Market-Watch-June-2024.pdf'
+        # page_num = 0
+
+        # path = './docs/resources/rag-demo/Argus-Market-Digest-June-2024.pdf'
+        # page_num = 0
+
+        # path  = './docs/resources/rag-demo/Company-Research-Alphabet.pdf'
+        # page_num = 1
+
+        # path = './docs/resources/rag-demo/Jefferson-Amazon.pdf'
+        # page_num = 9
+
+        self.print_from_pdfium(path, page_num)
+
+    def print_from_pdfium(self, path: str, page_num: int) -> None:
+        import ctypes
+
+        import pypdfium2 as pdfium
+        import pypdfium2.raw as pdfium_c
+
+        pdf = pdfium.PdfDocument(path)
+        page = pdf[page_num]
+        textpage = page.get_textpage()
+        print('====== characters ======')
+        print()
+        text = ''
+        for i in range(0, pdfium_c.FPDFText_CountChars(textpage)):
+            code = pdfium_c.FPDFText_GetUnicode(textpage, i)
+            x, y = ctypes.c_double(), ctypes.c_double()
+            assert pdfium_c.FPDFText_GetCharOrigin(textpage, i, x, y)
+            print(f'char {i}: {chr(code)}({code}), origin ({x.value}, {y.value})')
+            text = text + chr(code)
+
+        print('====== entire text ======')
+        print(text)
+
+    def test_split_page(self) -> None:
+        path = './gilbert.pdf'
+        page_num = 2
+        # path = './docs/resources/rag-demo/Zacks-Nvidia-Report.pdf'
+        # page_num = 4
+        # path = './docs/resources/rag-demo/Jefferson-Amazon.pdf'
+        # page_num = 9
+
+        pdf = pdfium.PdfDocument(path)
+        page = pdf[page_num]
+        textpage = page.get_textpage()
+
+        chars = []
+        for i in range(0, pdfium_c.FPDFText_CountChars(textpage)):
+            code = pdfium_c.FPDFText_GetUnicode(textpage, i)
+            x0, y0, x1, y1 = ctypes.c_double(), ctypes.c_double(), ctypes.c_double(), ctypes.c_double()
+            assert pdfium_c.FPDFText_GetCharBox(textpage, i, x0, x1, y0, y1)
+            assert x0.value <= x1.value
+            assert y0.value <= y1.value
+            chars.append(
+                PdfChar(
+                    value=chr(code),
+                    bounding_box=BoundingBox(x0.value, y0.value, x1.value, y1.value),
+                    center_x=(x0.value + x1.value) / 2,
+                    center_y=(y0.value + y1.value) / 2,
+                )
+            )
+        print('\n====== entire textpage ======\n')
+        print(textpage.get_text_range())
+        assert len(chars) == len(textpage.get_text_range())
+        print('\n====== / entire textpage ======\n')
+        print('====== char by char comparison ======\n')
+        for i, c1, c2 in zip(range(len(chars)), chars, textpage.get_text_range()):
+            code = pdfium_c.FPDFText_GetUnicode(textpage, i)
+            match = c1.value == c2
+            print (f'index {i:6}/{len(chars)}: code={code}, char: {c1.value} vs textpage char: {c2} {"" if match else "<<< MISMATCH >>>"}')
+        print('====== / char by char comparison ======\n')
+
+        non_whitespace_chars = [c for c in chars if not c.value.isspace()]
+        # min_x = min(c.center_x for c in non_whitespace_chars)
+        # max_x = max(c.center_x for c in non_whitespace_chars)
+        # min_y = min(c.center_y for c in non_whitespace_chars)
+        # max_y = max(c.center_y for c in non_whitespace_chars)
+        min_x = 0
+        min_y = 0
+        max_x = page.get_width()
+        max_y = page.get_height()
+
+        bounds = self._split_page(textpage, non_whitespace_chars, BoundingBox(min_x, min_y, max_x, max_y))
+        assert bounds is not None
+        print('\n====== split bounds ======\n')
+        for b in bounds:
+            print(f'Box: ({b.x0}, {b.y0}, {b.x1}, {b.y1})')
+            chars_in_box = self._chars_in_bound(chars, b)
+            box_text = ''.join(c.value for c in chars_in_box)
+            print(f'Text: {box_text}')
+            print('-----')
+        print('\n====== / split bounds ======\n')
+
+        scores = np.zeros((len(textpage.get_text_range()),), dtype=np.uint8)
+        current_box: BoundingBox | None = None
+        # give a higher score to the first character in each box
+        for i in range(len(textpage.get_text_range())):
+            c = chars[i]
+            box = self._find_bounding_box(c, bounds)
+            if box is None:
+                # possibly whitespace character that we ignored when finding bounding boxes
+                continue
+            if box != current_box:
+                scores[i] = 100
+                current_box = box
+
+        # detect paragraphs
+        import unicodedata
+        previous_line_x : float | None = None
+        previous_line_y : float | None = None
+        is_new_line = True
+        for i in range(len(textpage.get_text_range())):
+            c = chars[i]
+            if c.value == '\n':
+                is_new_line = True
+                continue
+            is_printable = not unicodedata.category(c.value).startswith('C') and not c.value.isspace()
+            if not is_printable:
+                continue
+            if previous_line_x is None:
+                # first line
+                previous_line_x = c.center_x
+                previous_line_y = c.center_y
+                continue
+            if is_new_line:
+                # encountered a printable character on a new line
+                is_new_line = False
+                x = c.center_x
+                y = c.center_y
+                if y > previous_line_y:
+                    # text jumped up, possibly to a new column
+                    previous_line_x = x
+                    previous_line_y = y
+                    continue
+                gap_vs_last_line = x - previous_line_x
+                char_width = self._char_width(c)
+                if gap_vs_last_line > char_width and gap_vs_last_line < 5*char_width:
+                    # a possible paragraph indent
+                    scores[i]+=50
+                previous_line_x = x
+                previous_line_y = y
+
+        # visualize results
+        page_img = page.render()
+        pil_img = page_img.to_pil()
+        # draw bounding boxes
+        draw = ImageDraw.Draw(pil_img)
+        for b in bounds:
+            x0, y0 = self._page_coords_to_image_coords( page, pil_img, b.x0, b.y0)
+            x1, y1 = self._page_coords_to_image_coords( page, pil_img, b.x1, b.y1)
+            box  = ( min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+            draw.rectangle(box , outline="red", width=1)
+
+        # draw segmentation scores
+        for i in range (len(scores)):
+            if scores[i] > 0:
+                c = chars[i]
+                c_x, c_y = self._page_coords_to_image_coords( page, pil_img, c.center_x, c.center_y)
+                radius = 5
+                color = "red" if scores[i] >= 100 else "blue"
+                box = (c_x - radius,  c_y - radius, 
+                        c_x + radius, c_y + radius)
+                draw.ellipse(box, outline=color, fill=color, width=1)
+
+        pil_img.save('./output.png')
+
+    def _page_coords_to_image_coords(self, page: pdfium.PdfPage, image, x: float, y: float) -> tuple[float, float]:
+        img_x = x * (image.width / page.get_width())
+        img_y = y * (image.height / page.get_height())
+        img_y = image.height - img_y # PDF coords start at bottom-left
+        return (img_x, img_y)
+        
+
+    def _chars_in_bound(self, chars, bound: BoundingBox) -> list[PdfChar]:
+        return [c for c in chars if self._char_is_in_bound(c, bound)]
+    
+    def _char_is_in_bound(self, c: PdfChar, bound: BoundingBox) -> bool:
+        return bound.x0 <= c.center_x <= bound.x1 and bound.y0 <= c.center_y <= bound.y1
+
+    def _find_bounding_box(self, c: PdfChar, boxes: list[BoundingBox]) -> BoundingBox | None:
+        for b in boxes:
+            if self._char_is_in_bound(c, b):
+                return b
+        return None
+
+    def _split_page(self, textpage: pdfium.PdfTextPage, chars, bound: BoundingBox) -> list[BoundingBox] | None:
+        if bound.x0 >= bound.x1 or bound.y0 >= bound.y1:
+            return None
+
+        chars_in_bound = self._chars_in_bound(chars, bound)
+        if len(chars_in_bound) < 200:
+            # too few chars to split further
+            return [bound]
+
+        # find biggest vertical gap
+        chars_in_bound.sort(key=lambda c: c.center_y)
+        vert_gap = self._biggest_gap(chars_in_bound, lambda c: c.center_y)
+        avg_char_height = self._avg([self._char_height(c) for c in chars_in_bound])
+        vert_gap_significance = None
+        if vert_gap is not None:
+            vert_gap_significance = vert_gap[0] / avg_char_height
+        if vert_gap_significance is not None and vert_gap_significance < 2.0:
+            vert_gap_significance = None
+
+        # find biggest horizontal gap
+        chars_in_bound.sort(key=lambda c: c.center_x)
+        horiz_gap = self._biggest_gap(chars_in_bound, lambda c: c.center_x)
+        avg_char_width = self._avg([self._char_width(c) for c in chars_in_bound])
+        horiz_gap_significance = None
+        if horiz_gap is not None:
+            horiz_gap_significance = horiz_gap[0] / avg_char_width
+        if horiz_gap_significance is not None and horiz_gap_significance < 4.0:
+            horiz_gap_significance = None
+
+        if vert_gap_significance is None and horiz_gap_significance is None:
+            # No significant gaps, can't split further
+            return [bound]
+        do_vert_split: bool
+        if vert_gap_significance is not None and horiz_gap_significance is not None:
+            if vert_gap_significance >= horiz_gap_significance:
+                do_vert_split = True
+            else:
+                do_vert_split = False
+        else:
+            do_vert_split = vert_gap_significance is not None
+
+        if do_vert_split:
+            box1 = BoundingBox(bound.x0, bound.y0, bound.x1, vert_gap[1])
+            box2 = BoundingBox(bound.x0, vert_gap[1], bound.x1, bound.y1)
+            return self._split_page(textpage, chars, box1) + self._split_page(textpage, chars, box2)
+        else:
+            box1 = BoundingBox(bound.x0, bound.y0, horiz_gap[1], bound.y1)
+            box2 = BoundingBox(horiz_gap[1], bound.y0, bound.x1, bound.y1)
+            return self._split_page(textpage, chars, box1) + self._split_page(textpage, chars, box2)
+
+    def _biggest_gap(self, chars, coord_func: Callable[[PdfChar], float]) -> tuple[float, float] | None:
+        # Finds the biggest gap between consecutive chars based on the provided coordinate function.
+        # Returns a tuple of (gap_size, gap_center)
+        assert len(chars) > 1
+        biggest_gap = -1
+        biggest_gap_center = -1
+        for i in range(len(chars) - 1):
+            coord_i = coord_func(chars[i])
+            coord_iplus1 = coord_func(chars[i + 1])
+            gap = coord_iplus1 - coord_i
+            assert gap >= 0
+            if gap > biggest_gap:
+                biggest_gap = gap
+                biggest_gap_center = (coord_i + coord_iplus1) / 2
+        if biggest_gap >= 0:
+            return (biggest_gap, biggest_gap_center)
+        return None
+
+    def _char_width(self, char: PdfChar) -> float:
+        return char.bounding_box.x1 - char.bounding_box.x0
+
+    def _char_height(self, char: PdfChar) -> float:
+        return char.bounding_box.y1 - char.bounding_box.y0
+
+    def _avg(self, vals: list[float]) -> float:
+        assert len(vals) > 0
+        return sum(vals) / len(vals)
