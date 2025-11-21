@@ -1,5 +1,4 @@
 import copy
-import logging
 from typing import Any
 
 import numpy as np
@@ -9,11 +8,10 @@ from pixeltable import type_system as ts
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.converters.util import convert_table_md
 
-_logger = logging.getLogger('pixeltable')
-
 
 @register_converter(version=43)
 def _(engine: sql.engine.Engine) -> None:
+    """Converts ArrayTypes by replacing legacy dtype (which was a pxt Type ID) to numpy dtype."""
     convert_table_md(engine, substitution_fn=_substitution_fn)
 
 
@@ -38,5 +36,6 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
             raise ValueError(f'Unrecognized dtype: {legacy_dtype_val} ({legacy_dtype}) in {key}, {value}')
 
     del updated_value['dtype']
+    # TODO str comes out incorrectly
     updated_value['numpy_dtype'] = str(new_dtype) if new_dtype is not None else None
     return key, updated_value
