@@ -983,35 +983,6 @@ class ArrayType(ColumnType):
         return cls(shape, dtype, nullable=d['nullable'])
 
     @classmethod
-    def from_np_dtype(cls, dtype: np.dtype, nullable: bool) -> ColumnType | None:
-        """
-        Return pixeltable type corresponding to a given simple numpy dtype
-        """
-        if np.issubdtype(dtype, np.integer):
-            return IntType(nullable=nullable)
-
-        if np.issubdtype(dtype, np.floating):
-            return FloatType(nullable=nullable)
-
-        if dtype == np.bool_:
-            return BoolType(nullable=nullable)
-
-        if np.issubdtype(dtype, np.str_):
-            return StringType(nullable=nullable)
-
-        if np.issubdtype(dtype, np.character):
-            return StringType(nullable=nullable)
-
-        if np.issubdtype(dtype, np.datetime64):
-            unit, _ = np.datetime_data(dtype)
-            if unit in ['D', 'M', 'Y']:
-                return DateType(nullable=nullable)
-            else:
-                return TimestampType(nullable=nullable)
-
-        return None
-
-    @classmethod
     def from_literal(cls, val: np.ndarray, nullable: bool = False) -> ArrayType | None:
         assert isinstance(val, np.ndarray)
         if val.dtype.type not in ARRAY_SUPPORTED_NUMPY_DTYPES:
@@ -1457,3 +1428,32 @@ class Document(str, _PxtType):
 
 
 ALL_PIXELTABLE_TYPES = (String, Bool, Int, Float, Timestamp, Json, Array, Image, Video, Audio, Document)
+
+
+def from_np_dtype(dtype: np.dtype, nullable: bool) -> ColumnType | None:
+    """
+    Return pixeltable type corresponding to a given simple numpy dtype
+    """
+    if np.issubdtype(dtype, np.integer):
+        return IntType(nullable=nullable)
+
+    if np.issubdtype(dtype, np.floating):
+        return FloatType(nullable=nullable)
+
+    if dtype == np.bool_:
+        return BoolType(nullable=nullable)
+
+    if np.issubdtype(dtype, np.str_):
+        return StringType(nullable=nullable)
+
+    if np.issubdtype(dtype, np.character):
+        return StringType(nullable=nullable)
+
+    if np.issubdtype(dtype, np.datetime64):
+        unit, _ = np.datetime_data(dtype)
+        if unit in ['D', 'M', 'Y']:
+            return DateType(nullable=nullable)
+        else:
+            return TimestampType(nullable=nullable)
+
+    return None
