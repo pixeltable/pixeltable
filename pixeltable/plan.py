@@ -346,21 +346,19 @@ class Analyzer:
 
 
 class Planner:
-    # TODO: create an exec.CountNode and change this to create_count_plan()
     @classmethod
-    def create_count_stmt(cls, tbl: catalog.TableVersionPath, where_clause: exprs.Expr | None = None) -> sql.Select:
-        stmt = sql.select(sql.func.count().label('all_count'))
-        refd_tbl_ids: set[UUID] = set()
-        if where_clause is not None:
-            analyzer = cls.analyze(tbl, where_clause)
-            if analyzer.filter is not None:
-                raise excs.Error(f'Filter {analyzer.filter} not expressible in SQL')
-            clause_element = analyzer.sql_where_clause.sql_expr(analyzer.sql_elements)
-            assert clause_element is not None
-            stmt = stmt.where(clause_element)
-            refd_tbl_ids = where_clause.tbl_ids()
-        stmt = exec.SqlScanNode.create_from_clause(tbl, stmt, refd_tbl_ids)
-        return stmt
+    def create_count_stmt(cls, query: 'pxt.Query') -> sql.Select:
+        """Creates a SQL SELECT COUNT(*) statement for counting rows in a Query."""
+        # Create the query plan
+        plan = query._create_query_plan()
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
+        if sql_node.py_filter is not None:
+            raise excs.Error('count() cannot be used with Python-only filters. Use collect() instead.')
+        # Get the SQL statement from the SqlNode as a CTE
+        cte, _ = sql_node.to_cte(keep_pk=True)
+        count_stmt = sql.select(sql.func.count().label('all_count')).select_from(cte)
+        return count_stmt
 
     @classmethod
     def create_insert_plan(
