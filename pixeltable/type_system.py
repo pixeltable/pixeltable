@@ -870,7 +870,6 @@ class JsonType(ColumnType):
 
 ARRAY_SUPPORTED_NUMPY_DTYPES = [
     np.bool_,
-    np.str_,
     np.uint8,
     np.uint16,
     np.uint32,
@@ -882,6 +881,7 @@ ARRAY_SUPPORTED_NUMPY_DTYPES = [
     np.float16,
     np.float32,
     np.float64,
+    np.str_,
 ]
 
 
@@ -921,32 +921,6 @@ class ArrayType(ColumnType):
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self.shape, self.dtype))
 
-    def is_supertype_of(self, other: ColumnType, ignore_nullable: bool = False) -> bool:
-        if not isinstance(other, ArrayType):
-            return False
-        if not ignore_nullable and not self.nullable and other.nullable:
-            return False
-
-        # Check dtypes
-        if self.dtype is not None and other.dtype is None:
-            return False
-        if self.dtype is not None and other.dtype is not None and not np.can_cast(other.dtype, self.dtype):
-            return False
-
-        # If self has shape, compare to the other's shape. Otherwise it is supertype by shape.
-        if self.shape is not None:
-            if other.shape is None:
-                return False
-            if len(self.shape) != len(other.shape):
-                return False
-            for self_dim, other_dim in zip(self.shape, other.shape):
-                if self_dim is None:
-                    continue
-                if other_dim != self_dim:
-                    return False
-
-        return True
-
     def supertype(self, other: ColumnType) -> ArrayType | None:
         basic_supertype = super().supertype(other)
         if basic_supertype is not None:
@@ -956,18 +930,17 @@ class ArrayType(ColumnType):
         if not isinstance(other, ArrayType):
             return None
 
-        # Determine the dtype of the supertype. Use this simple approach for numpy dtypes for now, but we can do
-        # something smarter if there's a demand for it.
-        super_dtype: ColumnType | np.dtype | None
-        if isinstance(self.dtype, np.dtype) and isinstance(other.dtype, np.dtype):
-            super_dtype = self.dtype if self.dtype == other.dtype else None
-        elif isinstance(self.dtype, np.dtype) or isinstance(other.dtype, np.dtype):
-            super_dtype = None
-        else:
-            super_dtype_enum = self.Type.supertype(self.dtype, other.dtype, self.common_supertypes)
-            super_dtype = self.make_type(super_dtype_enum) if super_dtype_enum is not None else None
+        # Determine the dtype of the supertype
+        super_dtype: np.dtype | None = None
+        if self.dtype is not None and other.dtype is not None:
+            # This list is ordered such that for any two supported dtypes, the first common supertype in the array
+            # will be their lowest common supertype.
+            for dtype in ARRAY_SUPPORTED_NUMPY_DTYPES:
+                if np.can_cast(self.dtype, dtype) and np.can_cast(other.dtype, dtype):
+                    super_dtype = np.dtype(dtype)
+                    break
+
         if super_dtype is None:
-            # if the dtypes are incompatible, then the supertype is a fully general array
             return ArrayType(nullable=(self.nullable or other.nullable))
 
         # Determine the shape of the supertype
@@ -991,9 +964,9 @@ class ArrayType(ColumnType):
         if self.shape is None and self.dtype is None:
             return 'Array'
         if self.shape is None:
-            return f'Array[{self.dtype}]'
+            return f'Array[{self.dtype.name}]'
         assert self.dtype is not None
-        return f'Array[{self.shape}, {self.dtype}]'
+        return f'Array[{self.shape}, {self.dtype.name}]'
 
     @classmethod
     def _from_dict(cls, d: dict) -> ColumnType:
@@ -1041,12 +1014,9 @@ class ArrayType(ColumnType):
     @classmethod
     def from_literal(cls, val: np.ndarray, nullable: bool = False) -> ArrayType | None:
         assert isinstance(val, np.ndarray)
-        if val.dtype in ARRAY_SUPPORTED_NUMPY_DTYPES:
-            return cls(val.shape, dtype=val.dtype, nullable=nullable)
-        pxttype: ColumnType | None = cls.from_np_dtype(val.dtype, nullable)
-        if pxttype is None:
+        if val.dtype.type not in ARRAY_SUPPORTED_NUMPY_DTYPES:
             return None
-        return cls(val.shape, dtype=pxttype, nullable=nullable)
+        return cls(val.shape, dtype=val.dtype, nullable=nullable)
 
     def _to_json_schema(self) -> dict[str, Any]:
         schema: dict[str, Any] = {'type': 'array'}

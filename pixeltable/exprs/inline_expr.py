@@ -44,13 +44,10 @@ class InlineArray(Expr):
             col_type = ts.ArrayType((len(exprs),), inferred_element_type)
         elif inferred_element_type.is_array_type():
             assert isinstance(inferred_element_type, ts.ArrayType)
-            dtype: ts.ColumnType | np.dtype | None = None
-            if isinstance(inferred_element_type.dtype, np.dtype):
-                dtype = inferred_element_type.dtype
-            else:
-                dtype = ts.ColumnType.make_type(inferred_element_type.dtype)
-            if inferred_element_type.shape is not None and dtype is not None:
-                col_type = ts.ArrayType((len(exprs), *inferred_element_type.shape), dtype)
+            dtype = inferred_element_type.dtype
+            shape = inferred_element_type.shape
+            if shape is not None and dtype is not None:
+                col_type = ts.ArrayType(shape=(len(exprs), *shape), dtype=dtype)
             else:
                 col_type = ts.ArrayType(shape=None, dtype=dtype)
         else:

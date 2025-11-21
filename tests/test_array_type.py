@@ -161,7 +161,57 @@ class TestArrayType:
 
     def test_supertype(self) -> None:
         assert ArrayType(None, None).supertype(ArrayType(None, None)) == ArrayType(None, None)
-        # TODO finish this
+
+        # dtype supertyping
+        assert ArrayType(None, dtype=np.dtype('int32')).supertype(
+            ArrayType(None, dtype=np.dtype('int32'))
+        ) == ArrayType(None, dtype=np.dtype('int32'))
+        assert ArrayType(None, dtype=np.dtype('uint8')).supertype(
+            ArrayType(None, dtype=np.dtype('int32'))
+        ) == ArrayType(None, dtype=np.dtype('int32'))
+        assert ArrayType(None, dtype=np.dtype('bool')).supertype(ArrayType(None, dtype=np.dtype('str'))) == ArrayType(
+            None, dtype=np.dtype('str')
+        )
+        # special case: the super dtype is neither of the two dtypes
+        assert ArrayType(None, dtype=np.dtype('uint8')).supertype(ArrayType(None, dtype=np.dtype('int8'))) == ArrayType(
+            None, dtype=np.dtype('int16')
+        )
+        assert ArrayType(None, None).supertype(ArrayType(None, dtype=np.dtype('int32'))) == ArrayType(None, None)
+
+        # shape+dtype
+        assert ArrayType((2, 2), dtype=np.dtype('int8')).supertype(
+            ArrayType((2, 2), dtype=np.dtype('int8'))
+        ) == ArrayType((2, 2), dtype=np.dtype('int8'))
+        assert ArrayType(None, None).supertype(ArrayType((2, 2), dtype=np.dtype('int8'))) == ArrayType(None, None)
+        assert ArrayType(None, dtype=np.dtype('int8')).supertype(
+            ArrayType((2, 2), dtype=np.dtype('int8'))
+        ) == ArrayType(None, dtype=np.dtype('int8'))
+        assert ArrayType((2, 2), dtype=np.dtype('int8')).supertype(
+            ArrayType((None, 2), dtype=np.dtype('int16'))
+        ) == ArrayType((None, 2), dtype=np.dtype('int16'))
+        assert ArrayType((2, None), dtype=np.dtype('int8')).supertype(
+            ArrayType((None, 2), dtype=np.dtype('int16'))
+        ) == ArrayType((None, None), dtype=np.dtype('int16'))
+        assert ArrayType((2, 2), dtype=np.dtype('int8')).supertype(
+            ArrayType((2, 2, 3), dtype=np.dtype('int8'))
+        ) == ArrayType(None, dtype=np.dtype('int8'))
+        assert ArrayType((1, 2, 3), dtype=np.dtype('bool')).supertype(
+            ArrayType((3, 2, 1), dtype=np.dtype('bool'))
+        ) == ArrayType((None, 2, None), dtype=np.dtype('bool'))
+
+        # nullability
+        assert ArrayType(None, None, nullable=False).supertype(ArrayType(None, None, nullable=True)) == ArrayType(
+            None, None, nullable=True
+        )
+        assert ArrayType(None, None, nullable=True).supertype(ArrayType(None, None, nullable=True)) == ArrayType(
+            None, None, nullable=True
+        )
+        assert ArrayType((2, 2), dtype=np.dtype('int8')).supertype(
+            ArrayType((2, 2), dtype=np.dtype('int8'), nullable=True)
+        ) == ArrayType((2, 2), dtype=np.dtype('int8'), nullable=True)
+
+        # with incompatible types
+        assert ArrayType(None, None).supertype(IntType()) == None
 
     def test_is_supertype_of(self) -> None:
         assert not ArrayType(None, None).is_supertype_of(IntType())
@@ -226,15 +276,18 @@ class TestArrayType:
         test_cases: list[Iterable] = [
             ([1, 2, 3], (3,), np.dtype('int64')),
             ([[1, 2, 3.0]], (1, 3), np.dtype('float32')),
-            ([np.ones((1, 1), dtype=np.float32), np.zeros((1, 1), dtype=np.float32)], (2, 1, 1), np.float32),
-            ([np.ones((1, 1), dtype=np.str_), np.zeros((1, 1), dtype=np.bool)], None, None),
+            ([np.ones((1, 1), dtype=np.float32), np.zeros((1, 1), dtype=np.float32)], (2, 1, 1), np.dtype('float32')),
+            ([np.ones((1, 1), dtype=np.str_), np.zeros((1, 1), dtype=np.bool)], (2, 1, 1), np.dtype('str')),
         ]
 
-        for elements, expected_shape, expected_dtype in test_cases:
-            arr = pxt.array(elements)
-            assert isinstance(arr.col_type, ArrayType)
-            assert arr.col_type.shape == expected_shape
-            assert arr.col_type.dtype == expected_dtype
+        for i, (elements, expected_shape, expected_dtype) in enumerate(test_cases):
+            try:
+                arr = pxt.array(elements)
+                assert isinstance(arr.col_type, ArrayType)
+                assert arr.col_type.shape == expected_shape
+                assert arr.col_type.dtype == expected_dtype
+            except Exception as e:
+                raise type(e)(f'Failed test case {i}') from e
 
     def test_bad_array_shape(self) -> None:
         test_cases: list[Iterable] = [
@@ -306,3 +359,13 @@ class TestArrayType:
         ]
         for dict_, expected_type in test_cases:
             assert ArrayType._from_dict(dict_) == expected_type
+
+    def test_numpy_dtypes_order(self) -> None:
+        # ArrayType.supertype() relies on this property of ARRAY_SUPPORTED_NUMPY_DTYPES that all supertypes appear after
+        # their subtypes
+        for i, t_i in enumerate(ts.ARRAY_SUPPORTED_NUMPY_DTYPES):
+            for j in range(i + 1, len(ts.ARRAY_SUPPORTED_NUMPY_DTYPES)):
+                assert i < j
+                t_j = ts.ARRAY_SUPPORTED_NUMPY_DTYPES[j]
+                can_cast = np.can_cast(t_j, t_i)
+                assert not can_cast, f'Bad order in ARRAY_SUPPORTED_NUMPY_DTYPES: can cast from {t_j} to {t_i}'

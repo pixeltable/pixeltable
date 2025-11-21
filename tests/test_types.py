@@ -196,23 +196,6 @@ class TestTypes:
             (BoolType(), FloatType(), FloatType()),
             (IntType(), StringType(), None),
             (
-                ArrayType((1, 2, 3), dtype=IntType()),
-                ArrayType((3, 2, 1), dtype=IntType()),
-                ArrayType((None, 2, None), dtype=IntType()),
-            ),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((1, 2), dtype=IntType()), ArrayType(dtype=IntType())),
-            (
-                ArrayType((1, 2, 3), dtype=IntType()),
-                ArrayType((3, 2, 1), dtype=FloatType()),
-                ArrayType((None, 2, None), dtype=FloatType()),
-            ),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((3, 2, 1), dtype=StringType()), ArrayType()),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType((1, 2), dtype=StringType()), ArrayType()),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType(dtype=IntType()), ArrayType(dtype=IntType())),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType(dtype=StringType()), ArrayType()),
-            (ArrayType((1, 2, 3), dtype=IntType()), ArrayType(), ArrayType()),
-            (ArrayType(), IntType(), None),
-            (
                 ImageType(height=100, width=200, mode='RGB'),
                 ImageType(height=100, width=200, mode='RGB'),
                 ImageType(height=100, width=200, mode='RGB'),
@@ -242,33 +225,18 @@ class TestTypes:
                 JsonType(json_schema=self.json_schema_12),
             ),
             (JsonType(), IntType(), None),
-            # same numpy dtypes
-            (
-                ArrayType(dtype=np.dtype('int32')),
-                ArrayType(dtype=np.dtype('int32')),
-                ArrayType(dtype=np.dtype('int32')),
-            ),
-            (
-                ArrayType(dtype=np.dtype('float64')),
-                ArrayType(dtype=np.dtype('float64')),
-                ArrayType(dtype=np.dtype('float64')),
-            ),
-            # different numpy dtypes
-            (ArrayType(dtype=np.dtype('int8')), ArrayType(dtype=np.dtype('bool')), ArrayType()),
-            (ArrayType(dtype=np.dtype('uint64')), ArrayType(dtype=np.dtype('uint32')), ArrayType()),
-            # numpy dtype + pxt dtype
-            (ArrayType(dtype=np.dtype('bool')), ArrayType(dtype=IntType()), ArrayType()),
-            # numpy dtype + no dtype
-            (ArrayType(), ArrayType(dtype=np.dtype('float16')), ArrayType()),
         ]
-        for t1, t2, expected in test_cases:
+        for i, (t1, t2, expected) in enumerate(test_cases):
             for n1 in [True, False]:
                 for n2 in [True, False]:
-                    t1n = t1.copy(nullable=n1)
-                    t2n = t2.copy(nullable=n2)
-                    expectedn = None if expected is None else expected.copy(nullable=(n1 or n2))
-                    assert t1n.supertype(t2n) == expectedn, (t1n, t2n)
-                    assert t2n.supertype(t1n) == expectedn, (t1n, t2n)
+                    try:
+                        t1n = t1.copy(nullable=n1)
+                        t2n = t2.copy(nullable=n2)
+                        expectedn = None if expected is None else expected.copy(nullable=(n1 or n2))
+                        assert t1n.supertype(t2n) == expectedn, (t1n, t2n)
+                        assert t2n.supertype(t1n) == expectedn, (t1n, t2n)
+                    except Exception as e:
+                        raise type(e)(f'Failed test case {i} with n1={n1}, n2={n2}') from e
 
     def test_json_schemas(self, init_env: None) -> None:
         skip_test_if_not_installed('pydantic')
