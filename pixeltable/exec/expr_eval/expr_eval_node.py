@@ -14,7 +14,7 @@ from pixeltable import exprs
 from ..data_row_batch import DataRowBatch
 from ..exec_node import ExecNode
 from .evaluators import FnCallEvaluator, NestedRowList
-from .globals import ExecCtx, Scheduler
+from .globals import ExprEvalCtx, Scheduler
 from .row_buffer import RowBuffer
 from .schedulers import SCHEDULERS
 
@@ -44,7 +44,7 @@ class ExprEvalNode(ExecNode):
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
     outputs: np.ndarray  # bool per slot; True if this slot is part of our output
     schedulers: dict[str, Scheduler]  # key: resource pool name
-    exec_ctx: ExecCtx  # for input/output rows
+    exec_ctx: ExprEvalCtx  # for input/output rows
 
     # execution state
     tasks: set[asyncio.Task]  # collects all running tasks to prevent them from getting gc'd
@@ -101,7 +101,7 @@ class ExprEvalNode(ExecNode):
         # self.slot_evaluators = {}
         self.schedulers = {}
         # self._init_slot_evaluators()
-        self.exec_ctx = ExecCtx(self, self.row_builder, output_exprs, input_exprs)
+        self.exec_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
 
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
@@ -311,7 +311,7 @@ class ExprEvalNode(ExecNode):
             exprs.Expr.release_list(self.exec_ctx.all_exprs)
 
     def dispatch_exc(
-        self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExecCtx
+        self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExprEvalCtx
     ) -> None:
         """Propagate exception to main event loop or to dependent slots, depending on ignore_errors"""
         if len(rows) == 0 or self.exc_event.is_set():
@@ -334,7 +334,7 @@ class ExprEvalNode(ExecNode):
                 row.set_exc(slot_idx, exc)
         self.dispatch(rows, exec_ctx)
 
-    def dispatch(self, rows: list[exprs.DataRow], exec_ctx: ExecCtx) -> None:
+    def dispatch(self, rows: list[exprs.DataRow], exec_ctx: ExprEvalCtx) -> None:
         """Dispatch rows to slot evaluators, based on materialized dependencies"""
         if len(rows) == 0 or self.exc_event.is_set():
             return

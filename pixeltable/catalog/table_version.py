@@ -845,7 +845,6 @@ class TableVersion:
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
                 )
 
-        computed_values = 0
         num_excs = 0
         cols_with_excs: list[Column] = []
         for col in cols_to_add:
@@ -874,24 +873,18 @@ class TableVersion:
 
             # populate the column
             plan = Planner.create_add_column_plan(self.path, col)
-            plan.ctx.num_rows = row_count
             try:
-                plan.open()
-                try:
-                    excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
-                except sql_exc.DBAPIError as exc:
-                    Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
-                    # If it wasn't converted, re-raise as a generic Pixeltable error
-                    # (this means it's not a known concurrency error; it's something else)
-                    raise excs.Error(
-                        f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
-                    ) from exc
-                if excs_per_col > 0:
-                    cols_with_excs.append(col)
-                    num_excs += excs_per_col
-                computed_values += plan.ctx.num_computed_exprs * row_count
-            finally:
-                plan.close()
+                excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
+            except sql_exc.DBAPIError as exc:
+                Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
+                # If it wasn't converted, re-raise as a generic Pixeltable error
+                # (this means it's not a known concurrency error; it's something else)
+                raise excs.Error(
+                    f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
+                ) from exc
+            if excs_per_col > 0:
+                cols_with_excs.append(col)
+                num_excs += excs_per_col
 
         Catalog.get().record_column_dependencies(self)
 
@@ -899,9 +892,7 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(
-            upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
-        )  # add_columns
+        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs, computed_values=0)  # add_columns
         return UpdateStatus(
             cols_with_excs=[f'{col.get_tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
@@ -1105,7 +1096,6 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
-            show_progress=True,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1229,7 +1219,6 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
-            show_progress=True,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1242,7 +1231,6 @@ class TableVersion:
         base_versions: list[int | None],
         timestamp: float,
         cascade: bool,
-        show_progress: bool = True,
     ) -> UpdateStatus:
         from pixeltable.catalog import Catalog
         from pixeltable.plan import Planner
@@ -1252,9 +1240,7 @@ class TableVersion:
         create_new_table_version = plan is not None
         if create_new_table_version:
             self.bump_version(timestamp, bump_schema_version=False)
-            cols_with_excs, row_counts = self.store_tbl.insert_rows(
-                plan, v_min=self.version, show_progress=show_progress
-            )
+            cols_with_excs, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
                 cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],

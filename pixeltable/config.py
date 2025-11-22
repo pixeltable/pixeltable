@@ -146,8 +146,8 @@ class Config:
     def get_float_value(self, key: str, section: str = 'pixeltable') -> float | None:
         return self.get_value(key, float, section)
 
-    def get_bool_value(self, key: str, section: str = 'pixeltable') -> bool | None:
-        return self.get_value(key, bool, section)
+    def get_bool_value(self, key: str, section: str = 'pixeltable', default: bool | None = None) -> bool | None:
+        return self.get_value(key, bool, section) or default
 
 
 KNOWN_CONFIG_OPTIONS = {
@@ -160,6 +160,7 @@ KNOWN_CONFIG_OPTIONS = {
         'time_zone': 'Default time zone for timestamps',
         'hide_warnings': 'Hide warnings from the console',
         'verbosity': 'Verbosity level for console output',
+        'show_progress': 'Display a progress tracker for inserts and updates',
         'api_key': 'API key for Pixeltable cloud',
         'input_media_dest': 'Default destination URI for input media data',
         'output_media_dest': 'Default destination URI for output (computed) media data',
