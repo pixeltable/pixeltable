@@ -2,11 +2,10 @@ import dataclasses
 import json
 import logging
 import os
-import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, BinaryIO, Literal
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -20,7 +19,6 @@ from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 from pixeltable.utils.local_store import TempStore
-
 from .packager import TablePackager, TableRestorer
 from .protocol import PxtUri
 from .protocol.replica import (
@@ -37,21 +35,10 @@ from .protocol.replica import (
 _logger = logging.getLogger('pixeltable')
 
 
-class _ProgressCallback:
-    """Adapter class for boto3 S3 upload/download callbacks."""
-
-def __init__(self, progress: Progress, task_id: TaskID):
-        self.progress = progress
-        self.task_id = task_id
-
-    def __call__(self, bytes_transferred: int) -> None:
-        self.progress.update(self.task_id, advance=bytes_transferred)
-
-
 class _ProgressFileReader:
     """File wrapper that tracks read progress for HTTP uploads."""
 
-    def __init__(self, file_obj, progress: Progress, task_id: TaskID):
+    def __init__(self, file_obj: BinaryIO, progress: Progress, task_id: TaskID) -> None:
         self.file_obj = file_obj
         self.progress = progress
         self.task_id = task_id
@@ -62,13 +49,13 @@ class _ProgressFileReader:
             self.progress.update(self.task_id, advance=len(data))
         return data
 
-    def __enter__(self):
+    def __enter__(self) -> '_ProgressFileReader':
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        return False
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        return
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self.file_obj, name)
 
 
@@ -168,9 +155,12 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
 
     with Progress(BarColumn(), DownloadColumn(), TransferSpeedColumn()) as progress:
         task_id = progress.add_task('Uploading', total=bundle.stat().st_size)
-        callback = _ProgressCallback(progress, task_id)
         s3_client.upload_file(
-            Filename=str(bundle), Bucket=bucket, Key=remote_path, ExtraArgs=upload_args, Callback=callback
+            Filename=str(bundle),
+            Bucket=bucket,
+            Key=remote_path,
+            ExtraArgs=upload_args,
+            Callback=lambda n: progress.update(task_id, advance=n),
         )
 
 
@@ -237,8 +227,12 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     bundle_path = TempStore.create_path()
     with Progress(BarColumn(), DownloadColumn(), TransferSpeedColumn()) as progress:
         task_id = progress.add_task('Downloading', total=bundle_size)
-        callback = _ProgressCallback(progress, task_id)
-        s3_client.download_file(Bucket=bucket, Key=remote_path, Filename=str(bundle_path), Callback=callback)
+        s3_client.download_file(
+            Bucket=bucket,
+            Key=remote_path,
+            Filename=str(bundle_path),
+            Callback=lambda n: progress.update(task_id, advance=n),
+        )
     return bundle_path
 
 
