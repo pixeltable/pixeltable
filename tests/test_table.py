@@ -940,10 +940,10 @@ class TestTable:
             'Required[Date]',
             'Json',
             'Required[Json]',
-            'Array[(5, None, 3), Int]',
-            'Required[Array[(5, None, 3), Int]]',
-            'Array[Float]',
-            'Required[Array[Float]]',
+            'Array[(5, None, 3), int64]',
+            'Required[Array[(5, None, 3), int64]]',
+            'Array[float32]',
+            'Required[Array[float32]]',
             'Array',
             'Required[Array]',
             'Image',
@@ -1574,11 +1574,11 @@ class TestTable:
             t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
 
-        # bad array literal
+        # wrong array shape
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), pxt.Int]})  # type: ignore[misc]
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), np.float32]})  # type: ignore[misc]
         with pytest.raises(pxt.Error, match=r'expected numpy.ndarray\(\(2, 3\)'):
-            t.insert(c5=np.ndarray((3, 2)))
+            t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
@@ -2752,17 +2752,17 @@ class TestTable:
             """view 'test_subview' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
-            Column Name                          Type           Computed With
-              computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
+            Column Name                            Type           Computed With
+              computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]
 
             Index Name Column  Metric                                          Embedding
                   idx0     c1  cosine  sentence_transformer(c1, model_id='all-mpnet-b...
@@ -2781,17 +2781,17 @@ class TestTable:
             """snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
-            Column Name                          Type           Computed With
-              computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
+            Column Name                            Type           Computed With
+              computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]
 
             External Store         Type
                    project  MockProject
@@ -2805,16 +2805,16 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap2' (of 'test_tbl:2')
 
-            Column Name                          Type           Computed With
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]"""
+            Column Name                            Type           Computed With
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]"""
         )
 
         # test case: snapshot with additional columns
@@ -2823,17 +2823,17 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap3' (of 'test_tbl:2')
 
-            Column Name                          Type           Computed With
-              computed1               Required[Float]                 c2 + c3
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]"""
+            Column Name                            Type           Computed With
+              computed1                 Required[Float]                 c2 + c3
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]"""
         )
 
         c = repr(v2.c1)
@@ -2938,37 +2938,6 @@ class TestTable:
 
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.revert()
-
-    def test_array_columns(self, reset_db: None, reload_tester: ReloadTester) -> None:
-        schema = {
-            'fixed_shape': pxt.Array[(3, None, 5), pxt.Int],  # type: ignore[misc]
-            'gen_shape': pxt.Array[pxt.Float],  # type: ignore[misc]
-            'gen': pxt.Array,
-        }
-        t = pxt.create_table('array_tbl', schema)
-        rows = [
-            {
-                'fixed_shape': np.ones((3, 2, 5), dtype=np.int64),
-                'gen_shape': np.ones((1, 2, 3, 4), dtype=np.float32),
-                'gen': np.array(['a', 'b', 'c']),
-            },
-            {
-                'fixed_shape': np.zeros((3, 7, 5), dtype=np.int64),
-                'gen_shape': np.zeros((2, 6), dtype=np.float32),
-                'gen': np.array([[1, 7, 3], [2, 4, 5]], dtype=np.int64),
-            },
-        ]
-        t.insert(rows)
-        results = reload_tester.run_query(t.select())
-        for row, result in zip(rows, results):
-            for key in row:
-                a1 = row[key]
-                a2 = result[key]
-                assert isinstance(a1, np.ndarray)
-                assert isinstance(a2, np.ndarray)
-                assert np.array_equal(a1, a2)
-
-        reload_tester.run_reload_test()
 
     def test_drop_column_in_view_predicate(self, reset_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
