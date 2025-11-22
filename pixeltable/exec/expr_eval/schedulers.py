@@ -15,7 +15,7 @@ from pixeltable import env, func
 from pixeltable.config import Config
 from pixeltable.utils.retry import exponential_backoff
 
-from .globals import Dispatcher, ExecCtx, FnCallArgs, Scheduler
+from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 
 _logger = logging.getLogger('pixeltable')
 

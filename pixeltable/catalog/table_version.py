@@ -874,6 +874,7 @@ class TableVersion:
             # populate the column
             plan = Planner.create_add_column_plan(self.path, col)
             try:
+                plan.open()
                 try:
                     excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
                 except sql_exc.DBAPIError as exc:
@@ -887,16 +888,7 @@ class TableVersion:
                     cols_with_excs.append(col)
                     num_excs += excs_per_col
             finally:
-                # Ensure cleanup occurs if an exception or keyboard interruption happens during `load_column()`.
-                def cleanup_on_error() -> None:
-                    # Handle exceptions, keyboard interruptions, and other errors.
-                    # TODO: we should drop the column from the DB if any error occurred
-                    pass
-
-                # Run cleanup only if there has been an exception; otherwise, skip cleanup.
-                from pixeltable.utils.exception_handler import run_cleanup_on_exception
-
-                run_cleanup_on_exception(cleanup_on_error)
+                plan.close()
 
         Catalog.get().record_column_dependencies(self)
 

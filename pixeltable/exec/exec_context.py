@@ -1,7 +1,6 @@
 import logging
 import random
 import time
-from typing import Optional
 
 import sqlalchemy as sql
 from rich.progress import Progress, ProgressColumn, Task, TaskID, Text, TextColumn
@@ -16,14 +15,14 @@ class ExecContext:
 
     row_builder: exprs.RowBuilder
     show_progress: bool
-    progress: Optional[Progress]
+    progress: Progress | None
     progress_start: float  # time.monotonic() of progress.start()
     progress_reporters: dict[str, 'ExecContext.ProgressReporter']
-    elapsed_time_task_id: Optional[TaskID]
+    elapsed_time_task_id: TaskID | None
     batch_size: int  # 0: no batching
     profile: exprs.ExecProfile
-    conn: Optional[sql.engine.Connection]  # if present, use this to execute SQL queries
-    pk_clause: Optional[list[sql.ClauseElement]]
+    conn: sql.engine.Connection | None  # if present, use this to execute SQL queries
+    pk_clause: list[sql.ClauseElement] | None
     ignore_errors: bool
     random_seed: int  # general-purpose source of randomness with execution scope
 
@@ -34,9 +33,9 @@ class ExecContext:
         Task creation is deferred until the first update() call, in order to avoid useless output.
         """
 
-        task_id: Optional[TaskID]
+        task_id: TaskID | None
         ctx: 'ExecContext'
-        last_update_ts: Optional[float]
+        last_update_ts: float | None
         reports_bytes: bool  # if True, automatically scales the reported numbers to human-readable units
         total: float
         desc: str
@@ -115,7 +114,7 @@ class ExecContext:
         *,
         show_progress: bool = False,
         batch_size: int = 0,
-        pk_clause: Optional[list[sql.ClauseElement]] = None,
+        pk_clause: list[sql.ClauseElement] | None = None,
         ignore_errors: bool = False,
     ):
         self.row_builder = row_builder

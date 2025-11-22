@@ -273,7 +273,7 @@ class JsonMapperDispatcher(Evaluator):
     e: exprs.JsonMapperDispatch
     target_expr: exprs.Expr
     scope_anchor: exprs.ObjectRef
-    nested_exec_ctx: ExprEvalCtx  # ExecCtx needed to evaluate the nested rows
+    nested_eval_ctx: ExprEvalCtx  # ExprEvalCtx needed to evaluate the nested rows
     external_slot_map: dict[int, int]  # slot idx in parent row -> slot idx in nested row
     has_async_calls: bool  # True if target_expr contains any async FunctionCalls
 
@@ -292,7 +292,7 @@ class JsonMapperDispatcher(Evaluator):
             e for e in target_expr_ctx.exprs if e.scope() != target_scope and not isinstance(e, exprs.Literal)
         ]
         self.external_slot_map = {exec_ctx.row_builder.unique_exprs[e].slot_idx: e.slot_idx for e in parent_exprs}
-        self.nested_exec_ctx = ExecCtx(dispatcher, nested_row_builder, [self.target_expr], parent_exprs)
+        self.nested_eval_ctx = ExprEvalCtx(dispatcher, nested_row_builder, [self.target_expr], parent_exprs)
 
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
         """Create nested rows for all source list elements and dispatch them"""
@@ -307,7 +307,7 @@ class JsonMapperDispatcher(Evaluator):
 
             nested_rows = [
                 exprs.DataRow(
-                    size=self.nested_exec_ctx.row_builder.num_materialized,
+                    size=self.nested_eval_ctx.row_builder.num_materialized,
                     img_slot_idxs=[],
                     media_slot_idxs=[],
                     array_slot_idxs=[],
@@ -324,14 +324,14 @@ class JsonMapperDispatcher(Evaluator):
                     nested_row[self.scope_anchor.slot_idx] = anchor_val
                 for slot_idx_, nested_slot_idx in self.external_slot_map.items():
                     nested_row[nested_slot_idx] = row[slot_idx_]
-            self.nested_exec_ctx.init_rows(nested_rows)
+            self.nested_eval_ctx.init_rows(nested_rows)
 
             # we modify DataRow.vals here directly, rather than going through __getitem__(), because we don't have
             # an official "value" yet (the nested rows are not yet materialized)
             row.vals[self.e.slot_idx] = NestedRowList(nested_rows)
             all_nested_rows.extend(nested_rows)
 
-        self.dispatcher.dispatch(all_nested_rows, self.nested_exec_ctx)
+        self.dispatcher.dispatch(all_nested_rows, self.nested_eval_ctx)
         task = asyncio.create_task(self.gather(rows))
         self.dispatcher.register_task(task)
 

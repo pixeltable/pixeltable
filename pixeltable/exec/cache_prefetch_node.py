@@ -9,7 +9,7 @@ import urllib.request
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import AsyncIterator, Iterator, Optional
+from typing import AsyncIterator, Iterator
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
@@ -41,8 +41,8 @@ class CachePrefetchNode(ExecNode):
 
     # execution state
     num_returned_rows: int
-    downloaded_objects_reporter: Optional[ExecContext.ProgressReporter]
-    downloaded_bytes_reporter: Optional[ExecContext.ProgressReporter]
+    downloaded_objects_reporter: ExecContext.ProgressReporter | None
+    downloaded_bytes_reporter: ExecContext.ProgressReporter | None
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
     # the implied row idx of ready_rows[0] is num_returned_rows
