@@ -10,7 +10,7 @@ from typing import Any, Literal
 
 import requests
 from requests.adapters import HTTPAdapter
-from tqdm import tqdm
+from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TransferSpeedColumn
 from urllib3.util.retry import Retry
 
 import pixeltable as pxt
@@ -35,6 +35,42 @@ from .protocol.replica import (
 )
 
 _logger = logging.getLogger('pixeltable')
+
+
+class _ProgressCallback:
+    """Adapter class for boto3 S3 upload/download callbacks."""
+
+def __init__(self, progress: Progress, task_id: TaskID):
+        self.progress = progress
+        self.task_id = task_id
+
+    def __call__(self, bytes_transferred: int) -> None:
+        self.progress.update(self.task_id, advance=bytes_transferred)
+
+
+class _ProgressFileReader:
+    """File wrapper that tracks read progress for HTTP uploads."""
+
+    def __init__(self, file_obj, progress: Progress, task_id: TaskID):
+        self.file_obj = file_obj
+        self.progress = progress
+        self.task_id = task_id
+
+    def read(self, size: int = -1) -> bytes:
+        data = self.file_obj.read(size)
+        if data:
+            self.progress.update(self.task_id, advance=len(data))
+        return data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        return False
+
+    def __getattr__(self, name):
+        return getattr(self.file_obj, name)
+
 
 # These URLs are abstracted out for now, but will be replaced with actual (hard-coded) URLs once the
 # pixeltable.com URLs are available.
@@ -130,19 +166,12 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
 
     upload_args = {'ChecksumAlgorithm': 'SHA256'}
 
-    progress_bar = tqdm(
-        desc='Uploading',
-        total=bundle.stat().st_size,
-        unit='B',
-        unit_scale=True,
-        unit_divisor=1024,
-        miniters=1,  # Update every iteration (should be fine for an upload)
-        ncols=100,
-        file=sys.stdout,
-    )
-    s3_client.upload_file(
-        Filename=str(bundle), Bucket=bucket, Key=remote_path, ExtraArgs=upload_args, Callback=progress_bar.update
-    )
+    with Progress(BarColumn(), DownloadColumn(), TransferSpeedColumn()) as progress:
+        task_id = progress.add_task('Uploading', total=bundle.stat().st_size)
+        callback = _ProgressCallback(progress, task_id)
+        s3_client.upload_file(
+            Filename=str(bundle), Bucket=bucket, Key=remote_path, ExtraArgs=upload_args, Callback=callback
+        )
 
 
 def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
@@ -206,17 +235,10 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
     bundle_size = obj['ContentLength']
 
     bundle_path = TempStore.create_path()
-    progress_bar = tqdm(
-        desc='Downloading',
-        total=bundle_size,
-        unit='B',
-        unit_scale=True,
-        unit_divisor=1024,
-        miniters=1,
-        ncols=100,
-        file=sys.stdout,
-    )
-    s3_client.download_file(Bucket=bucket, Key=remote_path, Filename=str(bundle_path), Callback=progress_bar.update)
+    with Progress(BarColumn(), DownloadColumn(), TransferSpeedColumn()) as progress:
+        task_id = progress.add_task('Downloading', total=bundle_size)
+        callback = _ProgressCallback(progress, task_id)
+        s3_client.download_file(Bucket=bucket, Key=remote_path, Filename=str(bundle_path), Callback=callback)
     return bundle_path
 
 
@@ -256,29 +278,18 @@ def _upload_to_presigned_url(file_path: Path, url: str, max_retries: int = 3) ->
 
     session = _create_retry_session(max_retries=max_retries)
     try:
-        with (
-            open(file_path, 'rb') as f,
-            tqdm.wrapattr(
-                f,
-                method='read',
-                total=file_size,
-                desc='Uploading',
-                unit='B',
-                unit_scale=True,
-                unit_divisor=1024,
-                miniters=1,  # Update every iteration (should be fine for an upload)
-                ncols=100,
-                file=sys.stdout,
-            ) as file_with_progress,
-        ):
-            response = session.put(
-                url,
-                data=file_with_progress,
-                headers=headers,
-                timeout=(60, 1800),  # 60 seconds to connect and 300 seconds for server response
-            )
-            response.raise_for_status()
-            return response
+        with Progress(BarColumn(), DownloadColumn(), TransferSpeedColumn()) as progress:
+            task_id = progress.add_task('Uploading', total=file_size)
+            with open(file_path, 'rb') as f:
+                file_with_progress = _ProgressFileReader(f, progress, task_id)
+                response = session.put(
+                    url,
+                    data=file_with_progress,
+                    headers=headers,
+                    timeout=(60, 1800),  # 60 seconds to connect and 300 seconds for server response
+                )
+                response.raise_for_status()
+                return response
     finally:
         session.close()
 
@@ -297,21 +308,13 @@ def _download_from_presigned_url(
         response.raise_for_status()
 
         total_size = int(response.headers.get('content-length', 0))
-        progress_bar = tqdm(
-            desc='Downloading',
-            total=total_size,
-            unit='B',
-            unit_scale=True,
-            unit_divisor=1024,
-            miniters=1,
-            ncols=100,
-            file=sys.stdout,
-        )
-        with open(output_path, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    f.write(chunk)
-                    progress_bar.update(len(chunk))
+        with Progress(BarColumn(), DownloadColumn(), TransferSpeedColumn()) as progress:
+            task_id = progress.add_task('Downloading', total=total_size)
+            with open(output_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        progress.update(task_id, advance=len(chunk))
     finally:
         session.close()
 
