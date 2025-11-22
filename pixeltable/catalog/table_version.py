@@ -874,21 +874,17 @@ class TableVersion:
             # populate the column
             plan = Planner.create_add_column_plan(self.path, col)
             try:
-                plan.open()
-                try:
-                    excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
-                except sql_exc.DBAPIError as exc:
-                    Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
-                    # If it wasn't converted, re-raise as a generic Pixeltable error
-                    # (this means it's not a known concurrency error; it's something else)
-                    raise excs.Error(
-                        f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
-                    ) from exc
-                if excs_per_col > 0:
-                    cols_with_excs.append(col)
-                    num_excs += excs_per_col
-            finally:
-                plan.close()
+                excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
+            except sql_exc.DBAPIError as exc:
+                Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
+                # If it wasn't converted, re-raise as a generic Pixeltable error
+                # (this means it's not a known concurrency error; it's something else)
+                raise excs.Error(
+                    f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
+                ) from exc
+            if excs_per_col > 0:
+                cols_with_excs.append(col)
+                num_excs += excs_per_col
 
         Catalog.get().record_column_dependencies(self)
 

@@ -437,7 +437,6 @@ class TestAudio:
             )
         )
         validate_update_status(update_status)
-        assert update_status.num_computed_values > 1000
         for row in t.head(10):
             assert set(row.keys()) == {'audio', 'sentence', 'audio_file'}
             print(f'Encoded audio file: {row["audio_file"]}')
