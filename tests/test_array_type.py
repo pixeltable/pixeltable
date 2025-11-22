@@ -338,8 +338,25 @@ class TestArrayType:
             assert arr.to_json_schema() == expected_json_schema
 
     def test_to_dict(self) -> None:
+        # Check that various dtypes are correctly serialized to dict
+        # This is important because if done naively, a str_ can turn into something like '<U'
         as_dict = ArrayType((1, None, 3), np.dtype('uint8'), nullable=True)._as_dict()
         assert as_dict == {'shape': [1, None, 3], 'numpy_dtype': 'uint8', 'nullable': True}
+
+        as_dict = ArrayType(shape=None, dtype=np.dtype('bool'))._as_dict()
+        assert as_dict == {'shape': None, 'numpy_dtype': 'bool', 'nullable': False}
+
+        as_dict = ArrayType(shape=None, dtype=np.dtype('str'))._as_dict()
+        assert as_dict == {'shape': None, 'numpy_dtype': 'str', 'nullable': False}
+
+        as_dict = ArrayType(shape=None, dtype=np.dtype('float64'))._as_dict()
+        assert as_dict == {'shape': None, 'numpy_dtype': 'float64', 'nullable': False}
+
+        as_dict = ArrayType(shape=(2, 2), dtype=np.ones((2, 2), dtype=np.float32).dtype)._as_dict()
+        assert as_dict == {'shape': [2, 2], 'numpy_dtype': 'float32', 'nullable': False}
+
+        as_dict = ArrayType(shape=(2, 2), dtype=np.ones((2, 2), dtype=np.str_).dtype)._as_dict()
+        assert as_dict == {'shape': [2, 2], 'numpy_dtype': 'str', 'nullable': False}
 
     def test_to_from_dict(self) -> None:
         test_cases = [
@@ -350,6 +367,7 @@ class TestArrayType:
             ArrayType(shape=(None, 4, 4), dtype=np.dtype('uint8')),
             ArrayType(dtype=np.dtype('float64'), nullable=True),
             ArrayType(shape=(42,), dtype=np.dtype('uint64'), nullable=True),
+            ArrayType(shape=(2, 2), dtype=np.ones((2, 2), dtype=np.str_).dtype),
         ]
         for type in test_cases:
             as_dict = type._as_dict()

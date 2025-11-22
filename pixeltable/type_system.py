@@ -905,8 +905,13 @@ class ArrayType(ColumnType):
         super().__init__(self.Type.ARRAY, nullable=nullable)
         assert shape is None or dtype is not None, (shape, dtype)  # cannot specify a shape without a dtype
         self.shape = shape
-        if dtype is None or isinstance(dtype, np.dtype):
-            self.dtype = dtype
+        if dtype is None:
+            self.dtype = None
+        elif isinstance(dtype, np.dtype):
+            if dtype.type == np.str_:
+                self.dtype = np.dtype(np.str_)
+            else:
+                self.dtype = dtype
         elif isinstance(dtype, ColumnType):
             self.dtype = self.pxt_dtype_to_numpy_dtype.get(dtype._type, None)
             if self.dtype is None:
@@ -956,8 +961,12 @@ class ArrayType(ColumnType):
         shape_as_list = None if self.shape is None else list(self.shape)
         result.update(shape=shape_as_list)
 
-        # None, 'uint8', 'int32', 'bool', etc.
-        result.update(numpy_dtype=str(self.dtype) if self.dtype is not None else None)
+        if self.dtype is None:
+            result.update(numpy_dtype=None)
+        elif self.dtype == np.str_:
+            result.update(numpy_dtype='str')
+        else:
+            result.update(numpy_dtype=str(self.dtype))
         return result
 
     def _to_base_str(self) -> str:
