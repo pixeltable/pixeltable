@@ -248,7 +248,7 @@ class ColumnRef(Expr):
         self.pos_idx = cast(store.StoreComponentView, col.get_tbl().store_tbl).pos_col_idx
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
-        if self.perform_validation or self.is_unstored_iter_col:
+        if self.perform_validation:
             return None
         self.col = self.col_handle.get()
         return self.col.sa_col

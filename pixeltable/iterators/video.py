@@ -231,6 +231,7 @@ class FrameIterator(ComponentIterator):
         self.container.close()
 
     def set_pos(self, pos: int, **kwargs: Any) -> None:
+        assert next(iter(kwargs.values()), None) is not None
         if pos == self.next_pos:
             return  # already there
 
