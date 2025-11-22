@@ -390,15 +390,7 @@ class Planner:
         if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(
-            exec.ExecContext(
-                row_builder,
-                batch_size=0,
-                show_pbar=True,
-                num_computed_exprs=len(computed_exprs),
-                ignore_errors=ignore_errors,
-            )
-        )
+        plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
 
         return plan
@@ -430,12 +422,7 @@ class Planner:
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(
-            exec.ExecContext(
-                plan.row_builder, batch_size=0, show_pbar=True, num_computed_exprs=0, ignore_errors=ignore_errors
-            )
-        )
-        plan.ctx.num_rows = 0  # Unknown
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
 
         return plan
 
@@ -1184,10 +1171,8 @@ class Planner:
         )
 
         plan.ctx.batch_size = 16
-        plan.ctx.show_pbar = True
+        plan.ctx.show_progress = True
         plan.ctx.ignore_errors = True
-        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
-        plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
         plan = cls._add_save_node(plan)
 
         return plan

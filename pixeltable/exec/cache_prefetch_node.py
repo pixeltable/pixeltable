@@ -9,7 +9,7 @@ import urllib.request
 from collections import deque
 from concurrent import futures
 from pathlib import Path
-from typing import AsyncIterator, Iterator
+from typing import AsyncIterator, Iterator, Optional
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
@@ -17,6 +17,7 @@ from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
 
 from .data_row_batch import DataRowBatch
+from .exec_context import ExecContext
 from .exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
@@ -40,6 +41,8 @@ class CachePrefetchNode(ExecNode):
 
     # execution state
     num_returned_rows: int
+    downloaded_objects_reporter: Optional[ExecContext.ProgressReporter]
+    downloaded_bytes_reporter: Optional[ExecContext.ProgressReporter]
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
     # the implied row idx of ready_rows[0] is num_returned_rows
@@ -77,6 +80,12 @@ class CachePrefetchNode(ExecNode):
     @property
     def queued_work(self) -> int:
         return len(self.in_flight_requests)
+
+    def open(self) -> None:
+        super().open()
+        if self.ctx.show_progress:
+            self.downloaded_objects_reporter = self.ctx.add_progress_reporter('Downloads', 'objects')
+            self.downloaded_bytes_reporter = self.ctx.add_progress_reporter('Downloads', 'B')
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
         """Get the next batch of input rows, or None if there are no more rows"""
@@ -139,6 +148,9 @@ class CachePrefetchNode(ExecNode):
 
     def __process_completions(self, done: set[futures.Future], ignore_errors: bool) -> None:
         file_cache = FileCache.get()
+        num_objects = 0
+        num_bytes = 0
+
         for f in done:
             url = self.in_flight_requests.pop(f)
             tmp_path, exc = f.result()
@@ -146,6 +158,9 @@ class CachePrefetchNode(ExecNode):
                 raise exc
             local_path: Path | None = None
             if tmp_path is not None:
+                num_objects += 1
+                num_bytes += tmp_path.stat().st_size
+
                 # register the file with the cache for the first column in which it's missing
                 assert url in self.in_flight_urls
                 _, info = self.in_flight_urls[url][0]
@@ -164,6 +179,10 @@ class CachePrefetchNode(ExecNode):
                 if state.num_missing == 0:
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
+
+        if self.ctx.show_progress:
+            self.downloaded_objects_reporter.update(num_objects)
+            self.downloaded_bytes_reporter.update(num_bytes)
 
     def __process_input_batch(self, input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None:
         """Process a batch of input rows, submitting URLs for download and adding ready rows to ready_rows"""
