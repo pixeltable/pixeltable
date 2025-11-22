@@ -129,7 +129,6 @@ class TestHistory:
                 'updates': 2,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 4,
                 'schema_change': 'Deleted: c4',
             },
             {
@@ -140,7 +139,6 @@ class TestHistory:
                 'updates': 2,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 4,
                 'schema_change': "Renamed: 'c2' to 'c2_renamed'",
             },
             {
@@ -151,7 +149,6 @@ class TestHistory:
                 'updates': 2,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 4,
                 'schema_change': None,
             },
             {
@@ -162,7 +159,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 4,
                 'errors': 0,
-                'computed': 0,
                 'schema_change': None,
             },
             {
@@ -173,7 +169,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 12,
                 'schema_change': None,
             },
             {
@@ -184,7 +179,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 12,
                 'schema_change': None,
             },
             {
@@ -195,7 +189,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 12,
                 'schema_change': None,
             },
             {
@@ -206,7 +199,6 @@ class TestHistory:
                 'updates': 3,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 9,
                 'schema_change': 'Added: c6, c7, c8',
             },
             {
@@ -217,7 +209,6 @@ class TestHistory:
                 'updates': 3,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 6,
                 'schema_change': 'Added: c5',
             },
             {
@@ -228,7 +219,6 @@ class TestHistory:
                 'updates': 3,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 6,
                 'schema_change': 'Added: c4',
             },
             {
@@ -239,7 +229,6 @@ class TestHistory:
                 'updates': 3,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 6,
                 'schema_change': 'Added: c3',
             },
             {
@@ -250,7 +239,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 1,
                 'schema_change': None,
             },
             {
@@ -261,7 +249,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 2,
                 'schema_change': None,
             },
             {
@@ -272,7 +259,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 0,
                 'schema_change': 'Initial Version',
             },
         ]

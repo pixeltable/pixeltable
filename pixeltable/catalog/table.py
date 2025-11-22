@@ -1870,7 +1870,6 @@ class Table(SchemaObject):
                     updates=rcs.upd_rows,
                     deletes=rcs.del_rows,
                     errors=rcs.num_excs,
-                    computed=rcs.computed_values,
                     schema_change=schema_change,
                 )
             )
