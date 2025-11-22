@@ -171,7 +171,7 @@ class RateLimitsScheduler(Scheduler):
         _logger.debug(f'Determined wait time of {highest_wait:.1f}s for resource {highest_wait_resource}')
         return highest_wait
 
-    async def _exec(self, request: FnCallArgs, exec_ctx: ExecCtx, num_retries: int, is_task: bool) -> None:
+    async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx, num_retries: int, is_task: bool) -> None:
         assert all(not row.has_val[request.fn_call.slot_idx] for row in request.rows)
         assert all(not row.has_exc(request.fn_call.slot_idx) for row in request.rows)
 
@@ -342,7 +342,7 @@ class RequestRateScheduler(Scheduler):
                 task = asyncio.create_task(self._exec(item.request, item.exec_ctx, item.num_retries, is_task=True))
                 self.dispatcher.register_task(task)
 
-    async def _exec(self, request: FnCallArgs, exec_ctx: ExecCtx, num_retries: int, is_task: bool) -> None:
+    async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx, num_retries: int, is_task: bool) -> None:
         assert all(not row.has_val[request.fn_call.slot_idx] for row in request.rows)
         assert all(not row.has_exc(request.fn_call.slot_idx) for row in request.rows)
 

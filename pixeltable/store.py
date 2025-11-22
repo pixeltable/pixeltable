@@ -349,6 +349,17 @@ class StoreBase:
 
         try:
             table_rows: list[tuple[Any]] = []
+            exec_plan.ctx.show_progress = Config.get().get_bool_value(
+                'show_progress', default=Env.get().is_interactive()
+            )
+            exec_plan.open()
+            progress_reporter = (
+                exec_plan.ctx.add_progress_reporter(
+                    desc=f'Column values written (table {self.tbl_version.get().name!r})', unit='rows'
+                )
+                if exec_plan.ctx.show_progress
+                else None
+            )
 
             # insert rows from exec_plan into temp table
             for row_batch in exec_plan:
@@ -366,10 +377,14 @@ class StoreBase:
                 table_rows.extend(batch_table_rows)
 
                 if len(table_rows) >= self.__INSERT_BATCH_SIZE:
+                    if progress_reporter is not None:
+                        progress_reporter.update(len(table_rows))
                     self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
                     table_rows.clear()
 
             if len(table_rows) > 0:
+                if progress_reporter is not None:
+                    progress_reporter.update(len(table_rows))
                 self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
 
             # update store table with values from temp table
@@ -389,16 +404,13 @@ class StoreBase:
                 tmp_tbl.drop(bind=conn)
 
             run_cleanup(remove_tmp_tbl, raise_error=False)
+            # don't call this until all rows have been inserted, progress_reporter depends on it
+            exec_plan.close()
 
         return num_excs
 
     def insert_rows(
-        self,
-        exec_plan: ExecNode,
-        v_min: int,
-        show_progress: bool = True,
-        rowids: Iterator[int] | None = None,
-        abort_on_exc: bool = False,
+        self, exec_plan: ExecNode, v_min: int, rowids: Iterator[int] | None = None, abort_on_exc: bool = False
     ) -> tuple[set[int], RowCountStats]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
@@ -409,14 +421,24 @@ class StoreBase:
         num_excs = 0
         num_rows = 0
         cols_with_excs: set[int] = set()
-        progress_bar: tqdm | None = None  # create this only after we started executing
         row_builder = exec_plan.row_builder
 
         store_col_names = row_builder.store_column_names()
 
         try:
             table_rows: list[tuple[Any]] = []
+            # by default, we only show the progress tracker when running in an interactive environment
+            exec_plan.ctx.show_progress = Config.get().get_bool_value(
+                'show_progress', default=Env.get().is_interactive()
+            )
             exec_plan.open()
+            progress_reporter = (
+                exec_plan.ctx.add_progress_reporter(
+                    desc=f'Rows written (table {self.tbl_version.get().name!r})', unit='rows'
+                )
+                if exec_plan.ctx.show_progress
+                else None
+            )
 
             for row_batch in exec_plan:
                 num_rows += len(row_batch)
@@ -435,34 +457,24 @@ class StoreBase:
                     table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
 
-                    if show_progress and Env.get().verbosity >= 1:
-                        if progress_bar is None:
-                            warnings.simplefilter('ignore', category=TqdmWarning)
-                            progress_bar = tqdm(
-                                desc=f'Inserting rows into `{self.tbl_version.get().name}`',
-                                unit=' rows',
-                                ncols=100,
-                                file=sys.stdout,
-                            )
-                        progress_bar.update(1)
-
                     batch_table_rows.append(tuple(table_row))
 
                 table_rows.extend(batch_table_rows)
 
                 # if a batch is ready for insertion into the database, insert it
                 if len(table_rows) >= self.__INSERT_BATCH_SIZE:
+                    if progress_reporter is not None:
+                        progress_reporter.update(len(table_rows))
                     self.sql_insert(self.sa_tbl, store_col_names, table_rows)
                     table_rows.clear()
 
             # insert any remaining rows
             if len(table_rows) > 0:
+                if progress_reporter is not None:
+                    progress_reporter.update(len(table_rows))
                 self.sql_insert(self.sa_tbl, store_col_names, table_rows)
 
-            if progress_bar is not None:
-                progress_bar.close()
-            computed_values = exec_plan.ctx.num_computed_exprs * num_rows
-            row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=computed_values)
+            row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=0)
 
             return cols_with_excs, row_counts
         finally:
