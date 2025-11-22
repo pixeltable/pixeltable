@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 import time
-from typing import Any, Iterable, NamedTuple, Sequence
+from typing import Any, Iterable, NamedTuple, Sequence, TypeVar
 from uuid import UUID
 
 import numpy as np
@@ -73,6 +73,7 @@ class RowBuilder:
     table_columns: dict[catalog.Column, int | None]  # value: slot idx, if the result of an expr
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
+    unstored_iter_outputs: dict[UUID, list[Expr]]
 
     # transitive dependents for the purpose of exception propagation: an exception for slot i is propagated to
     # _exc_dependents[i]
@@ -115,19 +116,6 @@ class RowBuilder:
         from .column_property_ref import ColumnPropertyRef
         from .column_ref import ColumnRef
 
-        self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
-        self.next_slot_idx = 0
-
-        # record input and output exprs; make copies to avoid reusing execution state
-        unique_input_exprs = [self._record_unique_expr(e.copy(), recursive=False) for e in input_exprs]
-        self.input_expr_slot_idxs = {e.slot_idx for e in unique_input_exprs}
-
-        resolve_cols = set(columns)
-        self.output_exprs = ExprSet(
-            self._record_unique_expr(e.copy().resolve_computed_cols(resolve_cols=resolve_cols), recursive=True)
-            for e in output_exprs
-        )
-
         # if init(columns):
         # - we are creating table rows and need to record columns for create_store_table_row()
         # - output_exprs materialize those columns
@@ -140,6 +128,50 @@ class RowBuilder:
         self.table_columns = {}
         self.input_exprs = ExprSet()
         validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
+
+        self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
+        self.next_slot_idx = 0
+
+        # record input exprs; make copies to avoid reusing execution state
+        unique_input_exprs = [self._record_unique_expr(e.copy(), recursive=False) for e in input_exprs]
+
+        # references to unstored iterator columns:
+        # - those ColumnRefs need to instantiate iterators
+        # - we create and record the iterator args here and pass them to their respective ColumnRefs
+        # - we do this instead of simply recording the iterator args as a component of those ColumnRefs,
+        #   because that would cause them to be evaluated for every single row
+        # - the separate eval ctx allows the ColumnRef to materialize the iterator args only when the underlying
+        #   iterated object changes
+
+        output_col_refs: list[ColumnRef] = []
+        for expr in output_exprs:
+            output_col_refs.extend(expr.subexprs(expr_class=ColumnRef))
+
+        def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
+            tbl = col_ref.col.get_tbl()
+            return tbl.is_component_view and tbl.is_iterator_column(col_ref.col) and not col_ref.col.is_stored
+
+        unstored_iter_col_refs = [col_ref for col_ref in output_col_refs if refs_unstored_iter_col(col_ref)]
+        component_views = [col_ref.col.get_tbl() for col_ref in unstored_iter_col_refs]
+        unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
+        # the *stored* output columns of the unstored iterators
+        self.unstored_iter_outputs = {
+            view.id: [self._record_unique_expr(ColumnRef(col), recursive=True) for col in view.iterator_columns() if col.is_stored]
+            for view in component_views
+        }
+
+        for outputs in self.unstored_iter_outputs.values():
+            for col_ref in outputs:
+                unique_input_exprs.append(col_ref)
+
+        self.input_expr_slot_idxs = {e.slot_idx for e in unique_input_exprs}
+
+        resolve_cols = set(columns)
+        self.output_exprs = ExprSet(
+            self._record_unique_expr(e.copy().resolve_computed_cols(resolve_cols=resolve_cols), recursive=True)
+            for e in output_exprs
+        )
+
         for col in columns:
             expr: Expr
             if col.is_computed:
@@ -170,37 +202,18 @@ class RowBuilder:
             self.add_table_column(col, expr.slot_idx)
             self.output_exprs.add(expr)
 
-        # references to unstored iterator columns:
-        # - those ColumnRefs need to instantiate iterators
-        # - we create and record the iterator args here and pass them to their respective ColumnRefs
-        # - we do this instead of simply recording the iterator args as a component of those ColumnRefs,
-        #   because that would cause them to be evaluated for every single row
-        # - the separate eval ctx allows the ColumnRef to materialize the iterator args only when the underlying
-        #   iterated object changes
-        col_refs = [e for e in self.unique_exprs if isinstance(e, ColumnRef)]
-
-        def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
-            tbl = col_ref.col.get_tbl()
-            return tbl.is_component_view and tbl.is_iterator_column(col_ref.col) and not col_ref.col.is_stored
-
-        unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
-        component_views = [col_ref.col.get_tbl() for col_ref in unstored_iter_col_refs]
-        unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
-        self.unstored_iter_args = {
-            id: self._record_unique_expr(args, recursive=True) for id, args in unstored_iter_args.items()
-        }
-        # the *stored* output columns of the unstored iterators
-        unstored_iter_outputs = {
-            view.id: [self._record_unique_expr(ColumnRef(col), recursive=True) for col in view.iterator_columns() if col.is_stored]
-            for view in component_views
-        }
-
         # default eval ctx: all output exprs
         self.default_eval_ctx = self.create_eval_ctx(list(self.output_exprs), exclude=unique_input_exprs)
 
+        self.unstored_iter_args = {
+            id: self._record_unique_expr(args, recursive=True) for id, args in unstored_iter_args.items()
+        }
+
+        unstored_iter_col_refs = [self._record_unique_expr(col_ref, recursive=True) for col_ref in unstored_iter_col_refs]
+
         for col_ref in unstored_iter_col_refs:
-            iter_arg_ctx = self.create_eval_ctx([unstored_iter_args[col_ref.col.get_tbl().id]])
-            iter_outputs = unstored_iter_outputs[col_ref.col.get_tbl().id]
+            iter_arg_ctx = self.create_eval_ctx([self.unstored_iter_args[col_ref.col.get_tbl().id]])
+            iter_outputs = self.unstored_iter_outputs[col_ref.col.get_tbl().id]
             col_ref.set_iter_arg_ctx(iter_arg_ctx, iter_outputs)
 
         # we guarantee that we can compute the expr DAG in a single front-to-back pass
@@ -284,7 +297,9 @@ class RowBuilder:
         self.next_slot_idx += 1
         return result
 
-    def _record_unique_expr(self, expr: Expr, recursive: bool) -> Expr:
+    T = TypeVar('T', bound=Expr)
+
+    def _record_unique_expr(self, expr: T, recursive: bool) -> T:
         """Records the expr if it's not a duplicate and assigns a slot idx to expr and its components"
         Returns:
             the unique expr

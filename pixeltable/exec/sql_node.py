@@ -57,10 +57,8 @@ def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> OrderByClause 
 
 def print_order_by_clause(clause: OrderByClause) -> str:
     return ', '.join(
-        [
-            f'({item.expr}{", asc=True" if item.asc is True else ""}{", asc=False" if item.asc is False else ""})'
-            for item in clause
-        ]
+        f'({item.expr}{", asc=True" if item.asc is True else ""}{", asc=False" if item.asc is False else ""})'
+        for item in clause
     )
 
 
@@ -133,6 +131,9 @@ class SqlNode(ExecNode):
             sql_subexprs = iter_arg.subexprs(filter=self.sql_elements.contains, traverse_matches=False)
             for e in sql_subexprs:
                 self.select_list.add(e)
+        for outputs in row_builder.unstored_iter_outputs.values():
+            for col_ref in outputs:
+                self.select_list.add(col_ref)
         super().__init__(row_builder, self.select_list, [], None)  # we materialize self.select_list
 
         if tbl is not None:

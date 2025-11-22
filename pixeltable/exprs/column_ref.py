@@ -248,7 +248,7 @@ class ColumnRef(Expr):
         self.pos_idx = cast(store.StoreComponentView, col.get_tbl().store_tbl).pos_col_idx
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
-        if self.perform_validation:
+        if self.perform_validation or self.is_unstored_iter_col:
             return None
         self.col = self.col_handle.get()
         return self.col.sa_col
@@ -290,11 +290,11 @@ class ColumnRef(Expr):
 
         # if this is a new base row, we need to instantiate a new iterator
         if self.base_rowid != data_row.pk[: self.base_rowid_len]:
+            assert self.iter_arg_ctx is not None
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
             self.iterator = self.col.get_tbl().iterator_cls(**iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
-        assert self.iter_arg_ctx is not None
         stored_outputs = {
             col_ref.col.name: data_row[col_ref.slot_idx]
             for col_ref in self.iter_outputs
