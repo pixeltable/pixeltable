@@ -5,6 +5,7 @@ import os
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from types import TracebackType
 from typing import Any, BinaryIO, Literal
 
 import requests
@@ -19,6 +20,7 @@ from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 from pixeltable.utils.local_store import TempStore
+
 from .packager import TablePackager, TableRestorer
 from .protocol import PxtUri
 from .protocol.replica import (
@@ -52,8 +54,10 @@ class _ProgressFileReader:
     def __enter__(self) -> '_ProgressFileReader':
         return self
 
-    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
-        return
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+    ) -> None:
+        pass
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.file_obj, name)
