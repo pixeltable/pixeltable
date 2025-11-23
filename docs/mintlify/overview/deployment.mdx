@@ -563,12 +563,14 @@ Pixeltable's storage layer uses an embedded PostgreSQL instance. **Only one proc
 
 ### Environment Separation
 
+Use environment-specific namespaces to manage dev/staging/prod configurations:
+
 ```python
 # config.py
 import os
 
 ENV = os.getenv('ENVIRONMENT', 'dev')
-APP_NAMESPACE = f'{ENV}_myapp'
+APP_NAMESPACE = f'{ENV}_myapp'  # Creates: dev_myapp, staging_myapp, prod_myapp
 
 # Model and API configuration
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'intfloat/e5-large-v2')
@@ -577,6 +579,8 @@ OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
 # Optional: Cloud storage for generated media
 MEDIA_STORAGE_BUCKET = os.getenv('MEDIA_STORAGE_BUCKET')
 ```
+
+---
 
 ## Data Interoperability
 
@@ -701,45 +705,5 @@ pxt.create_dir(TEST_NS, if_exists='replace')
 - **Network Isolation:** Deploy within private VPC. Do not expose PostgreSQL port (5432) to the internet.
 - **Authentication:** Handle at application layer (FastAPI/Django). Pixeltable does not manage end-user accounts.
 - **Cloud Credentials:** Use IAM Roles (AWS) or Workload Identity (GCP/Azure) instead of long-lived keys.
-
-
----
-
-## Deployment Decision Guide
-
-Choose the right deployment model based on your team's constraints and goals.
-
-| Feature | **Approach 1: Orchestration Layer** | **Approach 2: Full Backend** |
-| :--- | :--- | :--- |
-| **Primary Role** | Compute & Transformation Engine | System of Record + Compute Engine |
-| **Data Storage** | Ephemeral (or cache-only) | Persistent (Media + Metadata) |
-| **Source of Truth** | External RDBMS / Data Lake | Pixeltable |
-| **Integration** | Syncs with existing DBs | Serves Application API directly |
-| **Ideal Team** | Data Engineering / ML Ops | Full Stack / Product Engineering |
-| **Best For** | Enriching existing data pipelines | Building new AI-native apps |
-
-### Decision Tree
-
-1.  **Do you have an existing production database (Postgres, MySQL, etc.) that must remain the source of truth?**
-    *   **YES:** Use **Approach 1 (Orchestration Layer)**. Treat Pixeltable as a transformation engine. Sync data in, process it (chunking, embeddings, LLM extraction), and sync structured results back to your main DB.
-    *   **NO:** Go to question 2.
-
-2.  **Are you building a new application where multimodal data (video, audio, docs) is a first-class citizen?**
-    *   **YES:** Use **Approach 2 (Full Backend)**. Pixeltable simplifies your stack by handling storage, versioning, and computation in one place.
-    *   **NO:** If you only need transient processing without retrieval, consider a simpler stateless worker queue, though Pixeltable can still help with iteration and debugging.
-
-3.  **Do you need complex semantic search and retrieval (RAG)?**
-    *   **YES:** **Approach 2** is strongly recommended. Managing vector indices and file lineage manually in a separate DB is complex and error-prone.
-    *   **NO:** **Approach 1** works well for pure ETL tasks (e.g., "convert all new videos to MP3").
-
-### Technical Capabilities (Both)
-Regardless of deployment mode, you get:
-- **Multimodal Types:** Native handling of Video, Document, Audio, Image, JSON.
-- **Computed Columns:** Automatic incremental updates and dependency tracking.
-- **Views & Iterators:** Built-in logic for chunking documents, extracting frames, etc.
-- **Model Orchestration:** Rate-limited API calls to OpenAI, Anthropic, Gemini, local models.
-- **Data Interoperability:** Import/export Parquet, PyTorch, LanceDB, pandas.
-- **Configurable Media Storage:** Per-column destination (local or cloud bucket).
-- **Concurrent Access:** Multi-process safe with automatic conflict resolution.
 
 ---
