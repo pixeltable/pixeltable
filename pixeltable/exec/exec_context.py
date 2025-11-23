@@ -73,14 +73,19 @@ class ExecContext:
                 unit = 'GB'
             return scale, unit
 
-        def update(self, advance: float) -> None:
+        def update(self, advance: float, *, start_ts: float | None = None) -> None:
             _logger.debug(f'ProgressReporter.update({self.desc}): advance={advance}')
             self._create_task()
             now = time.monotonic()
             self.total += advance
 
             time_delta = now - self.last_update_ts
-            rate = advance / time_delta if time_delta > 0 else 0.0
+            #rate = advance / time_delta if time_delta > 0 else 0.0
+            rate = 0.0
+            if start_ts is not None:
+                time_delta = now - start_ts
+                rate = advance / time_delta if time_delta > 0 else 0.0
+
             total = self.total
             unit = self.unit
             if self.reports_bytes:
@@ -144,6 +149,7 @@ class ExecContext:
         """Create Progress object and start the timer. Idempotent."""
         if not self.show_progress or self.progress is not None:
             return
+
         self.progress = Progress(
             TextColumn('[progress.description]{task.description}'),
             AdaptiveNumericColumn(),
@@ -159,10 +165,12 @@ class ExecContext:
         """Stop the timer and print the final progress report. Idempotent."""
         if not self.show_progress or self.progress is None:
             return
-        for reporter in self.progress_reporters.values():
-            reporter.finalize()
-        self.progress.refresh()
-        self.progress.stop()
+        try:
+            for reporter in self.progress_reporters.values():
+                reporter.finalize()
+            self.progress.refresh()
+        finally:
+            self.progress.stop()
 
 
 class AdaptiveNumericColumn(ProgressColumn):

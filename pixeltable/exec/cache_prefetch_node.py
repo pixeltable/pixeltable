@@ -81,8 +81,7 @@ class CachePrefetchNode(ExecNode):
     def queued_work(self) -> int:
         return len(self.in_flight_requests)
 
-    def open(self) -> None:
-        super().open()
+    def _open(self) -> None:
         if self.ctx.show_progress:
             self.downloaded_objects_reporter = self.ctx.add_progress_reporter('Downloads', 'objects')
             self.downloaded_bytes_reporter = self.ctx.add_progress_reporter('Downloads', 'B')
