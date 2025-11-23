@@ -131,8 +131,9 @@ class SqlNode(ExecNode):
         for iter_arg in row_builder.unstored_iter_args.values():
             sql_subexprs = iter_arg.subexprs(filter=self.sql_elements.contains, traverse_matches=False)
             self.select_list.update(sql_subexprs)
-        for outputs in row_builder.unstored_iter_outputs.values():
-            self.select_list.update(outputs)
+        if not row_builder.for_view_load:
+            for outputs in row_builder.unstored_iter_outputs.values():
+                self.select_list.update(outputs)
         super().__init__(row_builder, self.select_list, [], None)  # we materialize self.select_list
 
         if tbl is not None:

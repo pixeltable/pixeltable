@@ -169,7 +169,7 @@ class TestVideo:
         base_t.insert({'video': p} for p in video_filepaths)
         _ = view_t.select(view_t.video, view_t.frame).collect()
         # c2 and c4 depend directly on c1, c3 depends on it indirectly
-        # view_t.add_computed_column(c1=view_t.frame.resize([224, 224]))
+        view_t.add_computed_column(c1=view_t.frame.resize([224, 224]))
         # view_t.add_computed_column(c2=view_t.c1.rotate(10))
         # view_t.add_computed_column(c3=view_t.c2.rotate(20))
         # view_t.add_computed_column(c4=view_t.c1.rotate(30))
