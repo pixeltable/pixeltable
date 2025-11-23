@@ -220,14 +220,10 @@ class TestIndex:
             _ = t.order_by(t.split.similarity(sample_img)).limit(1).collect()
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
-    def test_pxt_109(self, small_img_tbl: pxt.Table, clip_embed: pxt.Function) -> None:
+    def test_add_index_after_drop(self, small_img_tbl: pxt.Table, clip_embed: pxt.Function) -> None:
         """Test that an index with the same name can be added after the previous one is dropped"""
-        # skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('transformers')
         t = small_img_tbl
-        t.where(t.img.localpath == '/my/path').show()
-        t.update({'category': ''}, where=(t.img.localpath == '/my/path'))
-        return
-
         sample_img = t.select(t.img).head(1)[0, 'img']
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
         orig_res = (
