@@ -209,6 +209,14 @@ class DocumentSplitter(ComponentIterator):
         elif self._doc_handle.format == DocumentType.DocumentFormat.TXT:
             assert self._doc_handle.txt_doc is not None
             self._sections = self._txt_sections()
+        elif self._doc_handle.format in (
+            DocumentType.DocumentFormat.PPTX,
+            DocumentType.DocumentFormat.DOCX,
+            DocumentType.DocumentFormat.XLSX,
+        ):
+            # Office formats are converted to markdown AST via MarkItDown
+            assert self._doc_handle.markitdown_md_ast is not None
+            self._sections = self._markitdown_sections()
         else:
             raise AssertionError(f'Unsupported document format: {self._doc_handle.format}')
 
@@ -472,6 +480,67 @@ class DocumentSplitter(ComponentIterator):
         assert self._doc_handle.txt_doc is not None
         yield DocumentSection(text=ftfy.fix_text(self._doc_handle.txt_doc), metadata=DocumentSectionMetadata())
 
+    def _markitdown_sections(self) -> Iterator[DocumentSection]:
+        """Create DocumentSections for office formats converted to markdown via MarkItDown.
+
+        This processes PPTX, DOCX, and XLSX files that have been converted to markdown AST.
+        """
+        assert self._doc_handle.markitdown_md_ast is not None
+        emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
+        emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
+        # current state
+        accumulated_text: list[str] = []  # currently accumulated text
+        # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
+        headings: dict[str, str] = {}  # current state of observed headings (level -> text)
+
+        def update_headings(heading: dict) -> None:
+            # update current state
+            nonlocal headings
+            assert 'type' in heading and heading['type'] == 'heading'
+            lint = heading['attrs']['level']
+            level = f'h{lint}'
+            text = heading['children'][0]['raw'].strip()
+            # remove the previously seen lower levels
+            lower_levels = [lv for lv in headings if lv > level]
+            for lv in lower_levels:
+                del headings[lv]
+            headings[level] = text
+
+        def emit() -> Iterator[DocumentSection]:
+            nonlocal accumulated_text, headings
+            if len(accumulated_text) > 0:
+                metadata = DocumentSectionMetadata(sourceline=0, heading=headings.copy())
+                yield DocumentSection(text=ftfy.fix_text(' '.join(accumulated_text)), metadata=metadata)
+                accumulated_text = []
+
+        def process_element(el: dict) -> Iterator[DocumentSection]:
+            # process the element and emit sections as necessary
+            nonlocal accumulated_text, headings, emit_on_heading, emit_on_paragraph
+            assert 'type' in el
+
+            if el['type'] == 'text':
+                # accumulate text until we see a separator element
+                text = el['raw'].strip()
+                if len(text) > 0:
+                    accumulated_text.append(text)
+                return
+
+            if el['type'] == 'heading':
+                if emit_on_heading:
+                    yield from emit()
+                update_headings(el)
+            elif el['type'] == 'paragraph':
+                if emit_on_paragraph:
+                    yield from emit()
+            if 'children' not in el:
+                return
+            for child in el['children']:
+                yield from process_element(child)
+
+        for el in self._doc_handle.markitdown_md_ast:
+            yield from process_element(el)
+        yield from emit()
+
     def _sentence_sections(self, input_sections: Iterable[DocumentSection]) -> Iterator[DocumentSection]:
         """Split the input sections into sentences"""
         for section in input_sections:
@@ -507,8 +576,14 @@ class DocumentSplitter(ComponentIterator):
                         # we split the token array at a point where the utf8 encoding is broken
                         end_idx -= 1
 
+                # If we couldn't find a valid decode point, force progress by moving forward
+                if end_idx <= start_idx:
+                    # Try to decode with replacement errors to make progress
+                    end_idx = min(start_idx + self._limit, len(tokens))
+                    text = encoding.decode(tokens[start_idx:end_idx], errors='replace')
+
                 assert end_idx > start_idx
-                assert text
+                assert text is not None
                 yield DocumentSection(text=text, metadata=section.metadata)
                 start_idx = max(start_idx + 1, end_idx - self._overlap)  # ensure we make progress
 

@@ -786,6 +786,7 @@ class Env:
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
         self.__register_package('librosa')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
+        self.__register_package('markitdown')
         self.__register_package('mcp')
         self.__register_package('mistralai')
         self.__register_package('mistune')

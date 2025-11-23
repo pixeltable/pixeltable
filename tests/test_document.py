@@ -47,6 +47,17 @@ class TestDocument:
     def invalid_doc_paths(self) -> list[str]:
         return [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
 
+    def office_doc_paths(self) -> list[str]:
+        """Return paths to office format test documents."""
+        import os
+        from pathlib import Path
+        docs_dir = Path(__file__).parent / 'data' / 'documents'
+        office_files = []
+        for ext in ['.pptx', '.docx', '.xlsx']:
+            for f in docs_dir.glob(f'*{ext}'):
+                office_files.append(str(f))
+        return office_files
+
     def test_insert(self, reset_db: None) -> None:
         skip_test_if_not_installed('mistune')
 
@@ -372,3 +383,95 @@ class TestDocument:
 
         res = chunks.collect()
         assert all(isinstance(r['image'], PIL.Image.Image) for r in res)
+
+    def test_office_formats_insert(self, reset_db: None) -> None:
+        """Test inserting and reading office format documents (PPTX, DOCX, XLSX)."""
+        skip_test_if_not_installed('markitdown')
+        skip_test_if_not_installed('mistune')
+
+        file_paths = self.office_doc_paths()
+        if not file_paths:
+            pytest.skip('No office format test files found')
+
+        doc_t = pxt.create_table('office_docs', {'doc': pxt.Document})
+        status = doc_t.insert({'doc': p} for p in file_paths)
+        assert status.num_rows == len(file_paths)
+        assert status.num_excs == 0
+
+        # Verify we can read back the paths
+        stored_paths = doc_t.select(output=doc_t.doc.localpath).collect()['output']
+        assert set(stored_paths) == set(file_paths)
+
+    def test_office_formats_get_handle(self) -> None:
+        """Test that get_document_handle works correctly for office formats."""
+        skip_test_if_not_installed('markitdown')
+        skip_test_if_not_installed('mistune')
+
+        file_paths = self.office_doc_paths()
+        if not file_paths:
+            pytest.skip('No office format test files found')
+
+        for path in file_paths:
+            _, extension = os.path.splitext(path)
+            handle = get_document_handle(path)
+            assert handle is not None
+
+            if extension in ('.pptx', '.ppt'):
+                assert handle.format == ts.DocumentType.DocumentFormat.PPTX, path
+                assert handle.markitdown_md_ast is not None, path
+            elif extension in ('.docx', '.doc'):
+                assert handle.format == ts.DocumentType.DocumentFormat.DOCX, path
+                assert handle.markitdown_md_ast is not None, path
+            elif extension in ('.xlsx', '.xls'):
+                assert handle.format == ts.DocumentType.DocumentFormat.XLSX, path
+                assert handle.markitdown_md_ast is not None, path
+
+    def test_office_formats_splitter(self, reset_db: None) -> None:
+        """Test DocumentSplitter with office format documents."""
+        skip_test_if_not_installed('markitdown')
+        skip_test_if_not_installed('mistune')
+        skip_test_if_not_installed('spacy')
+
+        file_paths = self.office_doc_paths()
+        if not file_paths:
+            pytest.skip('No office format test files found')
+
+        doc_t = pxt.create_table('office_docs', {'doc': pxt.Document})
+        status = doc_t.insert({'doc': p} for p in file_paths)
+        assert status.num_excs == 0
+
+        # Test basic splitting without separators
+        chunks_t = pxt.create_view(
+            'chunks', doc_t, iterator=DocumentSplitter.create(document=doc_t.doc, separators='')
+        )
+        res = chunks_t.collect()
+        assert len(res) == len(file_paths)
+        for r in res:
+            assert r['text']  # non-empty text
+            assert len(r['text']) > 0
+
+        # Test splitting with heading separator
+        pxt.drop_table('chunks')
+        chunks_t = pxt.create_view(
+            'chunks', doc_t, iterator=DocumentSplitter.create(document=doc_t.doc, separators='heading')
+        )
+        res = chunks_t.collect()
+        assert len(res) > 0
+        for r in res:
+            assert r['text']  # non-empty text
+
+        # Test splitting with metadata
+        pxt.drop_table('chunks')
+        chunks_t = pxt.create_view(
+            'chunks',
+            doc_t,
+            iterator=DocumentSplitter.create(document=doc_t.doc, separators='paragraph', metadata='title,heading'),
+        )
+        res = chunks_t.collect()
+        assert len(res) > 0
+        for r in res:
+            assert r['text']  # non-empty text
+            assert 'title' in r
+            assert 'heading' in r
+
+        pxt.drop_table('chunks')

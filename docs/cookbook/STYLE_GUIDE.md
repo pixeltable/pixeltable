@@ -15,6 +15,7 @@ Write clear, practical how-to guides that help users solve problems with Pixelta
 ## Quick reference
 
 **Recipe organization:**
+- `doc-` prefix - Document processing (office files, PDFs, text extraction)
 - `img-` prefix - Image processing (PIL operations and custom UDFs)
 - `vision-` prefix - AI vision analysis (Anthropic, OpenAI)
 - `workflow-` prefix - Common workflows (JSON extraction, API keys)

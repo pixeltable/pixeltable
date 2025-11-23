@@ -16,6 +16,8 @@ class DocumentHandle:
     md_ast: dict | None = None
     pdf_doc: fitz.Document | None = None
     txt_doc: str | None = None
+    # For office formats converted to markdown via markitdown
+    markitdown_md_ast: dict | None = None
 
 
 def get_document_handle(path: str) -> DocumentHandle:
@@ -47,6 +49,12 @@ def get_handle_by_extension(path: str, extension: str) -> DocumentHandle | None:
             return DocumentHandle(doc_format, bs_doc=get_xml_handle(path))
         if doc_format == ts.DocumentType.DocumentFormat.TXT:
             return DocumentHandle(doc_format, txt_doc=get_txt(path))
+        if doc_format == ts.DocumentType.DocumentFormat.PPTX:
+            return DocumentHandle(doc_format, markitdown_md_ast=get_office_handle(path))
+        if doc_format == ts.DocumentType.DocumentFormat.DOCX:
+            return DocumentHandle(doc_format, markitdown_md_ast=get_office_handle(path))
+        if doc_format == ts.DocumentType.DocumentFormat.XLSX:
+            return DocumentHandle(doc_format, markitdown_md_ast=get_office_handle(path))
     except Exception as exc:
         raise excs.Error(f'An error occurred processing a {doc_format} document: {path}') from exc
 
@@ -93,3 +101,20 @@ def get_txt(path: str) -> str:
     with open(path, 'r', encoding='utf-8') as fp:
         doc = fp.read()
     return doc
+
+
+def get_office_handle(path: str) -> dict:
+    """Convert office documents (PPTX, DOCX, XLSX) to markdown using MarkItDown."""
+    Env.get().require_package('mistune', [3, 0])
+    Env.get().require_package('markitdown')
+    import mistune
+    from markitdown import MarkItDown
+
+    # Convert office document to markdown using MarkItDown
+    md = MarkItDown(enable_plugins=False)
+    result = md.convert(path)
+    markdown_text = result.text_content
+
+    # Parse the markdown into an AST for consistent handling
+    md_parser = mistune.create_markdown(renderer=None)
+    return md_parser(markdown_text)

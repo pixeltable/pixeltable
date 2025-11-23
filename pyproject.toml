@@ -71,6 +71,7 @@ dependencies = [
     "pixeltable-pgserver==0.4.0",
     "tzlocal>=5.0",
     "aiohttp>=3.9",
+    "markitdown[pptx,docx,xlsx]>=0.1.3",
 ]
 
 [project.urls]
