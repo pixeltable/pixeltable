@@ -131,6 +131,9 @@ class SqlNode(ExecNode):
         for iter_arg in row_builder.unstored_iter_args.values():
             sql_subexprs = iter_arg.subexprs(filter=self.sql_elements.contains, traverse_matches=False)
             self.select_list.update(sql_subexprs)
+        # We query for unstored outputs only if we're not loading a view; when we're loading a view, we are populating
+        # those columns, so we need to keep them out of the select list. This isn't a problem, because view loads never
+        # need to call set_pos().
         if not row_builder.for_view_load:
             for outputs in row_builder.unstored_iter_outputs.values():
                 self.select_list.update(outputs)

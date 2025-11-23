@@ -204,10 +204,6 @@ class RowBuilder:
             for view in component_views
         }
 
-        # for outputs in self.unstored_iter_outputs.values():
-        #     for col_ref in outputs:
-        #         unique_input_exprs.append(col_ref)
-
         self.unstored_iter_args = {
             id: self._record_unique_expr(args, recursive=True) for id, args in unstored_iter_args.items()
         }
