@@ -1,48 +1,31 @@
 ---
 title: "Production Deployment"
 description: "Guide to deploying Pixeltable in production environments"
+icon: "server"
 ---
-
-Pixeltable unifies storage, orchestration, and retrieval for multimodal AI workloads. It handles Video, Document, Audio, Image, and JSON data types natively through computed columns, views, and UDFs.
-
-Production deployments follow one of two architectural patterns:
 
 ## Deployment Decision Guide
 
-Choose the right deployment model based on your constraints and goals.
+Pixeltable supports two production deployment patterns. Choose based on your constraints:
 
-| Feature | **Approach 1: Orchestration Layer** | **Approach 2: Full Backend** |
-| :--- | :--- | :--- |
-| **Primary Role** | Compute & Transformation Engine | System of Record + Compute Engine |
-| **Data Storage** | Ephemeral (or cache-only) | Persistent (Media + Metadata) |
-| **Source of Truth** | External RDBMS / Data Lake | Pixeltable |
-| **Integration** | Syncs with existing DBs | Serves Application API directly |
-| **Ideal Team** | Data Engineering / ML Ops | Full Stack / Product Engineering |
-| **Best For** | Enriching existing data pipelines | Building new AI-native apps |
+| Question | Answer | Recommendation |
+|----------|--------|----------------|
+| Existing production DB that must stay? | Yes | **Orchestration Layer** |
+| Building new multimodal app? | Yes | **Full Backend** |
+| Need semantic search (RAG)? | Yes | **Full Backend** |
+| Only ETL/transformation? | Yes | **Orchestration Layer** |
+| Expose Pixeltable as MCP server for LLM tools? | Yes | **Full Backend** + [MCP Server](/libraries/mcp) |
 
-### Decision Tree
-
-1.  **Do you have an existing production database (Postgres, MySQL, etc.) that must remain the source of truth?**
-    *   **YES:** Use **Approach 1 (Orchestration Layer)**. Treat Pixeltable as a transformation engine. Sync data in, process it (chunking, embeddings, LLM extraction), and sync structured results back to your main DB.
-    *   **NO:** Go to question 2.
-
-2.  **Are you building a new application where multimodal data (video, audio, docs) is a first-class citizen?**
-    *   **YES:** Use **Approach 2 (Full Backend)**. Pixeltable simplifies your stack by handling storage, versioning, and computation in one place.
-    *   **NO:** If you only need transient processing without retrieval, consider a simpler stateless worker queue, though Pixeltable can still help with iteration and debugging.
-
-3.  **Do you need complex semantic search and retrieval (RAG)?**
-    *   **YES:** **Approach 2** is strongly recommended. Managing vector indices and file lineage manually in a separate DB is complex and error-prone.
-    *   **NO:** **Approach 1** works well for pure ETL tasks (e.g., "convert all new videos to MP3").
 
 ### Technical Capabilities (Both)
+
 Regardless of deployment mode, you get:
-- **Multimodal Types:** Native handling of Video, Document, Audio, Image, JSON.
-- **Computed Columns:** Automatic incremental updates and dependency tracking.
-- **Views & Iterators:** Built-in logic for chunking documents, extracting frames, etc.
-- **Model Orchestration:** Rate-limited API calls to OpenAI, Anthropic, Gemini, local models.
-- **Data Interoperability:** Import/export Parquet, PyTorch, LanceDB, pandas.
-- **Configurable Media Storage:** Per-column destination (local or cloud bucket).
-- **Concurrent Access:** Multi-process safe with automatic conflict resolution.
+- **[Multimodal Types](/datastore/bringing-data):** Native handling of Video, Document, Audio, Image, JSON.
+- **[Computed Columns](/datastore/computed-columns):** Automatic incremental updates and dependency tracking.
+- **[Views & Iterators](/datastore/views):** Built-in logic for chunking documents, extracting frames, etc.
+- **[Model Orchestration](/integrations/frameworks):** Rate-limited API calls to OpenAI, Anthropic, Gemini, local models.
+- **[Data Interoperability](/sdk/latest/io):** Import/export Parquet, PyTorch, LanceDB, pandas.
+- **[Configurable Media Storage](/overview/configuration):** Per-column destination (local or cloud bucket).
 
 ---
 
@@ -52,26 +35,50 @@ Regardless of deployment mode, you get:
 
 Use Pixeltable for multimodal data orchestration while retaining your existing data infrastructure.
 
-**Use when:**
-- Existing RDBMS (PostgreSQL, MySQL) and blob storage (S3, GCS, Azure Blob) must remain
-- Application already queries a separate data layer
-- Incremental adoption required with minimal stack changes
+```mermaid
+flowchart TB
+    App[Application Layer]
+    
+    subgraph Existing[Your Existing Infrastructure]
+        DB[(RDBMS)]
+        Blob[Blob Storage]
+    end
 
-**Architecture:**
-- Deploy Pixeltable in Docker container or dedicated compute instance
-- Define tables, views, computed columns, and UDFs for multimodal processing
-- Process videos, documents, audio, images within Pixeltable
-- Export structured outputs (embeddings, metadata, classifications) to RDBMS
-- Export generated media to blob storage
-- Application queries existing data layer, not Pixeltable
+    subgraph PXT[Pixeltable]
+        Process[Process Media<br/>Generate Embeddings<br/>Run LLM Calls]
+    end
 
-**What this provides:**
-- Native multimodal type system (Video, Document, Audio, Image, JSON)
-- Declarative computed columns eliminate orchestration boilerplate
-- Incremental computation automatically handles new data
-- UDFs encapsulate transformation logic
-- LLM call orchestration with automatic rate limiting (see [Advanced Features](#llm-and-agent-workflows))
-- Iterators for chunking documents, extracting frames, splitting audio
+    PXT -->|Export Results| DB
+    PXT -->|Export Media| Blob
+    App --> DB
+    App --> Blob
+```
+
+<AccordionGroup>
+  <Accordion title="Use When" icon="check">
+    - Existing RDBMS (PostgreSQL, MySQL) and blob storage (S3, GCS, Azure Blob) must remain
+    - Application already queries a separate data layer
+    - Incremental adoption required with minimal stack changes
+  </Accordion>
+  
+  <Accordion title="Architecture" icon="sitemap">
+    - Deploy Pixeltable in Docker container or dedicated compute instance
+    - Define tables, views, computed columns, and UDFs for multimodal processing
+    - Process videos, documents, audio, images within Pixeltable
+    - Export structured outputs (embeddings, metadata, classifications) to RDBMS
+    - Export generated media to blob storage
+    - Application queries existing data layer, not Pixeltable
+  </Accordion>
+  
+  <Accordion title="What This Provides" icon="sparkles">
+    - Native multimodal type system (Video, Document, Audio, Image, JSON)
+    - Declarative computed columns eliminate orchestration boilerplate
+    - Incremental computation automatically handles new data
+    - UDFs encapsulate transformation logic
+    - LLM call orchestration with automatic rate limiting (see [Advanced Features](#advanced-features))
+    - Iterators for chunking documents, extracting frames, splitting audio
+  </Accordion>
+</AccordionGroup>
 
 ```python
 # Example: Orchestrate in Pixeltable, export to external systems
@@ -133,27 +140,50 @@ conn.commit()
 
 Use Pixeltable for both orchestration and storage as your primary data backend.
 
-**Use when:**
-- Building new multimodal AI application
-- Semantic search and vector similarity required
-- Storage and ML pipeline need tight integration
-- Stack consolidation preferred over separate storage/orchestration layers
+```mermaid
+flowchart TB
+    Frontend[Frontend App]
+    API[FastAPI / Flask / Django]
+    
+    subgraph Pixeltable[Pixeltable Full Backend]
+        PG[(PostgreSQL<br/>Metadata & Data)]
+        Media[Media Storage<br/>S3/GCS/Local]
+        Compute[Computed Columns<br/>Embeddings & LLMs]
+        
+        PG --- Media
+        PG --- Compute
+    end
 
-**Architecture:**
-- Deploy Pixeltable on persistent instance (EC2 with EBS, EKS with persistent volumes, VM)
-- Build API endpoints (FastAPI, Flask, Django) that interact with Pixeltable tables
-- Frontend calls endpoints to insert data and retrieve results
-- Query using Pixeltable's semantic search, filters, joins, and aggregations
-- All data stored in Pixeltable: metadata, media references, computed column results
+    Frontend --> API
+    API --> Pixeltable
+```
 
-**What this provides:**
-- Unified storage, computation, and retrieval in single system
-- Native semantic search via embedding indexes (pgvector)
-- No synchronization layer between storage and orchestration
-- Automatic versioning and lineage tracking
-- Incremental computation propagates through views
-- LLM/agent orchestration (see [Advanced Features](#llm-and-agent-workflows))
-- Data export to PyTorch, Parquet, LanceDB (see [Data Interoperability](#data-interoperability))
+<AccordionGroup>
+  <Accordion title="Use When" icon="check">
+    - Building new multimodal AI application
+    - Semantic search and vector similarity required
+    - Storage and ML pipeline need tight integration
+    - Stack consolidation preferred over separate storage/orchestration layers
+  </Accordion>
+  
+  <Accordion title="Architecture" icon="sitemap">
+    - Deploy Pixeltable on persistent instance (EC2 with EBS, EKS with persistent volumes, VM)
+    - Build API endpoints (FastAPI, Flask, Django) that interact with Pixeltable tables
+    - Frontend calls endpoints to insert data and retrieve results
+    - Query using Pixeltable's semantic search, filters, joins, and aggregations
+    - All data stored in Pixeltable: metadata, media references, computed column results
+  </Accordion>
+  
+  <Accordion title="What This Provides" icon="sparkles">
+    - Unified storage, computation, and retrieval in single system
+    - Native semantic search via embedding indexes (pgvector)
+    - No synchronization layer between storage and orchestration
+    - Automatic versioning and lineage tracking
+    - Incremental computation propagates through views
+    - LLM/agent orchestration (see [Advanced Features](#advanced-features))
+    - Data export to PyTorch, Parquet, LanceDB (see [Data Interoperability](#data-interoperability))
+  </Accordion>
+</AccordionGroup>
 
 ```python
 # Example: FastAPI endpoints backed by Pixeltable
@@ -246,19 +276,32 @@ import config
 
 Pixeltable is an OLTP database built on embedded PostgreSQL. It uses multiple storage mechanisms:
 
-| Component | Contents | Retention | Location |
-|-----------|----------|-----------|----------|
-| **Embedded PostgreSQL** | Metadata (schemas, versions), non-media data (strings, numbers, JSON), media file paths/URLs | Persistent | `~/.pixeltable/pgdata` |
-| **Media Store** | Generated media files (from computed columns) | Persistent | `~/.pixeltable/media` or S3/GCS/Azure |
-| **File Cache** | Downloaded remote media | LRU cache, configurable size | `~/.pixeltable/file_cache` |
-| **Temp Store** | Non-stored computed media | Temporary, cleared periodically | `~/.pixeltable/tmp` |
+```mermaid
+flowchart LR
+    subgraph Home[~/.pixeltable/]
+        direction TB
+        PG[(pgdata<br/>PostgreSQL)]
+        Media[media<br/>Generated Files]
+        Cache[file_cache<br/>LRU Cache]
+        Tmp[tmp<br/>Temporary]
+    end
+
+    Cloud[Cloud Storage<br/>S3/GCS]
+
+    Media -.->|Optional| Cloud
+    Cache <-->|Downloads| Cloud
+```
+
+<Tip>
+**Important Concept:** Pixeltable directories (`pxt.create_dir`) are logical namespaces in the catalog, NOT filesystem directories.
+</Tip>
 
 **How Media is Stored:**
 - PostgreSQL stores only file paths/URLs, never raw media data.
 - Inserted local files: path stored, original file remains in place.
 - Inserted URLs: URL stored, file downloaded to File Cache on first access.
 - Generated media (computed columns): saved to Media Store (default: local, configurable to S3/GCS/Azure per-column).
-- File Cache size: configure via `file_cache_size_g` in `~/.pixeltable/config.toml`.
+- File Cache size: configure via `file_cache_size_g` in `~/.pixeltable/config.toml`. [See configuration guide](/overview/configuration)
 
 **Deployment-Specific Storage Patterns:**
 
@@ -276,16 +319,22 @@ Pixeltable is an OLTP database built on embedded PostgreSQL. It uses multiple st
 
 ### Concurrent Access & Scaling
 
-**Concurrency:**
-- **Locking:** Automatic table-level locking for schema changes.
-- **Isolation:** PostgreSQL `SERIALIZABLE` isolation prevents data race conditions.
-- **Retries:** Built-in retry logic handles transient serialization failures.
-- **Multi-Process:** Multiple workers/containers can safely read/write to the same Pixeltable instance.
+| Aspect | Details |
+|--------|---------|
+| **Locking** | Automatic table-level locking for schema changes |
+| **Isolation** | PostgreSQL `SERIALIZABLE` isolation prevents data race conditions |
+| **Retries** | Built-in retry logic handles transient serialization failures |
+| **Multi-Process** | Multiple workers/containers can safely read/write to the same instance |
 
-**Scalability:**
-- **Metadata Storage:** Single embedded PostgreSQL instance. Vertical scaling (larger EC2/VM) is the primary path.
-- **Compute Scaling:** Run multiple API workers (e.g., Uvicorn) connected to the same Pixeltable instance.
-- **HA Limitation:** Currently requires single attached storage volume. Multi-node HA planned for Pixeltable Cloud.
+| Scaling Dimension | Current Approach | Limitation |
+|-------------------|------------------|------------|
+| **Metadata Storage** | Single embedded PostgreSQL instance | Vertical scaling (larger EC2/VM) |
+| **Compute** | Multiple API workers connected to same instance | Shared access to storage volume required |
+| **High Availability** | Single attached storage volume | Failover requires volume detach/reattach |
+
+<Info>
+Multi-node HA and horizontal scaling planned for Pixeltable Cloud (2026).
+</Info>
 
 ### GPU Acceleration
 
@@ -295,14 +344,14 @@ Pixeltable is an OLTP database built on embedded PostgreSQL. It uses multiple st
 
 ### Error Handling
 
-**Computed Column Errors:**
-- `on_error='abort'`: Fails entire operation if any row errors (default)
-- `on_error='ignore'`: Continues processing; stores `None` with error metadata
-- Access errors via `table.column.errortype` and `table.column.errormsg`
+| Error Type | Mode | Behavior |
+|------------|------|----------|
+| **Computed Column Errors** | `on_error='abort'` (default) | Fails entire operation if any row errors |
+| | `on_error='ignore'` | Continues processing; stores `None` with error metadata |
+| **Media Validation** | `media_validation='on_write'` (default) | Validates media during insert (catches errors early) |
+| | `media_validation='on_read'` | Defers validation until media accessed (faster inserts) |
 
-**Media Validation:**
-- `media_validation='on_write'`: Validates media during insert (default, catches errors early)
-- `media_validation='on_read'`: Defers validation until media accessed (faster inserts)
+Access error details via `table.column.errortype` and `table.column.errormsg`.
 
 ```python
 # Example: Graceful error handling in production
@@ -317,15 +366,10 @@ errors = table.where(table.analysis.errortype != None).collect()
 
 ### Schema Evolution
 
-**Safe Operations:**
-- Adding columns: `table.add_column(new_col=pxt.SomeType)` (defaults to `nullable=True`)
-- Adding computed columns: `table.add_computed_column(...)` (computes incrementally)
-- Adding indexes: `table.add_embedding_index()` (populates for existing rows)
-
-**Destructive Operations:**
-- Modifying computed columns with `if_exists='replace'` triggers full column recomputation.
-- Dropping columns/tables/views: Check dependencies first; consider deprecation period.
-- Large table migrations: Test in staging; recomputation time scales with table size.
+| Operation Type | Examples | Impact |
+|----------------|----------|--------|
+| **Safe** | Add columns, Add computed columns, Add indexes | Incremental computation only |
+| **Destructive** | Modify computed columns (`if_exists='replace'`), Drop columns/tables/views | Full recomputation or data loss |
 
 **Production Safety:**
 ```python
@@ -346,6 +390,8 @@ docs_table.add_computed_column(
 
 Separate schema definition from application logic to enable testability and safe migrations.
 
+<Tabs>
+  <Tab title="Project Structure">
 ```
 project/
 ├── config.py              # Environment variables, model IDs, API keys
@@ -355,8 +401,9 @@ project/
 ├── requirements.txt       # Pinned dependencies
 └── .env                   # Secrets (gitignored)
 ```
-
-**`config.py` - Configuration Management**
+  </Tab>
+  
+  <Tab title="config.py">
 ```python
 import os
 
@@ -373,8 +420,9 @@ MEDIA_STORAGE_BUCKET = os.getenv('MEDIA_STORAGE_BUCKET')
 # Prompts
 RAG_SYSTEM_PROMPT = """You are a helpful assistant. Use the provided context to answer questions."""
 ```
-
-**`functions.py` - Custom UDFs (Module Functions)**
+  </Tab>
+  
+  <Tab title="functions.py">
 ```python
 import pixeltable as pxt
 
@@ -390,8 +438,9 @@ async def call_custom_model(prompt: str) -> dict:
     # Your custom logic here
     return {"response": "..."}
 ```
-
-**`setup_pixeltable.py` - Schema Definition & Retrieval Queries**
+  </Tab>
+  
+  <Tab title="setup_pixeltable.py">
 ```python
 import pixeltable as pxt
 from pixeltable.functions.huggingface import sentence_transformer
@@ -424,8 +473,9 @@ def search_documents(query_text: str, limit: int = 5):
     sim = docs.embedding.similarity(query_text)
     return docs.order_by(sim, asc=False).limit(limit).select(docs.document, sim)
 ```
-
-**`app.py` - Application Endpoints**
+  </Tab>
+  
+  <Tab title="app.py">
 ```python
 from fastapi import FastAPI
 import pixeltable as pxt
@@ -440,11 +490,16 @@ async def search(query: str, limit: int = 5):
     results = search_documents(query, limit).collect()
     return {"results": list(results)}
 ```
+  </Tab>
+</Tabs>
 
+<Note>
 **Key Principles:**
-- **Module UDFs** (`functions.py`): Update when code changes; improve testability.
+- **Module UDFs** (`functions.py`): Update when code changes; improve testability. [Learn more](/datastore/custom-functions)
 - **Retrieval Queries** (`@pxt.query`): Encapsulate complex retrieval logic as reusable functions.
-- **Idempotency:** Use `if_exists='ignore'` to make `setup_pixeltable.py` safely re-runnable.
+- **Idempotency:** Use `if_exists='ignore'` to make `setup_pixeltable.py` safely re-runnable. [Learn more](/datastore/tables-and-operations)
+</Note>
+
 
 ## Monitoring and Performance
 
@@ -462,7 +517,7 @@ async def search(query: str, limit: int = 5):
 - **Batch Operations:** Use `@pxt.udf(batch_size=32)` for GPU model inference
 - **Batch Inserts:** Insert multiple rows at once: `table.insert([row1, row2, ...])`
 - **Profile UDFs:** Add execution time logging to identify bottlenecks
-- **Embedding Indexes:** pgvector for efficient similarity search
+- **Embedding Indexes:** pgvector for efficient similarity search. [Learn more](/datastore/vector-database)
 
 **Rate Limiting:**
 - **Built-In Providers:** Automatic rate limiting for OpenAI, Anthropic, Gemini, etc. (configured per-model in `config.toml`).
@@ -533,33 +588,29 @@ CMD python setup_pixeltable.py && uvicorn app:app --host 0.0.0.0
 
 ### Multi-Tenancy and Isolation
 
-**Logical Isolation (Recommended for most use cases):**
-Use a single Pixeltable instance and separate tenants via directory namespaces:
+| Isolation Type | Implementation | Use Case | Overhead |
+|----------------|----------------|----------|----------|
+| **Logical** | Single Pixeltable instance with directory namespaces (`pxt.create_dir(f"user_{user_id}")`) | Dev/staging environments, simple multi-user apps | Low |
+| **Physical** | Separate container instances per tenant | SaaS with strict data isolation | High |
+
+**Logical Isolation Example:**
 ```python
 # Per-user isolation via namespaces
 pxt.create_dir(f"user_{user_id}", if_exists='ignore')
 user_table = pxt.create_table(f"user_{user_id}.chat_history", schema={...})
 ```
-- Lower infrastructure overhead
-- Shared compute resources across tenants
-- Use for: Development/staging environments, simple multi-user apps
-
-**Physical Isolation (For strict tenant separation):**
-Spin up separate Pixeltable container instances per tenant:
-- Each tenant has isolated `~/.pixeltable` directory
-- Independent scaling and resource allocation
-- Requires orchestration layer to route requests
-- Use for: SaaS applications requiring full data isolation
 
 ### High Availability Constraints
 
-**Single-Writer Limitation:**
-Pixeltable's storage layer uses an embedded PostgreSQL instance. **Only one process can write to `~/.pixeltable/pgdata` at a time**.
+| Configuration | Status | Details |
+|---------------|--------|---------|
+| **Single Pod + ReadWriteOnce PVC** | ✅ Supported | One active pod writes to dedicated volume. Failover requires volume detach/reattach. |
+| **Multiple Pods + Shared Volume (NFS/EFS)** | ❌ Not Supported | **Will cause database corruption.** Do not mount same `pgdata` to multiple pods. |
+| **Multi-Node HA** | 🔜 Coming 2026 | Available in Pixeltable Cloud (serverless scaling, API endpoints). [Join waitlist](https://www.pixeltable.com/waitlist) |
 
-- **DO NOT** mount the same `pgdata` volume to multiple concurrent containers (e.g., via NFS/EFS). This will cause database corruption.
-- **Kubernetes:** Use `ReadWriteOnce` PersistentVolumeClaim (PVC) for single-pod access.
-- **Failover:** Requires detaching volume from old pod and reattaching to new pod.
-- **Future:** Multi-node HA will be available in Pixeltable Cloud (managed service).
+<Warning>
+**Single-Writer Limitation:** Pixeltable's storage layer uses an embedded PostgreSQL instance. **Only one process can write to `~/.pixeltable/pgdata` at a time**.
+</Warning>
 
 ### Environment Separation
 
@@ -633,37 +684,23 @@ sentence-transformers==3.3.0  # If using embedding indexes
 
 ## Advanced Features
 
-### LLM and Agent Workflows
-
-Build complex agent workflows as computed columns:
-- **Tool calling:** `pxt.tools()` with `invoke_tools()` for function execution
-- **Tables as UDFs:** Convert multi-step agent logic into reusable components
-- **MCP integration:** `pxt.mcp_udfs(url)` for external tool access
-
-See [tool-calling examples](/docs/examples/chat/tools) and [Pixelagent library](https://github.com/pixeltable/pixelagent).
-
-### Data Sharing
-
-Share tables across Pixeltable instances:
-```python
-# Publish table to S3
-pxt.publish(source=my_table, destination_uri='s3://shared-bucket/my_table', access='public')
-
-# Pull shared table in another environment
-shared_table = pxt.replicate(remote_uri='s3://shared-bucket/my_table', local_path='my_namespace.shared_table')
-```
-
-### Snapshots for Reproducibility
-
-Create immutable point-in-time copies for reproducible experiments:
-```python
-training_snapshot = pxt.create_snapshot('ml_training.dataset_v1', base=production_table)
-dataset = training_snapshot.to_pytorch_dataset()
-```
-
-### External Integrations
-
-**Label Studio:** Sync Pixeltable tables with annotation projects for human-in-the-loop workflows. See [Label Studio integration](/docs/examples/vision/label-studio).
+<CardGroup cols={2}>
+  <Card title="LLM & Agent Workflows" icon="robot" href="/examples/chat/tools">
+    Build complex agent workflows as computed columns with tool calling, MCP integration, and persistent state.
+  </Card>
+  
+  <Card title="Data Sharing" icon="share-nodes" href="/notebooks/feature-guides/data-sharing">
+    Publish and replicate tables across Pixeltable instances for team collaboration.
+  </Card>
+  
+  <Card title="Snapshots" icon="camera">
+    Create immutable point-in-time copies for reproducible ML experiments.
+  </Card>
+  
+  <Card title="Label Studio Integration" icon="tag" href="/examples/vision/label-studio">
+    Sync tables with annotation projects for human-in-the-loop workflows.
+  </Card>
+</CardGroup>
 
 ---
 
@@ -689,21 +726,17 @@ pxt.create_dir(TEST_NS, if_exists='replace')
 
 ## Backup, Recovery, and Security
 
-**Backup Strategy:**
+| Deployment Approach | Backup Strategy | Recovery Method |
+|---------------------|-----------------|-----------------|
+| **Orchestration Layer** | External RDBMS + Blob Storage backups | Re-run transformation pipelines |
+| **Full Backend** | `pg_dump` of `~/.pixeltable/pgdata` + S3/GCS versioning | Restore `pgdata` + media files |
 
-*Approach 1 (Orchestration Layer):*
-- Treat Pixeltable as a transient processing engine.
-- Rely on your external RDBMS (Postgres/MySQL) and Blob Storage backups.
-- Re-run transformation pipelines if Pixeltable state is lost.
+### Security Best Practices
 
-*Approach 2 (Full Backend):*
-- Pixeltable is your system of record.
-- **Metadata:** Periodic `pg_dump` of `~/.pixeltable/pgdata` or filesystem snapshots.
-- **Media:** Enable versioning on cloud storage buckets (S3/GCS).
-
-**Security & Access Control:**
-- **Network Isolation:** Deploy within private VPC. Do not expose PostgreSQL port (5432) to the internet.
-- **Authentication:** Handle at application layer (FastAPI/Django). Pixeltable does not manage end-user accounts.
-- **Cloud Credentials:** Use IAM Roles (AWS) or Workload Identity (GCP/Azure) instead of long-lived keys.
+| Security Layer | Recommendation | Implementation |
+|----------------|----------------|----------------|
+| **Network** | Deploy within private VPC | Do not expose PostgreSQL port (5432) to internet |
+| **Authentication** | Application layer (FastAPI/Django) | Pixeltable does not manage end-user accounts |
+| **Cloud Credentials** | IAM Roles / Workload Identity | Avoid long-lived keys in `config.toml` |
 
 ---

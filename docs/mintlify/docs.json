@@ -20,6 +20,7 @@
               "overview/installation",
               "overview/configuration",
               "overview/quick-start",
+              "overview/deployment",
               "overview/building-pixeltable-with-llms"
             ]
           },
