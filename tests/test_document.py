@@ -529,12 +529,18 @@ class TestDocument:
         print(text)
 
     def test_split_page(self) -> None:
-        path = './gilbert.pdf'
-        page_num = 2
+        # path = './gilbert.pdf'
+        # page_num = 2
         # path = './docs/resources/rag-demo/Zacks-Nvidia-Report.pdf'
-        # page_num = 4
+        # page_num = 9
         # path = './docs/resources/rag-demo/Jefferson-Amazon.pdf'
         # page_num = 9
+        # path  = './docs/resources/rag-demo/Company-Research-Alphabet.pdf'
+        # page_num = 2
+        # path = './docs/resources/rag-demo/Argus-Market-Watch-June-2024.pdf'
+        # page_num = 0
+        path = './docs/resources/rag-demo/Argus-Market-Digest-June-2024.pdf'
+        page_num = 0
 
         pdf = pdfium.PdfDocument(path)
         page = pdf[page_num]
