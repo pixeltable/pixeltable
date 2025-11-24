@@ -950,8 +950,10 @@ class ArrayType(ColumnType):
                 if np.can_cast(self.dtype, dtype) and np.can_cast(other.dtype, dtype):
                     super_dtype = np.dtype(dtype)
                     break
-
-        if super_dtype is None:
+            # Should never happen because any supported type can be cast to np.str_
+            assert super_dtype is not None, (self.dtype, other.dtype)
+        else:
+            # one or both dtypes are unspecified
             return ArrayType(nullable=(self.nullable or other.nullable))
 
         # Determine the shape of the supertype
