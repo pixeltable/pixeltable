@@ -217,6 +217,7 @@ class TestArrayType:
         assert not ArrayType(None, None).is_supertype_of(IntType())
         assert not IntType().is_supertype_of(ArrayType(None, None))
 
+        # Nullability
         assert ArrayType(None, None).is_supertype_of(ArrayType(None, None))
         assert ArrayType(None, None, nullable=True).is_supertype_of(
             ArrayType(None, None, nullable=False), ignore_nullable=False
@@ -228,6 +229,7 @@ class TestArrayType:
             ArrayType(None, None, nullable=True), ignore_nullable=True
         )
 
+        # dtypes only
         assert ArrayType(None, None).is_supertype_of(ArrayType(None, IntType()))
         assert not ArrayType(None, IntType()).is_supertype_of(ArrayType(None, None))
         assert ArrayType(None, IntType()).is_supertype_of(ArrayType(None, IntType()))
@@ -236,6 +238,7 @@ class TestArrayType:
         assert ArrayType(None, np.dtype('int32')).is_supertype_of(ArrayType(None, np.dtype('bool')))
         assert ArrayType(None, IntType()).is_supertype_of(ArrayType(None, np.dtype('int16')))
 
+        # shapes
         assert ArrayType(None, np.dtype('int32')).is_supertype_of(ArrayType((1, 2, 3), np.dtype('int32')))
         assert not ArrayType((1, 2, 3), np.dtype('int32')).is_supertype_of(ArrayType(None, np.dtype('int32')))
         assert not ArrayType((1, 2, 3), np.dtype('int32')).is_supertype_of(ArrayType((1, 2), np.dtype('int32')))
