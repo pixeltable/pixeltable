@@ -13,8 +13,9 @@ from uuid import UUID
 from pydantic import AnyUrl, BaseModel, field_validator
 
 from pixeltable.catalog.table_version import TableVersionMd
+from pixeltable.utils.object_stores import StorageTarget
 
-from .common import PxtUri, RequestBaseModel, StorageDestination
+from .common import PxtUri, RequestBaseModel
 from .operation_types import ReplicaOperationType
 
 
@@ -46,7 +47,7 @@ class PublishResponse(BaseModel):
     """Response from publishing a table replica."""
 
     upload_id: UUID | None = None
-    destination: StorageDestination | None = None
+    destination: StorageTarget | None = None
     destination_uri: AnyUrl | None = None
     max_size: int | None = None  # Maximum size that can be used by this replica, used for R2 home buckets
     table_uri: PxtUri | None = None  # If replica already exists, return the uri for it
@@ -112,7 +113,7 @@ class ReplicateResponse(BaseModel):
 
     table_uri: PxtUri
     pxt_md_version: int
-    destination: StorageDestination
+    destination: StorageTarget
     destination_uri: AnyUrl
     md: list[TableVersionMd]
     version: int | None = None
