@@ -36,6 +36,11 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
             raise ValueError(f'Unrecognized dtype: {legacy_dtype_val} ({legacy_dtype}) in {key}, {value}')
 
     del updated_value['dtype']
-    # TODO str comes out incorrectly
-    updated_value['numpy_dtype'] = str(new_dtype) if new_dtype is not None else None
+    if new_dtype is None:
+        updated_value['numpy_dtype'] = None
+    elif new_dtype == np.str_:
+        # str(np.str_) would be something like '<U'
+        updated_value['numpy_dtype'] = 'str'
+    else:
+        updated_value['numpy_dtype'] = str(new_dtype)
     return key, updated_value

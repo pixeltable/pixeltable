@@ -908,14 +908,20 @@ class ArrayType(ColumnType):
         if dtype is None:
             self.dtype = None
         elif isinstance(dtype, np.dtype):
+            # Numpy string has some qualifications (such as endianness, max length, encoding) that we don't support,
+            # so we just strip them away.
             if dtype.type == np.str_:
                 self.dtype = np.dtype(np.str_)
             else:
+                if dtype not in ARRAY_SUPPORTED_NUMPY_DTYPES:
+                    raise ValueError(f'Unsupported dtype: {dtype}')
                 self.dtype = dtype
         elif isinstance(dtype, ColumnType):
             self.dtype = self.pxt_dtype_to_numpy_dtype.get(dtype._type, None)
             if self.dtype is None:
                 raise ValueError(f'Unsupported dtype: {dtype}')
+        else:
+            raise ValueError(f'Unsupported dtype: {dtype}')
 
     def copy(self, nullable: bool) -> ColumnType:
         return ArrayType(self.shape, self.dtype, nullable=nullable)
@@ -964,6 +970,7 @@ class ArrayType(ColumnType):
         if self.dtype is None:
             result.update(numpy_dtype=None)
         elif self.dtype == np.str_:
+            # str(np.str_) would be something like '<U'
             result.update(numpy_dtype='str')
         else:
             result.update(numpy_dtype=str(self.dtype))
