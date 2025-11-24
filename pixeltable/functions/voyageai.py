@@ -5,7 +5,7 @@ first `pip install voyageai` and configure your Voyage AI credentials, as descri
 the [Working with Voyage AI](https://docs.pixeltable.com/notebooks/integrations/working-with-voyageai) tutorial.
 """
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -81,7 +81,7 @@ def embeddings(
         >>> tbl.add_embedding_index('text', text_embed=embeddings.using(model='voyage-3.5'))
     """
     cl = _voyageai_client()
-    
+
     # Build kwargs for the API call
     kwargs = {}
     if input_type is not None:
@@ -92,20 +92,13 @@ def embeddings(
         kwargs['output_dimension'] = output_dimension
     if output_dtype is not None:
         kwargs['output_dtype'] = output_dtype
-    
+
     result = cl.embed(texts=input, model=model, **kwargs)
     return [np.array(emb, dtype=np.float64) for emb in result.embeddings]
 
 
 @pxt.udf(resource_pool='request-rate:voyageai')
-def rerank(
-    query: str,
-    documents: list[str],
-    *,
-    model: str,
-    top_k: int | None = None,
-    truncation: bool = True,
-) -> dict:
+def rerank(query: str, documents: list[str], *, model: str, top_k: int | None = None, truncation: bool = True) -> dict:
     """
     Reranks documents based on their relevance to a query.
 
@@ -147,26 +140,15 @@ def rerank(
         ... )
     """
     cl = _voyageai_client()
-    
-    result = cl.rerank(
-        query=query,
-        documents=documents,
-        model=model,
-        top_k=top_k,
-        truncation=truncation
-    )
-    
+
+    result = cl.rerank(query=query, documents=documents, model=model, top_k=top_k, truncation=truncation)
+
     # Convert the result to a dictionary format
     return {
         'results': [
-            {
-                'index': r.index,
-                'document': r.document,
-                'relevance_score': r.relevance_score
-            }
-            for r in result.results
+            {'index': r.index, 'document': r.document, 'relevance_score': r.relevance_score} for r in result.results
         ],
-        'total_tokens': result.total_tokens
+        'total_tokens': result.total_tokens,
     }
 
 
@@ -175,4 +157,3 @@ __all__ = local_public_names(__name__)
 
 def __dir__() -> list[str]:
     return __all__
-
