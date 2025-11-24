@@ -126,7 +126,7 @@ class TestArrayType:
         reload_catalog(do_reload_catalog)
         t = pxt.get_table('test_numpy_dtypes')
 
-        t.insert(arr_1=np.ones((1,), dtype=np.uint8))
+        validate_update_status(t.insert(arr_1=np.ones((1,), dtype=np.uint8)), 1)
         with pytest.raises(excs.Error, match='arr_1'):
             t.insert(arr_1=np.ones((), dtype=np.uint8))
         with pytest.raises(excs.Error, match='arr_1'):
@@ -134,27 +134,27 @@ class TestArrayType:
         with pytest.raises(excs.Error, match='arr_1'):
             t.insert(arr_1=np.ones((1, 3), dtype=np.uint8))
 
-        t.insert(arr_2=[[1.0, 0.0], [0.0, 5.0]])
+        validate_update_status(t.insert(arr_2=[[1.0, 0.0], [0.0, 5.0]]), 1)
         with pytest.raises(excs.Error, match='arr_2'):
             t.insert(arr_2=[[1.0, 0.0, 0.0], [0.0, 5.0, 0.0]])
 
-        t.insert(arr_3=[])
-        t.insert(arr_3=[''])
-        t.insert(arr_3=['', 'a', 'b'])
+        validate_update_status(t.insert(arr_3=[]), 1)
+        validate_update_status(t.insert(arr_3=['']), 1)
+        validate_update_status(t.insert(arr_3=['', 'a', 'b']), 1)
         with pytest.raises(excs.Error, match='arr_3'):
             t.insert(arr_3=[['a'], ['']])
 
-        t.insert(arr_4=np.ones((3, 1, 2), dtype=np.int32))
-        t.insert(arr_4=np.ones((3, 0, 2), dtype=np.int32))
-        t.insert(arr_4=np.ones((3, 6, 2), dtype=np.int32))
+        validate_update_status(t.insert(arr_4=np.ones((3, 1, 2), dtype=np.int32)), 1)
+        validate_update_status(t.insert(arr_4=np.ones((3, 0, 2), dtype=np.int32)), 1)
+        validate_update_status(t.insert(arr_4=np.ones((3, 6, 2), dtype=np.int32)), 1)
         with pytest.raises(excs.Error, match='arr_4'):
             t.insert(arr_4=np.ones((3, 2), dtype=np.int32))
         with pytest.raises(excs.Error, match='arr_4'):
             t.insert(arr_4=np.ones((3, 1, 2, 4), dtype=np.int32))
 
-        t.insert(arr_5=np.ones((2, 2), dtype=np.int32))
-        t.insert(arr_5=np.ones((4, 4, 4), dtype=np.str_))
-        t.insert(arr_5=np.zeros((0,), dtype=np.uint16))
+        validate_update_status(t.insert(arr_5=np.ones((2, 2), dtype=np.int32)), 1)
+        validate_update_status(t.insert(arr_5=np.ones((4, 4, 4), dtype=np.str_)), 1)
+        validate_update_status(t.insert(arr_5=np.zeros((0,), dtype=np.uint16)), 1)
 
         with pytest.raises(TypeError, match=r'Array type parameter must include a dtype.'):
             pxt.Array[1,]  # type: ignore[misc]
