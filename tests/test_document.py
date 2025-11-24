@@ -49,8 +49,8 @@ class TestDocument:
 
     def office_doc_paths(self) -> list[str]:
         """Return paths to office format test documents."""
-        import os
         from pathlib import Path
+
         docs_dir = Path(__file__).parent / 'data' / 'documents'
         office_files = []
         for ext in ['.pptx', '.docx', '.xlsx']:
@@ -441,9 +441,7 @@ class TestDocument:
         assert status.num_excs == 0
 
         # Test basic splitting without separators
-        chunks_t = pxt.create_view(
-            'chunks', doc_t, iterator=DocumentSplitter.create(document=doc_t.doc, separators='')
-        )
+        chunks_t = pxt.create_view('chunks', doc_t, iterator=DocumentSplitter.create(document=doc_t.doc, separators=''))
         res = chunks_t.collect()
         assert len(res) == len(file_paths)
         for r in res:
