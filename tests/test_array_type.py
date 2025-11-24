@@ -378,11 +378,10 @@ class TestArrayType:
             assert type == from_dict, type
 
     def test_numpy_dtypes_order(self) -> None:
-        # ArrayType.supertype() relies on this property of ARRAY_SUPPORTED_NUMPY_DTYPES that all supertypes appear after
+        # ArrayType.supertype() relies on the property of ARRAY_SUPPORTED_NUMPY_DTYPES that all supertypes appear after
         # their subtypes
         for i, t_i in enumerate(ts.ARRAY_SUPPORTED_NUMPY_DTYPES):
             for j in range(i + 1, len(ts.ARRAY_SUPPORTED_NUMPY_DTYPES)):
-                assert i < j
                 t_j = ts.ARRAY_SUPPORTED_NUMPY_DTYPES[j]
                 can_cast = np.can_cast(t_j, t_i)
-                assert not can_cast, f'Bad order in ARRAY_SUPPORTED_NUMPY_DTYPES: can cast from {t_j} to {t_i}'
+                assert not can_cast, f'Bad order of items of ARRAY_SUPPORTED_NUMPY_DTYPES: can cast from {t_j} to {t_i}'
