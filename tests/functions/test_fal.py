@@ -44,8 +44,7 @@ class TestFal:
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         t.add_computed_column(
             response=run(
-                input={'prompt': t.prompt, 'image_size': 'square_hd', 'num_inference_steps': 25},
-                app='fal-ai/fast-sdxl',
+                input={'prompt': t.prompt, 'image_size': 'square_hd', 'num_inference_steps': 25}, app='fal-ai/fast-sdxl'
             )
         )
         t.add_computed_column(image=t.response['images'][0]['url'].astype(pxt.Image))
@@ -76,9 +75,7 @@ class TestFal:
         from pixeltable.functions.fal import run
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
-        t.add_computed_column(
-            response=run(input={'prompt': t.prompt, 'num_images': 2}, app='fal-ai/flux/schnell')
-        )
+        t.add_computed_column(response=run(input={'prompt': t.prompt, 'num_images': 2}, app='fal-ai/flux/schnell'))
         validate_update_status(t.insert(prompt='An abstract painting with vibrant colors'), 1)
         results = t.collect()
         assert 'images' in results['response'][0]
