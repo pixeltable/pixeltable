@@ -12,6 +12,7 @@ import pixeltable.exceptions as excs
 from pixeltable import exprs
 
 from ..data_row_batch import DataRowBatch
+from ..exec_context import ExecContext
 from ..exec_node import ExecNode
 from .evaluators import FnCallEvaluator, NestedRowList
 from .globals import ExprEvalCtx, Scheduler
@@ -44,7 +45,7 @@ class ExprEvalNode(ExecNode):
     maintain_input_order: bool  # True if we're returning rows in the order we received them from our input
     outputs: np.ndarray  # bool per slot; True if this slot is part of our output
     schedulers: dict[str, Scheduler]  # key: resource pool name
-    exec_ctx: ExprEvalCtx  # for input/output rows
+    eval_ctx: ExprEvalCtx  # for input/output rows
 
     # execution state
     tasks: set[asyncio.Task]  # collects all running tasks to prevent them from getting gc'd
@@ -61,6 +62,7 @@ class ExprEvalNode(ExecNode):
     num_in_flight: int  # number of dispatched rows that haven't completed
     row_pos_map: dict[int, int] | None  # id(row) -> position of row in input; only set if maintain_input_order
     output_buffer: RowBuffer  # holds rows that are ready to be returned, in order
+    progress_reporter: ExecContext.ProgressReporter | None
 
     # debugging
     num_input_rows: int
@@ -94,6 +96,7 @@ class ExprEvalNode(ExecNode):
         self.num_in_flight = 0
         self.row_pos_map = None
         self.output_buffer = RowBuffer(self.MAX_BUFFERED_ROWS)
+        self.progress_reporter = None
 
         self.num_input_rows = 0
         self.num_output_rows = 0
@@ -101,7 +104,11 @@ class ExprEvalNode(ExecNode):
         # self.slot_evaluators = {}
         self.schedulers = {}
         # self._init_slot_evaluators()
-        self.exec_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
+        self.eval_ctx = ExprEvalCtx(self, self.row_builder, output_exprs, input_exprs)
+
+    def _open(self) -> None:
+        if self.ctx.show_progress:
+            self.progress_reporter = self.ctx.add_progress_reporter('Cell computations', 'cells')
 
     def set_input_order(self, maintain_input_order: bool) -> None:
         self.maintain_input_order = maintain_input_order
@@ -172,8 +179,8 @@ class ExprEvalNode(ExecNode):
         self.num_in_flight += num_rows
         self._log_state(f'dispatch input ({num_rows})')
 
-        self.exec_ctx.init_rows(rows)
-        self.dispatch(rows, self.exec_ctx)
+        self.eval_ctx.init_rows(rows)
+        self.dispatch(rows, self.eval_ctx)
 
     def _log_state(self, prefix: str) -> None:
         _logger.debug(
@@ -186,7 +193,7 @@ class ExprEvalNode(ExecNode):
     def _init_schedulers(self) -> None:
         resource_pools = {
             eval.fn_call.resource_pool
-            for eval in self.exec_ctx.slot_evaluators.values()
+            for eval in self.eval_ctx.slot_evaluators.values()
             if isinstance(eval, FnCallEvaluator)
         }
         resource_pools = {pool for pool in resource_pools if pool is not None}
@@ -220,7 +227,7 @@ class ExprEvalNode(ExecNode):
         input_batch_aw: asyncio.Task | None = None
         completed_aw: asyncio.Task | None = None
         closed_evaluators = False  # True after calling Evaluator.close()
-        exprs.Expr.prepare_list(self.exec_ctx.all_exprs)
+        exprs.Expr.prepare_list(self.eval_ctx.all_exprs)
 
         try:
             while True:
@@ -263,7 +270,7 @@ class ExprEvalNode(ExecNode):
                 if self.input_complete and self.avail_input_rows == 0 and not closed_evaluators:
                     # no more input rows to dispatch, but we're still waiting for rows to finish:
                     # close  all slot evaluators to flush queued rows
-                    for evaluator in self.exec_ctx.slot_evaluators.values():
+                    for evaluator in self.eval_ctx.slot_evaluators.values():
                         evaluator.close()
                     closed_evaluators = True
 
@@ -308,7 +315,7 @@ class ExprEvalNode(ExecNode):
             _ = await asyncio.gather(*active_tasks, return_exceptions=True)
 
             # expr cleanup
-            exprs.Expr.release_list(self.exec_ctx.all_exprs)
+            exprs.Expr.release_list(self.eval_ctx.all_exprs)
 
     def dispatch_exc(
         self, rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExprEvalCtx
@@ -342,8 +349,21 @@ class ExprEvalNode(ExecNode):
         # slots ready for evaluation; rows x slots
         ready_slots = np.zeros((len(rows), exec_ctx.row_builder.num_materialized), dtype=bool)
         completed_rows = np.zeros(len(rows), dtype=bool)
+        num_computed_outputs = 0
         for i, row in enumerate(rows):
             row.missing_slots &= row.has_val == False
+            if row.missing_slots.shape != self.outputs.shape:
+                pass
+
+            if self.eval_ctx is exec_ctx:
+                # if this is the top-level ExprEvalCtx (instead of the one for a JsonMapperDispatcher), we want to count
+                # the newly-materialized output slots
+                missing_outputs = (row.missing_slots & self.outputs).sum()
+                row.missing_slots &= row.has_val == False
+                num_computed_outputs += missing_outputs - (row.missing_slots & self.outputs).sum()
+            else:
+                row.missing_slots &= row.has_val == False
+
             if row.missing_slots.sum() == 0:
                 # all output slots have been materialized
                 completed_rows[i] = True
@@ -361,6 +381,9 @@ class ExprEvalNode(ExecNode):
             gc_targets = (missing_dependents == 0) & (row.missing_dependents > 0) & exec_ctx.gc_targets
             row.clear(gc_targets)
             row.missing_dependents = missing_dependents
+
+        if self.progress_reporter is not None and num_computed_outputs > 0:
+            self.progress_reporter.update(int(num_computed_outputs))
 
         if np.any(completed_rows):
             completed_idxs = list(completed_rows.nonzero()[0])

@@ -80,7 +80,7 @@ class ExecContext:
             self.total += advance
 
             time_delta = now - self.last_update_ts
-            #rate = advance / time_delta if time_delta > 0 else 0.0
+            # rate = advance / time_delta if time_delta > 0 else 0.0
             rate = 0.0
             if start_ts is not None:
                 time_delta = now - start_ts
