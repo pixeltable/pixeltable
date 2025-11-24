@@ -295,10 +295,7 @@ class ColumnRef(Expr):
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
             self.iterator = self.col.get_tbl().iterator_cls(**iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
-        stored_outputs = {
-            col_ref.col.name: data_row[col_ref.slot_idx]
-            for col_ref in self.iter_outputs
-        }
+        stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
         assert all(name is not None for name in stored_outputs)
         self.iterator.set_pos(data_row.pk[self.pos_idx], **stored_outputs)
         res = next(self.iterator)

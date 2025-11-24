@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 import time
-from typing import Any, Iterable, NamedTuple, Sequence, TypeVar
+from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, Sequence, TypeVar
 from uuid import UUID
 
 import numpy as np
@@ -16,6 +16,9 @@ from pixeltable.utils.misc import non_none_dict_factory
 from .data_row import DataRow
 from .expr import Expr, ExprScope
 from .expr_set import ExprSet
+
+if TYPE_CHECKING:
+    from .column_ref import ColumnRef
 
 
 class ExecProfile:
@@ -75,7 +78,7 @@ class RowBuilder:
     table_columns: dict[catalog.Column, int | None]  # value: slot idx, if the result of an expr
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
-    unstored_iter_outputs: dict[UUID, list[Expr]]
+    unstored_iter_outputs: dict[UUID, list['ColumnRef']]
 
     # transitive dependents for the purpose of exception propagation: an exception for slot i is propagated to
     # _exc_dependents[i]
@@ -200,7 +203,11 @@ class RowBuilder:
 
         # the *stored* output columns of the unstored iterators
         self.unstored_iter_outputs = {
-            view.id: [self._record_unique_expr(ColumnRef(col), recursive=True) for col in view.iterator_columns() if col.is_stored]
+            view.id: [
+                self._record_unique_expr(ColumnRef(col), recursive=True)
+                for col in view.iterator_columns()
+                if col.is_stored
+            ]
             for view in component_views
         }
 
@@ -208,7 +215,9 @@ class RowBuilder:
             id: self._record_unique_expr(args, recursive=True) for id, args in unstored_iter_args.items()
         }
 
-        unstored_iter_col_refs = [self._record_unique_expr(col_ref, recursive=True) for col_ref in unstored_iter_col_refs]
+        unstored_iter_col_refs = [
+            self._record_unique_expr(col_ref, recursive=True) for col_ref in unstored_iter_col_refs
+        ]
 
         for col_ref in unstored_iter_col_refs:
             iter_arg_ctx = self.create_eval_ctx([self.unstored_iter_args[col_ref.col.get_tbl().id]])
