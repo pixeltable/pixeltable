@@ -336,6 +336,7 @@ class TestArrayType:
             (ArrayType((3,), ts.FloatType()), {'type': 'array', 'items': {'type': 'float32'}}),
             (ArrayType(None, np.dtype('uint8')), {'type': 'array', 'items': {'type': 'uint8'}}),
             (ArrayType((1, 2, 3), np.dtype('bool')), {'type': 'array', 'items': {'type': 'bool'}}),
+            (ArrayType((4, 4), np.dtype('str')), {'type': 'array', 'items': {'type': 'str'}}),
         ]
         for arr, expected_json_schema in test_cases:
             assert arr.to_json_schema() == expected_json_schema

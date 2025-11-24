@@ -1003,7 +1003,9 @@ class ArrayType(ColumnType):
 
     def _to_json_schema(self) -> dict[str, Any]:
         schema: dict[str, Any] = {'type': 'array'}
-        if self.dtype is not None:
+        if self.dtype == np.str_:
+            schema.update({'items': {'type': 'str'}})
+        elif self.dtype is not None:
             schema.update({'items': {'type': str(self.dtype)}})
         return schema
 
