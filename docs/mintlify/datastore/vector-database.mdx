@@ -28,7 +28,7 @@ Pixeltable makes it easy to build semantic search for different media types:
   </Card>
   <Card title="Agent Memory" icon="text" href="https://github.com/pixeltable/pixelagent/tree/main/examples/memory">
     Use metadata to search for long term memory for AI agents
-  </Card>  
+  </Card>
 </CardGroup>
 
 ## How Pixeltable Makes Embeddings Easy
@@ -50,11 +50,11 @@ The setup phase defines your schema and creates embedding indexes.
     ```python
     import pixeltable as pxt
     from pixeltable.functions.huggingface import sentence_transformer
-    
+
     # Create a directory to organize data (optional)
     pxt.drop_dir('knowledge_base', force=True)
     pxt.create_dir('knowledge_base')
-    
+
     # Create table
     docs = pxt.create_table(
         "knowledge_base.documents",
@@ -63,7 +63,7 @@ The setup phase defines your schema and creates embedding indexes.
             "metadata": pxt.Json
         }
     )
-    
+
     # Create embedding index
     embed_model = sentence_transformer.using(
         model_id="intfloat/e5-large-v2"
@@ -78,15 +78,15 @@ The setup phase defines your schema and creates embedding indexes.
   <Tab title="OpenAI">
     ```bash
     pip install pixeltable openai
-    ```  
+    ```
     ```python
     import pixeltable as pxt
-    from pixeltable.functions.openai import embeddings 
-    
+    from pixeltable.functions.openai import embeddings
+
     # Create a directory to organize data (optional)
     pxt.drop_dir('knowledge_base', force=True)
     pxt.create_dir('knowledge_base')
-    
+
     # Create table
     docs = pxt.create_table(
         "knowledge_base.documents",
@@ -95,7 +95,7 @@ The setup phase defines your schema and creates embedding indexes.
             "metadata": pxt.Json
         }
     )
-    
+
     # Create embedding index
     embed_model = embeddings.using(model_id="text-embedding-3-small")
     docs.add_embedding_index(
@@ -103,14 +103,14 @@ The setup phase defines your schema and creates embedding indexes.
         embedding=embed_model
     )
     ```
-  </Tab>  
-  
+  </Tab>
+
   <Tab title="Custom">
     ```python
     import tensorflow as tf
     import tensorflow_hub as hub
     import tensorflow_text
-    
+
     @pxt.udf
     def bert(input: str) -> pxt.Array[(512,), pxt.Float]:
         """Computes text embeddings using small_bert."""
@@ -123,7 +123,7 @@ The setup phase defines your schema and creates embedding indexes.
         tensor = tf.constant([input])
         result = bert_model(preprocessor(tensor))['pooled_output']
         return result.numpy()[0, :]
-    
+
     # Add custom embedding index
     docs.add_embedding_index(
         column='content',
@@ -149,7 +149,7 @@ The setup phase defines your schema and creates embedding indexes.
     )
     ```
   </Card>
-  
+
   <Card title="Index Configuration" icon="gear">
     ```python
     # Optional parameters
@@ -183,7 +183,7 @@ docs.insert([
         "metadata": {"source": "pdf", "category": "science"}
     },
     {
-        "content": "Second document", 
+        "content": "Second document",
         "metadata": {"source": "web", "category": "news"}
     }
 ])
@@ -208,25 +208,25 @@ The query phase allows you to search your indexed content using the `similarity(
   <Tab title="Similarity Search">
     ```python
       sim = docs.content.similarity("what is the documentation")
-      
+
       # Return top-k most similar documents
       results = (docs.order_by(sim, asc=False)
           .select(docs.content, docs.metadata, score=sim)
           .limit(10)
       )
-  
+
       for i in results:
           print(f"Similarity: {i['score']:.3f}")
           print(f"Text: {i['content']}\n")
     ```
   </Tab>
-    
+
   <Tab title="Use in a Computed Column">
     ```python
     @pxt.query
     def filtered_search(query: str, category: str):
         sim = docs.content.similarity(query)
-        
+
         return (
             docs
             .where(docs.metadata['category'] == category)
@@ -282,12 +282,12 @@ docs.add_computed_column(
     ```python
     # Drop by name
     docs.drop_embedding_index(idx_name='e5_idx')
-    
+
     # Drop by column (if single index)
     docs.drop_embedding_index(column='content')
     ```
   </Card>
-  
+
   <Card title="Update Index" icon="arrows-rotate">
     ```python
     # Indexes auto-update on changes
@@ -303,14 +303,14 @@ docs.add_computed_column(
 <Warning>
 - Cache embedding models in production UDFs
 - Use batching for better performance
-- Consider index size vs. search speed tradeoffs 
+- Consider index size vs. search speed tradeoffs
 - Monitor embedding computation time
 </Warning>
 
 ## Additional Resources
 
 <CardGroup cols={3}>
-  <Card title="SDK Reference" icon="book" href="https://docs.pixeltable.com/sdk/latest">
+  <Card title="SDK Reference" icon="book" href="/sdk/latest">
     Complete API reference
   </Card>
   <Card title="Embedding Indexes" icon="lightbulb" href="/notebooks/feature-guides/embedding-indexes">

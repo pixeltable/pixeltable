@@ -65,7 +65,7 @@ If you have a framework that you want us to integrate with, please reach out and
     title="DeepSeek"
     icon="robot"
     href="/notebooks/integrations/working-with-deepseek"
-  >  
+  >
     Leverage DeepSeek's powerful language and code models for text and code generation
   </Card>
 
@@ -115,7 +115,7 @@ If you have a framework that you want us to integrate with, please reach out and
   </Card>
 </CardGroup>
 
-## Computer Vision 
+## Computer Vision
 
 <CardGroup cols={2}>
   <Card
@@ -191,7 +191,7 @@ If you have a framework that you want us to integrate with, please reach out and
   <Accordion title="Computer Vision">
     ```python
     from pixeltable.functions.yolox import yolox
-    
+
     # Add object detection to video frames
     frames_view.add_computed_column(
         detections=yolox(
@@ -205,7 +205,7 @@ If you have a framework that you want us to integrate with, please reach out and
   <Accordion title="Audio Processing">
     ```python
     from pixeltable.functions import openai
-    
+
     # Transcribe audio files
     audio_table.add_computed_column(
         transcription=openai.transcriptions(
@@ -223,11 +223,11 @@ If you have a framework that you want us to integrate with, please reach out and
   <Step title="Easy Setup">
     Most integrations work out-of-the-box with simple API configuration
   </Step>
-  
+
   <Step title="Computed Columns">
     Use integrations directly in computed columns for automated processing
   </Step>
-  
+
   <Step title="Batch Processing">
     Efficient handling of batch operations with automatic optimization
   </Step>
