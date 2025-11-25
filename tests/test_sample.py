@@ -375,7 +375,7 @@ class TestSample:
         # Add duplicate c1 values for stratified sampling tests
         existing_c1_values = [row['c1'] for row in t.select(t.c1).distinct().collect()]
 
-        # Add 4 more rows per distinct c1 value to get 5 total per value (total 400 rows)
+        # Add 4 more rows per distinct c1 value to get 5 total per value (total 500 rows)
         additional_rows = []
         max_c2 = t.select(t.c2).order_by(t.c2, asc=False).limit(1).collect()[0, 'c2']
         for i, c1_val in enumerate(existing_c1_values):
@@ -407,7 +407,10 @@ class TestSample:
 
         # Test count() with sample with fraction
         cnt = t.sample(fraction=0.5).count()
-        assert 200 <= cnt <= 300  # Should be approximately 50% of total rows
+        # Should be 50% of total_rows, with tolerance of +/- 25%
+        expected_min = total_rows * 0.5 * 0.75
+        expected_max = total_rows * 0.5 * 1.25
+        assert expected_min <= cnt <= expected_max
 
         # Test count() with sample() and where clause
         cnt = t.where(t.c2 < 10).sample(n=5).count()
@@ -419,9 +422,11 @@ class TestSample:
 
         # Test with fraction on filtered data
         cnt = t.where(t.c2 < 50).sample(fraction=0.5).count()
-        assert (
-            15 <= cnt <= 35
-        )  # With ~50 rows and fraction=0.5, expect ~25 rows (allow variance for hash-based sampling)
+        filtered_rows = t.where(t.c2 < 50).count()
+        # Should be 50% of filtered_rows, with tolerance of +/- 25%
+        expected_min = filtered_rows * 0.5 * 0.75
+        expected_max = filtered_rows * 0.5 * 1.25
+        assert expected_min <= cnt <= expected_max
 
         # Test with stratified sampling
         cnt = t.sample(n=10, stratify_by=t.c1).count()
