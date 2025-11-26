@@ -12,7 +12,7 @@ from pixeltable.env import Env, register_client
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import fal_client
+    import fal_client  # type: ignore[import-untyped]
 
 
 @register_client('fal')
