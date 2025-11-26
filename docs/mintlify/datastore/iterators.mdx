@@ -98,13 +98,23 @@ Iterators are powerful tools for processing large media files. They work seamles
         )
     )
 
-    # Extract exact number of frames
+    # Extract exact number of frames (evenly spaced)
     frames_view = pxt.create_view(
-        'videos.keyframes',
+        'videos.sampled',
         videos_table,
         iterator=FrameIterator.create(
             video=videos_table.video,
             num_frames=10  # Extract 10 evenly-spaced frames
+        )
+    )
+
+    # Extract only keyframes (I-frames) for efficient processing
+    keyframes_view = pxt.create_view(
+        'videos.keyframes',
+        videos_table,
+        iterator=FrameIterator.create(
+            video=videos_table.video,
+            keyframes_only=True
         )
     )
     ```
@@ -112,7 +122,8 @@ Iterators are powerful tools for processing large media files. They work seamles
     ### Parameters
     - `fps`: Frames per second to extract (can be fractional)
     - `num_frames`: Exact number of frames to extract
-    - Only one of `fps` or `num_frames` can be specified
+    - `keyframes_only`: Extract only keyframes (I-frames) - efficient for quick video scanning
+    - Only one of `fps`, `num_frames`, or `keyframes_only` can be specified
   </Tab>
 
   <Tab title="TileIterator">

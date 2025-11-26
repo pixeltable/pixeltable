@@ -1,158 +1,154 @@
 ---
 title: 'Quick Start'
-description: 'Welcome to Pixeltable! In this tutorial, we will survey how to create tables, populate them with data, and enhance them with built-in and user-defined transformations and AI operations.'
+description: 'Build your first AI-powered application with Pixeltable in 5 minutes'
 icon: 'wand-magic-sparkles'
 ---
 
 <Note>
-This guide will get you from zero to a working AI application in under 5 minutes. Learn more from the [Pixeltable Basics](/notebooks/pixeltable-basics)
-and [Pixeltable Fundamentals](/notebooks/fundamentals) tutorials.
+This guide gets you from zero to a working AI application quickly. For deeper learning, see [Pixeltable Basics](/notebooks/pixeltable-basics) and [Tables & Data Operations](/notebooks/fundamentals/tables-and-data-operations).
 </Note>
-
-## Create Your First Multimodal AI Application
-
-Let's build an image analysis application that combines object detection and OpenAI Vision.
 
 ## Installation
 
-  Please refer to our installation section [here](/overview/installation).
+```bash
+pip install pixeltable torch transformers
+```
 
-  ```bash
-  pip install -qU torch transformers openai pixeltable
-  ```
+<Tip>
+Add `openai` to the install if you want to use OpenAI Vision in Step 3.
+</Tip>
+
+## Build an Image Analysis App
 
 <Steps>
-  <Step title="Create Table Structure">
+  <Step title="Create a Table">
     ```python
     import pixeltable as pxt
 
-    # Create directory for our tables
-    pxt.drop_dir('demo', force=True)
-    pxt.create_dir('demo')
+    # Create a namespace and table
+    pxt.drop_dir('quickstart', force=True)
+    pxt.create_dir('quickstart')
 
-    # Create table with image column
-    t = pxt.create_table('demo.first', {'input_image': pxt.Image})
+    t = pxt.create_table('quickstart.images', {'image': pxt.Image})
     ```
 
-    <Tip>
-    This creates a persistent and versioned table that holds data.
-    </Tip>
+    Tables are persistent—your data survives restarts and can be queried anytime.
   </Step>
 
-  <Step title="Add Object Detection">
+  <Step title="Add AI Object Detection">
     ```python
     from pixeltable.functions import huggingface
 
-    # Add ResNet-50 object detection
+    # Add DETR object detection as a computed column
     t.add_computed_column(
         detections=huggingface.detr_for_object_detection(
-            t.input_image,
+            t.image,
             model_id='facebook/detr-resnet-50'
         )
     )
 
-    # Extract just the labels
-    t.add_computed_column(detections_text=t.detections.label_text)
+    # Extract labels from detections
+    t.add_computed_column(labels=t.detections.label_text)
     ```
 
-    <Tip>
-    Computed columns are populated whenever new data is added to their input columns.
-    </Tip>
+    Computed columns run automatically whenever new data is inserted.
   </Step>
 
-  <Step title="Add OpenAI Vision Analysis">
+  <Step title="Insert Data and See Results">
+    ```python
+    # Insert an image
+    t.insert(image='https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')
+
+    # View results
+    t.select(t.image, t.labels).collect()
+    ```
+
+    **Expected output:**
+    ```
+    | image      | labels              |
+    |------------|---------------------|
+    | [Image]    | ['giraffe', 'giraffe'] |
+    ```
+  </Step>
+
+  <Step title="Add Custom Logic with UDFs">
+    ```python
+    @pxt.udf
+    def top_label(detections: dict) -> str:
+        """Return the highest-confidence detection label."""
+        if not detections['scores']:
+            return 'none'
+        best_idx = detections['scores'].index(max(detections['scores']))
+        return detections['label_text'][best_idx]
+
+    t.add_computed_column(best=top_label(t.detections))
+
+    # Now every row has the top detection
+    t.select(t.image, t.best).collect()
+    ```
+
+    UDFs let you add any Python logic as computed columns.
+  </Step>
+
+  <Step title="(Optional) Add LLM Vision">
     ```python
     import os
-    import getpass
-
     from pixeltable.functions import openai
 
-    if 'OPENAI_API_KEY' not in os.environ:
-      os.environ['OPENAI_API_KEY'] = getpass.getpass('Enter your OpenAI API key:')
+    # Set your API key (or use config.toml)
+    os.environ['OPENAI_API_KEY'] = 'your-key-here'
 
     t.add_computed_column(
-        vision=openai.vision(
-            prompt="Describe what's in this image.",
-            image=t.input_image,
+        description=openai.vision(
+            prompt="Describe this image in one sentence.",
+            image=t.image,
             model='gpt-4o-mini'
         )
     )
-    ```
-  <Tip>
-  Pixeltable handles parallelization, rate limiting, and incremental processing automatically.
-  </Tip>
-  </Step>
 
-  <Step title="Use Your Application">
-    ```python
-  # Insert an image
-  t.insert(input_image='https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg')
-
-  # Retrieve results
-  t.select(
-      t.input_image,
-      t.detections_text,
-      t.vision
-  ).collect()
+    t.select(t.image, t.best, t.description).collect()
     ```
-  <Tip>
-  The query engine uses lazy evaluation, only computing what's needed.
-  </Tip>
+
+    Pixeltable handles rate limiting, retries, and caching automatically.
   </Step>
 </Steps>
 
 <Accordion title="What happened behind the scenes?">
 Pixeltable automatically:
-  1. Created a persistent table
-  2. Downloaded and cached the ResNet model
-  3. Orchestrated the OpenAI API call
-  4. Created an efficient processing workflow
-  5. Stored all results for future use
+1. Created a persistent multimodal table
+2. Downloaded and cached the DETR model
+3. Ran inference on your image
+4. Stored all results (including computed columns) for instant retrieval
+5. Will incrementally process any new images you insert
 </Accordion>
 
-## Key Features
+## Key Concepts
 
 <CardGroup cols={2}>
-  <Card title="Persistent Storage" icon="database">
-    All data and computed results are automatically stored and versioned. Your app state persists between sessions.
+  <Card title="Tables" icon="table" href="/datastore/tables-and-operations">
+    Persistent storage for any data type—images, video, audio, text, JSON.
   </Card>
-  <Card title="Computed Columns" icon="calculator">
-    Define transformations once, they run automatically on new data. Perfect for AI orchestration.
+  <Card title="Computed Columns" icon="calculator" href="/datastore/computed-columns">
+    Define transformations once; they run automatically on new data.
   </Card>
-  <Card title="Multimodal Support" icon="photo-film">
-    Handle images, video, audio, and text seamlessly in one unified interface.
+  <Card title="Built-in AI Functions" icon="brain" href="/integrations/frameworks">
+    Pre-built integrations for OpenAI, Anthropic, Hugging Face, and more.
   </Card>
-  <Card title="AI Integration" icon="brain">
-    Built-in support for popular AI services like OpenAI, YOLOX, Hugging Face, Label Studio, Replicate, Anthropic...
+  <Card title="Custom Functions (UDFs)" icon="code" href="/datastore/custom-functions">
+    Extend Pixeltable with your own Python functions.
   </Card>
 </CardGroup>
-
-## Custom Functions (UDFs)
-
-Extend Pixeltable with your own functions using the `@pxt.udf` decorator:
-
-```python
-@pxt.udf
-def top_detection(detect: dict) -> str:
-    scores = detect['scores']
-    label_text = detect['label_text']
-    i = scores.index(max(scores))
-    return label_text[i]
-
-# Use it in a computed column
-t.add_computed_column(top=top_detection(t.detections))
-```
 
 ## Next Steps
 
 <CardGroup cols={3}>
   <Card title="RAG Tutorial" icon="books" href="/notebooks/use-cases/rag-demo">
-    Build a production-grade RAG system
+    Build a document Q&A system
   </Card>
   <Card title="Video Analysis" icon="video" href="/notebooks/use-cases/object-detection-in-videos">
     Process video with object detection
   </Card>
-  <Card title="LLM Integration" icon="message" href="/integrations/frameworks#local-llm-runtimes">
-    Work with OpenAI and other LLM providers
+  <Card title="Vector Search" icon="magnifying-glass" href="/datastore/vector-database">
+    Add semantic search to your app
   </Card>
 </CardGroup>
