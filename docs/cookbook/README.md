@@ -27,13 +27,72 @@ Transform and process images using PIL methods and custom UDFs:
 | [Add watermarks to images](img-add-watermarks.ipynb) | Brand or protect your images |
 | [Adjust image opacity](img-adjust-opacity.ipynb) | Create semi-transparent effects |
 
+### Vision AI
+
+Analyze images with AI models:
+
+| Recipe | Description |
+|--------|-------------|
+| [Analyze images in batch](vision-batch-analysis.ipynb) | Run the same prompt on multiple images automatically |
+| [Extract structured data from images](vision-structured-output.ipynb) | Get JSON from receipts, forms, documents |
+
+### Audio
+
+Process and transcribe audio:
+
+| Recipe | Description |
+|--------|-------------|
+| [Transcribe audio files](audio-transcribe.ipynb) | Convert speech to text with Whisper |
+
+### Video
+
+Process and analyze videos:
+
+| Recipe | Description |
+|--------|-------------|
+| [Extract frames from videos](video-extract-frames.ipynb) | Pull frames at intervals or keyframes only |
+
+### Documents
+
+Process and search documents:
+
+| Recipe | Description |
+|--------|-------------|
+| [Split documents for RAG](doc-chunk-for-rag.ipynb) | Break PDFs into searchable chunks |
+
+### Search
+
+Build semantic search systems:
+
+| Recipe | Description |
+|--------|-------------|
+| [Semantic text search](search-semantic-text.ipynb) | Find content by meaning, not keywords |
+| [Find similar images](search-similar-images.ipynb) | Visual similarity search with CLIP |
+
+### Data Import
+
+Load data from external sources:
+
+| Recipe | Description |
+|--------|-------------|
+| [Import CSV files](data-import-csv.ipynb) | Load data from CSV and Excel files |
+
+### Workflow
+
+Common setup and configuration patterns:
+
+| Recipe | Description |
+|--------|-------------|
+| [Configure API keys](workflow-api-keys.ipynb) | Set up credentials for AI services |
+| [Extract fields from JSON](workflow-json-extraction.ipynb) | Parse LLM response fields |
+
 ### Iteration
 
 Speed up your development workflow:
 
 | Recipe | Description |
 |--------|-------------|
-| [Get fast feedback on transformations](iter-fast-feedback-loops.ipynb) | Test logic before processing full datasets |
+| [Get fast feedback on transformations](dev-iterative-workflow.ipynb) | Test logic before processing full datasets |
 
 ## Contributing
 
