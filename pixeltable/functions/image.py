@@ -400,6 +400,31 @@ def reduce(self: PIL.Image.Image, factor: int, box: tuple[int, int, int, int] | 
     return self.reduce(factor, box)
 
 
+@pxt.udf(is_method=True)
+def thumbnail(
+    self: PIL.Image.Image,
+    size: tuple[int, int],
+    resample: int = PIL.Image.Resampling.LANCZOS,
+    reducing_gap: float | None = 2.0,
+) -> PIL.Image.Image:
+    """
+    Create a thumbnail of the image.
+
+    Equivalent to
+    [`PIL.Image.Image.thumbnail()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.thumbnail)
+
+    Args:
+        size: The size of the thumbnail, as a tuple of (width, height).
+        resample: The resampling filter to use. See the
+            [Pillow documentation](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.thumbnail)
+            for a list of supported filters.
+        reducing_gap: The reducing gap to use.
+    """
+    result = self.copy()
+    result.thumbnail(size, resample, reducing_gap)  # type: ignore[arg-type]
+    return result
+
+
 @pxt.udf(is_property=True)
 def width(self: PIL.Image.Image) -> int:
     """
