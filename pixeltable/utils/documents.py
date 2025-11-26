@@ -1,7 +1,7 @@
 import dataclasses
 import os
 
-import bs4
+import bs4  # type: ignore[import-untyped]
 import fitz  # type: ignore[import-untyped]
 import puremagic
 
@@ -117,4 +117,5 @@ def get_office_handle(path: str) -> dict:
 
     # Parse the markdown into an AST for consistent handling
     md_parser = mistune.create_markdown(renderer=None)
-    return md_parser(markdown_text)
+    # When renderer=None, mistune returns the AST as a list
+    return md_parser(markdown_text)  # type: ignore[return-value]
