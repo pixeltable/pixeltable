@@ -351,7 +351,7 @@ class ExprEvalNode(ExecNode):
         completed_rows = np.zeros(len(rows), dtype=bool)
         num_computed_outputs = 0
         for i, row in enumerate(rows):
-            #row.missing_slots &= row.has_val == False
+            # row.missing_slots &= row.has_val == False
             if row.missing_slots.shape != self.outputs.shape:
                 pass
 

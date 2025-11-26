@@ -147,7 +147,8 @@ class Config:
         return self.get_value(key, float, section)
 
     def get_bool_value(self, key: str, section: str = 'pixeltable', default: bool | None = None) -> bool | None:
-        return self.get_value(key, bool, section) or default
+        val = self.get_value(key, bool, section)
+        return default if val is None else val
 
 
 KNOWN_CONFIG_OPTIONS = {
