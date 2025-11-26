@@ -5,7 +5,7 @@ import types
 from unittest.mock import AsyncMock, Mock
 
 from pixeltable import func
-from pixeltable.exec.expr_eval.globals import Dispatcher, FnCallArgs, ExprEvalCtx
+from pixeltable.exec.expr_eval.globals import Dispatcher, ExprEvalCtx, FnCallArgs
 from pixeltable.exec.expr_eval.schedulers import RateLimitsScheduler, RequestRateScheduler
 
 
