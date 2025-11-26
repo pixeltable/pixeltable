@@ -7,6 +7,8 @@ import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 from dataclasses import dataclass
 
+DEBUG = False
+
 @dataclass
 class BoundingBox:
     x0: float
@@ -53,22 +55,19 @@ class PdfSplitter:
                     center_y=(y0.value + y1.value) / 2,
                 )
             )
-        print('\n====== entire textpage ======\n')
-        print(self.textpage.get_text_range())
         assert len(chars) == len(self.textpage.get_text_range())
-        print('\n====== / entire textpage ======\n')
-        print('====== char by char comparison ======\n')
-        for i, c1, c2 in zip(range(len(chars)), chars, self.textpage.get_text_range()):
-            code = pdfium_c.FPDFText_GetUnicode(self.textpage, i)
-            match = c1.value == c2
-            print (f'index {i:6}/{len(chars)}: code={code}, char: {c1.value} vs textpage char: {c2} {"" if match else "<<< MISMATCH >>>"}')
-        print('====== / char by char comparison ======\n')
+        if DEBUG:
+            print('\n====== entire textpage ======\n')
+            print(self.textpage.get_text_range())
+            print('\n====== / entire textpage ======\n')
+            print('====== char by char comparison ======\n')
+            for i, c1, c2 in zip(range(len(chars)), chars, self.textpage.get_text_range()):
+                code = pdfium_c.FPDFText_GetUnicode(self.textpage, i)
+                match = c1.value == c2
+                print (f'index {i:6}/{len(chars)}: code={code}, char: {c1.value} vs textpage char: {c2} {"" if match else "<<< MISMATCH >>>"}')
+            print('====== / char by char comparison ======\n')
 
         non_whitespace_chars = [c for c in chars if not c.value.isspace()]
-        # min_x = min(c.center_x for c in non_whitespace_chars)
-        # max_x = max(c.center_x for c in non_whitespace_chars)
-        # min_y = min(c.center_y for c in non_whitespace_chars)
-        # max_y = max(c.center_y for c in non_whitespace_chars)
         min_x = 0
         min_y = 0
         max_x = self.page.get_width()
@@ -76,14 +75,15 @@ class PdfSplitter:
 
         bounds = self._split_page(self.textpage, non_whitespace_chars, BoundingBox(min_x, min_y, max_x, max_y))
         assert bounds is not None
-        print('\n====== split bounds ======\n')
-        for b in bounds:
-            print(f'Box: ({b.x0}, {b.y0}, {b.x1}, {b.y1})')
-            chars_in_box = self._chars_in_bound(chars, b)
-            box_text = ''.join(c.value for c in chars_in_box)
-            print(f'Text: {box_text}')
-            print('-----')
-        print('\n====== / split bounds ======\n')
+        if DEBUG:
+            print('\n====== split bounds ======\n')
+            for b in bounds:
+                print(f'Box: ({b.x0}, {b.y0}, {b.x1}, {b.y1})')
+                chars_in_box = self._chars_in_bound(chars, b)
+                box_text = ''.join(c.value for c in chars_in_box)
+                print(f'Text: {box_text}')
+                print('-----')
+            print('\n====== / split bounds ======\n')
 
         scores = np.zeros((len(self.textpage.get_text_range()),), dtype=np.uint8)
         current_box: BoundingBox | None = None
@@ -134,7 +134,8 @@ class PdfSplitter:
                 previous_line_x = x
                 previous_line_y = y
 
-        self._visualize_results(bounds, chars, scores)
+        if DEBUG:
+            self._visualize_results(bounds, chars, scores)
 
     def _visualize_results(self, bounds: list[BoundingBox], chars: list[PdfChar], scores: np.ndarray) -> None:
         # visualize results
