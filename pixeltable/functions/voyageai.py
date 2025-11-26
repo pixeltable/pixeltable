@@ -15,22 +15,22 @@ from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import voyageai
+    from voyageai import AsyncClient
 
 
 @env.register_client('voyageai')
-def _(api_key: str) -> 'voyageai.Client':
-    import voyageai
+def _(api_key: str) -> 'AsyncClient':
+    from voyageai import AsyncClient
 
-    return voyageai.Client(api_key=api_key)
+    return AsyncClient(api_key=api_key)
 
 
-def _voyageai_client() -> 'voyageai.Client':
+def _voyageai_client() -> 'AsyncClient':
     return env.Env.get().get_client('voyageai')
 
 
 @pxt.udf(batch_size=128, resource_pool='request-rate:voyageai')
-def embeddings(
+async def embeddings(
     input: Batch[str],
     *,
     model: str,
@@ -93,12 +93,14 @@ def embeddings(
     if output_dtype is not None:
         kwargs['output_dtype'] = output_dtype
 
-    result = cl.embed(texts=input, model=model, **kwargs)
+    result = await cl.embed(texts=input, model=model, **kwargs)
     return [np.array(emb, dtype=np.float64) for emb in result.embeddings]
 
 
 @pxt.udf(resource_pool='request-rate:voyageai')
-def rerank(query: str, documents: list[str], *, model: str, top_k: int | None = None, truncation: bool = True) -> dict:
+async def rerank(
+    query: str, documents: list[str], *, model: str, top_k: int | None = None, truncation: bool = True
+) -> dict:
     """
     Reranks documents based on their relevance to a query.
 
@@ -141,7 +143,7 @@ def rerank(query: str, documents: list[str], *, model: str, top_k: int | None = 
     """
     cl = _voyageai_client()
 
-    result = cl.rerank(query=query, documents=documents, model=model, top_k=top_k, truncation=truncation)
+    result = await cl.rerank(query=query, documents=documents, model=model, top_k=top_k, truncation=truncation)
 
     # Convert the result to a dictionary format
     return {
