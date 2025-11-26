@@ -36,6 +36,10 @@ class IndexBase(abc.ABC):
     def sa_create_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
         """Return a sqlalchemy statement for creating the index"""
 
+    # @abc.abstractmethod
+    # def sa_drop_stmt(self, store_index_name: str) -> sql.Compiled:
+    #     """Return a sqlalchemy statement for dropping the index"""
+
     @abc.abstractmethod
     def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
         """Drop the index on the index value column"""

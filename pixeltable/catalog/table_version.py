@@ -390,6 +390,7 @@ class TableVersion:
         return TableVersionMd(tbl_md, table_version_md, schema_version_md)
 
     def exec_op(self, op: TableOp) -> None:
+        from pixeltable.catalog import Catalog
         from pixeltable.store import StoreBase
 
         assert op.delete_table_md_op is None  # that needs to get handled by Catalog
@@ -404,7 +405,6 @@ class TableVersion:
                 self.store_tbl.create_index(idx_info.id)
 
         elif op.load_view_op is not None:
-            from pixeltable.catalog import Catalog
             from pixeltable.plan import Planner
 
             from .table_version_path import TableVersionPath
@@ -426,6 +426,30 @@ class TableVersion:
                 conn.execute(sql.text(drop_stmt))
 
         elif op.delete_table_media_files_op:
+            self.delete_media()
+            FileCache.get().clear(tbl_id=self.id)
+
+        elif op.delete_table_md_op is not None:
+            Catalog.get().delete_tbl_md(self.id)
+
+    def undo_op(self, op: TableOp) -> None:
+        from pixeltable.catalog import Catalog
+
+        if op.create_table_md_op is not None:
+            Catalog.get().delete_tbl_md(self.id)
+
+        elif op.create_store_table_op is not None:
+            # this needs to be called outside of a transaction
+            self.store_tbl.drop()
+
+        elif op.create_index_op is not None:
+            pass
+            # idx_info = self.idxs[op.create_index_op.idx_id]
+            # with Env.get().begin_xact():
+            #     self.store_tbl.drop_index(idx_info.id)
+
+        elif op.load_view_op is not None:
+            # clear out any media files
             self.delete_media()
             FileCache.get().clear(tbl_id=self.id)
 

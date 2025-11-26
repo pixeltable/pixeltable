@@ -5,6 +5,7 @@
 #   TableVersion
 
 import dataclasses
+from enum import Enum
 from typing import Any
 
 
@@ -24,6 +25,11 @@ class LoadViewOp:
 
 
 @dataclasses.dataclass
+class CreateTableMdOp:
+    pass
+
+
+@dataclasses.dataclass
 class DeleteTableMdOp:
     pass
 
@@ -38,16 +44,24 @@ class DropStoreTableOp:
     pass
 
 
+class OpStatus(Enum):
+    PENDING = 0
+    COMPLETE = 1
+    ABORTED = 2
+
+
 @dataclasses.dataclass
 class TableOp:
     tbl_id: str  # uuid.UUID
     op_sn: int  # sequence number within the update operation; [0, num_ops)
     num_ops: int  # total number of ops forming the update operation
     needs_xact: bool  # if True, op must be run as part of a transaction
+    status: OpStatus = OpStatus.PENDING
 
     create_store_table_op: CreateStoreTableOp | None = None
     create_index_op: CreateIndexOp | None = None
     load_view_op: LoadViewOp | None = None
+    create_table_md_op: CreateTableMdOp | None = None
     delete_table_md_op: DeleteTableMdOp | None = None
     delete_table_media_files_op: DeleteTableMediaFilesOp | None = None
     drop_store_table_op: DropStoreTableOp | None = None

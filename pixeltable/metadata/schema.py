@@ -193,6 +193,9 @@ class TableStatement(Enum):
     ADD_INDEX = 5
     DROP_INDEX = 6
 
+    def can_abort(self) -> bool:
+        return self in [TableStatement.CREATE_VIEW, TableStatement.ADD_COLUMNS, TableStatement.ADD_INDEX]
+
 
 @dataclasses.dataclass
 class TableMd:

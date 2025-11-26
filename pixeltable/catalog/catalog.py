@@ -31,7 +31,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import TableOp
+from .tbl_ops import OpStatus, TableOp
 from .update_status import UpdateStatus
 from .view import View
 
@@ -731,6 +731,170 @@ class Catalog:
             except Exception as e:
                 Env.get().console_logger.debug(f'finalize_pending_ops(): caught {e}')
                 raise
+
+            num_retries = 0
+
+    def _finalize_pending_ops2(self, tbl_id: UUID) -> None:
+        """Finalizes all pending ops for the given table."""
+        num_retries = 0
+        is_rollback = False
+        tbl_md: schema.TableMd | None = None
+        tbl_version: int | None = None
+        op: TableOp | None = None
+        is_final_op = False
+        update_op_stmt: sql.Update
+        delete_ops_stmt: sql.Delete
+        reset_tbl_state_stmt: sql.Update
+
+        while True:
+            try:
+                with self.begin_xact(
+                    tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
+                ) as conn:
+                    # determine table status
+                    q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
+                    row = conn.execute(q).one_or_none()
+                    if row is None:
+                        return
+                    tbl_md = schema.md_from_dict(schema.TableMd, row.md)
+                    if tbl_md.tbl_state == schema.TableState.LIVE:
+                        # nothing left to do
+                        return
+                    is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
+                    is_snapshot = False if tbl_md.view_md is None else tbl_md.view_md.is_snapshot
+                    assert is_snapshot is not None
+                    tbl_version = tbl_md.current_version if is_snapshot else None
+
+                    # retrieve this table's op log
+                    q = (
+                        sql.select(schema.PendingTableOp)
+                        .where(schema.PendingTableOp.tbl_id == tbl_id)
+                        .order_by(schema.PendingTableOp.op_sn)
+                        .with_for_update()
+                    )
+                    rows = conn.execute(q).fetchall()
+                    assert len(rows) > 0
+                    ops = [schema.md_from_dict(TableOp, row.op) for row in rows]
+
+                    # determine next op to execute/undo
+                    if is_rollback:
+                        # last aborted: in chronological order (ie, the one with the lowest op_sn)
+                        last_aborted_op = next((op for op in ops if op.status == OpStatus.ABORTED), None)
+                        if last_aborted_op is None:
+                            # we haven't aborted anything yet and need to start with the first pending op
+                            op = next(op for op in ops if op.status == OpStatus.PENDING)
+                        else:
+                            # we continue aborting completed ops in reverse order;
+                            # we haven't aborted the final op yet, otherwise we wouldn't still be in ROLLBACK state
+                            assert last_aborted_op.op_sn > 0
+                            # undo the op preceding the last aborted one
+                            op = ops[last_aborted_op.op_sn - 1]
+                        is_final_op = op.op_sn == 0
+                    else:
+                        # rollforward: we execute the first pending op
+                        op = next(op for op in ops if op.status == OpStatus.PENDING)
+                        is_final_op = op.op_sn == op.num_ops - 1
+
+                    update_op_stmt = (
+                        sql.update(schema.PendingTableOp)
+                        .where(schema.PendingTableOp.tbl_id == tbl_id, schema.PendingTableOp.op_sn == op.op_sn)
+                        .values(
+                            md=schema.PendingTableOp.md.op('||')(
+                                {'status': OpStatus.ABORTED.value if is_rollback else OpStatus.COMPLETE.value}
+                            )
+                        )
+                    )
+                    delete_ops_stmt = sql.delete(schema.PendingTableOp).where(schema.PendingTableOp.tbl_id == tbl_id)
+                    reset_tbl_state_stmt = (
+                        sql.update(schema.Table)
+                        .where(schema.Table.id == tbl_id)
+                        .values(
+                            md=schema.Table.md.op('||')(
+                                {'tbl_state': schema.TableState.LIVE.value, 'pending_stmt': None}
+                            )
+                        )
+                    )
+                    _logger.debug(f'finalize_pending_ops({tbl_id}): finalizing op {op!s}')
+
+                    if op.needs_xact:
+                        tv = self.get_tbl_version(
+                            TableVersionKey(tbl_id, tbl_version, None),
+                            check_pending_ops=False,
+                            validate_initialized=True,
+                        )
+                        # TODO: The above TableVersionKey instance will need to be updated if we see a replica here.
+                        # For now, just assert that we don't.
+                        assert not tv.is_replica
+
+                        if is_rollback:
+                            tv.undo_op(op)
+                        else:
+                            tv.exec_op(op)
+
+                        conn.execute(update_op_stmt)
+                        if is_final_op:
+                            conn.execute(reset_tbl_state_stmt)
+                            conn.execute(delete_ops_stmt)
+                            return
+                        continue
+
+                # this op runs outside of a transaction
+                tv = self.get_tbl_version(
+                    TableVersionKey(tbl_id, tbl_version, None), check_pending_ops=False, validate_initialized=True
+                )
+                if is_rollback:
+                    tv.undo_op(op)
+                else:
+                    tv.exec_op(op)
+
+                with self.begin_xact(
+                    tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
+                ) as conn:
+                    conn.execute(update_op_stmt)
+                    if is_final_op:
+                        conn.execute(reset_tbl_state_stmt)
+                        conn.execute(delete_ops_stmt)
+                        return
+
+            except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
+                # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
+                # logic of begin_xact()?
+                if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
+                    num_retries += 1
+                    log_msg: str
+                    if op is not None:
+                        log_msg = f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
+                    else:
+                        log_msg = f'finalize_pending_ops(): retrying ({num_retries}) after {type(e.orig)}'
+                    Env.get().console_logger.debug(log_msg)
+                    time.sleep(random.uniform(0.1, 0.5))
+                    continue
+                else:
+                    # TODO: what to do with this?
+                    raise
+
+            except Exception as e:
+                if not is_rollback and tbl_md.pending_stmt.can_abort():
+                    # we got an error for the last op and can abort this statement: switch to rollback mode
+                    _logger.debug(
+                        f'finalize_pending_ops({tbl_id}:{tbl_version}): exec of {op!s} caught {e}; aborting statement'
+                    )
+                    with self.begin_xact(
+                        tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
+                    ) as conn:
+                        stmt = (
+                            sql.update(schema.Table)
+                            .where(schema.Table.id == tbl_id)
+                            .values(md=schema.Table.md.op('||')({'tbl_state': schema.TableState.ROLLBACK.value}))
+                        )
+                        status = conn.execute(stmt)
+                        assert status.rowcount == 1
+                else:
+                    # log this error but keep going
+                    _logger.debug(
+                        f'finalize_pending_ops({tbl_id}:{tbl_version}): {"undo" if is_rollback else "exec"} of {op!s} '
+                        f'caught {e}'
+                    )
 
             num_retries = 0
 
