@@ -20,11 +20,12 @@
               "overview/installation",
               "overview/configuration",
               "overview/quick-start",
+              "overview/deployment",
               "overview/building-pixeltable-with-llms"
             ]
           },
           {
-            "group": "Multimodal AI Datastore",
+            "group": "Concepts",
             "pages": [
               "datastore/tables-and-operations",
               "datastore/views",
@@ -195,46 +196,6 @@
         ]
       },
       {
-        "tab": "Examples",
-        "groups": [
-          {
-            "group": "Explore",
-            "pages": [
-              "examples/use-cases",
-              "examples/interactive-demos",
-              "examples/sample-apps"
-            ]
-          },
-          {
-            "group": "Chatbot",
-            "pages": [
-              "examples/chat/multimodal",
-              "examples/chat/memory",
-              "examples/chat/tools",
-              "examples/chat/evals"
-            ]
-          },
-          {
-            "group": "Computer Vision",
-            "pages": [
-              "examples/vision/label-studio",
-              "examples/vision/voxel51",
-              "examples/vision/yolox"
-            ]
-          },
-          {
-            "group": "Semantic Search",
-            "pages": [
-              "examples/search/audio",
-              "examples/search/images",
-              "examples/search/PDF",
-              "examples/search/website",
-              "examples/search/video"
-            ]
-          }
-        ]
-      },
-      {
         "tab": "Integrations",
         "groups": [
           {
@@ -242,6 +203,12 @@
             "pages": [
               "integrations/frameworks",
               "integrations/models"
+            ]
+          },
+          {
+            "group": "Infrastructure",
+            "pages": [
+              "integrations/cloud-storage"
             ]
           },
           {
