@@ -200,6 +200,11 @@ KNOWN_CONFIG_OPTIONS = {
     'twelvelabs': {'api_key': 'TwelveLabs API key', 'rate_limit': 'Rate limit for TwelveLabs API requests'},
     'veo': {'rate_limits': 'Per-model rate limits for Veo API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
+    'telemetry': {
+        'enabled': 'Enable OpenTelemetry telemetry (default: auto-detect from OTEL_* env vars)',
+        'service_name': 'Service name for telemetry (default: pixeltable)',
+        'otlp_endpoint': 'OTLP exporter endpoint (e.g., http://localhost:4317)',
+    },
 }
 
 

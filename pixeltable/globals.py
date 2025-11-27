@@ -9,7 +9,7 @@ import pandas as pd
 import pydantic
 from pandas.io.formats.style import Styler
 
-from pixeltable import Query, catalog, exceptions as excs, exprs, func, share, type_system as ts
+from pixeltable import Query, catalog, exceptions as excs, exprs, func, share, telemetry, type_system as ts
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
@@ -189,28 +189,31 @@ def create_table(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
         )
 
-    tbl, was_created = Catalog.get().create_table(
-        path_obj,
-        schema,
-        if_exists=if_exists_,
-        primary_key=primary_key,
-        comment=comment,
-        media_validation=media_validation_,
-        num_retained_versions=num_retained_versions,
-        create_default_idxs=create_default_idxs,
-    )
+    with telemetry.start_span('create_table', operation='create_table', table=path) as span:
+        tbl, was_created = Catalog.get().create_table(
+            path_obj,
+            schema,
+            if_exists=if_exists_,
+            primary_key=primary_key,
+            comment=comment,
+            media_validation=media_validation_,
+            num_retained_versions=num_retained_versions,
+            create_default_idxs=create_default_idxs,
+        )
+        span.set_attribute('was_created', was_created)
+        span.set_attribute('num_columns', len(schema))
 
-    # TODO: combine data loading with table creation into a single transaction
-    if was_created:
-        fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
-        if isinstance(data_source, QueryTableDataConduit):
-            query = data_source.pxt_query
-            with Catalog.get().begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
-                tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
-        elif data_source is not None and not is_direct_query:
-            tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
+        # TODO: combine data loading with table creation into a single transaction
+        if was_created:
+            fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
+            if isinstance(data_source, QueryTableDataConduit):
+                query = data_source.pxt_query
+                with Catalog.get().begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
+                    tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
+            elif data_source is not None and not is_direct_query:
+                tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
 
-    return tbl
+        return tbl
 
 
 def create_view(
@@ -325,21 +328,26 @@ def create_view(
                     f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
                 )
 
-    return Catalog.get().create_view(
-        path_obj,
-        tbl_version_path,
-        select_list=select_list,
-        where=where,
-        sample_clause=sample_clause,
-        additional_columns=additional_columns,
-        is_snapshot=is_snapshot,
-        create_default_idxs=create_default_idxs,
-        iterator=iterator,
-        num_retained_versions=num_retained_versions,
-        comment=comment,
-        media_validation=media_validation_,
-        if_exists=if_exists_,
-    )
+    with telemetry.start_span('create_view', operation='create_view', table=path) as span:
+        span.set_attribute('is_snapshot', is_snapshot)
+        span.set_attribute('has_iterator', iterator is not None)
+        result = Catalog.get().create_view(
+            path_obj,
+            tbl_version_path,
+            select_list=select_list,
+            where=where,
+            sample_clause=sample_clause,
+            additional_columns=additional_columns,
+            is_snapshot=is_snapshot,
+            create_default_idxs=create_default_idxs,
+            iterator=iterator,
+            num_retained_versions=num_retained_versions,
+            comment=comment,
+            media_validation=media_validation_,
+            if_exists=if_exists_,
+        )
+        span.set_attribute('was_created', result is not None)
+        return result
 
 
 def create_snapshot(
@@ -610,16 +618,20 @@ def drop_table(
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
-    if tbl_path.startswith('pxt://'):
-        # Remote table
-        if force:
-            raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
-        # TODO: Handle if_not_exists properly
-        share.delete_replica(tbl_path)
-    else:
-        # Local table
-        path_obj = catalog.Path.parse(tbl_path)
-        Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+    with telemetry.start_span('drop_table', operation='drop_table', table=tbl_path) as span:
+        span.set_attribute('force', force)
+        if tbl_path.startswith('pxt://'):
+            # Remote table
+            span.set_attribute('is_remote', True)
+            if force:
+                raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
+            # TODO: Handle if_not_exists properly
+            share.delete_replica(tbl_path)
+        else:
+            # Local table
+            span.set_attribute('is_remote', False)
+            path_obj = catalog.Path.parse(tbl_path)
+            Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
@@ -754,7 +766,12 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    return Catalog.get().create_dir(path_obj, if_exists=if_exists_, parents=parents)
+    with telemetry.start_span('create_dir', operation='create_dir') as span:
+        span.set_attribute('path', path)
+        span.set_attribute('parents', parents)
+        result = Catalog.get().create_dir(path_obj, if_exists=if_exists_, parents=parents)
+        span.set_attribute('was_created', result is not None)
+        return result
 
 
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
@@ -796,7 +813,10 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     """
     path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    Catalog.get().drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
+    with telemetry.start_span('drop_dir', operation='drop_dir') as span:
+        span.set_attribute('path', path)
+        span.set_attribute('force', force)
+        Catalog.get().drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 
 def ls(path: str = '') -> pd.DataFrame:

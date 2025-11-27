@@ -14,7 +14,7 @@ import pandas as pd
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
+from pixeltable import catalog, env, exceptions as excs, exprs, index, telemetry, type_system as ts
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
     EmbeddingIndexParams,
@@ -709,12 +709,16 @@ class Table(SchemaObject):
                 assert cols_to_ignore[0] == col_name
                 return result
 
-            new_col = self._create_columns({col_name: col_schema})[0]
-            self._verify_column(new_col)
-            assert self._tbl_version is not None
-            result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
-            FileCache.get().emit_eviction_warnings()
-            return result
+            with telemetry.start_span('add_computed_column', operation='add_column', table=self._name) as span:
+                span.set_attribute('column_name', col_name)
+                span.set_attribute('stored', stored if stored is not None else 'default')
+                new_col = self._create_columns({col_name: col_schema})[0]
+                self._verify_column(new_col)
+                assert self._tbl_version is not None
+                result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
+                span.set_attribute('num_rows_computed', result.num_rows)
+                FileCache.get().emit_eviction_warnings()
+                return result
 
     @classmethod
     def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
@@ -1107,12 +1111,17 @@ class Table(SchemaObject):
             if idx_name is not None:
                 Table.validate_column_name(idx_name)
 
-            # validate EmbeddingIndex args
-            idx = EmbeddingIndex(metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed)
-            _ = idx.create_value_expr(col)
-            _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
-            # TODO: how to deal with exceptions here? drop the index and raise?
-            FileCache.get().emit_eviction_warnings()
+            with telemetry.start_span('add_embedding_index', operation='add_index', table=self._name) as span:
+                span.set_attribute('column', col.name if hasattr(col, 'name') else str(column))
+                span.set_attribute('metric', metric)
+                if idx_name is not None:
+                    span.set_attribute('index_name', idx_name)
+                # validate EmbeddingIndex args
+                idx = EmbeddingIndex(metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed)
+                _ = idx.create_value_expr(col)
+                _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
+                # TODO: how to deal with exceptions here? drop the index and raise?
+                FileCache.get().emit_eviction_warnings()
 
     def drop_embedding_index(
         self,
@@ -1449,11 +1458,14 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            self.__check_mutable('update')
-            result = self._tbl_version.get().update(value_spec, where, cascade)
-            FileCache.get().emit_eviction_warnings()
-            return result
+        with telemetry.start_span('Table.update', operation='update', table=self._name) as span:
+            with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+                self.__check_mutable('update')
+                result = self._tbl_version.get().update(value_spec, where, cascade)
+                span.set_attribute('pixeltable.rows_updated', result.num_rows)
+                telemetry.record_rows_processed(result.num_rows, table=self._name, operation='update')
+                FileCache.get().emit_eviction_warnings()
+                return result
 
     def batch_update(
         self,

@@ -9,7 +9,7 @@ import pydantic
 import pydantic_core
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs, type_system as ts
+from pixeltable import exceptions as excs, telemetry, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.pydantic import is_json_convertible
@@ -142,38 +142,44 @@ class InsertableTable(Table):
             raise excs.Error('Cannot insert an empty sequence.')
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            table = self
+        with telemetry.start_span('Table.insert', operation='insert', table=self._name) as span:
+            with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+                table = self
 
-            # TODO: unify with TableDataConduit
-            if source is not None and isinstance(source, Sequence) and isinstance(source[0], pydantic.BaseModel):
-                status = self._insert_pydantic(
-                    cast(Sequence[pydantic.BaseModel], source),  # needed for mypy
-                    print_stats=print_stats,
-                    fail_on_exception=fail_on_exception,
+                # TODO: unify with TableDataConduit
+                if source is not None and isinstance(source, Sequence) and isinstance(source[0], pydantic.BaseModel):
+                    status = self._insert_pydantic(
+                        cast(Sequence[pydantic.BaseModel], source),  # needed for mypy
+                        print_stats=print_stats,
+                        fail_on_exception=fail_on_exception,
+                    )
+                    span.set_attribute('pixeltable.rows_inserted', status.num_rows)
+                    telemetry.record_rows_processed(status.num_rows, table=self._name, operation='insert')
+                    Env.get().console_logger.info(status.insert_msg)
+                    FileCache.get().emit_eviction_warnings()
+                    return status
+
+                if source is None:
+                    source = [kwargs]
+                    kwargs = None
+
+                tds = UnkTableDataConduit(
+                    source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
                 )
-                Env.get().console_logger.info(status.insert_msg)
-                FileCache.get().emit_eviction_warnings()
+                data_source = tds.specialize()
+                if data_source.source_column_map is None:
+                    data_source.src_pk = []
+
+                assert isinstance(table, Table)
+                data_source.add_table_info(table)
+                data_source.prepare_for_insert_into_table()
+
+                status = table.insert_table_data_source(
+                    data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
+                )
+                span.set_attribute('pixeltable.rows_inserted', status.num_rows)
+                telemetry.record_rows_processed(status.num_rows, table=self._name, operation='insert')
                 return status
-
-            if source is None:
-                source = [kwargs]
-                kwargs = None
-
-            tds = UnkTableDataConduit(
-                source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
-            )
-            data_source = tds.specialize()
-            if data_source.source_column_map is None:
-                data_source.src_pk = []
-
-            assert isinstance(table, Table)
-            data_source.add_table_info(table)
-            data_source.prepare_for_insert_into_table()
-
-            return table.insert_table_data_source(
-                data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
-            )
 
     def insert_table_data_source(
         self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
@@ -320,8 +326,12 @@ class InsertableTable(Table):
         """
         from pixeltable.catalog import Catalog
 
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            return self._tbl_version.get().delete(where=where)
+        with telemetry.start_span('Table.delete', operation='delete', table=self._name) as span:
+            with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+                status = self._tbl_version.get().delete(where=where)
+                span.set_attribute('pixeltable.rows_deleted', status.num_rows)
+                telemetry.record_rows_processed(status.num_rows, table=self._name, operation='delete')
+                return status
 
     def _get_base_table(self) -> 'Table' | None:
         return None
