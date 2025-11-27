@@ -243,6 +243,21 @@ class S3Store(ObjectStoreBase):
             self.handle_s3_error(e, 'uploading file')
             raise
 
+    def get_object_content_type(self, key: str) -> str | None:
+        """Get the Content-Type of an object.
+
+        Args:
+            key: The object key (without bucket name)
+
+        Returns:
+            The Content-Type string, or None if not found
+        """
+        try:
+            response = self.client().head_object(Bucket=self.bucket_name, Key=key)
+            return response.get('ContentType')
+        except ClientError:
+            return None
+
     def _get_filtered_objects(self, tbl_id: uuid.UUID, tbl_version: int | None = None) -> tuple[Iterator, Any]:
         """Private method to get filtered objects for a table, optionally filtered by version.
 

@@ -188,6 +188,19 @@ class TestDestination:
             print(item)
         assert len(olist) >= 2
 
+        # Verify Content-Type is set correctly for S3-compatible stores
+        if dest_id in (StorageTarget.S3_STORE, StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE):
+            from pixeltable.utils.s3_store import S3Store
+
+            store = ObjectOps.get_store(dest1_uri, allow_obj_name=False)
+            assert isinstance(store, S3Store)
+            # Get the key from one of the uploaded URIs
+            obj_uri = olist[0]
+            obj_soa = ObjectPath.parse_object_storage_addr(obj_uri, allow_obj_name=True)
+            content_type = store.get_object_content_type(obj_soa.key)
+            print(f'Content-Type for {obj_uri}: {content_type}')
+            assert content_type == 'image/jpeg', f'Expected image/jpeg, got {content_type}'
+
         # Ensure that all media is removed when the table is dropped
         save_id = t._id
         pxt.drop_table(t)
