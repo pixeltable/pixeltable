@@ -143,6 +143,8 @@ table.insert(df)
 
   <Accordion title="Array Type" icon="table-cells">
     ```python
+    import numpy as np
+
     # Create table with array columns
     array_table = pxt.create_table('myproject.arrays', {
         'fixed_vector': pxt.Array[(768,), pxt.Float],      # Fixed-size vector
@@ -152,13 +154,13 @@ table.insert(df)
         'completely_flexible': pxt.Array                    # Any array (shape and dtype)
     })
 
-    # Insert array data
+    # Insert array data (pxt.Float columns require float32 dtype)
     array_table.insert([{
-        'fixed_vector': np.random.randn(768),
-        'variable_tensor': np.random.randn(5, 512),
-        'any_int_array': np.array([1, 2, 3, 4]),          # 1D array
-        'any_float_array': np.random.randn(3, 3),         # 2D array
-        'completely_flexible': np.array([[1, 2], [3, 4]])  # Any numpy array
+        'fixed_vector': np.random.randn(768).astype(np.float32),
+        'variable_tensor': np.random.randn(5, 512).astype(np.float32),
+        'any_int_array': np.array([1, 2, 3, 4]),
+        'any_float_array': np.random.randn(3, 3).astype(np.float32),
+        'completely_flexible': np.array([[1, 2], [3, 4]])
     }])
     ```
   </Accordion>

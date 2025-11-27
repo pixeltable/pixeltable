@@ -26,9 +26,28 @@ We host two files to assist AI tools and agents:
 
 These files help AI tools navigate and understand our documentation more effectively.
 
-## Pixeltable Model Context Protocol (MCP) Server
+## Hosted MCP Server
 
-For developers using code editors that use AI, such as Cursor or Windsurf, or general purpose tools such as Claude Desktop, we provide the [Pixeltable Model Context Protocol (MCP)](/libraries/mcp) server. The MCP server provides AI agents a set of tools for calling the Pixeltable API and searching our knowledge base (documentation, support articles, and so on).
+We provide a hosted MCP server that AI applications can connect to directly for searching our documentation.
+
+**MCP Server URL:**
+```
+https://docs.pixeltable.com/mcp
+```
+
+**Available Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `SearchPixeltableDocumentation` | Search across the Pixeltable documentation to find relevant information, code examples, API references, and guides. Returns contextual content with titles and direct links. |
+
+<Tip>
+Use this URL to connect AI applications like Claude Desktop, Cursor, or Windsurf to our documentation.
+</Tip>
+
+## Self-Hosted MCP Server
+
+For developers who want more control or need to call the Pixeltable API directly, we provide a self-hosted [Pixeltable MCP server](/libraries/mcp). This server provides AI agents tools for calling the Pixeltable API and searching our knowledge base.
 
 <Card title="Pixeltable MCP servers" icon="github" href="https://github.com/pixeltable/pixeltable-mcp-server">
   View the source code and contribute to our Pixeltable MCP servers
