@@ -52,7 +52,7 @@ def md_from_dict(type_: type[T], data: Any) -> T:
         return data
 
 
-def _md_dict_factory(data: list[tuple[str, Any]]) -> dict:
+def md_dict_factory(data: list[tuple[str, Any]]) -> dict:
     """Use this to serialize <>Md instances with dataclasses.asdict()"""
     # serialize enums to their values
     return {k: v.value if isinstance(v, Enum) else v for k, v in data}

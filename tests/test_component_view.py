@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import pandas as pd
@@ -58,7 +58,55 @@ class ConstantImgIterator(ComponentIterator):
         self.next_frame_idx = pos
 
 
+class ErrorIterator(ComponentIterator):
+    def __init__(self, n: int, error_idx: int):
+        self.n = n
+        self.error_idx = error_idx
+        self.output_iter = self.__iter__()
+
+    @classmethod
+    def input_schema(cls) -> dict[str, ts.ColumnType]:
+        return {'n': ts.IntType(), 'error_idx': ts.IntType()}
+
+    @classmethod
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        return {'f': ts.FloatType()}, []
+
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        for i in range(self.n):
+            if i == self.error_idx:
+                raise ValueError
+            yield {'f': float(i)}
+
+    def __next__(self) -> dict[str, Any]:
+        return next(self.output_iter)
+
+    def close(self) -> None:
+        pass
+
+    def set_pos(self, pos: int) -> None:
+        pass
+
+
 class TestComponentView:
+    def test_create_view_error(self, reset_db: None) -> None:
+        t = pxt.create_table('test', {'i': pxt.Int})
+        status = t.insert({'i': i} for i in range(100))
+        assert status.num_excs == 0
+
+        # view creation fails with an exception
+        with pytest.raises(pxt.Error, match='aborted'):
+            _ = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=50))
+
+        # the view metadata got cleaned up
+        l = pxt.list_tables()
+        assert 'view' not in l
+        with pytest.raises(pxt.Error, match='does not exist'):
+            v = pxt.get_table('view')
+
+        # the second attempt succeeds
+        v = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=100))
+
     def test_basic(self, reset_db: None) -> None:
         # create video table
         schema = {'video': pxt.Video, 'angle': pxt.Int, 'other_angle': pxt.Int}

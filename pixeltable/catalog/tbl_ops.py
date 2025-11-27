@@ -46,7 +46,7 @@ class DropStoreTableOp:
 
 class OpStatus(Enum):
     PENDING = 0
-    COMPLETE = 1
+    COMPLETED = 1
     ABORTED = 2
 
 

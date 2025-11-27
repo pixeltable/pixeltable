@@ -65,12 +65,6 @@ def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api
     return result
 
 
-def md_dict_factory(data: list[tuple[str, Any]]) -> dict:
-    """Use this to serialize TableMd instances with asdict()"""
-    # serialize enums to their values
-    return {k: v.value if isinstance(v, Enum) else v for k, v in data}
-
-
 # -1: unlimited
 # for now, we don't limit the number of retries, because we haven't seen situations where the actual number of retries
 # grows uncontrollably
@@ -145,6 +139,10 @@ class PendingTableOpsError(Exception):
 
     def __init__(self, tbl_id: UUID) -> None:
         self.tbl_id = tbl_id
+
+
+class RollbackCompletedError(Exception):
+    pass
 
 
 class Catalog:
@@ -632,110 +630,15 @@ class Catalog:
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
         for tbl_id in self._roll_forward_ids:
-            self._finalize_pending_ops(tbl_id)
-            # TODO: handle replicas
-            self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
-
-    def _finalize_pending_ops(self, tbl_id: UUID) -> None:
-        """Finalizes all pending ops for the given table."""
-        num_retries = 0
-        while True:
             try:
-                tbl_version: int
-                op: TableOp | None = None
-                delete_next_op_stmt: sql.Delete
-                reset_state_stmt: sql.Update
-                with self.begin_xact(
-                    tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
-                ) as conn:
-                    q = (
-                        sql.select(schema.Table.md, schema.PendingTableOp)
-                        .select_from(schema.Table)
-                        .join(schema.PendingTableOp)
-                        .where(schema.Table.id == tbl_id)
-                        .where(schema.PendingTableOp.tbl_id == tbl_id)
-                        .order_by(schema.PendingTableOp.op_sn)
-                        .limit(1)
-                        .with_for_update()
-                    )
-                    row = conn.execute(q).one_or_none()
-                    if row is None:
-                        return
-                    view_md = row.md.get('view_md')
-                    is_snapshot = False if view_md is None else view_md.get('is_snapshot')
-                    assert is_snapshot is not None
-                    tbl_version = row.md.get('current_version') if is_snapshot else None
-                    op = schema.md_from_dict(TableOp, row.op)
-                    delete_next_op_stmt = sql.delete(schema.PendingTableOp).where(
-                        schema.PendingTableOp.tbl_id == tbl_id, schema.PendingTableOp.op_sn == row.op_sn
-                    )
-                    reset_state_stmt = (
-                        sql.update(schema.Table)
-                        .where(schema.Table.id == tbl_id)
-                        .values(
-                            md=schema.Table.md.op('||')(
-                                {'tbl_state': schema.TableState.LIVE.value, 'pending_stmt': None}
-                            )
-                        )
-                    )
-                    _logger.debug(f'finalize_pending_ops({tbl_id}): finalizing op {op!s}')
+                # TODO: handle replicas
+                if not self._finalize_pending_ops(tbl_id):
+                    raise excs.Error('Table operation was aborted')
+            finally:
+                self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
 
-                    if op.needs_xact:
-                        if op.delete_table_md_op is not None:
-                            self.delete_tbl_md(tbl_id)
-                        else:
-                            tv = self.get_tbl_version(
-                                TableVersionKey(tbl_id, tbl_version, None),
-                                check_pending_ops=False,
-                                validate_initialized=True,
-                            )
-                            # TODO: The above TableVersionKey instance will need to be updated if we see a replica here.
-                            # For now, just assert that we don't.
-                            assert not tv.is_replica
-                            tv.exec_op(op)
-
-                        conn.execute(delete_next_op_stmt)
-                        if op.op_sn == op.num_ops - 1:
-                            conn.execute(reset_state_stmt)
-                            return
-                        continue
-
-                # this op runs outside of a transaction
-                tv = self.get_tbl_version(
-                    TableVersionKey(tbl_id, tbl_version, None), check_pending_ops=False, validate_initialized=True
-                )
-                tv.exec_op(op)
-                with self.begin_xact(
-                    tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
-                ) as conn:
-                    conn.execute(delete_next_op_stmt)
-                    if op.op_sn == op.num_ops - 1:
-                        conn.execute(reset_state_stmt)
-                        return
-
-            except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
-                # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
-                # logic of begin_xact()?
-                if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
-                    num_retries += 1
-                    log_msg: str
-                    if op is not None:
-                        log_msg = f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
-                    else:
-                        log_msg = f'finalize_pending_ops(): retrying ({num_retries}) after {type(e.orig)}'
-                    Env.get().console_logger.debug(log_msg)
-                    time.sleep(random.uniform(0.1, 0.5))
-                    continue
-                else:
-                    raise
-            except Exception as e:
-                Env.get().console_logger.debug(f'finalize_pending_ops(): caught {e}')
-                raise
-
-            num_retries = 0
-
-    def _finalize_pending_ops2(self, tbl_id: UUID) -> None:
-        """Finalizes all pending ops for the given table."""
+    def _finalize_pending_ops(self, tbl_id: UUID) -> bool:
+        """Finalizes all pending ops for the given table. Returns False on rollback."""
         num_retries = 0
         is_rollback = False
         tbl_md: schema.TableMd | None = None
@@ -755,11 +658,11 @@ class Catalog:
                     q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
                     row = conn.execute(q).one_or_none()
                     if row is None:
-                        return
+                        return True
                     tbl_md = schema.md_from_dict(schema.TableMd, row.md)
                     if tbl_md.tbl_state == schema.TableState.LIVE:
                         # nothing left to do
-                        return
+                        return True
                     is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
                     is_snapshot = False if tbl_md.view_md is None else tbl_md.view_md.is_snapshot
                     assert is_snapshot is not None
@@ -799,8 +702,8 @@ class Catalog:
                         sql.update(schema.PendingTableOp)
                         .where(schema.PendingTableOp.tbl_id == tbl_id, schema.PendingTableOp.op_sn == op.op_sn)
                         .values(
-                            md=schema.PendingTableOp.md.op('||')(
-                                {'status': OpStatus.ABORTED.value if is_rollback else OpStatus.COMPLETE.value}
+                            op=schema.PendingTableOp.op.op('||')(
+                                {'status': OpStatus.ABORTED.value if is_rollback else OpStatus.COMPLETED.value}
                             )
                         )
                     )
@@ -831,11 +734,12 @@ class Catalog:
                         else:
                             tv.exec_op(op)
 
-                        conn.execute(update_op_stmt)
                         if is_final_op:
-                            conn.execute(reset_tbl_state_stmt)
-                            conn.execute(delete_ops_stmt)
-                            return
+                            status = conn.execute(reset_tbl_state_stmt)
+                            status = conn.execute(delete_ops_stmt)
+                            return not is_rollback
+                        else:
+                            conn.execute(update_op_stmt)
                         continue
 
                 # this op runs outside of a transaction
@@ -850,11 +754,12 @@ class Catalog:
                 with self.begin_xact(
                     tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
                 ) as conn:
-                    conn.execute(update_op_stmt)
                     if is_final_op:
                         conn.execute(reset_tbl_state_stmt)
                         conn.execute(delete_ops_stmt)
-                        return
+                        return not is_rollback
+                    else:
+                        conn.execute(update_op_stmt)
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
@@ -1284,7 +1189,7 @@ class Catalog:
                 base_tv.tbl_md.view_sn += 1
                 result = Env.get().conn.execute(
                     sql.update(schema.Table)
-                    .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=md_dict_factory)})
+                    .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
                     .where(schema.Table.id == base.tbl_id)
                 )
                 assert result.rowcount == 1, result.rowcount
@@ -1455,7 +1360,7 @@ class Catalog:
         if existing_md_row is None:
             # No existing table, so create a new record.
             q = sql.insert(schema.Table.__table__).values(
-                id=tbl_id, dir_id=dir._id, md=dataclasses.asdict(md.tbl_md, dict_factory=md_dict_factory)
+                id=tbl_id, dir_id=dir._id, md=dataclasses.asdict(md.tbl_md, dict_factory=schema.md_dict_factory)
             )
             conn.execute(q)
         elif not existing_md_row.md['is_replica']:
@@ -1671,7 +1576,7 @@ class Catalog:
             base_tv.tbl_md.view_sn += 1
             result = Env.get().conn.execute(
                 sql.update(schema.Table.__table__)
-                .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=md_dict_factory)})
+                .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
                 .where(schema.Table.id == base_id)
             )
             assert result.rowcount == 1, result.rowcount
@@ -1980,6 +1885,16 @@ class Catalog:
             row = conn.execute(q).one()
             if row.md['pending_stmt'] == schema.TableStatement.DROP_TABLE.value:
                 return None
+
+        # retrieve this table's op log
+        q = (
+            sql.select(schema.PendingTableOp)
+            .where(schema.PendingTableOp.tbl_id == tbl_id)
+            .order_by(schema.PendingTableOp.op_sn)
+            .with_for_update()
+        )
+        rows = conn.execute(q).fetchall()
+        ops = [schema.md_from_dict(TableOp, row.op) for row in rows]
 
         # check for pending ops
         q = sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == tbl_id)
@@ -2314,12 +2229,14 @@ class Catalog:
             if dir_id is not None:
                 # We are inserting a record while creating a new table.
                 tbl_record = schema.Table(
-                    id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_md, dict_factory=md_dict_factory)
+                    id=tbl_id, dir_id=dir_id, md=dataclasses.asdict(tbl_md, dict_factory=schema.md_dict_factory)
                 )
                 session.add(tbl_record)
             else:
                 # Update the existing table record.
-                values: dict[Any, Any] = {schema.Table.md: dataclasses.asdict(tbl_md, dict_factory=md_dict_factory)}
+                values: dict[Any, Any] = {
+                    schema.Table.md: dataclasses.asdict(tbl_md, dict_factory=schema.md_dict_factory)
+                }
                 if remove_from_dir:
                     values.update({schema.Table.dir_id: None})
                 result = session.execute(
@@ -2377,7 +2294,9 @@ class Catalog:
 
         if pending_ops is not None:
             for op in pending_ops:
-                op_record = schema.PendingTableOp(tbl_id=tbl_id, op_sn=op.op_sn, op=dataclasses.asdict(op))
+                op_record = schema.PendingTableOp(
+                    tbl_id=tbl_id, op_sn=op.op_sn, op=dataclasses.asdict(op, dict_factory=schema.md_dict_factory)
+                )
                 session.add(op_record)
 
         session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
@@ -2402,10 +2321,11 @@ class Catalog:
         """
         conn = Env.get().conn
         _logger.info(f'delete_tbl_md({tbl_id})')
-        conn.execute(sql.delete(schema.TableSchemaVersion.__table__).where(schema.TableSchemaVersion.tbl_id == tbl_id))
-        conn.execute(sql.delete(schema.TableVersion.__table__).where(schema.TableVersion.tbl_id == tbl_id))
-        conn.execute(sql.delete(schema.PendingTableOp.__table__).where(schema.PendingTableOp.tbl_id == tbl_id))
-        conn.execute(sql.delete(schema.Table.__table__).where(schema.Table.id == tbl_id))
+        status = conn.execute(sql.delete(schema.TableSchemaVersion).where(schema.TableSchemaVersion.tbl_id == tbl_id))
+        status = conn.execute(sql.delete(schema.TableVersion).where(schema.TableVersion.tbl_id == tbl_id))
+        status = conn.execute(sql.delete(schema.PendingTableOp).where(schema.PendingTableOp.tbl_id == tbl_id))
+        status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
+        pass
 
     def load_replica_md(self, tbl: Table) -> list[TableVersionMd]:
         """

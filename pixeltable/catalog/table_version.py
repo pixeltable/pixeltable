@@ -393,8 +393,6 @@ class TableVersion:
         from pixeltable.catalog import Catalog
         from pixeltable.store import StoreBase
 
-        assert op.delete_table_md_op is None  # that needs to get handled by Catalog
-
         if op.create_store_table_op is not None:
             # this needs to be called outside of a transaction
             self.store_tbl.create()
@@ -418,6 +416,17 @@ class TableVersion:
             Catalog.get().store_update_status(self.id, self.version, status)
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
+        elif op.create_table_md_op is not None:
+            # nothing to do here
+            pass
+
+        elif op.delete_table_md_op is not None:
+            Catalog.get().delete_tbl_md(self.id)
+
+        elif op.delete_table_media_files_op:
+            self.delete_media()
+            FileCache.get().clear(tbl_id=self.id)
+
         elif op.drop_store_table_op is not None:
             # don't reference self.store_tbl here, it needs to reference the metadata for our base table, which at
             # this point may not exist anymore
@@ -425,22 +434,15 @@ class TableVersion:
                 drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(self.id, self.is_view)}'
                 conn.execute(sql.text(drop_stmt))
 
-        elif op.delete_table_media_files_op:
-            self.delete_media()
-            FileCache.get().clear(tbl_id=self.id)
-
-        elif op.delete_table_md_op is not None:
-            Catalog.get().delete_tbl_md(self.id)
-
     def undo_op(self, op: TableOp) -> None:
         from pixeltable.catalog import Catalog
 
-        if op.create_table_md_op is not None:
-            Catalog.get().delete_tbl_md(self.id)
+        # ops that cannot be rolled back are marked with assert False
 
-        elif op.create_store_table_op is not None:
+        if op.create_store_table_op is not None:
             # this needs to be called outside of a transaction
-            self.store_tbl.drop()
+            with Env.get().begin_xact():
+                self.store_tbl.drop()
 
         elif op.create_index_op is not None:
             pass
@@ -452,6 +454,18 @@ class TableVersion:
             # clear out any media files
             self.delete_media()
             FileCache.get().clear(tbl_id=self.id)
+
+        elif op.create_table_md_op is not None:
+            Catalog.get().delete_tbl_md(self.id)
+
+        elif op.delete_table_md_op is not None:
+            assert False
+
+        elif op.delete_table_media_files_op:
+            assert False
+
+        elif op.drop_store_table_op is not None:
+            assert False
 
     @classmethod
     def create_replica(cls, md: TableVersionMd, create_store_tbl: bool = True) -> TableVersion:
