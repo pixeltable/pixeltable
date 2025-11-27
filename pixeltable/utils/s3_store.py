@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Iterator, NamedTuple
 
 import boto3
 import botocore
+import puremagic
 from botocore.exceptions import ClientError, ConnectionError
 
 from pixeltable import env, exceptions as excs
@@ -233,7 +234,9 @@ class S3Store(ObjectStoreBase):
             key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2/B2
         try:
             _logger.debug(f'Media Storage: copying {src_path} to {new_file_uri} : Key: {key}')
-            self.client().upload_file(Filename=str(src_path), Bucket=self.bucket_name, Key=key)
+            content_type = puremagic.from_file(str(src_path), mime=True)
+            extra_args = {'ContentType': content_type} if content_type else None
+            self.client().upload_file(Filename=str(src_path), Bucket=self.bucket_name, Key=key, ExtraArgs=extra_args)
             _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
             return new_file_uri
         except ClientError as e:
