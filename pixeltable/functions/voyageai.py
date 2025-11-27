@@ -5,14 +5,32 @@ first `pip install voyageai` and configure your Voyage AI credentials, as descri
 the [Working with Voyage AI](https://docs.pixeltable.com/notebooks/integrations/working-with-voyageai) tutorial.
 """
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
+import PIL.Image
 
 import pixeltable as pxt
-from pixeltable import env
+from pixeltable import env, type_system as ts
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
+
+
+# Default embedding dimensions for Voyage AI models
+_embedding_dimensions_cache: dict[str, int] = {
+    'voyage-3-large': 1024,
+    'voyage-3.5': 1024,
+    'voyage-3.5-lite': 1024,
+    'voyage-code-3': 1024,
+    'voyage-finance-2': 1024,
+    'voyage-law-2': 1024,
+    'voyage-code-2': 1536,
+    'voyage-3': 1024,
+    'voyage-3-lite': 512,
+    'voyage-multilingual-2': 1024,
+    'voyage-large-2': 1536,
+    'voyage-2': 1024,
+}
 
 if TYPE_CHECKING:
     from voyageai import AsyncClient
@@ -78,12 +96,12 @@ async def embeddings(
 
         Add an embedding index to an existing column `text`, using the model `voyage-3.5`:
 
-        >>> tbl.add_embedding_index('text', text_embed=embeddings.using(model='voyage-3.5'))
+        >>> tbl.add_embedding_index('text', string_embed=embeddings.using(model='voyage-3.5'))
     """
     cl = _voyageai_client()
 
     # Build kwargs for the API call
-    kwargs = {}
+    kwargs: dict[str, Any] = {}
     if input_type is not None:
         kwargs['input_type'] = input_type
     if truncation is not None:
@@ -95,6 +113,24 @@ async def embeddings(
 
     result = await cl.embed(texts=input, model=model, **kwargs)
     return [np.array(emb, dtype=np.float64) for emb in result.embeddings]
+
+
+@embeddings.conditional_return_type
+def _(
+    model: str,
+    input_type: Literal['query', 'document'] | None = None,
+    truncation: bool | None = None,
+    output_dimension: int | None = None,
+    output_dtype: Literal['float', 'int8', 'uint8', 'binary', 'ubinary'] | None = None,
+) -> ts.ArrayType:
+    # If output_dimension is explicitly specified, use it
+    if output_dimension is not None:
+        return ts.ArrayType((output_dimension,), dtype=ts.FloatType(), nullable=False)
+    # Otherwise, look up the default for this model
+    dimensions = _embedding_dimensions_cache.get(model)
+    if dimensions is None:
+        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+    return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
 
 
 @pxt.udf(resource_pool='request-rate:voyageai')
@@ -129,16 +165,22 @@ async def rerank(
         - `total_tokens`: The total number of tokens used
 
     Examples:
-        Rerank a list of documents based on relevance to a query:
+        Rerank similarity search results for better relevance. First, create a table with
+        an embedding index, then use a query function to retrieve candidates and rerank them:
 
-        >>> tbl = pxt.create_table('docs', {'query': pxt.String, 'docs': pxt.Json})
-        >>> tbl.add_computed_column(
-        ...     reranked=rerank(
-        ...         tbl.query,
-        ...         tbl.docs,
-        ...         model='rerank-2.5',
-        ...         top_k=3
-        ...     )
+        >>> docs = pxt.create_table('docs', {'text': pxt.String})
+        >>> docs.add_computed_column(embed=embeddings(docs.text, model='voyage-3.5'))
+        >>> docs.add_embedding_index('text', embed=docs.embed)
+        >>>
+        >>> @pxt.query
+        ... def get_candidates(query_text: str):
+        ...     sim = docs.text.similarity(query_text, embed=embeddings.using(model='voyage-3.5'))
+        ...     return docs.order_by(sim, asc=False).limit(20).select(docs.text)
+        >>>
+        >>> queries = pxt.create_table('queries', {'query': pxt.String})
+        >>> queries.add_computed_column(candidates=get_candidates(queries.query))
+        >>> queries.add_computed_column(
+        ...     reranked=rerank(queries.query, queries.candidates.text, model='rerank-2.5', top_k=5)
         ... )
     """
     cl = _voyageai_client()
@@ -152,6 +194,69 @@ async def rerank(
         ],
         'total_tokens': result.total_tokens,
     }
+
+
+@pxt.udf(resource_pool='request-rate:voyageai')
+async def multimodal_embed(
+    image: PIL.Image.Image,
+    text: str | None = None,
+    *,
+    model: str = 'voyage-multimodal-3',
+    input_type: Literal['query', 'document'] | None = None,
+    truncation: bool = True,
+) -> pxt.Array[(1024,), pxt.Float]:
+    """
+    Creates an embedding vector for multimodal content (image with optional text).
+
+    Equivalent to the Voyage AI `multimodal_embed` API endpoint.
+    For additional details, see: <https://docs.voyageai.com/docs/multimodal-embeddings>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `voyageai`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    __Requirements:__
+
+    - `pip install voyageai`
+
+    Args:
+        image: The image to embed (PIL Image).
+        text: Optional text to include with the image for multimodal embedding.
+        model: The model to use. Currently only `voyage-multimodal-3` is supported.
+        input_type: Type of the input. Options: `None`, `query`, `document`.
+            For retrieval/search, set to `query` or `document` as appropriate.
+        truncation: Whether to truncate inputs to fit within context length. Defaults to `True`.
+
+    Returns:
+        An array of 1024 floats representing the multimodal embedding.
+
+    Examples:
+        Embed images with optional captions:
+
+        >>> tbl = pxt.create_table('images', {'img': pxt.Image, 'caption': pxt.String})
+        >>> tbl.add_computed_column(
+        ...     embed=multimodal_embed(tbl.img, tbl.caption, input_type='document')
+        ... )
+
+        Embed images only:
+
+        >>> tbl.add_computed_column(embed=multimodal_embed(tbl.img, input_type='document'))
+    """
+    cl = _voyageai_client()
+
+    # Build the input: a list containing the image and optionally text
+    input_content: list = [image]
+    if text is not None:
+        input_content.insert(0, text)  # Text goes first if provided
+
+    kwargs: dict[str, Any] = {}
+    if input_type is not None:
+        kwargs['input_type'] = input_type
+    if truncation is not None:
+        kwargs['truncation'] = truncation
+
+    result = await cl.multimodal_embed(inputs=[input_content], model=model, **kwargs)
+    return np.array(result.embeddings[0], dtype=np.float64)
 
 
 __all__ = local_public_names(__name__)
