@@ -35,6 +35,40 @@ films = pxt.create_table('example.films', {
 })
 ```
 
+## Primary Keys
+
+Primary keys uniquely identify rows in a table and enable efficient lookups and updates. You can designate one or more columns as primary keys when creating a table:
+
+```python
+# Single primary key
+products = pxt.create_table('inventory.products', {
+    'sku': pxt.String,
+    'name': pxt.String,
+    'price': pxt.Float
+}, primary_key='sku')
+
+# Composite primary key (multiple columns)
+order_items = pxt.create_table('sales.order_items', {
+    'order_id': pxt.Int,
+    'product_id': pxt.Int,
+    'quantity': pxt.Int
+}, primary_key=['order_id', 'product_id'])
+```
+
+With primary keys defined, you can use `batch_update` to efficiently update or insert (upsert) rows:
+
+```python
+# Update existing rows or insert new ones based on primary key
+products.batch_update([
+    {'sku': 'ABC123', 'name': 'Widget', 'price': 9.99},
+    {'sku': 'DEF456', 'name': 'Gadget', 'price': 19.99}
+])
+```
+
+<Note>
+Primary key columns cannot be nullable and must have unique values across all rows.
+</Note>
+
 ## Type System
 
 <Tabs>
@@ -73,7 +107,53 @@ films = pxt.create_table('example.films', {
     })
     ```
   </Tab>
+
+  <Tab title="JSON Schema Validation">
+    Validate JSON columns against a schema to ensure data integrity:
+    ```python
+    # Define a JSON schema
+    movie_schema = {
+        'type': 'object',
+        'properties': {
+            'title': {'type': 'string'},
+            'year': {'type': 'integer'},
+            'rating': {'type': 'number'}
+        },
+        'required': ['title', 'year']
+    }
+
+    # Create table with validated JSON column
+    movies = pxt.create_table('validated_movies', {
+        'data': pxt.Json[movie_schema]
+    })
+
+    # Valid insert
+    movies.insert(data={'title': 'Inception', 'year': 2010, 'rating': 8.8})
+
+    # Invalid insert raises error (missing required 'year')
+    # movies.insert(data={'title': 'Movie'})  # Error!
+    ```
+
+    You can also use Pydantic models:
+    ```python
+    from pydantic import BaseModel
+
+    class Movie(BaseModel):
+        title: str
+        year: int
+        rating: float | None = None
+
+    # Use the model's JSON schema
+    movies = pxt.create_table('pydantic_movies', {
+        'data': pxt.Json[Movie.model_json_schema()]
+    })
+    ```
+  </Tab>
 </Tabs>
+
+<Tip>
+Table and directory names can include hyphens (e.g., `my-table`, `my-project.sub-dir`). This is useful for matching external naming conventions.
+</Tip>
 
 ## Column Casting
 
@@ -362,21 +442,21 @@ Column casting helps maintain data consistency and prevents type errors when pro
     # Output will show all customers (1-5), with null for amount where no order exists
     ```
 
-    ### Right Outer Join
-    Returns all records from the right table and matching records from the left table.
+    ### Full Outer Join
+    Returns all records from both tables, with nulls where there's no match.
 
     ```python
-    right_join_result = customers.join(
+    full_join_result = customers.join(
         orders,
         on=customers.customer_id == orders.customer_id,
-        how='right'
+        how='full_outer'
     ).select(
         customers.name,
         orders.amount
     )
-    right_df = right_join_result.collect()
-    print(right_df)
-    # Output will show all orders (order_id 101-104), with null for name where no customer exists
+    full_df = full_join_result.collect()
+    print(full_df)
+    # Output will show all customers and all orders, with nulls where no match exists
     ```
 
     ### Cross Join
@@ -393,6 +473,107 @@ Column casting helps maintain data consistency and prevents type errors when pro
     cross_df = cross_join_result.collect()
     print(cross_df)
     # Output will show 5 customers x 4 orders = 20 combinations
+    ```
+  </Card>
+</CardGroup>
+
+## Error Handling
+
+When inserting data or evaluating computed columns, errors may occur (e.g., invalid media files, API failures, type mismatches). Pixeltable provides the `on_error` parameter to control how these errors are handled:
+
+```python
+# Abort on any error (default behavior)
+t.insert([...], on_error='abort')
+
+# Continue processing and log errors
+t.insert([...], on_error='ignore')
+```
+
+When using `on_error='ignore'`, cells with errors will have `None` values, but you can access error details through special column properties:
+
+```python
+# Create a table with a computed column that might fail
+t = pxt.create_table('app.docs', {'url': pxt.String})
+t.add_computed_column(content=some_function_that_might_fail(t.url))
+
+# Insert data, ignoring errors
+t.insert([{'url': 'https://example.com/valid'}, {'url': 'invalid-url'}], on_error='ignore')
+
+# Query error information for failed rows
+errors = t.where(t.content == None).select(
+    t.url,
+    t.content.errortype,   # Exception class name
+    t.content.errormsg     # Error message
+).collect()
+
+print(errors)
+# Shows which URLs failed and why
+```
+
+<Tip>
+Use `on_error='ignore'` in production pipelines to ensure partial failures don't halt your entire workflow. You can then query and retry failed rows later.
+</Tip>
+
+## Table Management
+
+<CardGroup cols={1}>
+  <Card title="Move and Rename" icon="arrows-up-down-left-right">
+    Move tables between directories or rename them using `pxt.move()`:
+    ```python
+    # Move a table to a different directory
+    pxt.move('old_dir.my_table', 'new_dir.my_table')
+
+    # Rename a table (same directory)
+    pxt.move('my_dir.old_name', 'my_dir.new_name')
+
+    # Handle existing paths gracefully
+    pxt.move('source.table', 'dest.table', if_exists='ignore')
+    ```
+  </Card>
+
+  <Card title="List Contents" icon="list">
+    Browse your Pixeltable namespace with `pxt.ls()`:
+    ```python
+    # List contents of root directory
+    pxt.ls()
+    #    Name      Kind    Version  Base
+    #    my_dir    dir
+    #    my_table  table   5
+
+    # List contents of a subdirectory
+    pxt.ls('my_dir')
+
+    # Programmatic access to directory contents
+    contents = pxt.get_dir_contents('my_dir')
+    print(contents['tables'])  # List of table paths
+    print(contents['dirs'])    # List of subdirectory paths
+    ```
+  </Card>
+
+  <Card title="Data Export" icon="file-export">
+    Export data to various formats for external use:
+    ```python
+    import pixeltable as pxt
+    from pixeltable import io
+
+    t = pxt.get_table('my_app.data')
+
+    # Export to Parquet file
+    io.export_parquet(t, 'output.parquet')
+
+    # Export a query result to Parquet
+    query = t.where(t.score > 0.9).select(t.id, t.embedding)
+    io.export_parquet(query, 'high_scores.parquet')
+
+    # Export to LanceDB for vector search
+    io.export_lancedb(t, 'lance_db_path', 'table_name')
+
+    # Convert to Pandas DataFrame
+    df = t.collect()
+    df.to_csv('output.csv')
+
+    # Export images as FiftyOne dataset
+    io.export_images_as_fo_dataset(t, 'fiftyone_dataset')
     ```
   </Card>
 </CardGroup>

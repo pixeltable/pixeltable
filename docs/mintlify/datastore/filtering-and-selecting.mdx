@@ -23,13 +23,14 @@ Queries don't execute until you call `collect()`, making them efficient for comp
 
 ```python
 # A basic query that filters, transforms, and sorts data
+roi = movies.revenue / movies.budget
 result = movies.where(
     (movies.year >= 2000) & (movies.budget > 100.0)
 ).select(
     movies.title,
-    roi=movies.revenue / movies.budget
+    roi=roi
 ).order_by(
-    'roi', asc=False
+    roi, asc=False
 ).limit(5).collect()
 ```
 
@@ -140,11 +141,8 @@ This guide builds on tables created in previous sections. The `movies` table fro
         asc=False
     ).collect()
 
-    # Sort by year then budget
-    movies.order_by(
-        [movies.year, movies.budget],
-        asc=[True, False]
-    ).collect()
+    # Sort by year then budget (chain multiple order_by calls)
+    movies.order_by(movies.year, asc=True).order_by(movies.budget, asc=False).collect()
     ```
   </Accordion>
 </AccordionGroup>
@@ -163,7 +161,7 @@ This guide builds on tables created in previous sections. The `movies` table fro
 
     # Find movies with subtitles (colon in title)
     movies.where(
-        movies.title.like('%: %')
+        movies.title.contains(': ')
     ).collect()
     ```
   </Card>
@@ -171,17 +169,20 @@ This guide builds on tables created in previous sections. The `movies` table fro
   <Card title="Numeric Analysis" icon="calculator">
     Budget calculations and comparisons:
     ```python
+    from pixeltable.functions import sum, count, mean
+
     # Calculate budget statistics
     movies.select(
-        avg_budget=movies.budget.avg(),
-        total_budget=movies.budget.sum(),
-        movie_count=movies.title.count()
+        avg_budget=mean(movies.budget),
+        total_budget=sum(movies.budget),
+        movie_count=count(movies.title)
     ).collect()
 
     # Movies above average budget
-    avg_budget = movies.select(
-        movies.budget.avg()
-    ).collect()[0][0]
+    avg_result = movies.select(
+        avg_val=mean(movies.budget)
+    ).collect()
+    avg_budget = avg_result[0]['avg_val']
 
     movies.where(
         movies.budget > avg_budget
@@ -211,6 +212,35 @@ This guide builds on tables created in previous sections. The `movies` table fro
     ```
   </Card>
 </CardGroup>
+
+## Math Functions
+
+Pixeltable provides built-in math functions for numeric transformations:
+
+```python
+from pixeltable.functions.math import abs, ceil, floor, round
+
+# Apply math functions in queries
+movies.select(
+    movies.title,
+    budget_rounded=round(movies.budget, 1),      # Round to 1 decimal place
+    budget_ceil=ceil(movies.budget),             # Round up
+    budget_floor=floor(movies.budget),           # Round down
+    budget_abs=abs(movies.budget)                # Absolute value
+).collect()
+
+# Use in computed columns
+movies.add_computed_column(
+    budget_category=floor(movies.budget / 100)   # Budget tier (0, 1, 2, etc.)
+)
+```
+
+Available math functions:
+- `abs(x)` - Absolute value
+- `ceil(x)` - Round up to nearest integer
+- `floor(x)` - Round down to nearest integer
+- `round(x, digits)` - Round to specified decimal places
+- `pow(x, y)` - Raise integer x to the power of integer y
 
 ## Key Concepts
 
