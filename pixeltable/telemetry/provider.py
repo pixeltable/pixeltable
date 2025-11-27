@@ -39,9 +39,15 @@ class TelemetryProvider:
     _initialized: ClassVar[bool] = False
 
     __slots__ = (
-        '_enabled', '_service_name', '_otlp_endpoint',
-        '_tracer_provider', '_meter_provider', '_tracer', '_meter',
-        '_owns_tracer_provider', '_owns_meter_provider',
+        '_enabled',
+        '_meter',
+        '_meter_provider',
+        '_otlp_endpoint',
+        '_owns_meter_provider',
+        '_owns_tracer_provider',
+        '_service_name',
+        '_tracer',
+        '_tracer_provider',
     )
 
     def __init__(self) -> None:
@@ -104,6 +110,7 @@ class TelemetryProvider:
 
         try:
             from pixeltable.config import Config
+
             config = Config.get()
             config_enabled = config.get_bool_value('enabled', section='telemetry')
             config_endpoint = config.get_string_value('otlp_endpoint', section='telemetry')
@@ -157,7 +164,10 @@ class TelemetryProvider:
             # Check if a real meter provider is already configured
             current_meter_provider = metrics.get_meter_provider()
             if isinstance(current_meter_provider, NoOpMeterProvider):
-                exporter = OTLPMetricExporter(endpoint=self._otlp_endpoint) if self._otlp_endpoint else OTLPMetricExporter()
+                if self._otlp_endpoint:
+                    exporter = OTLPMetricExporter(endpoint=self._otlp_endpoint)
+                else:
+                    exporter = OTLPMetricExporter()
                 reader = PeriodicExportingMetricReader(exporter)
                 self._meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
                 metrics.set_meter_provider(self._meter_provider)

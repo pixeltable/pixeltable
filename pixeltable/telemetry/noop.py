@@ -8,7 +8,7 @@ without conditional checks throughout the codebase.
 from __future__ import annotations
 
 from contextlib import contextmanager
-from typing import Any, Generator
+from typing import Any, Generator, Self
 
 
 class NoOpSpanContext:
@@ -16,10 +16,10 @@ class NoOpSpanContext:
 
     __slots__ = ()
 
-    def __enter__(self) -> NoOpSpanContext:
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *args: Any) -> None:
+    def __exit__(self, *args: object) -> None:
         pass
 
     def set_attribute(self, key: str, value: Any) -> None:
@@ -43,11 +43,7 @@ class NoOpSpanContext:
 
 @contextmanager
 def start_span(
-    name: str,
-    *,
-    operation: str | None = None,
-    table: str | None = None,
-    attributes: dict[str, Any] | None = None,
+    name: str, *, operation: str | None = None, table: str | None = None, attributes: dict[str, Any] | None = None
 ) -> Generator[NoOpSpanContext, None, None]:
     """No-op span context manager."""
     yield NoOpSpanContext()

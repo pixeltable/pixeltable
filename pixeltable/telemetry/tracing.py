@@ -6,8 +6,9 @@ Provides span creation and context management for instrumenting operations.
 
 from __future__ import annotations
 
+import types
 from contextlib import contextmanager
-from typing import Any, Generator
+from typing import Any, Generator, Self
 
 from opentelemetry.trace import Status, StatusCode, Span
 
@@ -31,10 +32,12 @@ class SpanContext:
     def __init__(self, span: Span) -> None:
         self._span = span
 
-    def __enter__(self) -> SpanContext:
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, exc_type: type | None, exc_val: Exception | None, exc_tb: Any) -> None:
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: types.TracebackType | None
+    ) -> None:
         if exc_val is not None:
             self._span.record_exception(exc_val)
             self._span.set_status(Status(StatusCode.ERROR, str(exc_val)))
@@ -69,11 +72,7 @@ class SpanContext:
 
 @contextmanager
 def start_span(
-    name: str,
-    *,
-    operation: str | None = None,
-    table: str | None = None,
-    attributes: dict[str, Any] | None = None,
+    name: str, *, operation: str | None = None, table: str | None = None, attributes: dict[str, Any] | None = None
 ) -> Generator[SpanContext, None, None]:
     """
     Start a new span for tracing an operation.
@@ -95,6 +94,7 @@ def start_span(
     provider = TelemetryProvider.get()
     if provider is None or provider.tracer is None:
         from .noop import NoOpSpanContext
+
         yield NoOpSpanContext()
         return
 

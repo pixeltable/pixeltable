@@ -12,6 +12,7 @@ def _otel_available() -> bool:
     """Check if OpenTelemetry SDK is available."""
     try:
         import opentelemetry.sdk  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -23,6 +24,7 @@ class TestTelemetryAvailability:
     def test_is_available_returns_bool(self) -> None:
         """Test is_available returns bool based on OTEL installation."""
         from pixeltable import telemetry
+
         result = telemetry.is_available()
         assert isinstance(result, bool)
 
@@ -35,7 +37,8 @@ class TestTelemetryAvailability:
 
         # Clear OTEL env vars
         env_without_otel = {
-            k: v for k, v in os.environ.items()
+            k: v
+            for k, v in os.environ.items()
             if not k.startswith('OTEL_') and not k.startswith('PIXELTABLE_TELEMETRY')
         }
         with mock.patch.dict(os.environ, env_without_otel, clear=True):
@@ -102,7 +105,6 @@ class TestSpanContext:
     def test_span_context_sets_attributes(self) -> None:
         """Test SpanContext attribute setting."""
         from pixeltable.telemetry.tracing import SpanContext
-        from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
         from opentelemetry.sdk.trace.export import SimpleSpanProcessor
@@ -144,11 +146,14 @@ class TestConfiguration:
 
         provider.TelemetryProvider.reset()
 
-        with mock.patch.dict(os.environ, {
-            'OTEL_SERVICE_NAME': 'test-service',
-            'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://localhost:4317',
-            'PIXELTABLE_TELEMETRY_ENABLED': 'true',
-        }):
+        with mock.patch.dict(
+            os.environ,
+            {
+                'OTEL_SERVICE_NAME': 'test-service',
+                'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://localhost:4317',
+                'PIXELTABLE_TELEMETRY_ENABLED': 'true',
+            },
+        ):
             provider.TelemetryProvider.reset()
             p = provider.TelemetryProvider.get()
             assert p is not None
