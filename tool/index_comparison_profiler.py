@@ -519,6 +519,497 @@ def _print_comparison(results: dict[str, dict]) -> None:
         print('🤝 It\'s a tie!')
 
 
+def run_rag_comparison(
+    num_rows: int = 200000,
+    num_queries: int = 200,
+) -> None:
+    """
+    Compare HNSW and DiskANN using massive synthetic dataset.
+
+    This mode generates 200K+ diverse text chunks to simulate a real-world
+    RAG workload at scale where DiskANN should shine.
+
+    Args:
+        num_rows: Number of text chunks to generate (default 200K)
+        num_queries: Number of queries to run
+    """
+    import random
+
+    from pixeltable.functions.huggingface import sentence_transformer
+
+    print(f'\n{"=" * 70}')
+    print('HNSW vs DiskANN: MASSIVE Scale RAG Comparison')
+    print(f'{"=" * 70}')
+    print(f'Chunks: {num_rows:,} synthetic text chunks')
+    print(f'Queries: {num_queries}')
+    print(f'{"=" * 70}\n')
+
+    embed_fn = sentence_transformer.using(model_id='sentence-transformers/all-MiniLM-L6-v2')
+
+    # Generate diverse synthetic text data simulating RAG chunks
+    topics = [
+        'machine learning', 'deep learning', 'neural networks', 'artificial intelligence',
+        'natural language processing', 'computer vision', 'reinforcement learning',
+        'transformers', 'attention mechanisms', 'embeddings', 'vector databases',
+        'PostgreSQL', 'database indexing', 'query optimization', 'ACID transactions',
+        'Python programming', 'software engineering', 'API design', 'microservices',
+        'data science', 'statistics', 'probability', 'linear algebra', 'calculus',
+        'physics', 'chemistry', 'biology', 'astronomy', 'geology', 'climate science',
+        'history', 'geography', 'economics', 'psychology', 'sociology', 'philosophy',
+        'art history', 'music theory', 'literature', 'linguistics', 'architecture',
+        'medicine', 'pharmacology', 'genetics', 'immunology', 'neuroscience',
+        'quantum computing', 'blockchain', 'cryptography', 'cybersecurity', 'networking',
+    ]
+
+    contexts = [
+        'Research shows that', 'According to recent studies,', 'Experts agree that',
+        'The fundamental principle of', 'A key concept in', 'The history of',
+        'Applications of', 'The future of', 'Challenges in', 'Best practices for',
+        'Introduction to', 'Advanced topics in', 'Common misconceptions about',
+        'The relationship between', 'How to implement', 'Understanding',
+    ]
+
+    details = [
+        'involves complex algorithms and data structures.',
+        'requires careful consideration of trade-offs.',
+        'has revolutionized the field significantly.',
+        'continues to evolve with new discoveries.',
+        'provides important insights for practitioners.',
+        'builds upon foundational theories and methods.',
+        'offers practical solutions for real problems.',
+        'remains an active area of research today.',
+        'demonstrates the power of modern techniques.',
+        'connects multiple disciplines in interesting ways.',
+    ]
+
+    print('--- Generating synthetic text data ---')
+    random.seed(42)  # Reproducible
+    sentences = []
+    for i in range(num_rows):
+        topic = random.choice(topics)
+        context = random.choice(contexts)
+        detail = random.choice(details)
+        variation = f'Insight {i}: {context} {topic} {detail} This is chunk number {i} discussing {topic}.'
+        sentences.append(variation)
+
+    query_sentences = [
+        'What are the fundamentals of machine learning?',
+        'How do neural networks process information?',
+        'What is the role of embeddings in NLP?',
+        'How do vector databases work?',
+        'What are the best practices for database indexing?',
+        'How does PostgreSQL handle transactions?',
+        'What is the future of artificial intelligence?',
+        'How do transformers use attention mechanisms?',
+        'What are applications of computer vision?',
+        'How does reinforcement learning work?',
+        'What is quantum computing used for?',
+        'How does blockchain ensure security?',
+        'What are the principles of software engineering?',
+        'How do microservices communicate?',
+        'What statistical methods are used in data science?',
+        'How does immunology fight diseases?',
+        'What are the fundamentals of linear algebra?',
+        'How has art history evolved over time?',
+        'What is the connection between physics and chemistry?',
+        'How do economists model market behavior?',
+    ]
+
+    # Setup
+    pxt.drop_dir('index_perf_test', force=True)
+    pxt.create_dir('index_perf_test')
+
+    results: dict[str, dict] = {}
+
+    for index_type in ['hnsw', 'diskann']:
+        print(f'\n{"=" * 70}')
+        print(f'Testing {index_type.upper()} Index')
+        print(f'{"=" * 70}')
+
+        # Create and populate table
+        print(f'\n--- Creating table and inserting {num_rows:,} rows ---')
+        tbl = pxt.create_table(f'index_perf_test.rag_{index_type}', {'text': pxt.String})
+
+        insert_start = time.monotonic()
+        tbl.insert({'text': s} for s in sentences)
+        insert_duration = time.monotonic() - insert_start
+        print(f'    Insert: {insert_duration:.1f}s ({num_rows / insert_duration:.0f} rows/s)')
+
+        # Set maintenance_work_mem for large index builds
+        from pixeltable.env import Env
+        engine = Env.get()._sa_engine
+        work_mem = '2GB' if num_rows >= 100000 else '1GB'
+        with engine.connect() as conn:
+            conn.execute(sql.text(f"SET maintenance_work_mem = '{work_mem}'"))
+            conn.commit()
+        print(f'    Set maintenance_work_mem = {work_mem}')
+
+        # Create index
+        print(f'--- Creating {index_type.upper()} index on {num_rows:,} rows ---')
+        index_start = time.monotonic()
+        try:
+            tbl.add_embedding_index('text', idx_name=f'{index_type}_idx', embedding=embed_fn, index_type=index_type)  # type: ignore[arg-type]
+            index_duration = time.monotonic() - index_start
+            print(f'    Index: {index_duration:.1f}s ({num_rows / index_duration:.0f} rows/s)')
+        except Exception as e:
+            print(f'    ERROR: {e}')
+            results[index_type] = {'success': False}
+            continue
+
+        # Run queries
+        print(f'--- Running {num_queries} queries ---')
+        query_times: list[float] = []
+
+        for i in range(num_queries):
+            q = query_sentences[i % len(query_sentences)]
+            start = time.monotonic()
+            sim = tbl.text.similarity(q, idx=f'{index_type}_idx')
+            _ = tbl.order_by(sim, asc=False).limit(10).select(tbl.text, similarity=sim).collect()
+            query_times.append(time.monotonic() - start)
+
+            if (i + 1) % 50 == 0:
+                avg_so_far = statistics.mean([t * 1000 for t in query_times])
+                print(f'    {i + 1}/{num_queries} queries done (avg: {avg_so_far:.1f}ms)')
+
+        query_times_ms = [t * 1000 for t in query_times]
+        results[index_type] = {
+            'success': True,
+            'frame_count': num_rows,
+            'insert_duration': insert_duration,
+            'index_duration': index_duration,
+            'query_count': num_queries,
+            'query_total': sum(query_times),
+            'query_avg': statistics.mean(query_times_ms),
+            'query_p50': statistics.median(query_times_ms),
+            'query_p95': sorted(query_times_ms)[int(len(query_times_ms) * 0.95)],
+            'query_p99': sorted(query_times_ms)[int(len(query_times_ms) * 0.99)],
+            'qps': num_queries / sum(query_times),
+        }
+
+        print(f'\n    Query Statistics:')
+        print(f'      Avg: {results[index_type]["query_avg"]:.1f}ms')
+        print(f'      P50: {results[index_type]["query_p50"]:.1f}ms')
+        print(f'      P95: {results[index_type]["query_p95"]:.1f}ms')
+        print(f'      P99: {results[index_type]["query_p99"]:.1f}ms')
+        print(f'      QPS: {results[index_type]["qps"]:.1f}')
+
+    # Print comparison
+    _print_comparison(results)
+
+    # Cleanup
+    print('\n--- Cleanup ---')
+    pxt.drop_dir('index_perf_test', force=True)
+    print('Done.')
+
+
+def run_parameter_sweep(
+    num_rows: int = 100000,
+    num_queries: int = 100,
+) -> None:
+    """
+    Run a comprehensive parameter sweep to identify optimal defaults.
+
+    Tests various parameter combinations for both HNSW and DiskANN indexes
+    to find the best balance of index speed, query latency, and throughput.
+
+    Args:
+        num_rows: Number of rows to test with
+        num_queries: Number of queries per configuration
+    """
+    import random
+
+    from pixeltable.functions.huggingface import sentence_transformer
+
+    print(f'\n{"=" * 80}')
+    print('PARAMETER SWEEP: Finding Optimal Index Defaults')
+    print(f'{"=" * 80}')
+    print(f'Dataset size: {num_rows:,} rows')
+    print(f'Queries per config: {num_queries}')
+    print(f'{"=" * 80}\n')
+
+    embed_fn = sentence_transformer.using(model_id='sentence-transformers/all-MiniLM-L6-v2')
+
+    # Parameter configurations to test
+    hnsw_configs = [
+        {'m': 8, 'ef_construction': 32},
+        {'m': 8, 'ef_construction': 64},
+        {'m': 16, 'ef_construction': 32},
+        {'m': 16, 'ef_construction': 64},   # Current default
+        {'m': 16, 'ef_construction': 128},
+        {'m': 24, 'ef_construction': 64},
+        {'m': 24, 'ef_construction': 128},
+        {'m': 32, 'ef_construction': 64},
+        {'m': 32, 'ef_construction': 128},
+    ]
+
+    diskann_configs = [
+        {'num_neighbors': 25, 'search_list_size': 50},
+        {'num_neighbors': 25, 'search_list_size': 100},
+        {'num_neighbors': 50, 'search_list_size': 50},
+        {'num_neighbors': 50, 'search_list_size': 100},   # Current default
+        {'num_neighbors': 50, 'search_list_size': 150},
+        {'num_neighbors': 75, 'search_list_size': 100},
+        {'num_neighbors': 75, 'search_list_size': 150},
+        {'num_neighbors': 100, 'search_list_size': 100},
+        {'num_neighbors': 100, 'search_list_size': 150},
+    ]
+
+    # Generate data once
+    print('--- Generating synthetic text data ---')
+    topics = [
+        'machine learning', 'deep learning', 'neural networks', 'AI',
+        'NLP', 'computer vision', 'embeddings', 'vector databases',
+        'PostgreSQL', 'indexing', 'Python', 'software engineering',
+        'data science', 'statistics', 'linear algebra', 'physics',
+        'chemistry', 'biology', 'economics', 'philosophy',
+    ]
+    contexts = [
+        'Research shows that', 'Studies indicate', 'Experts agree',
+        'Key concepts in', 'Applications of', 'Fundamentals of',
+    ]
+    details = [
+        'involves complex algorithms.', 'requires trade-offs.',
+        'has evolved significantly.', 'offers practical solutions.',
+    ]
+
+    random.seed(42)
+    sentences = [
+        f'Insight {i}: {random.choice(contexts)} {random.choice(topics)} {random.choice(details)} Chunk {i}.'
+        for i in range(num_rows)
+    ]
+
+    query_sentences = [
+        'What are the fundamentals of machine learning?',
+        'How do neural networks work?',
+        'What is the role of embeddings?',
+        'How do vector databases index data?',
+        'What are best practices for indexing?',
+        'How does PostgreSQL optimize queries?',
+        'What is the future of AI?',
+        'How do attention mechanisms work?',
+        'What are computer vision applications?',
+        'How does reinforcement learning work?',
+    ]
+
+    # Store all results
+    all_results: list[dict] = []
+
+    # Test HNSW configurations
+    print(f'\n{"=" * 80}')
+    print(f'Testing {len(hnsw_configs)} HNSW configurations')
+    print(f'{"=" * 80}')
+
+    for config_idx, params in enumerate(hnsw_configs):
+        config_name = f"HNSW m={params['m']} ef={params['ef_construction']}"
+        print(f'\n[{config_idx + 1}/{len(hnsw_configs)}] {config_name}')
+
+        pxt.drop_dir('index_perf_test', force=True)
+        pxt.create_dir('index_perf_test')
+
+        tbl = pxt.create_table('index_perf_test.sweep', {'text': pxt.String})
+        insert_start = time.monotonic()
+        tbl.insert({'text': s} for s in sentences)
+        insert_duration = time.monotonic() - insert_start
+        print(f'    Insert: {insert_duration:.1f}s')
+
+        # Set maintenance_work_mem
+        from pixeltable.env import Env
+        engine = Env.get()._sa_engine
+        with engine.connect() as conn:
+            conn.execute(sql.text("SET maintenance_work_mem = '1GB'"))
+            conn.commit()
+
+        # Create index with params
+        index_start = time.monotonic()
+        try:
+            tbl.add_embedding_index(
+                'text',
+                idx_name='idx',
+                embedding=embed_fn,
+                index_type='hnsw',
+                index_params=params,
+            )
+            index_duration = time.monotonic() - index_start
+            print(f'    Index: {index_duration:.1f}s ({num_rows / index_duration:.0f} rows/s)')
+        except Exception as e:
+            print(f'    ERROR: {e}')
+            continue
+
+        # Run queries
+        query_times: list[float] = []
+        for i in range(num_queries):
+            q = query_sentences[i % len(query_sentences)]
+            start = time.monotonic()
+            sim = tbl.text.similarity(q, idx='idx')
+            _ = tbl.order_by(sim, asc=False).limit(10).select(tbl.text, similarity=sim).collect()
+            query_times.append(time.monotonic() - start)
+
+        query_times_ms = [t * 1000 for t in query_times]
+        result = {
+            'index_type': 'hnsw',
+            'config': config_name,
+            'params': params,
+            'index_time': index_duration,
+            'index_speed': num_rows / index_duration,
+            'query_avg': statistics.mean(query_times_ms),
+            'query_p50': statistics.median(query_times_ms),
+            'query_p95': sorted(query_times_ms)[int(len(query_times_ms) * 0.95)],
+            'query_p99': sorted(query_times_ms)[int(len(query_times_ms) * 0.99)],
+            'qps': num_queries / sum(query_times),
+        }
+        all_results.append(result)
+        print(f'    Avg: {result["query_avg"]:.1f}ms | P95: {result["query_p95"]:.1f}ms | QPS: {result["qps"]:.1f}')
+
+    # Test DiskANN configurations
+    print(f'\n{"=" * 80}')
+    print(f'Testing {len(diskann_configs)} DiskANN configurations')
+    print(f'{"=" * 80}')
+
+    for config_idx, params in enumerate(diskann_configs):
+        config_name = f"DiskANN n={params['num_neighbors']} s={params['search_list_size']}"
+        print(f'\n[{config_idx + 1}/{len(diskann_configs)}] {config_name}')
+
+        pxt.drop_dir('index_perf_test', force=True)
+        pxt.create_dir('index_perf_test')
+
+        tbl = pxt.create_table('index_perf_test.sweep', {'text': pxt.String})
+        insert_start = time.monotonic()
+        tbl.insert({'text': s} for s in sentences)
+        insert_duration = time.monotonic() - insert_start
+        print(f'    Insert: {insert_duration:.1f}s')
+
+        # Set maintenance_work_mem
+        from pixeltable.env import Env
+        engine = Env.get()._sa_engine
+        with engine.connect() as conn:
+            conn.execute(sql.text("SET maintenance_work_mem = '1GB'"))
+            conn.commit()
+
+        # Create index with params
+        index_start = time.monotonic()
+        try:
+            tbl.add_embedding_index(
+                'text',
+                idx_name='idx',
+                embedding=embed_fn,
+                index_type='diskann',
+                index_params=params,
+            )
+            index_duration = time.monotonic() - index_start
+            print(f'    Index: {index_duration:.1f}s ({num_rows / index_duration:.0f} rows/s)')
+        except Exception as e:
+            print(f'    ERROR: {e}')
+            continue
+
+        # Run queries
+        query_times: list[float] = []
+        for i in range(num_queries):
+            q = query_sentences[i % len(query_sentences)]
+            start = time.monotonic()
+            sim = tbl.text.similarity(q, idx='idx')
+            _ = tbl.order_by(sim, asc=False).limit(10).select(tbl.text, similarity=sim).collect()
+            query_times.append(time.monotonic() - start)
+
+        query_times_ms = [t * 1000 for t in query_times]
+        result = {
+            'index_type': 'diskann',
+            'config': config_name,
+            'params': params,
+            'index_time': index_duration,
+            'index_speed': num_rows / index_duration,
+            'query_avg': statistics.mean(query_times_ms),
+            'query_p50': statistics.median(query_times_ms),
+            'query_p95': sorted(query_times_ms)[int(len(query_times_ms) * 0.95)],
+            'query_p99': sorted(query_times_ms)[int(len(query_times_ms) * 0.99)],
+            'qps': num_queries / sum(query_times),
+        }
+        all_results.append(result)
+        print(f'    Avg: {result["query_avg"]:.1f}ms | P95: {result["query_p95"]:.1f}ms | QPS: {result["qps"]:.1f}')
+
+    # Print summary tables
+    print(f'\n{"=" * 80}')
+    print('PARAMETER SWEEP RESULTS')
+    print(f'{"=" * 80}')
+
+    # HNSW results
+    hnsw_results = [r for r in all_results if r['index_type'] == 'hnsw']
+    if hnsw_results:
+        print('\n📊 HNSW Configurations (sorted by P95 latency):')
+        headers = ['Config', 'Index Time', 'Avg Latency', 'P95 Latency', 'P99 Latency', 'QPS']
+        hnsw_sorted = sorted(hnsw_results, key=lambda x: x['query_p95'])
+        data = [
+            [
+                r['config'],
+                f"{r['index_time']:.1f}s",
+                f"{r['query_avg']:.1f}ms",
+                f"{r['query_p95']:.1f}ms",
+                f"{r['query_p99']:.1f}ms",
+                f"{r['qps']:.1f}",
+            ]
+            for r in hnsw_sorted
+        ]
+        print(tabulate(data, headers=headers, tablefmt='grid'))
+        best_hnsw = hnsw_sorted[0]
+        print(f'\n🏆 Best HNSW: {best_hnsw["config"]}')
+        print(f'   Params: {best_hnsw["params"]}')
+
+    # DiskANN results
+    diskann_results = [r for r in all_results if r['index_type'] == 'diskann']
+    if diskann_results:
+        print('\n📊 DiskANN Configurations (sorted by P95 latency):')
+        headers = ['Config', 'Index Time', 'Avg Latency', 'P95 Latency', 'P99 Latency', 'QPS']
+        diskann_sorted = sorted(diskann_results, key=lambda x: x['query_p95'])
+        data = [
+            [
+                r['config'],
+                f"{r['index_time']:.1f}s",
+                f"{r['query_avg']:.1f}ms",
+                f"{r['query_p95']:.1f}ms",
+                f"{r['query_p99']:.1f}ms",
+                f"{r['qps']:.1f}",
+            ]
+            for r in diskann_sorted
+        ]
+        print(tabulate(data, headers=headers, tablefmt='grid'))
+        best_diskann = diskann_sorted[0]
+        print(f'\n🏆 Best DiskANN: {best_diskann["config"]}')
+        print(f'   Params: {best_diskann["params"]}')
+
+    # Overall comparison
+    if hnsw_results and diskann_results:
+        print(f'\n{"=" * 80}')
+        print('RECOMMENDED DEFAULTS')
+        print(f'{"=" * 80}')
+
+        best_hnsw = min(hnsw_results, key=lambda x: x['query_p95'])
+        best_diskann = min(diskann_results, key=lambda x: x['query_p95'])
+
+        print(f'\nHNSW (best for P95 latency):')
+        print(f'  Params: {best_hnsw["params"]}')
+        print(f'  P95: {best_hnsw["query_p95"]:.1f}ms | Avg: {best_hnsw["query_avg"]:.1f}ms | QPS: {best_hnsw["qps"]:.1f}')
+
+        print(f'\nDiskANN (best for P95 latency):')
+        print(f'  Params: {best_diskann["params"]}')
+        print(f'  P95: {best_diskann["query_p95"]:.1f}ms | Avg: {best_diskann["query_avg"]:.1f}ms | QPS: {best_diskann["qps"]:.1f}')
+
+        # Best balanced (considering index time too)
+        print(f'\n{"=" * 80}')
+        print('BALANCED RECOMMENDATIONS (considering index build time)')
+        print(f'{"=" * 80}')
+
+        # Score = query_p95 + (index_time / 10)  - weight latency more
+        for idx_type, results in [('HNSW', hnsw_results), ('DiskANN', diskann_results)]:
+            best_balanced = min(results, key=lambda x: x['query_p95'] + (x['index_time'] / 10))
+            print(f'\n{idx_type} (balanced):')
+            print(f'  Params: {best_balanced["params"]}')
+            print(f'  Index: {best_balanced["index_time"]:.1f}s | P95: {best_balanced["query_p95"]:.1f}ms | QPS: {best_balanced["qps"]:.1f}')
+
+    # Cleanup
+    print('\n--- Cleanup ---')
+    pxt.drop_dir('index_perf_test', force=True)
+    print('Done.')
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Compare HNSW and DiskANN index performance',
@@ -533,11 +1024,17 @@ Examples:
 
   # Hugging Face dataset comparison
   python index_comparison_profiler.py --mode huggingface --dataset Multimodal-Fatima/COCO_sample --rows 500
+
+  # RAG massive scale comparison (200K+ rows - this is where DiskANN shines!)
+  python index_comparison_profiler.py --mode rag --rows 200000 --queries 200
+
+  # Parameter sweep to find optimal defaults
+  python index_comparison_profiler.py --mode sweep --rows 100000 --queries 100
         """,
     )
     parser.add_argument(
         '--mode',
-        choices=['text', 'video', 'huggingface'],
+        choices=['text', 'video', 'huggingface', 'rag', 'sweep'],
         default='text',
         help='Comparison mode (default: text)',
     )
@@ -552,7 +1049,6 @@ Examples:
         default='Multimodal-Fatima/COCO_sample',
         help='HuggingFace dataset name',
     )
-
     args = parser.parse_args()
 
     os.environ['PIXELTABLE_DB'] = 'test_index_comparison'
@@ -564,3 +1060,7 @@ Examples:
         run_video_frame_comparison(video_path=args.video, num_queries=args.queries, fps=args.fps, query_rescore=args.rescore)
     elif args.mode == 'huggingface':
         run_huggingface_comparison(dataset_name=args.dataset, num_rows=args.rows, num_queries=args.queries)
+    elif args.mode == 'rag':
+        run_rag_comparison(num_rows=args.rows, num_queries=args.queries)
+    elif args.mode == 'sweep':
+        run_parameter_sweep(num_rows=args.rows, num_queries=args.queries)
