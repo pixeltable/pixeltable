@@ -620,11 +620,17 @@ class Env:
         finally:
             engine.dispose()
 
-        # enable pgvector
+        # enable pgvector and pgvectorscale extensions
         engine = sql.create_engine(self.db_url, future=True, isolation_level='AUTOCOMMIT')
         try:
             with engine.begin() as conn:
                 conn.execute(sql.text('CREATE EXTENSION vector'))
+                # Try to enable vectorscale (provides StreamingDiskANN index)
+                # This may not be available on all platforms (e.g., macOS Intel)
+                try:
+                    conn.execute(sql.text('CREATE EXTENSION IF NOT EXISTS vectorscale'))
+                except Exception:
+                    pass  # vectorscale not available, continue without it
         finally:
             engine.dispose()
 

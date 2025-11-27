@@ -1,4 +1,5 @@
 import abc
+from typing import Any
 
 import sqlalchemy as sql
 
@@ -30,7 +31,12 @@ class Dbms(abc.ABC):
 
     @abc.abstractmethod
     def create_vector_index_stmt(
-        self, store_index_name: str, sa_value_col: sql.Column, metric: str
+        self,
+        store_index_name: str,
+        sa_value_col: sql.Column,
+        metric: str,
+        index_type: str = 'hnsw',
+        index_params: dict[str, Any] | None = None,
     ) -> sql.Compiled: ...
 
 
@@ -38,6 +44,12 @@ class PostgresqlDbms(Dbms):
     """
     Implements utilities to interact with Postgres database.
     """
+
+    # Default parameters for HNSW index (pgvector)
+    HNSW_DEFAULTS: dict[str, Any] = {'m': 16, 'ef_construction': 64}
+
+    # Default parameters for DiskANN index (pgvectorscale)
+    DISKANN_DEFAULTS: dict[str, Any] = {'num_neighbors': 50, 'search_list_size': 100}
 
     def __init__(self, db_url: sql.URL):
         super().__init__('postgresql', 'SERIALIZABLE', 'brin', db_url)
@@ -52,16 +64,46 @@ class PostgresqlDbms(Dbms):
         a = self.db_url.set(database='postgres').render_as_string(hide_password=False)
         return a
 
-    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Compiled:
+    def create_vector_index_stmt(
+        self,
+        store_index_name: str,
+        sa_value_col: sql.Column,
+        metric: str,
+        index_type: str = 'hnsw',
+        index_params: dict[str, Any] | None = None,
+    ) -> sql.Compiled:
+        """
+        Create a vector index statement.
+
+        Args:
+            store_index_name: Name of the index
+            sa_value_col: SQLAlchemy column to index
+            metric: Distance metric ops class (e.g., 'vector_cosine_ops')
+            index_type: Type of index - 'hnsw' (pgvector) or 'diskann' (pgvectorscale)
+            index_params: Optional parameters to override defaults for the index type
+        """
         from sqlalchemy.dialects import postgresql
 
-        sa_idx = sql.Index(
-            store_index_name,
-            sa_value_col,
-            postgresql_using='hnsw',
-            postgresql_with={'m': 16, 'ef_construction': 64},
-            postgresql_ops={sa_value_col.name: metric},
-        )
+        if index_type == 'diskann':
+            # StreamingDiskANN index from pgvectorscale
+            params = {**self.DISKANN_DEFAULTS, **(index_params or {})}
+            sa_idx = sql.Index(
+                store_index_name,
+                sa_value_col,
+                postgresql_using='diskann',
+                postgresql_with=params,
+                postgresql_ops={sa_value_col.name: metric},
+            )
+        else:
+            # Default to HNSW index from pgvector
+            params = {**self.HNSW_DEFAULTS, **(index_params or {})}
+            sa_idx = sql.Index(
+                store_index_name,
+                sa_value_col,
+                postgresql_using='hnsw',
+                postgresql_with=params,
+                postgresql_ops={sa_value_col.name: metric},
+            )
         return sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(dialect=postgresql.dialect())
 
 
@@ -85,7 +127,15 @@ class CockroachDbms(Dbms):
     def sa_vector_index(self, store_index_name: str, sa_value_col: sql.schema.Column, metric: str) -> sql.Index | None:
         return None
 
-    def create_vector_index_stmt(self, store_index_name: str, sa_value_col: sql.Column, metric: str) -> sql.Compiled:
+    def create_vector_index_stmt(
+        self,
+        store_index_name: str,
+        sa_value_col: sql.Column,
+        metric: str,
+        index_type: str = 'hnsw',
+        index_params: dict[str, Any] | None = None,
+    ) -> sql.Compiled:
+        # CockroachDB has its own vector index implementation
         return sql.text(
             f'CREATE VECTOR INDEX IF NOT EXISTS {store_index_name} ON {sa_value_col.table.name}'
             f'({sa_value_col.name} {metric})'

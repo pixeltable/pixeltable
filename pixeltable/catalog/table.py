@@ -995,6 +995,8 @@ class Table(SchemaObject):
         string_embed: pxt.Function | None = None,
         image_embed: pxt.Function | None = None,
         metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
+        index_type: Literal['hnsw', 'diskann'] = 'hnsw',
+        index_params: dict[str, Any] | None = None,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
         """
@@ -1040,6 +1042,24 @@ class Table(SchemaObject):
                 specifying different embedding functions for different data types.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`.
                 The default is `'cosine'`.
+            index_type: The type of vector index to use. Options are:
+
+                - `'hnsw'`: HNSW index from pgvector (default). Good general-purpose index.
+                  Default params: `{'m': 16, 'ef_construction': 64}`
+                - `'diskann'`: StreamingDiskANN index from pgvectorscale. Provides higher performance
+                  for large datasets (28x lower latency, 16x higher throughput vs. alternatives).
+                  Requires pgvectorscale extension to be available.
+                  Default params: `{'num_neighbors': 50, 'search_list_size': 100}`
+
+            index_params: Optional dict of index-specific parameters to override defaults.
+                For HNSW: `{'m': int, 'ef_construction': int}`
+                For DiskANN: `{'num_neighbors': int, 'search_list_size': int, 'storage_layout': str,
+                              'max_alpha': float, 'num_dimensions': int}`
+
+                Note: For DiskANN query-time tuning, use SQL SET commands before queries:
+                `SET diskann.query_rescore = 100;  -- Higher = more accurate, slower (default: 50)`
+                `SET diskann.query_search_list_size = 200;  -- Higher = more accurate (default: 100)`
+
             if_exists: Directive for handling an existing index with the same name. Must be one of the following:
 
                 - `'error'`: raise an error if an index with the same name already exists.
@@ -1079,6 +1099,23 @@ class Table(SchemaObject):
             ...     string_embed=string_embedding_fn,
             ...     image_embed=image_embedding_fn
             ... )
+
+            Add a high-performance DiskANN index (requires pgvectorscale):
+
+            >>> tbl.add_embedding_index(
+            ...     tbl.text,
+            ...     embedding=embedding_fn,
+            ...     index_type='diskann'
+            ... )
+
+            Add a DiskANN index with custom tuning for higher recall:
+
+            >>> tbl.add_embedding_index(
+            ...     tbl.text,
+            ...     embedding=embedding_fn,
+            ...     index_type='diskann',
+            ...     index_params={'num_neighbors': 75, 'search_list_size': 150}
+            ... )
         """
         from pixeltable.catalog import Catalog
 
@@ -1108,7 +1145,14 @@ class Table(SchemaObject):
                 Table.validate_column_name(idx_name)
 
             # validate EmbeddingIndex args
-            idx = EmbeddingIndex(metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed)
+            idx = EmbeddingIndex(
+                metric=metric,
+                embed=embedding,
+                string_embed=string_embed,
+                image_embed=image_embed,
+                index_type=index_type,
+                index_params=index_params,
+            )
             _ = idx.create_value_expr(col)
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?
