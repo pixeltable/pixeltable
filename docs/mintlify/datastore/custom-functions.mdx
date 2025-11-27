@@ -39,11 +39,12 @@ documents.add_computed_column(
 Learn more about UDFs and UDAs with our [in-depth guide](/notebooks/feature-guides/udfs-in-pixeltable).
 </Info>
 
-This guide covers four types of custom functions in Pixeltable:
+This guide covers five types of custom functions in Pixeltable:
 1. Basic User-Defined Functions (UDFs)
 2. Tables as UDFs
 3. User-Defined Aggregates (UDAs)
-4. MCP UDFs
+4. Retrieval UDFs
+5. MCP UDFs
 
 ## 1. Basic User-Defined Functions (UDFs)
 
@@ -635,7 +636,91 @@ table.group_by(table.category).select(
 - Use appropriate type hints
 - Document expected behavior
 
-## 4. MCP UDFs
+## 4. Retrieval UDFs
+
+### Overview
+Retrieval UDFs allow you to:
+- Convert a Pixeltable table into a lookup function
+- Use tables as tools for LLM agents
+- Build RAG (Retrieval Augmented Generation) pipelines
+- Create parameterized queries that can be called like functions
+
+### Creating Retrieval UDFs
+
+A retrieval UDF queries a table based on input parameters and returns matching rows:
+
+```python
+import pixeltable as pxt
+
+# Create a knowledge base table
+kb = pxt.create_table('app.knowledge_base', {
+    'topic': pxt.String,
+    'category': pxt.String,
+    'content': pxt.String
+})
+
+kb.insert([
+    {'topic': 'python', 'category': 'programming', 'content': 'Python is a high-level language...'},
+    {'topic': 'rust', 'category': 'programming', 'content': 'Rust is a systems language...'},
+    {'topic': 'photosynthesis', 'category': 'biology', 'content': 'Plants convert sunlight...'}
+])
+
+# Create a retrieval UDF from the table
+lookup_kb = pxt.retrieval_udf(
+    kb,
+    name='search_knowledge_base',
+    description='Search the knowledge base by topic and category',
+    parameters=['topic', 'category'],  # Columns to use as search parameters
+    limit=5  # Max results to return
+)
+
+# Use it as a function
+results = lookup_kb(topic='python', category='programming')
+# Returns: [{'topic': 'python', 'category': 'programming', 'content': 'Python is...'}]
+```
+
+### Using Retrieval UDFs as LLM Tools
+
+Retrieval UDFs integrate seamlessly with Pixeltable's tool-calling system:
+
+```python
+from pixeltable.functions.openai import chat_completions, invoke_tools
+
+# Create tools from the retrieval UDF
+tools = pxt.tools(lookup_kb)
+
+# Use in an agent workflow
+agent = pxt.create_table('app.agent', {'question': pxt.String})
+
+agent.add_computed_column(
+    initial_response=chat_completions(
+        model='gpt-4o-mini',
+        messages=[{'role': 'user', 'content': agent.question}],
+        tools=tools,
+        tool_choice=tools.choice(required=True)
+    )
+)
+
+agent.add_computed_column(
+    retrieved_data=invoke_tools(tools, agent.initial_response)
+)
+```
+
+### Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `table` | The Pixeltable table to query |
+| `name` | Name for the UDF (defaults to table name) |
+| `description` | Description for LLM tool usage |
+| `parameters` | Columns to use as query parameters (defaults to all non-computed columns) |
+| `limit` | Maximum number of rows to return |
+
+<Tip>
+Retrieval UDFs are perfect for building knowledge bases that LLM agents can query. Combine them with embedding indexes for semantic search capabilities.
+</Tip>
+
+## 5. MCP UDFs
 
 ### Overview
 MCP UDFs allow you to:
