@@ -627,19 +627,24 @@ class Catalog:
         for tbl_id in self._roll_forward_ids:
             try:
                 # TODO: handle replicas
-                if not self._finalize_pending_ops(tbl_id):
-                    raise excs.Error('Table operation was aborted')
+                exc = self._finalize_pending_ops(tbl_id)
+                if exc is not None:
+                    raise excs.Error(f'Table operation was aborted with\n{exc!s}')
             finally:
                 self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
 
-    def _finalize_pending_ops(self, tbl_id: UUID) -> bool:
-        """Finalizes all pending ops for the given table. Returns False on rollback."""
+    def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
+        """
+        Finalizes all pending ops for the given table. If an exception is encountered during rollforward, returns
+        that exception.
+        """
         num_retries = 0
         is_rollback = False
         tbl_md: schema.TableMd | None = None
         tbl_version: int | None = None
         op: TableOp | None = None
         is_final_op = False
+        exc: Exception | None = None
         update_op_stmt: sql.Update
         delete_ops_stmt: sql.Delete
         reset_tbl_state_stmt: sql.Update
@@ -653,11 +658,11 @@ class Catalog:
                     q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
                     row = conn.execute(q).one_or_none()
                     if row is None:
-                        return True
+                        return None
                     tbl_md = schema.md_from_dict(schema.TableMd, row.md)
                     if tbl_md.tbl_state == schema.TableState.LIVE:
                         # nothing left to do
-                        return True
+                        return None
                     is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
                     is_snapshot = False if tbl_md.view_md is None else tbl_md.view_md.is_snapshot
                     assert is_snapshot is not None
@@ -732,7 +737,7 @@ class Catalog:
                         if is_final_op:
                             status = conn.execute(reset_tbl_state_stmt)
                             status = conn.execute(delete_ops_stmt)
-                            return not is_rollback
+                            return exc
                         else:
                             conn.execute(update_op_stmt)
                         continue
@@ -752,7 +757,7 @@ class Catalog:
                     if is_final_op:
                         conn.execute(reset_tbl_state_stmt)
                         conn.execute(delete_ops_stmt)
-                        return not is_rollback
+                        return exc
                     else:
                         conn.execute(update_op_stmt)
 
@@ -780,6 +785,7 @@ class Catalog:
             except Exception as e:
                 if not is_rollback and tbl_md.pending_stmt.can_abort():
                     # we got an error for the last op and can abort this statement: switch to rollback mode
+                    exc = e
                     _logger.debug(
                         f'finalize_pending_ops({tbl_id}:{tbl_version}): exec of {op!s} caught {e}; aborting statement'
                     )
