@@ -89,24 +89,6 @@ class ErrorIterator(ComponentIterator):
 
 
 class TestComponentView:
-    def test_create_view_error(self, reset_db: None) -> None:
-        t = pxt.create_table('test', {'i': pxt.Int})
-        status = t.insert({'i': i} for i in range(100))
-        assert status.num_excs == 0
-
-        # view creation fails with an exception
-        with pytest.raises(pxt.Error, match='aborted'):
-            _ = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=50))
-
-        # the view metadata got cleaned up
-        l = pxt.list_tables()
-        assert 'view' not in l
-        with pytest.raises(pxt.Error, match='does not exist'):
-            v = pxt.get_table('view')
-
-        # the second attempt succeeds
-        v = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=100))
-
     def test_basic(self, reset_db: None) -> None:
         # create video table
         schema = {'video': pxt.Video, 'angle': pxt.Int, 'other_angle': pxt.Int}
@@ -424,3 +406,20 @@ class TestComponentView:
         assert status.num_rows == 1 + v2.where(v2.video == video_url).count()
         assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
         check_view()
+
+    def test_create_view_error(self, reset_db: None) -> None:
+        t = pxt.create_table('test', {'i': pxt.Int})
+        status = t.insert({'i': i} for i in range(100))
+        assert status.num_excs == 0
+
+        # view creation fails with an exception
+        with pytest.raises(pxt.Error, match='aborted'):
+            _ = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=50))
+
+        # the view metadata got cleaned up
+        assert 'view' not in pxt.list_tables()
+        with pytest.raises(pxt.Error, match='does not exist'):
+            _ = pxt.get_table('view')
+
+        # the second attempt succeeds
+        _ = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=100))

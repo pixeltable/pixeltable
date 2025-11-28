@@ -63,9 +63,7 @@ class TableVersionMd:
         )
 
     def as_dict(self) -> dict:
-        from .catalog import md_dict_factory
-
-        return dataclasses.asdict(self, dict_factory=md_dict_factory)
+        return dataclasses.asdict(self, dict_factory=schema.md_dict_factory)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TableVersionMd:
@@ -437,7 +435,7 @@ class TableVersion:
     def undo_op(self, op: TableOp) -> None:
         from pixeltable.catalog import Catalog
 
-        # ops that cannot be rolled back are marked with assert False
+        # ops that cannot be rolled back raise AssertionError()
 
         if op.create_store_table_op is not None:
             # this needs to be called outside of a transaction
@@ -458,14 +456,14 @@ class TableVersion:
         elif op.create_table_md_op is not None:
             Catalog.get().delete_tbl_md(self.id)
 
-        elif op.delete_table_md_op is not None:
-            assert False
+        elif op.delete_table_md_op is not None:  # noqa: SIM114
+            raise AssertionError()
 
-        elif op.delete_table_media_files_op:
-            assert False
+        elif op.delete_table_media_files_op:  # noqa: SIM114
+            raise AssertionError()
 
         elif op.drop_store_table_op is not None:
-            assert False
+            raise AssertionError()
 
     @classmethod
     def create_replica(cls, md: TableVersionMd, create_store_tbl: bool = True) -> TableVersion:

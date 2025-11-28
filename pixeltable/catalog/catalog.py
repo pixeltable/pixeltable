@@ -7,7 +7,6 @@ import random
 import time
 from collections import defaultdict
 from contextlib import contextmanager
-from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
 from uuid import UUID
 
@@ -139,10 +138,6 @@ class PendingTableOpsError(Exception):
 
     def __init__(self, tbl_id: UUID) -> None:
         self.tbl_id = tbl_id
-
-
-class RollbackCompletedError(Exception):
-    pass
 
 
 class Catalog:
@@ -1886,16 +1881,6 @@ class Catalog:
             if row.md['pending_stmt'] == schema.TableStatement.DROP_TABLE.value:
                 return None
 
-        # retrieve this table's op log
-        q = (
-            sql.select(schema.PendingTableOp)
-            .where(schema.PendingTableOp.tbl_id == tbl_id)
-            .order_by(schema.PendingTableOp.op_sn)
-            .with_for_update()
-        )
-        rows = conn.execute(q).fetchall()
-        ops = [schema.md_from_dict(TableOp, row.op) for row in rows]
-
         # check for pending ops
         q = sql.select(sql.func.count()).where(schema.PendingTableOp.tbl_id == tbl_id)
         has_pending_ops = conn.execute(q).scalar() > 0
@@ -2322,10 +2307,12 @@ class Catalog:
         conn = Env.get().conn
         _logger.info(f'delete_tbl_md({tbl_id})')
         status = conn.execute(sql.delete(schema.TableSchemaVersion).where(schema.TableSchemaVersion.tbl_id == tbl_id))
+        assert status.rowcount > 0
         status = conn.execute(sql.delete(schema.TableVersion).where(schema.TableVersion.tbl_id == tbl_id))
-        status = conn.execute(sql.delete(schema.PendingTableOp).where(schema.PendingTableOp.tbl_id == tbl_id))
+        assert status.rowcount > 0
+        _ = conn.execute(sql.delete(schema.PendingTableOp).where(schema.PendingTableOp.tbl_id == tbl_id))
         status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
-        pass
+        assert status.rowcount == 1, status.rowcount
 
     def load_replica_md(self, tbl: Table) -> list[TableVersionMd]:
         """
