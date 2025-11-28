@@ -183,11 +183,8 @@ class TestDestination:
         assert ObjectOps.count(t._id, 5, dest=dest2_uri) == 1
 
         # Test that we can list objects in the destination
-        olist = ObjectOps.list_uris(dest1_uri, n_max=10)
-        print('list of files in the destination')
-        for item in olist:
-            print(item)
-        assert len(olist) >= 2
+        uris = ObjectOps.list_uris(dest1_uri, n_max=10)
+        assert len(uris) >= 2
 
         # Verify Content-Type is set correctly for S3-compatible stores
         if dest_id in (
