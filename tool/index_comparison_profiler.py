@@ -703,311 +703,103 @@ def run_rag_comparison(
 
 
 def run_parameter_sweep(
-    num_rows: int = 100000,
-    num_queries: int = 100,
+    num_rows: int = 500000,
+    num_queries: int = 2,
 ) -> None:
     """
-    Run a comprehensive parameter sweep to identify optimal defaults.
+    Sweep DiskANN parameters to find optimal defaults.
 
-    Tests various parameter combinations for both HNSW and DiskANN indexes
-    to find the best balance of index speed, query latency, and throughput.
+    Only tests DiskANN configs since that's the new index we added.
+    Uses minimal queries (just 2) to quickly measure latency.
 
     Args:
-        num_rows: Number of rows to test with
-        num_queries: Number of queries per configuration
+        num_rows: Number of rows to test with (default 500K)
+        num_queries: Queries per config (default 2 - just need rough latency)
     """
     import random
 
     from pixeltable.functions.huggingface import sentence_transformer
 
     print(f'\n{"=" * 80}')
-    print('PARAMETER SWEEP: Finding Optimal Index Defaults')
+    print('DiskANN PARAMETER SWEEP')
     print(f'{"=" * 80}')
-    print(f'Dataset size: {num_rows:,} rows')
-    print(f'Queries per config: {num_queries}')
+    print(f'Dataset: {num_rows:,} rows | Queries/config: {num_queries}')
     print(f'{"=" * 80}\n')
 
     embed_fn = sentence_transformer.using(model_id='sentence-transformers/all-MiniLM-L6-v2')
 
-    # Parameter configurations to test
-    hnsw_configs = [
-        {'m': 8, 'ef_construction': 32},
-        {'m': 8, 'ef_construction': 64},
-        {'m': 16, 'ef_construction': 32},
-        {'m': 16, 'ef_construction': 64},   # Current default
-        {'m': 16, 'ef_construction': 128},
-        {'m': 24, 'ef_construction': 64},
-        {'m': 24, 'ef_construction': 128},
-        {'m': 32, 'ef_construction': 64},
-        {'m': 32, 'ef_construction': 128},
-    ]
-
-    diskann_configs = [
-        {'num_neighbors': 25, 'search_list_size': 50},
-        {'num_neighbors': 25, 'search_list_size': 100},
-        {'num_neighbors': 50, 'search_list_size': 50},
-        {'num_neighbors': 50, 'search_list_size': 100},   # Current default
-        {'num_neighbors': 50, 'search_list_size': 150},
-        {'num_neighbors': 75, 'search_list_size': 100},
-        {'num_neighbors': 75, 'search_list_size': 150},
-        {'num_neighbors': 100, 'search_list_size': 100},
-        {'num_neighbors': 100, 'search_list_size': 150},
+    # DiskANN configs to sweep - varying num_neighbors and search_list_size
+    configs = [
+        ('n=25 s=50', {'num_neighbors': 25, 'search_list_size': 50}),
+        ('n=25 s=100', {'num_neighbors': 25, 'search_list_size': 100}),
+        ('n=50 s=100 (default)', {'num_neighbors': 50, 'search_list_size': 100}),
+        ('n=50 s=150', {'num_neighbors': 50, 'search_list_size': 150}),
+        ('n=75 s=150', {'num_neighbors': 75, 'search_list_size': 150}),
+        ('n=100 s=200', {'num_neighbors': 100, 'search_list_size': 200}),
     ]
 
     # Generate data once
-    print('--- Generating synthetic text data ---')
-    topics = [
-        'machine learning', 'deep learning', 'neural networks', 'AI',
-        'NLP', 'computer vision', 'embeddings', 'vector databases',
-        'PostgreSQL', 'indexing', 'Python', 'software engineering',
-        'data science', 'statistics', 'linear algebra', 'physics',
-        'chemistry', 'biology', 'economics', 'philosophy',
-    ]
-    contexts = [
-        'Research shows that', 'Studies indicate', 'Experts agree',
-        'Key concepts in', 'Applications of', 'Fundamentals of',
-    ]
-    details = [
-        'involves complex algorithms.', 'requires trade-offs.',
-        'has evolved significantly.', 'offers practical solutions.',
-    ]
-
+    print('--- Generating data ---')
     random.seed(42)
-    sentences = [
-        f'Insight {i}: {random.choice(contexts)} {random.choice(topics)} {random.choice(details)} Chunk {i}.'
-        for i in range(num_rows)
-    ]
+    sentences = [f'Doc {i} about {random.choice(["ML","AI","DB","Python"])}. Chunk {i}.' for i in range(num_rows)]
+    query = 'How does machine learning work?'
+    print(f'    {num_rows:,} rows ready\n')
 
-    query_sentences = [
-        'What are the fundamentals of machine learning?',
-        'How do neural networks work?',
-        'What is the role of embeddings?',
-        'How do vector databases index data?',
-        'What are best practices for indexing?',
-        'How does PostgreSQL optimize queries?',
-        'What is the future of AI?',
-        'How do attention mechanisms work?',
-        'What are computer vision applications?',
-        'How does reinforcement learning work?',
-    ]
+    results: list[dict] = []
 
-    # Store all results
-    all_results: list[dict] = []
+    for idx, (name, params) in enumerate(configs):
+        print(f'[{idx + 1}/{len(configs)}] DiskANN {name}')
 
-    # Test HNSW configurations
-    print(f'\n{"=" * 80}')
-    print(f'Testing {len(hnsw_configs)} HNSW configurations')
-    print(f'{"=" * 80}')
+        pxt.drop_dir('sweep_test', force=True)
+        pxt.create_dir('sweep_test')
+        tbl = pxt.create_table('sweep_test.data', {'text': pxt.String})
 
-    for config_idx, params in enumerate(hnsw_configs):
-        config_name = f"HNSW m={params['m']} ef={params['ef_construction']}"
-        print(f'\n[{config_idx + 1}/{len(hnsw_configs)}] {config_name}')
-
-        pxt.drop_dir('index_perf_test', force=True)
-        pxt.create_dir('index_perf_test')
-
-        tbl = pxt.create_table('index_perf_test.sweep', {'text': pxt.String})
-        insert_start = time.monotonic()
+        # Insert (skip timing - same for all)
         tbl.insert({'text': s} for s in sentences)
-        insert_duration = time.monotonic() - insert_start
-        print(f'    Insert: {insert_duration:.1f}s')
 
-        # Set maintenance_work_mem
+        # Set memory
         from pixeltable.env import Env
-        engine = Env.get()._sa_engine
-        with engine.connect() as conn:
-            conn.execute(sql.text("SET maintenance_work_mem = '1GB'"))
+        with Env.get()._sa_engine.connect() as conn:
+            conn.execute(sql.text("SET maintenance_work_mem = '2GB'"))
             conn.commit()
 
-        # Create index with params
-        index_start = time.monotonic()
+        # Create index
+        t0 = time.monotonic()
         try:
-            tbl.add_embedding_index(
-                'text',
-                idx_name='idx',
-                embedding=embed_fn,
-                index_type='hnsw',
-                index_params=params,
-            )
-            index_duration = time.monotonic() - index_start
-            print(f'    Index: {index_duration:.1f}s ({num_rows / index_duration:.0f} rows/s)')
+            tbl.add_embedding_index('text', idx_name='idx', embedding=embed_fn,
+                                    index_type='diskann', index_params=params)
+            index_time = time.monotonic() - t0
         except Exception as e:
             print(f'    ERROR: {e}')
             continue
 
-        # Run queries
-        query_times: list[float] = []
-        for i in range(num_queries):
-            q = query_sentences[i % len(query_sentences)]
-            start = time.monotonic()
-            sim = tbl.text.similarity(q, idx='idx')
-            _ = tbl.order_by(sim, asc=False).limit(10).select(tbl.text, similarity=sim).collect()
-            query_times.append(time.monotonic() - start)
+        # Quick queries
+        query_times = []
+        for _ in range(num_queries):
+            t0 = time.monotonic()
+            sim = tbl.text.similarity(query, idx='idx')
+            _ = tbl.order_by(sim, asc=False).limit(10).collect()
+            query_times.append((time.monotonic() - t0) * 1000)
 
-        query_times_ms = [t * 1000 for t in query_times]
-        result = {
-            'index_type': 'hnsw',
-            'config': config_name,
-            'params': params,
-            'index_time': index_duration,
-            'index_speed': num_rows / index_duration,
-            'query_avg': statistics.mean(query_times_ms),
-            'query_p50': statistics.median(query_times_ms),
-            'query_p95': sorted(query_times_ms)[int(len(query_times_ms) * 0.95)],
-            'query_p99': sorted(query_times_ms)[int(len(query_times_ms) * 0.99)],
-            'qps': num_queries / sum(query_times),
-        }
-        all_results.append(result)
-        print(f'    Avg: {result["query_avg"]:.1f}ms | P95: {result["query_p95"]:.1f}ms | QPS: {result["qps"]:.1f}')
+        avg_ms = statistics.mean(query_times)
+        results.append({'name': name, 'params': params, 'index_s': index_time, 'latency_ms': avg_ms})
+        print(f'    Index: {index_time:.0f}s | Query: {avg_ms:.0f}ms')
 
-    # Test DiskANN configurations
+    # Summary
     print(f'\n{"=" * 80}')
-    print(f'Testing {len(diskann_configs)} DiskANN configurations')
-    print(f'{"=" * 80}')
+    print('RESULTS')
+    print(f'{"=" * 80}\n')
 
-    for config_idx, params in enumerate(diskann_configs):
-        config_name = f"DiskANN n={params['num_neighbors']} s={params['search_list_size']}"
-        print(f'\n[{config_idx + 1}/{len(diskann_configs)}] {config_name}')
+    headers = ['Config', 'Index Time', 'Query Latency']
+    data = [[r['name'], f"{r['index_s']:.0f}s", f"{r['latency_ms']:.0f}ms"] for r in results]
+    print(tabulate(data, headers=headers, tablefmt='grid'))
 
-        pxt.drop_dir('index_perf_test', force=True)
-        pxt.create_dir('index_perf_test')
+    best = min(results, key=lambda x: x['latency_ms'])
+    print(f'\n🏆 Best: {best["name"]} ({best["latency_ms"]:.0f}ms latency)')
+    print(f'   Recommended defaults: {best["params"]}')
 
-        tbl = pxt.create_table('index_perf_test.sweep', {'text': pxt.String})
-        insert_start = time.monotonic()
-        tbl.insert({'text': s} for s in sentences)
-        insert_duration = time.monotonic() - insert_start
-        print(f'    Insert: {insert_duration:.1f}s')
-
-        # Set maintenance_work_mem
-        from pixeltable.env import Env
-        engine = Env.get()._sa_engine
-        with engine.connect() as conn:
-            conn.execute(sql.text("SET maintenance_work_mem = '1GB'"))
-            conn.commit()
-
-        # Create index with params
-        index_start = time.monotonic()
-        try:
-            tbl.add_embedding_index(
-                'text',
-                idx_name='idx',
-                embedding=embed_fn,
-                index_type='diskann',
-                index_params=params,
-            )
-            index_duration = time.monotonic() - index_start
-            print(f'    Index: {index_duration:.1f}s ({num_rows / index_duration:.0f} rows/s)')
-        except Exception as e:
-            print(f'    ERROR: {e}')
-            continue
-
-        # Run queries
-        query_times: list[float] = []
-        for i in range(num_queries):
-            q = query_sentences[i % len(query_sentences)]
-            start = time.monotonic()
-            sim = tbl.text.similarity(q, idx='idx')
-            _ = tbl.order_by(sim, asc=False).limit(10).select(tbl.text, similarity=sim).collect()
-            query_times.append(time.monotonic() - start)
-
-        query_times_ms = [t * 1000 for t in query_times]
-        result = {
-            'index_type': 'diskann',
-            'config': config_name,
-            'params': params,
-            'index_time': index_duration,
-            'index_speed': num_rows / index_duration,
-            'query_avg': statistics.mean(query_times_ms),
-            'query_p50': statistics.median(query_times_ms),
-            'query_p95': sorted(query_times_ms)[int(len(query_times_ms) * 0.95)],
-            'query_p99': sorted(query_times_ms)[int(len(query_times_ms) * 0.99)],
-            'qps': num_queries / sum(query_times),
-        }
-        all_results.append(result)
-        print(f'    Avg: {result["query_avg"]:.1f}ms | P95: {result["query_p95"]:.1f}ms | QPS: {result["qps"]:.1f}')
-
-    # Print summary tables
-    print(f'\n{"=" * 80}')
-    print('PARAMETER SWEEP RESULTS')
-    print(f'{"=" * 80}')
-
-    # HNSW results
-    hnsw_results = [r for r in all_results if r['index_type'] == 'hnsw']
-    if hnsw_results:
-        print('\n📊 HNSW Configurations (sorted by P95 latency):')
-        headers = ['Config', 'Index Time', 'Avg Latency', 'P95 Latency', 'P99 Latency', 'QPS']
-        hnsw_sorted = sorted(hnsw_results, key=lambda x: x['query_p95'])
-        data = [
-            [
-                r['config'],
-                f"{r['index_time']:.1f}s",
-                f"{r['query_avg']:.1f}ms",
-                f"{r['query_p95']:.1f}ms",
-                f"{r['query_p99']:.1f}ms",
-                f"{r['qps']:.1f}",
-            ]
-            for r in hnsw_sorted
-        ]
-        print(tabulate(data, headers=headers, tablefmt='grid'))
-        best_hnsw = hnsw_sorted[0]
-        print(f'\n🏆 Best HNSW: {best_hnsw["config"]}')
-        print(f'   Params: {best_hnsw["params"]}')
-
-    # DiskANN results
-    diskann_results = [r for r in all_results if r['index_type'] == 'diskann']
-    if diskann_results:
-        print('\n📊 DiskANN Configurations (sorted by P95 latency):')
-        headers = ['Config', 'Index Time', 'Avg Latency', 'P95 Latency', 'P99 Latency', 'QPS']
-        diskann_sorted = sorted(diskann_results, key=lambda x: x['query_p95'])
-        data = [
-            [
-                r['config'],
-                f"{r['index_time']:.1f}s",
-                f"{r['query_avg']:.1f}ms",
-                f"{r['query_p95']:.1f}ms",
-                f"{r['query_p99']:.1f}ms",
-                f"{r['qps']:.1f}",
-            ]
-            for r in diskann_sorted
-        ]
-        print(tabulate(data, headers=headers, tablefmt='grid'))
-        best_diskann = diskann_sorted[0]
-        print(f'\n🏆 Best DiskANN: {best_diskann["config"]}')
-        print(f'   Params: {best_diskann["params"]}')
-
-    # Overall comparison
-    if hnsw_results and diskann_results:
-        print(f'\n{"=" * 80}')
-        print('RECOMMENDED DEFAULTS')
-        print(f'{"=" * 80}')
-
-        best_hnsw = min(hnsw_results, key=lambda x: x['query_p95'])
-        best_diskann = min(diskann_results, key=lambda x: x['query_p95'])
-
-        print(f'\nHNSW (best for P95 latency):')
-        print(f'  Params: {best_hnsw["params"]}')
-        print(f'  P95: {best_hnsw["query_p95"]:.1f}ms | Avg: {best_hnsw["query_avg"]:.1f}ms | QPS: {best_hnsw["qps"]:.1f}')
-
-        print(f'\nDiskANN (best for P95 latency):')
-        print(f'  Params: {best_diskann["params"]}')
-        print(f'  P95: {best_diskann["query_p95"]:.1f}ms | Avg: {best_diskann["query_avg"]:.1f}ms | QPS: {best_diskann["qps"]:.1f}')
-
-        # Best balanced (considering index time too)
-        print(f'\n{"=" * 80}')
-        print('BALANCED RECOMMENDATIONS (considering index build time)')
-        print(f'{"=" * 80}')
-
-        # Score = query_p95 + (index_time / 10)  - weight latency more
-        for idx_type, results in [('HNSW', hnsw_results), ('DiskANN', diskann_results)]:
-            best_balanced = min(results, key=lambda x: x['query_p95'] + (x['index_time'] / 10))
-            print(f'\n{idx_type} (balanced):')
-            print(f'  Params: {best_balanced["params"]}')
-            print(f'  Index: {best_balanced["index_time"]:.1f}s | P95: {best_balanced["query_p95"]:.1f}ms | QPS: {best_balanced["qps"]:.1f}')
-
-    # Cleanup
-    print('\n--- Cleanup ---')
-    pxt.drop_dir('index_perf_test', force=True)
-    print('Done.')
+    pxt.drop_dir('sweep_test', force=True)
+    print('\nDone.')
 
 
 if __name__ == '__main__':

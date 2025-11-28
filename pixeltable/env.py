@@ -626,9 +626,10 @@ class Env:
             with engine.begin() as conn:
                 conn.execute(sql.text('CREATE EXTENSION vector'))
                 # Try to enable vectorscale (provides StreamingDiskANN index)
+                # CASCADE ensures pgvector dependency is satisfied
                 # This may not be available on all platforms (e.g., macOS Intel)
                 try:
-                    conn.execute(sql.text('CREATE EXTENSION IF NOT EXISTS vectorscale'))
+                    conn.execute(sql.text('CREATE EXTENSION IF NOT EXISTS vectorscale CASCADE'))
                 except Exception:
                     pass  # vectorscale not available, continue without it
         finally:
