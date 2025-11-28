@@ -97,13 +97,13 @@ class PostgresqlDbms(Dbms):
         else:
             # Default to HNSW index from pgvector
             params = {**self.HNSW_DEFAULTS, **(index_params or {})}
-            sa_idx = sql.Index(
-                store_index_name,
-                sa_value_col,
-                postgresql_using='hnsw',
+        sa_idx = sql.Index(
+            store_index_name,
+            sa_value_col,
+            postgresql_using='hnsw',
                 postgresql_with=params,
-                postgresql_ops={sa_value_col.name: metric},
-            )
+            postgresql_ops={sa_value_col.name: metric},
+        )
         return sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(dialect=postgresql.dialect())
 
 
