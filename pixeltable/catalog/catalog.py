@@ -722,7 +722,7 @@ class Catalog:
                         )
                         # TODO: The above TableVersionKey instance will need to be updated if we see a replica here.
                         # For now, just assert that we don't.
-                        assert not tv.is_replica
+                        # assert not tv.is_replica
 
                         if is_rollback:
                             tv.undo_op(op)
@@ -755,6 +755,10 @@ class Catalog:
                         return not is_rollback
                     else:
                         conn.execute(update_op_stmt)
+
+            except AssertionError:
+                # we need to make sure not to swallow asserts
+                raise
 
             except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry

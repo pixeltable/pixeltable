@@ -456,13 +456,7 @@ class TableVersion:
         elif op.create_table_md_op is not None:
             Catalog.get().delete_tbl_md(self.id)
 
-        elif op.delete_table_md_op is not None:  # noqa: SIM114
-            raise AssertionError()
-
-        elif op.delete_table_media_files_op:  # noqa: SIM114
-            raise AssertionError()
-
-        elif op.drop_store_table_op is not None:
+        elif op.delete_table_md_op is not None or op.delete_table_media_files_op or op.drop_store_table_op is not None:
             raise AssertionError()
 
     @classmethod
