@@ -35,6 +35,11 @@ class DeleteTableMdOp:
 
 
 @dataclasses.dataclass
+class CreateColumnMdOp:
+    column_id: int
+
+
+@dataclasses.dataclass
 class DeleteTableMediaFilesOp:
     pass
 
@@ -63,5 +68,6 @@ class TableOp:
     load_view_op: LoadViewOp | None = None
     create_table_md_op: CreateTableMdOp | None = None
     delete_table_md_op: DeleteTableMdOp | None = None
+    create_column_md_op: CreateColumnMdOp | None = None
     delete_table_media_files_op: DeleteTableMediaFilesOp | None = None
     drop_store_table_op: DropStoreTableOp | None = None

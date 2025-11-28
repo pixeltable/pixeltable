@@ -194,7 +194,12 @@ class TableStatement(Enum):
     DROP_INDEX = 6
 
     def can_abort(self) -> bool:
-        return self in [TableStatement.CREATE_TABLE, TableStatement.CREATE_VIEW, TableStatement.ADD_COLUMNS, TableStatement.ADD_INDEX]
+        return self in [
+            TableStatement.CREATE_TABLE,
+            TableStatement.CREATE_VIEW,
+            TableStatement.ADD_COLUMNS,
+            TableStatement.ADD_INDEX,
+        ]
 
 
 @dataclasses.dataclass

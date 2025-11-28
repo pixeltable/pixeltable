@@ -815,6 +815,56 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
+    def add_columns_ops(
+        self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
+    ) -> tuple[TableVersionMd, list[TableOp]]:
+        """Adds columns to the table."""
+        assert self.is_mutable
+        assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
+        assert all(col.stored is not None for col in cols)
+        assert all(col.name not in self.cols_by_name for col in cols if col.name is not None)
+        row_count = self.store_tbl.count()
+        for col in cols:
+            # TODO: check this elsewhere?
+            if not col.col_type.nullable and not col.is_computed and row_count > 0:
+                raise excs.Error(
+                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
+                )
+            col.tbl_handle = self.handle
+            col.id = self.next_col_id()
+
+        # we're creating a new schema version
+        self.bump_version(bump_schema_version=True)
+        index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
+        all_cols: list[Column] = []
+        for col in cols:
+            all_cols.append(col)
+            if col.name is not None and self._is_btree_indexable(col):
+                idx = index.BtreeIndex()
+                val_col, undo_col = self._create_index_columns(
+                    col, idx, self.schema_version, self.handle, id_cb=self.next_col_id
+                )
+                index_cols[col] = (idx, val_col, undo_col)
+                all_cols.append(val_col)
+                all_cols.append(undo_col)
+                
+        self._add_columns2(all_cols)
+        # Create indices and their md records
+        for col, (idx, val_col, undo_col) in index_cols.items():
+            self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
+        self.update_status = status
+        self._write_md(new_version=True, new_schema_version=True)
+        _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
+
+        msg = (
+            f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
+            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}.'
+        )
+        Env.get().console_logger.info(msg)
+        _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
+        return status
+        pass
+
     def add_columns(
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
@@ -936,6 +986,33 @@ class TableVersion:
             cols_with_excs=[f'{col.get_tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
         )
+
+    def _add_columns2(self, cols: Iterable[Column]) -> None:
+        """Add column metadata"""
+        from pixeltable.catalog import Catalog
+
+        cols_to_add = list(cols)
+
+        row_count = self.store_tbl.count()
+        for col in cols_to_add:
+            assert col.tbl_handle.id == self.id
+            if not col.col_type.nullable and not col.is_computed and row_count > 0:
+                raise excs.Error(
+                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
+                )
+
+        for col in cols_to_add:
+            assert col.id is not None
+            col.schema_version_add = self.schema_version
+            if col.name is not None:
+                col_md, sch_md = col.to_md(len(self.cols_by_name))
+                assert sch_md is not None, 'Schema column metadata must be created for user-facing columns'
+                self._tbl_md.column_md[col.id] = col_md
+                self._schema_version_md.columns[col.id] = sch_md
+            else:
+                col_md, _ = col.to_md()
+                self._tbl_md.column_md[col.id] = col_md
+
 
     def drop_column(self, col: Column) -> None:
         """Drop a column from the table."""
