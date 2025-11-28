@@ -1,5 +1,5 @@
 import abc
-from typing import Any
+from typing import Any, ClassVar
 
 import sqlalchemy as sql
 
@@ -46,10 +46,10 @@ class PostgresqlDbms(Dbms):
     """
 
     # Default parameters for HNSW index (pgvector)
-    HNSW_DEFAULTS: dict[str, Any] = {'m': 16, 'ef_construction': 64}
+    HNSW_DEFAULTS: ClassVar[dict[str, Any]] = {'m': 16, 'ef_construction': 64}
 
     # Default parameters for DiskANN index (pgvectorscale)
-    DISKANN_DEFAULTS: dict[str, Any] = {'num_neighbors': 50, 'search_list_size': 100}
+    DISKANN_DEFAULTS: ClassVar[dict[str, Any]] = {'num_neighbors': 50, 'search_list_size': 100}
 
     def __init__(self, db_url: sql.URL):
         super().__init__('postgresql', 'SERIALIZABLE', 'brin', db_url)
