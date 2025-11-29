@@ -847,7 +847,7 @@ class TableVersion:
                 index_cols[col] = (idx, val_col, undo_col)
                 all_cols.append(val_col)
                 all_cols.append(undo_col)
-                
+
         self._add_columns2(all_cols)
         # Create indices and their md records
         for col, (idx, val_col, undo_col) in index_cols.items():
@@ -1012,7 +1012,6 @@ class TableVersion:
             else:
                 col_md, _ = col.to_md()
                 self._tbl_md.column_md[col.id] = col_md
-
 
     def drop_column(self, col: Column) -> None:
         """Drop a column from the table."""
