@@ -10,7 +10,6 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
-from pixeltable.utils.s3_store import S3Store
 
 from .utils import skip_test_if_not_installed
 
@@ -150,6 +149,9 @@ class TestDestination:
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
     def test_destination(self, reset_db: None, dest_id: StorageTarget) -> None:
         """Test various media destinations."""
+        skip_test_if_not_installed('boto3')
+        from pixeltable.utils.s3_store import S3Store
+
         dest_uri = self.resolve_destination_uri(dest_id)
 
         dest1_uri = f'{dest_uri}/bucket1'
