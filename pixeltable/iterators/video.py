@@ -68,9 +68,12 @@ class FrameIterator(ComponentIterator):
     video_start_time: float
     video_duration: float | None
 
+    # frames info
+    extraction_times: tuple[float] | None
+
     # state
     cur_frame: av.VideoFrame | None
-    next_extraction_time: float | None
+    next_extraction_idx: int | None
 
     def __init__(
         self,
@@ -106,7 +109,16 @@ class FrameIterator(ComponentIterator):
         self.video_duration = float(duration * self.video_time_base) if duration is not None else None
 
         if self.num_frames is not None:
-            self.fps = self.num_frames / (self.video_duration - self.video_start_time)
+            increment = (self.video_duration - self.video_start_time) / self.num_frames
+            self.extraction_times = tuple(i * increment for i in range(self.num_frames))
+            self.next_extraction_idx = 0
+        elif self.fps is not None:
+            num_extraction_times = math.ceil((self.video_duration - self.video_start_time) * self.fps)
+            self.extraction_times = tuple(i / self.fps for i in range(num_extraction_times))
+            self.next_extraction_idx = 0
+        else:
+            self.extraction_times = None
+            self.next_extraction_idx = None
 
         _logger.debug(
             f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames} '
@@ -140,6 +152,7 @@ class FrameIterator(ComponentIterator):
             return None
 
     def __next__(self) -> dict[str, Any]:
+        # TODO: De-duplicate
         # We are searching for the frame at the index implied by `next_pos`. Step through the video until we
         # find it. There are two reasons why it might not be the immediate next frame in the video:
         # (1) `fps` or `num_frames` was specified as an iterator argument; or
@@ -158,29 +171,29 @@ class FrameIterator(ComponentIterator):
                 self.cur_frame = next_frame
                 continue
 
-            if self.fps is not None:
+            if self.next_extraction_idx is not None:
                 cur_frame_pts = self.cur_frame.pts - self.video_start_time
                 cur_frame_time = float(cur_frame_pts * self.video_time_base)
                 next_frame_pts = next_frame.pts - self.video_start_time
                 next_frame_time = float(next_frame_pts * self.video_time_base)
 
-                # if the next_extraction_time is *closer* to next_frame than cur_frame, then skip cur_frame.
+                next_extraction_time = self.extraction_times[self.next_extraction_idx]
+
+                # if next_extraction_time is *closer* to next_frame than cur_frame, then skip cur_frame.
                 # this correctly handles all three cases:
                 # - next_extraction_time is before cur_frame_time (never skips)
                 # - next_extraction_time is after next_frame_time (always skips)
                 # - next_extraction_time is between cur_frame_time and next_frame_time (depends on which is closer)
-                if next_frame_time - self.next_extraction_time < self.next_extraction_time - cur_frame_time:
+                if next_frame_time - next_extraction_time < next_extraction_time - cur_frame_time:
                     self.cur_frame = next_frame
                     continue
 
             img = self.cur_frame.to_image()
-            video_idx = round(cur_frame_pts * self.video_time_base * self.video_framerate)
             assert isinstance(img, PIL.Image.Image)
-            pts_msec = float(cur_frame_pts * self.video_time_base * 1000)
             result: dict[str, Any] = {'frame': img}
             if self.all_frame_attrs:
                 attrs = {
-                    'index': video_idx,
+                    'index': self.next_extraction_idx,
                     'pts': cur_frame_pts,
                     'dts': self.cur_frame.dts,
                     'time': self.cur_frame.time,
@@ -191,10 +204,9 @@ class FrameIterator(ComponentIterator):
                 }
                 result['frame_attrs'] = attrs
             else:
-                result.update({'frame_idx': self.next_pos, 'pos_msec': pts_msec, 'pos_frame': video_idx})
-            self.cur_frame = next_frame
-            if self.next_extraction_time is not None:
-                self.next_extraction_time += 1 / self.fps
+                pts_msec = float(cur_frame_pts * self.video_time_base * 1000)
+                result.update({'frame_idx': self.next_pos, 'pos_msec': pts_msec, 'pos_frame': self.next_extraction_idx})
+            self.next_extraction_idx += 1
             return result
 
     def close(self) -> None:
