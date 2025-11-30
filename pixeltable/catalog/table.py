@@ -545,6 +545,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
+        new_cols: list[Column]
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('add columns to')
             col_schema = {
@@ -567,10 +568,11 @@ class Table(SchemaObject):
             new_cols = self._create_columns(col_schema)
             for new_col in new_cols:
                 self._verify_column(new_col)
-            assert self._tbl_version is not None
-            result += self._tbl_version.get().add_columns(new_cols, print_stats=False, on_error='abort')
-            FileCache.get().emit_eviction_warnings()
-            return result
+
+        assert self._tbl_version is not None
+        Catalog.get().add_columns(self._id, new_cols)
+        FileCache.get().emit_eviction_warnings()
+        return None
 
     def add_column(
         self,

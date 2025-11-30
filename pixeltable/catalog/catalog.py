@@ -1244,6 +1244,24 @@ class Catalog:
         with self.begin_xact(tbl_id=view_id, for_write=True):
             return self.get_table_by_id(view_id)
 
+    def add_columns(self, tbl_id: UUID, cols: list[Column]) -> None:
+        @retry_loop(for_write=True)
+        def add_fn() -> None:
+            tv = self.get_tbl_version(TableVersionKey(tbl_id, None, None), validate_initialized=True)
+            md, ops = tv.add_columns_ops(cols)
+            self.write_tbl_md(
+                tbl_id,
+                dir_id=None,
+                tbl_md=md.tbl_md,
+                version_md=md.version_md,
+                schema_version_md=md.schema_version_md,
+                pending_ops=ops,
+            )
+
+        self._roll_forward_ids.clear()
+        add_fn()
+        self._roll_forward()
+
     def _clear_tv_cache(self, key: TableVersionKey) -> None:
         if key in self._tbl_versions:
             tv = self._tbl_versions[key]

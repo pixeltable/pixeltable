@@ -831,9 +831,7 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
-    def add_columns_ops(
-        self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
-    ) -> tuple[TableVersionMd, list[TableOp]]:
+    def add_columns_ops(self, cols: Iterable[Column]) -> tuple[TableVersionMd, list[TableOp]]:
         """Adds columns to the table."""
         assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
