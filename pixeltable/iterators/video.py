@@ -102,7 +102,14 @@ class FrameIterator(ComponentIterator):
         self.video_start_time = float(start_time * self.video_time_base)
 
         duration = self.container.streams.video[0].duration
-        if duration is None and self.num_frames is not None:
+        if duration is None:
+            # Try to calculate duration from DURATION metadata field
+            metadata = self.container.streams.video[0].metadata
+            duration = metadata.get('DURATION')
+            assert isinstance(duration, str)
+            duration = pd.to_timedelta(duration).total_seconds()
+
+        if duration is None and (self.fps is not None or self.num_frames is not None):
             # TODO: Anything we can do here? Other methods of determining the duration are expensive and
             #     not appropriate for an iterator initializer.
             raise excs.Error(f'Could not determine duration of video: {video}')
@@ -110,11 +117,11 @@ class FrameIterator(ComponentIterator):
 
         if self.num_frames is not None:
             increment = (self.video_duration - self.video_start_time) / self.num_frames
-            self.extraction_times = tuple(i * increment for i in range(self.num_frames))
+            self.extraction_times = tuple(i * increment + self.video_start_time for i in range(self.num_frames))
             self.next_extraction_idx = 0
         elif self.fps is not None:
             num_extraction_times = math.ceil((self.video_duration - self.video_start_time) * self.fps)
-            self.extraction_times = tuple(i / self.fps for i in range(num_extraction_times))
+            self.extraction_times = tuple(i / self.fps + self.video_start_time for i in range(num_extraction_times))
             self.next_extraction_idx = 0
         else:
             self.extraction_times = None
@@ -162,7 +169,7 @@ class FrameIterator(ComponentIterator):
         #     low and there are multiple keyframes in between each frame we want to extract (imagine extracting
         #     10 frames from an hourlong video).
         while True:
-            if self.cur_frame is None:
+            if self.cur_frame is None or (self.extraction_times is not None and self.next_extraction_idx >= len(self.extraction_times)):
                 raise StopIteration
 
             next_frame = self.next_frame()
@@ -171,10 +178,10 @@ class FrameIterator(ComponentIterator):
                 self.cur_frame = next_frame
                 continue
 
-            if self.next_extraction_idx is not None:
-                cur_frame_pts = self.cur_frame.pts - self.video_start_time
-                cur_frame_time = float(cur_frame_pts * self.video_time_base)
-                next_frame_pts = next_frame.pts - self.video_start_time
+            cur_frame_pts = self.cur_frame.pts
+            cur_frame_time = float(cur_frame_pts * self.video_time_base)
+            if self.next_extraction_idx is not None and next_frame is not None:
+                next_frame_pts = next_frame.pts
                 next_frame_time = float(next_frame_pts * self.video_time_base)
 
                 next_extraction_time = self.extraction_times[self.next_extraction_idx]
@@ -196,7 +203,7 @@ class FrameIterator(ComponentIterator):
                     'index': self.next_extraction_idx,
                     'pts': cur_frame_pts,
                     'dts': self.cur_frame.dts,
-                    'time': self.cur_frame.time,
+                    'time': float(cur_frame_pts * self.video_time_base),
                     'is_corrupt': self.cur_frame.is_corrupt,
                     'key_frame': self.cur_frame.key_frame,
                     'pict_type': self.cur_frame.pict_type,
@@ -204,8 +211,8 @@ class FrameIterator(ComponentIterator):
                 }
                 result['frame_attrs'] = attrs
             else:
-                pts_msec = float(cur_frame_pts * self.video_time_base * 1000)
-                result.update({'frame_idx': self.next_pos, 'pos_msec': pts_msec, 'pos_frame': self.next_extraction_idx})
+                pos_msec = float(cur_frame_pts * self.video_time_base * 1000 - self.video_start_time)
+                result.update({'frame_idx': self.next_pos, 'pos_msec': pos_msec, 'pos_frame': self.next_extraction_idx})
             self.next_extraction_idx += 1
             return result
 
@@ -214,18 +221,30 @@ class FrameIterator(ComponentIterator):
 
     def set_pos(self, pos: int, **kwargs: Any) -> None:
         assert next(iter(kwargs.values()), None) is not None
-        if pos == self.next_pos:
-            return  # already there
 
-        video_idx = pos if self.frames_to_extract is None else self.frames_to_extract[pos]
-        _logger.debug(f'seeking to frame number {video_idx} (at iterator index {pos})')
-        # compute the frame position in time_base units
-        # TODO: this computation is wrong for variable frame rate videos
-        seek_pos = int(video_idx / self.video_framerate / self.video_time_base + self.video_start_time)
-        # This will seek to the nearest keyframe before the desired frame. If the frame being sought is not a keyframe,
-        # then the iterator will step forward to the desired frame on the subsequent call to next().
-        self.container.seek(seek_pos, backward=True, stream=self.container.streams.video[0])
-        self.next_pos = pos
+        seek_time: float
+        if 'pos_msec' in kwargs:
+            seek_time = kwargs['pos_msec'] / 1000.0 + self.video_start_time
+        else:
+            assert 'frame_attrs' in kwargs
+            assert 'time' in kwargs['frame_attrs']
+            assert isinstance(kwargs['frame_attrs']['time'], float)
+            seek_time = kwargs['frame_attrs']['time']
+
+        seek_pts = math.floor(seek_time / self.video_time_base)
+        self.container.seek(seek_pts, backward=True, stream=self.container.streams.video[0])
+
+        self.cur_frame = self.next_frame()
+        while self.cur_frame is not None and float(self.cur_frame.pts * self.video_time_base) < seek_time - 1e-3:
+            self.cur_frame = self.next_frame()
+
+        assert self.cur_frame is None or abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
+        if self.extraction_times is not None:
+            # Find the next extraction index
+            for i, t in enumerate(self.extraction_times):
+                if t >= seek_time - 1e-3:
+                    self.next_extraction_idx = i
+                    break
 
 
 class VideoSplitter(ComponentIterator):
