@@ -250,7 +250,7 @@ async def multimodal_embed(
     cl = _voyageai_client()
 
     # Build inputs: each text becomes a single-element content list
-    inputs = [[t] for t in text]
+    inputs: list[list[str | PIL.Image.Image]] = [[t] for t in text]
 
     kwargs: dict[str, Any] = {}
     if input_type is not None:
@@ -274,7 +274,7 @@ async def _(
     cl = _voyageai_client()
 
     # Build inputs: each image becomes a single-element content list
-    inputs = [[img] for img in image]
+    inputs: list[list[str | PIL.Image.Image]] = [[img] for img in image]
 
     kwargs: dict[str, Any] = {}
     if input_type is not None:
