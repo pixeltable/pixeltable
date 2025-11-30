@@ -10,6 +10,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal
 from uuid import UUID
 
+import jsonschema.exceptions
 import sqlalchemy as sql
 from sqlalchemy import exc as sql_exc
 
@@ -402,10 +403,10 @@ class TableVersion:
             # this needs to be called outside of a transaction
             self.store_tbl.create()
 
-        elif op.create_index_op is not None:
-            idx_info = self.idxs[op.create_index_op.idx_id]
-            with Env.get().begin_xact():
-                self.store_tbl.create_index(idx_info.id)
+        elif op.create_store_idxs_op is not None:
+            for idx_id in op.create_store_idxs_op.idx_ids:
+                with Env.get().begin_xact():
+                    self.store_tbl.create_index(idx_id)
 
         elif op.load_view_op is not None:
             from pixeltable.plan import Planner
@@ -449,11 +450,11 @@ class TableVersion:
             with Env.get().begin_xact():
                 self.store_tbl.drop()
 
-        elif op.create_index_op is not None:
+        elif op.create_store_idxs_op is not None:
             pass
-            # idx_info = self.idxs[op.create_index_op.idx_id]
-            # with Env.get().begin_xact():
-            #     self.store_tbl.drop_index(idx_info.id)
+            # for idx_id in op.create_store_idxs_op.idx_ids:
+            #     with Env.get().begin_xact():
+            #         self.store_tbl.drop_index(idx_id)
 
         elif op.load_view_op is not None:
             # clear out any media files
@@ -894,23 +895,24 @@ class TableVersion:
         for col, (idx, val_col, undo_col) in index_cols.items():
             idx_ids.append(self._create_index_md(col, val_col, undo_col, idx_name=None, idx=idx))
 
+        id_str = str(self.id)
         tbl_ops = [
             TableOp(
-                tbl_id=self.id,
+                tbl_id=id_str,
                 op_sn=0,
                 num_ops=3,
                 needs_xact=True,
                 create_column_md_op=CreateColumnMdOp(column_ids=[col.id for col in all_cols]),
             ),
             TableOp(
-                tbl_id=self.id,
+                tbl_id=id_str,
                 op_sn=1,
                 num_ops=3,
                 needs_xact=False,
                 create_store_columns_op=CreateStoreColumnsOp(column_ids=[col.id for col in all_cols]),
             ),
             TableOp(
-                tbl_id=self.id,
+                tbl_id=id_str,
                 op_sn=2,
                 num_ops=3,
                 needs_xact=False,
@@ -1291,6 +1293,44 @@ class TableVersion:
                 assert len(val) == len(self.store_tbl.rowid_columns())
                 for el in val:
                     assert isinstance(el, int)
+                continue
+            col = self.path.get_column(col_name)
+            if col is None:
+                raise excs.Error(f'Unknown column: {col_name}')
+            if col.get_tbl().id != self.id:
+                raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
+            if col.is_computed:
+                raise excs.Error(f'Column {col_name!r} is computed and cannot be updated')
+            if col.is_pk and not allow_pk:
+                raise excs.Error(f'Column {col_name!r} is a primary key column and cannot be updated')
+            if col.col_type.is_media_type() and not allow_media:
+                raise excs.Error(f'Column {col_name!r} is a media column and cannot be updated')
+
+            # make sure that the value is compatible with the column type
+            value_expr: exprs.Expr
+            try:
+                # check if this is a literal
+                value_expr = exprs.Literal(val, col_type=col.col_type)
+            except (TypeError, jsonschema.exceptions.ValidationError) as exc:
+                if not allow_exprs:
+                    raise excs.Error(
+                        f'Column {col_name!r}: value is not a valid literal for this column '
+                        f'(expected `{col.col_type}`): {val!r}'
+                    ) from exc
+                # it's not a literal, let's try to create an expr from it
+                value_expr = exprs.Expr.from_object(val)
+                if value_expr is None:
+                    raise excs.Error(
+                        f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}'
+                    ) from exc
+                if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
+                    raise excs.Error(
+                        f'Type `{value_expr.col_type}` of value {val!r} is not compatible with the type '
+                        f'`{col.col_type}` of column {col_name!r}'
+                    ) from exc
+            update_targets[col] = value_expr
+
+        return update_targets
 
     def recompute_columns(
         self, col_names: list[str], where: exprs.Expr | None = None, errors_only: bool = False, cascade: bool = True
