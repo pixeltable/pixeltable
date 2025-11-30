@@ -1,0 +1,221 @@
+---
+alwaysApply: false
+description: Guidelines for building new Pixeltable integrations with external APIs
+globs:
+  - pixeltable/functions/*.py
+  - tests/functions/test_*.py
+---
+
+# Pixeltable Integration Development Guide
+
+When building a new integration (e.g., for an AI provider like OpenAI, Voyage AI, etc.), follow these patterns:
+
+## 1. Study Existing Integrations First
+
+Before writing any code, read these reference implementations:
+- `pixeltable/functions/openai.py` - embeddings with `conditional_return_type`
+- `pixeltable/functions/huggingface.py` - `clip` function for `@overload` pattern
+- `pixeltable/functions/together.py` - async patterns
+
+## 2. Always Use Async
+
+External API calls MUST be async:
+
+```python
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from provider import AsyncClient
+
+@env.register_client('provider')
+def _(api_key: str) -> 'AsyncClient':
+    from provider import AsyncClient
+    return AsyncClient(api_key=api_key)
+
+def _provider_client() -> 'AsyncClient':
+    return env.Env.get().get_client('provider')
+
+@pxt.udf(batch_size=128, resource_pool='request-rate:provider')
+async def my_function(input: Batch[str], ...) -> Batch[...]:
+    cl = _provider_client()
+    result = await cl.some_method(...)  # Always await
+    return [...]
+```
+
+## 3. Embedding Functions Need `conditional_return_type`
+
+For embedding functions, declare output dimensions for Pixeltable's type system:
+
+```python
+# Cache known model dimensions
+_embedding_dimensions_cache: dict[str, int] = {
+    'model-name': 1024,
+    'model-v2': 1536,
+}
+
+@pxt.udf(batch_size=128, resource_pool='request-rate:provider')
+async def embeddings(
+    input: Batch[str],
+    *,
+    model: str,
+    output_dimension: int | None = None,
+) -> Batch[pxt.Array[(None,), pxt.Float]]:
+    ...
+
+@embeddings.conditional_return_type
+def _(model: str, output_dimension: int | None = None, ...) -> ts.ArrayType:
+    if output_dimension is not None:
+        return ts.ArrayType((output_dimension,), dtype=ts.FloatType(), nullable=False)
+    dimensions = _embedding_dimensions_cache.get(model)
+    if dimensions is None:
+        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+    return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
+```
+
+## 4. Polymorphic Functions Use `@overload`
+
+For functions that accept different input types (text vs image), use the overload pattern:
+
+```python
+@pxt.udf(batch_size=32, resource_pool='request-rate:provider')
+async def embed(
+    text: Batch[str],
+    *,
+    model: str = 'default-model',
+) -> Batch[pxt.Array[(1024,), pxt.Float]]:
+    """Primary implementation for text."""
+    cl = _provider_client()
+    inputs: list[list[str | PIL.Image.Image]] = [[t] for t in text]
+    result = await cl.embed(inputs=inputs, model=model)
+    return [np.array(emb, dtype=np.float64) for emb in result.embeddings]
+
+@embed.overload
+async def _(
+    image: Batch[PIL.Image.Image],
+    *,
+    model: str = 'default-model',
+) -> Batch[pxt.Array[(1024,), pxt.Float]]:
+    """Image overload."""
+    cl = _provider_client()
+    inputs: list[list[str | PIL.Image.Image]] = [[img] for img in image]
+    result = await cl.embed(inputs=inputs, model=model)
+    return [np.array(emb, dtype=np.float64) for emb in result.embeddings]
+```
+
+## 5. Required Test Coverage
+
+Always include these tests:
+
+```python
+@pytest.mark.remote_api
+@rerun(reruns=3, reruns_delay=8)
+class TestProvider:
+    # 1. Basic function test with parametrize for variants
+    @pytest.mark.parametrize('param', [None, 'value'])
+    def test_basic(self, reset_db: None, param) -> None:
+        skip_test_if_not_installed('provider')
+        skip_test_if_no_client('provider')
+        ...
+
+    # 2. CRITICAL: Test embedding index with similarity search
+    def test_embeddings_index(self, reset_db: None) -> None:
+        skip_test_if_not_installed('provider')
+        skip_test_if_no_client('provider')
+        from pixeltable.functions.provider import embeddings
+
+        t = pxt.create_table('docs', {'text': pxt.String})
+        embed_fn = embeddings.using(model='model-name', input_type='document')
+        t.add_embedding_index('text', string_embed=embed_fn)
+
+        t.insert([{'text': 'Document 1'}, {'text': 'Document 2'}])
+
+        # Test similarity search
+        sim = t.text.similarity('query')
+        results = t.order_by(sim, asc=False).limit(2).select(t.text, similarity=sim).collect()
+        assert len(results) == 2
+```
+
+## 6. Configuration Requirements
+
+Add to `pixeltable/config.py`:
+```python
+'provider': {
+    'api_key': KnownConfigOption(env_var='PROVIDER_API_KEY'),
+    'rate_limit': KnownConfigOption(
+        env_var='PROVIDER_RATE_LIMIT',
+        default_value='600',  # RPM
+    ),
+},
+```
+
+Add to `pyproject.toml` under `[project.optional-dependencies]`:
+```toml
+integrations = [
+    "provider-sdk>=1.0.0",
+]
+```
+
+Register in `pixeltable/env.py`:
+```python
+self.__register_package('provider')
+```
+
+Import in `pixeltable/functions/__init__.py`:
+```python
+from . import provider
+```
+
+## 7. Docstring Standards
+
+Include practical examples showing real workflows:
+
+```python
+"""
+Description of what the function does.
+
+Equivalent to the Provider API `endpoint` endpoint.
+For additional details, see: <https://docs.provider.com/docs/endpoint>
+
+Request throttling:
+Applies the rate limit set in the config (section `provider`, key `rate_limit`).
+
+__Requirements:__
+
+- `pip install provider-sdk`
+
+Args:
+    input: Description.
+    model: Description with recommended options.
+
+Returns:
+    Description of return value.
+
+Examples:
+    Add a computed column:
+
+    >>> tbl.add_computed_column(embed=embeddings(tbl.text, model='model-name'))
+
+    Add an embedding index:
+
+    >>> tbl.add_embedding_index('text', string_embed=embeddings.using(model='model-name'))
+"""
+```
+
+## 8. Common Mistakes to Avoid
+
+1. **Using sync instead of async** - Always use `AsyncClient` and `await`
+2. **Missing `conditional_return_type`** - Required for embeddings to work with indexes
+3. **Not testing embedding index** - This is THE primary use case
+4. **Separate tests instead of parametrize** - Use `@pytest.mark.parametrize`
+5. **Wrong polymorphic design** - Use `@overload` for text/image variants
+6. **Adding unnecessary defensive code** - Don't add `pytest.skip` unless needed
+7. **Not running mypy** - Run `mypy` early and often
+
+## 9. Quality Checklist
+
+Before submitting PR:
+- [ ] `ruff check pixeltable/functions/provider.py`
+- [ ] `ruff format pixeltable/functions/provider.py`
+- [ ] `mypy pixeltable/functions/provider.py`
+- [ ] All tests pass locally
+- [ ] Embedding index test included
+- [ ] Notebook tutorial created in `docs/notebooks/integrations/`
