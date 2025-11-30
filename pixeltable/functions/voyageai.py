@@ -15,7 +15,6 @@ from pixeltable import env, type_system as ts
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
 
-
 # Default embedding dimensions for Voyage AI models
 _embedding_dimensions_cache: dict[str, int] = {
     'voyage-3-large': 1024,
