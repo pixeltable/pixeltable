@@ -17,7 +17,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, TableOp
+from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, OpStatus, TableOp
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -222,12 +222,15 @@ class View(Table):
             key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = [
-                TableOp(tbl_id=tbl_id, op_sn=0, num_ops=3, needs_xact=True, create_table_md_op=CreateTableMdOp()),
-                TableOp(
-                    tbl_id=tbl_id, op_sn=1, num_ops=3, needs_xact=False, create_store_table_op=CreateStoreTableOp()
-                ),
-                TableOp(
-                    tbl_id=tbl_id, op_sn=2, num_ops=3, needs_xact=True, load_view_op=LoadViewOp(view_path.as_dict())
+                CreateTableMdOp(tbl_id=tbl_id, op_sn=0, num_ops=3, needs_xact=True, status=OpStatus.PENDING),
+                CreateStoreTableOp(tbl_id=tbl_id, op_sn=1, num_ops=3, needs_xact=False, status=OpStatus.PENDING),
+                LoadViewOp(
+                    tbl_id=tbl_id,
+                    op_sn=2,
+                    num_ops=3,
+                    needs_xact=True,
+                    status=OpStatus.PENDING,
+                    view_path=view_path.as_dict(),
                 ),
             ]
             return md, ops

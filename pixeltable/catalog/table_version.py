@@ -31,9 +31,14 @@ from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
     CreateStoreIdxsOp,
+    CreateStoreTableOp,
+    CreateTableMdOp,
+    CreateTableVersionOp,
     DeleteTableMdOp,
     DeleteTableMediaFilesOp,
     DropStoreTableOp,
+    LoadViewOp,
+    OpStatus,
     TableOp,
 )
 from .update_status import RowCountStats, UpdateStatus
@@ -399,41 +404,49 @@ class TableVersion:
         from pixeltable.catalog import Catalog
         from pixeltable.store import StoreBase
 
-        if op.create_store_table_op is not None:
+        if isinstance(op, CreateStoreTableOp):
             # this needs to be called outside of a transaction
-            self.store_tbl.create()
+            with Env.get().begin_xact():
+                self.store_tbl.create()
 
-        elif op.create_store_idxs_op is not None:
-            for idx_id in op.create_store_idxs_op.idx_ids:
+        elif isinstance(op, CreateStoreIdxsOp):
+            for idx_id in op.idx_ids:
                 with Env.get().begin_xact():
                     self.store_tbl.create_index(idx_id)
 
-        elif op.load_view_op is not None:
+        elif isinstance(op, LoadViewOp):
             from pixeltable.plan import Planner
 
             from .table_version_path import TableVersionPath
 
-            # clear out any remaining media files from an aborted previous attempt
-            self.delete_media()
-            view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
+            view_path = TableVersionPath.from_dict(op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
             _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             status = UpdateStatus(row_count_stats=row_counts)
             Catalog.get().store_update_status(self.id, self.version, status)
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
-        elif op.create_table_md_op is not None:
+        elif isinstance(op, CreateTableMdOp):
             # nothing to do here
             pass
 
-        elif op.delete_table_md_op is not None:
+        elif isinstance(op, DeleteTableMdOp):
             Catalog.get().delete_tbl_md(self.id)
 
-        elif op.delete_table_media_files_op:
+        elif isinstance(op, CreateColumnMdOp):
+            # nothing to do
+            pass
+
+        elif isinstance(op, CreateStoreColumnsOp):
+            for col_id in op.column_ids:
+                with Env.get().begin_xact():
+                    self.store_tbl.add_column(self.cols_by_id[col_id])
+
+        elif isinstance(op, DeleteTableMediaFilesOp):
             self.delete_media()
             FileCache.get().clear(tbl_id=self.id)
 
-        elif op.drop_store_table_op is not None:
+        elif isinstance(op, DropStoreTableOp):
             # don't reference self.store_tbl here, it needs to reference the metadata for our base table, which at
             # this point may not exist anymore
             with Env.get().begin_xact() as conn:
@@ -445,26 +458,41 @@ class TableVersion:
 
         # ops that cannot be rolled back raise AssertionError()
 
-        if op.create_store_table_op is not None:
+        if isinstance(op, CreateStoreTableOp):
             # this needs to be called outside of a transaction
             with Env.get().begin_xact():
                 self.store_tbl.drop()
 
-        elif op.create_store_idxs_op is not None:
-            pass
-            # for idx_id in op.create_store_idxs_op.idx_ids:
-            #     with Env.get().begin_xact():
-            #         self.store_tbl.drop_index(idx_id)
+        elif isinstance(op, CreateStoreIdxsOp):
+            for idx_id in op.idx_ids:
+                with Env.get().begin_xact():
+                    self.store_tbl.drop_index(idx_id)
 
-        elif op.load_view_op is not None:
+        elif isinstance(op, LoadViewOp):
             # clear out any media files
             self.delete_media()
             FileCache.get().clear(tbl_id=self.id)
 
-        elif op.create_table_md_op is not None:
+        elif isinstance(op, CreateTableMdOp):
             Catalog.get().delete_tbl_md(self.id)
 
-        elif op.delete_table_md_op is not None or op.delete_table_media_files_op or op.drop_store_table_op is not None:
+        elif isinstance(op, CreateTableVersionOp):
+            schema_version = self.schema_version if op.preceding_schema_version is not None else None
+            Catalog.get().delete_tbl_version_md(
+                self.id, self.version, schema_version, op.preceding_version, op.preceding_schema_version
+            )
+
+        elif isinstance(op, CreateColumnMdOp):
+            for col_id in op.column_ids:
+                del self._tbl_md.column_md[col_id]
+            Catalog.get().write_tbl_md(self.id, None, self._tbl_md, None, None, [])
+
+        elif isinstance(op, CreateStoreColumnsOp):
+            for col_id in op.column_ids:
+                with Env.get().begin_xact():
+                    self.store_tbl.drop_column(self.cols_by_id[col_id])
+
+        elif isinstance(op, (DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp)):
             raise AssertionError()
 
     @classmethod
@@ -503,15 +531,9 @@ class TableVersion:
     def drop(self) -> list[TableOp]:
         id_str = str(self.id)
         ops = [
-            TableOp(
-                tbl_id=id_str,
-                op_sn=0,
-                num_ops=3,
-                needs_xact=False,
-                delete_table_media_files_op=DeleteTableMediaFilesOp(),
-            ),
-            TableOp(tbl_id=id_str, op_sn=1, num_ops=3, needs_xact=False, drop_store_table_op=DropStoreTableOp()),
-            TableOp(tbl_id=id_str, op_sn=2, num_ops=3, needs_xact=True, delete_table_md_op=DeleteTableMdOp()),
+            DeleteTableMediaFilesOp(tbl_id=id_str, op_sn=0, num_ops=3, needs_xact=False, status=OpStatus.PENDING),
+            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, needs_xact=False, status=OpStatus.PENDING),
+            DeleteTableMdOp(tbl_id=id_str, op_sn=2, num_ops=3, needs_xact=True, status=OpStatus.PENDING),
         ]
         return ops
 
@@ -895,26 +917,24 @@ class TableVersion:
 
         id_str = str(self.id)
         tbl_ops = [
-            TableOp(
+            CreateColumnMdOp(
                 tbl_id=id_str,
                 op_sn=0,
                 num_ops=3,
                 needs_xact=True,
-                create_column_md_op=CreateColumnMdOp(column_ids=[col.id for col in all_cols]),
+                status=OpStatus.PENDING,
+                column_ids=[col.id for col in all_cols],
             ),
-            TableOp(
+            CreateStoreColumnsOp(
                 tbl_id=id_str,
                 op_sn=1,
                 num_ops=3,
                 needs_xact=False,
-                create_store_columns_op=CreateStoreColumnsOp(column_ids=[col.id for col in all_cols]),
+                status=OpStatus.PENDING,
+                column_ids=[col.id for col in all_cols],
             ),
-            TableOp(
-                tbl_id=id_str,
-                op_sn=2,
-                num_ops=3,
-                needs_xact=False,
-                create_store_idxs_op=CreateStoreIdxsOp(idx_ids=idx_ids),
+            CreateStoreIdxsOp(
+                tbl_id=id_str, op_sn=2, num_ops=3, needs_xact=False, status=OpStatus.PENDING, idx_ids=idx_ids
             ),
         ]
         return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops

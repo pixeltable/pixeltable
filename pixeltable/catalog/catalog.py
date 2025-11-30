@@ -733,6 +733,7 @@ class Catalog:
                             tv.undo_op(op)
                         else:
                             tv.exec_op(op)
+                        self.mark_modified_tvs(tv.handle)
 
                         if is_final_op:
                             status = conn.execute(reset_tbl_state_stmt)
@@ -750,6 +751,8 @@ class Catalog:
                     tv.undo_op(op)
                 else:
                     tv.exec_op(op)
+                # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed
+                # inside a transaction and therefore wouldn't end up here
 
                 with self.begin_xact(
                     tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
@@ -1244,13 +1247,14 @@ class Catalog:
         with self.begin_xact(tbl_id=view_id, for_write=True):
             return self.get_table_by_id(view_id)
 
-    def add_columns(self, tbl_id: UUID, cols: list[Column]) -> None:
-        @retry_loop(for_write=True)
+    def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
+        @retry_loop(tbl=tbl, for_write=True, lock_mutable_tree=False)
         def add_fn() -> None:
-            tv = self.get_tbl_version(TableVersionKey(tbl_id, None, None), validate_initialized=True)
+            tv = self.get_tbl_version(TableVersionKey(tbl.tbl_id, None, None), validate_initialized=True)
             md, ops = tv.add_columns_ops(cols)
+            md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
             self.write_tbl_md(
-                tbl_id,
+                tbl.tbl_id,
                 dir_id=None,
                 tbl_md=md.tbl_md,
                 version_md=md.version_md,
@@ -2313,6 +2317,17 @@ class Catalog:
                 session.add(op_record)
 
         session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
+
+    def delete_tbl_version_md(
+        self,
+        tbl_id: UUID,
+        version: int,
+        schema_version: int | None,
+        preceding_version: int,
+        preceding_schema_version: int | None,
+    ) -> None:
+        """Removes 'version' from stored metadata for table"""
+        pass
 
     def store_update_status(self, tbl_id: UUID, version: int, status: UpdateStatus) -> None:
         """Update the TableVersion.md.update_status field"""

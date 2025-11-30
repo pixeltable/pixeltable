@@ -570,7 +570,7 @@ class Table(SchemaObject):
                 self._verify_column(new_col)
 
         assert self._tbl_version is not None
-        Catalog.get().add_columns(self._id, new_cols)
+        Catalog.get().add_columns(self._tbl_version_path, new_cols)
         FileCache.get().emit_eviction_warnings()
         return None
 

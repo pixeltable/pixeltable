@@ -9,51 +9,6 @@ from enum import Enum
 from typing import Any
 
 
-@dataclasses.dataclass
-class CreateStoreTableOp:
-    pass
-
-
-@dataclasses.dataclass
-class CreateStoreIdxsOp:
-    idx_ids: list[int]
-
-
-@dataclasses.dataclass
-class LoadViewOp:
-    view_path: dict[str, Any]  # needed to create the view load plan
-
-
-@dataclasses.dataclass
-class CreateTableMdOp:
-    pass
-
-
-@dataclasses.dataclass
-class DeleteTableMdOp:
-    pass
-
-
-@dataclasses.dataclass
-class CreateColumnMdOp:
-    column_ids: list[int]
-
-
-@dataclasses.dataclass
-class CreateStoreColumnsOp:
-    column_ids: list[int]
-
-
-@dataclasses.dataclass
-class DeleteTableMediaFilesOp:
-    pass
-
-
-@dataclasses.dataclass
-class DropStoreTableOp:
-    pass
-
-
 class OpStatus(Enum):
     PENDING = 0
     COMPLETED = 1
@@ -66,14 +21,61 @@ class TableOp:
     op_sn: int  # sequence number within the update operation; [0, num_ops)
     num_ops: int  # total number of ops forming the update operation
     needs_xact: bool  # if True, op must be run as part of a transaction
-    status: OpStatus = OpStatus.PENDING
+    status: OpStatus
 
-    create_store_table_op: CreateStoreTableOp | None = None
-    create_store_idxs_op: CreateStoreIdxsOp | None = None
-    load_view_op: LoadViewOp | None = None
-    create_table_md_op: CreateTableMdOp | None = None
-    delete_table_md_op: DeleteTableMdOp | None = None
-    create_column_md_op: CreateColumnMdOp | None = None
-    create_store_columns_op: CreateStoreColumnsOp | None = None
-    delete_table_media_files_op: DeleteTableMediaFilesOp | None = None
-    drop_store_table_op: DropStoreTableOp | None = None
+
+@dataclasses.dataclass
+class CreateStoreTableOp(TableOp):
+    pass
+
+
+@dataclasses.dataclass
+class CreateStoreIdxsOp(TableOp):
+    idx_ids: list[int]
+
+
+@dataclasses.dataclass
+class LoadViewOp(TableOp):
+    view_path: dict[str, Any]  # needed to create the view load plan
+
+
+@dataclasses.dataclass
+class CreateTableMdOp(TableOp):
+    """Undo-only log record"""
+
+    pass
+
+
+@dataclasses.dataclass
+class DeleteTableMdOp(TableOp):
+    pass
+
+
+@dataclasses.dataclass
+class CreateTableVersionOp(TableOp):
+    """Undo-only log record"""
+
+    preceding_version: int
+    preceding_schema_version: int | None  # only set for schema changes
+
+
+@dataclasses.dataclass
+class CreateColumnMdOp(TableOp):
+    """Undo-only log record"""
+
+    column_ids: list[int]
+
+
+@dataclasses.dataclass
+class CreateStoreColumnsOp(TableOp):
+    column_ids: list[int]
+
+
+@dataclasses.dataclass
+class DeleteTableMediaFilesOp(TableOp):
+    pass
+
+
+@dataclasses.dataclass
+class DropStoreTableOp(TableOp):
+    pass
