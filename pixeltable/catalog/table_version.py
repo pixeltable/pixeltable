@@ -10,7 +10,6 @@ import uuid
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal
 from uuid import UUID
 
-import jsonschema.exceptions
 import sqlalchemy as sql
 from sqlalchemy import exc as sql_exc
 
@@ -27,7 +26,15 @@ from pixeltable.utils.object_stores import ObjectOps
 from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
-from .tbl_ops import DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp, TableOp
+from .tbl_ops import (
+    CreateColumnMdOp,
+    CreateStoreColumnsOp,
+    CreateStoreIdxsOp,
+    DeleteTableMdOp,
+    DeleteTableMediaFilesOp,
+    DropStoreTableOp,
+    TableOp,
+)
 from .update_status import RowCountStats, UpdateStatus
 
 if TYPE_CHECKING:
@@ -748,10 +755,10 @@ class TableVersion:
         undo_col.tbl_handle = tbl_handle
         return val_col, undo_col
 
-    def _create_index(
+    def _create_index_md(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
-    ) -> None:
-        """Create the given index along with index md"""
+    ) -> int:
+        """Create md for given index and update self._tbl_md. Returns index id."""
         idx_id = self.next_idx_id
         self.next_idx_id += 1
         if idx_name is None:
@@ -759,6 +766,7 @@ class TableVersion:
         else:
             assert is_valid_identifier(idx_name)
             assert idx_name not in [i.name for i in self._tbl_md.index_md.values()]
+
         # create and register the index metadata
         idx_cls = type(idx)
         idx_md = schema.IndexMd(
@@ -773,8 +781,15 @@ class TableVersion:
             class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__,
             init_args=idx.as_dict(),
         )
-        idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
         self._tbl_md.index_md[idx_id] = idx_md
+        return idx_id
+
+    def _create_index(
+        self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
+    ) -> None:
+        """Create the given index along with index md"""
+        idx_id = self._create_index_md(col, val_col, undo_col, idx_name, idx)
+        idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
         self.idxs[idx_id] = idx_info
         self.idxs_by_name[idx_name] = idx_info
         self.idxs_by_col.setdefault(col.qid, []).append(idx_info)
@@ -833,8 +848,7 @@ class TableVersion:
             col.tbl_handle = self.handle
             col.id = self.next_col_id()
 
-        # we're creating a new schema version
-        self.bump_version(bump_schema_version=True)
+        # collect all columns we need to add, plus indices
         index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
         for col in cols:
@@ -848,22 +862,62 @@ class TableVersion:
                 all_cols.append(val_col)
                 all_cols.append(undo_col)
 
-        self._add_columns2(all_cols)
-        # Create indices and their md records
-        for col, (idx, val_col, undo_col) in index_cols.items():
-            self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
-        self.update_status = status
-        self._write_md(new_version=True, new_schema_version=True)
-        _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
+        # we're creating a new schema version
+        self.bump_version(bump_schema_version=True)
 
-        msg = (
-            f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
-            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}.'
-        )
-        Env.get().console_logger.info(msg)
-        _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
-        return status
-        pass
+        # create column md
+        for col in all_cols:
+            assert col.id is not None
+            col_md = schema.ColumnMd(
+                id=col.id,
+                col_type=col.col_type.as_dict(),
+                is_pk=col.is_pk,
+                schema_version_add=self.schema_version,
+                schema_version_drop=None,
+                value_expr=col.value_expr.as_dict() if col.value_expr is not None else None,
+                stored=col.stored,
+                destination=col._explicit_destination,
+            )
+            self._tbl_md.column_md[col.id] = col_md
+
+            if col.name is not None:
+                pos = len(self._schema_version_md.columns)
+                schema_md = schema.SchemaColumn(
+                    name=col.name,
+                    pos=pos,
+                    media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
+                )
+                self._schema_version_md.columns[col.id] = schema_md
+
+        # Create index md
+        idx_ids: list[int] = []
+        for col, (idx, val_col, undo_col) in index_cols.items():
+            idx_ids.append(self._create_index_md(col, val_col, undo_col, idx_name=None, idx=idx))
+
+        tbl_ops = [
+            TableOp(
+                tbl_id=self.id,
+                op_sn=0,
+                num_ops=3,
+                needs_xact=True,
+                create_column_md_op=CreateColumnMdOp(column_ids=[col.id for col in all_cols]),
+            ),
+            TableOp(
+                tbl_id=self.id,
+                op_sn=1,
+                num_ops=3,
+                needs_xact=False,
+                create_store_columns_op=CreateStoreColumnsOp(column_ids=[col.id for col in all_cols]),
+            ),
+            TableOp(
+                tbl_id=self.id,
+                op_sn=2,
+                num_ops=3,
+                needs_xact=False,
+                create_store_idxs_op=CreateStoreIdxsOp(idx_ids=idx_ids),
+            ),
+        ]
+        return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops
 
     def add_columns(
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
@@ -986,32 +1040,6 @@ class TableVersion:
             cols_with_excs=[f'{col.get_tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
         )
-
-    def _add_columns2(self, cols: Iterable[Column]) -> None:
-        """Add column metadata"""
-        from pixeltable.catalog import Catalog
-
-        cols_to_add = list(cols)
-
-        row_count = self.store_tbl.count()
-        for col in cols_to_add:
-            assert col.tbl_handle.id == self.id
-            if not col.col_type.nullable and not col.is_computed and row_count > 0:
-                raise excs.Error(
-                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
-                )
-
-        for col in cols_to_add:
-            assert col.id is not None
-            col.schema_version_add = self.schema_version
-            if col.name is not None:
-                col_md, sch_md = col.to_md(len(self.cols_by_name))
-                assert sch_md is not None, 'Schema column metadata must be created for user-facing columns'
-                self._tbl_md.column_md[col.id] = col_md
-                self._schema_version_md.columns[col.id] = sch_md
-            else:
-                col_md, _ = col.to_md()
-                self._tbl_md.column_md[col.id] = col_md
 
     def drop_column(self, col: Column) -> None:
         """Drop a column from the table."""
@@ -1263,44 +1291,6 @@ class TableVersion:
                 assert len(val) == len(self.store_tbl.rowid_columns())
                 for el in val:
                     assert isinstance(el, int)
-                continue
-            col = self.path.get_column(col_name)
-            if col is None:
-                raise excs.Error(f'Unknown column: {col_name}')
-            if col.get_tbl().id != self.id:
-                raise excs.Error(f'Column {col.name!r} is a base table column and cannot be updated')
-            if col.is_computed:
-                raise excs.Error(f'Column {col_name!r} is computed and cannot be updated')
-            if col.is_pk and not allow_pk:
-                raise excs.Error(f'Column {col_name!r} is a primary key column and cannot be updated')
-            if col.col_type.is_media_type() and not allow_media:
-                raise excs.Error(f'Column {col_name!r} is a media column and cannot be updated')
-
-            # make sure that the value is compatible with the column type
-            value_expr: exprs.Expr
-            try:
-                # check if this is a literal
-                value_expr = exprs.Literal(val, col_type=col.col_type)
-            except (TypeError, jsonschema.exceptions.ValidationError) as exc:
-                if not allow_exprs:
-                    raise excs.Error(
-                        f'Column {col_name!r}: value is not a valid literal for this column '
-                        f'(expected `{col.col_type}`): {val!r}'
-                    ) from exc
-                # it's not a literal, let's try to create an expr from it
-                value_expr = exprs.Expr.from_object(val)
-                if value_expr is None:
-                    raise excs.Error(
-                        f'Column {col_name!r}: value is not a recognized literal or expression: {val!r}'
-                    ) from exc
-                if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
-                    raise excs.Error(
-                        f'Type `{value_expr.col_type}` of value {val!r} is not compatible with the type '
-                        f'`{col.col_type}` of column {col_name!r}'
-                    ) from exc
-            update_targets[col] = value_expr
-
-        return update_targets
 
     def recompute_columns(
         self, col_names: list[str], where: exprs.Expr | None = None, errors_only: bool = False, cascade: bool = True
