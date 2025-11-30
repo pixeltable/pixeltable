@@ -208,9 +208,6 @@ async def multimodal_embed(
     """
     Creates an embedding vector for text or images using Voyage AI's multimodal model.
 
-    This function supports both text and image inputs via overloading. Use `multimodal_embed(text)`
-    for text embeddings or `multimodal_embed(image)` for image embeddings.
-
     Equivalent to the Voyage AI `multimodal_embed` API endpoint.
     For additional details, see: <https://docs.voyageai.com/docs/multimodal-embeddings>
 
@@ -233,17 +230,17 @@ async def multimodal_embed(
         An array of 1024 floats representing the embedding.
 
     Examples:
-        Embed text using the multimodal model:
+        Embed a text column `description`:
 
         >>> tbl.add_computed_column(
-        ...     embed=multimodal_embed(tbl.text, input_type='document')
+        ...     embed=multimodal_embed(tbl.description, input_type='document')
         ... )
 
-        Add an embedding index for text:
+        Add an embedding index for column `description`:
 
-        >>> tbl.add_embedding_index('text', string_embed=multimodal_embed.using(model='voyage-multimodal-3'))
+        >>> tbl.add_embedding_index('description', string_embed=multimodal_embed.using(model='voyage-multimodal-3'))
 
-        Embed images (using the overloaded version):
+        Embed an image column `img`:
 
         >>> tbl.add_computed_column(embed=multimodal_embed(tbl.img, input_type='document'))
     """
