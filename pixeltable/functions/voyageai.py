@@ -112,6 +112,7 @@ async def embeddings(
         kwargs['output_dtype'] = output_dtype
 
     result = await cl.embed(texts=input, model=model, **kwargs)
+    # TODO: set output dtype correctly based on output_dtype parameter
     return [np.array(emb, dtype=np.float64) for emb in result.embeddings]
 
 
@@ -196,17 +197,19 @@ async def rerank(
     }
 
 
-@pxt.udf(resource_pool='request-rate:voyageai')
+@pxt.udf(batch_size=32, resource_pool='request-rate:voyageai')
 async def multimodal_embed(
-    image: PIL.Image.Image,
-    text: str | None = None,
+    text: Batch[str],
     *,
     model: str = 'voyage-multimodal-3',
     input_type: Literal['query', 'document'] | None = None,
     truncation: bool = True,
-) -> pxt.Array[(1024,), pxt.Float]:
+) -> Batch[pxt.Array[(1024,), pxt.Float]]:
     """
-    Creates an embedding vector for multimodal content (image with optional text).
+    Creates an embedding vector for text or images using Voyage AI's multimodal model.
+
+    This function supports both text and image inputs via overloading. Use `multimodal_embed(text)`
+    for text embeddings or `multimodal_embed(image)` for image embeddings.
 
     Equivalent to the Voyage AI `multimodal_embed` API endpoint.
     For additional details, see: <https://docs.voyageai.com/docs/multimodal-embeddings>
@@ -220,34 +223,34 @@ async def multimodal_embed(
     - `pip install voyageai`
 
     Args:
-        image: The image to embed (PIL Image).
-        text: Optional text to include with the image for multimodal embedding.
+        text: The text to embed.
         model: The model to use. Currently only `voyage-multimodal-3` is supported.
         input_type: Type of the input. Options: `None`, `query`, `document`.
             For retrieval/search, set to `query` or `document` as appropriate.
         truncation: Whether to truncate inputs to fit within context length. Defaults to `True`.
 
     Returns:
-        An array of 1024 floats representing the multimodal embedding.
+        An array of 1024 floats representing the embedding.
 
     Examples:
-        Embed images with optional captions:
+        Embed text using the multimodal model:
 
-        >>> tbl = pxt.create_table('images', {'img': pxt.Image, 'caption': pxt.String})
         >>> tbl.add_computed_column(
-        ...     embed=multimodal_embed(tbl.img, tbl.caption, input_type='document')
+        ...     embed=multimodal_embed(tbl.text, input_type='document')
         ... )
 
-        Embed images only:
+        Add an embedding index for text:
+
+        >>> tbl.add_embedding_index('text', string_embed=multimodal_embed.using(model='voyage-multimodal-3'))
+
+        Embed images (using the overloaded version):
 
         >>> tbl.add_computed_column(embed=multimodal_embed(tbl.img, input_type='document'))
     """
     cl = _voyageai_client()
 
-    # Build the input: a list containing the image and optionally text
-    input_content: list = [image]
-    if text is not None:
-        input_content.insert(0, text)  # Text goes first if provided
+    # Build inputs: each text becomes a single-element content list
+    inputs = [[t] for t in text]
 
     kwargs: dict[str, Any] = {}
     if input_type is not None:
@@ -255,8 +258,32 @@ async def multimodal_embed(
     if truncation is not None:
         kwargs['truncation'] = truncation
 
-    result = await cl.multimodal_embed(inputs=[input_content], model=model, **kwargs)
-    return np.array(result.embeddings[0], dtype=np.float64)
+    result = await cl.multimodal_embed(inputs=inputs, model=model, **kwargs)
+    return [np.array(emb, dtype=np.float64) for emb in result.embeddings]
+
+
+@multimodal_embed.overload
+async def _(
+    image: Batch[PIL.Image.Image],
+    *,
+    model: str = 'voyage-multimodal-3',
+    input_type: Literal['query', 'document'] | None = None,
+    truncation: bool = True,
+) -> Batch[pxt.Array[(1024,), pxt.Float]]:
+    """Image overload for multimodal_embed - embeds images using the multimodal model."""
+    cl = _voyageai_client()
+
+    # Build inputs: each image becomes a single-element content list
+    inputs = [[img] for img in image]
+
+    kwargs: dict[str, Any] = {}
+    if input_type is not None:
+        kwargs['input_type'] = input_type
+    if truncation is not None:
+        kwargs['truncation'] = truncation
+
+    result = await cl.multimodal_embed(inputs=inputs, model=model, **kwargs)
+    return [np.array(emb, dtype=np.float64) for emb in result.embeddings]
 
 
 __all__ = local_public_names(__name__)

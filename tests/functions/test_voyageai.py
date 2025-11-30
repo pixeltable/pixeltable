@@ -105,19 +105,16 @@ class TestVoyageAI:
         assert scores == sorted(scores, reverse=True)
 
     def test_multimodal_embed(self, reset_db: None) -> None:
-        """Test multimodal embeddings with images and optional text."""
+        """Test multimodal embeddings with images."""
         skip_test_if_not_installed('voyageai')
         skip_test_if_no_client('voyageai')
         from pixeltable.functions.voyageai import multimodal_embed
 
-        t = pxt.create_table('test_tbl', {'img': pxt.Image, 'caption': pxt.String})
-        t.add_computed_column(embed=multimodal_embed(t.img, t.caption, input_type='document'))
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(embed=multimodal_embed(t.img, input_type='document'))
 
         # Use a test image
         img_paths = get_image_files()
-        if not img_paths:
-            pytest.skip('No test images available')
-
-        validate_update_status(t.insert(img=img_paths[0], caption='A test image'), 1)
+        validate_update_status(t.insert(img=img_paths[0]), 1)
         res = t.select(t.embed).collect()
         assert res['embed'][0].shape == (1024,)  # voyage-multimodal-3 produces 1024-dim embeddings
