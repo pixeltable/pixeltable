@@ -8,11 +8,11 @@ import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal
-from typing_extensions import overload
 from uuid import UUID
 
 import pandas as pd
 import sqlalchemy as sql
+from typing_extensions import overload
 
 import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
