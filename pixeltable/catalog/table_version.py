@@ -884,6 +884,7 @@ class TableVersion:
                 all_cols.append(undo_col)
 
         # we're creating a new schema version
+        preceding_version, preceding_schema_version = self.version, self.schema_version
         self.bump_version(bump_schema_version=True)
 
         # create column md
@@ -917,24 +918,33 @@ class TableVersion:
 
         id_str = str(self.id)
         tbl_ops = [
-            CreateColumnMdOp(
+            CreateTableVersionOp(
                 tbl_id=id_str,
                 op_sn=0,
-                num_ops=3,
+                num_ops=4,
+                needs_xact=True,
+                status=OpStatus.PENDING,
+                preceding_version=preceding_version,
+                preceding_schema_version=preceding_schema_version,
+            ),
+            CreateColumnMdOp(
+                tbl_id=id_str,
+                op_sn=1,
+                num_ops=4,
                 needs_xact=True,
                 status=OpStatus.PENDING,
                 column_ids=[col.id for col in all_cols],
             ),
             CreateStoreColumnsOp(
                 tbl_id=id_str,
-                op_sn=1,
-                num_ops=3,
+                op_sn=2,
+                num_ops=4,
                 needs_xact=False,
                 status=OpStatus.PENDING,
                 column_ids=[col.id for col in all_cols],
             ),
             CreateStoreIdxsOp(
-                tbl_id=id_str, op_sn=2, num_ops=3, needs_xact=False, status=OpStatus.PENDING, idx_ids=idx_ids
+                tbl_id=id_str, op_sn=3, num_ops=4, needs_xact=False, status=OpStatus.PENDING, idx_ids=idx_ids
             ),
         ]
         return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops

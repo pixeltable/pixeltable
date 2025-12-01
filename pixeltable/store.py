@@ -294,11 +294,7 @@ class StoreBase:
         )
 
     def add_column(self, col: catalog.Column) -> None:
-        """Add column(s) to the store-resident table based on a catalog column
-
-        Note that a computed catalog column will require two extra columns (for the computed value and for the error
-        message).
-        """
+        """Add column(s) to the store-resident table based on a catalog column"""
         assert col.is_stored
         conn = Env.get().conn
         col_type_str = col.sa_col_type.compile(dialect=conn.dialect)

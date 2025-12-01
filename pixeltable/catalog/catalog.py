@@ -2327,7 +2327,32 @@ class Catalog:
         preceding_schema_version: int | None,
     ) -> None:
         """Removes 'version' from stored metadata for table"""
-        pass
+        conn = Env.get().conn
+        if schema_version is not None:
+            assert preceding_schema_version is not None
+            delete_stmt = sql.delete(schema.TableSchemaVersion).where(
+                schema.TableSchemaVersion.tbl_id == tbl_id, schema.TableSchemaVersion.schema_version == schema_version
+            )
+            status = conn.execute(delete_stmt)
+            assert status.rowcount == 1, status.rowcount
+
+        delete_stmt = sql.delete(schema.TableVersion).where(
+            schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version
+        )
+        status = conn.execute(delete_stmt)
+        assert status.rowcount == 1, status.rowcount
+
+        # we also need to reset TableMd.current_version/current_schema_version
+        version_updates = {'current_version': preceding_version}
+        if preceding_schema_version is not None:
+            version_updates['current_schema_version'] = preceding_schema_version
+        update_stmt = (
+            sql.update(schema.Table)
+            .where(schema.Table.id == tbl_id)
+            .values(md=schema.Table.md.op('||')(version_updates))
+        )
+        status = conn.execute(update_stmt)
+        assert status.rowcount == 1, status.rowcount
 
     def store_update_status(self, tbl_id: UUID, version: int, status: UpdateStatus) -> None:
         """Update the TableVersion.md.update_status field"""
