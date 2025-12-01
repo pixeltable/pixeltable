@@ -1,4 +1,5 @@
 import ctypes
+import time
 import numpy as np
 from collections.abc import Callable
 import difflib
@@ -521,11 +522,38 @@ class TestDocument:
         # page_num = 9
         # path = './docs/resources/rag-demo/Jefferson-Amazon.pdf'
         # page_num = 9
-        # path  = './docs/resources/rag-demo/Company-Research-Alphabet.pdf'
-        # page_num = 2
-        # path = './docs/resources/rag-demo/Argus-Market-Watch-June-2024.pdf'
-        # page_num = 0
-        path = './docs/resources/rag-demo/Argus-Market-Digest-June-2024.pdf'
-        page_num = 0
-        splitter = PdfSplitter(path=path, page_num=page_num)
-        splitter.split_page()
+        # for i in range(30):
+        #     splitter = PdfSplitter(path='./docs/resources/rag-demo/Argus-Market-Digest-June-2024.pdf', page_num=0)
+        #     splitter.split_page()
+        #     splitter = PdfSplitter(path='./docs/resources/rag-demo/Argus-Market-Watch-June-2024.pdf', page_num=0)
+        #     splitter.split_page()
+        #     splitter = PdfSplitter(path='./docs/resources/rag-demo/Company-Research-Alphabet.pdf', page_num=2)
+        #     splitter.split_page()
+
+        path = '/Users/sergeymkhitaryan/work/0000376.pdf'
+        for i in range(15,30):
+            splitter = PdfSplitter(path=path, page_num=i)
+            splitter.split_page()
+
+    def test_compare_pdf_splitters(self) -> None:
+        path = '/Users/sergeymkhitaryan/work/0000376.pdf'
+
+        # new pdf splitter
+        from pixeltable.iterators.pdf_splitter import PdfSplitter
+        start_ts = time.time()
+        splitter = PdfSplitter(path=path, page_num=0)
+        for i in range(splitter.num_pages):
+            if i>0:
+                splitter = PdfSplitter(path=path, page_num=i)
+            splitter.split_page()
+        end_ts = time.time()
+        print(f'New PdfSplitter time: {end_ts - start_ts:.2f}')
+
+        # fitz (PyMuPDF) 
+        start_ts = time.time()
+        iterator=DocumentSplitter(path, separators = 'paragraph', elements=['text'])
+        for result in iterator:
+            pass
+        end_ts = time.time()
+        print(f'fitz time: {end_ts - start_ts:.2f}')
+

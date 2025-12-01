@@ -27,6 +27,7 @@ class PdfChar:
 # @dataclass
 class PdfSplitter:
     path: str
+    num_pages: int
     page_num: int
     pdf: pdfium.PdfDocument 
     page: pdfium.PdfPage 
@@ -36,6 +37,7 @@ class PdfSplitter:
         self.path = path
         self.page_num = page_num
         self.pdf = pdfium.PdfDocument(path)
+        self.num_pages = len(self.pdf)
         self.page = self.pdf[page_num]
         self.textpage = self.page.get_textpage()
     
