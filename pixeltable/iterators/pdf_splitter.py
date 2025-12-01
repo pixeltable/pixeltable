@@ -36,15 +36,16 @@ class PdfSplitter:
     page: pdfium.PdfPage
     textpage: pdfium.PdfTextPage
 
-    def __init__(self, path: str, page_num: int) -> None:
+    def __init__(self, path: str) -> None:
         self.path = path
-        self.page_num = page_num
         self.pdf = pdfium.PdfDocument(path)
         self.num_pages = len(self.pdf)
+
+    def split_page(self, page_num: int) -> None:
+        self.page_num = page_num
         self.page = self.pdf[page_num]
         self.textpage = self.page.get_textpage()
 
-    def split_page(self) -> None:
         chars = []
         for i in range(0, pdfium_c.FPDFText_CountChars(self.textpage)):
             code = pdfium_c.FPDFText_GetUnicode(self.textpage, i)
