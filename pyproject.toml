@@ -162,6 +162,7 @@ dev = [
     "fiftyone>=1.7",
     "lancedb>=0.20",
     "google-cloud-storage>=2.18.0",
+    "py-spy>=0.4.1",
     "sqlalchemy-cockroachdb>=2.0.3",
     "psycopg2-binary>=2.9.10",
     "diffusers>=0.34",
