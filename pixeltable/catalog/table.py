@@ -7,7 +7,8 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, overload
+from typing import TYPE_CHECKING, Any, Iterable, Literal
+from typing_extensions import overload
 from uuid import UUID
 
 import pandas as pd

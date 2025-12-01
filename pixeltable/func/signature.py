@@ -227,7 +227,7 @@ class Signature:
             elif p.kind == inspect.Parameter.VAR_KEYWORD:
                 param_strs.append(f'**{p.name}')
             else:
-                param_strs.append(f'{p.name}: {p.col_type}')
+                param_strs.append(f'{p.name}: pxt.{p.col_type}')
         return f'({", ".join(param_strs)}) -> {self.get_return_type()}'
 
     @classmethod
