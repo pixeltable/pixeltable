@@ -1,13 +1,15 @@
-from collections.abc import Callable
-import PIL.Image
-from PIL import ImageDraw
-import numpy as np
 import ctypes
-import pypdfium2 as pdfium
-import pypdfium2.raw as pdfium_c
+from collections.abc import Callable
 from dataclasses import dataclass
 
+import numpy as np
+import PIL.Image
+import pypdfium2 as pdfium
+import pypdfium2.raw as pdfium_c
+from PIL import ImageDraw
+
 DEBUG = False
+
 
 @dataclass
 class BoundingBox:
@@ -15,6 +17,7 @@ class BoundingBox:
     y0: float
     x1: float
     y1: float
+
 
 @dataclass
 class PdfChar:
@@ -29,8 +32,8 @@ class PdfSplitter:
     path: str
     num_pages: int
     page_num: int
-    pdf: pdfium.PdfDocument 
-    page: pdfium.PdfPage 
+    pdf: pdfium.PdfDocument
+    page: pdfium.PdfPage
     textpage: pdfium.PdfTextPage
 
     def __init__(self, path: str, page_num: int) -> None:
@@ -40,7 +43,7 @@ class PdfSplitter:
         self.num_pages = len(self.pdf)
         self.page = self.pdf[page_num]
         self.textpage = self.page.get_textpage()
-    
+
     def split_page(self) -> None:
         chars = []
         for i in range(0, pdfium_c.FPDFText_CountChars(self.textpage)):
@@ -66,7 +69,9 @@ class PdfSplitter:
             for i, c1, c2 in zip(range(len(chars)), chars, self.textpage.get_text_range()):
                 code = pdfium_c.FPDFText_GetUnicode(self.textpage, i)
                 match = c1.value == c2
-                print (f'index {i:6}/{len(chars)}: code={code}, char: {c1.value} vs textpage char: {c2} {"" if match else "<<< MISMATCH >>>"}')
+                print(
+                    f'index {i:6}/{len(chars)}: code={code}, char: {c1.value} vs textpage char: {c2} {"" if match else "<<< MISMATCH >>>"}'
+                )
             print('====== / char by char comparison ======\n')
 
         non_whitespace_chars = [c for c in chars if not c.value.isspace()]
@@ -102,8 +107,9 @@ class PdfSplitter:
 
         # detect paragraphs
         import unicodedata
-        previous_line_x : float | None = None
-        previous_line_y : float | None = None
+
+        previous_line_x: float | None = None
+        previous_line_y: float | None = None
         is_new_line = True
         for i in range(len(self.textpage.get_text_range())):
             c = chars[i]
@@ -130,9 +136,9 @@ class PdfSplitter:
                     continue
                 gap_vs_last_line = x - previous_line_x
                 char_width = self._char_width(c)
-                if gap_vs_last_line > char_width and gap_vs_last_line < 5*char_width:
+                if gap_vs_last_line > char_width and gap_vs_last_line < 5 * char_width:
                     # a possible paragraph indent
-                    scores[i]+=50
+                    scores[i] += 50
                 previous_line_x = x
                 previous_line_y = y
 
@@ -146,20 +152,19 @@ class PdfSplitter:
         # draw bounding boxes
         draw = ImageDraw.Draw(pil_img)
         for b in bounds:
-            x0, y0 = self._page_coords_to_image_coords( self.page, pil_img, b.x0, b.y0)
-            x1, y1 = self._page_coords_to_image_coords( self.page, pil_img, b.x1, b.y1)
-            box  = ( min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
-            draw.rectangle(box , outline="red", width=1)
+            x0, y0 = self._page_coords_to_image_coords(self.page, pil_img, b.x0, b.y0)
+            x1, y1 = self._page_coords_to_image_coords(self.page, pil_img, b.x1, b.y1)
+            box = (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1))
+            draw.rectangle(box, outline='red', width=1)
 
         # draw segmentation scores
-        for i in range (len(scores)):
+        for i in range(len(scores)):
             if scores[i] > 0:
                 c = chars[i]
-                c_x, c_y = self._page_coords_to_image_coords( self.page, pil_img, c.center_x, c.center_y)
+                c_x, c_y = self._page_coords_to_image_coords(self.page, pil_img, c.center_x, c.center_y)
                 radius = 5
-                color = "red" if scores[i] >= 100 else "blue"
-                box = (c_x - radius,  c_y - radius, 
-                        c_x + radius, c_y + radius)
+                color = 'red' if scores[i] >= 100 else 'blue'
+                box = (c_x - radius, c_y - radius, c_x + radius, c_y + radius)
                 draw.ellipse(box, outline=color, fill=color, width=1)
 
         pil_img.save('./output.png')
@@ -167,13 +172,12 @@ class PdfSplitter:
     def _page_coords_to_image_coords(self, page: pdfium.PdfPage, image, x: float, y: float) -> tuple[float, float]:
         img_x = x * (image.width / page.get_width())
         img_y = y * (image.height / page.get_height())
-        img_y = image.height - img_y # PDF coords start at bottom-left
+        img_y = image.height - img_y  # PDF coords start at bottom-left
         return (img_x, img_y)
-        
 
     def _chars_in_bound(self, chars, bound: BoundingBox) -> list[PdfChar]:
         return [c for c in chars if self._char_is_in_bound(c, bound)]
-    
+
     def _char_is_in_bound(self, c: PdfChar, bound: BoundingBox) -> bool:
         return bound.x0 <= c.center_x <= bound.x1 and bound.y0 <= c.center_y <= bound.y1
 

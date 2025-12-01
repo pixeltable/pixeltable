@@ -1,20 +1,20 @@
 import ctypes
-import time
-import numpy as np
-from collections.abc import Callable
 import difflib
 import itertools
 import json
 import os
 import re
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import PIL.Image
-from PIL import ImageDraw
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 import pytest
+from PIL import ImageDraw
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -46,6 +46,7 @@ def diff_snippet(text1: str, text2: str, diff_line_limit: int | None = 20) -> st
     else:
         snippet = list(diff)
     return '\n'.join(snippet)
+
 
 class TestDocument:
     def valid_doc_paths(self) -> list[str]:
@@ -531,7 +532,7 @@ class TestDocument:
         #     splitter.split_page()
 
         path = '/Users/sergeymkhitaryan/work/0000376.pdf'
-        for i in range(15,30):
+        for i in range(15, 30):
             splitter = PdfSplitter(path=path, page_num=i)
             splitter.split_page()
 
@@ -540,20 +541,20 @@ class TestDocument:
 
         # new pdf splitter
         from pixeltable.iterators.pdf_splitter import PdfSplitter
+
         start_ts = time.time()
         splitter = PdfSplitter(path=path, page_num=0)
         for i in range(splitter.num_pages):
-            if i>0:
+            if i > 0:
                 splitter = PdfSplitter(path=path, page_num=i)
             splitter.split_page()
         end_ts = time.time()
         print(f'New PdfSplitter time: {end_ts - start_ts:.2f}')
 
-        # fitz (PyMuPDF) 
+        # fitz (PyMuPDF)
         start_ts = time.time()
-        iterator=DocumentSplitter(path, separators = 'paragraph', elements=['text'])
+        iterator = DocumentSplitter(path, separators='paragraph', elements=['text'])
         for result in iterator:
             pass
         end_ts = time.time()
         print(f'fitz time: {end_ts - start_ts:.2f}')
-
