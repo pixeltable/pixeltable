@@ -236,6 +236,10 @@ class FrameIterator(ComponentIterator):
     def set_pos(self, pos: int, **kwargs: Any) -> None:
         assert next(iter(kwargs.values()), None) is not None
 
+        if self.pos == pos:
+            # Nothing to do
+            return
+
         self.pos = pos
 
         seek_time: float

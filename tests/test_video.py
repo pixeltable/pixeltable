@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import PIL
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -131,6 +131,36 @@ class TestVideo:
             _ = pxt.create_view(
                 'invalid_args', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 2, num_frames=10)
             )
+
+    def test_frame_iterator_seek(self, reset_db: None) -> None:
+        """
+        Test that we can seek to specific frames in the video iterator and get consistent results.
+
+        Loads the first 50 frames of a video with various fps and num_frames settings, then queries for frames at
+        specific positions and checks that the output is pixel-identical.
+
+        The test runs against both the fixed-framerate and variable-framerate versions of the test video.
+        """
+        paths = [p for p in get_video_files() if '10-Second Video' in p]
+        assert len(paths) >= 2
+        for p in paths:
+            for kwargs in ({'fps': None}, {'fps': 1}, {'fps': 0.5}, {'fps': 1000}, {'num_frames': 10}, {'num_frames': 50}, {'num_frames': 10000}):
+                videos = pxt.create_table('videos', {'video': pxt.Video}, if_exists='replace_force')
+                view = pxt.create_view(f'frames', videos, iterator=FrameIterator.create(video=videos.video, **kwargs))
+                videos.insert(video=p)
+                # Load the first 50 frames sequentially
+                frames = view.select(view.frame).where(view.pos < 50).order_by(view.frame).collect()['frame']
+                # Now load them one at a time (we intentionally do this in separate queries)
+                for pos in (7, 15, 22, 36):
+                    res = view.where(view.pos == pos).select(view.frame).collect()['frame']
+                    if len(res) == 0:
+                        assert len(frames) <= pos
+                    else:
+                        selected_frame = res[0]
+                        assert isinstance(selected_frame, PIL.Image.Image)
+                        # Ensure we get the bitmap-identical frame
+                        assert selected_frame == frames[pos]
+
 
     def test_keyframes_only(self, reset_db: None) -> None:
         path = get_video_files()[0]
