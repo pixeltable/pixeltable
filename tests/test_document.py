@@ -538,6 +538,8 @@ class TestDocument:
 
     def test_compare_pdf_splitters(self) -> None:
         path = '/Users/sergeymkhitaryan/work/0000376.pdf'
+        # path = './gilbert.pdf'
+        # path = './docs/resources/rag-demo/Company-Research-Alphabet.pdf'
 
         new_splitter_sec = self._do_new_splitter(path)
 
