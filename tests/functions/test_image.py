@@ -32,6 +32,7 @@ class TestImage:
         _ = t.select(t.img.quantize(256, Quantize.MEDIANCUT, 3, None, Dither.NONE)).show()
         _ = t.select(t.img.reduce(2)).show()
         _ = t.select(t.img.reduce(2, box=[0, 0, 10, 10])).show()
+        _ = t.select(t.img.thumbnail([100, 100])).show()
         _ = t.select(t.img.transpose(Transpose.FLIP_LEFT_RIGHT)).show()
 
     def test_return_types(self, reset_db: None) -> None:
