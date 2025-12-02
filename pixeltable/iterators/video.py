@@ -293,6 +293,9 @@ class VideoSplitter(ComponentIterator):
         video_encoder_args: dict[str, Any] | None = None,
     ):
         Env.get().require_binary('ffmpeg')
+        self._check_args(
+            duration, segment_times, overlap, min_segment_duration, mode, video_encoder, video_encoder_args
+        )
         assert (duration is not None) != (segment_times is not None)
         if duration is not None:
             assert duration > 0.0
@@ -334,6 +337,44 @@ class VideoSplitter(ComponentIterator):
         }
 
     @classmethod
+    def _check_args(
+        cls,
+        segment_duration: Any,
+        segment_times: Any,
+        overlap: Any,
+        min_segment_duration: Any,
+        mode: Any,
+        video_encoder: Any,
+        video_encoder_args: Any,
+    ) -> None:
+        if segment_duration is None and segment_times is None:
+            raise excs.Error('Must specify either duration or segment_times')
+        if segment_duration is not None and segment_times is not None:
+            raise excs.Error('duration and segment_times cannot both be specified')
+        if segment_times is not None and overlap is not None:
+            raise excs.Error('overlap cannot be specified with segment_times')
+        if segment_duration is not None and isinstance(segment_duration, (int, float)):
+            if segment_duration <= 0.0:
+                raise excs.Error(f'duration must be a positive number: {segment_duration}')
+            if (
+                min_segment_duration is not None
+                and isinstance(min_segment_duration, (int, float))
+                and segment_duration < min_segment_duration
+            ):
+                raise excs.Error(
+                    f'duration must be at least min_segment_duration: {segment_duration} < {min_segment_duration}'
+                )
+            if overlap is not None and isinstance(overlap, (int, float)) and overlap >= segment_duration:
+                raise excs.Error(f'overlap must be less than duration: {overlap} >= {segment_duration}')
+        if mode == 'accurate' and overlap is not None:
+            raise excs.Error("Cannot specify overlap for mode='accurate'")
+        if mode == 'fast':
+            if video_encoder is not None:
+                raise excs.Error("Cannot specify video_encoder for mode='fast'")
+            if video_encoder_args is not None:
+                raise excs.Error("Cannot specify video_encoder_args for mode='fast'")
+
+    @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         param_names = ['duration', 'overlap', 'min_segment_duration', 'segment_times']
         params = dict(zip(param_names, args))
@@ -344,31 +385,11 @@ class VideoSplitter(ComponentIterator):
         overlap = params.get('overlap')
         min_segment_duration = params.get('min_segment_duration')
         mode = params.get('mode', 'fast')
-
-        if segment_duration is None and segment_times is None:
-            raise excs.Error('Must specify either duration or segment_times')
-        if segment_duration is not None and segment_times is not None:
-            raise excs.Error('duration and segment_times cannot both be specified')
-        if segment_times is not None and overlap is not None:
-            raise excs.Error('overlap cannot be specified with segment_times')
-        if segment_duration is not None and isinstance(segment_duration, (int, float)):
-            if segment_duration <= 0.0:
-                raise excs.Error('duration must be a positive number')
-            if (
-                min_segment_duration is not None
-                and isinstance(min_segment_duration, (int, float))
-                and segment_duration < min_segment_duration
-            ):
-                raise excs.Error('duration must be at least min_segment_duration')
-            if overlap is not None and isinstance(overlap, (int, float)) and overlap >= segment_duration:
-                raise excs.Error('overlap must be less than duration')
-        if mode == 'accurate' and overlap is not None:
-            raise excs.Error("Cannot specify overlap for mode='accurate'")
-        if mode == 'fast':
-            if params.get('video_encoder') is not None:
-                raise excs.Error("Cannot specify video_encoder for mode='fast'")
-            if params.get('video_encoder_args') is not None:
-                raise excs.Error("Cannot specify video_encoder_args for mode='fast'")
+        video_encoder = params.get('video_encoder')
+        video_encoder_args = params.get('video_encoder_args')
+        cls._check_args(
+            segment_duration, segment_times, overlap, min_segment_duration, mode, video_encoder, video_encoder_args
+        )
 
         return {
             'segment_start': ts.FloatType(nullable=True),
