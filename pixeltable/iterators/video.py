@@ -247,8 +247,8 @@ class FrameIterator(ComponentIterator):
 
 class VideoSplitter(ComponentIterator):
     """
-    Iterator over segments of a video file, which is split into fixed-size segments of length `segment_duration`
-    seconds.
+    Iterator over segments of a video file, which is split into segments. The segments are specified either via a
+    fixed duration or a list of split points.
 
     Args:
         duration: Video segment duration in seconds
@@ -256,7 +256,8 @@ class VideoSplitter(ComponentIterator):
         min_segment_duration: Drop the last segment if it is smaller than min_segment_duration.
         segment_times: List of timestamps (in seconds) in video where segments should be split. Note that these are not
             segment durations. If all segment times are less than the duration of the video, produces exactly
-            `len(segment_times) + 1` segments.
+            `len(segment_times) + 1` segments. An argument of `[]` will produce a single segment containing the
+            entire video.
         mode: Segmentation mode:
             - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
             - `'accurate'`: Precise segmentation with re-encoding (exact durations, slower)
@@ -378,6 +379,7 @@ class VideoSplitter(ComponentIterator):
         }, []
 
     def complete_video_iter(self) -> Iterator[dict[str, Any]]:
+        """Returns the entire video as a single segment"""
         assert len(self.segment_times) == 0
 
         with av.open(str(self.video_path)) as container:
@@ -405,7 +407,6 @@ class VideoSplitter(ComponentIterator):
                 'video_segment': str(self.video_path),
             }
             yield result
-            return
 
     def fast_iter(self) -> Iterator[dict[str, Any]]:
         segment_path: str = ''

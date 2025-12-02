@@ -421,7 +421,7 @@ def thumbnail(
         reducing_gap: The reducing gap to use.
     """
     result = self.copy()
-    result.thumbnail(size, resample, reducing_gap)  # type: ignore[arg-type]
+    result.thumbnail(size, PIL.Image.Resampling(resample), reducing_gap)
     return result
 
 
