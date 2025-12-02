@@ -109,6 +109,8 @@ class PdfSplitter:
         # give a higher score to the first character in each box
         for i in range(len(self.textpage.get_text_range())):
             c = chars[i]
+            if current_box is not None and self._char_is_in_bound(c, current_box):
+                continue
             box = self._find_bounding_box(c, bounds)
             if box is None:
                 # possibly whitespace character that we ignored when finding bounding boxes
