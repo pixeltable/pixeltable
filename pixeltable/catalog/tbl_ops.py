@@ -4,9 +4,13 @@
 #   enough information for exec_op() to perform the operation without having to reference data outside of
 #   TableVersion
 
+from __future__ import annotations
+
 import dataclasses
 from enum import Enum
 from typing import Any
+
+import pixeltable.metadata.schema as schema
 
 
 class OpStatus(Enum):
@@ -22,6 +26,18 @@ class TableOp:
     num_ops: int  # total number of ops forming the update operation
     needs_xact: bool  # if True, op must be run as part of a transaction
     status: OpStatus
+
+    def to_dict(self) -> dict:
+        result = dataclasses.asdict(self, dict_factory=schema.md_dict_factory)
+        result['_classname'] = self.__class__.__name__
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> TableOp:
+        import pixeltable.catalog.tbl_ops as tbl_ops
+        classname = data.pop('_classname')
+        op_class = getattr(tbl_ops, classname)
+        return schema.md_from_dict(op_class, data)
 
 
 @dataclasses.dataclass

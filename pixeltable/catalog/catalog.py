@@ -677,7 +677,7 @@ class Catalog:
                     )
                     rows = conn.execute(q).fetchall()
                     assert len(rows) > 0
-                    ops = [schema.md_from_dict(TableOp, row.op) for row in rows]
+                    ops = [TableOp.from_dict(dict(row.op)) for row in rows]
 
                     # determine next op to execute/undo
                     if is_rollback:
@@ -1264,6 +1264,8 @@ class Catalog:
 
         self._roll_forward_ids.clear()
         add_fn()
+        # force a reload in order to see the new columns/idxs
+        self._clear_tv_cache(TableVersionKey(tbl.tbl_id, None, None))
         self._roll_forward()
 
     def _clear_tv_cache(self, key: TableVersionKey) -> None:
@@ -2312,7 +2314,7 @@ class Catalog:
         if pending_ops is not None:
             for op in pending_ops:
                 op_record = schema.PendingTableOp(
-                    tbl_id=tbl_id, op_sn=op.op_sn, op=dataclasses.asdict(op, dict_factory=schema.md_dict_factory)
+                    tbl_id=tbl_id, op_sn=op.op_sn, op=op.to_dict()
                 )
                 session.add(op_record)
 
