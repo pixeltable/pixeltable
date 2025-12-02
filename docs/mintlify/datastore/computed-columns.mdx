@@ -30,13 +30,10 @@ import pixeltable as pxt
 # Create a table with population data
 pop_t = pxt.io.import_csv(
     'fundamentals.population',
-    'https://github.com/pixeltable/pixeltable/raw/main/docs/source/data/world-population-data.csv'
+    'https://github.com/pixeltable/pixeltable/raw/main/docs/resources/world-population-data.csv'
 )
 
 # Add a computed column for year-over-year change
-pop_t.add_computed_column(yoy_change=(pop_t.pop_2023 - pop_t.pop_2022))
-
-# Create a computed column to track population change year over year
 pop_t.add_computed_column(yoy_change=(pop_t.pop_2023 - pop_t.pop_2022))
 
 # Display the results
@@ -70,7 +67,7 @@ Once we insert data, it will automatically compute the values for the new column
 
 ```python
 # Insert sample images from a GitHub repository
-url_prefix = 'https://github.com/pixeltable/pixeltable/raw/main/docs/source/data/images'
+url_prefix = 'https://github.com/pixeltable/pixeltable/raw/main/docs/resources/images'
 images = ['000000000139.jpg', '000000000632.jpg', '000000000872.jpg']
 t.insert({'source': f'{url_prefix}/{image}'} for image in images)
 
@@ -88,7 +85,7 @@ You don't need to think about orchestration. Our DAG engine will take care of th
   <Card title="Incremental Updates" icon="arrows-rotate">
     Only recomputes values for rows affected by changes in source columns, saving processing time and resources.
   </Card>
-  
+
   <Card title="Automatic Dependencies" icon="diagram-project">
     Tracks relationships between columns and handles the execution order of computations automatically.
   </Card>
@@ -126,12 +123,12 @@ pop_t.add_computed_column(
 Computed columns can depend on other computed columns:
 
 ```python
-# First computed column: calculate total population change over 3 years
-pop_t.add_computed_column(total_change=pop_t.pop_2023 - pop_t.pop_2020)
+# First computed column: calculate total population change over 23 years
+pop_t.add_computed_column(total_change=pop_t.pop_2023 - pop_t.pop_2000)
 
 # Second computed column: calculate average yearly change using the first column
 pop_t.add_computed_column(
-    avg_yearly_change=pop_t.total_change / 3
+    avg_yearly_change=pop_t.total_change / 23
 )
 ```
 
@@ -154,7 +151,7 @@ pop_t.add_computed_column(
 ## Additional Resources
 
 <CardGroup cols={2}>
-  <Card title="SDK Reference" icon="book" href="https://docs.pixeltable.com/sdk/latest">
+  <Card title="SDK Reference" icon="book" href="/sdk/latest">
     Complete API reference
   </Card>
   <Card title="UDF Examples" icon="code" href="/datastore/custom-functions">
