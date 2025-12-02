@@ -3,7 +3,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
-import PIL.Image
 import pypdfium2 as pdfium
 import pypdfium2.raw as pdfium_c
 from PIL import ImageDraw
@@ -46,10 +45,17 @@ class PdfSplitter:
         self.page = self.pdf[page_num]
         self.textpage = self.page.get_textpage()
 
+        # Get the whole text. It may or may not be an improvement over GetUnicode
+        num_chars = len(self.textpage.get_text_range())
+        buffer_size = pdfium_c.FPDFText_CountChars(self.textpage) + 1
+        text = (pdfium_c.FPDF_WCHAR * buffer_size)()
+        pdfium_c.FPDFText_GetText(self.textpage, 0, num_chars, text)
+
         chars = []
+        x0, y0, x1, y1 = ctypes.c_double(), ctypes.c_double(), ctypes.c_double(), ctypes.c_double()
         for i in range(0, pdfium_c.FPDFText_CountChars(self.textpage)):
-            code = pdfium_c.FPDFText_GetUnicode(self.textpage, i)
-            x0, y0, x1, y1 = ctypes.c_double(), ctypes.c_double(), ctypes.c_double(), ctypes.c_double()
+            # code = pdfium_c.FPDFText_GetUnicode(self.textpage, i)
+            code = text[i]
             assert pdfium_c.FPDFText_GetCharBox(self.textpage, i, x0, x1, y0, y1)
             assert x0.value <= x1.value
             assert y0.value <= y1.value
@@ -168,7 +174,7 @@ class PdfSplitter:
                 box = (c_x - radius, c_y - radius, c_x + radius, c_y + radius)
                 draw.ellipse(box, outline=color, fill=color, width=1)
 
-        pil_img.save('./output.png')
+        pil_img.save(f'./output_{self.page_num}.png')
 
     def _page_coords_to_image_coords(self, page: pdfium.PdfPage, image, x: float, y: float) -> tuple[float, float]:
         img_x = x * (image.width / page.get_width())

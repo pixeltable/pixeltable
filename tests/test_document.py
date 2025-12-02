@@ -539,7 +539,13 @@ class TestDocument:
     def test_compare_pdf_splitters(self) -> None:
         path = '/Users/sergeymkhitaryan/work/0000376.pdf'
 
-        # new pdf splitter
+        new_splitter_sec = self._do_new_splitter(path)
+
+        fitz_sec = self._do_fitz_splitter(path)
+
+        print(f'New splitter is {new_splitter_sec / fitz_sec:.2f}x slower than fitz')
+
+    def _do_new_splitter(self, path: str) -> None:
         from pixeltable.iterators.pdf_splitter import PdfSplitter
 
         start_ts = time.time()
@@ -549,8 +555,9 @@ class TestDocument:
         end_ts = time.time()
         new_splitter_sec = end_ts - start_ts
         print(f'New PdfSplitter time: {new_splitter_sec:.2f}')
+        return new_splitter_sec
 
-        # fitz (PyMuPDF)
+    def _do_fitz_splitter(self, path: str) -> None:
         start_ts = time.time()
         iterator = DocumentSplitter(path, separators='paragraph', elements=['text'])
         for result in iterator:
@@ -558,5 +565,4 @@ class TestDocument:
         end_ts = time.time()
         fitz_sec = end_ts - start_ts
         print(f'fitz time: {fitz_sec:.2f}')
-
-        print(f'New splitter is {new_splitter_sec / fitz_sec:.2f}x slower than fitz')
+        return fitz_sec
