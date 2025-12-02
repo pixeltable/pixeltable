@@ -1,12 +1,20 @@
+import ctypes
 import difflib
 import itertools
 import json
 import os
 import re
+import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 import PIL.Image
+import pypdfium2 as pdfium
+import pypdfium2.raw as pdfium_c
 import pytest
+from PIL import ImageDraw
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -372,3 +380,189 @@ class TestDocument:
 
         res = chunks.collect()
         assert all(isinstance(r['image'], PIL.Image.Image) for r in res)
+
+    def test_pdf_libs(self, reset_db: None) -> None:
+        path = './docs/resources/rag-demo/Zacks-Nvidia-Report.pdf'
+        path = './gilbert.pdf'
+        page_num = 2
+
+        print('====== pdfminer ======')
+        from io import StringIO
+
+        from pdfminer.converter import TextConverter
+        from pdfminer.layout import LAParams
+        from pdfminer.pdfdocument import PDFDocument
+        from pdfminer.pdfinterp import PDFPageInterpreter, PDFResourceManager
+        from pdfminer.pdfpage import PDFPage
+        from pdfminer.pdfparser import PDFParser
+        # from pdfminer.high_level import extract_text
+        # text = extract_text(path)
+        # print(text)
+
+        output_string = StringIO()
+        with open(path, 'rb') as in_file:
+            parser = PDFParser(in_file)
+            doc = PDFDocument(parser)
+            rsrcmgr = PDFResourceManager()
+            device = TextConverter(rsrcmgr, output_string, laparams=LAParams())
+            interpreter = PDFPageInterpreter(rsrcmgr, device)
+            for i, page in enumerate(PDFPage.create_pages(doc)):
+                if i != page_num:
+                    continue
+                interpreter.process_page(page)
+        print(output_string.getvalue())
+
+        print('====== pdfminer using extract_pages ======')
+        from collections.abc import Iterable
+
+        from pdfminer.high_level import extract_pages
+        from pdfminer.layout import LTChar, LTFigure, LTTextContainer
+
+        def print_text(obj: Any):
+            print(f'type: {type(obj)}')
+            if isinstance(obj, LTTextContainer):
+                print(obj.get_text())
+            elif isinstance(obj, LTFigure):
+                text = ''
+                for element in obj:
+                    if isinstance(element, LTChar):
+                        text = text + element.get_text()
+                print(text)
+            elif isinstance(obj, Iterable):
+                for o in obj:
+                    print_text(o)
+
+        for i, page_layout in enumerate(extract_pages(path)):
+            if i != page_num:
+                continue
+            print_text(page_layout)
+            # for element in page_layout:
+            #     print (f': {type(element)}')
+            #     if isinstance(element, LTTextContainer):
+            #         print(element.get_text())
+            # print('-- page break --')
+
+        import pypdfium2 as pdfium
+        import pypdfium2.raw as pdfium_c
+
+        pdf = pdfium.PdfDocument(path)
+        page = pdf[page_num]
+        print('====== pdfium objects ======')
+        for obj in page.get_objects(filter=[pdfium_c.FPDF_PAGEOBJ_TEXT, pdfium_c.FPDF_PAGEOBJ_IMAGE]):
+            txt = None
+            if obj.type == pdfium_c.FPDF_PAGEOBJ_TEXT:
+                # txt = obj.get_text()
+                pass
+            elif obj.type == pdfium_c.FPDF_PAGEOBJ_IMAGE:
+                txt = '<image object>'
+            print(f'type {obj.type} level {obj.level} bounds {obj.get_bounds()} text: {txt}')
+
+        textpage = page.get_textpage()
+        # Can retrieve text inside a box
+        # text_all = textpage.get_text_bounded()
+        text_all = textpage.get_text_range()
+        print('====== pdfium text ======')
+        print(text_all)
+
+        print('====== pymupdf blocks ======')
+        doc = get_document_handle(path).pdf_doc
+        assert doc is not None
+        for i, page in enumerate(doc.pages()):
+            if i != page_num:
+                continue
+            for block in page.get_text('blocks'):
+                print(block)
+                print('-----')
+            break
+
+    def test_pdfium(self) -> None:
+        path = './gilbert.pdf'
+        page_num = 2
+
+        # path = './docs/resources/rag-demo/Argus-Market-Watch-June-2024.pdf'
+        # page_num = 0
+
+        # path = './docs/resources/rag-demo/Argus-Market-Digest-June-2024.pdf'
+        # page_num = 0
+
+        # path  = './docs/resources/rag-demo/Company-Research-Alphabet.pdf'
+        # page_num = 1
+
+        # path = './docs/resources/rag-demo/Jefferson-Amazon.pdf'
+        # page_num = 9
+
+        self.print_from_pdfium(path, page_num)
+
+    def print_from_pdfium(self, path: str, page_num: int) -> None:
+        import ctypes
+
+        import pypdfium2 as pdfium
+        import pypdfium2.raw as pdfium_c
+
+        pdf = pdfium.PdfDocument(path)
+        page = pdf[page_num]
+        textpage = page.get_textpage()
+        print('====== characters ======')
+        print()
+        text = ''
+        for i in range(0, pdfium_c.FPDFText_CountChars(textpage)):
+            code = pdfium_c.FPDFText_GetUnicode(textpage, i)
+            x, y = ctypes.c_double(), ctypes.c_double()
+            assert pdfium_c.FPDFText_GetCharOrigin(textpage, i, x, y)
+            print(f'char {i}: {chr(code)}({code}), origin ({x.value}, {y.value})')
+            text = text + chr(code)
+
+        print('====== entire text ======')
+        print(text)
+
+    def test_split_page(self) -> None:
+        from pixeltable.iterators.pdf_splitter import PdfSplitter
+        # path = './gilbert.pdf'
+        # page_num = 2
+        # path = './docs/resources/rag-demo/Zacks-Nvidia-Report.pdf'
+        # page_num = 9
+        # path = './docs/resources/rag-demo/Jefferson-Amazon.pdf'
+        # page_num = 9
+        # for i in range(30):
+        #     splitter = PdfSplitter(path='./docs/resources/rag-demo/Argus-Market-Digest-June-2024.pdf', page_num=0)
+        #     splitter.split_page()
+        #     splitter = PdfSplitter(path='./docs/resources/rag-demo/Argus-Market-Watch-June-2024.pdf', page_num=0)
+        #     splitter.split_page()
+        #     splitter = PdfSplitter(path='./docs/resources/rag-demo/Company-Research-Alphabet.pdf', page_num=2)
+        #     splitter.split_page()
+
+        path = '/Users/sergeymkhitaryan/work/0000376.pdf'
+        for i in range(15, 30):
+            splitter = PdfSplitter(path=path)
+            splitter.split_page(i)
+
+    def test_compare_pdf_splitters(self) -> None:
+        path = '/Users/sergeymkhitaryan/work/0000376.pdf'
+        # path = './gilbert.pdf'
+        # path = './docs/resources/rag-demo/Company-Research-Alphabet.pdf'
+
+        new_splitter_sec = self._do_new_splitter(path)
+
+        fitz_sec = self._do_fitz_splitter(path)
+
+        print(f'New splitter is {new_splitter_sec / fitz_sec:.2f}x slower than fitz')
+
+    def _do_new_splitter(self, path: str) -> None:
+        from pixeltable.iterators.pdf_splitter import PdfSplitter
+
+        start_ts = time.time()
+        splitter = PdfSplitter(path=path)
+        for i in range(splitter.num_pages):
+            splitter.split_page(i)
+        new_splitter_sec = time.time() - start_ts
+        print(f'New PdfSplitter time: {new_splitter_sec:.2f}')
+        return new_splitter_sec
+
+    def _do_fitz_splitter(self, path: str) -> None:
+        start_ts = time.time()
+        iterator = DocumentSplitter(path, separators='paragraph', elements=['text'])
+        for result in iterator:
+            pass
+        fitz_sec = time.time() - start_ts
+        print(f'fitz time: {fitz_sec:.2f}')
+        return fitz_sec
