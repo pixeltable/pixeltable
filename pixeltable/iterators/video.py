@@ -72,6 +72,7 @@ class FrameIterator(ComponentIterator):
     extraction_times: tuple[float] | None
 
     # state
+    pos: int
     cur_frame: av.VideoFrame | None
     next_extraction_idx: int | None
 
@@ -86,6 +87,12 @@ class FrameIterator(ComponentIterator):
     ):
         if int(fps is not None) + int(num_frames is not None) + int(keyframes_only) > 1:
             raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
+
+        if fps is not None and fps < 0.0:
+            raise excs.Error('`fps` must be a non-negative number')
+
+        if fps == 0.0:
+            fps = None  # treat 0.0 as unspecified
 
         video_path = Path(video)
         assert video_path.exists() and video_path.is_file()
@@ -113,8 +120,9 @@ class FrameIterator(ComponentIterator):
             # TODO: Anything we can do here? Other methods of determining the duration are expensive and
             #     not appropriate for an iterator initializer.
             raise excs.Error(f'Could not determine duration of video: {video}')
-        self.video_duration = float(duration * self.video_time_base) if duration is not None else None
+        self.video_duration = float(duration) if duration is not None else None
 
+        self.pos = 0
         if self.num_frames is not None:
             increment = (self.video_duration - self.video_start_time) / self.num_frames
             self.extraction_times = tuple(i * increment + self.video_start_time for i in range(self.num_frames))
@@ -198,9 +206,10 @@ class FrameIterator(ComponentIterator):
             img = self.cur_frame.to_image()
             assert isinstance(img, PIL.Image.Image)
             result: dict[str, Any] = {'frame': img}
+            index = self.next_extraction_idx if self.next_extraction_idx is not None else self.pos
             if self.all_frame_attrs:
                 attrs = {
-                    'index': self.next_extraction_idx,
+                    'index': index,
                     'pts': cur_frame_pts,
                     'dts': self.cur_frame.dts,
                     'time': float(cur_frame_pts * self.video_time_base),
@@ -212,8 +221,13 @@ class FrameIterator(ComponentIterator):
                 result['frame_attrs'] = attrs
             else:
                 pos_msec = float(cur_frame_pts * self.video_time_base * 1000 - self.video_start_time)
-                result.update({'frame_idx': self.next_pos, 'pos_msec': pos_msec, 'pos_frame': self.next_extraction_idx})
-            self.next_extraction_idx += 1
+                result.update({'frame_idx': index, 'pos_msec': pos_msec, 'pos_frame': index})
+
+            self.cur_frame = next_frame
+            self.pos += 1
+            if self.next_extraction_idx is not None:
+                self.next_extraction_idx += 1
+
             return result
 
     def close(self) -> None:
@@ -222,14 +236,22 @@ class FrameIterator(ComponentIterator):
     def set_pos(self, pos: int, **kwargs: Any) -> None:
         assert next(iter(kwargs.values()), None) is not None
 
+        self.pos = pos
+
         seek_time: float
         if 'pos_msec' in kwargs:
+            next_extraction_idx = kwargs['frame_idx']
             seek_time = kwargs['pos_msec'] / 1000.0 + self.video_start_time
         else:
             assert 'frame_attrs' in kwargs
-            assert 'time' in kwargs['frame_attrs']
-            assert isinstance(kwargs['frame_attrs']['time'], float)
+            next_extraction_idx = kwargs['frame_attrs']['index']
             seek_time = kwargs['frame_attrs']['time']
+
+        assert isinstance(seek_time, float)
+        assert isinstance(next_extraction_idx, int)
+
+        if self.extraction_times is not None:
+            self.next_extraction_idx = next_extraction_idx
 
         seek_pts = math.floor(seek_time / self.video_time_base)
         self.container.seek(seek_pts, backward=True, stream=self.container.streams.video[0])
@@ -237,14 +259,7 @@ class FrameIterator(ComponentIterator):
         self.cur_frame = self.next_frame()
         while self.cur_frame is not None and float(self.cur_frame.pts * self.video_time_base) < seek_time - 1e-3:
             self.cur_frame = self.next_frame()
-
         assert self.cur_frame is None or abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
-        if self.extraction_times is not None:
-            # Find the next extraction index
-            for i, t in enumerate(self.extraction_times):
-                if t >= seek_time - 1e-3:
-                    self.next_extraction_idx = i
-                    break
 
 
 class VideoSplitter(ComponentIterator):

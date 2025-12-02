@@ -118,14 +118,14 @@ class TestVideo:
             'num_frames_1000', videos, iterator=FrameIterator.create(video=videos.video, num_frames=1000)
         )
         videos.insert(video=path)
-        assert frames_all.count() == 449
+        assert frames_all.count() == 448
         assert frames_1_0.count() == 15
         assert frames_0_5.count() == 8
         assert frames_0_33.count() == 5
-        assert frames_1000.count() == 449
+        assert frames_1000.count() == 448
         assert num_frames_10.count() == 10
         assert num_frames_50.count() == 50
-        assert num_frames_1000.count() == 449
+        assert num_frames_1000.count() == 448
 
         with pytest.raises(pxt.Error, match='At most one of'):
             _ = pxt.create_view(

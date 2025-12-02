@@ -298,7 +298,11 @@ class ColumnRef(Expr):
         stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
         assert all(name is not None for name in stored_outputs)
         self.iterator.set_pos(data_row.pk[self.pos_idx], **stored_outputs)
-        res = next(self.iterator)
+        try:
+            res = next(self.iterator)
+        except StopIteration:
+            assert False, self.iterator.cur_frame
+            raise
         data_row[self.slot_idx] = res[self.col.name]
 
     def _as_dict(self) -> dict:
