@@ -552,8 +552,7 @@ class TestDocument:
         splitter = PdfSplitter(path=path)
         for i in range(splitter.num_pages):
             splitter.split_page(i)
-        end_ts = time.time()
-        new_splitter_sec = end_ts - start_ts
+        new_splitter_sec = time.time() - start_ts
         print(f'New PdfSplitter time: {new_splitter_sec:.2f}')
         return new_splitter_sec
 
@@ -562,7 +561,6 @@ class TestDocument:
         iterator = DocumentSplitter(path, separators='paragraph', elements=['text'])
         for result in iterator:
             pass
-        end_ts = time.time()
-        fitz_sec = end_ts - start_ts
+        fitz_sec = time.time() - start_ts
         print(f'fitz time: {fitz_sec:.2f}')
         return fitz_sec

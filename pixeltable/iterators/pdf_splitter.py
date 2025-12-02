@@ -87,7 +87,12 @@ class PdfSplitter:
         max_x = self.page.get_width()
         max_y = self.page.get_height()
 
-        bounds = self._split_page(self.textpage, non_whitespace_chars, BoundingBox(min_x, min_y, max_x, max_y))
+        non_whitespace_chars_sort_x = sorted(non_whitespace_chars, key=lambda c: c.center_x)
+        non_whitespace_chars.sort(key=lambda c: c.center_y)
+
+        bounds = self._split_page(
+            self.textpage, non_whitespace_chars_sort_x, non_whitespace_chars, BoundingBox(min_x, min_y, max_x, max_y)
+        )
         assert bounds is not None
         if DEBUG:
             print('\n====== split bounds ======\n')
@@ -194,19 +199,23 @@ class PdfSplitter:
                 return b
         return None
 
-    def _split_page(self, textpage: pdfium.PdfTextPage, chars, bound: BoundingBox) -> list[BoundingBox] | None:
+    def _split_page(
+        self, textpage: pdfium.PdfTextPage, chars_by_x, chars_by_y, bound: BoundingBox
+    ) -> list[BoundingBox] | None:
         if bound.x0 >= bound.x1 or bound.y0 >= bound.y1:
             return None
 
-        chars_in_bound = self._chars_in_bound(chars, bound)
-        if len(chars_in_bound) < 200:
+        chars_in_bound_by_x = self._chars_in_bound(chars_by_x, bound)
+        chars_in_bound_by_y = self._chars_in_bound(chars_by_y, bound)
+        assert len(chars_in_bound_by_x) == len(chars_in_bound_by_y)
+        if len(chars_in_bound_by_x) < 200:
             # too few chars to split further
             return [bound]
 
         # find biggest vertical gap
-        chars_in_bound.sort(key=lambda c: c.center_y)
-        vert_gap = self._biggest_gap(chars_in_bound, lambda c: c.center_y)
-        avg_char_height = self._avg([self._char_height(c) for c in chars_in_bound])
+        # chars_in_bound.sort(key=lambda c: c.center_y)
+        vert_gap = self._biggest_gap(chars_in_bound_by_y, lambda c: c.center_y)
+        avg_char_height = self._avg([self._char_height(c) for c in chars_in_bound_by_y])
         vert_gap_significance = None
         if vert_gap is not None:
             vert_gap_significance = vert_gap[0] / avg_char_height
@@ -214,9 +223,9 @@ class PdfSplitter:
             vert_gap_significance = None
 
         # find biggest horizontal gap
-        chars_in_bound.sort(key=lambda c: c.center_x)
-        horiz_gap = self._biggest_gap(chars_in_bound, lambda c: c.center_x)
-        avg_char_width = self._avg([self._char_width(c) for c in chars_in_bound])
+        # chars_in_bound.sort(key=lambda c: c.center_x)
+        horiz_gap = self._biggest_gap(chars_in_bound_by_x, lambda c: c.center_x)
+        avg_char_width = self._avg([self._char_width(c) for c in chars_in_bound_by_x])
         horiz_gap_significance = None
         if horiz_gap is not None:
             horiz_gap_significance = horiz_gap[0] / avg_char_width
@@ -238,11 +247,15 @@ class PdfSplitter:
         if do_vert_split:
             box1 = BoundingBox(bound.x0, bound.y0, bound.x1, vert_gap[1])
             box2 = BoundingBox(bound.x0, vert_gap[1], bound.x1, bound.y1)
-            return self._split_page(textpage, chars, box1) + self._split_page(textpage, chars, box2)
+            return self._split_page(
+                textpage, chars_by_x=chars_in_bound_by_x, chars_by_y=chars_in_bound_by_y, bound=box1
+            ) + self._split_page(textpage, chars_by_x=chars_in_bound_by_x, chars_by_y=chars_in_bound_by_y, bound=box2)
         else:
             box1 = BoundingBox(bound.x0, bound.y0, horiz_gap[1], bound.y1)
             box2 = BoundingBox(horiz_gap[1], bound.y0, bound.x1, bound.y1)
-            return self._split_page(textpage, chars, box1) + self._split_page(textpage, chars, box2)
+            return self._split_page(
+                textpage, chars_by_x=chars_in_bound_by_x, chars_by_y=chars_in_bound_by_y, bound=box1
+            ) + self._split_page(textpage, chars_by_x=chars_in_bound_by_x, chars_by_y=chars_in_bound_by_y, bound=box2)
 
     def _biggest_gap(self, chars, coord_func: Callable[[PdfChar], float]) -> tuple[float, float] | None:
         # Finds the biggest gap between consecutive chars based on the provided coordinate function.
