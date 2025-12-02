@@ -208,11 +208,12 @@ class PdfSplitter:
             return None
 
         chars_in_bound_by_x = self._chars_in_bound(chars_by_x, bound)
-        chars_in_bound_by_y = self._chars_in_bound(chars_by_y, bound)
-        assert len(chars_in_bound_by_x) == len(chars_in_bound_by_y)
         if len(chars_in_bound_by_x) < 200:
             # too few chars to split further
             return [bound]
+
+        chars_in_bound_by_y = self._chars_in_bound(chars_by_y, bound)
+        assert len(chars_in_bound_by_x) == len(chars_in_bound_by_y)
 
         # find biggest vertical gap
         # chars_in_bound.sort(key=lambda c: c.center_y)
@@ -249,15 +250,19 @@ class PdfSplitter:
         if do_vert_split:
             box1 = BoundingBox(bound.x0, bound.y0, bound.x1, vert_gap[1])
             box2 = BoundingBox(bound.x0, vert_gap[1], bound.x1, bound.y1)
-            return self._split_page(
+            split1 = self._split_page(
                 textpage, chars_by_x=chars_in_bound_by_x, chars_by_y=chars_in_bound_by_y, bound=box1
-            ) + self._split_page(textpage, chars_by_x=chars_in_bound_by_x, chars_by_y=chars_in_bound_by_y, bound=box2)
+            )
+            split2 = self._split_page(textpage, chars_by_x=chars_in_bound_by_x, chars_by_y=chars_in_bound_by_y, bound=box2)
+            return split1 + split2
         else:
             box1 = BoundingBox(bound.x0, bound.y0, horiz_gap[1], bound.y1)
             box2 = BoundingBox(horiz_gap[1], bound.y0, bound.x1, bound.y1)
-            return self._split_page(
+            split1 = self._split_page(
                 textpage, chars_by_x=chars_in_bound_by_x, chars_by_y=chars_in_bound_by_y, bound=box1
-            ) + self._split_page(textpage, chars_by_x=chars_in_bound_by_x, chars_by_y=chars_in_bound_by_y, bound=box2)
+            )
+            split2 = self._split_page(textpage, chars_by_x=chars_in_bound_by_x, chars_by_y=chars_in_bound_by_y, bound=box2)
+            return split1 + split2
 
     def _biggest_gap(self, chars, coord_func: Callable[[PdfChar], float]) -> tuple[float, float] | None:
         # Finds the biggest gap between consecutive chars based on the provided coordinate function.
