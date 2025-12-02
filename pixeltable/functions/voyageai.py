@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from voyageai import AsyncClient
 
 
-@env.register_client('voyageai')
+@env.register_client('voyage')
 def _(api_key: str) -> 'AsyncClient':
     from voyageai import AsyncClient
 
@@ -43,7 +43,7 @@ def _(api_key: str) -> 'AsyncClient':
 
 
 def _voyageai_client() -> 'AsyncClient':
-    return env.Env.get().get_client('voyageai')
+    return env.Env.get().get_client('voyage')
 
 
 @pxt.udf(batch_size=128, resource_pool='request-rate:voyageai')
