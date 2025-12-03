@@ -31,6 +31,7 @@ _hf_to_pxt: dict[str, ts.ColumnType] = {
     'timestamp[s]': ts.TimestampType(nullable=True),
     'timestamp[ms]': ts.TimestampType(nullable=True),  # HF dataset iterator converts timestamps to datetime.datetime
     'timestamp[us]': ts.TimestampType(nullable=True),
+    'timestamp[ns]': ts.TimestampType(nullable=True),
     'date32': ts.DateType(nullable=True),
     'date64': ts.DateType(nullable=True),
 }
@@ -60,6 +61,28 @@ def _to_pixeltable_type(feature_type: Any, nullable: bool) -> ts.ColumnType | No
             return ts.JsonType(nullable=nullable)
     elif isinstance(feature_type, datasets.Image):
         return ts.ImageType(nullable=nullable)
+    elif isinstance(feature_type, datasets.Audio):
+        return ts.AudioType(nullable=nullable)
+    elif isinstance(feature_type, datasets.Video):
+        return ts.VideoType(nullable=nullable)
+    elif isinstance(feature_type, (datasets.Array2D, datasets.Array3D, datasets.Array4D, datasets.Array5D)):
+        # Multi-dimensional arrays with fixed shape and dtype
+        inner_dtype = _hf_to_pxt.get(feature_type.dtype, None)
+        if inner_dtype is None:
+            return None
+        return ts.ArrayType(shape=feature_type.shape, dtype=inner_dtype, nullable=nullable)
+    elif isinstance(feature_type, datasets.LargeList):
+        # Like Sequence but for large data
+        dtype = _to_pixeltable_type(feature_type.feature, nullable)
+        if dtype is None:
+            return None
+        if dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type():
+            return ts.ArrayType(shape=(None,), dtype=dtype, nullable=nullable)
+        else:
+            return ts.JsonType(nullable=nullable)
+    elif isinstance(feature_type, (datasets.Translation, datasets.TranslationVariableLanguages)):
+        # Translation types are dict-like structures
+        return ts.JsonType(nullable=nullable)
     elif isinstance(feature_type, (list, dict)):
         return ts.JsonType(nullable=nullable)
     else:

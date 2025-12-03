@@ -350,33 +350,17 @@ class HFTableDataConduit(TableDataConduit):
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
 
-        # Identify columns that should be converted to numpy:
-        # - Sequence types (arrays/embeddings)
-        # - Image types (need numpy for PIL.Image.fromarray)
-        # - Audio types (contain array data)
-        # - Dict types that contain Sequence/Image/Audio (e.g., audio dicts with array data)
-        # Other types like list-of-dicts should stay as Python lists for JSON serialization
         first_dataset = tds.source if isinstance(tds.source, datasets.Dataset) else next(iter(tds.source.values()))
-
-        def needs_numpy_format(feature: Any) -> bool:
-            """Check if a feature type needs numpy formatting (recursively for dicts)."""
-            if isinstance(feature, (datasets.Sequence, datasets.Image, datasets.Audio)):
-                return True
-            if isinstance(feature, dict):
-                # Dict feature: check if any nested values need numpy
-                return any(needs_numpy_format(v) for v in feature.values())
-            return False
-
-        numpy_columns = [
-            name for name, feature in first_dataset.features.items()
-            if needs_numpy_format(feature)
-        ]
-
-        # Selectively apply numpy format only to columns that need it
-        if numpy_columns:
+        # we want to handle these feature types as numpy arrays
+        numpy_feature_types = (datasets.Sequence, datasets.Image, datasets.Audio, datasets.Video, datasets.Array2D, datasets.Array3D, datasets.Array4D, datasets.Array5D)
+        numpy_columns = [ name for name, feature in first_dataset.features.items() if isinstance(feature, numpy_feature_types) ]
+        dict_columns = [ name for name, feature in first_dataset.features.items() if isinstance(feature, dict) ]
+        numpy_columns += dict_columns
+        if len(numpy_columns) > 0:
             source = tds.source.with_format(type='numpy', columns=numpy_columns, output_all_columns=True)
         else:
             source = tds.source
+
         if isinstance(source, datasets.Dataset):
             # when loading an hf dataset partially, dataset.split._name is sometimes the form "train[0:1000]"
             raw_name = source.split._name
@@ -502,6 +486,213 @@ class HFTableDataConduit(TableDataConduit):
             # last batch
             if len(batch) > 0:
                 yield batch
+
+
+class FastHFImporter(TableDataConduit):
+    """
+    Fast HuggingFace dataset importer using direct Arrow access.
+    Avoids format conversions for most column types, accessing the underlying
+    Arrow tables directly instead of using with_format('numpy').
+    """
+
+    column_name_for_split: str | None = None
+    categorical_features: dict[str, dict[int, str]]
+    dataset_dict: dict[str, 'datasets.Dataset'] = None
+    hf_schema_source: dict[str, Any] = None
+
+    @classmethod
+    def from_tds(cls, tds: TableDataConduit) -> 'FastHFImporter':
+        tds_fields = {f.name for f in fields(tds)}
+        kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
+        t = cls(**kwargs)
+        import datasets
+
+        assert isinstance(tds.source, (datasets.Dataset, datasets.DatasetDict))
+        if 'column_name_for_split' in t.extra_fields:
+            t.column_name_for_split = t.extra_fields['column_name_for_split']
+
+        # Store dataset without any format conversion
+        if isinstance(tds.source, datasets.Dataset):
+            raw_name = tds.source.split._name
+            split_name = raw_name.split('[')[0] if raw_name is not None else None
+            t.dataset_dict = {split_name: tds.source}
+        else:
+            assert isinstance(tds.source, datasets.DatasetDict)
+            t.dataset_dict = dict(tds.source)
+        return t
+
+    @classmethod
+    def is_applicable(cls, tds: TableDataConduit) -> bool:
+        try:
+            import datasets
+
+            return (isinstance(tds.source_format, str) and tds.source_format.lower() == 'huggingface') or isinstance(
+                tds.source, (datasets.Dataset, datasets.DatasetDict)
+            )
+        except ImportError:
+            return False
+
+    def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        from pixeltable.io.hf_datasets import _get_hf_schema, huggingface_schema_to_pxt_schema
+
+        if self.source_column_map is None:
+            if self.src_schema_overrides is None:
+                self.src_schema_overrides = {}
+            if self.src_pk is None:
+                self.src_pk = []
+            self.hf_schema_source = _get_hf_schema(self.source)
+            self.src_schema = huggingface_schema_to_pxt_schema(
+                self.hf_schema_source, self.src_schema_overrides, self.src_pk
+            )
+
+            # Add the split column to the schema if requested
+            if self.column_name_for_split is not None:
+                if self.column_name_for_split in self.src_schema:
+                    raise excs.Error(
+                        f'Column name `{self.column_name_for_split}` already exists in dataset schema;'
+                        f'provide a different `column_name_for_split`'
+                    )
+                self.src_schema[self.column_name_for_split] = ts.StringType(nullable=True)
+
+            inferred_schema, inferred_pk, self.source_column_map = normalize_schema_names(
+                self.src_schema, self.src_pk, self.src_schema_overrides, True
+            )
+            return inferred_schema, inferred_pk
+        else:
+            raise NotImplementedError()
+
+    def infer_schema(self) -> dict[str, Any]:
+        self.pxt_schema, self.pxt_pk = self.infer_schema_part1()
+        self.normalize_pxt_schema_types()
+        self.prepare_insert()
+        return self.pxt_schema
+
+    def prepare_for_insert_into_table(self) -> None:
+        _, inferred_pk = self.infer_schema_part1()
+        assert len(inferred_pk) == 0
+        self.prepare_insert()
+
+    def prepare_insert(self) -> None:
+        import datasets
+
+        # Extract all class labels from the dataset to translate category ints to strings
+        self.categorical_features = {
+            feature_name: feature_type.names
+            for (feature_name, feature_type) in self.hf_schema_source.items()
+            if isinstance(feature_type, datasets.ClassLabel)
+        }
+        if self.source_column_map is None:
+            self.source_column_map = {}
+        self.check_source_columns_are_insertable(self.hf_schema_source.keys())
+
+    def _convert_value(self, val: Any, feature: Any) -> Any:
+        """Convert Arrow values to Pixeltable-compatible types."""
+        import datasets
+
+        if val is None:
+            return None
+
+        if isinstance(feature, datasets.ClassLabel):
+            # Convert integer label to string name
+            return feature.names[val]
+
+        elif isinstance(feature, datasets.Value):
+            # Arrow already converts to Python types
+            return val
+
+        elif isinstance(feature, datasets.Sequence):
+            # Convert to numpy array
+            return np.array(val)
+
+        elif isinstance(feature, datasets.Image):
+            # Decode from Arrow binary format
+            return self._decode_image(val)
+
+        elif isinstance(feature, datasets.Audio):
+            # Audio is stored as dict with 'array', 'path', 'sampling_rate'
+            return self._decode_audio(val, feature)
+
+        elif isinstance(feature, dict):
+            # Recursively handle nested structures (e.g., audio dict with Sequence inside)
+            if isinstance(val, dict):
+                return {k: self._convert_value(v, feature[k]) for k, v in val.items()}
+            return val
+
+        elif isinstance(feature, list):
+            # List of dicts → keep as-is (JsonType)
+            return val
+
+        else:
+            return val
+
+    def _decode_image(self, val: Any) -> PIL.Image.Image:
+        """Decode Arrow image data to PIL.Image."""
+        import io as _io
+
+        if isinstance(val, dict) and 'bytes' in val:
+            return PIL.Image.open(_io.BytesIO(val['bytes']))
+        elif isinstance(val, bytes):
+            return PIL.Image.open(_io.BytesIO(val))
+        elif isinstance(val, dict) and 'path' in val:
+            return PIL.Image.open(val['path'])
+        return val
+
+    def _decode_audio(self, val: Any, feature: Any) -> dict:
+        """Convert audio dict, ensuring array is numpy."""
+        import datasets
+
+        if isinstance(val, dict):
+            result = {}
+            # Get the inner feature types from the Audio feature
+            # Audio features have an implicit structure: {'array': Sequence, 'path': Value, 'sampling_rate': Value}
+            for k, v in val.items():
+                if k == 'array':
+                    # Convert array to numpy
+                    result[k] = np.array(v) if not isinstance(v, np.ndarray) else v
+                else:
+                    result[k] = v
+            return result
+        return val
+
+    def valid_row_batch(self) -> Iterator['RowData']:
+        for split_name, split_dataset in self.dataset_dict.items():
+            features = split_dataset.features
+
+            # Calculate batch size based on dataset size
+            num_batches = max(1, split_dataset.size_in_bytes / self._K_BATCH_SIZE_BYTES)
+            tuples_per_batch = math.ceil(split_dataset.num_rows / num_batches)
+            assert tuples_per_batch > 0
+
+            # Access underlying Arrow table directly
+            arrow_table = split_dataset._data
+
+            # Process in batches
+            for batch in arrow_table.to_batches(max_chunksize=tuples_per_batch):
+                pydict = batch.to_pydict()  # Fast columnar → dict conversion
+                rows = []
+
+                for i in range(batch.num_rows):
+                    row = {}
+                    for col_name in pydict:
+                        raw_val = pydict[col_name][i]
+                        feature = features[col_name]
+
+                        # Apply categorical label conversion if needed
+                        if col_name in self.categorical_features:
+                            new_val = self.categorical_features[col_name][raw_val]
+                        else:
+                            new_val = self._convert_value(raw_val, feature)
+
+                        mapped_col_name = self.source_column_map.get(col_name, col_name)
+                        row[mapped_col_name] = new_val
+
+                    # Add split name to output row
+                    if self.column_name_for_split is not None:
+                        row[self.column_name_for_split] = split_name
+
+                    rows.append(row)
+
+                yield rows
 
 
 class ParquetTableDataConduit(TableDataConduit):

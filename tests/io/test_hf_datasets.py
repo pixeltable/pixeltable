@@ -236,3 +236,91 @@ class TestHfDatasets:
         with pytest.raises(pxt.Error) as exc_info:
             pxt.io.import_huggingface_dataset('test', {})
         assert 'Unsupported data source type' in str(exc_info.value)
+
+    def test_fast_hf_importer(self, reset_db: None) -> None:
+        """Test FastHFImporter using direct Arrow access."""
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        from pixeltable.io.table_data_conduit import FastHFImporter, TableDataConduit
+
+        # Test with rotten_tomatoes dataset (has ClassLabel)
+        hf_dataset = datasets.load_dataset('rotten_tomatoes')
+
+        # Create TableDataConduit and convert to FastHFImporter
+        tds = TableDataConduit(
+            source=hf_dataset,
+            extra_fields={'column_name_for_split': 'my_split'}
+        )
+        fast_importer = FastHFImporter.from_tds(tds)
+
+        # Infer schema
+        schema = fast_importer.infer_schema()
+        assert 'text' in schema
+        assert 'label' in schema
+        assert 'my_split' in schema
+
+        # Test iteration
+        batches = list(fast_importer.valid_row_batch())
+        assert len(batches) > 0
+
+        # Check first batch structure
+        first_batch = batches[0]
+        assert len(first_batch) > 0
+        first_row = first_batch[0]
+        assert 'text' in first_row
+        assert 'label' in first_row
+        assert 'my_split' in first_row
+
+        # ClassLabel should be converted to string
+        assert isinstance(first_row['label'], str)
+        assert first_row['label'] in ['neg', 'pos']
+
+    def test_fast_hf_importer_with_images(self, reset_db: None) -> None:
+        """Test FastHFImporter with image data."""
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        from pixeltable.io.table_data_conduit import FastHFImporter, TableDataConduit
+
+        # Test with mnist dataset
+        hf_dataset = datasets.load_dataset('ylecun/mnist', split='test[:10]')
+
+        tds = TableDataConduit(source=hf_dataset)
+        fast_importer = FastHFImporter.from_tds(tds)
+
+        schema = fast_importer.infer_schema()
+        assert 'image' in schema
+
+        batches = list(fast_importer.valid_row_batch())
+        assert len(batches) > 0
+
+        first_row = batches[0][0]
+        assert 'image' in first_row
+        assert isinstance(first_row['image'], PIL.Image.Image)
+
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_fast_hf_importer_with_audio(self, reset_db: None) -> None:
+        """Test FastHFImporter with audio data (nested Sequence in dict)."""
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        from pixeltable.io.table_data_conduit import FastHFImporter, TableDataConduit
+
+        hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset')
+
+        tds = TableDataConduit(source=hf_dataset)
+        fast_importer = FastHFImporter.from_tds(tds)
+
+        schema = fast_importer.infer_schema()
+        assert 'audio' in schema
+        assert 'sentence' in schema
+
+        batches = list(fast_importer.valid_row_batch())
+        assert len(batches) > 0
+
+        first_row = batches[0][0]
+        assert isinstance(first_row['audio'], dict)
+        assert 'array' in first_row['audio']
+        # Key assertion: array should be numpy array, not Python list
+        assert isinstance(first_row['audio']['array'], np.ndarray)
