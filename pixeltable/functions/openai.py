@@ -32,7 +32,6 @@ _logger = logging.getLogger('pixeltable')
 
 MAX_KEEPALIVE_CONNECTIONS = 100
 MAX_CONNECTIONS = 2000
-TIMEOUT = 60.0
 
 
 def _adjust_fd_limit() -> None:
@@ -78,7 +77,6 @@ def _(api_key: str, base_url: str | None = None, api_version: str | None = None)
         # recommended to increase limits for async client to avoid connection errors
         http_client=httpx.AsyncClient(
             limits=httpx.Limits(max_keepalive_connections=MAX_KEEPALIVE_CONNECTIONS, max_connections=MAX_CONNECTIONS),
-            timeout=TIMEOUT,
             # HTTP1 tends to perform better on this kind of workloads
             http2=False,
             http1=True,
