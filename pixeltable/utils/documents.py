@@ -1,7 +1,7 @@
 import dataclasses
 import os
 
-import bs4  # type: ignore[import-untyped]
+import bs4
 import fitz  # type: ignore[import-untyped]
 import puremagic
 

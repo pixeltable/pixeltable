@@ -52,11 +52,7 @@ class TestDocument:
         from pathlib import Path
 
         docs_dir = Path(__file__).parent / 'data' / 'documents'
-        office_files = []
-        for ext in ['.pptx', '.docx', '.xlsx']:
-            for f in docs_dir.glob(f'*{ext}'):
-                office_files.append(str(f))
-        return office_files
+        return [str(f) for ext in ('.pptx', '.docx', '.xlsx') for f in docs_dir.glob(f'*{ext}')]
 
     def test_insert(self, reset_db: None) -> None:
         skip_test_if_not_installed('mistune')

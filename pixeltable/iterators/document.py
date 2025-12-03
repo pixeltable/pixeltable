@@ -214,9 +214,9 @@ class DocumentSplitter(ComponentIterator):
             DocumentType.DocumentFormat.DOCX,
             DocumentType.DocumentFormat.XLSX,
         ):
-            # Office formats are converted to markdown AST via MarkItDown
+            # Office formats are converted to markdown AST via MarkItDown, reuse markdown processing
             assert self._doc_handle.markitdown_md_ast is not None
-            self._sections = self._markitdown_sections()
+            self._sections = self._markdown_sections(self._doc_handle.markitdown_md_ast)
         else:
             raise AssertionError(f'Unsupported document format: {self._doc_handle.format}')
 
@@ -373,9 +373,16 @@ class DocumentSplitter(ComponentIterator):
         yield from process_element(self._doc_handle.bs_doc)
         yield from emit()
 
-    def _markdown_sections(self) -> Iterator[DocumentSection]:
-        """Create DocumentSections reflecting the html-specific separators"""
-        assert self._doc_handle.md_ast is not None
+    def _markdown_sections(self, md_ast: list[dict] | None = None) -> Iterator[DocumentSection]:
+        """Create DocumentSections from a markdown AST.
+
+        Args:
+            md_ast: The markdown AST to process. If None, uses self._doc_handle.md_ast.
+                    This allows reuse for office formats converted to markdown via MarkItDown.
+        """
+        if md_ast is None:
+            md_ast = self._doc_handle.md_ast
+        assert md_ast is not None
         emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
         emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
         # current state
@@ -427,7 +434,7 @@ class DocumentSplitter(ComponentIterator):
             for child in el['children']:
                 yield from process_element(child)
 
-        for el in self._doc_handle.md_ast:
+        for el in md_ast:
             yield from process_element(el)
         yield from emit()
 
@@ -479,67 +486,6 @@ class DocumentSplitter(ComponentIterator):
         """
         assert self._doc_handle.txt_doc is not None
         yield DocumentSection(text=ftfy.fix_text(self._doc_handle.txt_doc), metadata=DocumentSectionMetadata())
-
-    def _markitdown_sections(self) -> Iterator[DocumentSection]:
-        """Create DocumentSections for office formats converted to markdown via MarkItDown.
-
-        This processes PPTX, DOCX, and XLSX files that have been converted to markdown AST.
-        """
-        assert self._doc_handle.markitdown_md_ast is not None
-        emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
-        emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
-        # current state
-        accumulated_text: list[str] = []  # currently accumulated text
-        # accumulate pieces then join before emit to avoid quadratic complexity of string concatenation
-        headings: dict[str, str] = {}  # current state of observed headings (level -> text)
-
-        def update_headings(heading: dict) -> None:
-            # update current state
-            nonlocal headings
-            assert 'type' in heading and heading['type'] == 'heading'
-            lint = heading['attrs']['level']
-            level = f'h{lint}'
-            text = heading['children'][0]['raw'].strip()
-            # remove the previously seen lower levels
-            lower_levels = [lv for lv in headings if lv > level]
-            for lv in lower_levels:
-                del headings[lv]
-            headings[level] = text
-
-        def emit() -> Iterator[DocumentSection]:
-            nonlocal accumulated_text, headings
-            if len(accumulated_text) > 0:
-                metadata = DocumentSectionMetadata(sourceline=0, heading=headings.copy())
-                yield DocumentSection(text=ftfy.fix_text(' '.join(accumulated_text)), metadata=metadata)
-                accumulated_text = []
-
-        def process_element(el: dict) -> Iterator[DocumentSection]:
-            # process the element and emit sections as necessary
-            nonlocal accumulated_text, headings, emit_on_heading, emit_on_paragraph
-            assert 'type' in el
-
-            if el['type'] == 'text':
-                # accumulate text until we see a separator element
-                text = el['raw'].strip()
-                if len(text) > 0:
-                    accumulated_text.append(text)
-                return
-
-            if el['type'] == 'heading':
-                if emit_on_heading:
-                    yield from emit()
-                update_headings(el)
-            elif el['type'] == 'paragraph':
-                if emit_on_paragraph:
-                    yield from emit()
-            if 'children' not in el:
-                return
-            for child in el['children']:
-                yield from process_element(child)
-
-        for el in self._doc_handle.markitdown_md_ast:
-            yield from process_element(el)
-        yield from emit()
 
     def _sentence_sections(self, input_sections: Iterable[DocumentSection]) -> Iterator[DocumentSection]:
         """Split the input sections into sentences"""
