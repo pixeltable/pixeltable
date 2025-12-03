@@ -144,7 +144,15 @@ class TestVideo:
         paths = [p for p in get_video_files() if '10-Second Video' in p]
         assert len(paths) >= 2
         for p in paths:
-            for kwargs in ({'fps': None}, {'fps': 1}, {'fps': 0.5}, {'fps': 1000}, {'num_frames': 10}, {'num_frames': 50}, {'num_frames': 10000}):
+            for kwargs in (
+                {'fps': None},
+                {'fps': 1},
+                {'fps': 0.5},
+                {'fps': 1000},
+                {'num_frames': 10},
+                {'num_frames': 50},
+                {'num_frames': 10000},
+            ):
                 videos = pxt.create_table('videos', {'video': pxt.Video}, if_exists='replace_force')
                 view = pxt.create_view(f'frames', videos, iterator=FrameIterator.create(video=videos.video, **kwargs))
                 videos.insert(video=p)
@@ -160,7 +168,6 @@ class TestVideo:
                         assert isinstance(selected_frame, PIL.Image.Image)
                         # Ensure we get the bitmap-identical frame
                         assert selected_frame == frames[pos]
-
 
     def test_keyframes_only(self, reset_db: None) -> None:
         path = get_video_files()[0]

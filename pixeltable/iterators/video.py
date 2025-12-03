@@ -7,9 +7,9 @@ from pathlib import Path
 from typing import Any, Iterator, Literal
 
 import av
-from av.container import InputContainer
 import pandas as pd
 import PIL.Image
+from av.container import InputContainer
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -122,6 +122,13 @@ class FrameIterator(ComponentIterator):
             raise excs.Error(f'Could not determine duration of video: {video}')
         self.video_duration = float(duration) if duration is not None else None
 
+        # If self.fps or self.num_frames is specified, we cannot rely on knowing in advance which frame positions will
+        # be needed, since for variable framerate videos we do not know in advance the precise timestamp of each frame.
+        # The strategy is: precompute a list of "extraction times", the idealized timestamps of the frames we want to
+        # materialize. As we later iterate through the frames, we will choose the frames that are closest to these
+        # idealized timestamps. We keep them as floats (in seconds) for now; converting to pts here would entail
+        # premature rounding.
+
         self.pos = 0
         if self.num_frames is not None:
             increment = (self.video_duration - self.video_start_time) / self.num_frames
@@ -167,17 +174,10 @@ class FrameIterator(ComponentIterator):
             return None
 
     def __next__(self) -> dict[str, Any]:
-        # TODO: De-duplicate
-        # We are searching for the frame at the index implied by `next_pos`. Step through the video until we
-        # find it. There are two reasons why it might not be the immediate next frame in the video:
-        # (1) `fps` or `num_frames` was specified as an iterator argument; or
-        # (2) we just did a seek, and the desired frame is not a keyframe.
-        # TODO: In case (1) it will usually be fastest to step through the frames until we find the one we're
-        #     looking for. But in some cases it may be faster to do a seek; for example, when `fps` is very
-        #     low and there are multiple keyframes in between each frame we want to extract (imagine extracting
-        #     10 frames from an hourlong video).
         while True:
-            if self.cur_frame is None or (self.extraction_times is not None and self.next_extraction_idx >= len(self.extraction_times)):
+            if self.cur_frame is None or (
+                self.extraction_times is not None and self.next_extraction_idx >= len(self.extraction_times)
+            ):
                 raise StopIteration
 
             next_frame = self.next_frame()
@@ -189,19 +189,34 @@ class FrameIterator(ComponentIterator):
             cur_frame_pts = self.cur_frame.pts
             cur_frame_time = float(cur_frame_pts * self.video_time_base)
             if self.next_extraction_idx is not None and next_frame is not None:
+                assert self.extraction_times is not None
+                next_extraction_time = self.extraction_times[self.next_extraction_idx]
                 next_frame_pts = next_frame.pts
                 next_frame_time = float(next_frame_pts * self.video_time_base)
 
-                next_extraction_time = self.extraction_times[self.next_extraction_idx]
-
-                # if next_extraction_time is *closer* to next_frame than cur_frame, then skip cur_frame.
-                # this correctly handles all three cases:
+                # We are using a specified list of extraction times (because fps or num_frames was specified).
+                # The extraction time represents the idealized timestamp of the next frame we want to extract.
+                # If next_frame is *closer* to it than cur_frame, then we skip cur_frame.
+                # The following logic handles all three cases:
                 # - next_extraction_time is before cur_frame_time (never skips)
                 # - next_extraction_time is after next_frame_time (always skips)
                 # - next_extraction_time is between cur_frame_time and next_frame_time (depends on which is closer)
                 if next_frame_time - next_extraction_time < next_extraction_time - cur_frame_time:
                     self.cur_frame = next_frame
                     continue
+
+                # We didn't skip cur_frame, so we're definitely going to be materializing it. But we also need to
+                # ensure we get the *index* correct and consistent with future seek() operations. If fps or
+                # num_frames is large, then multiple extraction times may map onto cur_frame. So we need to
+                # advance next_extraction_idx to find the *extraction time* that is closest to cur_frame_time.
+                while (
+                    self.next_extraction_idx + 1 < len(self.extraction_times)
+                    and next_frame_time - self.extraction_times[self.next_extraction_idx + 1]
+                    >= self.extraction_times[self.next_extraction_idx + 1] - cur_frame_time
+                    and abs(cur_frame_time - self.extraction_times[self.next_extraction_idx + 1])
+                    < abs(cur_frame_time - self.extraction_times[self.next_extraction_idx])
+                ):
+                    self.next_extraction_idx += 1
 
             img = self.cur_frame.to_image()
             assert isinstance(img, PIL.Image.Image)
