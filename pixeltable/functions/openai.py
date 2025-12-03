@@ -30,8 +30,7 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
-# These are somewhat arbitrary numbers chosen to balance the throughput and the rate of errors on MacOS
-MAX_KEEPALIVE_CONNECTIONS = 500
+MAX_KEEPALIVE_CONNECTIONS = 100
 MAX_CONNECTIONS = 2000
 TIMEOUT = 60.0
 
