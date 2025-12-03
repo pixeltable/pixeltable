@@ -5,142 +5,19 @@ import datetime
 import inspect
 import logging
 import math
-import re
 import sys
 import time
-from http import HTTPStatus
-from typing import Any, Awaitable, Collection
+from typing import Awaitable, Collection
 
 from pixeltable import env, func
 from pixeltable.config import Config
-from pixeltable.utils.http import exponential_backoff
+from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
 from .globals import Dispatcher, ExecCtx, FnCallArgs, Scheduler
 
 _logger = logging.getLogger('pixeltable')
 
 __all__ = ['RateLimitsScheduler', 'RequestRateScheduler']
-
-RETRIABLE_ERROR_INDICATORS = (
-    'rate limit',
-    'too many requests',
-    '429',
-    'quota exceeded',
-    'throttled',
-    'rate exceeded',
-    'connection error',
-    'timed out',
-)
-RETRY_AFTER_PATTERNS = (
-    r'retry after (\d+(?:\.\d+)?)\s*seconds?',
-    r'try again in (\d+(?:\.\d+)?)\s*seconds?',
-    r'wait (\d+(?:\.\d+)?)\s*seconds?',
-    r'retry-after:\s*(\d+(?:\.\d+)?)',
-)
-RETRIABLE_HTTP_STATUSES: dict[str, int] = {
-    'TOO_MANY_REQUESTS': HTTPStatus.TOO_MANY_REQUESTS.value,
-    'SERVICE_UNAVAILABLE': HTTPStatus.SERVICE_UNAVAILABLE.value,
-    'REQUEST_TIMEOUT': HTTPStatus.REQUEST_TIMEOUT.value,
-    'GATEWAY_TIMEOUT': HTTPStatus.GATEWAY_TIMEOUT.value,
-}
-
-
-def _is_retriable_error(exc: Exception) -> tuple[bool, float | None]:
-    """Returns True if the exception indicates a retriable error, and the retry delay in seconds."""
-
-    # Check for HTTP status TOO_MANY_REQUESTS in various exception classes.
-    # We look for attributes that contain status codes, instead of checking the type of the exception,
-    # in order to handle a wider variety of exception classes.
-    err_md = _extract_error_metadata(exc)
-    if (err_md is None or not err_md[0]) and hasattr(exc, 'response'):
-        err_md = _extract_error_metadata(exc.response)
-
-    if err_md is not None and err_md[0]:
-        retry_after = err_md[1]
-        return err_md[0], retry_after if retry_after is not None and retry_after >= 0 else None
-
-    # Check common rate limit keywords in exception message
-    error_msg = str(exc).lower()
-    if any(indicator in error_msg for indicator in RETRIABLE_ERROR_INDICATORS):
-        retry_delay = _extract_retry_delay_from_message(error_msg)
-        return True, retry_delay if retry_delay is not None and retry_delay >= 0 else None
-
-    return False, None
-
-
-def _extract_error_metadata(obj: Any) -> tuple[bool, float | None] | None:
-    is_retriable: bool | None = None
-    retry_delay: float | None = None
-    for attr in ['status', 'code', 'status_code']:
-        if hasattr(obj, attr):
-            is_retriable = getattr(obj, attr) in RETRIABLE_HTTP_STATUSES.values()
-            is_retriable |= str(getattr(obj, attr)).upper() in RETRIABLE_HTTP_STATUSES
-
-    if hasattr(obj, 'headers'):
-        retry_delay = _extract_retry_delay_from_headers(obj.headers)
-        if retry_delay is not None:
-            is_retriable = True
-
-    return (is_retriable, retry_delay) if is_retriable is not None else None
-
-
-def _extract_retry_delay_from_headers(headers: Any | None) -> float | None:
-    """Extract retry delay from HTTP headers."""
-    if headers is None:
-        return None
-
-    # convert headers to dict-like object for consistent access
-    header_dict: dict
-    if hasattr(headers, 'get'):
-        header_dict = headers
-    else:
-        # headers are a list of tuples or other format
-        try:
-            header_dict = dict(headers)
-        except (TypeError, ValueError):
-            return None
-    # normalize dict keys: lowercase and remove dashes
-    header_dict = {k.lower().replace('-', ''): v for k, v in header_dict.items()}
-
-    # check Retry-After header
-    retry_after = header_dict.get('retryafter')
-    if retry_after is not None:
-        try:
-            return float(retry_after)
-        except (ValueError, TypeError):
-            pass
-
-    # check X-RateLimit-Reset (Unix timestamp)
-    reset_time = header_dict.get('xratelimitreset')
-    if reset_time is not None:
-        try:
-            reset_timestamp = float(reset_time)
-            delay = max(0, reset_timestamp - time.time())
-            return delay
-        except (ValueError, TypeError):
-            pass
-
-    # check X-RateLimit-Reset-After (seconds from now)
-    reset_after = header_dict.get('xratelimitresetafter')
-    if reset_after is not None:
-        try:
-            return float(reset_after)
-        except (ValueError, TypeError):
-            pass
-
-    return None
-
-
-def _extract_retry_delay_from_message(msg: str) -> float | None:
-    msg_lower = msg.lower()
-    for pattern in RETRY_AFTER_PATTERNS:
-        match = re.search(pattern, msg_lower)
-        if match is not None:
-            try:
-                return float(match.group(1))
-            except (ValueError, TypeError):
-                continue
-    return None
 
 
 class RateLimitsScheduler(Scheduler):
@@ -341,8 +218,8 @@ class RateLimitsScheduler(Scheduler):
                     if retry_delay is None:
                         # The resource pool did not recognize it as a retriable error. Try our generic best-effort logic
                         # before giving up.
-                        is_retriable_error, retry_delay = _is_retriable_error(exc)
-                        if is_retriable_error:
+                        is_retriable, retry_delay = is_retriable_error(exc)
+                        if is_retriable:
                             retry_delay = retry_delay or exponential_backoff(num_retries)
                     if retry_delay is not None:
                         self.total_retried += 1
@@ -490,8 +367,8 @@ class RequestRateScheduler(Scheduler):
             _logger.exception(f'exception for {self.resource_pool}: type={type(exc)}\n{exc}')
             if hasattr(exc, 'response') and hasattr(exc.response, 'headers'):
                 _logger.debug(f'scheduler {self.resource_pool}: exception headers: {exc.response.headers}')
-            is_retriable_error, retry_after = _is_retriable_error(exc)
-            if is_retriable_error and num_retries < self.MAX_RETRIES:
+            is_retriable, retry_after = is_retriable_error(exc)
+            if is_retriable and num_retries < self.MAX_RETRIES:
                 retry_delay = self._compute_retry_delay(num_retries, retry_after)
                 _logger.debug(f'scheduler {self.resource_pool}: retrying after {retry_delay}')
                 now = time.monotonic()
