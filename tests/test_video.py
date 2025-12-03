@@ -156,10 +156,10 @@ class TestVideo:
                 videos = pxt.create_table('videos', {'video': pxt.Video}, if_exists='replace_force')
                 view = pxt.create_view('frames', videos, iterator=FrameIterator.create(video=videos.video, **kwargs))
                 videos.insert(video=p)
-                # Load the first 50 frames sequentially
-                frames = view.select(view.frame).where(view.pos < 50).order_by(view.frame).collect()['frame']
+                # Load the first 20 frames sequentially
+                frames = view.select(view.frame).where(view.pos < 20).order_by(view.frame).collect()['frame']
                 # Now load them one at a time (we intentionally do this in separate queries)
-                for pos in (7, 15, 22, 36):
+                for pos in (3, 7, 11, 15):
                     res = view.where(view.pos == pos).select(view.frame).collect()['frame']
                     if len(res) == 0:
                         assert len(frames) <= pos

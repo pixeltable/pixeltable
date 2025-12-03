@@ -108,19 +108,23 @@ class FrameIterator(ComponentIterator):
         start_time = self.container.streams.video[0].start_time or 0
         self.video_start_time = float(start_time * self.video_time_base)
 
-        duration: float | None = self.container.streams.video[0].duration
-        if duration is None:
-            # Try to calculate duration from DURATION metadata field
+        duration_pts: int | None = self.container.streams.video[0].duration
+        if duration_pts is not None:
+            self.video_duration = float(duration_pts * self.video_time_base)
+        else:
+            # As a backup, try to calculate duration from DURATION metadata field
             metadata = self.container.streams.video[0].metadata
             duration_field = metadata.get('DURATION')  # A string like "00:01:23"
-            assert isinstance(duration_field, str)
-            duration = pd.to_timedelta(duration_field).total_seconds()
+            if duration_field is not None:
+                assert isinstance(duration_field, str)
+                self.video_duration = pd.to_timedelta(duration_field).total_seconds()
+            else:
+                # TODO: Anything we can do here? Other methods of determining the duration are expensive and
+                #     not so appropriate for an iterator initializer.
+                self.video_duration = None
 
-        if duration is None and (self.fps is not None or self.num_frames is not None):
-            # TODO: Anything we can do here? Other methods of determining the duration are expensive and
-            #     not appropriate for an iterator initializer.
+        if self.video_duration is None and (self.fps is not None or self.num_frames is not None):
             raise excs.Error(f'Could not determine duration of video: {video}')
-        self.video_duration = float(duration) if duration is not None else None
 
         # If self.fps or self.num_frames is specified, we cannot rely on knowing in advance which frame positions will
         # be needed, since for variable framerate videos we do not know in advance the precise timestamp of each frame.
