@@ -253,13 +253,17 @@ class FrameIterator(ComponentIterator):
 
 class VideoSplitter(ComponentIterator):
     """
-    Iterator over segments of a video file, which is split into fixed-size segments of length `segment_duration`
-    seconds.
+    Iterator over segments of a video file, which is split into segments. The segments are specified either via a
+    fixed duration or a list of split points.
 
     Args:
         duration: Video segment duration in seconds
         overlap: Overlap between consecutive segments in seconds. Only available for `mode='fast'`.
         min_segment_duration: Drop the last segment if it is smaller than min_segment_duration.
+        segment_times: List of timestamps (in seconds) in video where segments should be split. Note that these are not
+            segment durations. If all segment times are less than the duration of the video, produces exactly
+            `len(segment_times) + 1` segments. An argument of `[]` will produce a single segment containing the
+            entire video.
         mode: Segmentation mode:
             - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
             - `'accurate'`: Precise segmentation with re-encoding (exact durations, slower)
@@ -271,16 +275,14 @@ class VideoSplitter(ComponentIterator):
     # Input parameters
     video_path: Path
     segment_duration: float | None
-    segment_times: list[float] | None
+    segment_times: list[float] | None  # [] is valid
     overlap: float
     min_segment_duration: float
     video_encoder: str | None
     video_encoder_args: dict[str, Any] | None
 
     # Video metadata
-    video_duration: float
     video_time_base: Fraction
-    video_start_time: int
 
     output_iter: Iterator[dict[str, Any]]
 
@@ -297,9 +299,10 @@ class VideoSplitter(ComponentIterator):
         video_encoder_args: dict[str, Any] | None = None,
     ):
         Env.get().require_binary('ffmpeg')
+        self._check_args(
+            duration, segment_times, overlap, min_segment_duration, mode, video_encoder, video_encoder_args
+        )
         assert (duration is not None) != (segment_times is not None)
-        if segment_times is not None:
-            assert len(segment_times) > 0
         if duration is not None:
             assert duration > 0.0
             assert duration >= min_segment_duration
@@ -316,12 +319,15 @@ class VideoSplitter(ComponentIterator):
         self.video_encoder = video_encoder
         self.video_encoder_args = video_encoder_args
 
-        with av.open(str(video_path)) as container:
-            video_stream = container.streams.video[0]
-            self.video_time_base = video_stream.time_base
-            self.video_start_time = video_stream.start_time or 0
+        if self.segment_times is not None and len(self.segment_times) == 0:
+            self.output_iter = self.complete_video_iter()
+        else:
+            self.output_iter = self.fast_iter() if mode == 'fast' else self.accurate_iter()
 
-        self.output_iter = self.fast_iter() if mode == 'fast' else self.accurate_iter()
+        with av.open(str(video_path)) as container:
+            self.video_time_base = container.streams.video[0].time_base
+
+        # TODO: check types of args
 
     @classmethod
     def input_schema(cls) -> dict[str, ts.ColumnType]:
@@ -337,6 +343,44 @@ class VideoSplitter(ComponentIterator):
         }
 
     @classmethod
+    def _check_args(
+        cls,
+        segment_duration: Any,
+        segment_times: Any,
+        overlap: Any,
+        min_segment_duration: Any,
+        mode: Any,
+        video_encoder: Any,
+        video_encoder_args: Any,
+    ) -> None:
+        if segment_duration is None and segment_times is None:
+            raise excs.Error('Must specify either duration or segment_times')
+        if segment_duration is not None and segment_times is not None:
+            raise excs.Error('duration and segment_times cannot both be specified')
+        if segment_times is not None and overlap is not None:
+            raise excs.Error('overlap cannot be specified with segment_times')
+        if segment_duration is not None and isinstance(segment_duration, (int, float)):
+            if segment_duration <= 0.0:
+                raise excs.Error(f'duration must be a positive number: {segment_duration}')
+            if (
+                min_segment_duration is not None
+                and isinstance(min_segment_duration, (int, float))
+                and segment_duration < min_segment_duration
+            ):
+                raise excs.Error(
+                    f'duration must be at least min_segment_duration: {segment_duration} < {min_segment_duration}'
+                )
+            if overlap is not None and isinstance(overlap, (int, float)) and overlap >= segment_duration:
+                raise excs.Error(f'overlap must be less than duration: {overlap} >= {segment_duration}')
+        if mode == 'accurate' and overlap is not None:
+            raise excs.Error("Cannot specify overlap for mode='accurate'")
+        if mode == 'fast':
+            if video_encoder is not None:
+                raise excs.Error("Cannot specify video_encoder for mode='fast'")
+            if video_encoder_args is not None:
+                raise excs.Error("Cannot specify video_encoder_args for mode='fast'")
+
+    @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         param_names = ['duration', 'overlap', 'min_segment_duration', 'segment_times']
         params = dict(zip(param_names, args))
@@ -347,41 +391,54 @@ class VideoSplitter(ComponentIterator):
         overlap = params.get('overlap')
         min_segment_duration = params.get('min_segment_duration')
         mode = params.get('mode', 'fast')
-
-        if segment_duration is None and segment_times is None:
-            raise excs.Error('Must specify either duration or segment_times')
-        if segment_duration is not None and segment_times is not None:
-            raise excs.Error('duration and segment_times cannot both be specified')
-        if segment_times is not None:
-            if len(segment_times) == 0:
-                raise excs.Error('segment_times cannot be empty')
-            if overlap is not None:
-                raise excs.Error('overlap cannot be specified with segment_times')
-        if segment_duration is not None:
-            if segment_duration <= 0.0:
-                raise excs.Error('duration must be a positive number')
-            if min_segment_duration is not None and segment_duration < min_segment_duration:
-                raise excs.Error('duration must be at least min_segment_duration')
-            if overlap is not None and overlap >= segment_duration:
-                raise excs.Error('overlap must be less than duration')
-        if mode == 'accurate' and overlap is not None:
-            raise excs.Error("Cannot specify overlap for mode='accurate'")
-        if mode == 'fast':
-            if params.get('video_encoder') is not None:
-                raise excs.Error("Cannot specify video_encoder for mode='fast'")
-            if params.get('video_encoder_args') is not None:
-                raise excs.Error("Cannot specify video_encoder_args for mode='fast'")
+        video_encoder = params.get('video_encoder')
+        video_encoder_args = params.get('video_encoder_args')
+        cls._check_args(
+            segment_duration, segment_times, overlap, min_segment_duration, mode, video_encoder, video_encoder_args
+        )
 
         return {
-            'segment_start': ts.FloatType(nullable=False),
-            'segment_start_pts': ts.IntType(nullable=False),
-            'segment_end': ts.FloatType(nullable=False),
-            'segment_end_pts': ts.IntType(nullable=False),
+            'segment_start': ts.FloatType(nullable=True),
+            'segment_start_pts': ts.IntType(nullable=True),
+            'segment_end': ts.FloatType(nullable=True),
+            'segment_end_pts': ts.IntType(nullable=True),
             'video_segment': ts.VideoType(nullable=False),
         }, []
 
+    def complete_video_iter(self) -> Iterator[dict[str, Any]]:
+        """Returns the entire video as a single segment"""
+        assert len(self.segment_times) == 0
+
+        with av.open(str(self.video_path)) as container:
+            video_stream = container.streams.video[0]
+            start_ts = (
+                float(video_stream.start_time * video_stream.time_base)
+                if video_stream.start_time is not None and video_stream.time_base is not None
+                else 0.0
+            )
+            end_pts = (
+                video_stream.start_time + video_stream.duration
+                if video_stream.start_time is not None and video_stream.duration is not None
+                else None
+            )
+            end_ts = (
+                float(end_pts * video_stream.time_base)
+                if end_pts is not None and video_stream.time_base is not None
+                else 0.0
+            )
+            result = {
+                'segment_start': start_ts,
+                'segment_start_pts': video_stream.start_time,
+                'segment_end': end_ts,
+                'segment_end_pts': end_pts,
+                'video_segment': str(self.video_path),
+            }
+            yield result
+
     def fast_iter(self) -> Iterator[dict[str, Any]]:
         segment_path: str = ''
+        assert self.segment_times is None or len(self.segment_times) > 0
+
         try:
             start_time = 0.0
             start_pts = 0
@@ -434,6 +491,7 @@ class VideoSplitter(ComponentIterator):
             raise pxt.Error(error_msg) from e
 
     def accurate_iter(self) -> Iterator[dict[str, Any]]:
+        assert self.segment_times is None or len(self.segment_times) > 0
         base_path = TempStore.create_path(extension='')
         # Use ffmpeg -f segment for accurate segmentation with re-encoding
         output_pattern = f'{base_path}_segment_%04d.mp4'
