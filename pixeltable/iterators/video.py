@@ -69,7 +69,7 @@ class FrameIterator(ComponentIterator):
     video_duration: float | None
 
     # frames info
-    extraction_times: tuple[float] | None
+    extraction_times: tuple[float, ...] | None
 
     # state
     pos: int
@@ -108,13 +108,13 @@ class FrameIterator(ComponentIterator):
         start_time = self.container.streams.video[0].start_time or 0
         self.video_start_time = float(start_time * self.video_time_base)
 
-        duration = self.container.streams.video[0].duration
+        duration: float | None = self.container.streams.video[0].duration
         if duration is None:
             # Try to calculate duration from DURATION metadata field
             metadata = self.container.streams.video[0].metadata
-            duration = metadata.get('DURATION')
-            assert isinstance(duration, str)
-            duration = pd.to_timedelta(duration).total_seconds()
+            duration_field = metadata.get('DURATION')  # A string like "00:01:23"
+            assert isinstance(duration_field, str)
+            duration = pd.to_timedelta(duration_field).total_seconds()
 
         if duration is None and (self.fps is not None or self.num_frames is not None):
             # TODO: Anything we can do here? Other methods of determining the duration are expensive and

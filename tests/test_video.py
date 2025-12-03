@@ -154,7 +154,7 @@ class TestVideo:
                 {'num_frames': 10000},
             ):
                 videos = pxt.create_table('videos', {'video': pxt.Video}, if_exists='replace_force')
-                view = pxt.create_view(f'frames', videos, iterator=FrameIterator.create(video=videos.video, **kwargs))
+                view = pxt.create_view('frames', videos, iterator=FrameIterator.create(video=videos.video, **kwargs))
                 videos.insert(video=p)
                 # Load the first 50 frames sequentially
                 frames = view.select(view.frame).where(view.pos < 50).order_by(view.frame).collect()['frame']
