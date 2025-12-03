@@ -718,6 +718,17 @@ class TestVideo:
         durations = [start_times[i + 1] - start_times[i] for i in range(len(start_times) - 1)]
         self._validate_splitter_segments(t, s, 0.0, 0.0, expected_durations=durations, eps=eps)
 
+    @pytest.mark.parametrize('mode', ['fast', 'accurate'])
+    def test_video_splitter_empty_segment_times(self, mode: str, reset_db: None) -> None:
+        from pixeltable.iterators import VideoSplitter
+
+        video_filepaths = get_video_files()
+        t = pxt.create_table('videos', {'video': pxt.Video})
+        t.insert({'video': p} for p in video_filepaths)
+        v = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, segment_times=[], mode=mode))
+        res = v.select(video=v.video.fileurl, segment=v.video_segment.fileurl).collect()
+        assert all(row['video'] == row['segment'] for row in res)
+
     def test_video_splitter_errors(self, reset_db: None) -> None:
         from pixeltable.iterators.video import VideoSplitter
 
@@ -754,8 +765,6 @@ class TestVideo:
             _ = pxt.create_view(
                 's', t, iterator=VideoSplitter.create(video=t.video, mode='accurate', duration=3, overlap=1)
             )
-        with pytest.raises(pxt.Error, match='segment_times cannot be empty'):
-            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, segment_times=[]))
         with pytest.raises(pxt.Error, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, segment_times=[1, 2], overlap=1))
 
@@ -1056,6 +1065,8 @@ class TestVideo:
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
 
     def test_scene_detect(self, reset_db: None) -> None:
+        from pixeltable.iterators import VideoSplitter
+
         skip_test_if_not_installed('scenedetect')
         video_filepaths = get_video_files()
 
@@ -1115,6 +1126,14 @@ class TestVideo:
             res = t.select(t.scenes).collect()
             assert len(res) == len(video_filepaths)
             assert all(len(row['scenes']) > 0 for row in res)
+
+        # make sure the output is usable for the VideoSplitter
+        v = pxt.create_view(
+            'scenes_view',
+            t,
+            iterator=VideoSplitter.create(video=t.video, segment_times=t.scenes[1:].start_time, mode='accurate'),
+        )
+        _ = v.collect()
 
     def test_default_video_codec(self, reset_db: None) -> None:
         result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, check=False)

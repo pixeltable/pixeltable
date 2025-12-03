@@ -28,6 +28,7 @@ from . import (
     twelvelabs,
     video,
     vision,
+    voyageai,
     whisper,
     whisperx,
     yolox,

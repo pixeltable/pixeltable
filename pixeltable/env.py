@@ -806,6 +806,7 @@ class Env:
         self.__register_package('torchaudio')
         self.__register_package('torchvision')
         self.__register_package('transformers')
+        self.__register_package('voyageai')
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='pixeltable-yolox')
