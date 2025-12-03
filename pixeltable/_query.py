@@ -14,7 +14,7 @@ import pandas as pd
 import pydantic
 import sqlalchemy.exc as sql_exc
 
-from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
+from pixeltable import catalog, exceptions as excs, exec, exprs, plan, telemetry, type_system as ts
 from pixeltable.catalog import Catalog, is_valid_identifier
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
@@ -535,7 +535,12 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
-        return ResultSet(list(self._output_row_iterator()), self.schema)
+        table_name = self._first_tbl.tbl_name() if len(self._from_clause.tbls) == 1 else None
+        with telemetry.start_span('Query.collect', operation='query', table=table_name) as span:
+            rows = list(self._output_row_iterator())
+            span.set_attribute('pixeltable.rows_processed', len(rows))
+            telemetry.record_rows_processed(len(rows), table=table_name, operation='query')
+            return ResultSet(rows, self.schema)
 
     async def _acollect(self) -> ResultSet:
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
@@ -559,11 +564,15 @@ class Query:
 
         from pixeltable.plan import Planner
 
-        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
-            stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
-            result: int = conn.execute(stmt).scalar_one()
-            assert isinstance(result, int)
-            return result
+        table_name = self._first_tbl.tbl_name()
+        with telemetry.start_span('Query.count', operation='query', table=table_name) as span:
+            span.set_attribute('pixeltable.query.type', 'count')
+            with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
+                stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
+                result: int = conn.execute(stmt).scalar_one()
+                assert isinstance(result, int)
+                span.set_attribute('pixeltable.rows_processed', result)
+                return result
 
     def _descriptors(self) -> DescriptionHelper:
         helper = DescriptionHelper()

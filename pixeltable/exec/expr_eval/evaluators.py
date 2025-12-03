@@ -5,9 +5,10 @@ import datetime
 import itertools
 import logging
 import sys
+import time
 from typing import Any, Callable, Iterator, cast
 
-from pixeltable import exprs, func
+from pixeltable import exprs, func, telemetry
 
 from .globals import Dispatcher, Evaluator, ExecCtx, FnCallArgs
 
@@ -174,6 +175,10 @@ class FnCallEvaluator(Evaluator):
 
     async def eval_batch(self, batched_call_args: FnCallArgs) -> None:
         result_batch: list[Any]
+        udf_name = self.fn.display_name if hasattr(self.fn, 'display_name') else str(self.fn)
+        batch_size = len(batched_call_args.rows)
+        start_time = time.perf_counter()
+
         try:
             if self.fn.is_async:
                 result_batch = await self.fn.aexec_batch(
@@ -184,7 +189,13 @@ class FnCallEvaluator(Evaluator):
                 if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
                     return
                 result_batch = self.fn.exec_batch(batched_call_args.batch_args, batched_call_args.batch_kwargs)
+
+            duration = time.perf_counter() - start_time
+            telemetry.record_udf_duration(duration, udf_name=udf_name, batch_size=batch_size)
         except Exception as exc:
+            duration = time.perf_counter() - start_time
+            telemetry.record_udf_duration(duration, udf_name=udf_name, batch_size=batch_size)
+            telemetry.record_udf_error(udf_name=udf_name, error_type=type(exc).__name__)
             _, _, exc_tb = sys.exc_info()
             for row in batched_call_args.rows:
                 row.set_exc(self.fn_call.slot_idx, exc)
@@ -200,20 +211,31 @@ class FnCallEvaluator(Evaluator):
         assert not call_args.row.has_val[self.fn_call.slot_idx]
         assert not call_args.row.has_exc(self.fn_call.slot_idx)
 
+        udf_name = self.fn.display_name if hasattr(self.fn, 'display_name') else str(self.fn)
+        start_time = time.perf_counter()
+
         try:
             start_ts = datetime.datetime.now()
             _logger.debug(f'Start evaluating slot {self.fn_call.slot_idx}')
             call_args.row[self.fn_call.slot_idx] = await self.fn.aexec(*call_args.args, **call_args.kwargs)
             end_ts = datetime.datetime.now()
             _logger.debug(f'Evaluated slot {self.fn_call.slot_idx} in {end_ts - start_ts}')
+
+            duration = time.perf_counter() - start_time
+            telemetry.record_udf_duration(duration, udf_name=udf_name)
             self.dispatcher.dispatch([call_args.row], self.exec_ctx)
         except Exception as exc:
+            duration = time.perf_counter() - start_time
+            telemetry.record_udf_duration(duration, udf_name=udf_name)
+            telemetry.record_udf_error(udf_name=udf_name, error_type=type(exc).__name__)
             _, _, exc_tb = sys.exc_info()
             call_args.row.set_exc(self.fn_call.slot_idx, exc)
             self.dispatcher.dispatch_exc(call_args.rows, self.fn_call.slot_idx, exc_tb, self.exec_ctx)
 
     async def eval(self, call_args_batch: list[FnCallArgs]) -> None:
         rows_with_excs: set[int] = set()  # records idxs into 'rows'
+        udf_name = self.fn.display_name if hasattr(self.fn, 'display_name') else str(self.fn)
+
         for idx, item in enumerate(call_args_batch):
             assert len(item.rows) == 1
             assert not item.row.has_val[self.fn_call.slot_idx]
@@ -221,9 +243,16 @@ class FnCallEvaluator(Evaluator):
             # check for cancellation before starting something potentially long-running
             if asyncio.current_task().cancelled() or self.dispatcher.exc_event.is_set():
                 return
+
+            start_time = time.perf_counter()
             try:
                 item.row[self.fn_call.slot_idx] = self.scalar_py_fn(*item.args, **item.kwargs)
+                duration = time.perf_counter() - start_time
+                telemetry.record_udf_duration(duration, udf_name=udf_name)
             except Exception as exc:
+                duration = time.perf_counter() - start_time
+                telemetry.record_udf_duration(duration, udf_name=udf_name)
+                telemetry.record_udf_error(udf_name=udf_name, error_type=type(exc).__name__)
                 _, _, exc_tb = sys.exc_info()
                 item.row.set_exc(self.fn_call.slot_idx, exc)
                 rows_with_excs.add(idx)
