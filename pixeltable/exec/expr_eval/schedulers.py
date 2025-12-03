@@ -13,7 +13,7 @@ from typing import Any, Awaitable, Collection
 
 from pixeltable import env, func
 from pixeltable.config import Config
-from pixeltable.utils.retry import exponential_backoff
+from pixeltable.utils.http import exponential_backoff
 
 from .globals import Dispatcher, ExecCtx, FnCallArgs, Scheduler
 

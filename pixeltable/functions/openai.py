@@ -24,6 +24,7 @@ from pixeltable import env, exprs, type_system as ts
 from pixeltable.config import Config
 from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.http import set_file_descriptor_limit
 from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
@@ -32,39 +33,13 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-def _adjust_fd_limit(max_connections: int) -> None:
-    """Checks and possibly updates the file descriptor limits to accommodate the max connections.
-    Returns the max connections limit to use for the OpenAI client."""
-    try:
-        import resource
-    except ImportError:
-        # ⊞ Windows
-        _logger.info('Module resource not available; skipping FD limit adjustment')
-        return
-
-    soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
-    _logger.info(f'Current RLIMIT_NOFILE soft limit: {soft_limit}, hard limit: {hard_limit}')
-    preferred_limit = max_connections * 2  # OpenAI client is not the only one using file descriptors
-    if soft_limit < preferred_limit and soft_limit < hard_limit:
-        new_limit = min(hard_limit, preferred_limit)
-        _logger.info(f'Setting RLIMIT_NOFILE soft limit to: {new_limit}')
-        resource.setrlimit(resource.RLIMIT_NOFILE, (new_limit, hard_limit))
-        soft_limit = new_limit
-
-    if soft_limit < preferred_limit:
-        _logger.warning(
-            f'RLIMIT_NOFILE soft limit is {soft_limit}, which is less than the preferred {preferred_limit}. '
-            'You may experience suboptimal network performance.'
-        )
-
-
 @env.register_client('openai')
 def _(api_key: str, base_url: str | None = None, api_version: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 
     max_connections = Config.get().get_int_value('openai.max_connections') or 2000
     max_keepalive_connections = Config.get().get_int_value('openai.max_keepalive_connections') or 100
-    _adjust_fd_limit(max_connections)
+    set_file_descriptor_limit(max_connections * 2)
     default_query = None if api_version is None else {'api-version': api_version}
 
     # Pixeltable scheduler's retry logic takes into account the rate limit-related response headers, so in theory we can
