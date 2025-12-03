@@ -1,7 +1,7 @@
 import logging
+import os
 import re
 import time
-import os
 from http import HTTPStatus
 from random import random
 from typing import Any
