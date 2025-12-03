@@ -99,6 +99,9 @@ class ColumnRef(Expr):
     def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:
         self.iter_arg_ctx = iter_arg_ctx
         self.iter_outputs = iter_outputs
+        # If this is an unstored iterator column, then the iterator outputs may be needed in order to properly set the
+        # iterator position. Therefore, we need to add them as components in order to ensure they're marked as
+        # eval dependencies.
         self.components.extend(iter_outputs)
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
