@@ -350,8 +350,33 @@ class HFTableDataConduit(TableDataConduit):
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
 
-        # make sure we get numpy arrays for arrays, not Python lists
-        source = tds.source.with_format(type='numpy')
+        # Identify columns that should be converted to numpy:
+        # - Sequence types (arrays/embeddings)
+        # - Image types (need numpy for PIL.Image.fromarray)
+        # - Audio types (contain array data)
+        # - Dict types that contain Sequence/Image/Audio (e.g., audio dicts with array data)
+        # Other types like list-of-dicts should stay as Python lists for JSON serialization
+        first_dataset = tds.source if isinstance(tds.source, datasets.Dataset) else next(iter(tds.source.values()))
+
+        def needs_numpy_format(feature: Any) -> bool:
+            """Check if a feature type needs numpy formatting (recursively for dicts)."""
+            if isinstance(feature, (datasets.Sequence, datasets.Image, datasets.Audio)):
+                return True
+            if isinstance(feature, dict):
+                # Dict feature: check if any nested values need numpy
+                return any(needs_numpy_format(v) for v in feature.values())
+            return False
+
+        numpy_columns = [
+            name for name, feature in first_dataset.features.items()
+            if needs_numpy_format(feature)
+        ]
+
+        # Selectively apply numpy format only to columns that need it
+        if numpy_columns:
+            source = tds.source.with_format(type='numpy', columns=numpy_columns, output_all_columns=True)
+        else:
+            source = tds.source
         if isinstance(source, datasets.Dataset):
             # when loading an hf dataset partially, dataset.split._name is sometimes the form "train[0:1000]"
             raw_name = source.split._name

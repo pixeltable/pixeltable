@@ -60,7 +60,7 @@ def _to_pixeltable_type(feature_type: Any, nullable: bool) -> ts.ColumnType | No
             return ts.JsonType(nullable=nullable)
     elif isinstance(feature_type, datasets.Image):
         return ts.ImageType(nullable=nullable)
-    elif isinstance(feature_type, dict):
+    elif isinstance(feature_type, (list, dict)):
         return ts.JsonType(nullable=nullable)
     else:
         return None

@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 @pytest.mark.skipif(
     sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on Linux ARM instances in CI'
 )
-@rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
+#@rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
 class TestHfDatasets:
     def test_import_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
@@ -219,6 +219,17 @@ class TestHfDatasets:
         assert isinstance(row['audio']['path'], str)
         assert isinstance(row['audio']['sampling_rate'], int)
         assert isinstance(row['sentence'], str)
+
+    def test_import_list(self, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+        dataset = datasets.load_dataset('natolambert/GeneralThought-430K-filtered')
+        t = pxt.create_table(
+            'natolambert',
+            source=dataset,
+            primary_key='question_id',
+            if_exists='replace'
+        )
 
     def test_import_hf_dataset_invalid(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
