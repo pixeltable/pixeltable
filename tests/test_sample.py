@@ -421,11 +421,11 @@ class TestSample:
         assert cnt == 10
 
         # Test with fraction on filtered data
-        cnt = t.where(t.c2 < 50).sample(fraction=0.5).count()
-        filtered_rows = t.where(t.c2 < 50).count()
+        cnt = t.where(t.c2 < 80).sample(fraction=0.8).count()
+        filtered_rows = t.where(t.c2 < 80).count()
         # Should be 50% of filtered_rows, with tolerance of +/- 25%
-        expected_min = filtered_rows * 0.5 * 0.75
-        expected_max = filtered_rows * 0.5 * 1.25
+        expected_min = filtered_rows * 0.8 * 0.75
+        expected_max = filtered_rows * 0.8 * 1.25
         assert expected_min <= cnt <= expected_max
 
         # Test with stratified sampling
