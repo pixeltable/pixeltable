@@ -3138,7 +3138,7 @@ wheels = [
 
 [[package]]
 name = "langsmith"
-version = "0.4.49"
+version = "0.4.52"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -3149,9 +3149,9 @@ dependencies = [
     { name = "requests-toolbelt" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2d/69/85ae805ecbc1300d486136329b3cb1702483c0afdaf81da95947dd83884a/langsmith-0.4.49.tar.gz", hash = "sha256:4a16ef6f3a9b20c5471884991a12ff37d81f2c13a50660cfe27fa79a7ca2c1b0", size = 987017, upload-time = "2025-11-26T21:45:16.338Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f9/31/0857fee617ad0626076747a347e55c33533e7df78d8136cfe4d92d12e531/langsmith-0.4.52.tar.gz", hash = "sha256:6a0ad3db36e4e6ad2b810279bf926a1ec43c4d67bdc51df9c6a8bbf207bf6534", size = 989148, upload-time = "2025-12-02T22:49:42.627Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/31/79/59ecf7dceafd655ed20270a0f595d9e8e13895231cebcfbff9b6eec51fc4/langsmith-0.4.49-py3-none-any.whl", hash = "sha256:95f84edcd8e74ed658e4a3eb7355b530f35cb08a9a8865dbfde6740e4b18323c", size = 410905, upload-time = "2025-11-26T21:45:14.606Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/08/10babf3820ac7e182f7e4a596ee99f037fb4072f5ffe398e0fd172a5e180/langsmith-0.4.52-py3-none-any.whl", hash = "sha256:b8de3af1cc4270113d27b023b191899f004a1e4dec12f7c6bbda490160dcca8b", size = 411966, upload-time = "2025-12-02T22:49:40.694Z" },
 ]
 
 [[package]]
@@ -5123,7 +5123,7 @@ test = [
 [[package]]
 name = "pixeltable-doctools"
 version = "0.1.0"
-source = { git = "https://github.com/pixeltable/pixeltable-doctools#80353ebf1421f966e02e6d617b752b9c6e64b65f" }
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#9a67398c3e6fadce4c5966dfee9453440e3a0b52" }
 dependencies = [
     { name = "docstring-parser" },
     { name = "griffe" },
