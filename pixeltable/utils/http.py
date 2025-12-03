@@ -1,6 +1,7 @@
 import logging
 import re
 import time
+import os
 from http import HTTPStatus
 from random import random
 from typing import Any
@@ -14,12 +15,10 @@ def set_file_descriptor_limit(preferred_limit: int) -> None:
     Note that there may be an OS-enforced upper bound on this limit, so this function may not always succeed in setting
     the preferred limit. It will log a warning and return normally in that case.
     """
-    try:
-        import resource
-    except ImportError:
-        # ⊞ Windows
-        _logger.info('Module resource not available; skipping FD limit adjustment')
+    if os.name == 'nt':
+        _logger.info('Skipping FD limit adjustment for Windows')
         return
+    import resource
 
     soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
     _logger.info(f'Current RLIMIT_NOFILE soft limit: {soft_limit}, hard limit: {hard_limit}')
