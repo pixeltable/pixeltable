@@ -196,7 +196,7 @@ class TestDestination:
             StorageTarget.TIGRIS_STORE,
         ):
             res = t.select(dest1=t.img_rot2.fileurl, dest2=t.img_rot3.fileurl).collect()
-            for dest_uri, col_name in [(dest1_uri, 'dest1'), (dest2_uri, 'dest2')]:
+            for dest_uri, col_name in ((dest1_uri, 'dest1'), (dest2_uri, 'dest2')):
                 store = ObjectOps.get_store(dest_uri, allow_obj_name=False)
                 assert isinstance(store, S3Store)
                 for d in res[col_name]:

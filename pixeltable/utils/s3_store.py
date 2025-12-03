@@ -235,7 +235,7 @@ class S3Store(ObjectStoreBase):
         try:
             _logger.debug(f'Media Storage: copying {src_path} to {new_file_uri} : Key: {key}')
             content_type = puremagic.from_file(str(src_path), mime=True)
-            extra_args = {'ContentType': content_type} if content_type else None
+            extra_args = {'ContentType': content_type} if content_type is not None else None
             self.client().upload_file(Filename=str(src_path), Bucket=self.bucket_name, Key=key, ExtraArgs=extra_args)
             _logger.debug(f'Media Storage: copied {src_path} to {new_file_uri}')
             return new_file_uri
