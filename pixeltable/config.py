@@ -185,6 +185,9 @@ KNOWN_CONFIG_OPTIONS = {
         'base_url': 'OpenAI API base URL',
         'api_version': 'API version if using Azure OpenAI',
         'rate_limits': 'Per-model rate limits for OpenAI API requests',
+        'max_connections': 'Maximum number of concurrent OpenAI API connections that can be established',
+        'max_keepalive_connections': 'Maximum number of keep-alive connections in the pool.'
+        ' Must not exceed max_connections.',
     },
     'openrouter': {
         'api_key': 'OpenRouter API key',

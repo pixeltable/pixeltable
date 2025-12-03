@@ -21,6 +21,7 @@ import PIL
 
 import pixeltable as pxt
 from pixeltable import env, exprs, type_system as ts
+from pixeltable.config import Config
 from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
@@ -30,11 +31,8 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
-MAX_KEEPALIVE_CONNECTIONS = 100
-MAX_CONNECTIONS = 2000
 
-
-def _adjust_fd_limit() -> None:
+def _adjust_fd_limit(max_connections: int) -> None:
     """Checks and possibly updates the file descriptor limits to accommodate the max connections.
     Returns the max connections limit to use for the OpenAI client."""
     try:
@@ -46,7 +44,7 @@ def _adjust_fd_limit() -> None:
 
     soft_limit, hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)
     _logger.info(f'Current RLIMIT_NOFILE soft limit: {soft_limit}, hard limit: {hard_limit}')
-    preferred_limit = MAX_CONNECTIONS * 2  # OpenAI client is not the only one using file descriptors
+    preferred_limit = max_connections * 2  # OpenAI client is not the only one using file descriptors
     if soft_limit < preferred_limit and soft_limit < hard_limit:
         new_limit = min(hard_limit, preferred_limit)
         _logger.info(f'Setting RLIMIT_NOFILE soft limit to: {new_limit}')
@@ -64,7 +62,9 @@ def _adjust_fd_limit() -> None:
 def _(api_key: str, base_url: str | None = None, api_version: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 
-    _adjust_fd_limit()
+    max_connections = Config.get().get_int_value('openai.max_connections') or 2000
+    max_keepalive_connections = Config.get().get_int_value('openai.max_keepalive_connections') or 100
+    _adjust_fd_limit(max_connections)
     default_query = None if api_version is None else {'api-version': api_version}
 
     # Pixeltable scheduler's retry logic takes into account the rate limit-related response headers, so in theory we can
@@ -76,7 +76,7 @@ def _(api_key: str, base_url: str | None = None, api_version: str | None = None)
         default_query=default_query,
         # recommended to increase limits for async client to avoid connection errors
         http_client=httpx.AsyncClient(
-            limits=httpx.Limits(max_keepalive_connections=MAX_KEEPALIVE_CONNECTIONS, max_connections=MAX_CONNECTIONS),
+            limits=httpx.Limits(max_keepalive_connections=max_keepalive_connections, max_connections=max_connections),
             # HTTP1 tends to perform better on this kind of workloads
             http2=False,
             http1=True,
