@@ -163,9 +163,9 @@ class TestArrayType:
         assert ArrayType(None, dtype=np.dtype('int32')).supertype(
             ArrayType(None, dtype=np.dtype('int32'))
         ) == ArrayType(None, dtype=np.dtype('int32'))
-        assert ArrayType(None, dtype=np.dtype('int32')).supertype(
-            ArrayType(None, dtype=np.dtype('int16'))
-        ) == ArrayType()
+        assert (
+            ArrayType(None, dtype=np.dtype('int32')).supertype(ArrayType(None, dtype=np.dtype('int16'))) == ArrayType()
+        )
         assert ArrayType(None, None).supertype(ArrayType(None, dtype=np.dtype('int32'))) == ArrayType(None, None)
 
         # shape+dtype
