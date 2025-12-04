@@ -1036,16 +1036,14 @@ class ArrayType(ColumnType):
             raise TypeError(f'Expected numpy.ndarray, got {val.__class__.__name__}')
 
         # If column type has a dtype, check if it matches
-        if self.dtype is None:
-            pass
-        elif self.dtype == np.str_:
+        if self.dtype == np.str_:
             if val.dtype.type != np.str_:
                 raise TypeError(f'Expected numpy.ndarray of dtype {self.dtype}, got numpy.ndarray of dtype {val.dtype}')
-        elif self.dtype != val.dtype:
+        elif self.dtype is not None and self.dtype != val.dtype:
             raise TypeError(f'Expected numpy.ndarray of dtype {self.dtype}, got numpy.ndarray of dtype {val.dtype}')
 
-        # If no dtype is specified, we still need to check that the dtype is one of the supported types
-        if self.dtype is None and not any(np.issubdtype(val.dtype, ndtype) for ndtype in ARRAY_SUPPORTED_NUMPY_DTYPES):
+        # Check that the dtype is one of the supported types
+        if val.dtype.type != np.str_ and val.dtype not in ARRAY_SUPPORTED_NUMPY_DTYPES:
             raise TypeError(f'Unsupported dtype {val.dtype}')
 
         # If a shape is specified, check that there's a match
