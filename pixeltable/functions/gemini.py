@@ -34,7 +34,7 @@ def _genai_client() -> 'genai.client.Client':
 
 @pxt.udf(resource_pool='request-rate:gemini')
 async def generate_content(
-    contents: str, *, model: str, config: dict | None = None, tools: list[dict] | None = None
+    contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None
 ) -> dict:
     """
     Generate content from the specified model. For additional details, see:
@@ -53,7 +53,7 @@ async def generate_content(
         model: The name of the model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateContentConfig`. For details on the parameters, see:
-            <https://googleapis.github.io/python-genai/genai.html#module-genai.types>
+            <https://googleapis.github.io/python-genai/genai.html#genai.types.GenerateContentConfig>
         tools: An optional list of Pixeltable tools to use. It is also possible to specify tools manually via the
             `config['tools']` parameter, but at most one of `config['tools']` or `tools` may be used.
 
@@ -141,7 +141,7 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
         model: The model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateImagesConfig`. For details on the parameters, see:
-            <https://googleapis.github.io/python-genai/genai.html#module-genai.types>
+            <https://googleapis.github.io/python-genai/genai.html#genai.types.GenerateImagesConfig>
 
     Returns:
         The generated image.
@@ -188,7 +188,7 @@ async def generate_videos(
         model: The model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateVideosConfig`. For details on the parameters, see:
-            <https://googleapis.github.io/python-genai/genai.html#module-genai.types>
+            <https://googleapis.github.io/python-genai/genai.html#genai.types.GenerateVideosConfig>
 
     Returns:
         The generated video.

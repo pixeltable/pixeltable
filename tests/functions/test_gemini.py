@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status, get_image_files
 from .tool_utils import run_tool_invocations_test
 
 
@@ -19,7 +19,7 @@ class TestGemini:
         from pixeltable.functions.gemini import generate_content
 
         t = pxt.create_table('test_tbl', {'contents': pxt.String})
-        t.add_computed_column(output=generate_content(t.contents, model='gemini-2.0-flash'))
+        t.add_computed_column(output=generate_content(t.contents, model='gemini-2.5-flash'))
         config = GenerateContentConfigDict(
             candidate_count=3,
             stop_sequences=['\n'],
@@ -31,7 +31,7 @@ class TestGemini:
             presence_penalty=0.6,
             frequency_penalty=0.6,
         )
-        t.add_computed_column(output2=generate_content(t.contents, model='gemini-2.0-flash', config=config))
+        t.add_computed_column(output2=generate_content(t.contents, model='gemini-2.5-flash', config=config))
         validate_update_status(t.insert(contents='Write a story about a magic backpack.'), expected_rows=1)
         results = t.collect()
         text = results['output'][0]['candidates'][0]['content']['parts'][0]['text']
@@ -40,6 +40,22 @@ class TestGemini:
         print(text2)
         assert 'backpack' in text
         assert 'backpack' in text2
+
+    def test_generate_content_multimodal(self, reset_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_content
+
+        images = get_image_files()[:2]
+
+        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'image': pxt.Image})
+        t.add_computed_column(
+            output=generate_content([t.image, "Describe what's in this image."], model='gemini-2.5-flash'),
+        )
+        validate_update_status(t.insert({'id': n, 'image': image} for n, image in enumerate(images)), expected_rows=2)
+        results = t.order_by(t.id).collect()
+        assert 'French horn' in results['output'][0]['candidates'][0]['content']['parts'][0]['text']
+        assert 'truck' in results['output'][1]['candidates'][0]['content']['parts'][0]['text']
 
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')
