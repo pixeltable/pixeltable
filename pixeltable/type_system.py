@@ -1462,7 +1462,7 @@ def column_type_from_np_dtype(dtype: np.dtype, nullable: bool) -> ColumnType | N
 
     if np.issubdtype(dtype, np.datetime64):
         unit, _ = np.datetime_data(dtype)
-        if unit in ['D', 'M', 'Y']:
+        if unit in ('D', 'M', 'Y'):
             return DateType(nullable=nullable)
         else:
             return TimestampType(nullable=nullable)
