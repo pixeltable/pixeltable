@@ -16,6 +16,7 @@ from urllib3.util.retry import Retry
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Catalog
+from pixeltable.catalog.table import LocalTable
 from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
@@ -43,7 +44,7 @@ PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.
 
 
 def push_replica(
-    dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, access: Literal['public', 'private'] = 'private'
+    dest_tbl_uri: str, src_tbl: LocalTable, bucket: str | None = None, access: Literal['public', 'private'] = 'private'
 ) -> str:
     _logger.info(f'Publishing replica for {src_tbl._name!r} to: {dest_tbl_uri}')
 
