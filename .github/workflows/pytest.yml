@@ -82,6 +82,7 @@ env:
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
   REVE_API_KEY: ${{ secrets.REVE_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+  VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
 
 jobs:
   generate-matrix:
