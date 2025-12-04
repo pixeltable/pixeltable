@@ -3,6 +3,7 @@ import itertools
 import json
 import os
 import re
+from pathlib import Path
 from typing import Any
 
 import PIL.Image
@@ -49,10 +50,12 @@ class TestDocument:
 
     def office_doc_paths(self) -> list[str]:
         """Return paths to office format test documents."""
-        from pathlib import Path
-
-        docs_dir = Path(__file__).parent / 'data' / 'documents'
-        return [str(f) for ext in ('.pptx', '.docx', '.xlsx') for f in docs_dir.glob(f'*{ext}')]
+        test_dir = Path(__file__).parent
+        return [
+            str(test_dir / 'data' / 'documents' / 'test_presentation.pptx'),
+            str(test_dir / 'data' / 'documents' / 'test_document.docx'),
+            str(test_dir / 'data' / 'documents' / 'test_spreadsheet.xlsx'),
+        ]
 
     def test_insert(self, reset_db: None) -> None:
         skip_test_if_not_installed('mistune')
@@ -93,6 +96,9 @@ class TestDocument:
             elif extension == '.txt':
                 assert handle.format == ts.DocumentType.DocumentFormat.TXT, path
                 assert handle.txt_doc is not None, path
+            elif extension in ('.pptx', '.docx', '.xlsx'):
+                # Office formats are tested separately in test_office_formats_get_handle
+                assert handle.md_ast is not None, path
             else:
                 raise AssertionError(f'Unexpected extension {extension}, add corresponding check')
 
@@ -414,13 +420,13 @@ class TestDocument:
 
             if extension in ('.pptx', '.ppt'):
                 assert handle.format == ts.DocumentType.DocumentFormat.PPTX, path
-                assert handle.markitdown_md_ast is not None, path
+                assert handle.md_ast is not None, path
             elif extension in ('.docx', '.doc'):
                 assert handle.format == ts.DocumentType.DocumentFormat.DOCX, path
-                assert handle.markitdown_md_ast is not None, path
+                assert handle.md_ast is not None, path
             elif extension in ('.xlsx', '.xls'):
                 assert handle.format == ts.DocumentType.DocumentFormat.XLSX, path
-                assert handle.markitdown_md_ast is not None, path
+                assert handle.md_ast is not None, path
 
     def test_office_formats_splitter(self, reset_db: None) -> None:
         """Test DocumentSplitter with office format documents."""

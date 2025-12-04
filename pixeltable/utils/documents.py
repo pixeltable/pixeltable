@@ -2,7 +2,7 @@ import dataclasses
 import os
 
 import bs4
-import fitz  # type: ignore[import-untyped]
+import fitz
 import puremagic
 
 from pixeltable import exceptions as excs, type_system as ts
@@ -13,11 +13,9 @@ from pixeltable.env import Env
 class DocumentHandle:
     format: ts.DocumentType.DocumentFormat
     bs_doc: bs4.BeautifulSoup | None = None
-    md_ast: dict | None = None
+    md_ast: list | None = None
     pdf_doc: fitz.Document | None = None
     txt_doc: str | None = None
-    # For office formats converted to markdown via markitdown
-    markitdown_md_ast: dict | None = None
 
 
 def get_document_handle(path: str) -> DocumentHandle:
@@ -50,11 +48,11 @@ def get_handle_by_extension(path: str, extension: str) -> DocumentHandle | None:
         if doc_format == ts.DocumentType.DocumentFormat.TXT:
             return DocumentHandle(doc_format, txt_doc=get_txt(path))
         if doc_format == ts.DocumentType.DocumentFormat.PPTX:
-            return DocumentHandle(doc_format, markitdown_md_ast=get_office_handle(path))
+            return DocumentHandle(doc_format, md_ast=get_office_handle(path))
         if doc_format == ts.DocumentType.DocumentFormat.DOCX:
-            return DocumentHandle(doc_format, markitdown_md_ast=get_office_handle(path))
+            return DocumentHandle(doc_format, md_ast=get_office_handle(path))
         if doc_format == ts.DocumentType.DocumentFormat.XLSX:
-            return DocumentHandle(doc_format, markitdown_md_ast=get_office_handle(path))
+            return DocumentHandle(doc_format, md_ast=get_office_handle(path))
     except Exception as exc:
         raise excs.Error(f'An error occurred processing a {doc_format} document: {path}') from exc
 
@@ -69,14 +67,14 @@ def get_html_handle(path: str) -> bs4.BeautifulSoup:
     return doc
 
 
-def get_markdown_handle(path: str) -> dict:
+def get_markdown_handle(path: str) -> list:
     Env.get().require_package('mistune', [3, 0])
     import mistune
 
     with open(path, encoding='utf8') as file:
         text = file.read()
     md_ast = mistune.create_markdown(renderer=None)
-    return md_ast(text)
+    return md_ast(text)  # type: ignore[return-value]
 
 
 def get_pdf_handle(path: str) -> fitz.Document:
@@ -103,7 +101,7 @@ def get_txt(path: str) -> str:
     return doc
 
 
-def get_office_handle(path: str) -> dict:
+def get_office_handle(path: str) -> list:
     """Convert office documents (PPTX, DOCX, XLSX) to markdown using MarkItDown."""
     Env.get().require_package('mistune', [3, 0])
     Env.get().require_package('markitdown')

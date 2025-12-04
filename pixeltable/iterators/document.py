@@ -4,7 +4,7 @@ import io
 import logging
 from typing import Any, ClassVar, Iterable, Iterator, Literal
 
-import fitz  # type: ignore[import-untyped]
+import fitz
 import ftfy
 import PIL.Image
 from bs4.element import NavigableString, Tag
@@ -202,7 +202,7 @@ class DocumentSplitter(ComponentIterator):
             self._sections = self._html_sections()
         elif self._doc_handle.format == DocumentType.DocumentFormat.MD:
             assert self._doc_handle.md_ast is not None
-            self._sections = self._markdown_sections()
+            self._sections = self._markdown_sections(self._doc_handle.md_ast)
         elif self._doc_handle.format == DocumentType.DocumentFormat.PDF:
             assert self._doc_handle.pdf_doc is not None
             self._sections = self._pdf_sections()
@@ -214,9 +214,8 @@ class DocumentSplitter(ComponentIterator):
             DocumentType.DocumentFormat.DOCX,
             DocumentType.DocumentFormat.XLSX,
         ):
-            # Office formats are converted to markdown AST via MarkItDown, reuse markdown processing
-            assert self._doc_handle.markitdown_md_ast is not None
-            self._sections = self._markdown_sections(self._doc_handle.markitdown_md_ast)
+            assert self._doc_handle.md_ast is not None
+            self._sections = self._markdown_sections(self._doc_handle.md_ast)
         else:
             raise AssertionError(f'Unsupported document format: {self._doc_handle.format}')
 
@@ -373,16 +372,8 @@ class DocumentSplitter(ComponentIterator):
         yield from process_element(self._doc_handle.bs_doc)
         yield from emit()
 
-    def _markdown_sections(self, md_ast: list[dict] | None = None) -> Iterator[DocumentSection]:
-        """Create DocumentSections from a markdown AST.
-
-        Args:
-            md_ast: The markdown AST to process. If None, uses self._doc_handle.md_ast.
-                    This allows reuse for office formats converted to markdown via MarkItDown.
-        """
-        if md_ast is None:
-            md_ast = self._doc_handle.md_ast
-        assert md_ast is not None
+    def _markdown_sections(self, md_ast: list[dict]) -> Iterator[DocumentSection]:
+        """Create DocumentSections from a markdown AST."""
         emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
         emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
         # current state
