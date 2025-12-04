@@ -242,17 +242,17 @@ class TestHfDatasets:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        from pixeltable.io.table_data_conduit import FastHFImporter, TableDataConduit
+        from pixeltable.io.table_data_conduit import HFTableDataConduit, TableDataConduit
 
         # Test with rotten_tomatoes dataset (has ClassLabel)
         hf_dataset = datasets.load_dataset('rotten_tomatoes')
 
-        # Create TableDataConduit and convert to FastHFImporter
+        # Create TableDataConduit and convert to HFTableDataConduit
         tds = TableDataConduit(
             source=hf_dataset,
             extra_fields={'column_name_for_split': 'my_split'}
         )
-        fast_importer = FastHFImporter.from_tds(tds)
+        fast_importer = HFTableDataConduit.from_tds(tds)
 
         # Infer schema
         schema = fast_importer.infer_schema()
@@ -281,13 +281,13 @@ class TestHfDatasets:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        from pixeltable.io.table_data_conduit import FastHFImporter, TableDataConduit
+        from pixeltable.io.table_data_conduit import HFTableDataConduit, TableDataConduit
 
         # Test with mnist dataset
         hf_dataset = datasets.load_dataset('ylecun/mnist', split='test[:10]')
 
         tds = TableDataConduit(source=hf_dataset)
-        fast_importer = FastHFImporter.from_tds(tds)
+        fast_importer = HFTableDataConduit.from_tds(tds)
 
         schema = fast_importer.infer_schema()
         assert 'image' in schema
@@ -305,12 +305,12 @@ class TestHfDatasets:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        from pixeltable.io.table_data_conduit import FastHFImporter, TableDataConduit
+        from pixeltable.io.table_data_conduit import HFTableDataConduit, TableDataConduit
 
         hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset')
 
         tds = TableDataConduit(source=hf_dataset)
-        fast_importer = FastHFImporter.from_tds(tds)
+        fast_importer = HFTableDataConduit.from_tds(tds)
 
         schema = fast_importer.infer_schema()
         assert 'audio' in schema

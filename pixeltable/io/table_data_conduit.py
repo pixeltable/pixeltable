@@ -27,6 +27,7 @@ _logger = logging.getLogger('pixeltable')
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
+    import pyarrow as pa
 
     from pixeltable.globals import RowData, TableDataSource
 
@@ -586,50 +587,89 @@ class HFTableDataConduit(TableDataConduit):
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.hf_schema_source.keys())
 
-    def _convert_value(self, val: Any, feature: Any) -> Any:
-        """Convert Arrow values to Pixeltable-compatible types."""
+    def _convert_column(self, column: 'pa.ChunkedArray', feature: object, chunk_size: int) -> list:
+        """
+        Convert an Arrow column to a list of Python values based on HF feature type.
+        Handles all feature types at the column level, recursing for structs.
+        Returns a list of length chunk_size with converted values.
+        """
         import datasets
 
-        if val is None:
-            return None
+        if column is None or len(column) == 0:
+            return [None] * chunk_size
 
+        # ClassLabel: int -> string name
         if isinstance(feature, datasets.ClassLabel):
-            # Convert integer label to string name
-            return feature.names[val]
+            values = column.to_pylist()
+            return [feature.names[v] if v is not None else None for v in values]
 
-        elif isinstance(feature, datasets.Value):
-            # Arrow already converts to Python types
-            return val
+        # Sequence: use to_numpy() for efficiency
+        if isinstance(feature, datasets.Sequence):
+            arr = column.to_numpy(zero_copy_only=False)
+            result = []
+            for i in range(chunk_size):
+                val = arr[i]
+                # Handle nested sequences: object array of arrays → stack to proper ndarray
+                if isinstance(val, np.ndarray) and val.dtype == object and len(val) > 0:
+                    if isinstance(val[0], np.ndarray):
+                        val = np.stack(val)
+                result.append(val)
+            return result
 
-        elif isinstance(feature, datasets.Sequence):
-            # Convert to numpy array
-            return np.array(val)
+        # Image: decode from bytes
+        if isinstance(feature, datasets.Image):
+            values = column.to_pylist()
+            return [self._decode_image(v) for v in values]
 
-        elif isinstance(feature, datasets.Image):
-            # Decode from Arrow binary format
-            return self._decode_image(val)
+        # Audio: struct with known fields - recurse on each field
+        if isinstance(feature, datasets.Audio):
+            return self._convert_struct_column(column, {
+                'array': datasets.Sequence(feature=datasets.Value('float32')),
+                'path': datasets.Value('string'),
+                'sampling_rate': datasets.Value('int32')
+            }, chunk_size)
 
-        elif isinstance(feature, datasets.Audio):
-            # Audio is stored as dict with 'array', 'path', 'sampling_rate'
-            return self._decode_audio(val, feature)
+        # Dict/struct: recurse on each field
+        if isinstance(feature, dict):
+            return self._convert_struct_column(column, feature, chunk_size)
 
-        elif isinstance(feature, dict):
-            # Recursively handle nested structures (e.g., audio dict with Sequence inside)
-            if isinstance(val, dict):
-                return {k: self._convert_value(v, feature[k]) for k, v in val.items()}
-            return val
+        # Value (primitives): to_pylist() is efficient for scalars
+        if isinstance(feature, datasets.Value):
+            return column.to_pylist()
 
-        elif isinstance(feature, list):
-            # List of dicts → keep as-is (JsonType)
-            return val
+        # Fallback
+        return column.to_pylist()
 
-        else:
-            return val
+    def _convert_struct_column(
+        self, column: 'pa.ChunkedArray', feature: dict[str, object], chunk_size: int
+    ) -> list[dict[str, Any]]:
+        """
+        Convert a StructArray column to a list of dicts by recursively
+        converting each field.
+        """
+        import pyarrow.compute as pc
 
-    def _decode_image(self, val: Any) -> PIL.Image.Image:
+        # Initialize result dicts
+        results: list[dict[str, Any]] = [{} for _ in range(chunk_size)]
+
+        # Process each field recursively
+        for field_name, field_feature in feature.items():
+            # Use pyarrow.compute.struct_field for ChunkedArray support
+            field_column = pc.struct_field(column, field_name)
+            field_values = self._convert_column(field_column, field_feature, chunk_size)
+
+            for i, val in enumerate(field_values):
+                results[i][field_name] = val
+
+        return results
+
+    @staticmethod
+    def _decode_image(val: dict[str, Any] | bytes | None) -> PIL.Image.Image | None:
         """Decode Arrow image data to PIL.Image."""
         import io as _io
 
+        if val is None:
+            return None
         if isinstance(val, dict) and 'bytes' in val:
             return PIL.Image.open(_io.BytesIO(val['bytes']))
         elif isinstance(val, bytes):
@@ -638,26 +678,7 @@ class HFTableDataConduit(TableDataConduit):
             return PIL.Image.open(val['path'])
         return val
 
-    def _decode_audio(self, val: Any, feature: Any) -> dict:
-        """Convert audio dict, ensuring array is numpy."""
-        import datasets
-
-        if isinstance(val, dict):
-            result = {}
-            # Get the inner feature types from the Audio feature
-            # Audio features have an implicit structure: {'array': Sequence, 'path': Value, 'sampling_rate': Value}
-            for k, v in val.items():
-                if k == 'array':
-                    # Convert array to numpy
-                    result[k] = np.array(v) if not isinstance(v, np.ndarray) else v
-                else:
-                    result[k] = v
-            return result
-        return val
-
     def valid_row_batch(self) -> Iterator['RowData']:
-        import datasets
-
         for split_name, split_dataset in self.dataset_dict.items():
             features = split_dataset.features
             table = split_dataset.data  # Access underlying Arrow table (public API)
@@ -679,55 +700,17 @@ class HFTableDataConduit(TableDataConduit):
                     for row in rows:
                         row[self.column_name_for_split] = split_name
 
-                # Process column-wise to avoid to_pydict() copy
+                # Process each column using recursive conversion
                 for col_idx, col_name in enumerate(batch.schema.names):
                     feature = features[col_name]
                     mapped_col_name = self.source_column_map.get(col_name, col_name)
                     column = batch.column(col_idx)
 
-                    # Get column values with minimal copying
-                    if col_name in self.categorical_features:
-                        # ClassLabel: use to_pylist for small int values
-                        values = column.to_pylist()
-                        names = self.categorical_features[col_name]
-                        for i, val in enumerate(values):
-                            rows[i][mapped_col_name] = names[val] if val is not None else None
+                    # Convert entire column at once
+                    values = self._convert_column(column, feature, chunk_size)
 
-                    elif isinstance(feature, datasets.Sequence):
-                        # Sequence → numpy array, zero-copy via to_numpy
-                        arr = column.to_numpy(zero_copy_only=False)
-                        for i in range(chunk_size):
-                            rows[i][mapped_col_name] = arr[i]
-
-                    elif isinstance(feature, datasets.Image):
-                        # Images: must decode from bytes
-                        values = column.to_pylist()
-                        for i, val in enumerate(values):
-                            rows[i][mapped_col_name] = self._decode_image(val)
-
-                    elif isinstance(feature, datasets.Audio):
-                        # Audio: struct with nested arrays
-                        values = column.to_pylist()
-                        for i, val in enumerate(values):
-                            rows[i][mapped_col_name] = self._decode_audio(val, feature)
-
-                    elif isinstance(feature, dict):
-                        # Nested dict structure
-                        values = column.to_pylist()
-                        for i, val in enumerate(values):
-                            rows[i][mapped_col_name] = self._convert_value(val, feature)
-
-                    elif isinstance(feature, datasets.Value):
-                        # Primitive types: to_pylist is efficient for scalars
-                        values = column.to_pylist()
-                        for i, val in enumerate(values):
-                            rows[i][mapped_col_name] = val
-
-                    else:
-                        # Fallback
-                        values = column.to_pylist()
-                        for i, val in enumerate(values):
-                            rows[i][mapped_col_name] = self._convert_value(val, feature)
+                    for i, val in enumerate(values):
+                        rows[i][mapped_col_name] = val
 
                 offset += chunk_size
                 yield rows
