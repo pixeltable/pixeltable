@@ -37,8 +37,8 @@ async def generate_content(
     contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None
 ) -> dict:
     """
-    Generate content from the specified model. For additional details, see:
-    <https://ai.google.dev/gemini-api/docs/text-generation>
+    Generate content from the specified model. `contents` can be a prompt, or a list containing images and text
+    prompts, as described in: <https://ai.google.dev/gemini-api/docs/text-generation>
 
     Request throttling:
     Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
@@ -61,10 +61,12 @@ async def generate_content(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `gemini-2.0-flash`
+        Add a computed column that applies the model `gemini-2.5-flash`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-2.0-flash'))
+        >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-2.5-flash'))
+
+        Add a computed column that applies the model `gemini-2.5-flash` for image understanding
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
