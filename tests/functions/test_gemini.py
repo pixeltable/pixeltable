@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status, get_image_files
+from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test
 
 
@@ -50,7 +50,7 @@ class TestGemini:
 
         t = pxt.create_table('test_tbl', {'id': pxt.Int, 'image': pxt.Image})
         t.add_computed_column(
-            output=generate_content([t.image, "Describe what's in this image."], model='gemini-2.5-flash'),
+            output=generate_content([t.image, "Describe what's in this image."], model='gemini-2.5-flash')
         )
         validate_update_status(t.insert({'id': n, 'image': image} for n, image in enumerate(images)), expected_rows=2)
         results = t.order_by(t.id).collect()
@@ -98,30 +98,41 @@ class TestGemini:
         from pixeltable.functions.gemini import generate_videos
 
         duration = 4
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'image': pxt.Image})
         t.add_computed_column(
-            output=generate_videos(t.prompt, model='veo-3.0-generate-001', config={'duration_seconds': duration})
+            output=generate_videos(
+                t.prompt, t.image, model='veo-3.0-generate-001', config={'duration_seconds': duration}
+            )
         )
         t.add_computed_column(metadata=t.output.get_metadata())
         validate_update_status(
             t.insert(
-                prompt='A giant pixel floating over the open ocean in a sea of data to the sound of ambient music'
+                [
+                    {
+                        'prompt': 'A giant pixel floating over the open ocean in a sea of data to the sound of ambient music'
+                    },
+                    {
+                        'prompt': 'Giraffes are foraging in a lush savannah as the leaves sway in the wind',
+                        'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
+                    },
+                ]
             ),
-            expected_rows=1,
+            expected_rows=2,
         )
 
         results = t.collect()
-        file_path = results['output'][0]
-        print(f'Generated video: {file_path}')
-        metadata = results['metadata'][0]
-        print(f'Generated video metadata: {metadata}')
-        assert Path(file_path).exists()
+        for i in range(len(results)):
+            file_path = results['output'][i]
+            print(f'Generated video: {file_path}')
+            metadata = results['metadata'][i]
+            print(f'Generated video metadata: {metadata}')
+            assert Path(file_path).exists()
 
-        # Validate metadata
-        streams = metadata['streams']
-        video_stream = next(s for s in streams if s['type'] == 'video')
-        audio_stream = next(s for s in streams if s['type'] == 'audio')
-        assert len(streams) == 2, metadata
-        assert video_stream['height'] == 720, metadata
-        assert video_stream['duration_seconds'] == duration, metadata
-        assert audio_stream['duration_seconds'] == duration, metadata
+            # Validate metadata
+            streams = metadata['streams']
+            video_stream = next(s for s in streams if s['type'] == 'video')
+            audio_stream = next(s for s in streams if s['type'] == 'audio')
+            assert len(streams) == 2, metadata
+            assert video_stream['height'] == 720, metadata
+            assert video_stream['duration_seconds'] == duration, metadata
+            assert audio_stream['duration_seconds'] == duration, metadata

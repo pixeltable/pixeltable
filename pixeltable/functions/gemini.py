@@ -196,10 +196,10 @@ async def generate_videos(
         The generated video.
 
     Examples:
-        Add a computed column that applies the model `veo-2.0-generate-001`
+        Add a computed column that applies the model `veo-3.0-generate-001`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_videos(tbl.prompt, model='veo-2.0-generate-001'))
+        >>> tbl.add_computed_column(response=generate_videos(tbl.prompt, model='veo-3.0-generate-001'))
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -210,8 +210,8 @@ async def generate_videos(
     image_: types.Image | None = None
     if image is not None:
         with io.BytesIO() as buffer:
-            image.save(buffer, format='jpeg')
-            image_ = types.Image(image_bytes=buffer.getvalue(), mime_type='image/jpeg')
+            image.save(buffer, format='webp')
+            image_ = types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
 
     config_ = types.GenerateVideosConfig(**config) if config else None
     operation = await _genai_client().aio.models.generate_videos(
