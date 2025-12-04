@@ -66,6 +66,8 @@ nav:
     - replicate: pixeltable/functions/replicate.md
     - reve: pixeltable/functions/reve.md
     - together: pixeltable/functions/together.md
+    - twelvelabs: pixeltable/functions/twelvelabs.md
+    - voyageai: pixeltable/functions/voyageai.md
     - whisper: pixeltable/functions/whisper.md
     - whisperx: pixeltable/functions/whisperx.md
     - yolox: pixeltable/functions/yolox.md
