@@ -1,0 +1,438 @@
+---
+title: 'Cloud Storage'
+description: 'Store and manage media files in cloud storage providers like S3, GCS, Azure, and more'
+icon: 'cloud'
+---
+
+Pixeltable supports storing media files (images, videos, audio, documents) in external cloud storage providers instead of local disk. This is essential for production deployments, enabling scalable storage, team collaboration, and integration with existing data infrastructure.
+
+## Supported Providers
+
+<CardGroup cols={3}>
+  <Card title="Amazon S3" icon="aws">
+    Native S3 storage with full feature support
+  </Card>
+  <Card title="Google Cloud Storage" icon="google">
+    GCS buckets with gs:// URI scheme
+  </Card>
+  <Card title="Azure Blob Storage" icon="microsoft">
+    Azure containers with wasb:// or abfs:// schemes
+  </Card>
+  <Card title="Cloudflare R2" icon="cloudflare">
+    S3-compatible storage with zero egress fees
+  </Card>
+  <Card title="Backblaze B2" icon="hard-drive">
+    Cost-effective S3-compatible storage
+  </Card>
+  <Card title="Tigris" icon="database">
+    Globally distributed S3-compatible storage
+  </Card>
+</CardGroup>
+
+## How It Works
+
+When you configure a storage destination, Pixeltable automatically:
+
+1. **Uploads computed media** — AI-generated images, extracted video frames, and other computed media files are stored in your bucket
+2. **Copies input media** — Optionally persists referenced media files for durability
+3. **Manages file lifecycle** — Cleans up files when table data is deleted
+4. **Handles caching** — Downloads files on-demand with intelligent local caching
+
+## Configuration
+
+There are two ways to configure cloud storage destinations:
+
+### Global Default Destinations
+
+Set default destinations for all media columns in your `config.toml` (see [Configuration](/overview/configuration) for details):
+
+```toml
+[pixeltable]
+# For input media (inserted/referenced files)
+input_media_dest = "s3://my-bucket/input/"
+
+# For computed media (AI-generated outputs)  
+output_media_dest = "s3://my-bucket/output/"
+```
+
+Or via environment variables:
+
+```bash
+export PIXELTABLE_INPUT_MEDIA_DEST="s3://my-bucket/input/"
+export PIXELTABLE_OUTPUT_MEDIA_DEST="s3://my-bucket/output/"
+```
+
+<Tip>
+Configure these before creating tables. All media columns will automatically use the configured destinations.
+</Tip>
+
+### Per-Column Destination (Computed Columns Only)
+
+For **computed columns**, you can override the default with a specific destination:
+
+```python
+import pixeltable as pxt
+
+# Create a table with input media column
+# (uses global input_media_dest if configured)
+t = pxt.create_table('my_app.images', {'image': pxt.Image})
+
+# Add computed column with explicit destination
+t.add_computed_column(
+    thumbnail=t.image.resize((128, 128)),
+    destination='s3://my-bucket/thumbnails/'
+)
+```
+
+<Note>
+The `destination` parameter only applies to **stored computed columns**. For input columns, use the global `input_media_dest` configuration.
+</Note>
+
+### Precedence Rules
+
+Destinations are resolved in this order:
+1. **Explicit column destination** — highest priority (computed columns only)
+2. **Global default** — `input_media_dest` for input columns, `output_media_dest` for computed columns
+3. **Local storage** — fallback if no destination is configured
+
+## Provider Configuration
+
+### Amazon S3
+
+<Tabs>
+  <Tab title="URI Format">
+    ```
+    s3://bucket-name/optional/prefix/
+    ```
+  </Tab>
+  <Tab title="Authentication">
+    Uses standard AWS credential chain:
+    - Environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`)
+    - AWS credentials file (`~/.aws/credentials`)
+    - IAM role (when running on AWS)
+
+    Optionally specify a profile in `config.toml`:
+    ```toml
+    [pixeltable]
+    s3_profile = "my-aws-profile"
+    ```
+  </Tab>
+  <Tab title="Example">
+    ```python
+    import pixeltable as pxt
+
+    # With global config: output_media_dest = "s3://my-bucket/output/"
+    t = pxt.create_table('app.images', {'photo': pxt.Image})
+
+    # Or set destination per computed column
+    t.add_computed_column(
+        thumbnail=t.photo.resize((256, 256)),
+        destination='s3://my-production-bucket/thumbnails/'
+    )
+    ```
+  </Tab>
+</Tabs>
+
+### Google Cloud Storage
+
+<Tabs>
+  <Tab title="URI Format">
+    ```
+    gs://bucket-name/optional/prefix/
+    ```
+  </Tab>
+  <Tab title="Authentication">
+    Uses Google Cloud Application Default Credentials:
+    - Service account key file (`GOOGLE_APPLICATION_CREDENTIALS`)
+    - gcloud CLI authentication
+    - GCE metadata service (when running on GCP)
+  </Tab>
+  <Tab title="Requirements">
+    ```bash
+    pip install google-cloud-storage
+    ```
+  </Tab>
+  <Tab title="Example">
+    ```python
+    # With global config: output_media_dest = "gs://my-gcs-bucket/output/"
+    t = pxt.create_table('app.videos', {'video': pxt.Video})
+
+    # Or set destination per computed column
+    t.add_computed_column(
+        frames=pxt.iterators.FrameIterator.create(t.video, fps=1),
+        destination='gs://my-gcs-bucket/frames/'
+    )
+    ```
+  </Tab>
+</Tabs>
+
+### Azure Blob Storage
+
+<Tabs>
+  <Tab title="URI Formats">
+    Azure supports multiple URI schemes:
+    ```
+    wasbs://container@account.blob.core.windows.net/prefix/
+    abfss://container@account.dfs.core.windows.net/prefix/
+    ```
+  </Tab>
+  <Tab title="Authentication">
+    Configure in `config.toml`:
+    ```toml
+    [azure]
+    storage_account_name = "myaccount"
+    storage_account_key = "your-key-here"
+    ```
+
+    Or via environment variables:
+    ```bash
+    export AZURE_STORAGE_ACCOUNT_NAME="myaccount"
+    export AZURE_STORAGE_ACCOUNT_KEY="your-key-here"
+    ```
+  </Tab>
+  <Tab title="Requirements">
+    ```bash
+    pip install azure-storage-blob
+    ```
+  </Tab>
+  <Tab title="Example">
+    ```python
+    # With global config: output_media_dest = "wasbs://mycontainer@myaccount.blob.core.windows.net/output/"
+    t = pxt.create_table('app.docs', {'document': pxt.Document})
+
+    # Or set destination per computed column
+    t.add_computed_column(
+        chunks=pxt.iterators.DocumentSplitter.create(t.document),
+        destination='wasbs://mycontainer@myaccount.blob.core.windows.net/chunks/'
+    )
+    ```
+  </Tab>
+</Tabs>
+
+### Cloudflare R2
+
+<Tabs>
+  <Tab title="URI Format">
+    ```
+    https://account-id.r2.cloudflarestorage.com/bucket-name/prefix/
+    ```
+  </Tab>
+  <Tab title="Authentication">
+    Create an R2 API token and configure AWS-style credentials.
+
+    In `~/.aws/credentials`:
+    ```ini
+    [r2]
+    aws_access_key_id = your-r2-access-key
+    aws_secret_access_key = your-r2-secret-key
+    ```
+
+    In `config.toml`:
+    ```toml
+    [pixeltable]
+    r2_profile = "r2"
+    ```
+  </Tab>
+  <Tab title="Example">
+    ```python
+    t = pxt.create_table('app.images', {'image': pxt.Image})
+
+    t.add_computed_column(
+        rotated=t.image.rotate(90),
+        destination='https://abc123.r2.cloudflarestorage.com/my-bucket/processed/'
+    )
+    ```
+  </Tab>
+</Tabs>
+
+### Backblaze B2
+
+<Tabs>
+  <Tab title="URI Format">
+    ```
+    https://s3.region.backblazeb2.com/bucket-name/prefix/
+    ```
+  </Tab>
+  <Tab title="Authentication">
+    Create B2 application keys and configure AWS-style credentials.
+
+    In `~/.aws/credentials`:
+    ```ini
+    [b2]
+    aws_access_key_id = your-b2-key-id
+    aws_secret_access_key = your-b2-application-key
+    ```
+
+    In `config.toml`:
+    ```toml
+    [pixeltable]
+    b2_profile = "b2"
+    ```
+  </Tab>
+  <Tab title="Example">
+    ```python
+    t = pxt.create_table('app.audio', {'audio': pxt.Audio})
+
+    t.add_computed_column(
+        segments=pxt.iterators.AudioSplitter.create(t.audio, chunk_duration_sec=30),
+        destination='https://s3.us-west-004.backblazeb2.com/my-bucket/segments/'
+    )
+    ```
+  </Tab>
+</Tabs>
+
+### Tigris
+
+<Tabs>
+  <Tab title="URI Format">
+    ```
+    https://fly.storage.tigris.dev/bucket-name/prefix/
+    ```
+  </Tab>
+  <Tab title="Authentication">
+    Configure AWS-style credentials for Tigris.
+
+    In `~/.aws/credentials`:
+    ```ini
+    [tigris]
+    aws_access_key_id = your-tigris-access-key
+    aws_secret_access_key = your-tigris-secret-key
+    ```
+
+    In `config.toml`:
+    ```toml
+    [pixeltable]
+    tigris_profile = "tigris"
+    ```
+  </Tab>
+  <Tab title="Example">
+    ```python
+    t = pxt.create_table('app.media', {'file': pxt.Image})
+
+    t.add_computed_column(
+        thumbnail=t.file.resize((128, 128)),
+        destination='https://fly.storage.tigris.dev/my-bucket/thumbnails/'
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Complete Example
+
+Here's a full example using S3 for both input and computed media.
+
+First, configure your global destinations in `~/.pixeltable/config.toml`:
+
+```toml
+[pixeltable]
+input_media_dest = "s3://my-app-bucket/uploads/"
+output_media_dest = "s3://my-app-bucket/generated/"
+
+s3_profile = "my-aws-profile"  # optional, uses default credentials if not set
+```
+
+Then create your table and add computed columns:
+
+```python
+import pixeltable as pxt
+from pixeltable.functions import openai
+
+# Create a table — input media automatically goes to input_media_dest
+t = pxt.create_table('production.photos', {'photo': pxt.Image})
+
+# Add a computed column for thumbnails
+# Uses output_media_dest by default, or specify a custom destination
+t.add_computed_column(
+    thumbnail=t.photo.resize((256, 256)),
+    destination='s3://my-app-bucket/thumbnails/'  # override default
+)
+
+# Add AI-generated descriptions (uses output_media_dest)
+t.add_computed_column(
+    description=openai.vision(
+        prompt="Describe this image briefly.",
+        image=t.photo,
+        model='gpt-4o-mini'
+    )
+)
+
+# Insert data — Pixeltable handles all uploads automatically
+t.insert([
+    {'photo': 'https://example.com/image1.jpg'},
+    {'photo': '/local/path/to/image2.png'},
+])
+
+# Query as usual — files are streamed/cached as needed
+t.select(t.photo, t.thumbnail, t.description).collect()
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use prefixes to organize data">
+    Structure your bucket with prefixes that reflect your application:
+    ```
+    s3://my-bucket/
+      ├── production/
+      │   ├── uploads/
+      │   └── generated/
+      └── staging/
+          ├── uploads/
+          └── generated/
+    ```
+  </Accordion>
+
+  <Accordion title="Separate input and output destinations">
+    Use different prefixes or buckets for input vs computed media:
+    - Easier to set different retention policies
+    - Clearer cost attribution
+    - Simpler backup strategies
+  </Accordion>
+
+  <Accordion title="Configure lifecycle policies">
+    Set up bucket lifecycle policies to automatically:
+    - Transition old data to cheaper storage tiers
+    - Delete temporary/staging data after a period
+    - Enable versioning for critical data
+  </Accordion>
+
+  <Accordion title="Use IAM roles in production">
+    When running on cloud infrastructure, use IAM roles instead of access keys:
+    - More secure (no key rotation needed)
+    - Automatic credential refresh
+    - Better audit trails
+  </Accordion>
+</AccordionGroup>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Access Denied errors">
+    Verify your credentials have the necessary permissions:
+    - `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`
+    - `s3:ListBucket` for the bucket
+    
+    For GCS: `storage.objects.create`, `storage.objects.get`, `storage.objects.delete`
+  </Accordion>
+
+  <Accordion title="Bucket not found">
+    - Ensure the bucket exists and the name is spelled correctly
+    - Check the region matches your credential configuration
+    - For S3-compatible providers, verify the endpoint URL is correct
+  </Accordion>
+
+  <Accordion title="Slow uploads">
+    - Pixeltable uses connection pooling and parallel uploads automatically
+    - Consider using a bucket in the same region as your compute
+    - Check your network bandwidth and latency
+  </Accordion>
+</AccordionGroup>
+
+<Card title="Configuration Reference" icon="gear" href="/overview/configuration">
+  See the complete list of storage configuration options including profiles for S3, R2, B2, Tigris, and Azure.
+</Card>
+
+<Note>
+Need help setting up cloud storage? Join our [Discord community](https://discord.com/invite/QPyqFYx2UN) for support.
+</Note>
+

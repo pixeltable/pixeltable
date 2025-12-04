@@ -20,11 +20,12 @@
               "overview/installation",
               "overview/configuration",
               "overview/quick-start",
+              "overview/deployment",
               "overview/building-pixeltable-with-llms"
             ]
           },
           {
-            "group": "Multimodal AI Datastore",
+            "group": "Concepts",
             "pages": [
               "datastore/tables-and-operations",
               "datastore/views",
@@ -70,6 +71,7 @@
                   "notebooks/integrations/working-with-anthropic",
                   "notebooks/integrations/working-with-bedrock",
                   "notebooks/integrations/working-with-deepseek",
+                  "notebooks/integrations/working-with-fiftyone",
                   "notebooks/integrations/working-with-fireworks",
                   "notebooks/integrations/working-with-gemini",
                   "notebooks/integrations/working-with-groq",
@@ -80,9 +82,10 @@
                   "notebooks/integrations/working-with-openai",
                   "notebooks/integrations/working-with-openrouter",
                   "notebooks/integrations/working-with-replicate",
+                  "notebooks/integrations/working-with-reve",
                   "notebooks/integrations/working-with-together",
-                  "notebooks/integrations/using-label-studio-with-pixeltable",
-                  "notebooks/integrations/working-with-fiftyone"
+                  "notebooks/integrations/working-with-voyageai",
+                  "notebooks/integrations/using-label-studio-with-pixeltable"
                 ]
               },
               {
@@ -195,46 +198,6 @@
         ]
       },
       {
-        "tab": "Examples",
-        "groups": [
-          {
-            "group": "Explore",
-            "pages": [
-              "examples/use-cases",
-              "examples/interactive-demos",
-              "examples/sample-apps"
-            ]
-          },
-          {
-            "group": "Chatbot",
-            "pages": [
-              "examples/chat/multimodal",
-              "examples/chat/memory",
-              "examples/chat/tools",
-              "examples/chat/evals"
-            ]
-          },
-          {
-            "group": "Computer Vision",
-            "pages": [
-              "examples/vision/label-studio",
-              "examples/vision/voxel51",
-              "examples/vision/yolox"
-            ]
-          },
-          {
-            "group": "Semantic Search",
-            "pages": [
-              "examples/search/audio",
-              "examples/search/images",
-              "examples/search/PDF",
-              "examples/search/website",
-              "examples/search/video"
-            ]
-          }
-        ]
-      },
-      {
         "tab": "Integrations",
         "groups": [
           {
@@ -242,6 +205,12 @@
             "pages": [
               "integrations/frameworks",
               "integrations/models"
+            ]
+          },
+          {
+            "group": "Infrastructure",
+            "pages": [
+              "integrations/cloud-storage"
             ]
           },
           {

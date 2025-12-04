@@ -168,6 +168,7 @@ dev = [
     "azure-storage-blob>=12.20.0",
     "azure-identity>=1.16.0",
     "twelvelabs>=1.0",
+    "voyageai>=0.3.5",
     "scenedetect>=0.6.0.1",
 ]
 test = [
