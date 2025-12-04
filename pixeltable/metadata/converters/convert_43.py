@@ -1,4 +1,3 @@
-import copy
 from typing import Any
 
 import numpy as np
@@ -24,8 +23,7 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
         return None
     assert 'dtype' in value
 
-    updated_value = copy.deepcopy(value)
-    legacy_dtype_val = updated_value['dtype']
+    legacy_dtype_val = value['dtype']
     new_dtype: np.dtype | None
     if legacy_dtype_val is None:
         new_dtype = None
@@ -35,12 +33,12 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
         if new_dtype is None:
             raise ValueError(f'Unrecognized dtype: {legacy_dtype_val} ({legacy_dtype}) in {key}, {value}')
 
-    del updated_value['dtype']
+    del value['dtype']
     if new_dtype is None:
-        updated_value['numpy_dtype'] = None
+        value['numpy_dtype'] = None
     elif new_dtype == np.str_:
         # str(np.str_) would be something like '<U'
-        updated_value['numpy_dtype'] = 'str'
+        value['numpy_dtype'] = 'str'
     else:
-        updated_value['numpy_dtype'] = str(new_dtype)
-    return key, updated_value
+        value['numpy_dtype'] = str(new_dtype)
+    return key, value
