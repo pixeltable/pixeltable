@@ -55,19 +55,6 @@ class TestFal:
         # fast-sdxl with square_hd should produce a 1024x1024 image
         assert img.size == (1024, 1024)
 
-    def test_subscribe(self, reset_db: None) -> None:
-        skip_test_if_not_installed('fal_client')
-        skip_test_if_no_client('fal')
-        from pixeltable.functions.fal import subscribe
-
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
-        t.add_computed_column(output=subscribe(input={'prompt': t.prompt}, app='fal-ai/flux/dev'))
-        validate_update_status(t.insert(prompt='A pencil sketch of a cat wearing a wizard hat'), 1)
-        results = t.collect()
-        print(results['output'][0])
-        assert 'images' in results['output'][0]
-        assert len(results['output'][0]['images']) > 0
-
     def test_multiple_images(self, reset_db: None) -> None:
         skip_test_if_not_installed('fal_client')
         skip_test_if_no_client('fal')

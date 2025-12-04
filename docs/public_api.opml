@@ -246,7 +246,6 @@
         </outline>
         <outline text="module|pixeltable.functions.fal">
           <outline text="udf|pixeltable.functions.fal.run" />
-          <outline text="udf|pixeltable.functions.fal.subscribe" />
         </outline>
         <outline text="module|pixeltable.functions.fireworks">
           <outline text="udf|pixeltable.functions.fireworks.chat_completions" />

@@ -31,6 +31,7 @@ async def run(input: dict[str, Any], *, app: str) -> pxt.Json:
     """
     Run a model on fal.ai.
 
+    Uses fal's queue-based subscribe mechanism for reliable execution.
     For additional details, see: <https://fal.ai/docs>
 
     Request throttling:
@@ -61,44 +62,6 @@ async def run(input: dict[str, Any], *, app: str) -> pxt.Json:
         >>> input = {'prompt': tbl.prompt, 'image_size': 'square', 'num_inference_steps': 25}
         ... tbl.add_computed_column(response=run(input, app='fal-ai/fast-sdxl'))
         ... tbl.add_computed_column(image=tbl.response['images'][0]['url'].astype(pxt.Image))
-    """
-    Env.get().require_package('fal_client')
-    client = _fal_client()
-    result = await client.run(app, arguments=input)
-    return result
-
-
-@pxt.udf(resource_pool='request-rate:fal')
-async def subscribe(input: dict[str, Any], *, app: str) -> pxt.Json:
-    """
-    Subscribe to and run a model on fal.ai with real-time updates.
-
-    This function is similar to `run()` but uses fal.ai's subscribe mechanism, which is
-    particularly useful for longer-running tasks that provide progress updates.
-
-    For additional details, see: <https://fal.ai/docs>
-
-    Request throttling:
-    Applies the rate limit set in the config (section `fal`, key `rate_limit`). If no rate
-    limit is configured, uses a default of 600 RPM.
-
-    __Requirements:__
-
-    - `pip install fal-client`
-
-    Args:
-        input: The input parameters for the model.
-        app: The name or ID of the fal.ai application to run (e.g., 'fal-ai/flux/dev').
-
-    Returns:
-        The final output of the model as a JSON object.
-
-    Examples:
-        Add a computed column that applies the model `fal-ai/flux/dev`
-        to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
-
-        >>> input = {'prompt': tbl.prompt}
-        ... tbl.add_computed_column(response=subscribe(input, app='fal-ai/flux/dev'))
     """
     Env.get().require_package('fal_client')
     client = _fal_client()
