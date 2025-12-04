@@ -15,23 +15,23 @@ class TestArrayType:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_array_dtypes(self, do_reload_catalog: bool, init_env: None, reset_db: None) -> None:
         test_cases: list = [
-            (np.bool, []),
-            (np.str_, []),
-            (np.int8, [np.bool]),
-            (np.int16, [np.bool, np.int8, np.uint8]),
-            (np.int32, [np.bool, np.int8, np.int16, np.uint8, np.uint16]),
-            (np.int64, [np.bool, np.int8, np.int16, np.int32, np.uint8, np.uint16, np.uint32]),
-            (np.uint8, [np.bool]),
-            (np.uint16, [np.bool, np.uint8]),
-            (np.uint32, [np.bool, np.uint8, np.uint16]),
-            (np.uint64, [np.bool, np.uint8, np.uint16, np.uint32]),
-            (np.float16, [np.bool]),
-            (np.float32, [np.bool, np.float16]),
-            (np.float64, [np.bool, np.float16, np.float32]),
-            (pxt.Int, [np.bool, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32]),
-            (pxt.Float, [np.float16, np.float32]),
-            (pxt.Bool, [np.bool]),
-            (pxt.String, [np.str_]),
+            (np.bool, [np.bool, pxt.Bool]),
+            (np.str_, [np.str_, pxt.String]),
+            (np.int8, [np.int8]),
+            (np.int16, [np.int16]),
+            (np.int32, [np.int32]),
+            (np.int64, [np.int64, pxt.Int]),
+            (np.uint8, [np.uint8]),
+            (np.uint16, [np.uint16]),
+            (np.uint32, [np.uint32]),
+            (np.uint64, [np.uint64]),
+            (np.float16, [np.float16]),
+            (np.float32, [np.float32, pxt.Float]),
+            (np.float64, [np.float64]),
+            (pxt.Int, [np.int64, pxt.Int]),
+            (pxt.Float, [np.float32, pxt.Float]),
+            (pxt.Bool, [np.bool, pxt.Bool]),
+            (pxt.String, [np.str_, pxt.String]),
         ]
         for col_dtype, acceptable_dtypes in test_cases:
             try:
@@ -49,9 +49,6 @@ class TestArrayType:
         pxt.create_table('test_numpy_dtypes', schema, if_exists='replace')
         reload_catalog(do_reload_catalog)
         t = pxt.get_table('test_numpy_dtypes')
-
-        if col_dtype not in acceptable_dtypes:
-            acceptable_dtypes.append(col_dtype)
 
         # Generate inserts for all dtypes that these columns should accept
         validate_update_status(
@@ -166,16 +163,9 @@ class TestArrayType:
         assert ArrayType(None, dtype=np.dtype('int32')).supertype(
             ArrayType(None, dtype=np.dtype('int32'))
         ) == ArrayType(None, dtype=np.dtype('int32'))
-        assert ArrayType(None, dtype=np.dtype('uint8')).supertype(
-            ArrayType(None, dtype=np.dtype('int32'))
-        ) == ArrayType(None, dtype=np.dtype('int32'))
-        assert ArrayType(None, dtype=np.dtype('bool')).supertype(ArrayType(None, dtype=np.dtype('str'))) == ArrayType(
-            None, dtype=np.dtype('str')
-        )
-        # special case: the super dtype is neither of the two dtypes
-        assert ArrayType(None, dtype=np.dtype('uint8')).supertype(ArrayType(None, dtype=np.dtype('int8'))) == ArrayType(
-            None, dtype=np.dtype('int16')
-        )
+        assert ArrayType(None, dtype=np.dtype('int32')).supertype(
+            ArrayType(None, dtype=np.dtype('int16'))
+        ) == ArrayType()
         assert ArrayType(None, None).supertype(ArrayType(None, dtype=np.dtype('int32'))) == ArrayType(None, None)
 
         # shape+dtype
@@ -186,18 +176,18 @@ class TestArrayType:
         assert ArrayType(None, dtype=np.dtype('int8')).supertype(
             ArrayType((2, 2), dtype=np.dtype('int8'))
         ) == ArrayType(None, dtype=np.dtype('int8'))
-        assert ArrayType((2, 2), dtype=np.dtype('int8')).supertype(
+        assert ArrayType((2, 2), dtype=np.dtype('int16')).supertype(
             ArrayType((None, 2), dtype=np.dtype('int16'))
         ) == ArrayType((None, 2), dtype=np.dtype('int16'))
-        assert ArrayType((2, None), dtype=np.dtype('int8')).supertype(
-            ArrayType((None, 2), dtype=np.dtype('int16'))
-        ) == ArrayType((None, None), dtype=np.dtype('int16'))
-        assert ArrayType((2, 2), dtype=np.dtype('int8')).supertype(
-            ArrayType((2, 2, 3), dtype=np.dtype('int8'))
-        ) == ArrayType(None, dtype=np.dtype('int8'))
-        assert ArrayType((1, 2, 3), dtype=np.dtype('bool')).supertype(
-            ArrayType((3, 2, 1), dtype=np.dtype('bool'))
-        ) == ArrayType((None, 2, None), dtype=np.dtype('bool'))
+        assert ArrayType((2, None), dtype=np.dtype('float64')).supertype(
+            ArrayType((None, 2), dtype=np.dtype('float64'))
+        ) == ArrayType((None, None), dtype=np.dtype('float64'))
+        assert ArrayType((2, 2), dtype=np.dtype('bool')).supertype(
+            ArrayType((2, 2, 3), dtype=np.dtype('bool'))
+        ) == ArrayType(None, dtype=np.dtype('bool'))
+        assert ArrayType((1, 2, 3), dtype=np.dtype('str_')).supertype(
+            ArrayType((3, 2, 1), dtype=np.dtype('str_'))
+        ) == ArrayType((None, 2, None), dtype=np.dtype('str_'))
 
         # nullability
         assert ArrayType(None, None, nullable=False).supertype(ArrayType(None, None, nullable=True)) == ArrayType(
@@ -234,9 +224,9 @@ class TestArrayType:
         assert not ArrayType(None, IntType()).is_supertype_of(ArrayType(None, None))
         assert ArrayType(None, IntType()).is_supertype_of(ArrayType(None, IntType()))
         assert ArrayType(None, np.dtype('int32')).is_supertype_of(ArrayType(None, np.dtype('int32')))
-        assert ArrayType(None, np.dtype('int32')).is_supertype_of(ArrayType(None, np.dtype('int16')))
-        assert ArrayType(None, np.dtype('int32')).is_supertype_of(ArrayType(None, np.dtype('bool')))
-        assert ArrayType(None, IntType()).is_supertype_of(ArrayType(None, np.dtype('int16')))
+        assert not ArrayType(None, np.dtype('int32')).is_supertype_of(ArrayType(None, np.dtype('int16')))
+        assert not ArrayType(None, np.dtype('int32')).is_supertype_of(ArrayType(None, np.dtype('bool')))
+        assert not ArrayType(None, IntType()).is_supertype_of(ArrayType(None, np.dtype('int16')))
 
         # shapes
         assert ArrayType(None, np.dtype('int32')).is_supertype_of(ArrayType((1, 2, 3), np.dtype('int32')))
@@ -294,7 +284,7 @@ class TestArrayType:
             ([1, 2, 3], (3,), np.dtype('int64')),
             ([[1, 2, 3.0]], (1, 3), np.dtype('float32')),
             ([np.ones((1, 1), dtype=np.float32), np.zeros((1, 1), dtype=np.float32)], (2, 1, 1), np.dtype('float32')),
-            ([np.ones((1, 1), dtype=np.str_), np.zeros((1, 1), dtype=np.bool)], (2, 1, 1), np.dtype('str')),
+            ([np.ones((1, 1), dtype=np.str_), np.zeros((1, 1), dtype=np.bool)], None, None),
         ]
 
         for i, (elements, expected_shape, expected_dtype) in enumerate(test_cases):
@@ -328,6 +318,7 @@ class TestArrayType:
         ]
         for arr, expected_repr in test_cases:
             assert repr(arr) == expected_repr
+            assert str(arr) == expected_repr
 
     def test_json_schema(self) -> None:
         test_cases = [
@@ -377,12 +368,3 @@ class TestArrayType:
             as_dict = type._as_dict()
             from_dict = ArrayType._from_dict(as_dict)
             assert type == from_dict, type
-
-    def test_numpy_dtypes_order(self) -> None:
-        # ArrayType.supertype() relies on the property of ARRAY_SUPPORTED_NUMPY_DTYPES that all supertypes appear after
-        # their subtypes
-        for i, t_i in enumerate(ts.ARRAY_SUPPORTED_NUMPY_DTYPES):
-            for j in range(i + 1, len(ts.ARRAY_SUPPORTED_NUMPY_DTYPES)):
-                t_j = ts.ARRAY_SUPPORTED_NUMPY_DTYPES[j]
-                can_cast = np.can_cast(t_j, t_i)
-                assert not can_cast, f'Bad order of items of ARRAY_SUPPORTED_NUMPY_DTYPES: can cast from {t_j} to {t_i}'

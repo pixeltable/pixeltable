@@ -908,8 +908,8 @@ class ArrayType(ColumnType):
         if dtype is None:
             self.dtype = None
         elif isinstance(dtype, np.dtype):
-            # Numpy string has some qualifications (such as endianness, max length, encoding) that we don't support,
-            # so we just strip them away.
+            # Numpy string has some specifications (endianness, max length, encoding) that we don't support, so we just
+            # strip them out.
             if dtype.type == np.str_:
                 self.dtype = np.dtype(np.str_)
             else:
@@ -920,6 +920,7 @@ class ArrayType(ColumnType):
             self.dtype = self.pxt_dtype_to_numpy_dtype.get(dtype._type, None)
             if self.dtype is None:
                 raise ValueError(f'Unsupported dtype: {dtype}')
+            assert self.dtype in ARRAY_SUPPORTED_NUMPY_DTYPES
         else:
             raise ValueError(f'Unsupported dtype: {dtype}')
 
@@ -941,20 +942,11 @@ class ArrayType(ColumnType):
         if not isinstance(other, ArrayType):
             return None
 
-        # Determine the dtype of the supertype
-        super_dtype: np.dtype | None = None
-        if self.dtype is not None and other.dtype is not None:
-            # This list is ordered such that for any two supported dtypes, the first common supertype in the array
-            # will be their lowest common supertype.
-            for dtype in ARRAY_SUPPORTED_NUMPY_DTYPES:
-                if np.can_cast(self.dtype, dtype) and np.can_cast(other.dtype, dtype):
-                    super_dtype = np.dtype(dtype)
-                    break
-            # Should never happen because any supported type can be cast to np.str_
-            assert super_dtype is not None, (self.dtype, other.dtype)
-        else:
-            # one or both dtypes are unspecified
+        # Supertype has dtype only if dtypes are identical. We can change this behavior to consider casting rules or
+        # something else if there's demand for it.
+        if self.dtype != other.dtype:
             return ArrayType(nullable=(self.nullable or other.nullable))
+        super_dtype = self.dtype
 
         # Determine the shape of the supertype
         super_shape: tuple[int | None, ...] | None
@@ -972,7 +964,8 @@ class ArrayType(ColumnType):
         if self.dtype is None:
             result.update(numpy_dtype=None)
         elif self.dtype == np.str_:
-            # str(np.str_) would be something like '<U'
+            # str(np.str_) would be something like '<U', but since we don't support the string specifications, just use
+            # 'str' instead to avoid confusion.
             result.update(numpy_dtype='str')
         else:
             result.update(numpy_dtype=str(self.dtype))
@@ -1013,9 +1006,13 @@ class ArrayType(ColumnType):
         if not isinstance(val, np.ndarray):
             raise TypeError(f'Expected numpy.ndarray, got {val.__class__.__name__}')
 
-        # If column type has a dtype, check for compatibility. Note: the exact dtype match is not required. We allow
-        # literals whose dtypes can be cast to the column's.
-        if self.dtype is not None and not np.can_cast(val.dtype, self.dtype):
+        # If column type has a dtype, check if it matches
+        if self.dtype is None:
+            pass
+        elif self.dtype == np.str_:
+            if val.dtype.type != np.str_:
+                raise TypeError(f'Expected numpy.ndarray of dtype {self.dtype}, got numpy.ndarray of dtype {val.dtype}')
+        elif self.dtype != val.dtype:
             raise TypeError(f'Expected numpy.ndarray of dtype {self.dtype}, got numpy.ndarray of dtype {val.dtype}')
 
         # If no dtype is specified, we still need to check that the dtype is one of the supported types
