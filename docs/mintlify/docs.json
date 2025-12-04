@@ -71,6 +71,7 @@
                   "notebooks/integrations/working-with-anthropic",
                   "notebooks/integrations/working-with-bedrock",
                   "notebooks/integrations/working-with-deepseek",
+                  "notebooks/integrations/working-with-fiftyone",
                   "notebooks/integrations/working-with-fireworks",
                   "notebooks/integrations/working-with-gemini",
                   "notebooks/integrations/working-with-groq",
@@ -83,8 +84,8 @@
                   "notebooks/integrations/working-with-replicate",
                   "notebooks/integrations/working-with-reve",
                   "notebooks/integrations/working-with-together",
-                  "notebooks/integrations/using-label-studio-with-pixeltable",
-                  "notebooks/integrations/working-with-fiftyone"
+                  "notebooks/integrations/working-with-voyageai",
+                  "notebooks/integrations/using-label-studio-with-pixeltable"
                 ]
               },
               {

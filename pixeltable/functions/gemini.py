@@ -219,6 +219,9 @@ async def generate_videos(
         await asyncio.sleep(3)
         operation = await _genai_client().aio.operations.get(operation)
 
+    if operation.error:
+        raise Exception(f'Video generation failed: {operation.error}')
+
     video = operation.response.generated_videos[0]
 
     video_bytes = await _genai_client().aio.files.download(file=video.video)  # type: ignore[arg-type]
