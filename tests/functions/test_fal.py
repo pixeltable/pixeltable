@@ -55,7 +55,6 @@ class TestFal:
         # fast-sdxl with square_hd should produce a 1024x1024 image
         assert img.size == (1024, 1024)
 
-    @pytest.mark.expensive
     def test_subscribe(self, reset_db: None) -> None:
         skip_test_if_not_installed('fal_client')
         skip_test_if_no_client('fal')

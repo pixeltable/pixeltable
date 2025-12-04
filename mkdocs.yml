@@ -53,6 +53,7 @@ nav:
     - anthropic: pixeltable/functions/anthropic.md
     - bedrock: pixeltable/functions/bedrock.md
     - deepseek: pixeltable/functions/deepseek.md
+    - fal: pixeltable/functions/fal.md
     - fireworks: pixeltable/functions/fireworks.md
     - gemini: pixeltable/functions/gemini.md
     - groq: pixeltable/functions/groq.md
