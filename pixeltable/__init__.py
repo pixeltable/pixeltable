@@ -42,22 +42,7 @@ from .globals import (
     tool,
     tools,
 )
-from .type_system import (
-    Array,
-    Audio,
-    Bool,
-    Date,
-    Document,
-    Float,
-    Image,
-    Int,
-    Json,
-    Required,
-    String,
-    Timestamp,
-    Video,
-    column_type_from_np_dtype,
-)
+from .type_system import Array, Audio, Bool, Date, Document, Float, Image, Int, Json, Required, String, Timestamp, Video
 
 # This import must go last to avoid circular imports.
 from . import functions, io, iterators  # isort: skip
