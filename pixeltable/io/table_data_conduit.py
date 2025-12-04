@@ -328,7 +328,7 @@ class JsonTableDataConduit(TableDataConduit):
         return t2
 
 
-class HFTableDataConduit(TableDataConduit):
+class HFTableDataConduit2(TableDataConduit):
     """
     TODO:
     - use set_format('arrow') and convert ChunkedArrays to PIL.Image.Image instead of going through numpy, which is slow
@@ -488,11 +488,12 @@ class HFTableDataConduit(TableDataConduit):
                 yield batch
 
 
-class FastHFImporter(TableDataConduit):
+class HFTableDataConduit(TableDataConduit):
+#class FastHFImporter(TableDataConduit):
     """
-    Fast HuggingFace dataset importer using Arrow format.
-    Uses with_format('arrow') to iterate over Arrow record batches directly,
-    avoiding per-row format conversions.
+    Fast HuggingFace dataset importer using direct Arrow table access.
+    Uses dataset.data.slice() with natural chunk boundaries for zero-copy iteration,
+    and processes columns individually to avoid to_pydict() overhead.
     """
 
     column_name_for_split: str | None = None
@@ -511,16 +512,14 @@ class FastHFImporter(TableDataConduit):
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
 
-        # Set Arrow format for efficient batch iteration
-        source = tds.source.with_format('arrow')
-
-        if isinstance(source, datasets.Dataset):
-            raw_name = source.split._name
+        # Store dataset directly - we'll access .data for Arrow tables
+        if isinstance(tds.source, datasets.Dataset):
+            raw_name = tds.source.split._name
             split_name = raw_name.split('[')[0] if raw_name is not None else None
-            t.dataset_dict = {split_name: source}
+            t.dataset_dict = {split_name: tds.source}
         else:
-            assert isinstance(source, datasets.DatasetDict)
-            t.dataset_dict = dict(source)
+            assert isinstance(tds.source, datasets.DatasetDict)
+            t.dataset_dict = dict(tds.source)
         return t
 
     @classmethod
@@ -657,44 +656,80 @@ class FastHFImporter(TableDataConduit):
         return val
 
     def valid_row_batch(self) -> Iterator['RowData']:
+        import datasets
+
         for split_name, split_dataset in self.dataset_dict.items():
             features = split_dataset.features
+            table = split_dataset.data  # Access underlying Arrow table (public API)
 
-            # Calculate batch size based on dataset size
-            num_batches = max(1, split_dataset.size_in_bytes / self._K_BATCH_SIZE_BYTES)
-            tuples_per_batch = int(math.ceil(split_dataset.num_rows / num_batches))
-            assert tuples_per_batch > 0
+            # Get chunk boundaries from first column's ChunkedArray
+            first_column = table.column(0)
 
-            # Iterate using Arrow format - slicing returns Arrow tables
-            for start_idx in range(0, split_dataset.num_rows, tuples_per_batch):
-                end_idx = min(start_idx + tuples_per_batch, split_dataset.num_rows)
-                # With arrow format, slicing returns a pa.Table
-                arrow_batch = split_dataset[start_idx:end_idx]
-                pydict = arrow_batch.to_pydict()  # Fast columnar → dict conversion
-                batch_size = end_idx - start_idx
-                rows = []
+            offset = 0
+            for chunk in first_column.chunks:
+                chunk_size = len(chunk)
+                # Zero-copy slice using existing chunk boundaries
+                batch = table.slice(offset, chunk_size)
 
-                for i in range(batch_size):
-                    row = {}
-                    for col_name in pydict:
-                        raw_val = pydict[col_name][i]
-                        feature = features[col_name]
+                # Pre-create empty row dicts
+                rows: list[dict[str, Any]] = [{} for _ in range(chunk_size)]
 
-                        # Apply categorical label conversion if needed
-                        if col_name in self.categorical_features:
-                            new_val = self.categorical_features[col_name][raw_val]
-                        else:
-                            new_val = self._convert_value(raw_val, feature)
-
-                        mapped_col_name = self.source_column_map.get(col_name, col_name)
-                        row[mapped_col_name] = new_val
-
-                    # Add split name to output row
-                    if self.column_name_for_split is not None:
+                # Add split column if needed
+                if self.column_name_for_split is not None:
+                    for row in rows:
                         row[self.column_name_for_split] = split_name
 
-                    rows.append(row)
+                # Process column-wise to avoid to_pydict() copy
+                for col_idx, col_name in enumerate(batch.schema.names):
+                    feature = features[col_name]
+                    mapped_col_name = self.source_column_map.get(col_name, col_name)
+                    column = batch.column(col_idx)
 
+                    # Get column values with minimal copying
+                    if col_name in self.categorical_features:
+                        # ClassLabel: use to_pylist for small int values
+                        values = column.to_pylist()
+                        names = self.categorical_features[col_name]
+                        for i, val in enumerate(values):
+                            rows[i][mapped_col_name] = names[val] if val is not None else None
+
+                    elif isinstance(feature, datasets.Sequence):
+                        # Sequence → numpy array, zero-copy via to_numpy
+                        arr = column.to_numpy(zero_copy_only=False)
+                        for i in range(chunk_size):
+                            rows[i][mapped_col_name] = arr[i]
+
+                    elif isinstance(feature, datasets.Image):
+                        # Images: must decode from bytes
+                        values = column.to_pylist()
+                        for i, val in enumerate(values):
+                            rows[i][mapped_col_name] = self._decode_image(val)
+
+                    elif isinstance(feature, datasets.Audio):
+                        # Audio: struct with nested arrays
+                        values = column.to_pylist()
+                        for i, val in enumerate(values):
+                            rows[i][mapped_col_name] = self._decode_audio(val, feature)
+
+                    elif isinstance(feature, dict):
+                        # Nested dict structure
+                        values = column.to_pylist()
+                        for i, val in enumerate(values):
+                            rows[i][mapped_col_name] = self._convert_value(val, feature)
+
+                    elif isinstance(feature, datasets.Value):
+                        # Primitive types: to_pylist is efficient for scalars
+                        values = column.to_pylist()
+                        for i, val in enumerate(values):
+                            rows[i][mapped_col_name] = val
+
+                    else:
+                        # Fallback
+                        values = column.to_pylist()
+                        for i, val in enumerate(values):
+                            rows[i][mapped_col_name] = self._convert_value(val, feature)
+
+                offset += chunk_size
                 yield rows
 
 
