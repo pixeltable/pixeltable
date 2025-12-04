@@ -244,6 +244,10 @@
         <outline text="module|pixeltable.functions.deepseek">
           <outline text="udf|pixeltable.functions.deepseek.chat_completions" />
         </outline>
+        <outline text="module|pixeltable.functions.fal">
+          <outline text="udf|pixeltable.functions.fal.run" />
+          <outline text="udf|pixeltable.functions.fal.subscribe" />
+        </outline>
         <outline text="module|pixeltable.functions.fireworks">
           <outline text="udf|pixeltable.functions.fireworks.chat_completions" />
         </outline>
@@ -300,9 +304,17 @@
           <outline text="udf|pixeltable.functions.together.embeddings" />
           <outline text="udf|pixeltable.functions.together.image_generations" />
         </outline>
+        <outline text="module|pixeltable.functions.twelvelabs">
+          <outline text="udf|pixeltable.functions.twelvelabs.embed" />
+        </outline>
         <outline text="module|pixeltable.functions.vision">
           <outline text="func|pixeltable.functions.vision.eval_detections" />
           <outline text="func|pixeltable.functions.vision.draw_bounding_boxes" />
+        </outline>
+        <outline text="module|pixeltable.functions.voyageai">
+          <outline text="udf|pixeltable.functions.voyageai.embeddings" />
+          <outline text="udf|pixeltable.functions.voyageai.rerank" />
+          <outline text="udf|pixeltable.functions.voyageai.multimodal_embed" />
         </outline>
         <outline text="module|pixeltable.functions.whisper">
           <outline text="udf|pixeltable.functions.whisper.transcribe" />
