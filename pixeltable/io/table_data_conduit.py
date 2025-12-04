@@ -490,9 +490,9 @@ class HFTableDataConduit(TableDataConduit):
 
 class FastHFImporter(TableDataConduit):
     """
-    Fast HuggingFace dataset importer using direct Arrow access.
-    Avoids format conversions for most column types, accessing the underlying
-    Arrow tables directly instead of using with_format('numpy').
+    Fast HuggingFace dataset importer using Arrow format.
+    Uses with_format('arrow') to iterate over Arrow record batches directly,
+    avoiding per-row format conversions.
     """
 
     column_name_for_split: str | None = None
@@ -511,14 +511,16 @@ class FastHFImporter(TableDataConduit):
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
 
-        # Store dataset without any format conversion
-        if isinstance(tds.source, datasets.Dataset):
-            raw_name = tds.source.split._name
+        # Set Arrow format for efficient batch iteration
+        source = tds.source.with_format('arrow')
+
+        if isinstance(source, datasets.Dataset):
+            raw_name = source.split._name
             split_name = raw_name.split('[')[0] if raw_name is not None else None
-            t.dataset_dict = {split_name: tds.source}
+            t.dataset_dict = {split_name: source}
         else:
-            assert isinstance(tds.source, datasets.DatasetDict)
-            t.dataset_dict = dict(tds.source)
+            assert isinstance(source, datasets.DatasetDict)
+            t.dataset_dict = dict(source)
         return t
 
     @classmethod
@@ -660,18 +662,19 @@ class FastHFImporter(TableDataConduit):
 
             # Calculate batch size based on dataset size
             num_batches = max(1, split_dataset.size_in_bytes / self._K_BATCH_SIZE_BYTES)
-            tuples_per_batch = math.ceil(split_dataset.num_rows / num_batches)
+            tuples_per_batch = int(math.ceil(split_dataset.num_rows / num_batches))
             assert tuples_per_batch > 0
 
-            # Access underlying Arrow table directly
-            arrow_table = split_dataset._data
-
-            # Process in batches
-            for batch in arrow_table.to_batches(max_chunksize=tuples_per_batch):
-                pydict = batch.to_pydict()  # Fast columnar → dict conversion
+            # Iterate using Arrow format - slicing returns Arrow tables
+            for start_idx in range(0, split_dataset.num_rows, tuples_per_batch):
+                end_idx = min(start_idx + tuples_per_batch, split_dataset.num_rows)
+                # With arrow format, slicing returns a pa.Table
+                arrow_batch = split_dataset[start_idx:end_idx]
+                pydict = arrow_batch.to_pydict()  # Fast columnar → dict conversion
+                batch_size = end_idx - start_idx
                 rows = []
 
-                for i in range(batch.num_rows):
+                for i in range(batch_size):
                     row = {}
                     for col_name in pydict:
                         raw_val = pydict[col_name][i]
