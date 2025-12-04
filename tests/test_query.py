@@ -427,10 +427,25 @@ class TestQuery:
         cnt = t.where(t.c2 < 10).count()
         assert cnt == 10
 
-        # for now, count() doesn't work with non-SQL Where clauses
+        # count() does not support Python-only filters
         t = small_img_tbl
-        with pytest.raises(pxt.Error):
+        with pytest.raises(pxt.Error, match=re.escape('count() cannot be used with Python-only filters')):
             _ = t.where(t.img.width > 100).count()
+
+    def test_count_with_group_by(self, test_tbl: pxt.Table) -> None:
+        """Test that count() works with group_by()."""
+        t = test_tbl
+        # Count with group_by should return the number of groups
+        cnt = t.group_by(t.c1).count()
+        # Should return the number of distinct c1 values
+        distinct_c1 = len(t.select(t.c1).distinct().collect())
+        assert cnt == distinct_c1
+
+        # Count with group_by and where clause
+        cnt = t.where(t.c2 < 10).group_by(t.c1).count()
+        # Should return the number of distinct c1 values in filtered rows
+        distinct_c1_filtered = len(t.where(t.c2 < 10).select(t.c1).distinct().collect())
+        assert cnt == distinct_c1_filtered
 
     def test_select_literal(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -800,7 +815,7 @@ class TestQuery:
         results = t.select(t.c4).distinct().show()
         assert len(results) == 5
 
-        # Test head, tail, group by, count - which will not work
+        # Test head, tail, group by - which will not work
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.c1, t.c3).distinct().head(2)
         assert 'head() cannot be used with group_by' in str(exc_info.value)
@@ -810,9 +825,10 @@ class TestQuery:
         with pytest.raises(pxt.Error) as exc_info:
             t.select(t.c1, t.c3).group_by(t.c2).distinct()
         assert 'group_by() already specified' in str(exc_info.value)
-        with pytest.raises(pxt.Error) as exc_info:
-            t.select(t.c1, t.c3).distinct().count()
-        assert 'count() cannot be used with group_by' in str(exc_info.value)
+
+        # count() with distinct()
+        cnt = t.select(t.c1, t.c3).distinct().count()
+        assert cnt == len(t.select(t.c1, t.c3).distinct().collect())
 
         with pytest.raises(pxt.Error) as exc_info:
             t.distinct().distinct()
