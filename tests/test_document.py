@@ -87,7 +87,6 @@ class TestDocument:
                 assert handle.format == ts.DocumentType.DocumentFormat.TXT, path
                 assert handle.txt_doc is not None, path
             elif extension in ('.pptx', '.docx', '.xlsx'):
-                # Office formats are tested separately in test_office_formats_get_handle
                 assert handle.md_ast is not None, path
             else:
                 raise AssertionError(f'Unexpected extension {extension}, add corresponding check')
