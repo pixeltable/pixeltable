@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 @pytest.mark.skipif(
     sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on Linux ARM instances in CI'
 )
-#@rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
+# @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
 class TestHfDatasets:
     def test_import_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
@@ -220,16 +220,16 @@ class TestHfDatasets:
         assert isinstance(row['audio']['sampling_rate'], int)
         assert isinstance(row['sentence'], str)
 
-    def test_import_list(self, reset_db: None) -> None:
+    def test_import_list_of_dict(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
-        dataset = datasets.load_dataset('natolambert/GeneralThought-430K-filtered')
-        t = pxt.create_table(
-            'natolambert',
-            source=dataset,
-            primary_key='question_id',
-            if_exists='replace'
-        )
+
+        dataset = datasets.load_dataset('natolambert/GeneralThought-430K-filtered', split='train[:100]')
+        t = pxt.create_table('natolambert', source=dataset, primary_key='question_id', if_exists='replace')
+
+        res = t.head(1)
+        row = res[0]
+        assert set(row.keys()) == {'question_id', 'question', 'answer'}
 
     def test_import_hf_dataset_invalid(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
@@ -237,44 +237,16 @@ class TestHfDatasets:
             pxt.io.import_huggingface_dataset('test', {})
         assert 'Unsupported data source type' in str(exc_info.value)
 
-    def test_fast_hf_importer(self, reset_db: None) -> None:
-        """Test FastHFImporter using direct Arrow access."""
+    def test_import_classlabel(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        from pixeltable.io.table_data_conduit import HFTableDataConduit, TableDataConduit
-
-        # Test with rotten_tomatoes dataset (has ClassLabel)
         hf_dataset = datasets.load_dataset('rotten_tomatoes')
+        t = pxt.create_table('test', source=hf_dataset)
 
-        # Create TableDataConduit and convert to HFTableDataConduit
-        tds = TableDataConduit(
-            source=hf_dataset,
-            extra_fields={'column_name_for_split': 'my_split'}
-        )
-        fast_importer = HFTableDataConduit.from_tds(tds)
-
-        # Infer schema
-        schema = fast_importer.infer_schema()
-        assert 'text' in schema
-        assert 'label' in schema
-        assert 'my_split' in schema
-
-        # Test iteration
-        batches = list(fast_importer.valid_row_batch())
-        assert len(batches) > 0
-
-        # Check first batch structure
-        first_batch = batches[0]
-        assert len(first_batch) > 0
-        first_row = first_batch[0]
-        assert 'text' in first_row
-        assert 'label' in first_row
-        assert 'my_split' in first_row
-
-        # ClassLabel should be converted to string
-        assert isinstance(first_row['label'], str)
-        assert first_row['label'] in ['neg', 'pos']
+        row = t.head(1)[0]
+        assert set(row.keys()) == {'label', 'text'}
+        assert row['label'] in ['neg', 'pos']
 
     def test_fast_hf_importer_with_images(self, reset_db: None) -> None:
         """Test FastHFImporter with image data."""
