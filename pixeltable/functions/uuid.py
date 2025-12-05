@@ -10,7 +10,7 @@ import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
 
 
-@pxt.udf(is_method=False)
+@pxt.udf
 def make_uuid() -> uuid.UUID:
     """
     Generate a random UUID (version 4).
