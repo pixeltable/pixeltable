@@ -607,7 +607,7 @@ class TestQuery:
             assert isinstance(arrval, np.ndarray)
             col_type = query.schema['c_array']
             assert isinstance(col_type, ts.ArrayType)
-            assert arrval.dtype == col_type.numpy_dtype()
+            assert arrval.dtype == col_type.dtype
             assert arrval.shape == col_type.shape
             assert arrval.dtype == np.float32
             assert arrval.flags['WRITEABLE'], 'required by pytorch collate function'
