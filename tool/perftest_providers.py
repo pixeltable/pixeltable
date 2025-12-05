@@ -5,7 +5,7 @@ Performance test for chat completion endpoint integrations in Pixeltable.
 import argparse
 import random
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import pixeltable as pxt
@@ -141,6 +141,40 @@ def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:
     }
 
 
+def execute_perf_test(
+    *, n: int, t: int, provider: ProviderConfig, recompute_excs: bool = False
+) -> tuple[timedelta, int]:
+    """Executes the provided performance test and returns the duration and number of exceptions."""
+    # Load wordlist
+    with open('tests/data/random_words', encoding='utf-8') as f:
+        wordlist = [word.strip() for word in f if not word.startswith('#')]
+
+    model = provider.default_model
+    print(f'Using provider: {provider}')
+    print(f'Using model: {model}')
+    print(f'Generating {n} rows x {t} tokens')
+
+    tbl = pxt.create_table('sentence_tbl', {'word1': pxt.String, 'word2': pxt.String}, if_exists='replace')
+    tbl.add_computed_column(prompt=provider.prompt_udf(t, tbl.word1, tbl.word2))
+    tbl.add_computed_column(response=provider.udf(tbl.prompt, model=model, **provider.kwargs))
+
+    rows = ({'word1': word1, 'word2': word2} for word1, word2 in (random.sample(wordlist, k=2) for _ in range(n)))
+    start = datetime.now()
+    status = tbl.insert(rows, on_error='ignore')
+    end = datetime.now()
+
+    print(status)
+
+    if recompute_excs and status.num_excs > 0:
+        print(f'Recomputing {status.num_excs} exceptions')
+        status = tbl.recompute_columns('response', errors_only=True)
+        print(f'Recompute status: {status}')
+
+    print(f'Total time: {(end - start).total_seconds():.2f} seconds')
+
+    return (end - start), status.num_excs
+
+
 def main() -> None:
     """Main function to run the test."""
     parser = argparse.ArgumentParser(
@@ -162,31 +196,12 @@ Examples:
     args = parser.parse_args()
 
     provider_configs = create_provider_configs(args.t)
-    # Load wordlist
-    with open('tests/data/random_words', encoding='utf-8') as f:
-        wordlist = [word.strip() for word in f if not word.startswith('#')]
+    provider_config = provider_configs[args.provider]
+    if args.model:
+        provider_config.default_model = args.model
 
     pxt.configure_logging(level=args.log_level)
-    provider_config = provider_configs[args.provider]
-    model = args.model or provider_config.default_model
-
-    print(f'Using provider: {args.provider}')
-    print(f'Using model: {model}')
-    print(f'Generating {args.n} rows x {args.t} tokens')
-
-    t = pxt.create_table('sentence_tbl', {'word1': pxt.String, 'word2': pxt.String}, if_exists='replace')
-    t.add_computed_column(prompt=provider_config.prompt_udf(args.t, t.word1, t.word2))
-    t.add_computed_column(response=provider_config.udf(t.prompt, model=model, **provider_config.kwargs))
-
-    rows = ({'word1': word1, 'word2': word2} for word1, word2 in (random.sample(wordlist, k=2) for _ in range(args.n)))
-    start = datetime.now()
-    status = t.insert(rows, on_error='ignore')
-    # make sure we're not testing a service that's experiencing an outage?
-    # assert status.num_excs <= int(args.n * 0.01), status
-    end = datetime.now()
-
-    print(status)
-    print(f'Total time: {(end - start).total_seconds():.2f} seconds')
+    execute_perf_test(n=args.n, t=args.t, provider=provider_config)
 
 
 if __name__ == '__main__':

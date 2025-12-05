@@ -11,6 +11,10 @@ on:
         required: false
         default: false
 
+env:
+  GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_PERF_TEST }}
+
 jobs:
   random-ops:
     runs-on: ubuntu-latest
@@ -61,3 +65,45 @@ jobs:
         with:
           name: random-ops-log
           path: ~/.pixeltable/random-ops.log
+
+  performance-tests:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        shell: bash -el {0}  # Needed for conda to work
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up tmate session
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
+
+      - name: Install conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: latest
+          activate-environment: pxt
+
+      - name: Install python
+        run: |
+          conda install -y python=3.10 pip=25.0
+          conda info
+
+      - name: Install pixeltable and dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install openai opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http
+
+      - name: Run performance tests
+        run: python tool/perftest_runner.py
+        timeout-minutes: 10
+
+      - name: Report failure
+        if: failure()
+        run: echo "Performance test failed. Check the logs for details."
