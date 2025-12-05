@@ -819,10 +819,10 @@ class Table(SchemaObject):
                 value_expr = spec.copy()
                 value_expr.bind_rel_paths()
             elif isinstance(spec, ts._Identity):
-                # Convert Identity marker to dict spec with make_uuid() value and primary_key=True
-                from pixeltable.functions.uuid import make_uuid
+                # Convert Identity marker to dict spec with make_uuid4() value and primary_key=True
+                from pixeltable.functions.uuid import make_uuid4
 
-                value_expr = make_uuid()
+                value_expr = make_uuid4()
                 value_expr.bind_rel_paths()
                 primary_key = True
             elif isinstance(spec, dict):

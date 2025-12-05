@@ -11,7 +11,7 @@ from pixeltable.utils.code import local_public_names
 
 
 @pxt.udf
-def make_uuid() -> uuid.UUID:
+def make_uuid4() -> uuid.UUID:
     """
     Generate a random UUID (version 4).
 
@@ -20,7 +20,7 @@ def make_uuid() -> uuid.UUID:
     return uuid.uuid4()
 
 
-@make_uuid.to_sql
+@make_uuid4.to_sql
 def _() -> sql.ColumnElement:
     return sql.func.gen_random_uuid()
 

@@ -760,8 +760,6 @@ class UUIDType(ColumnType):
     def _create_literal(self, val: Any) -> Any:
         if isinstance(val, str):
             return uuid.UUID(val)
-        if isinstance(val, uuid.UUID):
-            return val
         return val
 
 
@@ -1374,10 +1372,7 @@ class _Identity:
     """Identity column marker for auto-generated UUID primary keys.
 
     An identity column is a UUID primary key that automatically generates values
-    using `make_uuid()` when rows are inserted. This is similar to PostgreSQL's
-    `GENERATED ... AS IDENTITY` syntax.
-
-    Use this as a constant in table schemas:
+    using `make_uuid4()` when rows are inserted.
 
     Example:
         >>> schema = {
@@ -1388,10 +1383,8 @@ class _Identity:
         >>> tbl.insert([{'data': 'test'}])  # 'id' is automatically generated
     """
 
-    pass
 
-
-# Singleton instance for use as a constant (like pxt.String, pxt.Int)
+# Singleton instance for use as a constant.
 Identity = _Identity()
 
 

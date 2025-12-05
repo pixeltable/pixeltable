@@ -1,26 +1,26 @@
 import uuid
 
 import pixeltable as pxt
-from pixeltable.functions.uuid import make_uuid
+from pixeltable.functions.uuid import make_uuid4
 
 from ..utils import ReloadTester, validate_update_status
 
 
 class TestUUID:
-    def test_make_uuid(self, reset_db: None, reload_tester: ReloadTester) -> None:
-        """Test the make_uuid() UDF function."""
+    def test_make_uuid4(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        """Test the make_uuid4() UDF function."""
         t = pxt.create_table('test_uuid_tbl', {'id': pxt.Int})
         validate_update_status(t.insert({'id': i} for i in range(5)), expected_rows=5)
 
-        # Test make_uuid in select
-        res = t.select(t.id, new_uuid=make_uuid()).collect()
+        # Test make_uuid4 in select
+        res = t.select(t.id, new_uuid=make_uuid4()).collect()
         assert len(res) == 5
         uuids = res['new_uuid']
         assert all(isinstance(u, uuid.UUID) for u in uuids)
         assert len(set(uuids)) == 5  # All should be unique
 
-        # Test make_uuid in computed column
-        t.add_computed_column(uuid_col=make_uuid())
+        # Test make_uuid4 in computed column
+        t.add_computed_column(uuid_col=make_uuid4())
         res = reload_tester.run_query(t.select(t.id, t.uuid_col))
         assert len(res) == 5
         assert all(isinstance(u, uuid.UUID) for u in res['uuid_col'])
