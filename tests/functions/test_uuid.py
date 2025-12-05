@@ -55,9 +55,8 @@ class TestUUID:
         assert len(res) == 5
         assert all(isinstance(u, uuid.UUID) for u in res['uuid_col'])
         assert len(set(res['uuid_col'])) == 5  # All should be unique
-        
-        reload_tester.run_reload_test()
 
+        reload_tester.run_reload_test()
 
     def test_uuid_from_string(self, reset_db: None) -> None:
         t = pxt.create_table('test_uuid_tbl', {'uuid_col': pxt.UUID})

@@ -43,6 +43,7 @@ from .globals import (
     tools,
 )
 from .type_system import (
+    UUID,
     Array,
     Audio,
     Bool,
@@ -55,7 +56,6 @@ from .type_system import (
     Required,
     String,
     Timestamp,
-    UUID,
     Video,
 )
 
