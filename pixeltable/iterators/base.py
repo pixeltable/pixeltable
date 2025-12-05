@@ -43,10 +43,9 @@ class ComponentIterator(ABC):
         """Close the iterator and release all resources"""
         raise NotImplementedError
 
-    @abstractmethod
-    def set_pos(self, pos: int) -> None:
+    def set_pos(self, pos: int, **kwargs: Any) -> None:
         """Set the iterator position to pos"""
-        raise NotImplementedError
+        pass
 
     @classmethod
     def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:

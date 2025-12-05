@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 import time
-from typing import Any, Iterable, NamedTuple, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, Sequence, TypeVar
 from uuid import UUID
 
 import numpy as np
@@ -16,6 +16,9 @@ from pixeltable.utils.misc import non_none_dict_factory
 from .data_row import DataRow
 from .expr import Expr, ExprScope
 from .expr_set import ExprSet
+
+if TYPE_CHECKING:
+    from .column_ref import ColumnRef
 
 
 class ExecProfile:
@@ -70,9 +73,12 @@ class RowBuilder:
     input_exprs: ExprSet
 
     tbl: catalog.TableVersion | None  # reference table of the RowBuilder; used to identify pk columns for writes
+    for_view_load: bool  # True if this RowBuilder represents a view load
+
     table_columns: dict[catalog.Column, int | None]  # value: slot idx, if the result of an expr
     default_eval_ctx: EvalCtx
     unstored_iter_args: dict[UUID, Expr]
+    unstored_iter_outputs: dict[UUID, list['ColumnRef']]
 
     # transitive dependents for the purpose of exception propagation: an exception for slot i is propagated to
     # _exc_dependents[i]
@@ -111,20 +117,23 @@ class RowBuilder:
         columns: Sequence[catalog.Column],
         input_exprs: Iterable[Expr],
         tbl: catalog.TableVersion | None = None,
+        for_view_load: bool = False,
     ):
+        from .column_property_ref import ColumnPropertyRef
+        from .column_ref import ColumnRef
+
         self.unique_exprs: ExprSet[Expr] = ExprSet()  # dependencies precede their dependents
         self.next_slot_idx = 0
 
-        # record input and output exprs; make copies to avoid reusing execution state
+        # record input exprs; make copies to avoid reusing execution state
         unique_input_exprs = [self._record_unique_expr(e.copy(), recursive=False) for e in input_exprs]
+
         self.input_expr_slot_idxs = {e.slot_idx for e in unique_input_exprs}
 
         resolve_cols = set(columns)
         self.output_exprs = ExprSet(
-            [
-                self._record_unique_expr(e.copy().resolve_computed_cols(resolve_cols=resolve_cols), recursive=True)
-                for e in output_exprs
-            ]
+            self._record_unique_expr(e.copy().resolve_computed_cols(resolve_cols=resolve_cols), recursive=True)
+            for e in output_exprs
         )
 
         # if init(columns):
@@ -134,12 +143,13 @@ class RowBuilder:
         # - media validation:
         #   * for write-validated columns, we need to create validating ColumnRefs
         #   * further references to that column (eg, computed cols) need to resolve to the validating ColumnRef
-        from .column_ref import ColumnRef
 
+        self.for_view_load = for_view_load
         self.tbl = tbl
         self.table_columns = {}
         self.input_exprs = ExprSet()
         validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
+
         for col in columns:
             expr: Expr
             if col.is_computed:
@@ -180,6 +190,7 @@ class RowBuilder:
         #   because that would cause them to be evaluated for every single row
         # - the separate eval ctx allows the ColumnRef to materialize the iterator args only when the underlying
         #   iterated object changes
+
         col_refs = [e for e in self.unique_exprs if isinstance(e, ColumnRef)]
 
         def refs_unstored_iter_col(col_ref: ColumnRef) -> bool:
@@ -189,13 +200,29 @@ class RowBuilder:
         unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
         component_views = [col_ref.col.get_tbl() for col_ref in unstored_iter_col_refs]
         unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
-        self.unstored_iter_args = {
-            id: self._record_unique_expr(arg, recursive=True) for id, arg in unstored_iter_args.items()
+
+        # the *stored* output columns of the unstored iterators
+        self.unstored_iter_outputs = {
+            view.id: [
+                self._record_unique_expr(ColumnRef(col), recursive=True)
+                for col in view.iterator_columns()
+                if col.is_stored
+            ]
+            for view in component_views
         }
 
+        self.unstored_iter_args = {
+            id: self._record_unique_expr(args, recursive=True) for id, args in unstored_iter_args.items()
+        }
+
+        unstored_iter_col_refs = [
+            self._record_unique_expr(col_ref, recursive=True) for col_ref in unstored_iter_col_refs
+        ]
+
         for col_ref in unstored_iter_col_refs:
-            iter_arg_ctx = self.create_eval_ctx([unstored_iter_args[col_ref.col.get_tbl().id]])
-            col_ref.set_iter_arg_ctx(iter_arg_ctx)
+            iter_arg_ctx = self.create_eval_ctx([self.unstored_iter_args[col_ref.col.get_tbl().id]])
+            iter_outputs = self.unstored_iter_outputs[col_ref.col.get_tbl().id]
+            col_ref.set_iter_arg_ctx(iter_arg_ctx, iter_outputs)
 
         # we guarantee that we can compute the expr DAG in a single front-to-back pass
         for i, expr in enumerate(self.unique_exprs):
@@ -206,7 +233,6 @@ class RowBuilder:
         # self.dependents = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
         self.dependencies = np.zeros((self.num_materialized, self.num_materialized), dtype=bool)
         exc_dependencies: list[set[int]] = [set() for _ in range(self.num_materialized)]
-        from .column_property_ref import ColumnPropertyRef
 
         for expr in self.unique_exprs:
             if expr.slot_idx in self.input_expr_slot_idxs:
@@ -279,7 +305,9 @@ class RowBuilder:
         self.next_slot_idx += 1
         return result
 
-    def _record_unique_expr(self, expr: Expr, recursive: bool) -> Expr:
+    T = TypeVar('T', bound=Expr)
+
+    def _record_unique_expr(self, expr: T, recursive: bool) -> T:
         """Records the expr if it's not a duplicate and assigns a slot idx to expr and its components"
         Returns:
             the unique expr

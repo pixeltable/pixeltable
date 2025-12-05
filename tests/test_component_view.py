@@ -52,7 +52,7 @@ class ConstantImgIterator(ComponentIterator):
     def close(self) -> None:
         pass
 
-    def set_pos(self, pos: int) -> None:
+    def set_pos(self, pos: int, **kwargs: Any) -> None:
         if pos == self.next_frame_idx:
             return
         self.next_frame_idx = pos

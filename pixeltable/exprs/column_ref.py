@@ -52,6 +52,7 @@ class ColumnRef(Expr):
     is_unstored_iter_col: bool
     perform_validation: bool  # if True, performs media validation
     iter_arg_ctx: RowBuilder.EvalCtx | None
+    iter_outputs: list[ColumnRef] | None
     base_rowid_len: int  # number of rowid columns in the base table
 
     # execution state
@@ -72,6 +73,7 @@ class ColumnRef(Expr):
 
         self.is_unstored_iter_col = col.is_iterator_col and not col.is_stored
         self.iter_arg_ctx = None
+        self.iter_outputs = None
         self.base_rowid_len = 0
         self.base_rowid = []
         self.iterator = None
@@ -94,8 +96,13 @@ class ColumnRef(Expr):
             self.components = [non_validating_col_ref]
         self.id = self._create_id()
 
-    def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx) -> None:
+    def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:
         self.iter_arg_ctx = iter_arg_ctx
+        self.iter_outputs = iter_outputs
+        # If this is an unstored iterator column, then the iterator outputs may be needed in order to properly set the
+        # iterator position. Therefore, we need to add them as components in order to ensure they're marked as
+        # eval dependencies.
+        self.components.extend(iter_outputs)
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
@@ -286,11 +293,14 @@ class ColumnRef(Expr):
 
         # if this is a new base row, we need to instantiate a new iterator
         if self.base_rowid != data_row.pk[: self.base_rowid_len]:
+            assert self.iter_arg_ctx is not None
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
             self.iterator = self.col.get_tbl().iterator_cls(**iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
-        self.iterator.set_pos(data_row.pk[self.pos_idx])
+        stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
+        assert all(name is not None for name in stored_outputs)
+        self.iterator.set_pos(data_row.pk[self.pos_idx], **stored_outputs)
         res = next(self.iterator)
         data_row[self.slot_idx] = res[self.col.name]
 
