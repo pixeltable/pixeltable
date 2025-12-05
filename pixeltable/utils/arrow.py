@@ -1,6 +1,7 @@
 import datetime
 import io
 import json
+import uuid
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
 import numpy as np
@@ -30,6 +31,7 @@ PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
     pa.float64(): ts.FloatType(nullable=True),
     pa.date32(): ts.DateType(nullable=True),
     pa.date64(): ts.DateType(nullable=True),
+    pa.uuid(): ts.UUIDType(nullable=True),
     pa.binary(): None,  # cannot import binary (inline image)
 }
 
@@ -37,6 +39,7 @@ PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
     ts.StringType: pa.string(),
     ts.TimestampType: pa.timestamp('us', tz='UTC'),  # postgres timestamp is microseconds
     ts.DateType: pa.date32(),  # This could be date64
+    ts.UUIDType: pa.uuid(),
     ts.BoolType: pa.bool_(),
     ts.IntType: pa.int64(),
     ts.FloatType: pa.float32(),
@@ -144,6 +147,10 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                     val_size_bytes = len(val)
                 elif col_type.is_string_type():
                     val_size_bytes = len(val)
+                elif col_type.is_uuid_type():
+                    # pa.uuid() uses fixed_size_binary(16) as storage type
+                    val = val.bytes  # Convert UUID to 16-byte binary for arrow
+                    val_size_bytes = len(val)
                 elif col_type.is_media_type():
                     assert data_row.file_paths[e.slot_idx] is not None
                     val = data_row.file_paths[e.slot_idx]
@@ -224,6 +231,12 @@ def _ar_val_to_pxt_val(val: Any, pxt_type: ts.ColumnType) -> Any:
         return bool(val)
     elif pxt_type.is_string_type():
         return str(val)
+    elif pxt_type.is_uuid_type():
+        if isinstance(val, uuid.UUID):
+            return val
+        if isinstance(val, bytes):
+            return uuid.UUID(bytes=val)
+        return uuid.UUID(val)
     elif pxt_type.is_date_type():
         if isinstance(val, str):
             return datetime.date.fromisoformat(val)

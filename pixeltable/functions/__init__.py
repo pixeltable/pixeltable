@@ -26,6 +26,7 @@ from . import (
     timestamp,
     together,
     twelvelabs,
+    uuid,
     video,
     vision,
     voyageai,

@@ -70,6 +70,8 @@ audio_chunk_view = pxt.create_view("audio_chunks", video_t, iterator=AudioSplitt
 | `pxt.Float`     | `float`                      |
 | `pxt.Bool`      | `bool`                       |
 | `pxt.Timestamp` | `datetime.datetime`          |
+| `pxt.Date`      | `datetime.date`              |
+| `pxt.UUID`      | `uuid.UUID`                  |
 | `pxt.Json`      | `list` or `dict`             |
 | `pxt.Array`     | `numpy.ndarray`              |
 | `pxt.Image`     | `PIL.Image.Image`            |

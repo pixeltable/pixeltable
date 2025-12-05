@@ -9,6 +9,7 @@ import types
 import typing
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 
@@ -44,6 +45,7 @@ class ColumnType:
         AUDIO = 9
         DOCUMENT = 10
         DATE = 11
+        UUID = 12
 
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
         INVALID = 255
@@ -85,7 +87,15 @@ class ColumnType:
         FLOAT32 = (10,)
         FLOAT64 = 11
 
-    scalar_types: ClassVar[set[Type]] = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP, Type.DATE}
+    scalar_types: ClassVar[set[Type]] = {
+        Type.STRING,
+        Type.INT,
+        Type.FLOAT,
+        Type.BOOL,
+        Type.TIMESTAMP,
+        Type.DATE,
+        Type.UUID,
+    }
     numeric_types: ClassVar[set[Type]] = {Type.INT, Type.FLOAT}
     common_supertypes: ClassVar[dict[tuple[Type, Type], Type]] = {
         (Type.BOOL, Type.INT): Type.INT,
@@ -179,6 +189,8 @@ class ColumnType:
             return DocumentType()
         if t == cls.Type.DATE:
             return DateType()
+        if t == cls.Type.UUID:
+            return UUIDType()
 
     def __repr__(self) -> str:
         return self._to_str(as_schema=False)
@@ -255,6 +267,8 @@ class ColumnType:
             return TimestampType(nullable=nullable)
         if isinstance(val, datetime.date):
             return DateType(nullable=nullable)
+        if isinstance(val, uuid.UUID):
+            return UUIDType(nullable=nullable)
         if isinstance(val, PIL.Image.Image):
             return ImageType(width=val.width, height=val.height, mode=val.mode, nullable=nullable)
         if isinstance(val, np.ndarray):
@@ -370,6 +384,8 @@ class ColumnType:
                     return TimestampType(nullable=nullable_default)
                 if t is datetime.date:
                     return DateType(nullable=nullable_default)
+                if t is uuid.UUID:
+                    return UUIDType(nullable=nullable_default)
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
                 if isinstance(t, type) and issubclass(t, (Sequence, Mapping, pydantic.BaseModel)):
@@ -397,6 +413,7 @@ class ColumnType:
         (float, 'pxt.Float'),
         (datetime.datetime, 'pxt.Timestamp'),
         (datetime.date, 'pxt.Date'),
+        (uuid.UUID, 'pxt.UUID'),
         (PIL.Image.Image, 'pxt.Image'),
         (Sequence, 'pxt.Json'),
         (Mapping, 'pxt.Json'),
@@ -511,6 +528,9 @@ class ColumnType:
 
     def is_date_type(self) -> bool:
         return self._type == self.Type.DATE
+
+    def is_uuid_type(self) -> bool:
+        return self._type == self.Type.UUID
 
     def is_json_type(self) -> bool:
         return self._type == self.Type.JSON
@@ -699,6 +719,38 @@ class DateType(ColumnType):
         if isinstance(val, str):
             return datetime.datetime.fromisoformat(val).date()
         if isinstance(val, datetime.date):
+            return val
+        return val
+
+
+class UUIDType(ColumnType):
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.UUID, nullable=nullable)
+
+    def has_supertype(self) -> bool:
+        return not self.nullable
+
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
+        return sql.UUID(as_uuid=True)
+
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {'type': 'string', 'format': 'uuid'}
+
+    def print_value(self, val: Any) -> str:
+        return f"'{val}'"
+
+    def _to_base_str(self) -> str:
+        return 'UUID'
+
+    def _validate_literal(self, val: Any) -> None:
+        if not isinstance(val, uuid.UUID):
+            raise TypeError(f'Expected uuid.UUID, got {val.__class__.__name__}')
+
+    def _create_literal(self, val: Any) -> Any:
+        if isinstance(val, str):
+            return uuid.UUID(val)
+        if isinstance(val, uuid.UUID):
             return val
         return val
 
@@ -1319,6 +1371,7 @@ Float = typing.Annotated[float, FloatType(nullable=False)]
 Bool = typing.Annotated[bool, BoolType(nullable=False)]
 Timestamp = typing.Annotated[datetime.datetime, TimestampType(nullable=False)]
 Date = typing.Annotated[datetime.date, DateType(nullable=False)]
+UUID = typing.Annotated[uuid.UUID, UUIDType(nullable=False)]
 
 
 class _PxtType:
@@ -1454,4 +1507,4 @@ class Document(str, _PxtType):
         return DocumentType(nullable=nullable)
 
 
-ALL_PIXELTABLE_TYPES = (String, Bool, Int, Float, Timestamp, Json, Array, Image, Video, Audio, Document)
+ALL_PIXELTABLE_TYPES = (String, Bool, Int, Float, Timestamp, Json, Array, Image, Video, Audio, Document, Date, UUID)
