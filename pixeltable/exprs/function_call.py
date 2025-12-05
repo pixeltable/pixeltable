@@ -496,9 +496,9 @@ class FunctionCall(Expr):
             resolved_fn, bound_args = fn._bind_to_matching_signature(args, kwargs)
         except (TypeError, excs.Error):
             signature_note_str = 'any of its signatures' if fn.is_polymorphic else 'its signature'
-            args_str = [str(arg.col_type) for arg in args]
-            args_str.extend(f'{name}: {arg.col_type}' for name, arg in kwargs.items())
-            call_signature_str = f'({", ".join(args_str)}) -> {return_type}'
+            args_str = [f'pxt.{arg.col_type}' for arg in args]
+            args_str.extend(f'{name}: pxt.{arg.col_type}' for name, arg in kwargs.items())
+            call_signature_str = f'({", ".join(args_str)}) -> pxt.{return_type}'
             fn_signature_str = f'{len(fn.signatures)} signatures' if fn.is_polymorphic else str(fn.signature)
             validation_error = dedent(
                 f"""

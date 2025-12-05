@@ -11,7 +11,7 @@ class TestVoyageAI:
     @pytest.mark.parametrize('output_dimension', [None, 512])
     def test_embeddings(self, reset_db: None, output_dimension: int | None) -> None:
         skip_test_if_not_installed('voyageai')
-        skip_test_if_no_client('voyageai')
+        skip_test_if_no_client('voyage')
         from pixeltable.functions.voyageai import embeddings
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
@@ -32,7 +32,7 @@ class TestVoyageAI:
     def test_embeddings_index(self, reset_db: None) -> None:
         """Test using Voyage AI embeddings with an embedding index."""
         skip_test_if_not_installed('voyageai')
-        skip_test_if_no_client('voyageai')
+        skip_test_if_no_client('voyage')
         from pixeltable.functions.voyageai import embeddings
 
         # Create a simple table with text
@@ -68,7 +68,7 @@ class TestVoyageAI:
 
     def test_rerank(self, reset_db: None) -> None:
         skip_test_if_not_installed('voyageai')
-        skip_test_if_no_client('voyageai')
+        skip_test_if_no_client('voyage')
         from pixeltable.functions.voyageai import rerank
 
         documents = [
@@ -107,7 +107,7 @@ class TestVoyageAI:
     def test_multimodal_embed(self, reset_db: None) -> None:
         """Test multimodal embeddings with images and text."""
         skip_test_if_not_installed('voyageai')
-        skip_test_if_no_client('voyageai')
+        skip_test_if_no_client('voyage')
         from pixeltable.functions.voyageai import multimodal_embed
 
         # Test with image column
