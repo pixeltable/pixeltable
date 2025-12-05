@@ -524,8 +524,10 @@ class HFTableDataConduit(TableDataConduit):
 
         # Store dataset directly - we'll access .data for Arrow tables
         if isinstance(tds.source, datasets.Dataset):
-            raw_name = tds.source.split._name
-            split_name = raw_name.split('[')[0] if raw_name is not None else None
+            split_name: str | None = None
+            if tds.source.split is not None:
+                raw_name = tds.source.split._name
+                split_name = raw_name.split('[')[0] if raw_name is not None else None
             t.dataset_dict = {split_name: tds.source}
         else:
             assert isinstance(tds.source, datasets.DatasetDict)
@@ -612,15 +614,27 @@ class HFTableDataConduit(TableDataConduit):
             values = column.to_pylist()
             return [feature.names[v] if v is not None else None for v in values]
 
-        # Sequence: array
+        # Sequence: array (but Sequence of dicts becomes Json and returns dicts)
         if isinstance(feature, datasets.Sequence):
             arr = column.to_numpy(zero_copy_only=False)
             result = []
             for i in range(chunk_size):
                 val = arr[i]
-                # convert potential object array of arrays to a proper ndarray
-                if val.dtype == object and len(val) > 0 and isinstance(val[0], np.ndarray):
-                    val = np.stack(val)
+                if isinstance(val, np.ndarray):
+                    # convert object array of arrays (e.g., multi-channel audio) to proper ndarray
+                    if val.dtype == object and len(val) > 0 and isinstance(val[0], np.ndarray):
+                        val = np.stack(val)
+                elif isinstance(val, dict):
+                    # Sequence of dicts: Arrow returns dict of arrays, convert to list of dicts
+                    # Convert numpy types to Python native types for JSON serialization
+                    keys = list(val.keys())
+                    if keys and len(val[keys[0]]) > 0:
+                        val = [
+                            {k: self._to_python_native(val[k][j]) for k in keys}
+                            for j in range(len(val[keys[0]]))
+                        ]
+                    else:
+                        val = []
                 result.append(val)
             return result
 
@@ -630,6 +644,27 @@ class HFTableDataConduit(TableDataConduit):
             return [self._decode_image(v) for v in values]
 
         if isinstance(feature, datasets.Audio):
+            # Audio can have different Arrow schemas depending on how it was stored:
+            # - Decoded: struct<array: list<float>, path: string, sampling_rate: int32>
+            # - Raw: struct<bytes: binary, path: string>
+            # Build feature dict from actual Arrow schema
+            import pyarrow as pa
+
+            arrow_type = column.type
+            if isinstance(arrow_type, pa.StructType):
+                audio_features = {}
+                for i in range(arrow_type.num_fields):
+                    field = arrow_type.field(i)
+                    if field.name == 'array':
+                        audio_features['array'] = datasets.Sequence(feature=datasets.Value('float32'))
+                    elif field.name == 'bytes':
+                        audio_features['bytes'] = datasets.Value('binary')
+                    elif field.name == 'path':
+                        audio_features['path'] = datasets.Value('string')
+                    elif field.name == 'sampling_rate':
+                        audio_features['sampling_rate'] = datasets.Value('int32')
+                return self._convert_struct_column(column, audio_features, chunk_size)
+            # Fallback to default assumed structure
             return self._convert_struct_column(
                 column,
                 {
@@ -643,12 +678,27 @@ class HFTableDataConduit(TableDataConduit):
         if isinstance(feature, dict):
             return self._convert_struct_column(column, feature, chunk_size)
 
+        # Array2D, Array3D, etc.: multi-dimensional fixed-shape arrays
+        if isinstance(feature, (datasets.Array2D, datasets.Array3D, datasets.Array4D, datasets.Array5D)):
+            arr = column.to_numpy(zero_copy_only=False)
+            result = []
+            for i in range(chunk_size):
+                val = arr[i]
+                # to_numpy returns nested object arrays, recursively stack to proper ndarray
+                val = self._stack_nested_arrays(val)
+                result.append(val)
+            return result
+
         # return scalars as Python scalars
         if isinstance(feature, datasets.Value):
             return column.to_pylist()
 
-        # Fallback
-        return column.to_pylist()
+        # Fallback: use to_numpy which handles more types than to_pylist
+        try:
+            arr = column.to_numpy(zero_copy_only=False)
+            return [arr[i] for i in range(chunk_size)]
+        except (TypeError, ValueError):
+            return column.to_pylist()
 
     def _convert_struct_column(
         self, column: 'pa.ChunkedArray', feature: dict[str, object], chunk_size: int
@@ -672,6 +722,31 @@ class HFTableDataConduit(TableDataConduit):
                 results[i][field_name] = val
 
         return results
+
+    @staticmethod
+    def _to_python_native(val: Any) -> Any:
+        """Convert numpy types to Python native types for JSON serialization."""
+        if isinstance(val, np.ndarray):
+            return val.tolist()
+        if hasattr(val, 'item'):
+            # numpy scalar (np.int32, np.float64, etc.)
+            return val.item()
+        return val
+
+    @staticmethod
+    def _stack_nested_arrays(val: Any) -> np.ndarray:
+        """Recursively stack nested object arrays into a proper numeric ndarray.
+        Array2D/3D/etc from HF datasets come as deeply nested object arrays.
+        """
+        if not isinstance(val, np.ndarray):
+            return val
+        if val.dtype != object:
+            return val
+        if len(val) == 0:
+            return val
+        # Recursively stack children first
+        stacked_children = [HFTableDataConduit._stack_nested_arrays(child) for child in val]
+        return np.stack(stacked_children)
 
     @staticmethod
     def _decode_image(val: dict[str, Any] | bytes | None) -> PIL.Image.Image | None:

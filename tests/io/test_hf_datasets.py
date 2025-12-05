@@ -296,3 +296,143 @@ class TestHfDatasets:
         assert 'array' in first_row['audio']
         # Key assertion: array should be numpy array, not Python list
         assert isinstance(first_row['audio']['array'], np.ndarray)
+
+    def test_import_sequence_float(self, reset_db: None) -> None:
+        """Test importing dataset with Sequence of floats (embeddings).
+        Uses Cohere/wikipedia-2023-11-embed-multilingual-v3 which has 1024-dim embeddings.
+        """
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        # Cohere Wikipedia has embeddings as Sequence(float32)
+        hf_dataset = datasets.load_dataset(
+            'Cohere/wikipedia-2023-11-embed-multilingual-v3', data_dir='cr', split='train[:10]'
+        ).select_columns(['title', 'emb'])
+        t = pxt.create_table('emb_test', source=hf_dataset, schema_overrides={'emb': pxt.Array[(1024,), pxt.Float]})
+
+        schema = t._get_schema()
+        assert schema['emb'].is_array_type()
+
+        row = t.head(1)[0]
+        assert isinstance(row['emb'], np.ndarray)
+        assert row['emb'].shape == (1024,)
+        assert row['emb'].dtype == np.float32
+
+    def test_import_squad_answers(self, reset_db: None) -> None:
+        """Test importing SQuAD dataset which has Sequence of structs (answers field).
+        The answers field has structure: Sequence({'text': string, 'answer_start': int32})
+        """
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        # SQuAD has answers as Sequence({'text': Value, 'answer_start': Value})
+        hf_dataset = datasets.load_dataset('squad', split='validation[:10]')
+        t = pxt.create_table('squad_test', source=hf_dataset)
+
+        schema = t._get_schema()
+        # answers is Sequence of struct -> Json
+        assert schema['answers'].is_json_type()
+        assert schema['question'].is_string_type()
+        assert schema['context'].is_string_type()
+
+        row = t.head(1)[0]
+        # answers should be a list of dicts with 'text' and 'answer_start' keys
+        assert isinstance(row['answers'], list)
+        if len(row['answers']) > 0:
+            assert 'text' in row['answers'][0]
+            assert 'answer_start' in row['answers'][0]
+            assert isinstance(row['answers'][0]['text'], str)
+            assert isinstance(row['answers'][0]['answer_start'], int)
+
+    def test_import_hotpotqa_nested_struct(self, reset_db: None) -> None:
+        """Test importing HotpotQA dataset which has complex nested structures.
+        - supporting_facts: Sequence({'title': string, 'sent_id': int32})
+        - context: Sequence({'title': string, 'sentences': Sequence(string)})
+        """
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        # HotpotQA has complex nested structures
+        hf_dataset = datasets.load_dataset(
+            'hotpotqa/hotpot_qa', 'distractor', split='validation[:10]', trust_remote_code=True
+        )
+        t = pxt.create_table('hotpotqa_test', source=hf_dataset)
+
+        schema = t._get_schema()
+        # supporting_facts is Sequence of struct -> Json
+        assert schema['supporting_facts'].is_json_type()
+        # context is Sequence of struct -> Json
+        assert schema['context'].is_json_type()
+
+        row = t.head(1)[0]
+        # supporting_facts should be list of dicts with 'title' and 'sent_id'
+        assert isinstance(row['supporting_facts'], list)
+        if len(row['supporting_facts']) > 0:
+            assert 'title' in row['supporting_facts'][0]
+            assert 'sent_id' in row['supporting_facts'][0]
+
+        # context should be a list of dicts with 'title' and 'sentences'
+        assert isinstance(row['context'], list)
+        if len(row['context']) > 0:
+            assert 'title' in row['context'][0]
+            assert 'sentences' in row['context'][0]
+            # sentences should be a list of strings
+            assert isinstance(row['context'][0]['sentences'], list)
+
+    def test_import_array2d_array3d(self, reset_db: None) -> None:
+        """Test importing dataset with Array2D and Array3D features.
+        Uses tanganke/nyuv2 depth perception dataset which has:
+        - image: Array3D(shape=(3, 288, 384), dtype='float32')
+        - segmentation: Array2D(shape=(288, 384), dtype='int64')
+        - depth: Array3D(shape=(1, 288, 384), dtype='float32')
+        """
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        hf_dataset = datasets.load_dataset('tanganke/nyuv2', split='train[:5]')
+        t = pxt.create_table('nyuv2_test', source=hf_dataset)
+
+        schema = t._get_schema()
+        # Array2D and Array3D should map to ArrayType
+        assert schema['image'].is_array_type()
+        assert schema['segmentation'].is_array_type()
+        assert schema['depth'].is_array_type()
+
+        row = t.head(1)[0]
+        # Values should be numpy arrays with correct shapes
+        assert isinstance(row['image'], np.ndarray)
+        assert row['image'].shape == (3, 288, 384)
+        assert row['image'].dtype == np.float32
+
+        assert isinstance(row['segmentation'], np.ndarray)
+        assert row['segmentation'].shape == (288, 384)
+
+        assert isinstance(row['depth'], np.ndarray)
+        assert row['depth'].shape == (1, 288, 384)
+
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_audio_decoded(self, reset_db: None) -> None:
+        """Test importing dataset with decoded Audio feature.
+        Uses Hani89/medical_asr_recording_dataset which has decoded audio with arrays.
+        Note: Audio datasets with raw bytes (like PolyAI/minds14) are handled differently.
+        """
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        # This dataset has decoded audio (array, path, sampling_rate)
+        hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset', split='train[:5]')
+        t = pxt.create_table('audio_test', source=hf_dataset)
+
+        schema = t._get_schema()
+        # Audio with decoded arrays maps to Json struct
+        assert schema['audio'].is_json_type()
+        assert schema['sentence'].is_string_type()
+
+        row = t.head(1)[0]
+        # Audio struct should have 'array', 'path', 'sampling_rate'
+        assert isinstance(row['audio'], dict)
+        assert 'array' in row['audio']
+        assert 'path' in row['audio']
+        assert 'sampling_rate' in row['audio']
+        # array should be a numpy array
+        assert isinstance(row['audio']['array'], np.ndarray)
