@@ -13,17 +13,20 @@ import pixeltable.type_system as ts
 from pixeltable.iterators.document import DocumentSplitter
 from pixeltable.utils.documents import get_document_handle
 
-from .utils import get_audio_files, get_documents, get_image_files, get_video_files, skip_test_if_not_installed
+from .utils import (
+    get_audio_files,
+    get_documents,
+    get_image_files,
+    get_video_files,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 def _check_pdf_metadata(rec: dict, sep1: str, metadata: list[str]) -> None:
-    if 'page' in metadata and sep1 in ['page', 'paragraph', 'sentence']:
+    assert sep1 != 'paragraph'  # not currently supported for PDF
+    if 'page' in metadata and sep1 in ['page', 'sentence']:
         assert rec.get('page') is not None
-    if 'bounding_box' in metadata and sep1 in ['paragraph', 'sentence']:
-        box = rec.get('bounding_box')
-        assert box is not None
-        assert box.get('x1') is not None
-        assert box.get('y1') is not None
 
 
 def normalize(text: str) -> str:
@@ -135,15 +138,23 @@ class TestDocument:
                     'chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators=sep, elements=['image'])
                 )
 
-    def test_doc_splitter(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('pdf', [True, False], ids=['pdf_docs', 'non_pdf_docs'])
+    def test_doc_splitter(self, pdf: bool, reset_db: None) -> None:
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('spacy')
 
         # DocumentSplitter does not support XML
         file_paths = [path for path in self.valid_doc_paths() if not path.endswith('.xml')]
+        file_paths = [p for p in file_paths if pdf == p.endswith('.pdf')]
+        extensions = {os.path.splitext(p)[1] for p in file_paths}
+        if pdf:
+            assert extensions == {'.pdf'}
+        else:
+            assert extensions == {'.md', '.html', '.txt'}
+
         doc_t = pxt.create_table('docs', {'doc': pxt.Document})
-        status = doc_t.insert({'doc': p} for p in file_paths)
-        assert status.num_excs == 0
+        validate_update_status(doc_t.insert({'doc': p} for p in file_paths), expected_rows=len(file_paths))
+
         import tiktoken
 
         encoding = tiktoken.get_encoding('cl100k_base')
@@ -152,17 +163,15 @@ class TestDocument:
         # and make sure they extract the same text in aggregate
         all_metadata = ['title', 'heading', 'sourceline', 'page', 'bounding_box']
         # combinations are given as (sep1, sep2, limit, metadata)
+        sep1_values = ['', 'heading', 'page', 'sentence']
+        if not pdf:
+            sep1_values += ['paragraph']
         combinations: list[tuple[str, str, int, list[str]]] = [
-            (sep1, None, None, metadata)
-            for sep1, metadata in itertools.product(
-                ['', 'heading', 'page', 'paragraph', 'sentence'], [[], all_metadata]
-            )
+            (sep1, None, None, metadata) for sep1, metadata in itertools.product(sep1_values, [[], all_metadata])
         ]
         combinations += [
             (sep1, sep2, limit, all_metadata)
-            for sep1, sep2, limit in itertools.product(
-                ['', 'heading', 'page', 'paragraph', 'sentence'], ['token_limit', 'char_limit'], [10, 20, 100]
-            )
+            for sep1, sep2, limit in itertools.product(sep1_values, ['token_limit', 'char_limit'], [10, 20, 100])
         ]
 
         all_text_reference: str | None = None  # all text as a single string; normalized
@@ -372,3 +381,10 @@ class TestDocument:
 
         res = chunks.collect()
         assert all(isinstance(r['image'], PIL.Image.Image) for r in res)
+
+    def test_pdf_paragraph_splitting_not_supported(self) -> None:
+        pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
+        splitter = DocumentSplitter(document=pdf_file, separators='paragraph')
+        with pytest.raises(NotImplementedError, match=r'not currently supported.+contact us'):
+            for _ in splitter:
+                pass

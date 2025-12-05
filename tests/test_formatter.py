@@ -1,3 +1,7 @@
+import glob
+import os
+from pathlib import Path
+
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.formatter import Formatter
@@ -39,3 +43,15 @@ class TestFormatter:
 
         # Test a JSON dict
         assert json_formatter({'items': items}) == f'{{&quot;items&quot;: {expected}}}'
+
+    def test_make_pdf_thumbnail(self) -> None:
+        docs_dir = Path(os.path.dirname(__file__)) / 'data' / 'documents'
+        file_paths = glob.glob(f'{docs_dir}/*', recursive=True)
+        file_paths = [path for path in file_paths if path.endswith('.pdf')]
+        assert len(file_paths) > 2
+        max_size = 128
+        for pdf_path in file_paths:
+            thumb = Formatter.make_document_thumbnail(pdf_path, max_size, max_size)
+            thumb.verify()
+            assert thumb.width <= max_size
+            assert thumb.height <= max_size
