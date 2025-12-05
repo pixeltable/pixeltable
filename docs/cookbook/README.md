@@ -76,6 +76,10 @@ Load data from external sources:
 | Recipe | Description |
 |--------|-------------|
 | [Import CSV files](data-import-csv.ipynb) | Load data from CSV and Excel files |
+| [Import Parquet files](data-import-parquet.ipynb) | Load columnar data from Parquet |
+| [Import JSON files](data-import-json.ipynb) | Load data from JSON files or URLs |
+| [Import Hugging Face datasets](data-import-huggingface.ipynb) | Load datasets from Hugging Face Hub |
+| [Load media from S3/cloud](data-import-s3.ipynb) | Import images, videos from S3, GCS, HTTP |
 
 ### Workflow
 
