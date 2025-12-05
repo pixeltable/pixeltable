@@ -3,8 +3,16 @@ from pathlib import Path
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 
-from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    get_image_files,
+    get_video_files,
+    rerun,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 from .tool_utils import run_tool_invocations_test
 
 
@@ -89,8 +97,8 @@ class TestGemini:
         assert results['output'][0].size == (1024, 1024)
         assert results['output2'][0].size == (1280, 896)
 
-    @pytest.mark.skip('Very expensive')
-    @pytest.mark.expensive
+    # @pytest.mark.skip('Very expensive')
+    # @pytest.mark.expensive
     @rerun(reruns=3, reruns_delay=30)  # longer delay between reruns
     def test_generate_videos(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')
@@ -98,27 +106,31 @@ class TestGemini:
         from pixeltable.functions.gemini import generate_videos
 
         duration = 4
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'image': pxt.Image})
+        t = pxt.create_table(
+            'test_tbl', {'prompt': pxt.String, 'image': pxt.Image, 'video': pxt.Video, 'last_frame': pxt.Image}
+        )
         t.add_computed_column(
             output=generate_videos(
-                t.prompt, t.image, model='veo-3.0-generate-001', config={'duration_seconds': duration}
+                t.prompt, t.image, model='veo-3.1-generate-preview', last_frame=t.last_frame, config={'duration_seconds': duration}
             )
         )
+        prompts = [
+            # {
+            #     'prompt': 'A giant pixel floating over the open ocean in a sea of data to the sound of ambient music'
+            # },
+            # {
+            #     'prompt': 'Giraffes are foraging in a lush savannah as the leaves sway in the wind',
+            #     'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
+            # },
+            {
+                'prompt': 'A taxi jumps into the air and comes to rest in its original position.',
+                'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000001.jpg',
+                'last_frame': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000001.jpg',
+            }
+        ]
+
         t.add_computed_column(metadata=t.output.get_metadata())
-        validate_update_status(
-            t.insert(
-                [
-                    {
-                        'prompt': 'A giant pixel floating over the open ocean in a sea of data to the sound of ambient music'
-                    },
-                    {
-                        'prompt': 'Giraffes are foraging in a lush savannah as the leaves sway in the wind',
-                        'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
-                    },
-                ]
-            ),
-            expected_rows=2,
-        )
+        validate_update_status(t.insert(prompts), expected_rows=len(prompts))
 
         results = t.collect()
         for i in range(len(results)):

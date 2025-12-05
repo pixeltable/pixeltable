@@ -169,11 +169,19 @@ def _(model: str) -> str:
 
 @pxt.udf(resource_pool='request-rate:veo')
 async def generate_videos(
-    prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
+    prompt: str | None = None,
+    image: PIL.Image.Image | None = None,
+    *,
+    model: str,
+    last_frame: PIL.Image.Image | None = None,
+    reference_images: list | None = None,
+    config: dict | None = None,
 ) -> pxt.Video:
     """
     Generates videos based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/video>
+
+    At least one of `prompt`, `image`, or `video` must be provided.
 
     Request throttling:
     Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
@@ -185,9 +193,10 @@ async def generate_videos(
 
     Args:
         prompt: A text description of the videos to generate.
-        image: An optional image to use as the first frame of the video. At least one of `prompt` or `image` must be
-            provided. (It is ok to specify both.)
+        image: An image to use as the first frame of the video.
+        video: A video to use as the starting point for generation.
         model: The model to use.
+        last_frame: An optional image to use as the last frame of the video.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateVideosConfig`. For details on the parameters, see:
             <https://googleapis.github.io/python-genai/genai.html#genai.types.GenerateVideosConfig>
@@ -205,7 +214,9 @@ async def generate_videos(
     from google.genai import types
 
     if prompt is None and image is None:
-        raise excs.Error('At least one of `prompt` or `image` must be provided.')
+        raise excs.Error('At least one of `prompt`, `image`, or `video` must be provided.')
+    if image is None and last_frame is not None:
+        raise excs.Error('If `last_frame` is provided, `image` must also be provided.')
 
     image_: types.Image | None = None
     if image is not None:
@@ -214,6 +225,42 @@ async def generate_videos(
             image_ = types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
 
     config_ = types.GenerateVideosConfig(**config) if config else None
+
+    if last_frame is not None:
+        with io.BytesIO() as buffer:
+            last_frame.save(buffer, format='webp')
+            last_frame_ = types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
+            if config_ is None:
+                config_ = types.GenerateVideosConfig()
+            config_.last_frame = last_frame_
+
+    if reference_images is not None:
+        reference_images_: list[types.VideoGenerationReferenceImage] = []
+        for img_dict in reference_images:
+            if (
+                not isinstance(img_dict, dict)
+                or len(img_dict) == 0
+                or 'image' not in img_dict
+                or not set(img_dict.keys()).issubset({'image', 'reference_type'})
+            ):
+                raise excs.Error(
+                    "Each element of `reference_images` must be a dict with an 'image' key "
+                    "and an optional 'reference_type' key."
+                )
+            img = img_dict['image']
+            ref_type = img_dict.get('reference_type')
+            with io.BytesIO() as buffer:
+                img.save(buffer, format='webp')
+                reference_images_.append(
+                    types.VideoGenerationReferenceImage(
+                        image=types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp'),
+                        reference_type=ref_type,
+                    )
+                )
+        if config_ is None:
+            config_ = types.GenerateVideosConfig()
+        config_.reference_images = reference_images_
+
     operation = await _genai_client().aio.models.generate_videos(
         model=model, prompt=prompt, image=image_, config=config_
     )
