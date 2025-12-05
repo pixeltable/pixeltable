@@ -68,7 +68,15 @@ class ColumnType:
                 return t
             return None
 
-    scalar_types: ClassVar[set[Type]] = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP, Type.DATE, Type.UUID}
+    scalar_types: ClassVar[set[Type]] = {
+        Type.STRING,
+        Type.INT,
+        Type.FLOAT,
+        Type.BOOL,
+        Type.TIMESTAMP,
+        Type.DATE,
+        Type.UUID,
+    }
     numeric_types: ClassVar[set[Type]] = {Type.INT, Type.FLOAT}
     common_supertypes: ClassVar[dict[tuple[Type, Type], Type]] = {
         (Type.BOOL, Type.INT): Type.INT,
