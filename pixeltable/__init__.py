@@ -50,6 +50,7 @@ from .type_system import (
     Date,
     Document,
     Float,
+    Identity,
     Image,
     Int,
     Json,

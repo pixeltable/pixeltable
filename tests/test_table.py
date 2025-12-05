@@ -967,6 +967,79 @@ class TestTable:
         df = t._col_descriptor()
         assert list(df['Type']) == expected_strings + expected_strings
 
+    def test_uuid_type(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        """Test UUID type operations: insert, query, comparison, nullable, required."""
+
+        # Test UUIDs of different versions
+        test_uuids: list[uuid.UUID] = [
+            uuid.uuid1(),
+            uuid.uuid3(uuid.NAMESPACE_DNS, 'pixeltable.com'),  # Version 3 (MD5 hash)
+            uuid.uuid4(),
+            uuid.uuid5(uuid.NAMESPACE_DNS, 'pixeltable.com'),  # Version 5 (SHA-1 hash)
+        ]
+
+        # Test basic UUID column operations: insert and query
+        t = pxt.create_table('test_uuid_tbl', {'uuid_col': pxt.UUID})
+        validate_update_status(t.insert({'uuid_col': u} for u in test_uuids), expected_rows=len(test_uuids))
+
+        # Query all UUIDs
+        res = reload_tester.run_query(t.select(t.uuid_col))
+        assert len(res) == len(test_uuids)
+        assert res['uuid_col'] == test_uuids
+
+        # Query with where clause
+        first_uuid = test_uuids[0]
+        res = reload_tester.run_query(t.where(t.uuid_col == first_uuid))
+        assert len(res) == 1
+        assert res['uuid_col'][0] == first_uuid
+
+        # Test UUID from string conversion
+        test_uuid_str = '550e8400-e29b-41d4-a716-446655440000'
+        test_uuid = uuid.UUID(test_uuid_str)
+        t2 = pxt.create_table('test_uuid_from_string', {'uuid_col': pxt.UUID})
+        validate_update_status(t2.insert([{'uuid_col': test_uuid_str}]), expected_rows=1)
+        res = t2.select(t2.uuid_col).collect()
+        assert res['uuid_col'][0] == test_uuid
+
+        # Test UUID comparison operations
+        t3 = pxt.create_table('test_uuid_comparison', {'uuid_col': pxt.UUID})
+        validate_update_status(t3.insert({'uuid_col': u} for u in test_uuids), expected_rows=len(test_uuids))
+
+        # Test equality
+        first_uuid = test_uuids[0]
+        res = reload_tester.run_query(t3.where(t3.uuid_col == first_uuid))
+        assert len(res) == 1
+
+        # Test inequality
+        res = reload_tester.run_query(t3.where(t3.uuid_col != first_uuid))
+        assert len(res) == len(test_uuids) - 1
+
+        # Test IN
+        uuids_to_match = [test_uuids[0], test_uuids[1]]
+        res = reload_tester.run_query(t3.where(t3.uuid_col.isin(uuids_to_match)))
+        assert len(res) == 2
+        assert set(res['uuid_col']) == set(uuids_to_match)
+
+        # Test nullable UUID columns
+        t4 = pxt.create_table('test_uuid_nullable', {'uuid_col': pxt.UUID})
+        validate_update_status(t4.insert([{'uuid_col': None}]), expected_rows=1)
+        validate_update_status(t4.insert([{'uuid_col': uuid.uuid4()}]), expected_rows=1)
+
+        res = reload_tester.run_query(t4.select(t4.uuid_col))
+        assert res['uuid_col'][0] is None
+        assert isinstance(res['uuid_col'][1], uuid.UUID)
+
+        # Test required UUID columns
+        t5 = pxt.create_table('test_uuid_required', {'uuid_col': pxt.Required[pxt.UUID]})
+        validate_update_status(t5.insert([{'uuid_col': uuid.uuid4()}]), expected_rows=1)
+
+        # Should raise error for None
+        with pytest.raises(pxt.Error):
+            t5.insert([{'uuid_col': None}])
+
+        # Verify queries work after reload
+        reload_tester.run_reload_test()
+
     def test_empty_table(self, reset_db: None) -> None:
         with pytest.raises(pxt.Error, match='must be a non-empty dictionary'):
             pxt.create_table('empty_table', {})
@@ -2718,6 +2791,65 @@ class TestTable:
         _ = reload_tester.run_query(v.select())
 
         reload_tester.run_reload_test()
+
+    def test_identity_column(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        # Test creating a table with an identity column using pxt.Identity
+        t = pxt.create_table('test_identity_tbl', {'id': pxt.Identity, 'data': pxt.String})
+
+        # Verify identity column is created as primary key
+        pk_cols = t._tbl_version.get().primary_key_columns()
+        assert len(pk_cols) == 1
+        assert pk_cols[0].name == 'id'
+        assert pk_cols[0].is_computed
+        assert pk_cols[0].col_type.type_enum == pxt.type_system.ColumnType.Type.UUID
+        assert not pk_cols[0].col_type.nullable
+
+        # Insert rows - identity column should auto-generate UUIDs
+        validate_update_status(t.insert([{'data': 'test1'}, {'data': 'test2'}, {'data': 'test3'}]), expected_rows=3)
+
+        # Query and verify UUIDs are generated
+        res = reload_tester.run_query(t.select(t.id, t.data))
+        assert len(res) == 3
+        assert all(isinstance(u, uuid.UUID) for u in res['id'])
+        assert len(set(res['id'])) == 3  # All UUIDs should be unique
+        assert res['data'] == ['test1', 'test2', 'test3']
+
+        reload_tester.run_reload_test()
+
+        # Test adding an identity column to an existing table
+        t2 = pxt.create_table('test_add_identity_tbl', {'data': pxt.String})
+        validate_update_status(t2.insert([{'data': 'test1'}, {'data': 'test2'}]), expected_rows=2)
+
+        # Initially no primary key
+        pk_cols = t2._tbl_version.get().primary_key_columns()
+        assert len(pk_cols) == 0
+
+        # Add identity column using add_identity_column()
+        t2.add_identity_column(column_name='id')
+
+        # Verify identity column is added as primary key
+        pk_cols = t2._tbl_version.get().primary_key_columns()
+        assert len(pk_cols) == 1
+        assert pk_cols[0].name == 'id'
+        assert pk_cols[0].is_computed
+        assert pk_cols[0].col_type.type_enum == pxt.type_system.ColumnType.Type.UUID
+        assert not pk_cols[0].col_type.nullable
+
+        # Query existing rows - UUIDs should be generated for existing rows
+        res = reload_tester.run_query(t2.select(t2.id, t2.data))
+        assert len(res) == 2
+        assert all(isinstance(u, uuid.UUID) for u in res['id'])
+        assert len(set(res['id'])) == 2  # All UUIDs should be unique
+
+        # Verify queries work after reload (before inserting new rows)
+        reload_tester.run_reload_test()
+
+        # Insert new rows - UUIDs should continue to be generated
+        validate_update_status(t2.insert([{'data': 'test3'}]), expected_rows=1)
+        res = t2.select(t2.id, t2.data).collect()
+        assert len(res) == 3
+        assert all(isinstance(u, uuid.UUID) for u in res['id'])
+        assert len(set(res['id'])) == 3  # All UUIDs should be unique
 
     def test_computed_column_types(self, reset_db: None) -> None:
         t = pxt.create_table(

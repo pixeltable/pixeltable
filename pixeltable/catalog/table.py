@@ -620,6 +620,53 @@ class Table(SchemaObject):
             )
         return self.add_columns(kwargs, if_exists=if_exists)
 
+    def add_identity_column(self, *, column_name: str, if_exists: Literal['error', 'ignore'] = 'error') -> UpdateStatus:
+        """
+        Adds an identity column (UUID primary key with auto-generation) to the table.
+
+        Args:
+            column_name: The name of the identity column. Must not already exist.
+            if_exists: Determines the behavior if the column already exists. Must be one of the following:
+
+                - `'error'`: an exception will be raised.
+                - `'ignore'`: do nothing and return.
+
+        Returns:
+            Information about the execution status of the operation.
+
+        Raises:
+            Error: If the column name is invalid, or already exists and `if_exists='error'`.
+
+        Examples:
+            Add an identity column named 'uuid_pk':
+
+            >>> tbl.add_identity_column(column_name='uuid_pk')
+        """
+        from pixeltable.catalog import Catalog
+
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            self.__check_mutable('add identity column to')
+            if not is_valid_identifier(column_name):
+                raise excs.Error(f'Invalid column name: {column_name}')
+
+            # handle existing columns based on if_exists parameter
+            cols_to_ignore = self._ignore_or_drop_existing_columns(
+                [column_name], IfExistsParam.validated(if_exists, 'if_exists')
+            )
+            # if the column to add already exists and user asked to ignore
+            # existing column, there's nothing to do.
+            result = UpdateStatus()
+            if len(cols_to_ignore) != 0:
+                assert cols_to_ignore[0] == column_name
+                return result
+
+            new_col = self._create_columns({column_name: ts.Identity})[0]
+            self._verify_column(new_col)
+
+            assert self._tbl_version is not None
+            result = self._tbl_version.get().add_columns([new_col], print_stats=False, on_error='abort')
+            return result
+
     def add_computed_column(
         self,
         *,
@@ -771,6 +818,13 @@ class Table(SchemaObject):
                 # create copy so we can modify it
                 value_expr = spec.copy()
                 value_expr.bind_rel_paths()
+            elif isinstance(spec, ts._Identity):
+                # Convert Identity marker to dict spec with make_uuid() value and primary_key=True
+                from pixeltable.functions.uuid import make_uuid
+
+                value_expr = make_uuid()
+                value_expr.bind_rel_paths()
+                primary_key = True
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
                 if 'type' in spec:
