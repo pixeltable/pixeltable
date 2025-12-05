@@ -55,9 +55,9 @@ class TestPandas:
             'uuid_col': ts.UUIDType(nullable=True),
             'json_col_1': ts.JsonType(nullable=True),
             'json_col_2': ts.JsonType(nullable=True),
-            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True),
-            'array_col_2': ts.ArrayType(shape=(None, None), dtype=ts.IntType(), nullable=True),
-            'array_col_3': ts.ArrayType(shape=(None, None), dtype=ts.FloatType(), nullable=True),
+            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=np.dtype('int64'), nullable=True),
+            'array_col_2': ts.ArrayType(shape=(None, None), dtype=np.dtype('int64'), nullable=True),
+            'array_col_3': ts.ArrayType(shape=(None, None), dtype=np.dtype('float32'), nullable=True),
             'image_col': ts.ImageType(width=100, nullable=True),
         }
         res = t.select().order_by(t.int_col).collect()
@@ -94,9 +94,9 @@ class TestPandas:
             'uuid_col': ts.UUIDType(nullable=True),
             'json_col_1': ts.JsonType(nullable=True),
             'json_col_2': ts.JsonType(nullable=True),
-            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True),
-            'array_col_2': ts.ArrayType(shape=(None, None), dtype=ts.IntType(), nullable=True),
-            'array_col_3': ts.ArrayType(shape=(None, None), dtype=ts.FloatType(), nullable=True),
+            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=np.dtype('int64'), nullable=True),
+            'array_col_2': ts.ArrayType(shape=(None, None), dtype=np.dtype('int64'), nullable=True),
+            'array_col_3': ts.ArrayType(shape=(None, None), dtype=np.dtype('float32'), nullable=True),
             'image_col': ts.ImageType(width=100, nullable=True),
         }
         assert t.count() == len(df)

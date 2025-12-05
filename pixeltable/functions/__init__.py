@@ -8,6 +8,7 @@ from . import (
     bedrock,
     date,
     deepseek,
+    fal,
     fireworks,
     gemini,
     groq,

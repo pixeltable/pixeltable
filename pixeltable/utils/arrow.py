@@ -76,7 +76,7 @@ def to_arrow_type(pixeltable_type: ts.ColumnType) -> pa.DataType | None:
     if pixeltable_type.__class__ in PXT_TO_PA_TYPES:
         return PXT_TO_PA_TYPES[pixeltable_type.__class__]
     elif isinstance(pixeltable_type, ts.ArrayType):
-        return pa.fixed_shape_tensor(pa.from_numpy_dtype(pixeltable_type.numpy_dtype()), pixeltable_type.shape)
+        return pa.fixed_shape_tensor(pa.from_numpy_dtype(pixeltable_type.dtype), pixeltable_type.shape)
     else:
         return None
 
@@ -85,13 +85,13 @@ def to_pxt_schema(
     arrow_schema: pa.Schema, schema_overrides: dict[str, Any], primary_key: list[str]
 ) -> dict[str, ts.ColumnType]:
     """Convert a pyarrow Schema to a schema using pyarrow names and pixeltable types."""
-    ar_schema = {
+    pxt_schema = {
         field.name: to_pixeltable_type(field.type, field.name not in primary_key)
         if field.name not in schema_overrides
         else schema_overrides[field.name]
         for field in arrow_schema
     }
-    return ar_schema
+    return pxt_schema
 
 
 def to_arrow_schema(pixeltable_schema: dict[str, Any]) -> pa.Schema:
