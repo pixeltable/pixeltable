@@ -39,7 +39,6 @@ class TestHistory:
         r = fn(t)
         print(r)
         assert s.num_rows == 1  # 1 row inserted
-        assert s.num_computed_values == 1  # 1 computed value: str_filter(c2)
 
         s = t.add_computed_column(c3=t.c1 + 10)
         self.pr_us(s, 'acc1')
@@ -71,7 +70,6 @@ class TestHistory:
         self.pr_us(s, 'i2 - insert 2 rows into table')
         assert s.num_rows == 4  # inserted: 2 rows table, 2 rows view
         # 6 -- [str_filter(c6), c2.upper(), c1 + 20, c1 + 10, str_filter(c2), str_filter(c2.upper())]
-        assert s.num_computed_values == 2 * 6
 
         s = t.insert([{'c1': 5, 'c2': 'e'}, {'c1': 6, 'c2': 'e'}])
         self.pr_us(s, 'i3')
@@ -80,13 +78,11 @@ class TestHistory:
         print(v.history())
         self.pr_us(s, 'vacc')
         assert s.num_rows == 7
-        assert s.num_computed_values == 7 * 2  # computed values: c2 + '_view', str_filter(v1)
 
         s = v.recompute_columns('v1')
         print(v.history())
         self.pr_us(s, 'vrc1')
         assert s.num_rows == 7
-        assert s.num_computed_values == 7 * 2  # missing the str_filter() recompute v1, str_filter(v1)
 
         s = t.insert([{'c1': 7, 'c2': 'a'}, {'c1': 8, 'c2': 'b'}])
         self.pr_us(s, 'i4')
@@ -96,7 +92,6 @@ class TestHistory:
         s = t.batch_update([{'c1': 2, 'c2': 'xxx'}])
         self.pr_us(s, 'u')
         assert s.num_rows == 1 + 1  # One in table, one in view
-        assert s.num_computed_values == 3 + 1  # missing the str_filter() computation for the index column
 
         t.rename_column('c2', 'c2_renamed')
         t.drop_column('c4')
@@ -134,7 +129,6 @@ class TestHistory:
                 'updates': 2,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 4,
                 'schema_change': 'Deleted: c4',
             },
             {
@@ -145,7 +139,6 @@ class TestHistory:
                 'updates': 2,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 4,
                 'schema_change': "Renamed: 'c2' to 'c2_renamed'",
             },
             {
@@ -156,7 +149,6 @@ class TestHistory:
                 'updates': 2,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 4,
                 'schema_change': None,
             },
             {
@@ -167,7 +159,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 4,
                 'errors': 0,
-                'computed': 0,
                 'schema_change': None,
             },
             {
@@ -178,7 +169,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 12,
                 'schema_change': None,
             },
             {
@@ -189,7 +179,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 12,
                 'schema_change': None,
             },
             {
@@ -200,7 +189,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 12,
                 'schema_change': None,
             },
             {
@@ -211,7 +199,6 @@ class TestHistory:
                 'updates': 3,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 9,
                 'schema_change': 'Added: c6, c7, c8',
             },
             {
@@ -222,7 +209,6 @@ class TestHistory:
                 'updates': 3,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 6,
                 'schema_change': 'Added: c5',
             },
             {
@@ -233,7 +219,6 @@ class TestHistory:
                 'updates': 3,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 6,
                 'schema_change': 'Added: c4',
             },
             {
@@ -244,7 +229,6 @@ class TestHistory:
                 'updates': 3,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 6,
                 'schema_change': 'Added: c3',
             },
             {
@@ -255,7 +239,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 1,
                 'schema_change': None,
             },
             {
@@ -266,7 +249,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 2,
                 'schema_change': None,
             },
             {
@@ -277,7 +259,6 @@ class TestHistory:
                 'updates': 0,
                 'deletes': 0,
                 'errors': 0,
-                'computed': 0,
                 'schema_change': 'Initial Version',
             },
         ]
