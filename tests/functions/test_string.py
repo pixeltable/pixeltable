@@ -41,7 +41,7 @@ from pixeltable.functions.string import (
     zfill,
 )
 
-from ..utils import reload_catalog, validate_update_status
+from ..utils import reload_catalog, skip_test_if_not_installed, validate_update_status
 
 
 class TestString:
@@ -328,6 +328,7 @@ class TestString:
         assert row == {'input': 'PQR', 's1': 'ABC PQR', 's2': 'DEF PQR', 's3': 'GHI PQR JKL PQR'}
 
     def test_string_splitter(self, reset_db: None) -> None:
+        skip_test_if_not_installed('spacy')
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert([{'s': self.TEST_STR}]), expected_rows=1)
         v = pxt.create_view(
