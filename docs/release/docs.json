@@ -18,85 +18,44 @@
             "pages": [
               "overview/pixeltable",
               "overview/installation",
-              "overview/configuration",
               "overview/quick-start",
-              "overview/deployment",
+              "overview/ten-minute-tour",
               "overview/building-pixeltable-with-llms"
             ]
           },
           {
-            "group": "Concepts",
+            "group": "Platform",
             "pages": [
-              "datastore/tables-and-operations",
-              "datastore/views",
-              "datastore/iterators",
-              "datastore/bringing-data",
-              "datastore/filtering-and-selecting",
-              "datastore/computed-columns",
-              "datastore/vector-database",
-              "datastore/custom-functions",
-              "datastore/sampling"
+              "platform/tables",
+              "platform/views",
+              "platform/iterators",
+              "platform/bringing-data",
+              "platform/filtering-and-selecting",
+              "platform/computed-columns",
+              "platform/vector-database",
+              "platform/custom-functions",
+              "platform/sampling",
+              "platform/udfs-in-pixeltable",
+              "platform/working-with-external-files",
+              "platform/data-sharing",
+              "platform/time-zones",
+              "platform/embedding-indexes",
+              "platform/deployment",
+              "platform/configuration"
             ]
           },
           {
-            "group": "Notebooks",
+            "group": "Cookbooks",
             "pages": [
-              {
-                "group": "Getting Started",
-                "pages": [
-                  "notebooks/pixeltable-basics"
-                ]
-              },
-              {
-                "group": "Fundamentals",
-                "pages": [
-                  "notebooks/fundamentals/tables-and-data-operations",
-                  "notebooks/fundamentals/computed-columns",
-                  "notebooks/fundamentals/queries-and-expressions"
-                ]
-              },
-              {
-                "group": "Feature Guides",
-                "pages": [
-                  "notebooks/feature-guides/data-sharing",
-                  "notebooks/feature-guides/embedding-indexes",
-                  "notebooks/feature-guides/time-zones",
-                  "notebooks/feature-guides/udfs-in-pixeltable",
-                  "notebooks/feature-guides/working-with-external-files"
-                ]
-              },
-              {
-                "group": "Integrations",
-                "pages": [
-                  "notebooks/integrations/working-with-anthropic",
-                  "notebooks/integrations/working-with-bedrock",
-                  "notebooks/integrations/working-with-deepseek",
-                  "notebooks/integrations/working-with-fiftyone",
-                  "notebooks/integrations/working-with-fireworks",
-                  "notebooks/integrations/working-with-gemini",
-                  "notebooks/integrations/working-with-groq",
-                  "notebooks/integrations/working-with-hugging-face",
-                  "notebooks/integrations/working-with-llama-cpp",
-                  "notebooks/integrations/working-with-mistralai",
-                  "notebooks/integrations/working-with-ollama",
-                  "notebooks/integrations/working-with-openai",
-                  "notebooks/integrations/working-with-openrouter",
-                  "notebooks/integrations/working-with-replicate",
-                  "notebooks/integrations/working-with-reve",
-                  "notebooks/integrations/working-with-together",
-                  "notebooks/integrations/working-with-voyageai",
-                  "notebooks/integrations/using-label-studio-with-pixeltable"
-                ]
-              },
-              {
-                "group": "Use Cases",
-                "pages": [
-                  "notebooks/use-cases/audio-transcriptions",
-                  "notebooks/use-cases/object-detection-in-videos",
-                  "notebooks/use-cases/rag-demo",
-                  "notebooks/use-cases/rag-operations"
-                ]
-              }
+              "cookbooks/rag-demo"
+            ]
+          },
+          {
+            "group": "Tutorials",
+            "pages": [
+              "tutorials/tables-and-data-operations",
+              "tutorials/computed-columns",
+              "tutorials/queries-and-expressions"
             ]
           }
         ]
