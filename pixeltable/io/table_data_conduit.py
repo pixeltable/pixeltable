@@ -8,9 +8,10 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
 
-import PIL
 import numpy as np
 import pandas as pd
+import PIL
+import PIL.Image
 from pyarrow.parquet import ParquetDataset
 
 import pixeltable as pxt
@@ -18,6 +19,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
 from pixeltable.utils import parse_local_file_path
+
 from .utils import normalize_schema_names
 
 _logger = logging.getLogger('pixeltable')
@@ -568,7 +570,7 @@ class HFTableDataConduit(TableDataConduit):
                 self.src_schema[self.column_name_for_split] = ts.StringType(nullable=True)
 
             inferred_schema, inferred_pk, self.source_column_map = normalize_schema_names(
-                self.src_schema, self.src_pk, self.src_schema_overrides, True
+                self.src_schema, self.src_pk, self.src_schema_overrides
             )
             return inferred_schema, inferred_pk
         else:
@@ -609,32 +611,37 @@ class HFTableDataConduit(TableDataConduit):
         if column is None or len(column) == 0:
             return [None] * chunk_size
 
+        # return scalars as Python scalars
+        if isinstance(feature, datasets.Value):
+            return column.to_pylist()
+
         # ClassLabel: int -> string name
         if isinstance(feature, datasets.ClassLabel):
             values = column.to_pylist()
             return [feature.names[v] if v is not None else None for v in values]
 
-        # Sequence: array (but Sequence of dicts becomes Json and returns dicts)
+        # check for list of dict before Sequence, which could contain array data
+        is_list_of_dict = isinstance(feature, (datasets.Sequence, datasets.LargeList)) and isinstance(
+            feature.feature, dict
+        )
+        if is_list_of_dict:
+            return column.to_pylist()
+
+        # array data
         if isinstance(feature, datasets.Sequence):
             arr = column.to_numpy(zero_copy_only=False)
             result = []
             for i in range(chunk_size):
                 val = arr[i]
-                if isinstance(val, np.ndarray):
-                    # convert object array of arrays (e.g., multi-channel audio) to proper ndarray
-                    if val.dtype == object and len(val) > 0 and isinstance(val[0], np.ndarray):
-                        val = np.stack(val)
-                elif isinstance(val, dict):
-                    # Sequence of dicts: Arrow returns dict of arrays, convert to list of dicts
-                    # Convert numpy types to Python native types for JSON serialization
-                    keys = list(val.keys())
-                    if keys and len(val[keys[0]]) > 0:
-                        val = [
-                            {k: self._to_python_native(val[k][j]) for k in keys}
-                            for j in range(len(val[keys[0]]))
-                        ]
-                    else:
-                        val = []
+                assert not isinstance(val, dict)
+                # convert object array of arrays (e.g., multi-channel audio) to proper ndarray
+                if (
+                    isinstance(val, np.ndarray)
+                    and val.dtype == object
+                    and len(val) > 0
+                    and isinstance(val[0], np.ndarray)
+                ):
+                    val = np.stack(list(val))
                 result.append(val)
             return result
 
@@ -678,6 +685,9 @@ class HFTableDataConduit(TableDataConduit):
         if isinstance(feature, dict):
             return self._convert_struct_column(column, feature, chunk_size)
 
+        if isinstance(feature, list):
+            return column.to_pylist()
+
         # Array2D, Array3D, etc.: multi-dimensional fixed-shape arrays
         if isinstance(feature, (datasets.Array2D, datasets.Array3D, datasets.Array4D, datasets.Array5D)):
             arr = column.to_numpy(zero_copy_only=False)
@@ -688,10 +698,6 @@ class HFTableDataConduit(TableDataConduit):
                 val = self._stack_nested_arrays(val)
                 result.append(val)
             return result
-
-        # return scalars as Python scalars
-        if isinstance(feature, datasets.Value):
-            return column.to_pylist()
 
         # Fallback: use to_numpy which handles more types than to_pylist
         try:
@@ -761,7 +767,7 @@ class HFTableDataConduit(TableDataConduit):
             return PIL.Image.open(_io.BytesIO(val))
         elif isinstance(val, dict) and 'path' in val:
             return PIL.Image.open(val['path'])
-        return val
+        raise AssertionError(f'Unexpected image data type: {type(val)}')
 
     def valid_row_batch(self) -> Iterator['RowData']:
         for split_name, split_dataset in self.dataset_dict.items():
