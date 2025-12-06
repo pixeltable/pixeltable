@@ -26,20 +26,38 @@
           {
             "group": "Platform",
             "pages": [
-              "platform/tables",
-              "platform/views",
-              "platform/iterators",
-              "platform/bringing-data",
-              "platform/filtering-and-selecting",
-              "platform/computed-columns",
-              "platform/vector-database",
-              "platform/custom-functions",
-              "platform/sampling",
-              "platform/udfs-in-pixeltable",
-              "platform/working-with-external-files",
-              "platform/data-sharing",
-              "platform/time-zones",
-              "platform/embedding-indexes",
+              {
+                "group": "Tables",
+                "icon": "table",
+                "pages": [
+                  "platform/tables",
+                  "platform/views",
+                  "platform/computed-columns",
+                  "platform/iterators",
+                  "platform/vector-database",
+                  "platform/embedding-indexes"
+                ]
+              },
+              {
+                "group": "Working with Data",
+                "icon": "database",
+                "pages": [
+                  "platform/filtering-and-selecting",
+                  "platform/bringing-data",
+                  "platform/working-with-external-files",
+                  "platform/sampling",
+                  "platform/data-sharing",
+                  "platform/time-zones"
+                ]
+              },
+              {
+                "group": "Extending Pixeltable",
+                "icon": "puzzle-piece",
+                "pages": [
+                  "platform/custom-functions",
+                  "platform/udfs-in-pixeltable"
+                ]
+              },
               "platform/deployment",
               "platform/configuration"
             ]
@@ -75,7 +93,7 @@
                     "pages": [
                       "sdk/latest/pixeltable",
                       "sdk/latest/table",
-                      "sdk/latest/dataframe",
+                      "sdk/latest/query",
                       "sdk/latest/columnmetadata",
                       "sdk/latest/dircontents",
                       "sdk/latest/indexmetadata",
@@ -103,6 +121,7 @@
                       "sdk/latest/anthropic",
                       "sdk/latest/bedrock",
                       "sdk/latest/deepseek",
+                      "sdk/latest/fal",
                       "sdk/latest/fireworks",
                       "sdk/latest/gemini",
                       "sdk/latest/groq",
@@ -111,9 +130,13 @@
                       "sdk/latest/mistralai",
                       "sdk/latest/ollama",
                       "sdk/latest/openai",
+                      "sdk/latest/openrouter",
                       "sdk/latest/replicate",
+                      "sdk/latest/reve",
                       "sdk/latest/together",
+                      "sdk/latest/twelvelabs",
                       "sdk/latest/vision",
+                      "sdk/latest/voyageai",
                       "sdk/latest/whisper",
                       "sdk/latest/whisperx",
                       "sdk/latest/yolox"
