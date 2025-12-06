@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import datetime
 import enum
+import uuid
 
 # Python types corresponding to our literal types
-LiteralPythonTypes = str | int | float | bool | datetime.datetime | datetime.date
+LiteralPythonTypes = str | int | float | bool | datetime.datetime | datetime.date | uuid.UUID
 
 
 def print_slice(s: slice) -> str:

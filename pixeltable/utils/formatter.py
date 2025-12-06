@@ -4,6 +4,7 @@ import io
 import json
 import logging
 import mimetypes
+import uuid
 from typing import Any, Callable
 
 import av
@@ -42,6 +43,8 @@ class Formatter:
     def get_pandas_formatter(self, col_type: ts.ColumnType) -> Callable | None:
         if col_type.is_string_type():
             return self.format_string
+        if col_type.is_uuid_type():
+            return self.format_uuid
         if col_type.is_float_type():
             return self.format_float
         if col_type.is_json_type():
@@ -64,6 +67,13 @@ class Formatter:
         Escapes special characters in `val`, and abbreviates `val` if its length exceeds `_STRING_MAX_LEN`.
         """
         return cls.__escape(cls.abbreviate(val))
+
+    @classmethod
+    def format_uuid(cls, val: uuid.UUID | None) -> str:
+        """
+        Formats a UUID by converting it to a string and applying string formatting.
+        """
+        return '' if val is None else cls.format_string(str(val))
 
     @classmethod
     def abbreviate(cls, val: str, max_len: int = __STRING_MAX_LEN) -> str:

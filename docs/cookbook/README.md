@@ -35,6 +35,14 @@ Speed up your development workflow:
 |--------|-------------|
 | [Get fast feedback on transformations](iter-fast-feedback-loops.ipynb) | Test logic before processing full datasets |
 
+### Workflow
+
+Common setup and configuration patterns:
+
+| Recipe | Description |
+|--------|-------------|
+| [Add unique identifiers](workflow-uuid-identity.ipynb) | Generate UUIDs and identity columns |
+
 ## Contributing
 
 Want to write a recipe? See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines and [STYLE_GUIDE.md](STYLE_GUIDE.md) for detailed standards.

@@ -7,6 +7,7 @@ import random
 import shutil
 import subprocess
 import sysconfig
+import uuid
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
@@ -54,6 +55,8 @@ def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
         return ts.TimestampType()
     if t == ts.ColumnType.Type.DATE:
         return ts.DateType()
+    if t == ts.ColumnType.Type.UUID:
+        return ts.UUIDType()
     raise AssertionError()
 
 
@@ -120,6 +123,8 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
             col_data = [datetime.datetime.now()] * num_rows
         if col_type.is_date_type():
             col_data = [datetime.date.today()] * num_rows
+        if col_type.is_uuid_type():
+            col_data = [uuid.uuid4() for _ in range(num_rows)]
         if col_type.is_json_type():
             col_data = [sample_dict] * num_rows
         if col_type.is_array_type():
@@ -227,6 +232,7 @@ def create_all_datatypes_tbl() -> pxt.Table:
         'c_json': pxt.Json,
         'c_string': pxt.String,
         'c_timestamp': pxt.Timestamp,
+        'c_uuid': pxt.UUID,
         'c_video': pxt.Video,
     }
     tbl = pxt.create_table('all_datatype_tbl', schema)
@@ -628,6 +634,7 @@ def make_test_arrow_table(output_path: Path) -> str:
             datetime.datetime(2012, 1, 4, 12, 0, 0, 25),
             None,
         ],
+        'c_uuid': [uuid.uuid4().bytes, uuid.uuid4().bytes, uuid.uuid4().bytes, uuid.uuid4().bytes, None],
         # The pyarrow fixed_shape_tensor type does not support NULLs (currently can write them but not read them)
         # So, no nulls in this column
         'c_array_float32': float_array,
@@ -644,6 +651,7 @@ def make_test_arrow_table(output_path: Path) -> str:
         ('c_string', pa.string()),
         ('c_boolean', pa.bool_()),
         ('c_timestamp', pa.timestamp('us')),
+        ('c_uuid', pa.uuid()),
         ('c_array_float32', tensor_type),
     ]
     schema = pa.schema(fields)  # type: ignore[arg-type]

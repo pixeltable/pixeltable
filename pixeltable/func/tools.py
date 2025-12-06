@@ -1,4 +1,5 @@
 import json
+import uuid
 from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 import pydantic
@@ -72,6 +73,8 @@ class Tool(pydantic.BaseModel):
             return _extract_bool_tool_arg(kwargs, param_name=param.name)
         if param.col_type.is_json_type():
             return _extract_json_tool_arg(kwargs, param_name=param.name)
+        if param.col_type.is_uuid_type():
+            return _extract_uuid_tool_arg(kwargs, param_name=param.name)
         raise AssertionError(param.col_type)
 
 
@@ -145,6 +148,11 @@ def _extract_json_tool_arg(kwargs: dict[str, Any], param_name: str) -> ts.Json |
     if param_name in kwargs:
         return json.loads(kwargs[param_name])
     return None
+
+
+@udf
+def _extract_uuid_tool_arg(kwargs: dict[str, Any], param_name: str) -> uuid.UUID | None:
+    return _extract_arg(uuid.UUID, kwargs, param_name)
 
 
 T = TypeVar('T')
