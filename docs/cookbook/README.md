@@ -16,16 +16,12 @@ Most recipes run in under 5 minutes and show working end-to-end examples.
 
 ### Images
 
-Transform and process images using PIL methods and custom UDFs:
+Transform and process images:
 
 | Recipe | Description |
 |--------|-------------|
 | [Transform images with PIL operations](img-pil-transforms.ipynb) | Resize, rotate, flip, crop |
-| [Convert RGB images to grayscale](img-rgb-to-grayscale.ipynb) | Simple and perceptually accurate methods |
-| [Apply image filters](img-apply-filters.ipynb) | Blur, sharpen, edge detection |
-| [Adjust image brightness and contrast](img-brightness-contrast.ipynb) | Fix lighting and enhance visibility |
 | [Add watermarks to images](img-add-watermarks.ipynb) | Brand or protect your images |
-| [Adjust image opacity](img-adjust-opacity.ipynb) | Create semi-transparent effects |
 
 ### Vision AI
 
@@ -35,6 +31,17 @@ Analyze images with AI models:
 |--------|-------------|
 | [Analyze images in batch](vision-batch-analysis.ipynb) | Run the same prompt on multiple images automatically |
 | [Extract structured data from images](vision-structured-output.ipynb) | Get JSON from receipts, forms, documents |
+| [Generate captions for images](img-generate-captions.ipynb) | Auto-caption images for accessibility and SEO |
+| [Detect objects in images](img-detect-objects.ipynb) | Find and locate objects with YOLOX |
+| [Visualize object detections](img-visualize-detections.ipynb) | Draw bounding boxes on images |
+
+### Video Generation
+
+Create videos with AI models:
+
+| Recipe | Description |
+|--------|-------------|
+| [Generate videos with AI](video-generate-ai.ipynb) | Text-to-video and image-to-video with Veo |
 
 ### Audio
 
@@ -43,6 +50,10 @@ Process and transcribe audio:
 | Recipe | Description |
 |--------|-------------|
 | [Transcribe audio files](audio-transcribe.ipynb) | Convert speech to text with Whisper |
+| [Transcribe with speaker identification](audio-speaker-diarization.ipynb) | Meeting transcripts with who said what |
+| [Summarize podcasts and audio](audio-summarize-podcast.ipynb) | Transcribe and summarize in one pipeline |
+| [Extract audio from video](audio-extract-from-video.ipynb) | Get audio tracks for transcription |
+| [Convert text to speech](audio-text-to-speech.ipynb) | Generate audio from text with OpenAI TTS |
 
 ### Video
 
@@ -51,6 +62,19 @@ Process and analyze videos:
 | Recipe | Description |
 |--------|-------------|
 | [Extract frames from videos](video-extract-frames.ipynb) | Pull frames at intervals or keyframes only |
+| [Generate thumbnails from videos](video-generate-thumbnails.ipynb) | Create preview images at specific timestamps |
+| [Detect scene changes](video-scene-detection.ipynb) | Find cuts, transitions, and fades |
+| [Add text overlays](video-add-text-overlay.ipynb) | Burn captions, watermarks, titles into videos |
+
+### Text
+
+Process text with LLMs:
+
+| Recipe | Description |
+|--------|-------------|
+| [Summarize text with LLMs](text-summarize.ipynb) | Generate summaries of articles and documents |
+| [Translate text between languages](text-translate.ipynb) | Automated multi-language translation |
+| [Extract named entities](text-extract-entities.ipynb) | Find people, organizations, locations in text |
 
 ### Documents
 
@@ -60,7 +84,7 @@ Process and search documents:
 |--------|-------------|
 | [Split documents for RAG](doc-chunk-for-rag.ipynb) | Break PDFs into searchable chunks |
 
-### Search
+### Search & Embeddings
 
 Build semantic search systems:
 
@@ -68,6 +92,7 @@ Build semantic search systems:
 |--------|-------------|
 | [Semantic text search](search-semantic-text.ipynb) | Find content by meaning, not keywords |
 | [Find similar images](search-similar-images.ipynb) | Visual similarity search with CLIP |
+| [Create text embeddings](embed-text-openai.ipynb) | Generate vectors for similarity search |
 
 ### Data Import
 
@@ -75,11 +100,21 @@ Load data from external sources:
 
 | Recipe | Description |
 |--------|-------------|
-| [Import CSV files](data-import-csv.ipynb) | Load data from CSV and Excel files |
+| [Import CSV files](data-import-csv.ipynb) | Load data from CSV files |
+| [Import Excel files](data-import-excel.ipynb) | Load data from Excel spreadsheets |
 | [Import Parquet files](data-import-parquet.ipynb) | Load columnar data from Parquet |
 | [Import JSON files](data-import-json.ipynb) | Load data from JSON files or URLs |
 | [Import Hugging Face datasets](data-import-huggingface.ipynb) | Load datasets from Hugging Face Hub |
 | [Load media from S3/cloud](data-import-s3.ipynb) | Import images, videos from S3, GCS, HTTP |
+
+### Data Export & ML Training
+
+Prepare and export data for machine learning:
+
+| Recipe | Description |
+|--------|-------------|
+| [Export for PyTorch training](data-export-pytorch.ipynb) | Convert to PyTorch DataLoader |
+| [Sample data for training](data-sampling.ipynb) | Random and stratified sampling |
 
 ### Workflow
 
@@ -89,6 +124,26 @@ Common setup and configuration patterns:
 |--------|-------------|
 | [Configure API keys](workflow-api-keys.ipynb) | Set up credentials for AI services |
 | [Extract fields from JSON](workflow-json-extraction.ipynb) | Parse LLM response fields |
+
+### LLMs
+
+Work with language models:
+
+| Recipe | Description |
+|--------|-------------|
+| [Use tool calling with LLMs](llm-tool-calling.ipynb) | Function calling and tool execution |
+
+> **Note:** For local LLM setup with Ollama, see [working-with-ollama.ipynb](../notebooks/integrations/working-with-ollama.ipynb) in integrations.
+
+### Patterns
+
+End-to-end AI application patterns:
+
+| Recipe | Description |
+|--------|-------------|
+| [Build a RAG pipeline](pattern-rag-pipeline.ipynb) | Question answering with document retrieval |
+| [Build an agent with memory](pattern-agent-memory.ipynb) | Semantic memory for AI agents |
+| [Look up structured data](pattern-data-lookup.ipynb) | Query tables with retrieval UDFs |
 
 ### Iteration
 
