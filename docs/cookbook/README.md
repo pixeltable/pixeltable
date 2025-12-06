@@ -116,6 +116,16 @@ Prepare and export data for machine learning:
 | [Export for PyTorch training](data-export-pytorch.ipynb) | Convert to PyTorch DataLoader |
 | [Sample data for training](data-sampling.ipynb) | Random and stratified sampling |
 
+### Queries
+
+Query and combine data:
+
+| Recipe | Description |
+|--------|-------------|
+| [Join tables](query-join-tables.ipynb) | Combine data from multiple tables |
+| [Create custom aggregates (UDAs)](custom-aggregates-uda.ipynb) | Sum of squares, string concat, weighted avg |
+| [Create custom iterators](custom-iterators.ipynb) | Build your own data splitters |
+
 ### Workflow
 
 Common setup and configuration patterns:
