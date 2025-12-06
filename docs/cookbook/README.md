@@ -14,6 +14,14 @@ Most recipes run in under 5 minutes and show working end-to-end examples.
 
 ## Available recipes
 
+### Documents
+
+Extract and analyze text from various document formats:
+
+| Recipe | Description |
+|--------|-------------|
+| [Extract text from PowerPoint, Word, and Excel files](doc-extract-text-from-office-files.ipynb) | Process office documents with structure preservation |
+
 ### Images
 
 Transform and process images using PIL methods and custom UDFs:

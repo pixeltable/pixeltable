@@ -86,6 +86,8 @@ class TestDocument:
             elif extension == '.txt':
                 assert handle.format == ts.DocumentType.DocumentFormat.TXT, path
                 assert handle.txt_doc is not None, path
+            elif extension in ('.pptx', '.docx', '.xlsx'):
+                assert handle.md_ast is not None, path
             else:
                 raise AssertionError(f'Unexpected extension {extension}, add corresponding check')
 
@@ -138,6 +140,7 @@ class TestDocument:
     def test_doc_splitter(self, reset_db: None) -> None:
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('spacy')
+        skip_test_if_not_installed('markitdown')
 
         # DocumentSplitter does not support XML
         file_paths = [path for path in self.valid_doc_paths() if not path.endswith('.xml')]
