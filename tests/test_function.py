@@ -886,14 +886,14 @@ class TestFunction:
             )
             return '(?s)' + regex
 
-        db_params = '(a: String | None)' if as_kwarg else '(String | None)'
+        db_params = '(a: pxt.String | None)' if as_kwarg else '(pxt.String | None)'
         signature_error = dedent(
             f"""
             The signature stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
             matches its signature as currently defined in the code. This probably means that the
             code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
-            Signature of UDF call in the database: {db_params} -> Array[Float] | None
-            Signature of UDF as currently defined in code: {{params}} -> Array[Float] | None
+            Signature of UDF call in the database: {db_params} -> pxt.Array[float32] | None
+            Signature of UDF as currently defined in code: {{params}} -> pxt.Array[float32] | None
             """
         ).strip()
         return_type_error = dedent(
@@ -901,7 +901,7 @@ class TestFunction:
             The return type stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
             matches its return type as currently defined in the code. This probably means that the
             code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
-            Return type of UDF call in the database: Array[Float] | None
+            Return type of UDF call in the database: Array[float32] | None
             Return type of UDF as currently defined in code: {return_type}
             """
         ).strip()
@@ -931,7 +931,7 @@ class TestFunction:
 
         mimic(udf_version_3)
         if as_kwarg:
-            reload_and_validate_table(validation_error=signature_error.format(params='(c: String, b: String)'))
+            reload_and_validate_table(validation_error=signature_error.format(params='(c: pxt.String, b: pxt.String)'))
         else:
             reload_and_validate_table()
 
@@ -961,7 +961,7 @@ class TestFunction:
             return None
 
         mimic(udf_version_6)
-        reload_and_validate_table(validation_error=signature_error.format(params='(a: Float, b: Int)'))
+        reload_and_validate_table(validation_error=signature_error.format(params='(a: pxt.Float, b: pxt.Int)'))
 
         # Widen the return type; this fails in all cases
         @pxt.udf(_force_stored=True)
@@ -980,7 +980,9 @@ class TestFunction:
         if as_kwarg:
             reload_and_validate_table()
         else:
-            reload_and_validate_table(validation_error=signature_error.format(params='(c: Float, a: String, b: Int)'))
+            reload_and_validate_table(
+                validation_error=signature_error.format(params='(c: pxt.Float, a: pxt.String, b: pxt.Int)')
+            )
 
         # Make the function into a non-UDF
         tests.test_function.evolving_udf = lambda x: x  # type: ignore[assignment]

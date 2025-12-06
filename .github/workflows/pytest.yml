@@ -68,6 +68,7 @@ env:
   B2_ACCESS_KEY_ID: ${{ secrets.B2_ACCESS_KEY_ID }}
   B2_SECRET_ACCESS_KEY: ${{ secrets.B2_SECRET_ACCESS_KEY }}
   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+  FAL_API_KEY: ${{ secrets.FAL_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   GCS_SERVICE_ACCOUNT_KEY: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -82,6 +83,7 @@ env:
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
   REVE_API_KEY: ${{ secrets.REVE_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+  VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
 
 jobs:
   generate-matrix:
@@ -162,6 +164,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install "uv==$UV_VERSION"
+      - name: uv.lock check
+        if: ${{ matrix.test-category == 'lint' }}
+        run: uv lock --check
       - name: Define a venv cache
         uses: actions/cache@v4
         if: false

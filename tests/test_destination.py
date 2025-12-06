@@ -149,6 +149,9 @@ class TestDestination:
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
     def test_destination(self, reset_db: None, dest_id: StorageTarget) -> None:
         """Test various media destinations."""
+        skip_test_if_not_installed('boto3')
+        from pixeltable.utils.s3_store import S3Store
+
         dest_uri = self.resolve_destination_uri(dest_id)
 
         dest1_uri = f'{dest_uri}/bucket1'
@@ -182,11 +185,24 @@ class TestDestination:
         assert ObjectOps.count(t._id, 5, dest=dest2_uri) == 1
 
         # Test that we can list objects in the destination
-        olist = ObjectOps.list_uris(dest1_uri, n_max=10)
-        print('list of files in the destination')
-        for item in olist:
-            print(item)
-        assert len(olist) >= 2
+        uris = ObjectOps.list_uris(dest1_uri, n_max=10)
+        assert len(uris) >= 2
+
+        # Verify Content-Type is set correctly for S3-compatible stores
+        if dest_id in (
+            StorageTarget.S3_STORE,
+            StorageTarget.R2_STORE,
+            StorageTarget.B2_STORE,
+            StorageTarget.TIGRIS_STORE,
+        ):
+            res = t.select(dest1=t.img_rot2.fileurl, dest2=t.img_rot3.fileurl).collect()
+            for dest_uri, col_name in ((dest1_uri, 'dest1'), (dest2_uri, 'dest2')):
+                store = ObjectOps.get_store(dest_uri, allow_obj_name=False)
+                assert isinstance(store, S3Store)
+                for d in res[col_name]:
+                    addr = ObjectPath.parse_object_storage_addr(d, allow_obj_name=True)
+                    content_type = store.get_object_content_type(addr.key)
+                    assert content_type == 'image/jpeg', content_type
 
         # Ensure that all media is removed when the table is dropped
         save_id = t._id
