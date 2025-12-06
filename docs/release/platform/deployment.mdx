@@ -1,7 +1,6 @@
 ---
 title: "Production Deployment"
 description: "Guide to deploying Pixeltable in production environments"
-icon: "server"
 ---
 
 ## Deployment Decision Guide
@@ -38,7 +37,7 @@ Use Pixeltable for multimodal data orchestration while retaining your existing d
 ```mermaid
 flowchart TB
     App[Application Layer]
-    
+
     subgraph Existing[Your Existing Infrastructure]
         DB[(RDBMS)]
         Blob[Blob Storage]
@@ -60,7 +59,7 @@ flowchart TB
     - Application already queries a separate data layer
     - Incremental adoption required with minimal stack changes
   </Accordion>
-  
+
   <Accordion title="Architecture" icon="sitemap">
     - Deploy Pixeltable in Docker container or dedicated compute instance
     - Define tables, views, computed columns, and UDFs for multimodal processing
@@ -69,7 +68,7 @@ flowchart TB
     - Export generated media to blob storage
     - Application queries existing data layer, not Pixeltable
   </Accordion>
-  
+
   <Accordion title="What This Provides" icon="sparkles">
     - Native multimodal type system (Video, Document, Audio, Image, JSON)
     - Declarative computed columns eliminate orchestration boilerplate
@@ -144,12 +143,12 @@ Use Pixeltable for both orchestration and storage as your primary data backend.
 flowchart TB
     Frontend[Frontend App]
     API[FastAPI / Flask / Django]
-    
+
     subgraph Pixeltable[Pixeltable Full Backend]
         PG[(PostgreSQL<br/>Metadata & Data)]
         Media[Media Storage<br/>S3/GCS/Local]
         Compute[Computed Columns<br/>Embeddings & LLMs]
-        
+
         PG --- Media
         PG --- Compute
     end
@@ -165,7 +164,7 @@ flowchart TB
     - Storage and ML pipeline need tight integration
     - Stack consolidation preferred over separate storage/orchestration layers
   </Accordion>
-  
+
   <Accordion title="Architecture" icon="sitemap">
     - Deploy Pixeltable on persistent instance (EC2 with EBS, EKS with persistent volumes, VM)
     - Build API endpoints (FastAPI, Flask, Django) that interact with Pixeltable tables
@@ -173,7 +172,7 @@ flowchart TB
     - Query using Pixeltable's semantic search, filters, joins, and aggregations
     - All data stored in Pixeltable: metadata, media references, computed column results
   </Accordion>
-  
+
   <Accordion title="What This Provides" icon="sparkles">
     - Unified storage, computation, and retrieval in single system
     - Native semantic search via embedding indexes (pgvector)
@@ -210,7 +209,7 @@ async def search_documents(query: str, limit: int = 10):
         docs_table.summary,  # LLM-generated summary (computed column)
         similarity=sim
     ).order_by(sim, asc=False).limit(limit).collect()
-    
+
     return {"results": list(results)}
 
 @app.get("/documents/{doc_id}")
@@ -402,7 +401,7 @@ project/
 └── .env                   # Secrets (gitignored)
 ```
   </Tab>
-  
+
   <Tab title="config.py">
 ```python
 import os
@@ -421,7 +420,7 @@ MEDIA_STORAGE_BUCKET = os.getenv('MEDIA_STORAGE_BUCKET')
 RAG_SYSTEM_PROMPT = """You are a helpful assistant. Use the provided context to answer questions."""
 ```
   </Tab>
-  
+
   <Tab title="functions.py">
 ```python
 import pixeltable as pxt
@@ -439,7 +438,7 @@ async def call_custom_model(prompt: str) -> dict:
     return {"response": "..."}
 ```
   </Tab>
-  
+
   <Tab title="setup_pixeltable.py">
 ```python
 import pixeltable as pxt
@@ -474,7 +473,7 @@ def search_documents(query_text: str, limit: int = 5):
     return docs.order_by(sim, asc=False).limit(limit).select(docs.document, sim)
 ```
   </Tab>
-  
+
   <Tab title="app.py">
 ```python
 from fastapi import FastAPI
@@ -688,15 +687,15 @@ sentence-transformers==3.3.0  # If using embedding indexes
   <Card title="LLM & Agent Workflows" icon="robot" href="https://github.com/pixeltable/pixelagent">
     Build complex agent workflows as computed columns with tool calling, MCP integration, and persistent state.
   </Card>
-  
+
   <Card title="Data Sharing" icon="share-nodes" href="/notebooks/feature-guides/data-sharing">
     Publish and replicate tables across Pixeltable instances for team collaboration.
   </Card>
-  
+
   <Card title="Snapshots" icon="camera">
     Create immutable point-in-time copies for reproducible ML experiments.
   </Card>
-  
+
   <Card title="Label Studio Integration" icon="tag" href="/notebooks/integrations/using-label-studio-with-pixeltable">
     Sync tables with annotation projects for human-in-the-loop workflows.
   </Card>

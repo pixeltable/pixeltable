@@ -17,7 +17,6 @@
             "group": "Welcome to Pixeltable",
             "pages": [
               "overview/pixeltable",
-              "overview/installation",
               "overview/quick-start",
               "overview/ten-minute-tour",
               "overview/building-pixeltable-with-llms"
@@ -28,7 +27,6 @@
             "pages": [
               {
                 "group": "Tables",
-                "icon": "table",
                 "pages": [
                   "platform/tables",
                   "platform/views",
@@ -40,7 +38,6 @@
               },
               {
                 "group": "Working with Data",
-                "icon": "database",
                 "pages": [
                   "platform/filtering-and-selecting",
                   "platform/bringing-data",
@@ -52,7 +49,6 @@
               },
               {
                 "group": "Extending Pixeltable",
-                "icon": "puzzle-piece",
                 "pages": [
                   "platform/custom-functions",
                   "platform/udfs-in-pixeltable"

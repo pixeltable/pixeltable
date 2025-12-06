@@ -1,7 +1,7 @@
 ---
 title: 'Bringing Data'
 description: 'A comprehensive guide to inserting, referencing, and importing data in Pixeltable'
-icon: 'file-import'
+icon: 'blank'
 ---
 
 # Working with Data in Pixeltable
@@ -48,7 +48,7 @@ import pixeltable as pxt
 
 # With schema overrides
 table = pxt.create_table(
-    'from_csv_with_overrides', 
+    'from_csv_with_overrides',
     source='https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/world-population-data.csv',
     schema_overrides={'pop_2023': pxt.Required[pxt.Int]}
 )
@@ -80,11 +80,11 @@ table.insert(df)
     ```python
     import pixeltable as pxt
     from datetime import datetime
-    
+
     # Create table with basic data types
     basic_table = pxt.create_table('myproject.basic_types', {
         'id': pxt.Int,                  # Integer values
-        'score': pxt.Float,             # Floating point numbers  
+        'score': pxt.Float,             # Floating point numbers
         'active': pxt.Bool,             # Boolean values
         'name': pxt.String,             # Text data
         'created_at': pxt.Timestamp     # DateTime values
@@ -111,7 +111,7 @@ table.insert(df)
             'created_at': datetime(2024, 1, 1)
         },
         {
-            'id': 3, 
+            'id': 3,
             'score': 76.9,
             'active': False,
             'name': 'Test B',
@@ -120,7 +120,7 @@ table.insert(df)
     ])
 
     # Import from CSV
-    pxt.io.import_csv('myproject.from_csv', 'data.csv', 
+    pxt.io.import_csv('myproject.from_csv', 'data.csv',
         schema_overrides={
             'id': pxt.Int,
             'score': pxt.Float,
