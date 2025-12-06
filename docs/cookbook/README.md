@@ -134,6 +134,7 @@ Common setup and configuration patterns:
 |--------|-------------|
 | [Configure API keys](workflow-api-keys.ipynb) | Set up credentials for AI services |
 | [Extract fields from JSON](workflow-json-extraction.ipynb) | Parse LLM response fields |
+| [Track changes and revert](version-control-history.ipynb) | Version history, undo changes, snapshots |
 
 ### LLMs
 
