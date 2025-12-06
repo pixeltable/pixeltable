@@ -41,7 +41,7 @@
                 "pages": [
                   "platform/filtering-and-selecting",
                   "platform/bringing-data",
-                  "platform/working-with-external-files",
+                  "platform/external-files",
                   "platform/sampling",
                   "platform/data-sharing",
                   "platform/time-zones"
@@ -61,7 +61,61 @@
           {
             "group": "Cookbooks",
             "pages": [
-              "cookbooks/rag-demo"
+              {
+                "group": "Model Providers",
+                "pages": [
+                  "cookbooks/providers/working-with-anthropic",
+                  "cookbooks/providers/working-with-bedrock",
+                  "cookbooks/providers/working-with-deepseek",
+                  "cookbooks/providers/working-with-fal",
+                  "cookbooks/providers/working-with-fireworks",
+                  "cookbooks/providers/working-with-gemini",
+                  "cookbooks/providers/working-with-groq",
+                  "cookbooks/providers/working-with-mistralai",
+                  "cookbooks/providers/working-with-openai",
+                  "cookbooks/providers/working-with-openrouter",
+                  "cookbooks/providers/working-with-replicate",
+                  "cookbooks/providers/working-with-reve",
+                  "cookbooks/providers/working-with-together",
+                  "cookbooks/providers/working-with-voyageai"
+                ]
+              },
+              {
+                "group": "Local Models",
+                "pages": [
+                  "cookbooks/local-models/using-label-studio-with-pixeltable",
+                  "cookbooks/local-models/working-with-hugging-face",
+                  "cookbooks/local-models/working-with-llama-cpp",
+                  "cookbooks/local-models/working-with-ollama",
+                  "cookbooks/local-models/working-with-fiftyone"
+                ]
+              },
+              {
+                "group": "Images",
+                "pages": [
+                  "cookbooks/images/img-add-watermarks",
+                  "cookbooks/images/img-adjust-opacity",
+                  "cookbooks/images/img-apply-filters",
+                  "cookbooks/images/img-brightness-contrast",
+                  "cookbooks/images/img-pil-transforms",
+                  "cookbooks/images/img-rgb-to-grayscale"
+                ]
+              },
+              {
+                "group": "Audio/Video",
+                "pages": [
+                  "cookbooks/av/audio-transcriptions",
+                  "cookbooks/av/object-detection-in-videos"
+                ]
+              },
+              {
+                "group": "Application Workflows",
+                "pages": [
+                  "cookbooks/app-workflows/dev-iterative-workflow",
+                  "cookbooks/app-workflows/rag-demo",
+                  "cookbooks/app-workflows/rag-operations"
+                ]
+              }
             ]
           },
           {
