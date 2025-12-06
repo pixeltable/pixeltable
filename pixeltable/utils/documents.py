@@ -1,6 +1,5 @@
 import dataclasses
 import os
-from typing import cast
 
 import bs4
 import fitz
@@ -75,8 +74,9 @@ def get_markdown_handle(path: str) -> list:
     with open(path, encoding='utf8') as file:
         text = file.read()
     md_parser = mistune.create_markdown(renderer=None)
-    # renderer=None returns AST as list[dict], but mistune types it as str | list
-    return cast(list, md_parser(text))
+    result = md_parser(text)
+    assert isinstance(result, list)
+    return result
 
 
 def get_pdf_handle(path: str) -> fitz.Document:
@@ -115,5 +115,6 @@ def get_office_handle(path: str) -> list:
     markdown_text = result.text_content
 
     md_parser = mistune.create_markdown(renderer=None)
-    # renderer=None returns AST as list[dict], but mistune types it as str | list
-    return cast(list, md_parser(markdown_text))
+    result = md_parser(markdown_text)
+    assert isinstance(result, list)
+    return result
