@@ -19,12 +19,12 @@ Pixeltable supports two production deployment patterns. Choose based on your con
 ### Technical Capabilities (Both)
 
 Regardless of deployment mode, you get:
-- **[Multimodal Types](/datastore/bringing-data):** Native handling of Video, Document, Audio, Image, JSON.
-- **[Computed Columns](/datastore/computed-columns):** Automatic incremental updates and dependency tracking.
-- **[Views & Iterators](/datastore/views):** Built-in logic for chunking documents, extracting frames, etc.
+- **[Multimodal Types](/platform/bringing-data):** Native handling of Video, Document, Audio, Image, JSON.
+- **[Computed Columns](/platform/computed-columns):** Automatic incremental updates and dependency tracking.
+- **[Views & Iterators](/platform/views):** Built-in logic for chunking documents, extracting frames, etc.
 - **[Model Orchestration](/integrations/frameworks):** Rate-limited API calls to OpenAI, Anthropic, Gemini, local models.
 - **[Data Interoperability](/sdk/latest/io):** Import/export Parquet, PyTorch, LanceDB, pandas.
-- **[Configurable Media Storage](/overview/configuration):** Per-column destination (local or cloud bucket).
+- **[Configurable Media Storage](/platform/configuration):** Per-column destination (local or cloud bucket).
 
 ---
 
@@ -300,7 +300,7 @@ flowchart LR
 - Inserted local files: path stored, original file remains in place.
 - Inserted URLs: URL stored, file downloaded to File Cache on first access.
 - Generated media (computed columns): saved to Media Store (default: local, configurable to S3/GCS/Azure per-column).
-- File Cache size: configure via `file_cache_size_g` in `~/.pixeltable/config.toml`. [See configuration guide](/overview/configuration)
+- File Cache size: configure via `file_cache_size_g` in `~/.pixeltable/config.toml`. [See configuration guide](/platform/configuration)
 
 **Deployment-Specific Storage Patterns:**
 
@@ -494,9 +494,9 @@ async def search(query: str, limit: int = 5):
 
 <Note>
 **Key Principles:**
-- **Module UDFs** (`functions.py`): Update when code changes; improve testability. [Learn more](/datastore/custom-functions)
+- **Module UDFs** (`functions.py`): Update when code changes; improve testability. [Learn more](/platform/custom-functions)
 - **Retrieval Queries** (`@pxt.query`): Encapsulate complex retrieval logic as reusable functions.
-- **Idempotency:** Use `if_exists='ignore'` to make `setup_pixeltable.py` safely re-runnable. [Learn more](/datastore/tables-and-operations)
+- **Idempotency:** Use `if_exists='ignore'` to make `setup_pixeltable.py` safely re-runnable. [Learn more](/platform/tables)
 </Note>
 
 
@@ -516,7 +516,7 @@ async def search(query: str, limit: int = 5):
 - **Batch Operations:** Use `@pxt.udf(batch_size=32)` for GPU model inference
 - **Batch Inserts:** Insert multiple rows at once: `table.insert([row1, row2, ...])`
 - **Profile UDFs:** Add execution time logging to identify bottlenecks
-- **Embedding Indexes:** pgvector for efficient similarity search. [Learn more](/datastore/vector-database)
+- **Embedding Indexes:** pgvector for efficient similarity search. [Learn more](/platform/vector-database)
 
 **Rate Limiting:**
 - **Built-In Providers:** Automatic rate limiting for OpenAI, Anthropic, Gemini, etc. (configured per-model in `config.toml`).
@@ -688,7 +688,7 @@ sentence-transformers==3.3.0  # If using embedding indexes
     Build complex agent workflows as computed columns with tool calling, MCP integration, and persistent state.
   </Card>
 
-  <Card title="Data Sharing" icon="share-nodes" href="/notebooks/feature-guides/data-sharing">
+  <Card title="Data Sharing" icon="share-nodes" href="/platform/data-sharing">
     Publish and replicate tables across Pixeltable instances for team collaboration.
   </Card>
 
@@ -696,7 +696,7 @@ sentence-transformers==3.3.0  # If using embedding indexes
     Create immutable point-in-time copies for reproducible ML experiments.
   </Card>
 
-  <Card title="Label Studio Integration" icon="tag" href="/notebooks/integrations/using-label-studio-with-pixeltable">
+  <Card title="Label Studio Integration" icon="tag" href="/cookbooks/local-models/using-label-studio-with-pixeltable">
     Sync tables with annotation projects for human-in-the-loop workflows.
   </Card>
 </CardGroup>
