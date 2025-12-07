@@ -534,6 +534,14 @@ class HFTableDataConduit(TableDataConduit):
         else:
             assert isinstance(tds.source, datasets.DatasetDict)
             t.dataset_dict = dict(tds.source)
+
+        # Disable auto-decoding for Audio columns, we want to write the bytes directly to temp files
+        for ds_split_name, dataset in list(t.dataset_dict.items()):
+            for col_name, feature in dataset.features.items():
+                if isinstance(feature, datasets.Audio):
+                    t.dataset_dict[ds_split_name] = t.dataset_dict[ds_split_name].cast_column(
+                        col_name, datasets.Audio(decode=False)
+                    )
         return t
 
     @classmethod
@@ -648,36 +656,36 @@ class HFTableDataConduit(TableDataConduit):
             return [self._decode_image(v) for v in values]
 
         if isinstance(feature, datasets.Audio):
-            # Audio can have different Arrow schemas depending on how it was stored:
-            # - Decoded: struct<array: list<float>, path: string, sampling_rate: int32>
-            # - Raw: struct<bytes: binary, path: string>
-            # Build feature dict from actual Arrow schema
+            # Audio is stored in Arrow as struct<bytes: binary, path: string>
             import pyarrow as pa
+            import pyarrow.compute as pc
+
+            from pixeltable.utils.local_store import TempStore
 
             arrow_type = column.type
-            if isinstance(arrow_type, pa.StructType):
-                audio_features = {}
-                for i in range(arrow_type.num_fields):
-                    field = arrow_type.field(i)
-                    if field.name == 'array':
-                        audio_features['array'] = datasets.Sequence(feature=datasets.Value('float32'))
-                    elif field.name == 'bytes':
-                        audio_features['bytes'] = datasets.Value('binary')
-                    elif field.name == 'path':
-                        audio_features['path'] = datasets.Value('string')
-                    elif field.name == 'sampling_rate':
-                        audio_features['sampling_rate'] = datasets.Value('int32')
-                return self._convert_struct_column(column, audio_features, chunk_size)
-            # Fallback to default assumed structure
-            return self._convert_struct_column(
-                column,
-                {
-                    'array': datasets.Sequence(feature=datasets.Value('float32')),
-                    'path': datasets.Value('string'),
-                    'sampling_rate': datasets.Value('int32'),
-                },
-                chunk_size,
-            )
+            if not pa.types.is_struct(arrow_type):
+                raise pxt.Error(f'Expected struct type for Audio column, got {arrow_type}')
+            field_names = {field.name for field in arrow_type}
+            if 'bytes' not in field_names or 'path' not in field_names:
+                raise pxt.Error(f"Audio struct missing required fields 'bytes' and/or 'path', has: {field_names}")
+
+            bytes_column = pc.struct_field(column, 'bytes')
+            path_column = pc.struct_field(column, 'path')
+
+            bytes_list = bytes_column.to_pylist()
+            path_list = path_column.to_pylist()
+
+            result: list[str | None] = []
+            for audio_bytes, audio_path in zip(bytes_list, path_list):
+                if audio_bytes is None:
+                    result.append(None)
+                    continue
+                # we want to preserve the extension from the original path
+                ext = Path(audio_path).suffix if audio_path else '.wav'
+                temp_path = TempStore.create_path(extension=ext)
+                temp_path.write_bytes(audio_bytes)
+                result.append(str(temp_path))
+            return result
 
         if isinstance(feature, dict):
             return self._convert_struct_column(column, feature, chunk_size)

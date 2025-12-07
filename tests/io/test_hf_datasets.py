@@ -218,7 +218,6 @@ class TestHfDatasets:
         assert all(isinstance(row['audio'], dict) for row in res)
         assert all(isinstance(row['audio']['array'], np.ndarray) for row in res)
 
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_audio(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -229,10 +228,11 @@ class TestHfDatasets:
 
         t = pxt.create_table('audio_test', source=hf_dataset)
         md = t.get_metadata()
-        #assert md['columns']['audio']['type_'] == 'Json'
+        assert md['columns']['audio']['type_'] == 'Audio'
 
         res = t.collect()
         assert set(res.schema.keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
+        assert all(pathlib.Path(row['audio']).exists() for row in res)
 
     def test_import_list_of_dict(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
