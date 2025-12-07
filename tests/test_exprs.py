@@ -615,7 +615,7 @@ class TestExprs:
         assert col_type.is_array_type()
         assert isinstance(col_type, ts.ArrayType)
         assert col_type.shape == (2, 2)
-        assert col_type.dtype == ts.ColumnType.Type.INT
+        assert col_type.dtype == np.dtype('int64')
 
         with pytest.raises(pxt.Error) as excinfo:
             _ = t.select(pxt.array([datetime(2025, 12, 5), t.c2])).collect()
