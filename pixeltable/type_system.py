@@ -224,9 +224,9 @@ class ColumnType:
         # If we see a mix of JSON and/or JSON-compatible scalar types, resolve to JSON.
         # (For JSON+JSON, we return None to allow JsonType to handle merging the type schemas.)
         if not restrictive and (
-            self.is_json_type() and other.is_scalar_json_type() or
-            self.is_scalar_json_type() and other.is_json_type() or
-            self.is_scalar_json_type() and other.is_scalar_json_type()
+            (self.is_json_type() and other.is_scalar_json_type())
+            or (self.is_scalar_json_type() and other.is_json_type())
+            or (self.is_scalar_json_type() and other.is_scalar_json_type())
         ):
             return JsonType(nullable=(self.nullable or other.nullable))
 

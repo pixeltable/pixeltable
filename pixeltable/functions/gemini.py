@@ -169,17 +169,13 @@ def _(model: str) -> str:
 
 @pxt.udf(resource_pool='request-rate:veo')
 async def generate_videos(
-    prompt: str | None = None,
-    image: PIL.Image.Image | None = None,
-    *,
-    model: str,
-    config: dict | None = None,
+    prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
 ) -> pxt.Video:
     """
     Generates videos based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/video>
 
-    At least one of `prompt`, `image`, or `video` must be provided.
+    At least one of `prompt` or `image` must be provided.
 
     Request throttling:
     Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
@@ -192,7 +188,6 @@ async def generate_videos(
     Args:
         prompt: A text description of the videos to generate.
         image: An image to use as the first frame of the video.
-        video: A video to use as the starting point for generation.
         model: The model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateVideosConfig`. For details on the parameters, see:
@@ -211,7 +206,7 @@ async def generate_videos(
     from google.genai import types
 
     if prompt is None and image is None:
-        raise excs.Error('At least one of `prompt`, `image`, or `video` must be provided.')
+        raise excs.Error('At least one of `prompt` or `image` must be provided.')
 
     image_: types.Image | None = None
     if image is not None:

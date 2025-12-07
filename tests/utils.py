@@ -376,7 +376,7 @@ def get_image_files(include_bad_image: bool = False) -> list[str]:
         bad_image = next(f for f in glob_result if 'bad_image' in f)
         good_images = [(__image_mode(f), f) for f in glob_result if 'bad_image' not in f]
         # Group images by mode
-        modes = sorted(list({mode for mode, _ in good_images}))  # Ensure modes are in a deterministic order
+        modes = sorted({mode for mode, _ in good_images})  # Ensure modes are in a deterministic order
         groups = [[f for mode, f in good_images if mode == mode_group] for mode_group in modes]
         # Sort and randomize the images in each group to ensure that the ordering is both
         # deterministic and not dependent on extrinsic characteristics such as filename
