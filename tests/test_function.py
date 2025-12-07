@@ -984,6 +984,15 @@ class TestFunction:
                 validation_error=signature_error.format(params='(c: pxt.Float, a: pxt.String, b: pxt.Int)')
             )
 
+        # Widen a parameter type; this works in all cases
+        # (This also tests scalar -> JSON parameter widening)
+        @pxt.udf(_force_stored=True)
+        def udf_version_9(a: pxt.Json, b: int = 3) -> pxt.Array[pxt.Float] | None:
+            return None
+
+        mimic(udf_version_9)
+        reload_and_validate_table()
+
         # Make the function into a non-UDF
         tests.test_function.evolving_udf = lambda x: x  # type: ignore[assignment]
         validation_error = (

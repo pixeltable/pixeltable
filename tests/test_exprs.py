@@ -618,8 +618,8 @@ class TestExprs:
         assert col_type.dtype == ts.ColumnType.Type.INT
 
         with pytest.raises(pxt.Error) as excinfo:
-            _ = t.select(pxt.array([t.c1, t.c2])).collect()
-        assert 'element of type `Int` at index 1 is not compatible with type `String` of preceding elements' in str(
+            _ = t.select(pxt.array([datetime(2025, 12, 5), t.c2])).collect()
+        assert 'element of type `Int` at index 1 is not compatible with type `Timestamp` of preceding elements' in str(
             excinfo.value
         )
 
