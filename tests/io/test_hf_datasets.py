@@ -218,6 +218,22 @@ class TestHfDatasets:
         assert all(isinstance(row['audio'], dict) for row in res)
         assert all(isinstance(row['audio']['array'], np.ndarray) for row in res)
 
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_audio(self, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        hf_dataset = datasets.load_dataset(
+            'hf-internal-testing/librispeech_asr_dummy', 'clean', split='validation'
+        )
+
+        t = pxt.create_table('audio_test', source=hf_dataset)
+        md = t.get_metadata()
+        #assert md['columns']['audio']['type_'] == 'Json'
+
+        res = t.collect()
+        assert set(res.schema.keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
+
     def test_import_list_of_dict(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
