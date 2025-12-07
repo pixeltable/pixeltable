@@ -311,13 +311,8 @@ class TestHfDatasets:
         assert all(isinstance(row['context']['title'], list) for row in res)
         assert all(isinstance(row['context']['sentences'], list) for row in res)
 
-    def test_import_array2d_array3d(self, reset_db: None) -> None:
-        """Test importing dataset with Array2D and Array3D features.
-        Uses tanganke/nyuv2 depth perception dataset which has:
-        - image: Array3D(shape=(3, 288, 384), dtype='float32')
-        - segmentation: Array2D(shape=(288, 384), dtype='int64')
-        - depth: Array3D(shape=(1, 288, 384), dtype='float32')
-        """
+    def test_import_arraynd(self, reset_db: None) -> None:
+        """Test dataset with Array2D and Array3D features."""
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -325,7 +320,7 @@ class TestHfDatasets:
         t = pxt.create_table('nyuv2_test', source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['image']['type_'] == 'Array[(3, 288, 384), float32]'
-        assert md['columns']['segmentation']['type_'] == 'Array[(288, 384), float32]'
+        assert md['columns']['segmentation']['type_'] == 'Array[(288, 384), int64]'
         assert md['columns']['depth']['type_'] == 'Array[(1, 288, 384), float32]'
         assert md['columns']['normal']['type_'] == 'Array[(3, 288, 384), float32]'
         assert md['columns']['noise']['type_'] == 'Array[(1, 288, 384), float32]'
@@ -335,4 +330,16 @@ class TestHfDatasets:
         assert all(isinstance(row['image'], np.ndarray) for row in res)
         assert all(row['image'].shape == (3, 288, 384) for row in res)
         assert all(row['image'].dtype == np.float32 for row in res)
+        assert all(isinstance(row['segmentation'], np.ndarray) for row in res)
+        assert all(row['segmentation'].shape == (288, 384) for row in res)
+        assert all(row['segmentation'].dtype == np.int64 for row in res)
+        assert all(isinstance(row['depth'], np.ndarray) for row in res)
+        assert all(row['depth'].shape == (1, 288, 384) for row in res)
+        assert all(row['depth'].dtype == np.float32 for row in res)
+        assert all(isinstance(row['normal'], np.ndarray) for row in res)
+        assert all(row['normal'].shape == (3, 288, 384) for row in res)
+        assert all(row['normal'].dtype == np.float32 for row in res)
+        assert all(isinstance(row['noise'], np.ndarray) for row in res)
+        assert all(row['noise'].shape == (1, 288, 384) for row in res)
+        assert all(row['noise'].dtype == np.float32 for row in res)
 

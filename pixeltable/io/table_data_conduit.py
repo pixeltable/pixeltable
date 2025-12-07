@@ -608,9 +608,6 @@ class HFTableDataConduit(TableDataConduit):
         """
         import datasets
 
-        if column is None or len(column) == 0:
-            return [None] * chunk_size
-
         # return scalars as Python scalars
         if isinstance(feature, datasets.Value):
             return column.to_pylist()
@@ -689,22 +686,12 @@ class HFTableDataConduit(TableDataConduit):
             return column.to_pylist()
 
         # Array2D, Array3D, etc.: multi-dimensional fixed-shape arrays
+        # These have known fixed shapes, so we can reshape the flat storage directly
+        # instead of recursively stacking nested object arrays (much faster)
         if isinstance(feature, (datasets.Array2D, datasets.Array3D, datasets.Array4D, datasets.Array5D)):
-            arr = column.to_numpy(zero_copy_only=False)
-            result = []
-            for i in range(chunk_size):
-                val = arr[i]
-                # to_numpy returns nested object arrays, recursively stack to proper ndarray
-                val = self._stack_nested_arrays(val)
-                result.append(val)
-            return result
+            return self._extract_array_feature(column, feature.shape, chunk_size)
 
-        # Fallback: use to_numpy which handles more types than to_pylist
-        try:
-            arr = column.to_numpy(zero_copy_only=False)
-            return [arr[i] for i in range(chunk_size)]
-        except (TypeError, ValueError):
-            return column.to_pylist()
+        return column.to_pylist()
 
     def _convert_struct_column(
         self, column: 'pa.ChunkedArray', feature: dict[str, object], chunk_size: int
@@ -730,29 +717,36 @@ class HFTableDataConduit(TableDataConduit):
         return results
 
     @staticmethod
-    def _to_python_native(val: Any) -> Any:
-        """Convert numpy types to Python native types for JSON serialization."""
-        if isinstance(val, np.ndarray):
-            return val.tolist()
-        if hasattr(val, 'item'):
-            # numpy scalar (np.int32, np.float64, etc.)
-            return val.item()
-        return val
+    def _extract_array_feature(
+        column: 'pa.ChunkedArray', shape: tuple[int, ...], chunk_size: int
+    ) -> list[np.ndarray]:
+        """Extract fixed-shape arrays efficiently by reshaping flat storage.
 
-    @staticmethod
-    def _stack_nested_arrays(val: Any) -> np.ndarray:
-        """Recursively stack nested object arrays into a proper numeric ndarray.
-        Array2D/3D/etc from HF datasets come as deeply nested object arrays.
+        HuggingFace Array2D/3D/etc features are stored as nested ListArrays in Arrow
+        (e.g., list<list<list<float>>>). The standard to_numpy() returns nested object
+        arrays that require expensive recursive stacking. Since these features have
+        known fixed shapes, we can instead extract the flat innermost values and
+        reshape directly, which is ~100-1000x faster.
         """
-        if not isinstance(val, np.ndarray):
-            return val
-        if val.dtype != object:
-            return val
-        if len(val) == 0:
-            return val
-        # Recursively stack children first
-        stacked_children = [HFTableDataConduit._stack_nested_arrays(child) for child in val]
-        return np.stack(stacked_children)
+        # Get the extension array (avoid combine_chunks overhead when possible)
+        if column.num_chunks == 1:
+            arr = column.chunks[0]
+        else:
+            arr = column.combine_chunks()
+
+        # Navigate through nested ListArray storage to innermost values
+        storage = arr.storage
+        vals = storage.values
+        while hasattr(vals, 'values'):
+            vals = vals.values
+
+        # Reshape flat array using the known fixed shape
+        flat_arr = vals.to_numpy()
+        full_shape = (chunk_size,) + tuple(shape)
+        reshaped = flat_arr.reshape(full_shape)
+
+        # Return as list of array views (shares memory with reshaped)
+        return list(reshaped)
 
     @staticmethod
     def _decode_image(val: dict[str, Any] | bytes | None) -> PIL.Image.Image | None:
