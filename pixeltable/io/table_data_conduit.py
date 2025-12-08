@@ -737,36 +737,30 @@ class HFTableDataConduit(TableDataConduit):
         return list(reshaped)
 
     def valid_row_batch(self) -> Iterator['RowData']:
+        # iteration order: split, chunk, column
         for split_name, split_dataset in self.dataset_dict.items():
             features = split_dataset.features
-            table = split_dataset.data  # Access underlying Arrow table (public API)
+            table = split_dataset.data  # access the underlying Arrow table
 
-            # Get chunk boundaries from first column's ChunkedArray
+            # get chunk boundaries from first column's ChunkedArray
             first_column = table.column(0)
-
             offset = 0
             for chunk in first_column.chunks:
                 chunk_size = len(chunk)
-                # Zero-copy slice using existing chunk boundaries
+                # zero-copy slice using existing chunk boundaries
                 batch = table.slice(offset, chunk_size)
 
-                # Pre-create empty row dicts
+                # we assemble per-row dicts by from lists of per-column values
                 rows: list[dict[str, Any]] = [{} for _ in range(chunk_size)]
-
-                # Add split column if needed
                 if self.column_name_for_split is not None:
                     for row in rows:
                         row[self.column_name_for_split] = split_name
 
-                # Process each column using recursive conversion
                 for col_idx, col_name in enumerate(batch.schema.names):
                     feature = features[col_name]
                     mapped_col_name = self.source_column_map.get(col_name, col_name)
                     column = batch.column(col_idx)
-
-                    # Convert entire column at once
                     values = self._convert_column(column, feature, chunk_size)
-
                     for i, val in enumerate(values):
                         rows[i][mapped_col_name] = val
 
