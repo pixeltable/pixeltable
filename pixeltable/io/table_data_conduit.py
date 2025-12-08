@@ -10,8 +10,6 @@ from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
 
 import numpy as np
 import pandas as pd
-import PIL
-import PIL.Image
 from pyarrow.parquet import ParquetDataset
 
 import pixeltable as pxt
@@ -535,12 +533,12 @@ class HFTableDataConduit(TableDataConduit):
             assert isinstance(tds.source, datasets.DatasetDict)
             t.dataset_dict = dict(tds.source)
 
-        # Disable auto-decoding for Audio columns, we want to write the bytes directly to temp files
+        # Disable auto-decoding for Audio and Image columns, we want to write the bytes directly to temp files
         for ds_split_name, dataset in list(t.dataset_dict.items()):
             for col_name, feature in dataset.features.items():
-                if isinstance(feature, datasets.Audio):
+                if isinstance(feature, (datasets.Audio, datasets.Image)):
                     t.dataset_dict[ds_split_name] = t.dataset_dict[ds_split_name].cast_column(
-                        col_name, datasets.Audio(decode=False)
+                        col_name, feature.__class__(decode=False)
                     )
         return t
 
@@ -632,13 +630,13 @@ class HFTableDataConduit(TableDataConduit):
         if is_list_of_dict:
             return column.to_pylist()
 
-        # array data
+        # array data represented as a Sequence feature: convert to numpy arrays
         if isinstance(feature, datasets.Sequence):
             arr = column.to_numpy(zero_copy_only=False)
-            result = []
+            result: list = []
             for i in range(chunk_size):
                 val = arr[i]
-                assert not isinstance(val, dict)
+                assert not isinstance(val, dict)  # we dealt with list of dicts earlier
                 # convert object array of arrays (e.g., multi-channel audio) to proper ndarray
                 if (
                     isinstance(val, np.ndarray)
@@ -650,13 +648,8 @@ class HFTableDataConduit(TableDataConduit):
                 result.append(val)
             return result
 
-        # Image: decode from bytes
-        if isinstance(feature, datasets.Image):
-            values = column.to_pylist()
-            return [self._decode_image(v) for v in values]
-
-        if isinstance(feature, datasets.Audio):
-            # Audio is stored in Arrow as struct<bytes: binary, path: string>
+        if isinstance(feature, (datasets.Audio, datasets.Image)):
+            # Audio/Image is stored in Arrow as struct<bytes: binary, path: string>
             import pyarrow as pa
             import pyarrow.compute as pc
 
@@ -675,15 +668,15 @@ class HFTableDataConduit(TableDataConduit):
             bytes_list = bytes_column.to_pylist()
             path_list = path_column.to_pylist()
 
-            result: list[str | None] = []
-            for audio_bytes, audio_path in zip(bytes_list, path_list):
-                if audio_bytes is None:
+            result = []
+            for bytes, path in zip(bytes_list, path_list):
+                if bytes is None:
                     result.append(None)
                     continue
                 # we want to preserve the extension from the original path
-                ext = Path(audio_path).suffix if audio_path else '.wav'
+                ext = Path(path).suffix if path is not None else None
                 temp_path = TempStore.create_path(extension=ext)
-                temp_path.write_bytes(audio_bytes)
+                temp_path.write_bytes(bytes)
                 result.append(str(temp_path))
             return result
 
@@ -693,11 +686,9 @@ class HFTableDataConduit(TableDataConduit):
         if isinstance(feature, list):
             return column.to_pylist()
 
-        # Array2D, Array3D, etc.: multi-dimensional fixed-shape arrays
-        # These have known fixed shapes, so we can reshape the flat storage directly
-        # instead of recursively stacking nested object arrays (much faster)
+        # Array<N>D: multi-dimensional fixed-shape arrays
         if isinstance(feature, (datasets.Array2D, datasets.Array3D, datasets.Array4D, datasets.Array5D)):
-            return self._extract_array_feature(column, feature.shape, chunk_size)
+            return self._convert_array_feature(column, feature.shape, chunk_size)
 
         return column.to_pylist()
 
@@ -710,12 +701,8 @@ class HFTableDataConduit(TableDataConduit):
         """
         import pyarrow.compute as pc
 
-        # Initialize result dicts
         results: list[dict[str, Any]] = [{} for _ in range(chunk_size)]
-
-        # Process each field recursively
         for field_name, field_feature in feature.items():
-            # Use pyarrow.compute.struct_field for ChunkedArray support
             field_column = pc.struct_field(column, field_name)
             field_values = self._convert_column(field_column, field_feature, chunk_size)
 
@@ -724,52 +711,30 @@ class HFTableDataConduit(TableDataConduit):
 
         return results
 
-    @staticmethod
-    def _extract_array_feature(
-        column: 'pa.ChunkedArray', shape: tuple[int, ...], chunk_size: int
+    def _convert_array_feature(
+        self, column: 'pa.ChunkedArray', shape: tuple[int, ...], chunk_size: int
     ) -> list[np.ndarray]:
-        """Extract fixed-shape arrays efficiently by reshaping flat storage.
+        import pyarrow as pa
 
-        HuggingFace Array2D/3D/etc features are stored as nested ListArrays in Arrow
-        (e.g., list<list<list<float>>>). The standard to_numpy() returns nested object
-        arrays that require expensive recursive stacking. Since these features have
-        known fixed shapes, we can instead extract the flat innermost values and
-        reshape directly, which is ~100-1000x faster.
-        """
-        # Get the extension array (avoid combine_chunks overhead when possible)
+        arr: pa.ExtensionArray
+        # TODO: can we get multiple chunks here?
         if column.num_chunks == 1:
-            arr = column.chunks[0]
+            arr = column.chunks[0]  # type: ignore[assignment]
         else:
-            arr = column.combine_chunks()
+            arr = column.combine_chunks()  # type: ignore[assignment]
 
-        # Navigate through nested ListArray storage to innermost values
+        # an Array<N>D feature is stored in Arrow as a list<list<...<dtype>>>; we want to peel off the outer lists
+        # to get to contiguous storage and then reshape that
         storage = arr.storage
         vals = storage.values
         while hasattr(vals, 'values'):
             vals = vals.values
-
-        # Reshape flat array using the known fixed shape
         flat_arr = vals.to_numpy()
-        full_shape = (chunk_size,) + tuple(shape)
-        reshaped = flat_arr.reshape(full_shape)
+        chunk_shape = (chunk_size, *shape)
+        reshaped = flat_arr.reshape(chunk_shape)
 
         # Return as list of array views (shares memory with reshaped)
         return list(reshaped)
-
-    @staticmethod
-    def _decode_image(val: dict[str, Any] | bytes | None) -> PIL.Image.Image | None:
-        """Decode Arrow image data to PIL.Image."""
-        import io as _io
-
-        if val is None:
-            return None
-        if isinstance(val, dict) and 'bytes' in val:
-            return PIL.Image.open(_io.BytesIO(val['bytes']))
-        elif isinstance(val, bytes):
-            return PIL.Image.open(_io.BytesIO(val))
-        elif isinstance(val, dict) and 'path' in val:
-            return PIL.Image.open(val['path'])
-        raise AssertionError(f'Unexpected image data type: {type(val)}')
 
     def valid_row_batch(self) -> Iterator['RowData']:
         for split_name, split_dataset in self.dataset_dict.items():

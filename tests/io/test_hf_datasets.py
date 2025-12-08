@@ -4,12 +4,11 @@ from collections import namedtuple
 from typing import TYPE_CHECKING
 
 import numpy as np
-import PIL.Image
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import IN_CI, rerun, skip_test_if_not_installed
+from ..utils import IN_CI, skip_test_if_not_installed
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -192,16 +191,19 @@ class TestHfDatasets:
             check_tup = DatasetTuple(**encoded_tup)
             assert check_tup in acc_dataset
 
-    def test_import_hf_dataset_with_images(self, reset_db: None) -> None:
+    def test_import_images(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
         # Test that datasets with images load properly
-        t = pxt.io.import_huggingface_dataset('mnist', datasets.load_dataset('ylecun/mnist', split='test'))
-        assert t.count() == 10000
-        img = t.head(1)['image'][0]
-        assert isinstance(img, PIL.Image.Image)
-        assert img.size == (28, 28)
+        hf_dataset = datasets.load_dataset('ylecun/mnist', split='test')
+        t = pxt.create_table('mnist', source=hf_dataset)
+        md = t.get_metadata()
+        assert md['columns']['image']['type_'] == 'Image'
+        assert md['columns']['label']['type_'] == 'String'
+
+        res = t.select(t.image.localpath).collect()
+        assert all(pathlib.Path(row['image_localpath']).exists() for row in res)
 
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_arrays(self, reset_db: None) -> None:
@@ -222,9 +224,7 @@ class TestHfDatasets:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        hf_dataset = datasets.load_dataset(
-            'hf-internal-testing/librispeech_asr_dummy', 'clean', split='validation'
-        )
+        hf_dataset = datasets.load_dataset('hf-internal-testing/librispeech_asr_dummy', 'clean', split='validation')
 
         t = pxt.create_table('audio_test', source=hf_dataset)
         md = t.get_metadata()
@@ -310,9 +310,7 @@ class TestHfDatasets:
         import datasets
 
         # HotpotQA has complex nested structures
-        hf_dataset = datasets.load_dataset(
-            'hotpotqa/hotpot_qa', 'distractor', split='train[:1000]',
-        )
+        hf_dataset = datasets.load_dataset('hotpotqa/hotpot_qa', 'distractor', split='train[:1000]')
         t = pxt.create_table('hotpotqa_test', source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['supporting_facts']['type_'] == 'Json'
@@ -358,4 +356,3 @@ class TestHfDatasets:
         assert all(isinstance(row['noise'], np.ndarray) for row in res)
         assert all(row['noise'].shape == (1, 288, 384) for row in res)
         assert all(row['noise'].dtype == np.float32 for row in res)
-
