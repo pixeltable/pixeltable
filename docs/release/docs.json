@@ -126,7 +126,6 @@
         "dropdowns": [
           {
             "dropdown": "latest",
-            "icon": "rocket",
             "groups": [
               {
                 "group": "SDK Reference",
