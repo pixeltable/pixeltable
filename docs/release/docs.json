@@ -25,15 +25,15 @@
           {
             "group": "Platform",
             "pages": [
+              "platform/tables",
+              "platform/views",
               {
-                "group": "Tables",
+                "group": "Core",
                 "pages": [
-                  "platform/tables",
-                  "platform/views",
                   "platform/computed-columns",
                   "platform/iterators",
-                  "platform/vector-database",
-                  "platform/embedding-indexes"
+                  "platform/embedding-indexes",
+                  "platform/udfs-in-pixeltable"
                 ]
               },
               {
@@ -47,79 +47,72 @@
                   "platform/time-zones"
                 ]
               },
-              {
-                "group": "Extending Pixeltable",
-                "pages": [
-                  "platform/custom-functions",
-                  "platform/udfs-in-pixeltable"
-                ]
-              },
               "platform/deployment",
               "platform/configuration"
             ]
           },
           {
-            "group": "Cookbooks",
+            "group": "How-To",
             "pages": [
               {
-                "group": "Model Providers",
+                "group": "LLMs & Model Providers",
                 "pages": [
-                  "cookbooks/providers/working-with-anthropic",
-                  "cookbooks/providers/working-with-bedrock",
-                  "cookbooks/providers/working-with-deepseek",
-                  "cookbooks/providers/working-with-fal",
-                  "cookbooks/providers/working-with-fireworks",
-                  "cookbooks/providers/working-with-gemini",
-                  "cookbooks/providers/working-with-groq",
-                  "cookbooks/providers/working-with-mistralai",
-                  "cookbooks/providers/working-with-openai",
-                  "cookbooks/providers/working-with-openrouter",
-                  "cookbooks/providers/working-with-replicate",
-                  "cookbooks/providers/working-with-reve",
-                  "cookbooks/providers/working-with-together",
-                  "cookbooks/providers/working-with-voyageai"
+                  "howto/providers/working-with-anthropic",
+                  "howto/providers/working-with-bedrock",
+                  "howto/providers/working-with-deepseek",
+                  "howto/providers/working-with-fal",
+                  "howto/providers/working-with-fireworks",
+                  "howto/providers/working-with-gemini",
+                  "howto/providers/working-with-groq",
+                  "howto/providers/working-with-hugging-face",
+                  "howto/providers/working-with-llama-cpp",
+                  "howto/providers/working-with-mistralai",
+                  "howto/providers/working-with-ollama",
+                  "howto/providers/working-with-openai",
+                  "howto/providers/working-with-openrouter",
+                  "howto/providers/working-with-replicate",
+                  "howto/providers/working-with-reve",
+                  "howto/providers/working-with-together",
+                  "howto/providers/working-with-voyageai"
                 ]
               },
+              "howto/using-label-studio-with-pixeltable",
+              "howto/working-with-fiftyone",
               {
-                "group": "Local Models",
+                "group": "Cookbooks",
                 "pages": [
-                  "cookbooks/local-models/using-label-studio-with-pixeltable",
-                  "cookbooks/local-models/working-with-hugging-face",
-                  "cookbooks/local-models/working-with-llama-cpp",
-                  "cookbooks/local-models/working-with-ollama",
-                  "cookbooks/local-models/working-with-fiftyone"
-                ]
-              },
-              {
-                "group": "Images",
-                "pages": [
-                  "cookbooks/images/img-add-watermarks",
-                  "cookbooks/images/img-adjust-opacity",
-                  "cookbooks/images/img-apply-filters",
-                  "cookbooks/images/img-brightness-contrast",
-                  "cookbooks/images/img-pil-transforms",
-                  "cookbooks/images/img-rgb-to-grayscale"
-                ]
-              },
-              {
-                "group": "Audio/Video",
-                "pages": [
-                  "cookbooks/av/audio-transcriptions",
-                  "cookbooks/av/object-detection-in-videos"
-                ]
-              },
-              {
-                "group": "Application Workflows",
-                "pages": [
-                  "cookbooks/app-workflows/dev-iterative-workflow",
-                  "cookbooks/app-workflows/rag-demo",
-                  "cookbooks/app-workflows/rag-operations"
+                  {
+                    "group": "Images",
+                    "pages": [
+                      "howto/cookbooks/images/img-add-watermarks",
+                      "howto/cookbooks/images/img-adjust-opacity",
+                      "howto/cookbooks/images/img-apply-filters",
+                      "howto/cookbooks/images/img-brightness-contrast",
+                      "howto/cookbooks/images/img-pil-transforms",
+                      "howto/cookbooks/images/img-rgb-to-grayscale"
+                    ]
+                  },
+                  {
+                    "group": "Audio/Video",
+                    "pages": [
+                      "howto/cookbooks/av/audio-transcriptions",
+                      "howto/cookbooks/av/object-detection-in-videos"
+                    ]
+                  },
+                  {
+                    "group": "Application Workflows",
+                    "pages": [
+                      "howto/cookbooks/app-workflows/dev-iterative-workflow",
+                      "howto/cookbooks/app-workflows/rag-demo",
+                      "howto/cookbooks/app-workflows/rag-operations"
+                    ]
+                  }
                 ]
               }
             ]
           },
           {
-            "group": "Tutorials",
+            "group": "Pixeltable Fundamentals",
             "pages": [
               "tutorials/tables-and-data-operations",
               "tutorials/computed-columns",
