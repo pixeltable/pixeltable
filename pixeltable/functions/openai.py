@@ -24,8 +24,8 @@ from pixeltable import env, exprs, type_system as ts
 from pixeltable.config import Config
 from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.http import set_file_descriptor_limit
 from pixeltable.utils.local_store import TempStore
+from pixeltable.utils.system import set_file_descriptor_limit
 
 if TYPE_CHECKING:
     import openai
