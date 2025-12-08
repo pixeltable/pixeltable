@@ -19,11 +19,11 @@ from jsonschema.exceptions import ValidationError
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.functions.uuid import uuid4
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
+from pixeltable.functions.uuid import uuid4
 from pixeltable.io.external_store import MockProject
 from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
