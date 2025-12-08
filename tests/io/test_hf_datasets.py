@@ -211,6 +211,7 @@ class TestHfDatasets:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('mnist', source=hf_dataset)
         md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'image', 'label'}
         assert md['columns']['image']['type_'] == 'Image'
         assert md['columns']['label']['type_'] == 'String'
 
@@ -229,10 +230,10 @@ class TestHfDatasets:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('hfds', source=hf_dataset)
         md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'audio', 'sentence'}
         assert md['columns']['audio']['type_'] == 'Json'
 
         res = t.collect()
-        assert set(res.schema.keys()) == {'audio', 'sentence'}
         assert all(isinstance(row['audio'], dict) for row in res)
         assert all(isinstance(row['audio']['array'], np.ndarray) for row in res)
 
@@ -241,13 +242,12 @@ class TestHfDatasets:
         import datasets
 
         hf_dataset = datasets.load_dataset('hf-internal-testing/librispeech_asr_dummy', 'clean', split='validation')
-
         t = pxt.create_table('audio_test', source=hf_dataset)
         md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
         assert md['columns']['audio']['type_'] == 'Audio'
 
         res = t.collect()
-        assert set(res.schema.keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
         assert all(pathlib.Path(row['audio']).exists() for row in res)
 
     def test_import_audio_streaming(self, reset_db: None) -> None:
@@ -255,13 +255,12 @@ class TestHfDatasets:
         import datasets
 
         hf_dataset = datasets.load_dataset('librispeech_asr', split='train.clean.100', streaming=True).take(100)
-
         t = pxt.create_table('audio_test', source=hf_dataset)
         md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
         assert md['columns']['audio']['type_'] == 'Audio'
 
         res = t.collect()
-        assert set(res.schema.keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
         assert all(pathlib.Path(row['audio']).exists() for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
@@ -276,12 +275,12 @@ class TestHfDatasets:
             dataset = dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('natolambert', source=dataset, primary_key='question_id', if_exists='replace')
         md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'question_id', 'prev_messages', 'question', 'answer'}
         assert md['columns']['prev_messages']['type_'] == 'Json'
 
         res = t.where(t.prev_messages != None).collect()
-        row = res[0]
-        assert isinstance(row['prev_messages'], list)
-        assert all(isinstance(x, dict) for x in row['prev_messages'])
+        assert all(isinstance(row['prev_messages'], list) for row in res)
+        assert all(isinstance(x, dict) for row in res for x in row['prev_messages'])
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
@@ -295,10 +294,10 @@ class TestHfDatasets:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('test', source=hf_dataset)
         md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'label', 'text'}
         assert md['columns']['label']['type_'] == 'String'
 
         res = t.collect()
-        assert set(res.schema.keys()) == {'label', 'text'}
         assert all(row['label'] in ['neg', 'pos'] for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
@@ -314,10 +313,10 @@ class TestHfDatasets:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('test', source=hf_dataset)
         md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'c_id', 'emb', 'text', 'title', 'url'}
         assert md['columns']['emb']['type_'] == 'Array[(None,), float32]'
 
         res = t.collect()
-        assert set(res.schema.keys()) == {'c_id', 'emb', 'text', 'title', 'url'}
         assert all(isinstance(row['emb'], np.ndarray) for row in res)
         assert all(row['emb'].shape == (1024,) for row in res)
         assert all(row['emb'].dtype == np.float32 for row in res)
@@ -335,6 +334,7 @@ class TestHfDatasets:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('squad_test', source=hf_dataset)
         md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'answers', 'context', 'id', 'question', 'title'}
         assert md['columns']['answers']['type_'] == 'Json'
 
         res = t.collect()
@@ -361,11 +361,11 @@ class TestHfDatasets:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('hotpotqa_test', source=hf_dataset)
         md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'id', 'question', 'answer', 'supporting_facts', 'context', 'level', 'type'}
         assert md['columns']['supporting_facts']['type_'] == 'Json'
         assert md['columns']['context']['type_'] == 'Json'
 
         res = t.collect()
-        assert set(res.schema.keys()) == {'id', 'question', 'answer', 'supporting_facts', 'context', 'level', 'type'}
         assert all(isinstance(row['supporting_facts'], dict) for row in res)
         assert all(isinstance(row['supporting_facts']['title'], list) for row in res)
         assert all(isinstance(row['supporting_facts']['sent_id'], list) for row in res)
@@ -373,7 +373,6 @@ class TestHfDatasets:
         assert all(isinstance(row['context']['title'], list) for row in res)
         assert all(isinstance(row['context']['sentences'], list) for row in res)
 
-    # TODO: enable streaming=True when datasets fixes its incompatibility with pyarrow 22.0
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_arraynd(self, streaming: bool, reset_db: None) -> None:
