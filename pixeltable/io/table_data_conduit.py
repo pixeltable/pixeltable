@@ -327,177 +327,6 @@ class JsonTableDataConduit(TableDataConduit):
         return t2
 
 
-# class HFTableDataConduit2(TableDataConduit):
-#     """
-#     TODO:
-#     - use set_format('arrow') and convert ChunkedArrays to PIL.Image.Image instead of going through numpy, whichisslow
-#     """
-#
-#     column_name_for_split: str | None = None
-#     categorical_features: dict[str, dict[int, str]]
-#     dataset_dict: dict[str, datasets.Dataset] = None
-#     hf_schema_source: dict[str, Any] = None
-#
-#     @classmethod
-#     def from_tds(cls, tds: TableDataConduit) -> 'HFTableDataConduit':
-#         tds_fields = {f.name for f in fields(tds)}
-#         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
-#         t = cls(**kwargs)
-#         import datasets
-#
-#         assert isinstance(tds.source, (datasets.Dataset, datasets.DatasetDict))
-#         if 'column_name_for_split' in t.extra_fields:
-#             t.column_name_for_split = t.extra_fields['column_name_for_split']
-#
-#         first_dataset = tds.source if isinstance(tds.source, datasets.Dataset) else next(iter(tds.source.values()))
-#         # we want to handle these feature types as numpy arrays
-#         numpy_feature_types = (
-#             datasets.Sequence,
-#             datasets.Image,
-#             datasets.Audio,
-#             datasets.Video,
-#             datasets.Array2D,
-#             datasets.Array3D,
-#             datasets.Array4D,
-#             datasets.Array5D,
-#         )
-#         numpy_columns = [
-#             name for name, feature in first_dataset.features.items() if isinstance(feature, numpy_feature_types)
-#         ]
-#         dict_columns = [name for name, feature in first_dataset.features.items() if isinstance(feature, dict)]
-#         numpy_columns += dict_columns
-#         if len(numpy_columns) > 0:
-#             source = tds.source.with_format(type='numpy', columns=numpy_columns, output_all_columns=True)
-#         else:
-#             source = tds.source
-#
-#         if isinstance(source, datasets.Dataset):
-#             # when loading an hf dataset partially, dataset.split._name is sometimes the form "train[0:1000]"
-#             raw_name = source.split._name
-#             split_name = raw_name.split('[')[0] if raw_name is not None else None
-#             t.dataset_dict = {split_name: source}
-#         else:
-#             assert isinstance(source, datasets.DatasetDict)
-#             t.dataset_dict = source
-#         return t
-#
-#     @classmethod
-#     def is_applicable(cls, tds: TableDataConduit) -> bool:
-#         try:
-#             import datasets
-#
-#             return (isinstance(tds.source_format, str) and tds.source_format.lower() == 'huggingface') or isinstance(
-#                 tds.source, (datasets.Dataset, datasets.DatasetDict)
-#             )
-#         except ImportError:
-#             return False
-#
-#     def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
-#         from pixeltable.io.hf_datasets import _get_hf_schema, huggingface_schema_to_pxt_schema
-#
-#         if self.source_column_map is None:
-#             if self.src_schema_overrides is None:
-#                 self.src_schema_overrides = {}
-#             self.hf_schema_source = _get_hf_schema(self.source)
-#             self.src_schema = huggingface_schema_to_pxt_schema(
-#                 self.hf_schema_source, self.src_schema_overrides, self.src_pk
-#             )
-#
-#             # Add the split column to the schema if requested
-#             if self.column_name_for_split is not None:
-#                 if self.column_name_for_split in self.src_schema:
-#                     raise excs.Error(
-#                         f'Column name `{self.column_name_for_split}` already exists in dataset schema;'
-#                         f'provide a different `column_name_for_split`'
-#                     )
-#                 self.src_schema[self.column_name_for_split] = ts.StringType(nullable=True)
-#
-#             inferred_schema, inferred_pk, self.source_column_map = normalize_schema_names(
-#                 self.src_schema, self.src_pk, self.src_schema_overrides, True
-#             )
-#             return inferred_schema, inferred_pk
-#         else:
-#             raise NotImplementedError()
-#
-#     def infer_schema(self) -> dict[str, Any]:
-#         self.pxt_schema, self.pxt_pk = self.infer_schema_part1()
-#         self.normalize_pxt_schema_types()
-#         self.prepare_insert()
-#         return self.pxt_schema
-#
-#     def prepare_for_insert_into_table(self) -> None:
-#         _, inferred_pk = self.infer_schema_part1()
-#         assert len(inferred_pk) == 0
-#         self.prepare_insert()
-#
-#     def prepare_insert(self) -> None:
-#         import datasets
-#
-#         # extract all class labels from the dataset to translate category ints to strings
-#         self.categorical_features = {
-#             feature_name: feature_type.names
-#             for (feature_name, feature_type) in self.hf_schema_source.items()
-#             if isinstance(feature_type, datasets.ClassLabel)
-#         }
-#         if self.source_column_map is None:
-#             self.source_column_map = {}
-#         self.check_source_columns_are_insertable(self.hf_schema_source.keys())
-#
-#     def _translate_row(self, row: dict[str, Any], split_name: str, features: datasets.Features) -> dict[str, Any]:
-#         output_row: dict[str, Any] = {}
-#         for col_name, val in row.items():
-#             # translate category ints to strings
-#             new_val = self.categorical_features[col_name][val] if col_name in self.categorical_features else val
-#             mapped_col_name = self.source_column_map.get(col_name, col_name)
-#
-#             new_val = self._translate_val(new_val, features[col_name])
-#             output_row[mapped_col_name] = new_val
-#
-#         # add split name to output row
-#         if self.column_name_for_split is not None:
-#             output_row[self.column_name_for_split] = split_name
-#         return output_row
-#
-#     def _translate_val(self, val: Any, feature: datasets.Feature) -> Any:
-#         """Convert numpy scalars to Python types and images to PIL.Image.Image"""
-#         import datasets
-#
-#         if isinstance(feature, datasets.Value):
-#             if isinstance(val, (np.generic, np.ndarray)):
-#                 # a scalar, which we want as a standard Python type
-#                 assert np.ndim(val) == 0
-#                 return val.item()
-#             else:
-#                 # a standard Python object
-#                 return val
-#         elif isinstance(feature, datasets.Sequence):
-#             assert np.ndim(val) > 0
-#             return val
-#         elif isinstance(feature, datasets.Image):
-#             return PIL.Image.fromarray(val)
-#         elif isinstance(feature, dict):
-#             assert isinstance(val, dict)
-#             return {k: self._translate_val(v, feature[k]) for k, v in val.items()}
-#         else:
-#             return val
-#
-#     def valid_row_batch(self) -> Iterator[RowData]:
-#         for split_name, split_dataset in self.dataset_dict.items():
-#             num_batches = split_dataset.size_in_bytes / self._K_BATCH_SIZE_BYTES
-#             tuples_per_batch = math.ceil(split_dataset.num_rows / num_batches)
-#             assert tuples_per_batch > 0
-#
-#             batch = []
-#             for row in split_dataset:
-#                 batch.append(self._translate_row(row, split_name, split_dataset.features))
-#                 if len(batch) >= tuples_per_batch:
-#                     yield batch
-#                     batch = []
-#             # last batch
-#             if len(batch) > 0:
-#                 yield batch
-
-
 class HFTableDataConduit(TableDataConduit):
     # class FastHFImporter(TableDataConduit):
     """
@@ -612,7 +441,7 @@ class HFTableDataConduit(TableDataConduit):
         """
         Convert an Arrow column to a list of Python values based on HF feature type.
         Handles all feature types at the column level, recursing for structs.
-        Returns a list of length chunk_size with converted values.
+        Returns a list of length chunk_size.
         """
         import datasets
 
@@ -738,6 +567,7 @@ class HFTableDataConduit(TableDataConduit):
 
     def valid_row_batch(self) -> Iterator['RowData']:
         import datasets
+
         for split_name, split_dataset in self.dataset_dict.items():
             features = split_dataset.features
             if isinstance(split_dataset, datasets.Dataset):

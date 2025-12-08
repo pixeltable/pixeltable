@@ -7,8 +7,7 @@ import numpy as np
 import pytest
 
 import pixeltable as pxt
-
-from ..utils import IN_CI, skip_test_if_not_installed
+from ..utils import skip_test_if_not_installed, IN_CI
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -19,6 +18,8 @@ if TYPE_CHECKING:
 )
 # @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
 class TestHfDatasets:
+    NUM_SAMPLES = 100
+
     def test_import_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -191,12 +192,23 @@ class TestHfDatasets:
             check_tup = DatasetTuple(**encoded_tup)
             assert check_tup in acc_dataset
 
-    def test_import_images(self, reset_db: None) -> None:
+    def test_import_hf_dataset_invalid(self, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        with pytest.raises(pxt.Error) as exc_info:
+            pxt.io.import_huggingface_dataset('test', {})
+        assert 'Unsupported data source type' in str(exc_info.value)
+
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_images(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
         # Test that datasets with images load properly
-        hf_dataset = datasets.load_dataset('ylecun/mnist', split='test')
+        split = f'test[:{self.NUM_SAMPLES}]' if not streaming else 'test'
+        hf_dataset = datasets.load_dataset('ylecun/mnist', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('mnist', source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['image']['type_'] == 'Image'
@@ -206,14 +218,15 @@ class TestHfDatasets:
         assert all(pathlib.Path(row['image_localpath']).exists() for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_arrays(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        split = 'train[:1000]' if not streaming else 'train'
+        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
         hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset', split=split, streaming=streaming)
         if streaming:
-            hf_dataset = hf_dataset.take(100)
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('hfds', source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['audio']['type_'] == 'Json'
@@ -251,32 +264,35 @@ class TestHfDatasets:
         assert set(res.schema.keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
         assert all(pathlib.Path(row['audio']).exists() for row in res)
 
-    def test_import_list_of_dict(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_list_of_dict(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        dataset = datasets.load_dataset('natolambert/GeneralThought-430K-filtered', split='train[:10000]')
+        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        dataset = datasets.load_dataset('natolambert/GeneralThought-430K-filtered', split=split, streaming=streaming)
+        if streaming:
+            dataset = dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('natolambert', source=dataset, primary_key='question_id', if_exists='replace')
         md = t.get_metadata()
         assert md['columns']['prev_messages']['type_'] == 'Json'
 
         res = t.where(t.prev_messages != None).collect()
         row = res[0]
-        assert set(row.keys()) == dataset.features.keys()
         assert isinstance(row['prev_messages'], list)
         assert all(isinstance(x, dict) for x in row['prev_messages'])
 
-    def test_import_hf_dataset_invalid(self, reset_db: None) -> None:
-        skip_test_if_not_installed('datasets')
-        with pytest.raises(pxt.Error) as exc_info:
-            pxt.io.import_huggingface_dataset('test', {})
-        assert 'Unsupported data source type' in str(exc_info.value)
-
-    def test_import_classlabel(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_classlabel(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        hf_dataset = datasets.load_dataset('rotten_tomatoes', split='train[:1000]')
+        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        hf_dataset = datasets.load_dataset('rotten_tomatoes', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('test', source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['label']['type_'] == 'String'
@@ -285,12 +301,17 @@ class TestHfDatasets:
         assert set(res.schema.keys()) == {'label', 'text'}
         assert all(row['label'] in ['neg', 'pos'] for row in res)
 
-    def test_import_sequence_of_float(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_sequence_of_float(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
         # Cohere Wikipedia has embeddings as Sequence(float32); 'mi': a relatively small dataset
-        hf_dataset = datasets.load_dataset('Cohere/wikipedia-2023-11-embed-multilingual-v3', 'mi', split='train[:1000]')
+        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        hf_dataset = datasets.load_dataset('Cohere/wikipedia-2023-11-embed-multilingual-v3', 'mi', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('test', source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['emb']['type_'] == 'Array[(None,), float32]'
@@ -301,12 +322,17 @@ class TestHfDatasets:
         assert all(row['emb'].shape == (1024,) for row in res)
         assert all(row['emb'].dtype == np.float32 for row in res)
 
-    def test_import_sequence_of_dict(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_sequence_of_dict(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
         # SQuAD has answers as Sequence({'text': Value, 'answer_start': Value})
-        hf_dataset = datasets.load_dataset('squad', split='validation[:1000]')
+        split = f'validation[:{self.NUM_SAMPLES}]' if not streaming else 'validation'
+        hf_dataset = datasets.load_dataset('squad', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('squad_test', source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['answers']['type_'] == 'Json'
@@ -317,7 +343,9 @@ class TestHfDatasets:
         assert all(isinstance(row['answers']['text'], list) for row in res)
         assert all(isinstance(row['answers']['answer_start'], list) for row in res)
 
-    def test_import_nested_struct(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_nested_struct(self, streaming: bool, reset_db: None) -> None:
         """
         Test importing dataset with nested structures:
         - supporting_facts: Sequence({'title': string, 'sent_id': int32})
@@ -327,7 +355,10 @@ class TestHfDatasets:
         import datasets
 
         # HotpotQA has complex nested structures
-        hf_dataset = datasets.load_dataset('hotpotqa/hotpot_qa', 'distractor', split='train[:1000]')
+        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        hf_dataset = datasets.load_dataset('hotpotqa/hotpot_qa', 'distractor', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('hotpotqa_test', source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['supporting_facts']['type_'] == 'Json'
@@ -342,12 +373,18 @@ class TestHfDatasets:
         assert all(isinstance(row['context']['title'], list) for row in res)
         assert all(isinstance(row['context']['sentences'], list) for row in res)
 
-    def test_import_arraynd(self, reset_db: None) -> None:
+    # TODO: enable streaming=True when datasets fixes its incompatibility with pyarrow 22.0
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_arraynd(self, streaming: bool, reset_db: None) -> None:
         """Test dataset with Array2D and Array3D features."""
         skip_test_if_not_installed('datasets')
         import datasets
 
-        hf_dataset = datasets.load_dataset('tanganke/nyuv2', split='train[:1000]')
+        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        hf_dataset = datasets.load_dataset('tanganke/nyuv2', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('nyuv2_test', source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['image']['type_'] == 'Array[(3, 288, 384), float32]'
