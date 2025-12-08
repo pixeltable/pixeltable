@@ -205,12 +205,15 @@ class TestHfDatasets:
         res = t.select(t.image.localpath).collect()
         assert all(pathlib.Path(row['image_localpath']).exists() for row in res)
 
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
-    def test_import_arrays(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('streaming', [False, True])
+    def test_import_arrays(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset', split='train[:1000]')
+        split = 'train[:1000]' if not streaming else 'train'
+        hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(100)
         t = pxt.create_table('hfds', source=hf_dataset)
         md = t.get_metadata()
         assert md['columns']['audio']['type_'] == 'Json'

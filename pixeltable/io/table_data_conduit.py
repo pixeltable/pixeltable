@@ -64,7 +64,7 @@ class TableDataConduit:
 
     total_rows: int = 0  # total number of rows emitted via valid_row_batch Iterator
 
-    _K_BATCH_SIZE_BYTES = 100_000_000  # 100 MB
+    _K_BATCH_SIZE_BYTES = 256 * 2**20
 
     def check_source_format(self) -> None:
         assert self.source_format is None or TableDataConduitFormat.is_valid(self.source_format)
@@ -738,14 +738,19 @@ class HFTableDataConduit(TableDataConduit):
 
     def valid_row_batch(self) -> Iterator['RowData']:
         import datasets
-        # iteration order: split, chunk, column
         for split_name, split_dataset in self.dataset_dict.items():
             features = split_dataset.features
             if isinstance(split_dataset, datasets.Dataset):
-                table = split_dataset.data  # access the underlying Arrow table
+                table = split_dataset.data  # the underlying Arrow table
                 yield from self._process_arrow_table(table, split_name, features)
             else:
-                for batch in split_dataset.iter(batch_size=16):
+                # we're getting batches of Arrow tables, since we did set_format('arrow');
+                # use a trial batch to determine the target batch size
+                first_batch = next(split_dataset.iter(batch_size=16))
+                bytes_per_row = int(first_batch.nbytes / len(first_batch))
+                batch_size = self._K_BATCH_SIZE_BYTES // bytes_per_row
+                yield from self._process_arrow_table(first_batch, split_name, features)
+                for batch in split_dataset.skip(16).iter(batch_size=batch_size):
                     yield from self._process_arrow_table(batch, split_name, features)
 
     def _process_arrow_table(self, table: 'pa.Table', split_name: str, features: dict[str, Any]) -> Iterator[RowData]:
