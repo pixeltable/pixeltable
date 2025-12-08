@@ -2792,11 +2792,14 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
-    def test_identity_column(self, reset_db: None, reload_tester: ReloadTester) -> None:
-        # Test creating a table with an identity column using pxt.Identity
-        t = pxt.create_table('test_identity_tbl', {'id': pxt.Identity, 'data': pxt.String})
+    def test_uuid_primary_key(self, reset_db: None, reload_tester: ReloadTester) -> None:
+        """Test creating a table with a UUID primary key using computed column in schema."""
+        from pixeltable.functions.uuid import uuid4
 
-        # Verify identity column is created as primary key
+        # Test creating a table with a UUID primary key using computed column
+        t = pxt.create_table('test_uuid_pk_tbl', {'id': {'value': uuid4()}, 'data': pxt.String}, primary_key=['id'])
+
+        # Verify UUID column is created as primary key
         pk_cols = t._tbl_version.get().primary_key_columns()
         assert len(pk_cols) == 1
         assert pk_cols[0].name == 'id'
@@ -2804,7 +2807,7 @@ class TestTable:
         assert pk_cols[0].col_type.type_enum == pxt.type_system.ColumnType.Type.UUID
         assert not pk_cols[0].col_type.nullable
 
-        # Insert rows - identity column should auto-generate UUIDs
+        # Insert rows - UUID column should auto-generate UUIDs
         validate_update_status(t.insert([{'data': 'test1'}, {'data': 'test2'}, {'data': 'test3'}]), expected_rows=3)
 
         # Query and verify UUIDs are generated
@@ -2815,41 +2818,6 @@ class TestTable:
         assert res['data'] == ['test1', 'test2', 'test3']
 
         reload_tester.run_reload_test()
-
-        # Test adding an identity column to an existing table
-        t2 = pxt.create_table('test_add_identity_tbl', {'data': pxt.String})
-        validate_update_status(t2.insert([{'data': 'test1'}, {'data': 'test2'}]), expected_rows=2)
-
-        # Initially no primary key
-        pk_cols = t2._tbl_version.get().primary_key_columns()
-        assert len(pk_cols) == 0
-
-        # Add identity column using add_identity_column()
-        t2.add_identity_column(column_name='id')
-
-        # Verify identity column is added as primary key
-        pk_cols = t2._tbl_version.get().primary_key_columns()
-        assert len(pk_cols) == 1
-        assert pk_cols[0].name == 'id'
-        assert pk_cols[0].is_computed
-        assert pk_cols[0].col_type.type_enum == pxt.type_system.ColumnType.Type.UUID
-        assert not pk_cols[0].col_type.nullable
-
-        # Query existing rows - UUIDs should be generated for existing rows
-        res = reload_tester.run_query(t2.select(t2.id, t2.data))
-        assert len(res) == 2
-        assert all(isinstance(u, uuid.UUID) for u in res['id'])
-        assert len(set(res['id'])) == 2  # All UUIDs should be unique
-
-        # Verify queries work after reload (before inserting new rows)
-        reload_tester.run_reload_test()
-
-        # Insert new rows - UUIDs should continue to be generated
-        validate_update_status(t2.insert([{'data': 'test3'}]), expected_rows=1)
-        res = t2.select(t2.id, t2.data).collect()
-        assert len(res) == 3
-        assert all(isinstance(u, uuid.UUID) for u in res['id'])
-        assert len(set(res['id'])) == 3  # All UUIDs should be unique
 
     def test_computed_column_types(self, reset_db: None) -> None:
         t = pxt.create_table(

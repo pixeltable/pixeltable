@@ -1368,26 +1368,6 @@ class Required(typing.Generic[T]):
     pass
 
 
-class _Identity:
-    """Identity column marker for auto-generated UUID primary keys.
-
-    An identity column is a UUID primary key that automatically generates values
-    using `make_uuid4()` when rows are inserted.
-
-    Example:
-        >>> schema = {
-        ...     'id': pxt.Identity,  # UUID primary key with auto-generation
-        ...     'data': pxt.String
-        ... }
-        >>> tbl = pxt.create_table('my_table', schema=schema)
-        >>> tbl.insert([{'data': 'test'}])  # 'id' is automatically generated
-    """
-
-
-# Singleton instance for use as a constant.
-Identity = _Identity()
-
-
 String = typing.Annotated[str, StringType(nullable=False)]
 Int = typing.Annotated[int, IntType(nullable=False)]
 Float = typing.Annotated[float, FloatType(nullable=False)]
