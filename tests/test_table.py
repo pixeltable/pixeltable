@@ -19,6 +19,7 @@ from jsonschema.exceptions import ValidationError
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+from pixeltable.functions.uuid import uuid4
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
@@ -2794,8 +2795,6 @@ class TestTable:
 
     def test_uuid_primary_key(self, reset_db: None, reload_tester: ReloadTester) -> None:
         """Test creating a table with a UUID primary key using computed column in schema."""
-        from pixeltable.functions.uuid import uuid4
-
         # Test creating a table with a UUID primary key using computed column
         t = pxt.create_table('test_uuid_pk_tbl', {'id': {'value': uuid4()}, 'data': pxt.String}, primary_key=['id'])
 
