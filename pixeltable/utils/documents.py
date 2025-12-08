@@ -2,7 +2,7 @@ import dataclasses
 import os
 
 import bs4
-import fitz
+import fitz  # type: ignore[import-untyped]
 import puremagic
 
 from pixeltable import exceptions as excs, type_system as ts
