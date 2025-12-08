@@ -366,7 +366,7 @@ class Query:
         for item in self._select_list_exprs:
             item.bind_rel_paths()
 
-        return plan.Planner.create_query_plan(
+        return Planner.create_query_plan(
             self._from_clause,
             self._select_list_exprs,
             where_clause=self.where_clause,
@@ -554,14 +554,9 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        if self.group_by_clause is not None:
-            raise excs.Error('count() cannot be used with group_by()')
-
-        from pixeltable.plan import Planner
-
         with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
-            stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
-            result: int = conn.execute(stmt).scalar_one()
+            count_stmt = Planner.create_count_stmt(self)
+            result: int = conn.execute(count_stmt).scalar_one()
             assert isinstance(result, int)
             return result
 

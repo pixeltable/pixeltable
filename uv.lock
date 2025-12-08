@@ -1548,6 +1548,19 @@ wheels = [
 ]
 
 [[package]]
+name = "fal-client"
+version = "0.9.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "httpx-sse" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b8/a1/98ab1cea4c2424ee612292bc92b07905e1a15a05584f6c263cde38e6a3a2/fal_client-0.9.1.tar.gz", hash = "sha256:c8f7f88f79c4b4c4f069be9f571be924dc7c4a6bf07c252fe0b75f3c46c8d66d", size = 17085, upload-time = "2025-11-13T18:15:09.911Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/57/775821a71459f2b83bbaa59452a4b1e4772f7c770de88a6f591c9d43c7c8/fal_client-0.9.1-py3-none-any.whl", hash = "sha256:8eba86c947299852c8306f685eee883ce01856543bf4344b87f65abd4b7d7622", size = 11157, upload-time = "2025-11-13T18:15:08.528Z" },
+]
+
+[[package]]
 name = "fasteners"
 version = "0.19"
 source = { registry = "https://pypi.org/simple" }
@@ -5039,6 +5052,7 @@ dev = [
     { name = "botocore" },
     { name = "datasets" },
     { name = "diffusers" },
+    { name = "fal-client" },
     { name = "fiftyone" },
     { name = "fireworks-ai" },
     { name = "google-cloud-storage" },
@@ -5162,6 +5176,7 @@ dev = [
     { name = "botocore", specifier = "==1.36.23" },
     { name = "datasets", specifier = ">=3.2.0" },
     { name = "diffusers", specifier = ">=0.34" },
+    { name = "fal-client", specifier = ">=0.5.6" },
     { name = "fiftyone", specifier = ">=1.7" },
     { name = "fireworks-ai", specifier = ">=0.17.6" },
     { name = "google-cloud-storage", specifier = ">=2.18.0" },
@@ -5238,7 +5253,7 @@ test = [
 [[package]]
 name = "pixeltable-doctools"
 version = "0.1.0"
-source = { git = "https://github.com/pixeltable/pixeltable-doctools#9a67398c3e6fadce4c5966dfee9453440e3a0b52" }
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#80353ebf1421f966e02e6d617b752b9c6e64b65f" }
 dependencies = [
     { name = "docstring-parser" },
     { name = "griffe" },
