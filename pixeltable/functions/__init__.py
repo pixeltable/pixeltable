@@ -29,6 +29,7 @@ from . import (
     twelvelabs,
     video,
     vision,
+    vlmrun,
     voyageai,
     whisper,
     whisperx,
