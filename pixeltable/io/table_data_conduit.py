@@ -508,7 +508,7 @@ class HFTableDataConduit(TableDataConduit):
 
     column_name_for_split: str | None = None
     categorical_features: dict[str, dict[int, str]]
-    dataset_dict: dict[str, 'datasets.Dataset'] = None
+    dataset_dict: dict[str, 'datasets.Dataset'] = None  # key: split name
     hf_schema_source: dict[str, Any] = None
 
     @classmethod
@@ -518,19 +518,20 @@ class HFTableDataConduit(TableDataConduit):
         t = cls(**kwargs)
         import datasets
 
-        assert isinstance(tds.source, (datasets.Dataset, datasets.DatasetDict))
+        assert isinstance(
+            tds.source, (datasets.Dataset, datasets.DatasetDict, datasets.IterableDataset, datasets.IterableDatasetDict)
+        )
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
 
-        # Store dataset directly - we'll access .data for Arrow tables
-        if isinstance(tds.source, datasets.Dataset):
-            split_name: str | None = None
-            if tds.source.split is not None:
-                raw_name = tds.source.split._name
-                split_name = raw_name.split('[')[0] if raw_name is not None else None
+        if isinstance(tds.source, (datasets.IterableDataset, datasets.IterableDatasetDict)):
+            tds.source = tds.source.with_format('arrow')
+
+        if isinstance(tds.source, (datasets.Dataset, datasets.IterableDataset)):
+            split_name = str(tds.source.split) if tds.source.split is not None else None
             t.dataset_dict = {split_name: tds.source}
         else:
-            assert isinstance(tds.source, datasets.DatasetDict)
+            # assert isinstance(tds.source, datasets.DatasetDict)
             t.dataset_dict = dict(tds.source)
 
         # Disable auto-decoding for Audio and Image columns, we want to write the bytes directly to temp files
@@ -548,7 +549,8 @@ class HFTableDataConduit(TableDataConduit):
             import datasets
 
             return (isinstance(tds.source_format, str) and tds.source_format.lower() == 'huggingface') or isinstance(
-                tds.source, (datasets.Dataset, datasets.DatasetDict)
+                tds.source,
+                (datasets.Dataset, datasets.DatasetDict, datasets.IterableDataset, datasets.IterableDatasetDict),
             )
         except ImportError:
             return False
@@ -714,8 +716,6 @@ class HFTableDataConduit(TableDataConduit):
     def _convert_array_feature(
         self, column: 'pa.ChunkedArray', shape: tuple[int, ...], chunk_size: int
     ) -> list[np.ndarray]:
-        import pyarrow as pa
-
         arr: pa.ExtensionArray
         # TODO: can we get multiple chunks here?
         if column.num_chunks == 1:
@@ -737,35 +737,42 @@ class HFTableDataConduit(TableDataConduit):
         return list(reshaped)
 
     def valid_row_batch(self) -> Iterator['RowData']:
+        import datasets
         # iteration order: split, chunk, column
         for split_name, split_dataset in self.dataset_dict.items():
             features = split_dataset.features
-            table = split_dataset.data  # access the underlying Arrow table
+            if isinstance(split_dataset, datasets.Dataset):
+                table = split_dataset.data  # access the underlying Arrow table
+                yield from self._process_arrow_table(table, split_name, features)
+            else:
+                for batch in split_dataset.iter(batch_size=16):
+                    yield from self._process_arrow_table(batch, split_name, features)
 
-            # get chunk boundaries from first column's ChunkedArray
-            first_column = table.column(0)
-            offset = 0
-            for chunk in first_column.chunks:
-                chunk_size = len(chunk)
-                # zero-copy slice using existing chunk boundaries
-                batch = table.slice(offset, chunk_size)
+    def _process_arrow_table(self, table: 'pa.Table', split_name: str, features: dict[str, Any]) -> Iterator[RowData]:
+        # get chunk boundaries from first column's ChunkedArray
+        first_column = table.column(0)
+        offset = 0
+        for chunk in first_column.chunks:
+            chunk_size = len(chunk)
+            # zero-copy slice using existing chunk boundaries
+            batch = table.slice(offset, chunk_size)
 
-                # we assemble per-row dicts by from lists of per-column values
-                rows: list[dict[str, Any]] = [{} for _ in range(chunk_size)]
-                if self.column_name_for_split is not None:
-                    for row in rows:
-                        row[self.column_name_for_split] = split_name
+            # we assemble per-row dicts by from lists of per-column values
+            rows: list[dict[str, Any]] = [{} for _ in range(chunk_size)]
+            if self.column_name_for_split is not None:
+                for row in rows:
+                    row[self.column_name_for_split] = split_name
 
-                for col_idx, col_name in enumerate(batch.schema.names):
-                    feature = features[col_name]
-                    mapped_col_name = self.source_column_map.get(col_name, col_name)
-                    column = batch.column(col_idx)
-                    values = self._convert_column(column, feature, chunk_size)
-                    for i, val in enumerate(values):
-                        rows[i][mapped_col_name] = val
+            for col_idx, col_name in enumerate(batch.schema.names):
+                feature = features[col_name]
+                mapped_col_name = self.source_column_map.get(col_name, col_name)
+                column = batch.column(col_idx)
+                values = self._convert_column(column, feature, chunk_size)
+                for i, val in enumerate(values):
+                    rows[i][mapped_col_name] = val
 
-                offset += chunk_size
-                yield rows
+            offset += chunk_size
+            yield rows
 
 
 class ParquetTableDataConduit(TableDataConduit):

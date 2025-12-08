@@ -234,6 +234,20 @@ class TestHfDatasets:
         assert set(res.schema.keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
         assert all(pathlib.Path(row['audio']).exists() for row in res)
 
+    def test_import_audio_streaming(self, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        hf_dataset = datasets.load_dataset('librispeech_asr', split='train.clean.100', streaming=True).take(100)
+
+        t = pxt.create_table('audio_test', source=hf_dataset)
+        md = t.get_metadata()
+        assert md['columns']['audio']['type_'] == 'Audio'
+
+        res = t.collect()
+        assert set(res.schema.keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
+        assert all(pathlib.Path(row['audio']).exists() for row in res)
+
     def test_import_list_of_dict(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets

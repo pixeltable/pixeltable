@@ -93,7 +93,9 @@ def _get_hf_schema(dataset: datasets.Dataset | datasets.DatasetDict) -> datasets
     """Get the schema of a huggingface dataset as a dictionary."""
     import datasets
 
-    first_dataset = dataset if isinstance(dataset, datasets.Dataset) else next(iter(dataset.values()))
+    first_dataset = (
+        dataset if isinstance(dataset, (datasets.Dataset, datasets.IterableDataset)) else next(iter(dataset.values()))
+    )
     return first_dataset.features
 
 
