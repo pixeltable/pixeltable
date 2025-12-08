@@ -778,6 +778,7 @@ class Env:
         self.__register_package('diffusers')
         self.__register_package('fiftyone')
         self.__register_package('twelvelabs')
+        self.__register_package('fal_client', library_name='fal-client')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
         self.__register_package('google.genai', library_name='google-genai')

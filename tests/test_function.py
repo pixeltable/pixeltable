@@ -892,8 +892,8 @@ class TestFunction:
             The signature stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
             matches its signature as currently defined in the code. This probably means that the
             code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
-            Signature of UDF call in the database: {db_params} -> pxt.Array[Float] | None
-            Signature of UDF as currently defined in code: {{params}} -> pxt.Array[Float] | None
+            Signature of UDF call in the database: {db_params} -> pxt.Array[float32] | None
+            Signature of UDF as currently defined in code: {{params}} -> pxt.Array[float32] | None
             """
         ).strip()
         return_type_error = dedent(
@@ -901,7 +901,7 @@ class TestFunction:
             The return type stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
             matches its return type as currently defined in the code. This probably means that the
             code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
-            Return type of UDF call in the database: Array[Float] | None
+            Return type of UDF call in the database: Array[float32] | None
             Return type of UDF as currently defined in code: {return_type}
             """
         ).strip()
