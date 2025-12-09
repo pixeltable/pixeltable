@@ -437,14 +437,13 @@ class HFTableDataConduit(TableDataConduit):
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.hf_schema_source.keys())
 
-    def _convert_column(self, column: 'pa.ChunkedArray', feature: object, chunk_size: int) -> list:
+    def _convert_column(self, column: 'pa.ChunkedArray', feature: object) -> list:
         """
         Convert an Arrow column to a list of Python values based on HF feature type.
         Handles all feature types at the column level, recursing for structs.
         Returns a list of length chunk_size.
         """
         import datasets
-        import pyarrow.types as pat
 
         # return scalars as Python scalars
         if isinstance(feature, datasets.Value):
@@ -462,17 +461,11 @@ class HFTableDataConduit(TableDataConduit):
         if is_list_of_dict:
             return column.to_pylist()
 
-        is_sequence_of_numerical = False
-        if isinstance(feature, datasets.Sequence):
-            pa_type = feature.feature.pa_type
-            if pat.is_integer(pa_type) or pat.is_floating(pa_type):
-                is_sequence_of_numerical = True
-
-        # array data represented as a Sequence feature: convert to numpy arrays
-        if is_sequence_of_numerical:
+        # array data represented as a (possibly nested) sequence of numerical data: convert to numpy arrays
+        if self._is_sequence_of_numerical(feature):
             arr = column.to_numpy(zero_copy_only=False)
             result: list = []
-            for i in range(chunk_size):
+            for i in range(len(column)):
                 val = arr[i]
                 assert not isinstance(val, dict)  # we dealt with list of dicts earlier
                 # convert object array of arrays (e.g., multi-channel audio) to proper ndarray
@@ -519,39 +512,48 @@ class HFTableDataConduit(TableDataConduit):
             return result
 
         if isinstance(feature, dict):
-            return self._convert_struct_column(column, feature, chunk_size)
+            return self._convert_struct_column(column, feature)
 
         if isinstance(feature, list):
             return column.to_pylist()
 
         # Array<N>D: multi-dimensional fixed-shape arrays
         if isinstance(feature, (datasets.Array2D, datasets.Array3D, datasets.Array4D, datasets.Array5D)):
-            return self._convert_array_feature(column, feature.shape, chunk_size)
+            return self._convert_array_feature(column, feature.shape)
 
         return column.to_pylist()
 
-    def _convert_struct_column(
-        self, column: 'pa.ChunkedArray', feature: dict[str, object], chunk_size: int
-    ) -> list[dict[str, Any]]:
+    def _is_sequence_of_numerical(self, feature: object) -> bool:
+        """Returns True if feature is a (nested) Sequence of numerical values."""
+        import datasets
+        import pyarrow.types as pat
+
+        if not isinstance(feature, datasets.Sequence):
+            return False
+        if isinstance(feature.feature, datasets.Sequence):
+            return self._is_sequence_of_numerical(feature.feature)
+
+        pa_type = feature.feature.pa_type
+        return pa_type is not None and (pat.is_integer(pa_type) or pat.is_floating(pa_type))
+
+    def _convert_struct_column(self, column: 'pa.ChunkedArray', feature: dict[str, object]) -> list[dict[str, Any]]:
         """
         Convert a StructArray column to a list of dicts by recursively
         converting each field.
         """
         import pyarrow.compute as pc
 
-        results: list[dict[str, Any]] = [{} for _ in range(chunk_size)]
+        results: list[dict[str, Any]] = [{} for _ in range(len(column))]
         for field_name, field_feature in feature.items():
             field_column = pc.struct_field(column, field_name)
-            field_values = self._convert_column(field_column, field_feature, chunk_size)
+            field_values = self._convert_column(field_column, field_feature)
 
             for i, val in enumerate(field_values):
                 results[i][field_name] = val
 
         return results
 
-    def _convert_array_feature(
-        self, column: 'pa.ChunkedArray', shape: tuple[int, ...], chunk_size: int
-    ) -> list[np.ndarray]:
+    def _convert_array_feature(self, column: 'pa.ChunkedArray', shape: tuple[int, ...]) -> list[np.ndarray]:
         arr: pa.ExtensionArray
         # TODO: can we get multiple chunks here?
         if column.num_chunks == 1:
@@ -566,7 +568,7 @@ class HFTableDataConduit(TableDataConduit):
         while hasattr(vals, 'values'):
             vals = vals.values
         flat_arr = vals.to_numpy()
-        chunk_shape = (chunk_size, *shape)
+        chunk_shape = (len(column), *shape)
         reshaped = flat_arr.reshape(chunk_shape)
 
         # Return as list of array views (shares memory with reshaped)
@@ -609,7 +611,7 @@ class HFTableDataConduit(TableDataConduit):
                 feature = features[col_name]
                 mapped_col_name = self.source_column_map.get(col_name, col_name)
                 column = batch.column(col_idx)
-                values = self._convert_column(column, feature, chunk_size)
+                values = self._convert_column(column, feature)
                 for i, val in enumerate(values):
                     rows[i][mapped_col_name] = val
 

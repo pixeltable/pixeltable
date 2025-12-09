@@ -389,7 +389,7 @@ class TestHfDatasets:
         res = t.collect()
         assert all(isinstance(row['supporting_facts'], dict) for row in res)
         assert all(isinstance(row['supporting_facts']['title'], list) for row in res)
-        assert all(isinstance(row['supporting_facts']['sent_id'], list) for row in res)
+        assert all(isinstance(row['supporting_facts']['sent_id'], np.ndarray) for row in res)
         assert all(isinstance(row['context'], dict) for row in res)
         assert all(isinstance(row['context']['title'], list) for row in res)
         assert all(isinstance(row['context']['sentences'], list) for row in res)
