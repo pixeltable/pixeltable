@@ -1,0 +1,186 @@
+---
+title: "Tools"
+description: "Build AI agents that can invoke custom tools"
+icon: "screwdriver-wrench"
+---
+
+# Building Tool-calling AI Agents
+
+Pixeltable tool-calling apps work in two phases:
+1. Define your tools and table structure (once)
+2. Use your app (anytime)
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install pixeltable openai duckduckgo-search
+    ```
+  </Step>
+
+  <Step title="Create your database" icon="toolbox">
+    Create `database.py`:
+    ```python
+    import pixeltable as pxt
+    import pixeltable.functions as pxtf
+    from pixeltable.functions.openai import chat_completions, invoke_tools
+    from duckduckgo_search import DDGS
+
+    # Initialize app structure
+    pxt.drop_dir("agents", force=True)
+    pxt.create_dir("agents")
+
+    # Define tools
+    @pxt.udf
+    def search_news(keywords: str, max_results: int) -> str:
+        """Search news using DuckDuckGo and return results."""
+        try:
+            with DDGS() as ddgs:
+                results = ddgs.news(
+                    keywords=keywords,
+                    region="wt-wt",
+                    safesearch="off",
+                    timelimit="m",
+                    max_results=max_results,
+                )
+                formatted_results = []
+                for i, r in enumerate(results, 1):
+                    formatted_results.append(
+                        f"{i}. Title: {r['title']}\n"
+                        f"   Source: {r['source']}\n"
+                        f"   Published: {r['date']}\n"
+                        f"   Snippet: {r['body']}\n"
+                    )
+                return "\n".join(formatted_results)
+        except Exception as e:
+            return f"Search failed: {str(e)}"
+
+    @pxt.udf
+    def get_weather(location: str) -> str:
+        """Mock weather function - replace with actual API call."""
+        return f"Current weather in {location}: 72°F, Partly Cloudy"
+
+    @pxt.udf
+    def calculate_metrics(numbers: str) -> str:
+        """Calculate basic statistics from a string of numbers."""
+        try:
+            nums = [float(n) for n in numbers.split(',')]
+            return f"Mean: {sum(nums)/len(nums):.2f}, Min: {min(nums)}, Max: {max(nums)}"
+        except:
+            return "Error: Please provide comma-separated numbers"
+
+    # Register all tools
+    tools = pxt.tools(search_news, get_weather, calculate_metrics)
+
+    # Create base table
+    tool_agent = pxt.create_table(
+        "agents.tools", 
+        {"prompt": pxt.String}, 
+        if_exists="ignore"
+    )
+
+    tool_choice_opts = [
+        None,
+        tools.choice(auto=True),
+        tools.choice(required=True),
+        tools.choice(tool='stock_price'),
+        tools.choice(tool=weather),
+        tools.choice(required=True, parallel_tool_calls=False),
+    ]
+
+    # Add tool selection and execution workflow
+    tool_agent.add_computed_column(
+        initial_response=chat_completions(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": tool_agent.prompt}],
+            tools=tools,
+            tool_choice=tool_choice_opts[1],
+        )
+    )
+
+    # Add tool execution
+    tool_agent.add_computed_column(
+        tool_output=invoke_tools(tools, tool_agent.initial_response)
+    )
+
+    # Add response formatting
+    tool_agent.add_computed_column(
+        tool_response_prompt=pxtf.string.format(
+            "Orginal Prompt\n{0}: Tool Output\n{1}", 
+            tool_agent.prompt, 
+            tool_agent.tool_output
+        ),
+        if_exists="ignore",
+    )
+
+    # Add final response generation
+    tool_agent.add_computed_column(
+        final_response=chat_completions(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a helpful AI assistant that can use various tools. Analyze the tool results and provide a clear, concise response."
+                },
+                {"role": "user", "content": tool_agent.tool_response_prompt},
+            ]
+        )
+    )
+
+    tool_agent.add_computed_column(
+        answer=tool_agent.final_response.choices[0].message.content
+    )
+    ```
+  </Step>
+
+  <Step title="Use Your App" icon="play">
+    Create `main.py`:
+    ```python
+    import pixeltable as pxt
+
+    # Connect to your app
+    tool_agent = pxt.get_table("agents.tools")
+
+    # Example queries using different tools
+    queries = [
+        "What's the latest news about SpaceX?",
+        "What's the weather in San Francisco?",
+        "Calculate metrics for these numbers: 10,20,30,40,50"
+    ]
+
+    # Use the agent
+    for query in queries:
+        tool_agent.insert(prompt=query)
+        result = tool_agent.select(
+            tool_agent.tool_output,
+            tool_agent.answer
+        ).tail(1)
+        print(f"\nQuery: {query}")
+        print(f"Answer: {result['answer'][0]}")
+    ```
+  </Step>
+</Steps>
+
+## What Makes This Different?
+
+<CardGroup cols={1}>
+  <Card title="Multiple Tools" icon="toolbox">
+    Define and combine multiple tools in a single agent:
+    ```python
+    tools = pxt.tools(search_news, get_weather, calculate_metrics)
+    ```
+  </Card>
+
+  <Card title="Automatic Tool Selection" icon="wand-magic-sparkles">
+    The AI automatically chooses the right tool for each query:
+    ```python
+    tool_choice=tools.choice(required=True)
+    ```
+  </Card>
+
+  <Card title="Tool-calling Observability" icon="database">
+    Every tool interaction is stored and can be analyzed:
+    ```python
+    tool_agent.select(tool_agent.tool_output).collect()
+    ```
+  </Card>
+</CardGroup>

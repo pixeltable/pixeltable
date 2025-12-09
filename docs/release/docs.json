@@ -1,0 +1,304 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Pixeltable Documentation",
+  "colors": {
+    "primary": "#1E5AA8",
+    "light": "#F1AE03",
+    "dark": "#020704"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "User Guide",
+        "groups": [
+          {
+            "group": "Welcome to Pixeltable",
+            "pages": [
+              "overview/pixeltable",
+              "overview/quick-start",
+              "overview/ten-minute-tour",
+              "overview/building-pixeltable-with-llms"
+            ]
+          },
+          {
+            "group": "Platform",
+            "pages": [
+              "platform/tables",
+              "platform/views",
+              {
+                "group": "Core Components",
+                "pages": [
+                  "platform/computed-columns",
+                  "platform/iterators",
+                  "platform/embedding-indexes",
+                  "platform/udfs-in-pixeltable"
+                ]
+              },
+              {
+                "group": "Working with Data",
+                "pages": [
+                  "platform/filtering-and-selecting",
+                  "platform/bringing-data",
+                  "platform/external-files",
+                  "platform/sampling",
+                  "platform/data-sharing",
+                  "platform/time-zones"
+                ]
+              },
+              "platform/deployment",
+              "platform/configuration"
+            ]
+          },
+          {
+            "group": "How-To",
+            "pages": [
+              {
+                "group": "LLMs & Model Providers",
+                "pages": [
+                  "howto/providers/working-with-anthropic",
+                  "howto/providers/working-with-bedrock",
+                  "howto/providers/working-with-deepseek",
+                  "howto/providers/working-with-fal",
+                  "howto/providers/working-with-fireworks",
+                  "howto/providers/working-with-gemini",
+                  "howto/providers/working-with-groq",
+                  "howto/providers/working-with-hugging-face",
+                  "howto/providers/working-with-llama-cpp",
+                  "howto/providers/working-with-mistralai",
+                  "howto/providers/working-with-ollama",
+                  "howto/providers/working-with-openai",
+                  "howto/providers/working-with-openrouter",
+                  "howto/providers/working-with-replicate",
+                  "howto/providers/working-with-reve",
+                  "howto/providers/working-with-together",
+                  "howto/providers/working-with-voyageai"
+                ]
+              },
+              "howto/using-label-studio-with-pixeltable",
+              "howto/working-with-fiftyone",
+              {
+                "group": "Use Cases",
+                "pages": [
+                  "howto/use-cases/audio-transcriptions",
+                  "howto/use-cases/object-detection-in-videos",
+                  "howto/use-cases/rag-demo",
+                  "howto/use-cases/rag-operations"
+                ]
+              },
+              {
+                "group": "Cookbooks",
+                "pages": [
+                  {
+                    "group": "Images",
+                    "pages": [
+                      "howto/cookbooks/images/img-add-watermarks",
+                      "howto/cookbooks/images/img-adjust-opacity",
+                      "howto/cookbooks/images/img-apply-filters",
+                      "howto/cookbooks/images/img-brightness-contrast",
+                      "howto/cookbooks/images/img-pil-transforms",
+                      "howto/cookbooks/images/img-rgb-to-grayscale"
+                    ]
+                  },
+                  "howto/cookbooks/dev-iterative-workflow"
+                ]
+              }
+            ]
+          },
+          {
+            "group": "Pixeltable Fundamentals",
+            "pages": [
+              "tutorials/tables-and-data-operations",
+              "tutorials/computed-columns",
+              "tutorials/queries-and-expressions"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Pixeltable SDK",
+        "dropdowns": [
+          {
+            "dropdown": "latest",
+            "groups": [
+              {
+                "group": "SDK Reference",
+                "pages": [
+                  {
+                    "group": "Core API",
+                    "pages": [
+                      "sdk/latest/pixeltable",
+                      "sdk/latest/table",
+                      "sdk/latest/query",
+                      "sdk/latest/columnmetadata",
+                      "sdk/latest/dircontents",
+                      "sdk/latest/indexmetadata",
+                      "sdk/latest/tablemetadata",
+                      "sdk/latest/updatestatus",
+                      "sdk/latest/versionmetadata"
+                    ]
+                  },
+                  {
+                    "group": "Built-in Functions and Operators",
+                    "pages": [
+                      "sdk/latest/audio",
+                      "sdk/latest/date",
+                      "sdk/latest/image",
+                      "sdk/latest/json",
+                      "sdk/latest/math",
+                      "sdk/latest/string",
+                      "sdk/latest/timestamp",
+                      "sdk/latest/video"
+                    ]
+                  },
+                  {
+                    "group": "AI Integrations",
+                    "pages": [
+                      "sdk/latest/anthropic",
+                      "sdk/latest/bedrock",
+                      "sdk/latest/deepseek",
+                      "sdk/latest/fal",
+                      "sdk/latest/fireworks",
+                      "sdk/latest/gemini",
+                      "sdk/latest/groq",
+                      "sdk/latest/huggingface",
+                      "sdk/latest/llama_cpp",
+                      "sdk/latest/mistralai",
+                      "sdk/latest/ollama",
+                      "sdk/latest/openai",
+                      "sdk/latest/openrouter",
+                      "sdk/latest/replicate",
+                      "sdk/latest/reve",
+                      "sdk/latest/together",
+                      "sdk/latest/twelvelabs",
+                      "sdk/latest/vision",
+                      "sdk/latest/voyageai",
+                      "sdk/latest/whisper",
+                      "sdk/latest/whisperx",
+                      "sdk/latest/yolox"
+                    ]
+                  },
+                  {
+                    "group": "Iterators",
+                    "pages": [
+                      "sdk/latest/iterators",
+                      "sdk/latest/audiosplitter",
+                      "sdk/latest/componentiterator",
+                      "sdk/latest/documentsplitter",
+                      "sdk/latest/frameiterator",
+                      "sdk/latest/stringsplitter",
+                      "sdk/latest/tileiterator",
+                      "sdk/latest/videosplitter"
+                    ]
+                  },
+                  {
+                    "group": "Import/Export",
+                    "pages": [
+                      "sdk/latest/io"
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Cloud",
+        "groups": [
+          {
+            "group": "Cloud",
+            "pages": [
+              "cloud/get-started",
+              "cloud/faq"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Integrations",
+        "groups": [
+          {
+            "group": "Built-in Integrations",
+            "pages": [
+              "integrations/frameworks",
+              "integrations/models"
+            ]
+          },
+          {
+            "group": "Infrastructure",
+            "pages": [
+              "integrations/cloud-storage"
+            ]
+          },
+          {
+            "group": "Bring Your Own",
+            "pages": [
+              "integrations/embedding-model"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Changelog",
+        "groups": [
+          {
+            "group": "Release History",
+            "pages": [
+              "changelog/changelog"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "logo": {
+    "light": "/_logo/pxt-light.svg",
+    "dark": "/_logo/pxt-dark.svg"
+  },
+  "background": {
+    "color": {
+      "light": "#FAF6F0",
+      "dark": "#020704"
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Discord",
+        "href": "https://discord.com/invite/QPyqFYx2UN"
+      },
+      {
+        "label": "Book a Demo",
+        "href": "https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM"
+      },
+      {
+        "label": "Hiring",
+        "href": "https://jobs.gusto.com/postings/pixeltable-inc-member-of-technical-staff-360acae7-6e57-4aa2-bd03-83c9dafb7bbc"
+      }
+    ],
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/pixeltable/pixeltable"
+    }
+  },
+  "search": {
+    "prompt": "Search Pixeltable docs..."
+  },
+  "footer": {
+    "socials": {
+      "twitter": "https://twitter.com/pixeltablehq",
+      "github": "https://github.com/pixeltable/pixeltable",
+      "discord": "https://discord.com/invite/QPyqFYx2UN"
+    }
+  },
+  "fonts": {
+    "heading": {
+      "family": "Inter"
+    },
+    "body": {
+      "family": "Inter"
+    }
+  }
+}
