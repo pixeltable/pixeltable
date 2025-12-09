@@ -1065,9 +1065,9 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     env.Env.get().require_package('datasets')
     env.Env.get().require_package('soundfile')
     device = resolve_torch_device('auto')
+    import datasets  # type: ignore[import-untyped]
     import soundfile as sf  # type: ignore[import-untyped]
     import torch
-    from datasets import load_dataset  # type: ignore[import-untyped]
     from transformers import (
         AutoModelForTextToWaveform,
         AutoProcessor,
@@ -1097,10 +1097,16 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     # Load speaker embeddings once for SpeechT5 (following speech2text pattern)
     speaker_embeddings = None
     if 'speecht5' in model_id.lower():
-        embeddings_dataset = load_dataset(
-            'Matthijs/cmu-arctic-xvectors', split='validation', revision='refs/convert/parquet'
-        )
-        speaker_embeddings = torch.tensor(embeddings_dataset[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
+        ds: datasets.Dataset
+        if len(_speecht5_embeddings_dataset) == 0:
+            ds = datasets.load_dataset(
+                'Matthijs/cmu-arctic-xvectors', split='validation', revision='refs/convert/parquet'
+            )
+            _speecht5_embeddings_dataset.append(ds)
+        else:
+            assert len(_speecht5_embeddings_dataset) == 1
+            ds = _speecht5_embeddings_dataset[0]
+        speaker_embeddings = torch.tensor(ds[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
 
     with torch.no_grad():
         # Generate speech based on model type
@@ -1513,6 +1519,7 @@ def _lookup_processor(model_id: str, create: Callable[[str], T]) -> T:
 
 
 _model_cache: dict[tuple[str, Callable, str | None], Any] = {}
+_speecht5_embeddings_dataset: list[Any] = []  # contains only the speecht5 embeddings loaded by text_to_speech()
 _processor_cache: dict[tuple[str, Callable], Any] = {}
 
 
