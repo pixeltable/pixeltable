@@ -1,0 +1,226 @@
+---
+title: "Label Studio"
+description: "Build annotation workflows with Pixeltable and Label Studio in two phases"
+icon: "circle-play"
+---
+
+# Building Label Studio Annotation Apps
+
+Pixeltable's Label Studio integration works in two phases:
+1. Define your annotation workflow (once)
+2. Use and annotate your data (anytime)
+
+<Note>
+This integration requires a local Pixeltable installation and cannot be run in Colab or Kaggle.
+</Note>
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install pixeltable label-studio label-studio-sdk torch transformers
+    ```
+  </Step>
+
+  <Step title="Define Your Workflow" icon="diagram-project">
+    Create `table.py`:
+    ```python
+    import pixeltable as pxt
+    from pixeltable.iterators import FrameIterator
+    from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
+    from datetime import datetime
+
+    # Initialize app structure
+    pxt.drop_dir('annotation', force=True)
+    pxt.create_dir('annotation')
+
+    # Create base video table
+    videos = pxt.create_table(
+        'annotation.videos',
+        {
+            'video': pxt.Video,
+            'date': pxt.Timestamp
+        },
+        if_exists="ignore"
+    )
+
+    # Create frame extraction view
+    frames = pxt.create_view(
+        'annotation.frames',
+        videos,
+        iterator=FrameIterator.create(
+            video=videos.video,
+            fps=0.25  # Extract 1 frame every 4 seconds
+        )
+    )
+
+    # Add object detection for pre-annotations
+    frames.add_computed_column(
+        detections=detr_for_object_detection(
+            frames.frame,
+            model_id='facebook/detr-resnet-50',
+            threshold=0.95
+        )
+    )
+
+    # Convert detections to COCO format for Label Studio
+    frames.add_computed_column(
+        preannotations=detr_to_coco(frames.frame, frames.detections)
+    )
+
+    # Define Label Studio configurations
+    video_config = '''
+    <View>
+      <Video name="video" value="$video"/>
+      <Choices name="video-category" toName="video" showInLine="true">
+        <Choice value="city"/>
+        <Choice value="food"/>
+        <Choice value="sports"/>
+      </Choices>
+    </View>
+    '''
+
+    frame_config = '''
+    <View>
+      <Image name="frame" value="$frame"/>
+      <RectangleLabels name="preannotations" toName="frame">
+        <Label value="car" background="blue"/>
+        <Label value="person" background="red"/>
+        <Label value="train" background="green"/>
+      </RectangleLabels>
+    </View>
+    '''
+
+    # Create Label Studio projects
+    pxt.io.create_label_studio_project(
+        videos,
+        video_config,
+        media_import_method='url'  # Recommended for production
+    )
+
+    pxt.io.create_label_studio_project(
+        frames,
+        frame_config,
+        media_import_method='url'
+    )
+    ```
+  </Step>
+
+  <Step title="Use Your App" icon="play">
+    Create `app.py`:
+    ```python
+    import pixeltable as pxt
+    import os
+
+    # Set up Label Studio connection
+    if 'LABEL_STUDIO_URL' not in os.environ:
+        os.environ['LABEL_STUDIO_URL'] = 'http://localhost:8080/'
+
+    # Connect to your tables
+    videos = pxt.get_table("annotation.videos")
+    frames = pxt.get_table("annotation.frames")
+
+    # Insert videos
+    url_prefix = 'http://multimedia-commons.s3-website-us-west-2.amazonaws.com/data/videos/mp4/'
+    video_files = [
+        '122/8ff/1228ff94bf742242ee7c88e4769ad5d5.mp4',
+        '2cf/a20/2cfa205eae979b31b1144abd9fa4e521.mp4'
+    ]
+
+    videos.insert([{
+        'video': url_prefix + file,
+        'date': datetime.now()
+    } for file in video_files])
+
+    # Sync with Label Studio
+    videos.sync()
+    frames.sync()
+
+    # After annotation, retrieve results
+    results = videos.select(
+        videos.video,
+        videos.annotations,
+        category=videos.annotations[0].result[0].value.choices[0]
+    ).collect()
+
+    frame_results = frames.select(
+        frames.frame,
+        frames.annotations,
+        frames.preannotations
+    ).collect()
+    ```
+  </Step>
+</Steps>
+
+## Key Features
+
+<CardGroup cols={1}>
+  <Card title="Pre-annotations" icon="robot">
+    Automatic object detection for pre-labeling:
+    ```python
+    frames.add_computed_column(
+        detections=detr_for_object_detection(
+            frames.frame
+        )
+    )
+    ```
+  </Card>
+
+  <Card title="Frame Extraction" icon="film">
+    Automatic video frame sampling:
+    ```python
+    iterator=FrameIterator.create(
+        video=videos.video,
+        fps=0.25
+    )
+    ```
+  </Card>
+
+  <Card title="Incremental Updates" icon="arrows-rotate">
+    New data automatically flows through workflow:
+    ```python
+    videos.insert(new_video)
+    videos.sync()  # Syncs only new data
+    ```
+  </Card>
+</CardGroup>
+
+## Storage Options
+
+<AccordionGroup>
+  <Accordion title="HTTP Upload" icon="upload">
+    Default method, good for small projects:
+    ```python
+    pxt.io.create_label_studio_project(
+        videos,
+        video_config
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="URL Access" icon="link">
+    Recommended for production:
+    ```python
+    pxt.io.create_label_studio_project(
+        videos,
+        video_config,
+        media_import_method='url'
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="S3 Integration" icon="aws">
+    For secure cloud storage:
+    ```python
+    pxt.io.create_label_studio_project(
+        videos,
+        video_config,
+        media_import_method='url',
+        s3_configuration={
+            'bucket': 'my-bucket',
+            'aws_access_key_id': key,
+            'aws_secret_access_key': secret
+        }
+    )
+    ```
+  </Accordion>
+</AccordionGroup>

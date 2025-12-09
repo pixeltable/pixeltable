@@ -1,0 +1,213 @@
+---
+title: "Image"
+description: "Build an image search system using OpenAI Vision and vector embeddings"
+icon: "image"
+---
+
+# Building a Visual Search Workflow
+
+Pixeltable image search works in two phases:
+1. Define your workflow structure (once)
+2. Query your image database (anytime)
+
+<Steps>
+  <Step title="Install Dependencies">
+    ```bash
+    pip install pixeltable openai sentence-transformers
+    ```
+  </Step>
+
+  <Step title="Define Your Workflow" icon="wand-magic-sparkles">
+    Create `table.py`:
+    ```python
+  import pixeltable as pxt
+  from pixeltable.functions.openai import vision
+  from pixeltable.functions.huggingface import sentence_transformer
+
+  # Initialize app structure
+  pxt.drop_dir("image_search", force=True)
+  pxt.create_dir("image_search")
+
+  # Create images table
+  img_t = pxt.create_table(
+      "image_search.images", 
+      {"image": pxt.Image}
+  )
+
+  # Add OpenAI Vision analysis
+  img_t.add_computed_column(
+      image_description=vision(
+          prompt="Describe the image. Be specific on the colors you see.",
+          image=img_t.image,
+          model="gpt-4o-mini",
+      )
+  )
+
+  # Configure embedding model
+  embed_model = sentence_transformer.using(
+      model_id="intfloat/e5-large-v2"
+  )
+
+  # Add search capability
+  img_t.add_embedding_index(
+      column="image_description", 
+      string_embed=embed_model
+  )
+```
+  </Step>
+
+  <Step title="Use Your Workflow" icon="play">
+    Create `app.py`:
+    ```python
+    import pixeltable as pxt
+
+    # Connect to your table
+    img_t = pxt.get_table("image_search.images")
+
+    # Sample image URLs
+    IMAGE_URL = (
+        "https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/"
+    )
+
+    image_urls = [
+        IMAGE_URL + doc for doc in [
+            "000000000030.jpg",
+            "000000000034.jpg",
+            "000000000042.jpg",
+        ]
+    ]
+
+    # Add images to the database
+    img_t.insert({"image": url} for url in image_urls)
+
+    # Perform search
+    query_text = "Blue flowers"
+    sim = img_t.image_description.similarity(query_text)
+    result = (
+        img_t.order_by(sim, asc=False)
+        .select(img_t.image, img_t.image_description, similarity=sim)
+        .collect()
+    )
+
+    # Print results
+    for i in result:
+        print(f"Image: {i['image']}\n")
+        print(f"Image description: {i['image_description']}\n")
+```
+  </Step>
+</Steps>
+
+## What Makes This Different?
+
+<CardGroup cols={1}>
+  <Card title="AI Vision" icon="eye">
+    OpenAI Vision generates rich image descriptions automatically:
+    ```python
+    image_description=vision(
+        prompt="Describe the image...",
+        image=img_t.image
+    )
+    ```
+  </Card>
+
+  <Card title="Vector Search" icon="magnifying-glass">
+    Natural language image search using E5 embeddings:
+    ```python
+    img_t.add_embedding_index(
+        column="image_description",
+        string_embed=embed_model
+    )
+    ```
+  </Card>
+
+  <Card title="Auto-updating" icon="arrows-rotate">
+    Self-maintaining image database:
+    ```python
+    img_t.insert([{"image": new_url}])
+    # Descriptions and embeddings update automatically
+    ```
+  </Card>
+</CardGroup>
+
+## Workflow Components
+
+<AccordionGroup>
+  <Accordion title="OpenAI Vision" icon="robot">
+    Advanced image understanding:
+    - Detailed visual descriptions
+    - Color analysis
+    - Object recognition
+    - Scene understanding
+    - Customizable description prompts
+  </Accordion>
+
+  <Accordion title="E5 Embeddings" icon="network-wired">
+    High-quality search:
+    - State-of-the-art text embeddings
+    - Fast similarity search
+    - Natural language queries
+    - Configurable similarity thresholds
+  </Accordion>
+
+  <Accordion title="Data Management" icon="database">
+    Built-in data handling:
+    - Automatic image downloads
+    - Efficient storage
+    - Query optimization
+    - Batch processing support
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Usage
+
+### Custom Search Functions
+
+Create specialized search functions:
+
+```python
+@pxt.query
+def search_with_threshold(query: str, min_similarity: float):
+    sim = img_t.image_description.similarity(query)
+    return (
+        img_t.where(sim >= min_similarity)
+        .order_by(sim, asc=False)
+        .select(
+            img_t.image,
+            img_t.image_description,
+            similarity=sim
+        )
+    )
+```
+
+### Batch Processing
+
+Process multiple images in batch:
+
+```python
+# Bulk image insertion
+image_urls = [
+    "https://example.com/image1.jpg",
+    "https://example.com/image2.jpg",
+    "https://example.com/image3.jpg"
+]
+
+img_t.insert({"image": url} for url in image_urls)
+```
+
+### Custom Vision Prompts
+
+Customize the OpenAI Vision analysis:
+
+```python
+img_t.add_computed_column(
+    detailed_analysis=vision(
+        prompt="""Analyze this image in detail:
+        1. Main objects and their positions
+        2. Color palette
+        3. Lighting and atmosphere
+        4. Any text or symbols present""",
+        image=img_t.image,
+        model="gpt-4o-mini",
+    )
+)
+```
