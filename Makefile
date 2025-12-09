@@ -142,7 +142,7 @@ slimpytest: install
 .PHONY: nbtest
 nbtest: install
 	@echo 'Running `pytest` on notebooks ...'
-	@scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/notebooks tests
+	@scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/release tests
 	@$(ULIMIT_CMD) pytest -v --nbmake --nbmake-timeout=$(NB_CELL_TIMEOUT) --nbmake-kernel=$(KERNEL_NAME) tests/target/nb-tests/*.ipynb
 
 .PHONY: stresstest

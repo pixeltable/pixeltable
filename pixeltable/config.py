@@ -172,6 +172,7 @@ KNOWN_CONFIG_OPTIONS = {
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},
     'bedrock': {'api_key': 'AWS Bedrock API key'},
     'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
+    'fal': {'api_key': 'fal.ai API key', 'rate_limit': 'Rate limit for fal.ai API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},
     'gemini': {'api_key': 'Gemini API key', 'rate_limits': 'Per-model rate limits for Gemini API requests'},
     'hf': {'auth_token': 'Hugging Face access token'},
@@ -185,6 +186,9 @@ KNOWN_CONFIG_OPTIONS = {
         'base_url': 'OpenAI API base URL',
         'api_version': 'API version if using Azure OpenAI',
         'rate_limits': 'Per-model rate limits for OpenAI API requests',
+        'max_connections': 'Maximum number of concurrent OpenAI API connections that can be established',
+        'max_keepalive_connections': 'Maximum number of keep-alive connections in the pool.'
+        ' Must not exceed max_connections.',
     },
     'openrouter': {
         'api_key': 'OpenRouter API key',
