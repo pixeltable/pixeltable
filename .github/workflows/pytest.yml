@@ -68,6 +68,7 @@ env:
   B2_ACCESS_KEY_ID: ${{ secrets.B2_ACCESS_KEY_ID }}
   B2_SECRET_ACCESS_KEY: ${{ secrets.B2_SECRET_ACCESS_KEY }}
   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+  FAL_API_KEY: ${{ secrets.FAL_API_KEY }}
   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
   GCS_SERVICE_ACCOUNT_KEY: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -202,7 +203,7 @@ jobs:
       - name: Run the notebook tests
         if: ${{ matrix.test-category == 'ipynb' }}
         run: |
-          ./scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/cookbook docs/notebooks tests
+          ./scripts/prepare-nb-tests.sh --no-pip tests/target/nb-tests docs/release tests
           set +e  # don't exit immediately on error, so that we can retry
           pytest -v -m '' --nbmake --nbmake-timeout=1800 tests/target/nb-tests/*.ipynb
           pytest -v -m '' --nbmake --nbmake-timeout=1800 --lf --lfnf=none  # retry failed tests once

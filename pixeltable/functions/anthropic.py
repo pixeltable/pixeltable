@@ -16,7 +16,7 @@ import pixeltable as pxt
 from pixeltable import env, exprs
 from pixeltable.func import Tools
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.retry import exponential_backoff
+from pixeltable.utils.http import exponential_backoff
 
 if TYPE_CHECKING:
     import anthropic
