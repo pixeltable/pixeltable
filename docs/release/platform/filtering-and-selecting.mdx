@@ -1,0 +1,264 @@
+---
+title: 'Building Queries'
+description: 'Learn how to query and transform data in Pixeltable using where() and select()'
+icon: 'blank'
+---
+
+<Info>
+Learn more about queries and expressions with this [in-depth guide](/tutorials/queries-and-expressions).
+</Info>
+
+## What are Queries?
+
+Queries in Pixeltable allow you to filter, transform, and extract data from tables and views. Using Pixeltable's expressive query interface, you can build powerful data pipelines without writing complex SQL or using external transformation tools.
+
+Pixeltable queries use a fluent API design where operations can be chained together to:
+- Filter rows based on specific conditions using `where()`
+- Select and transform columns using `select()`
+- Sort results with `order_by()`
+- Limit result sets with `limit()`
+- Perform aggregations and calculations
+
+Queries don't execute until you call `collect()`, making them efficient for complex operations. You can build queries incrementally, adding conditions and transformations as needed.
+
+```python
+# A basic query that filters, transforms, and sorts data
+roi = movies.revenue / movies.budget
+result = movies.where(
+    (movies.year >= 2000) & (movies.budget > 100.0)
+).select(
+    movies.title,
+    roi=roi
+).order_by(
+    roi, asc=False
+).limit(5).collect()
+```
+
+## Basic Filtering
+
+<Note>
+This guide builds on tables created in previous sections. The `movies` table from [Tables](/platform/tables)
+</Note>
+
+<Tabs>
+  <Tab title="Simple Where">
+    Use `where()` to filter rows based on basic conditions:
+    ```python
+    # Find movies with budget over $200M
+    movies.where(
+        movies.budget >= 200.0
+    ).collect()
+    ```
+
+  | title | year | budget |
+  |-----------|------|---------|
+  | Titanic | 1997 | 200.0 |
+  | Avengers: Endgame | 2019 | 356.0 |
+  </Tab>
+
+  <Tab title="Basic Select">
+    Use `select()` to choose specific columns:
+    ```python
+    # Get titles and release years
+    movies.select(
+        movies.title,
+        movies.year
+    ).collect()
+    ```
+
+
+    | title | year |
+    |-----------|------|
+    | Jurassic Park | 1993 |
+    | Titanic | 1997 |
+    | Avengers: Endgame | 2019 |
+    | Inside Out 2 | 2024 |
+
+  </Tab>
+
+  <Tab title="Column Naming">
+    Rename columns in your results:
+    ```python
+    # Budget in hundreds of millions
+    movies.select(
+        movies.title,
+        budget_hundreds=movies.budget / 100
+    ).collect()
+    ```
+
+
+    | title | budget_hundreds |
+    |-----------|----------|
+    | Jurassic Park | 0.63 |
+    | Titanic | 2.0 |
+    | Avengers: Endgame | 3.56 |
+    | Inside Out 2 | 2.0 |
+
+  </Tab>
+</Tabs>
+
+## Intermediate Queries
+
+<AccordionGroup>
+  <Accordion title="Text Filtering" icon="font">
+    Work with string data in movie plots:
+    ```python
+    # Find movies with "secret" in plot
+    movies.where(
+        movies.plot.contains('secret')
+    ).collect()
+
+    # Find movies with "Park" in title
+    movies.where(
+        movies.title.contains('Park')
+    ).collect()
+    ```
+  </Accordion>
+
+  <Accordion title="Multiple Conditions" icon="filter">
+    Combine conditions with `&` (and), `|` (or):
+    ```python
+    # Modern high-budget films
+    movies.where(
+        (movies.year >= 2000) &
+        (movies.budget >= 200.0)
+    ).collect()
+
+    # Classics or low-budget films
+    movies.where(
+        (movies.year < 2000) |
+        (movies.budget < 100.0)
+    ).collect()
+    ```
+  </Accordion>
+
+  <Accordion title="Sorting Results" icon="arrow-down-wide-short">
+    Use `order_by()` to sort results:
+    ```python
+    # Sort by budget (highest first)
+    movies.order_by(
+        movies.budget,
+        asc=False
+    ).collect()
+
+    # Sort by year then budget (chain multiple order_by calls)
+    movies.order_by(movies.year, asc=True).order_by(movies.budget, asc=False).collect()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Advanced Queries
+
+<CardGroup cols={1}>
+  <Card title="Text Analysis" icon="text-size">
+    Analyze plot text and titles:
+    ```python
+    # Calculate plot length statistics
+    movies.select(
+        movies.title,
+        plot_length=movies.plot.len()
+    ).collect()
+
+    # Find movies with subtitles (colon in title)
+    movies.where(
+        movies.title.contains(': ')
+    ).collect()
+    ```
+  </Card>
+
+  <Card title="Numeric Analysis" icon="calculator">
+    Budget calculations and comparisons:
+    ```python
+    from pixeltable.functions import sum, count, mean
+
+    # Calculate budget statistics
+    movies.select(
+        avg_budget=mean(movies.budget),
+        total_budget=sum(movies.budget),
+        movie_count=count(movies.title)
+    ).collect()
+
+    # Movies above average budget
+    avg_result = movies.select(
+        avg_val=mean(movies.budget)
+    ).collect()
+    avg_budget = avg_result[0]['avg_val']
+
+    movies.where(
+        movies.budget > avg_budget
+    ).collect()
+    ```
+  </Card>
+
+  <Card title="Complex Filtering" icon="layer-group">
+    Combine multiple operations:
+    ```python
+    # Top 3 highest-budget movies since 2000
+    movies.where(
+        movies.year >= 2000
+    ).order_by(
+        movies.budget,
+        asc=False
+    ).limit(3).collect()
+
+    # Analyze plots excluding specific keywords
+    movies.where(
+        ~(movies.plot.contains('secret') |
+          movies.plot.contains('dream'))
+    ).select(
+        movies.title,
+        plot_length=movies.plot.len()
+    ).collect()
+    ```
+  </Card>
+</CardGroup>
+
+## Math Functions
+
+Pixeltable provides built-in math functions for numeric transformations:
+
+```python
+from pixeltable.functions.math import abs, ceil, floor, round
+
+# Apply math functions in queries
+movies.select(
+    movies.title,
+    budget_rounded=round(movies.budget, 1),      # Round to 1 decimal place
+    budget_ceil=ceil(movies.budget),             # Round up
+    budget_floor=floor(movies.budget),           # Round down
+    budget_abs=abs(movies.budget)                # Absolute value
+).collect()
+
+# Use in computed columns
+movies.add_computed_column(
+    budget_category=floor(movies.budget / 100)   # Budget tier (0, 1, 2, etc.)
+)
+```
+
+Available math functions:
+- `abs(x)` - Absolute value
+- `ceil(x)` - Round up to nearest integer
+- `floor(x)` - Round down to nearest integer
+- `round(x, digits)` - Round to specified decimal places
+- `pow(x, y)` - Raise integer x to the power of integer y
+
+## Key Concepts
+
+<CardGroup cols={2}>
+  <Card title="Column References" icon="table-columns">
+    Access columns using dot notation (`movies.title`).
+  </Card>
+  <Card title="Chaining Operations" icon="link">
+    Combine `where()`, `select()`, `order_by()`, and `limit()` in any order.
+  </Card>
+  <Card title="Boolean Logic" icon="code-compare">
+    Use `&` (and), `|` (or), and `~` (not) for complex conditions.
+  </Card>
+  <Card title="Transformations" icon="wand-magic-sparkles">
+    Transform data during selection with mathematical and string operations.
+  </Card>
+</CardGroup>
+
+<Tip>
+Build complex queries incrementally by starting with basic filters and adding operations one at a time. This makes debugging easier and helps ensure your query returns the expected results.
+</Tip>
