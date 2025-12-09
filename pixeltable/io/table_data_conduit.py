@@ -353,9 +353,8 @@ class HFTableDataConduit(TableDataConduit):
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
 
-        # Don't use .with_format('arrow') for IterableDatasets because it causes schema
-        # inconsistencies when batches have different null patterns (pyarrow.lib.ArrowInvalid).
-        # We'll iterate in dict format and convert ourselves.
+        if isinstance(tds.source, (datasets.IterableDataset, datasets.IterableDatasetDict)):
+            tds.source = tds.source.with_format('arrow')
 
         if isinstance(tds.source, (datasets.Dataset, datasets.IterableDataset)):
             split_name = str(tds.source.split) if tds.source.split is not None else None
@@ -445,6 +444,7 @@ class HFTableDataConduit(TableDataConduit):
         Returns a list of length chunk_size.
         """
         import datasets
+        import pyarrow.types as pat
 
         # return scalars as Python scalars
         if isinstance(feature, datasets.Value):
@@ -462,8 +462,14 @@ class HFTableDataConduit(TableDataConduit):
         if is_list_of_dict:
             return column.to_pylist()
 
-        # array data represented as a Sequence feature: convert to numpy arrays
+        is_sequence_of_numerical = False
         if isinstance(feature, datasets.Sequence):
+            pa_type = feature.feature.pa_type
+            if pat.is_integer(pa_type) or pat.is_floating(pa_type):
+                is_sequence_of_numerical = True
+
+        # array data represented as a Sequence feature: convert to numpy arrays
+        if is_sequence_of_numerical:
             arr = column.to_numpy(zero_copy_only=False)
             result: list = []
             for i in range(chunk_size):
@@ -566,71 +572,6 @@ class HFTableDataConduit(TableDataConduit):
         # Return as list of array views (shares memory with reshaped)
         return list(reshaped)
 
-    def _hf_feature_to_arrow_type(self, feature: Any) -> 'pa.DataType':
-        """Convert a HuggingFace feature type to a PyArrow type."""
-        import datasets
-        import pyarrow as pa
-
-        if isinstance(feature, datasets.Value):
-            # Map HF dtypes to PyArrow types
-            dtype_map = {
-                'bool': pa.bool_(),
-                'int8': pa.int8(),
-                'int16': pa.int16(),
-                'int32': pa.int32(),
-                'int64': pa.int64(),
-                'uint8': pa.uint8(),
-                'uint16': pa.uint16(),
-                'uint32': pa.uint32(),
-                'uint64': pa.uint64(),
-                'float16': pa.float16(),
-                'float32': pa.float32(),
-                'float64': pa.float64(),
-                'string': pa.string(),
-                'large_string': pa.large_string(),
-                'timestamp[s]': pa.timestamp('s'),
-                'timestamp[ms]': pa.timestamp('ms'),
-                'timestamp[us]': pa.timestamp('us'),
-                'timestamp[ns]': pa.timestamp('ns'),
-                'date32': pa.date32(),
-                'date64': pa.date64(),
-            }
-            return dtype_map.get(feature.dtype, pa.string())
-        elif isinstance(feature, datasets.ClassLabel):
-            return pa.int64()  # ClassLabel is stored as int, we convert to string later
-        elif isinstance(feature, (datasets.Sequence, datasets.LargeList)):
-            # For sequences, check if it's a dict (list of dicts)
-            if isinstance(feature.feature, dict):
-                # List of structs
-                struct_fields = [
-                    pa.field(name, self._hf_feature_to_arrow_type(subfeature))
-                    for name, subfeature in feature.feature.items()
-                ]
-                return pa.list_(pa.struct(struct_fields))
-            else:
-                # List of primitives
-                return pa.list_(self._hf_feature_to_arrow_type(feature.feature))
-        elif isinstance(feature, (datasets.Audio, datasets.Image)):
-            # Audio/Image is stored as struct with bytes and path
-            return pa.struct([pa.field('bytes', pa.binary()), pa.field('path', pa.string())])
-        elif isinstance(feature, dict):
-            # Struct type
-            struct_fields = [
-                pa.field(name, self._hf_feature_to_arrow_type(subfeature))
-                for name, subfeature in feature.items()
-            ]
-            return pa.struct(struct_fields)
-        elif isinstance(feature, (datasets.Array2D, datasets.Array3D, datasets.Array4D, datasets.Array5D)):
-            # Multi-dimensional arrays - represented as nested lists in Arrow
-            inner_type = self._hf_feature_to_arrow_type(datasets.Value(feature.dtype))
-            result_type = inner_type
-            for _ in reversed(feature.shape):
-                result_type = pa.list_(result_type)
-            return result_type
-        else:
-            # Default to string for unknown types
-            return pa.string()
-
     def valid_row_batch(self) -> Iterator['RowData']:
         import datasets
 
@@ -640,23 +581,14 @@ class HFTableDataConduit(TableDataConduit):
                 table = split_dataset.data  # the underlying Arrow table
                 yield from self._process_arrow_table(table, split_name, features)
             else:
-                # IterableDataset: iterate in dict format to avoid schema inconsistencies,
-                # then convert to arrow with a consistent schema
-                import pyarrow as pa
-
-                # Build arrow schema from HF features to ensure consistency across batches
-                arrow_schema = pa.schema([
-                    pa.field(name, self._hf_feature_to_arrow_type(feature))
-                    for name, feature in features.items()
-                ])
-
-                # Use a fixed batch size for streaming datasets
-                batch_size = 1000
-                for batch_dict in split_dataset.iter(batch_size=batch_size):
-                    # Convert dict of lists to arrow table with consistent schema
-                    # Note: .iter(batch_size=N) returns dict of lists, not list of dicts
-                    arrow_table = pa.Table.from_pydict(batch_dict, schema=arrow_schema)
-                    yield from self._process_arrow_table(arrow_table, split_name, features)
+                # we're getting batches of Arrow tables, since we did set_format('arrow');
+                # use a trial batch to determine the target batch size
+                first_batch = next(split_dataset.iter(batch_size=16))
+                bytes_per_row = int(first_batch.nbytes / len(first_batch))
+                batch_size = self._K_BATCH_SIZE_BYTES // bytes_per_row
+                yield from self._process_arrow_table(first_batch, split_name, features)
+                for batch in split_dataset.skip(16).iter(batch_size=batch_size):
+                    yield from self._process_arrow_table(batch, split_name, features)
 
     def _process_arrow_table(self, table: 'pa.Table', split_name: str, features: dict[str, Any]) -> Iterator[RowData]:
         # get chunk boundaries from first column's ChunkedArray

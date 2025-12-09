@@ -270,11 +270,11 @@ class TestHfDatasets:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        NUM_SAMPLES = 1000  # we need more samples to get non-Null prev_messages
-        split = f'train[:{NUM_SAMPLES}]' if not streaming else 'train'
+        num_samples = 1000  # we need more samples to get non-Null prev_messages
+        split = f'train[:{num_samples}]' if not streaming else 'train'
         dataset = datasets.load_dataset('natolambert/GeneralThought-430K-filtered', split=split, streaming=streaming)
         if streaming:
-            dataset = dataset.take(NUM_SAMPLES)
+            dataset = dataset.take(num_samples)
         t = pxt.create_table('natolambert', source=dataset, primary_key='question_id', if_exists='replace')
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {
@@ -346,7 +346,7 @@ class TestHfDatasets:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        # SQuAD has answers as Sequence({'text': Value, 'answer_start': Value})
+        # SQuAD has answers as {'text': List(string), 'answer_start': List(int32)}
         split = f'validation[:{self.NUM_SAMPLES}]' if not streaming else 'validation'
         hf_dataset = datasets.load_dataset('squad', split=split, streaming=streaming)
         if streaming:
@@ -357,10 +357,12 @@ class TestHfDatasets:
         assert md['columns']['answers']['type_'] == 'Json'
 
         res = t.collect()
-        # answers should be a dict containing lists
+        # answers should be a dict containing lists; however, the list of ints gets turned into an ndarray
+        # TODO: what kinds of flags should we provide to control whether an inlined numerical array turns into a list or
+        # an ndarray?
         assert all(isinstance(row['answers'], dict) for row in res)
         assert all(isinstance(row['answers']['text'], list) for row in res)
-        assert all(isinstance(row['answers']['answer_start'], list) for row in res)
+        assert all(isinstance(row['answers']['answer_start'], np.ndarray) for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
