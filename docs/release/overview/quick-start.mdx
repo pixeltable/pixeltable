@@ -13,7 +13,7 @@ Before installing, ensure your system meets these requirements:
 
 ## Installation
 
-It is recommended to install Pixeltable in a virtual environment.
+It is recommended that you install Pixeltable in a virtual environment.
 
 <Tabs>
   <Tab title="venv">
@@ -95,9 +95,9 @@ It is recommended to install Pixeltable in a virtual environment.
 
 ## Build an Image Analysis App
 
-<Note>
+<Tip>
 This guide will help you spin up a functioning AI workload in 5 minutes.
-</Note>
+</Tip>
 
 <Steps>
   <Step title="Install Required Packages">
@@ -117,7 +117,9 @@ This guide will help you spin up a functioning AI workload in 5 minutes.
     t = pxt.create_table('quickstart.images', {'image': pxt.Image})
     ```
 
+    <Note>
     Tables are persistent: your data survives restarts and can be queried anytime.
+    </Note>
   </Step>
 
   <Step title="Add AI Object Detection">
@@ -136,7 +138,9 @@ This guide will help you spin up a functioning AI workload in 5 minutes.
     t.add_computed_column(labels=t.detections.label_text)
     ```
 
+    <Note>
     Computed columns run automatically whenever new data is inserted.
+    </Note>
   </Step>
 
   <Step title="Insert Data">
@@ -148,7 +152,9 @@ This guide will help you spin up a functioning AI workload in 5 minutes.
     ])
     ```
 
+    <Note>
     You can insert images from URLs and/or local paths in any combination.
+    </Note>
   </Step>
 
   <Step title="Query Results">
@@ -167,8 +173,10 @@ This guide will help you spin up a functioning AI workload in 5 minutes.
   </Step>
 
   <Step title="(Optional) Add LLM Vision">
+    <Tip>
     You'll need an OpenAI API key to use this step. If you don't have one, you can
     safely skip this step.
+    </Tip>
 
     ```python
     import os
@@ -193,8 +201,10 @@ This guide will help you spin up a functioning AI workload in 5 minutes.
     t.select(t.description).collect()[0]
     ```
 
+    <Note>
     Pixeltable orchestrates LLM calls for optimized throughput, handling
     rate limiting, retries, and caching automatically.
+    </Note>
   </Step>
 
   <Step>
@@ -209,8 +219,10 @@ This guide will help you spin up a functioning AI workload in 5 minutes.
     t.select(t.image, t.labels, t.description).collect()
     ```
 
+    <Note>
     When new data is insterted into tables, Pixeltable incrementally runs all
     computed columns against the new data, ensuring the table is up to date.
+    </Note>
   </Step>
 </Steps>
 
@@ -223,184 +235,3 @@ Pixeltable automatically:
 4. Stored all results (including computed columns) for instant retrieval
 5. Will incrementally process any new images you insert
 </Accordion>
-
-## Additional Tutorial - Seems Redundant with the Above?
-
-<Steps>
-  <Step title="Start Building (Step 1)" icon="code">
-    ```bash
-    pip install pixeltable
-    ```
-    Get up and running with basic [tables](/platform/tables), [queries](/platform/filtering-and-selecting), and [computed columns](/platform/computed-columns).
-
-    <CodeGroup>
-    ```python table
-    # Create a table to hold data
-    t = pxt.create_table('films_table', {
-        'name': pxt.String,
-        'revenue': pxt.Float,
-        'budget': pxt.Float
-    })
-    ```
-    ```python query
-    # Insert data into a table
-    t.insert([
-      {'name': 'Inside Out', 'revenue': 800.5, 'budget': 200.0},
-      {'name': 'Toy Story', 'revenue': 1073.4, 'budget': 200.0}
-    ])
-
-  # Retrieves all the rows in the table.
-  t.collect()
-    ```
-    ```python transform
-    # Add a new column for the profit calculation
-    t.add_computed_column(profit=(t.revenue - t.budget))
-
-    # It will automatically compute its value for all rows
-    t.select(t.profit).head()
-    ```
-    </CodeGroup>
-
-  <Info>
-  All data and computed results are automatically stored and versioned.
-  </Info>
-  </Step>
-
-  <Step title="Add Processing (Step 2)" icon="sparkles">
-    Add [LLMs](/integrations/frameworks#cloud-llm-providers), [computer vision](/integrations/frameworks#computer-vision), and [embeddings indices](/platform/vector-database).
-      <CodeGroup>
-    ```python embedding index
-    from pixeltable.functions.huggingface import clip
-    import PIL.Image
-
-    # create embedding index on the 'img' column of table 't'
-    t.add_embedding_index(
-        'img',
-        embedding=clip.using(model_id='openai/clip-vit-base-patch32')
-    )
-
-    # index is kept up-to-date enabling relevant searches
-    sim = t.img.similarity(sample_img)
-
-    res = (
-        t.order_by(sim, asc=False)  # Order by similarity
-        .where(t.id != 6)  # Metadata filtering
-        .limit(2)  # Limit number of results to 2
-        .select(t.id, t.img, sim)
-        .collect()  # Retrieve results now
-    )
-    ```
-    ```python llms
-    from pixeltable.functions import openai
-
-    # Assemble the prompt and instructions
-    messages = [
-        {
-            'role': 'system',
-            'content': 'Please read the following passages.'
-        },
-        {
-            'role': 'user',
-            'content': t.prompt # generated from the 'prompt' column
-        }
-    ]
-
-    # Add a computed column that calls OpenAI
-    t.add_computed_column(
-        response=openai.chat_completions(
-            model='gpt-4o-mini',
-            messages=messages,
-            model_kwargs={'temperature': 0.7}
-        )
-    )
-        ```
-        ```python computer vision
-    from pixeltable.functions.yolox import yolox
-
-    # compute object detections using the `yolox_tiny` model
-    frames_view.add_computed_column(detect_yolox_tiny=yolox(
-        frames_view.frame, model_id='yolox_tiny', threshold=0.25
-    ))
-
-    # The inference in the computed column is now stored
-    frames_view.select(
-        frames_view.frame,
-        frames_view.detect_yolox_tiny
-    ).show(3)
-    ```
-    </CodeGroup>
-  <Info>
-  Pixeltable orchestrates model execution, ensuring results are stored, indexed, and accessible through the same query interface.
-  </Info>
-  </Step>
-
-  <Step title="Scale Up (Step 3)" icon="chart-mixed">
-    Handle [production data](/platform/bringing-data) volumes, and deploy your application.
-      <CodeGroup>
-    ```python bring cloud data
-    # Import media data (videos, images, audio...)
-    v = pxt.create_table('videos', {'video': pxt.Video})
-
-    prefix = 's3://multimedia-commons/'
-    paths = [
-        'data/videos/mp4/ffe/ffb/ffeffbef41bbc269810b2a1a888de.mp4',
-        'data/videos/mp4/ffe/feb/ffefebb41485539f964760e6115fbc44.mp4',
-        'data/videos/mp4/ffe/f73/ffef7384d698b5f70d411c696247169.mp4'
-    ]
-    v.insert({'video': prefix + p} for p in paths)
-    ```
-    ```python chunking with views
-    # Optimize large-scale data processing
-    from pixeltable.iterators import DocumentSplitter
-
-    # Create chunked views for efficient processing
-    doc_chunks = pxt.create_view(
-        'chunks',
-        analysis,
-        iterator=DocumentSplitter.create(
-            document=analysis.document,
-            separators='sentence',
-            limit=500  # Control chunk size
-        )
-    )
-    ```
-    ```python serving
-    from fastapi import FastAPI, HTTPException
-    from pydantic import BaseModel
-
-    app = FastAPI()
-
-    class AnalysisRequest(BaseModel):
-        document: str
-        metadata: dict = {}
-
-    @app.post("/analyze")
-    async def analyze_document(request: AnalysisRequest):
-        try:
-            # Insert document for processing
-            analysis.insert([{
-                'document': request.document,
-                'metadata': request.metadata,
-                'timestamp': datetime.now()
-            }])
-
-            # Get analysis results using computed columns
-            result = analysis.select(
-                analysis.embeddings,
-                analysis.summary,
-                analysis.sentiment
-            ).tail(1)
-
-            return {
-                "status": "success",
-                "results": result.to_dict('records')[0]
-            }
-        except Exception as e:
-            raise HTTPException(status_code=0, detail=str(e))
-    ```
-    </CodeGroup>
-  <Info>
-Handle images, video, audio, numbers, array and text seamlessly in one interface.
-</Info>
-  </Step>
-</Steps>
