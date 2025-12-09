@@ -34,7 +34,7 @@ def _infer_schema_from_rows(
                 if col_name not in schema:
                     schema[col_name] = col_type
                 else:
-                    supertype = schema[col_name].supertype(col_type, restrictive=True)
+                    supertype = schema[col_name].supertype(col_type, for_inference=True)
                     if supertype is None:
                         raise excs.Error(
                             f'Could not infer type of column `{col_name}`; the value in row {n} '
