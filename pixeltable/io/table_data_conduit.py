@@ -328,12 +328,7 @@ class JsonTableDataConduit(TableDataConduit):
 
 
 class HFTableDataConduit(TableDataConduit):
-    # class FastHFImporter(TableDataConduit):
-    """
-    Fast HuggingFace dataset importer using direct Arrow table access.
-    Uses dataset.data.slice() with natural chunk boundaries for zero-copy iteration,
-    and processes columns individually to avoid to_pydict() overhead.
-    """
+    """HuggingFace dataset importer"""
 
     column_name_for_split: str | None = None
     categorical_features: dict[str, dict[int, str]]

@@ -48,7 +48,7 @@ def _to_pixeltable_type(feature_type: Any, nullable: bool) -> ts.ColumnType | No
         # example: Value(dtype='int64', id=None)
         pt = _hf_to_pxt.get(feature_type.dtype, None)
         return pt.copy(nullable=nullable) if pt is not None else None
-    elif isinstance(feature_type, datasets.Sequence):
+    elif isinstance(feature_type, (datasets.Sequence, datasets.LargeList)):
         # example: cohere wiki. Sequence(feature=Value(dtype='float32', id=None), length=-1, id=None)
         dtype = _to_pixeltable_type(feature_type.feature, nullable)
         if dtype is None:
@@ -71,15 +71,6 @@ def _to_pixeltable_type(feature_type: Any, nullable: bool) -> ts.ColumnType | No
         if inner_dtype is None:
             return None
         return ts.ArrayType(shape=feature_type.shape, dtype=inner_dtype, nullable=nullable)
-    elif isinstance(feature_type, datasets.LargeList):
-        # Like Sequence but for large data
-        dtype = _to_pixeltable_type(feature_type.feature, nullable)
-        if dtype is None:
-            return None
-        if dtype.is_int_type() or dtype.is_float_type() or dtype.is_bool_type() or dtype.is_string_type():
-            return ts.ArrayType(shape=(None,), dtype=dtype, nullable=nullable)
-        else:
-            return ts.JsonType(nullable=nullable)
     elif isinstance(feature_type, (datasets.Translation, datasets.TranslationVariableLanguages)):
         # Translation types are dict-like structures
         return ts.JsonType(nullable=nullable)
