@@ -1,0 +1,192 @@
+---
+title: 'Sampling Data'
+description: 'Learn how to create representative samples from your data for analysis, testing, and machine learning.'
+icon: 'blank'
+---
+
+## What is Sampling?
+
+Sampling in Pixeltable allows you to select a subset of rows from a table or view. This is a crucial technique in data analysis and machine learning for creating smaller, manageable datasets that are representative of the whole.
+
+You would use sampling to:
+-   **Explore Data**: Quickly get a feel for a large dataset without processing all of it.
+-   **Develop and Test**: Create smaller datasets for faster development cycles and testing of data pipelines.
+-   **Train ML Models**: Generate balanced or representative training sets, especially with large and imbalanced data.
+-   **Reduce Computational Cost**: Perform expensive computations on a smaller subset of data.
+
+Pixeltable provides several methods for sampling, including random sampling of a fixed number of rows, sampling a fraction of the data, and stratified sampling to ensure representation across different subgroups.
+
+```python
+import pixeltable as pxt
+import random
+
+# Load a sample dataset
+pop_data = pxt.create_table(
+    'population_data',
+    {
+        'country': pxt.String,
+        'continent': pxt.String,
+        'pop_2023': pxt.Int,
+    },
+    if_exists='ignore',
+)
+
+country = random.choices(['USA', 'Canada', 'Mexico'], k=10)
+continent = random.choices(['North America', 'South America'], k=10)
+pop_2023 = random.choices(range(0, 1000000), k=10)
+data = []
+
+for i in range(10):
+    data.append({
+        'country': country[i],
+        'continent': continent[i],
+        'pop_2023': pop_2023[i],
+    })
+
+pop_data.insert(data)
+
+# Get a random sample of 10 countries
+sample = pop_data.sample(n=10, seed=42)
+sample.collect()
+```
+
+## Basic Sampling Methods
+
+Pixeltable offers simple ways to draw random samples from your data.
+
+<Tabs>
+  <Tab title="Sample by Number (n)">
+    Use `n` to get a fixed number of randomly selected rows. This is useful when you need a dataset of a specific size.
+
+    ```python
+    # Get a random sample of 5 rows
+    random_sample = pop_data.sample(n=5, seed=123)
+    random_sample.collect()
+    ```
+  </Tab>
+  <Tab title="Sample by Fraction">
+    Use `fraction` to get a percentage of the total rows. This is useful for scaling down a dataset proportionally. The value should be between 0.0 and 1.0.
+
+    ```python
+    # Get a 1% random sample of the data
+    fractional_sample = pop_data.sample(fraction=0.01, seed=123)
+    fractional_sample.collect()
+    ```
+  </Tab>
+  <Tab title="Reproducibility with `seed`">
+    The `seed` parameter ensures that your sampling is deterministic. Using the same seed will always produce the same sample, which is critical for reproducible experiments and tests.
+
+    ```python
+    # This will always return the same 3 rows
+    reproducible_sample = pop_data.sample(n=3, seed=42)
+    reproducible_sample.collect()
+    ```
+  </Tab>
+</Tabs>
+
+## Stratified Sampling
+
+Stratified sampling is an advanced technique that ensures subgroups within your data are represented proportionally in the sample. You can stratify your data based on one or more columns.
+
+<AccordionGroup>
+  <Accordion title="Sample `n_per_stratum`" icon="layer-group">
+    This method samples a fixed number of rows from each subgroup (stratum). This is useful for ensuring that even small subgroups are represented in your sample.
+
+    ```python
+    # Sample 2 countries from each continent
+    stratified_sample = pop_data.sample(
+        n_per_stratum=2,
+        stratify_by=[pop_data.continent],
+        seed=42
+    )
+    stratified_sample.collect()
+    ```
+  </Accordion>
+  <Accordion title="Sample `n` with stratification" icon="list-ol">
+    This method samples a total of `n` rows, with the number of rows from each stratum proportional to its size in the original dataset.
+
+    ```python
+    # Sample a total of 20 countries, stratified by continent
+    proportional_sample = pop_data.sample(
+        n=20,
+        stratify_by=[pop_data.continent],
+        seed=42
+    )
+    proportional_sample.collect()
+    ```
+  </Accordion>
+  <Accordion title="Sample `fraction` with stratification" icon="percent">
+    This method samples a fraction of rows from each stratum.
+
+    ```python
+    # Sample 10% of countries from each continent
+    fractional_stratified = pop_data.sample(
+        fraction=0.1,
+        stratify_by=[pop_data.continent],
+        seed=42
+    )
+    fractional_stratified.collect()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Usage and Limitations
+
+The `sample()` operation has specific rules about how it can be used in a query chain.
+
+<CardGroup cols={1}>
+  <Card title="Chaining with `where()`" icon="filter">
+    You can apply a `where()` clause before `sample()` to filter the data before sampling. This is the most common way to chain operations with `sample()`.
+
+    ```python
+    # Sample 5 countries from Asia
+    asian_countries_sample = pop_data.where(
+        pop_data.continent == 'Asia'
+    ).sample(n=5, seed=42)
+
+    asian_countries_sample.collect()
+    ```
+  </Card>
+  <Card title="Creating Snapshots and Tables" icon="camera">
+    A common use case for `sample()` is to create a smaller, persistent snapshot or a new table for development, testing, or analysis.
+
+    ```python
+    # Create a sample Query
+    sample = pop_data.sample(fraction=0.1, seed=42)
+
+    # Create a persistent snapshot from the sample
+    pxt.create_snapshot('population_sample_snapshot', sample, if_exists='replace')
+
+    # Create a new table from the sample
+    pxt.create_table('population_sample_table', source=sample, if_exists='replace')
+    ```
+  </Card>
+  <Card title="Limitations" icon="ban">
+    The `sample()` operation cannot be chained with most other Query operations like `join()`, `group_by()`, `order_by()`, or `limit()`. It also cannot be used to create a `view`. These limitations exist to ensure the statistical properties of the sample are well-defined.
+
+    ```python
+    # This will raise an error
+    try:
+        pop_data.order_by(pop_data.pop_2023).sample(n=10)
+    except Exception as e:
+        print(e)
+    ```
+  </Card>
+</CardGroup>
+
+## Key Concepts
+
+<CardGroup cols={2}>
+  <Card title="Random Sampling" icon="shuffle">
+    Selects rows randomly from the entire dataset, either a fixed number or a fraction.
+  </Card>
+  <Card title="Stratified Sampling" icon="layer-group">
+    Divides the data into subgroups (strata) and samples from each, ensuring representation.
+  </Card>
+  <Card title="Reproducibility" icon="clock-rotate-left">
+    Using a `seed` ensures that you get the same sample every time, which is crucial for experiments.
+  </Card>
+  <Card title="Performance" icon="gauge-high">
+    Sampling is a highly optimized operation that can be performed efficiently on very large datasets.
+  </Card>
+</CardGroup>

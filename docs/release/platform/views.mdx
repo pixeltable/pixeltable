@@ -1,0 +1,149 @@
+---
+title: 'Views'
+description: 'Learn how to create and use virtual derived tables in Pixeltable through views'
+icon: 'blank'
+---
+
+# When to Use Views
+
+Views in Pixeltable are best used when you need to:
+
+1. **Transform Data**: When you need to process or reshape data from a base table (e.g., splitting documents into chunks, extracting features from images)
+2. **Filter Data**: When you frequently need to work with a specific subset of your data
+3. **Create Virtual Tables**: When you want to avoid storing redundant data and automatically keep derived data in sync
+4. **Build Data Workflows**: When you need to chain multiple data transformations together
+5. **Save Storage**: When you want to compute data on demand rather than storing it permanently
+
+<Note>
+Choose views over tables when your data is derived from other base tables and needs to stay synchronized with its source. Use regular tables when you need to store original data or when the computation cost of deriving data on demand is too high.
+</Note>
+
+## Phase 1: Define your base table and view structure
+
+```python
+import pixeltable as pxt
+from pixeltable.iterators import DocumentSplitter
+
+# Create a directory to organize data (optional)
+pxt.drop_dir('documents', force=True)
+pxt.create_dir('documents')
+
+# Define your base table first
+documents = pxt.create_table(
+    "documents.collection",
+    {"document": pxt.Document}
+)
+
+# Create a view that splits documents into chunks
+chunks = pxt.create_view(
+    'documents.chunks',
+    documents,
+    iterator=DocumentSplitter.create(
+        document=documents.document,
+        separators='token_limit',
+        limit=300
+    )
+)
+```
+
+## Phase 2: Use your application
+
+```python
+import pixeltable as pxt
+
+# Connect to your base table and view
+documents = pxt.get_table("documents.collection")
+chunks = pxt.get_table("documents.chunks")
+
+# Insert data into base table - view updates automatically
+documents.insert([{
+    "document": "path/to/document.pdf"
+}])
+
+# Query the view
+print(chunks.collect())
+```
+
+## View Types
+
+<AccordionGroup>
+  <Accordion title="Iterator Views" icon="arrows-split-up-and-left">
+    Views created using iterators to transform data:
+    ```python
+    # Document splitting view
+    chunks = pxt.create_view(
+        'docs.chunks',
+        documents,
+        iterator=DocumentSplitter.create(
+            document=documents.document
+        )
+    )
+    ```
+  </Accordion>
+
+  <Accordion title="Query Views" icon="magnifying-glass">
+    Views created from query operations:
+    ```python
+    # Filtered view of high-budget movies
+    blockbusters = pxt.create_view(
+        'movies.blockbusters',
+        movies.where(movies.budget >= 100.0)
+    )
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## View Operations
+
+<CardGroup cols={1}>
+  <Card title="Query Operations" icon="magnifying-glass">
+    Query views like regular tables:
+    ```python
+    # Basic filtering on view
+    chunks.where(chunks.text.contains('specific topic')).collect()
+
+    # Select specific columns
+    chunks.select(chunks.text, chunks.pos).collect()
+
+    # Order results
+    chunks.order_by(chunks.pos).limit(5).collect()
+    ```
+  </Card>
+
+  <Card title="Computed Columns" icon="calculator">
+    Add computed columns to views:
+    ```python
+    # Add embeddings to chunks
+    chunks.add_computed_column(
+        embedding=sentence_transformer.using(
+            model_id='intfloat/e5-large-v2'
+        )(chunks.text)
+    )
+    ```
+  </Card>
+
+  <Card title="Chaining Views" icon="link">
+    Create views based on other views:
+    ```python
+    # Create a view of embedded chunks
+    embedded_chunks = pxt.create_view(
+        'docs.embedded_chunks',
+        chunks.where(chunks.text.len() > 100)
+    )
+    ```
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<CardGroup cols={3}>
+  <Card title="Automatic Updates" icon="rotate">
+    Views automatically update when base tables change
+  </Card>
+  <Card title="Virtual Storage" icon="cloud">
+    Views compute data on demand, saving storage
+  </Card>
+  <Card title="Workflow Integration" icon="diagram-project">
+    Views can be part of larger data workflows
+  </Card>
+</CardGroup>
