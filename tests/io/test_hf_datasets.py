@@ -267,7 +267,7 @@ class TestHfDatasets:
     # This test fails with streaming=True due to a known bug in datasets:
     # https://github.com/huggingface/datasets/issues/3738
     # TODO: find out whether we need a workaround
-    #@pytest.mark.parametrize('streaming', [False, True])
+    # @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.parametrize('streaming', [False])
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_list_of_dict(self, streaming: bool, reset_db: None) -> None:
