@@ -1097,7 +1097,9 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     # Load speaker embeddings once for SpeechT5 (following speech2text pattern)
     speaker_embeddings = None
     if 'speecht5' in model_id.lower():
-        embeddings_dataset = load_dataset('Matthijs/cmu-arctic-xvectors', split='validation')
+        embeddings_dataset = load_dataset(
+            'Matthijs/cmu-arctic-xvectors', split='validation', revision='refs/convert/parquet'
+        )
         speaker_embeddings = torch.tensor(embeddings_dataset[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
 
     with torch.no_grad():
