@@ -28,7 +28,7 @@
               "platform/tables",
               "platform/views",
               {
-                "group": "Core",
+                "group": "Core Components",
                 "pages": [
                   "platform/computed-columns",
                   "platform/iterators",
@@ -79,6 +79,15 @@
               "howto/using-label-studio-with-pixeltable",
               "howto/working-with-fiftyone",
               {
+                "group": "Use Cases",
+                "pages": [
+                  "howto/use-cases/audio-transcriptions",
+                  "howto/use-cases/object-detection-in-videos",
+                  "howto/use-cases/rag-demo",
+                  "howto/use-cases/rag-operations"
+                ]
+              },
+              {
                 "group": "Cookbooks",
                 "pages": [
                   {
@@ -92,21 +101,7 @@
                       "howto/cookbooks/images/img-rgb-to-grayscale"
                     ]
                   },
-                  {
-                    "group": "Audio/Video",
-                    "pages": [
-                      "howto/cookbooks/av/audio-transcriptions",
-                      "howto/cookbooks/av/object-detection-in-videos"
-                    ]
-                  },
-                  {
-                    "group": "Application Workflows",
-                    "pages": [
-                      "howto/cookbooks/app-workflows/dev-iterative-workflow",
-                      "howto/cookbooks/app-workflows/rag-demo",
-                      "howto/cookbooks/app-workflows/rag-operations"
-                    ]
-                  }
+                  "howto/cookbooks/dev-iterative-workflow"
                 ]
               }
             ]
