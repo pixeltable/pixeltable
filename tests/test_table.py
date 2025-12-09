@@ -969,8 +969,6 @@ class TestTable:
         assert list(df['Type']) == expected_strings + expected_strings
 
     def test_uuid_type(self, reset_db: None, reload_tester: ReloadTester) -> None:
-        """Test UUID type operations: insert, query, comparison, nullable, required."""
-
         # Test UUIDs of different versions
         test_uuids: list[uuid.UUID] = [
             uuid.uuid1(),
@@ -2794,7 +2792,6 @@ class TestTable:
         reload_tester.run_reload_test()
 
     def test_uuid_primary_key(self, reset_db: None, reload_tester: ReloadTester) -> None:
-        """Test creating a table with a UUID primary key using computed column in schema."""
         # Test creating a table with a UUID primary key using computed column
         t = pxt.create_table('test_uuid_pk_tbl', {'id': {'value': uuid4()}, 'data': pxt.String}, primary_key=['id'])
 
