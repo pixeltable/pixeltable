@@ -37,8 +37,7 @@ async def generate_content(
     contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None
 ) -> dict:
     """
-    Generate content from the specified model. `contents` can be a prompt, or a list containing images and text
-    prompts, as described in: <https://ai.google.dev/gemini-api/docs/text-generation>
+    Generate content from the specified model.
 
     Request throttling:
     Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
@@ -49,7 +48,8 @@ async def generate_content(
     - `pip install google-genai`
 
     Args:
-        contents: The input content to generate from.
+        contents: The input content to generate from. Can be a prompt, or a list containing images and text
+            prompts, as described in: <https://ai.google.dev/gemini-api/docs/text-generation>
         model: The name of the model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateContentConfig`. For details on the parameters, see:
