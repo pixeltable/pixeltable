@@ -7,7 +7,8 @@ import numpy as np
 import pytest
 
 import pixeltable as pxt
-from ..utils import skip_test_if_not_installed, IN_CI
+
+from ..utils import IN_CI, skip_test_if_not_installed
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -269,13 +270,29 @@ class TestHfDatasets:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        NUM_SAMPLES = 1000  # we need more samples to get non-Null prev_messages
+        split = f'train[:{NUM_SAMPLES}]' if not streaming else 'train'
         dataset = datasets.load_dataset('natolambert/GeneralThought-430K-filtered', split=split, streaming=streaming)
         if streaming:
-            dataset = dataset.take(self.NUM_SAMPLES)
+            dataset = dataset.take(NUM_SAMPLES)
         t = pxt.create_table('natolambert', source=dataset, primary_key='question_id', if_exists='replace')
         md = t.get_metadata()
-        assert set(md['columns'].keys()) == {'question_id', 'prev_messages', 'question', 'answer'}
+        assert set(md['columns'].keys()) == {
+            'question_id',
+            'question_url',
+            'question',
+            'reference_answer',
+            'prev_messages',
+            'model_name',
+            'model_answer',
+            'model_reasoning',
+            'task',
+            'question_license',
+            'question_source',
+            'community_answer_score',
+            'community_question_score',
+            'verifier_score',
+        }
         assert md['columns']['prev_messages']['type_'] == 'Json'
 
         res = t.where(t.prev_messages != None).collect()
@@ -308,7 +325,9 @@ class TestHfDatasets:
 
         # Cohere Wikipedia has embeddings as Sequence(float32); 'mi': a relatively small dataset
         split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
-        hf_dataset = datasets.load_dataset('Cohere/wikipedia-2023-11-embed-multilingual-v3', 'mi', split=split, streaming=streaming)
+        hf_dataset = datasets.load_dataset(
+            'Cohere/wikipedia-2023-11-embed-multilingual-v3', 'mi', split=split, streaming=streaming
+        )
         if streaming:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('test', source=hf_dataset)
