@@ -25,17 +25,20 @@ _logger = logging.getLogger('pixeltable')
 
 class FrameIterator(ComponentIterator):
     """
-    Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be specified. If `fps`
+    Iterator over frames of a video. At most one of `fps`, `num_frames`, or `keyframes_only` may be specified. If `fps`
     is specified, then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified,
-    then the exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The
-    first frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
+    then the exact number of frames will be extracted. If neither is specified, then all frames will be extracted.
+
+    If `fps` or `num_frames` is large enough to exceed the native framerate of the video, then all frames will be
+    extracted. (Frames will never be duplicated; the maximum number of frames extracted is the total number of frames
+    in the video.)
 
     Args:
-        fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
-            If omitted or set to 0.0, or if greater than the native framerate of the video,
-            then the framerate of the video will be used (all frames will be extracted).
-        num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
-            `num_frames` is greater than the number of frames in the video, all frames will be extracted.
+        fps: Number of frames to extract per second of video. This may be a fractional value, such as `0.5` (one frame
+            per two seconds). The first frame of the video will always be extracted.
+        num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible: the video will
+            be divided into `num_frames` evenly spaced intervals, and the midpoint of each interval will be used for
+            frame extraction.
         keyframes_only: If True, only extract keyframes.
         all_frame_attrs:
             If True, outputs a `pxt.Json` column `frame_attrs` with the following `pyav`-provided attributes
@@ -138,7 +141,6 @@ class FrameIterator(ComponentIterator):
         if self.num_frames is not None:
             # Divide the video duration into num_frames evenly spaced intervals. The extraction times are the midpoints
             # of those intervals.
-            increment = (self.video_duration - self.video_start_time) / self.num_frames
             self.extraction_step = (self.video_duration - self.video_start_time) / self.num_frames
             self.next_extraction_time = self.video_start_time + self.extraction_step / 2
         elif self.fps is not None:
