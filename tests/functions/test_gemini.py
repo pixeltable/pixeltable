@@ -81,14 +81,31 @@ class TestGemini:
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_videos
 
+        duration = 4
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
-        t.add_computed_column(output=generate_videos(t.prompt, model='veo-2.0-generate-001'))
+        t.add_computed_column(
+            output=generate_videos(t.prompt, model='veo-3.0-generate-001', config={'duration_seconds': duration})
+        )
         t.add_computed_column(metadata=t.output.get_metadata())
         validate_update_status(
-            t.insert(prompt='A giant pixel floating over the open ocean in a sea of data'), expected_rows=1
+            t.insert(
+                prompt='A giant pixel floating over the open ocean in a sea of data to the sound of ambient music'
+            ),
+            expected_rows=1,
         )
+
         results = t.collect()
-        print(results['output'][0])
-        print(results['metadata'][0])
-        assert Path(results['output'][0]).exists()
-        assert results['metadata'][0]['streams'][0]['height'] == 720
+        file_path = results['output'][0]
+        print(f'Generated video: {file_path}')
+        metadata = results['metadata'][0]
+        print(f'Generated video metadata: {metadata}')
+        assert Path(file_path).exists()
+
+        # Validate metadata
+        streams = metadata['streams']
+        video_stream = next(s for s in streams if s['type'] == 'video')
+        audio_stream = next(s for s in streams if s['type'] == 'audio')
+        assert len(streams) == 2, metadata
+        assert video_stream['height'] == 720, metadata
+        assert video_stream['duration_seconds'] == duration, metadata
+        assert audio_stream['duration_seconds'] == duration, metadata
