@@ -167,6 +167,10 @@ class FrameIterator(ComponentIterator):
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         attrs: dict[str, ts.ColumnType]
+        fps = kwargs.get('fps')
+        if fps is not None and (not isinstance(fps, (int, float)) or fps < 0.0):
+            raise excs.Error('`fps` must be a non-negative number')
+
         if kwargs.get('all_frame_attrs'):
             attrs = {'frame_attrs': ts.JsonType()}
         else:
@@ -210,25 +214,12 @@ class FrameIterator(ComponentIterator):
                     # - next_extraction_time is before cur_frame_time (never skips)
                     # - next_extraction_time is after next_frame_time (always skips)
                     # - next_extraction_time is between cur_frame_time and next_frame_time (depends on which is closer)
-
                     next_frame_pts = next_frame.pts
                     next_frame_time = float(next_frame_pts * self.video_time_base)
                     if next_frame_time - self.next_extraction_time < self.next_extraction_time - cur_frame_time:
                         self.cur_frame = next_frame
                         self.video_idx += 1
                         continue
-
-                    # We didn't skip cur_frame, so we're definitely going to be materializing it. But we also need to
-                    # ensure we get the *index* correct and consistent with future seek() operations. If fps or
-                    # num_frames is large, then multiple extraction times may map onto cur_frame. So we need to
-                    # advance next_extraction_idx to find the *extraction time* that is closest to cur_frame_time.
-                    while (
-                        next_frame_time - (self.next_extraction_time + self.extraction_step)
-                        >= (self.next_extraction_time + self.extraction_step) - cur_frame_time
-                        and abs(next_frame_time - (self.next_extraction_time + self.extraction_step))
-                        < abs(next_frame_time - self.next_extraction_time)
-                    ):
-                        self.next_extraction_time += self.extraction_step
 
             img = self.cur_frame.to_image()
             assert isinstance(img, PIL.Image.Image)
@@ -272,7 +263,7 @@ class FrameIterator(ComponentIterator):
 
         seek_time: float
         if 'pos_msec' in kwargs:
-            self.video_idx = kwargs['frame_idx']
+            self.video_idx = kwargs['pos_frame']
             seek_time = kwargs['pos_msec'] / 1000.0 + self.video_start_time
         else:
             assert 'frame_attrs' in kwargs
