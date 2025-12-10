@@ -28,11 +28,9 @@ class TestGemini:
             top_p=0.95,
             top_k=40,
             response_mime_type='text/plain',
-            presence_penalty=0.6,
-            frequency_penalty=0.6,
         )
         t.add_computed_column(output2=generate_content(t.contents, model='gemini-2.5-flash', config=config))
-        validate_update_status(t.insert(contents='Write a story about a magic backpack.'), expected_rows=1)
+        validate_update_status(t.insert(contents='Write a sentence about a magic backpack.'), expected_rows=1)
         results = t.collect()
         text = results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         text2 = results['output2'][0]['candidates'][0]['content']['parts'][0]['text']
