@@ -155,6 +155,7 @@ End-to-end AI application patterns:
 | [Build a RAG pipeline](pattern-rag-pipeline.ipynb) | Question answering with document retrieval |
 | [Build an agent with memory](pattern-agent-memory.ipynb) | Semantic memory for AI agents |
 | [Look up structured data](pattern-data-lookup.ipynb) | Query tables with retrieval UDFs |
+| [Use a table as a reusable function](pattern-table-as-udf.ipynb) | Multi-agent workflows with table UDFs |
 
 ### Iteration
 
