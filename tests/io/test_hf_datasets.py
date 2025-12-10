@@ -274,6 +274,7 @@ class TestHfDatasets:
     # TODO: find out whether we need a workaround
     # @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.parametrize('streaming', [False])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_list_of_dict(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -308,6 +309,7 @@ class TestHfDatasets:
         assert all(isinstance(x, dict) for row in res for x in row['prev_messages'])
 
     @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_classlabel(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -325,6 +327,7 @@ class TestHfDatasets:
         assert all(row['label'] in ['neg', 'pos'] for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_sequence_of_float(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -347,6 +350,7 @@ class TestHfDatasets:
         assert all(row['emb'].dtype == np.float32 for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_sequence_of_dict(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -370,6 +374,7 @@ class TestHfDatasets:
         assert all(isinstance(row['answers']['answer_start'], np.ndarray) for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_nested_struct(self, streaming: bool, reset_db: None) -> None:
         """
         Test importing dataset with nested structures:
