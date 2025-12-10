@@ -194,7 +194,6 @@ class TestTypes:
             (IntType(), FloatType(), FloatType()),
             (BoolType(), IntType(), IntType()),
             (BoolType(), FloatType(), FloatType()),
-            (IntType(), StringType(), None),
             (
                 ImageType(height=100, width=200, mode='RGB'),
                 ImageType(height=100, width=200, mode='RGB'),
@@ -218,13 +217,17 @@ class TestTypes:
             (ImageType(height=100, width=200, mode='RGB'), ImageType(height=300, width=400, mode='RGBA'), ImageType()),
             (ImageType(height=100, width=200, mode='RGB'), ImageType(), ImageType()),
             (JsonType(), JsonType(), JsonType()),
+            (IntType(), StringType(), JsonType()),
+            (IntType(), JsonType(), JsonType()),
+            (JsonType(), IntType(), JsonType()),
+            (TimestampType(), IntType(), None),
+            (DateType(), StringType(), None),
             (JsonType(json_schema=self.json_schema_1), JsonType(), JsonType()),
             (
                 JsonType(json_schema=self.json_schema_1),
                 JsonType(json_schema=self.json_schema_2),
                 JsonType(json_schema=self.json_schema_12),
             ),
-            (JsonType(), IntType(), None),
         ]
         for i, (t1, t2, expected) in enumerate(test_cases):
             for n1 in [True, False]:
