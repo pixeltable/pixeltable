@@ -399,6 +399,7 @@ class TestHfDatasets:
         assert all(isinstance(row['context']['sentences'], list) for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_arraynd(self, streaming: bool, reset_db: None) -> None:
         """Test dataset with Array2D and Array3D features."""
         skip_test_if_not_installed('datasets')
