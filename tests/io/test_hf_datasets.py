@@ -8,7 +8,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import IN_CI, skip_test_if_not_installed
+from ..utils import IN_CI, rerun, skip_test_if_not_installed
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 @pytest.mark.skipif(
     sysconfig.get_platform() == 'linux-aarch64', reason='libsndfile.so is missing on Linux ARM instances in CI'
 )
-# @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
+@rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
 class TestHfDatasets:
     NUM_SAMPLES = 100
 
@@ -200,7 +200,6 @@ class TestHfDatasets:
         assert 'Unsupported data source type' in str(exc_info.value)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_images(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -238,11 +237,14 @@ class TestHfDatasets:
         assert all(isinstance(row['audio'], dict) for row in res)
         assert all(isinstance(row['audio']['array'], np.ndarray) for row in res)
 
-    def test_import_audio(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('streaming', [False, True])
+    def test_import_audio_small(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        hf_dataset = datasets.load_dataset('hf-internal-testing/librispeech_asr_dummy', 'clean', split='validation')
+        hf_dataset = datasets.load_dataset(
+            'hf-internal-testing/librispeech_asr_dummy', 'clean', split='validation', streaming=streaming
+        )
         t = pxt.create_table('audio_test', source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
@@ -251,11 +253,14 @@ class TestHfDatasets:
         res = t.collect()
         assert all(pathlib.Path(row['audio']).exists() for row in res)
 
-    def test_import_audio_streaming(self, reset_db: None) -> None:
+    # This dataset is too large not to use in streaming mode (124GB)
+    # TODO: find dataset containing Audio that is not gigantic
+    @pytest.mark.parametrize('streaming', [True])
+    def test_import_audio(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        hf_dataset = datasets.load_dataset('librispeech_asr', split='train.clean.100', streaming=True).take(100)
+        hf_dataset = datasets.load_dataset('librispeech_asr', split='train.clean.100', streaming=streaming).take(100)
         t = pxt.create_table('audio_test', source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
@@ -269,7 +274,6 @@ class TestHfDatasets:
     # TODO: find out whether we need a workaround
     # @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.parametrize('streaming', [False])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_list_of_dict(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -304,7 +308,6 @@ class TestHfDatasets:
         assert all(isinstance(x, dict) for row in res for x in row['prev_messages'])
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_classlabel(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -322,7 +325,6 @@ class TestHfDatasets:
         assert all(row['label'] in ['neg', 'pos'] for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_sequence_of_float(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -345,7 +347,6 @@ class TestHfDatasets:
         assert all(row['emb'].dtype == np.float32 for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_sequence_of_dict(self, streaming: bool, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -369,7 +370,6 @@ class TestHfDatasets:
         assert all(isinstance(row['answers']['answer_start'], np.ndarray) for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_nested_struct(self, streaming: bool, reset_db: None) -> None:
         """
         Test importing dataset with nested structures:
@@ -399,7 +399,6 @@ class TestHfDatasets:
         assert all(isinstance(row['context']['sentences'], list) for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
     def test_import_arraynd(self, streaming: bool, reset_db: None) -> None:
         """Test dataset with Array2D and Array3D features."""
         skip_test_if_not_installed('datasets')

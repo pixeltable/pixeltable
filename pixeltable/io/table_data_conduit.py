@@ -10,6 +10,9 @@ from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.types as pat
 from pyarrow.parquet import ParquetDataset
 
 import pixeltable as pxt
@@ -25,7 +28,6 @@ _logger = logging.getLogger('pixeltable')
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
-    import pyarrow as pa
 
     from pixeltable.globals import RowData, TableDataSource
 
@@ -342,9 +344,7 @@ class HFTableDataConduit(TableDataConduit):
         t = cls(**kwargs)
         import datasets
 
-        assert isinstance(
-            tds.source, (datasets.Dataset, datasets.DatasetDict, datasets.IterableDataset, datasets.IterableDatasetDict)
-        )
+        assert isinstance(tds.source, cls._get_dataset_classes())
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
 
@@ -355,7 +355,7 @@ class HFTableDataConduit(TableDataConduit):
             split_name = str(tds.source.split) if tds.source.split is not None else None
             t.dataset_dict = {split_name: tds.source}
         else:
-            # assert isinstance(tds.source, datasets.DatasetDict)
+            assert isinstance(tds.source, (datasets.DatasetDict, datasets.IterableDatasetDict))
             t.dataset_dict = dict(tds.source)
 
         # Disable auto-decoding for Audio and Image columns, we want to write the bytes directly to temp files
@@ -368,13 +368,16 @@ class HFTableDataConduit(TableDataConduit):
         return t
 
     @classmethod
+    def _get_dataset_classes(cls) -> tuple[type, ...]:
+        import datasets
+
+        return (datasets.Dataset, datasets.DatasetDict, datasets.IterableDataset, datasets.IterableDatasetDict)
+
+    @classmethod
     def is_applicable(cls, tds: TableDataConduit) -> bool:
         try:
-            import datasets
-
             return (isinstance(tds.source_format, str) and tds.source_format.lower() == 'huggingface') or isinstance(
-                tds.source,
-                (datasets.Dataset, datasets.DatasetDict, datasets.IterableDataset, datasets.IterableDatasetDict),
+                tds.source, cls._get_dataset_classes()
             )
         except ImportError:
             return False
@@ -476,8 +479,6 @@ class HFTableDataConduit(TableDataConduit):
 
         if isinstance(feature, (datasets.Audio, datasets.Image)):
             # Audio/Image is stored in Arrow as struct<bytes: binary, path: string>
-            import pyarrow as pa
-            import pyarrow.compute as pc
 
             from pixeltable.utils.local_store import TempStore
 
@@ -521,7 +522,6 @@ class HFTableDataConduit(TableDataConduit):
     def _is_sequence_of_numerical(self, feature: object) -> bool:
         """Returns True if feature is a (nested) Sequence of numerical values."""
         import datasets
-        import pyarrow.types as pat
 
         if not isinstance(feature, datasets.Sequence):
             return False
@@ -536,7 +536,6 @@ class HFTableDataConduit(TableDataConduit):
         Convert a StructArray column to a list of dicts by recursively
         converting each field.
         """
-        import pyarrow.compute as pc
 
         results: list[dict[str, Any]] = [{} for _ in range(len(column))]
         for field_name, field_feature in feature.items():
@@ -623,11 +622,9 @@ class ParquetTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
 
-        from pyarrow import parquet
-
         assert isinstance(tds.source, str)
         input_path = Path(tds.source).expanduser()
-        t.pq_ds = parquet.ParquetDataset(str(input_path))
+        t.pq_ds = pa.parquet.ParquetDataset(str(input_path))
         return t
 
     def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:
