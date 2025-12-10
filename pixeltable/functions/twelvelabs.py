@@ -5,13 +5,15 @@ first `pip install twelvelabs` and configure your TwelveLabs credentials, as des
 the [Working with TwelveLabs](https://docs.pixeltable.com/notebooks/integrations/working-with-twelvelabs) tutorial.
 """
 
+from base64 import b64encode
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 
 import pixeltable as pxt
-from pixeltable import env
+from pixeltable import env, type_system as ts
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.image import to_base64
 
 if TYPE_CHECKING:
     from twelvelabs import AsyncTwelveLabs
@@ -29,19 +31,13 @@ def _twelvelabs_client() -> 'AsyncTwelveLabs':
 
 
 @pxt.udf(resource_pool='request-rate:twelvelabs')
-async def embed(
-    model_name: str,
-    *,
-    text: str | None = None,
-    text_truncate: Literal['none', 'start', 'end'] | None = None,
-    audio: pxt.Audio | None = None,
-    # TODO: support images
-    # image: pxt.Image | None = None,
-    **kwargs: Any,
-) -> pxt.Array[(1024,), pxt.Float]:
+async def embed(model_name: str, *, text: str, image: pxt.Image | None = None) -> pxt.Array[np.float32] | None:
     """
-    Creates an embedding vector for the given `text`, `audio`, or `image` parameter. Only one of `text`, `audio`, or
-    `image` may be specified.
+    Creates an embedding vector for the given text, audio, image, or video input.
+
+    Each UDF signature corresponds to one of the four supported input types. If text is specified, it is possible to
+    specify an image as well, corresponding to the `text_image` embedding type in the TwelveLabs API. This is
+    (currently) the only way to include more than one input type at a time.
 
     Equivalent to the TwelveLabs Embed API:
     <https://docs.twelvelabs.io/v1.3/docs/guides/create-embeddings>
@@ -59,8 +55,9 @@ async def embed(
             [the TwelveLabs documentation](https://docs.twelvelabs.io/v1.3/sdk-reference/python/create-text-image-and-audio-embeddings)
             for available models.
         text: The text to embed.
-        text_truncate: Truncation mode for the text.
+        image: The image to embed.
         audio: The audio to embed.
+        video: The video to embed.
 
     Returns:
         The embedding.
@@ -69,24 +66,124 @@ async def embed(
         Add a computed column `embed` for an embedding of a string column `input`:
 
         >>> tbl.add_computed_column(
-        ...     embed=embed(model_name='Marengo-retrieval-2.7', text=tbl.input)
+        ...     embed=embed(model_name='marengo3.0', text=tbl.input)
         ... )
     """
+    env.Env.get().require_package('twelvelabs')
+    import twelvelabs
+
     cl = _twelvelabs_client()
-    if text is not None:
-        res = await cl.embed.create(model_name=model_name, text=text, text_truncate=text_truncate, **kwargs)
-        if res.text_embedding is None:
-            raise pxt.Error(f"Didn't receive embedding for text: {text}\n{res}")
-        vector = res.text_embedding.segments[0].float_
-        return np.array(vector, dtype=np.float64)
-    if audio is not None:
-        res = await cl.embed.create(model_name=model_name, audio_file=audio, **kwargs)
-        if res.audio_embedding is None or res.audio_embedding.segments is None:
+    res: twelvelabs.EmbeddingSuccessResponse
+    if image is None:
+        # Text-only
+        res = await cl.embed.v_2.create(input_type='text', model_name=model_name, text=twelvelabs.TextInputRequest(input_text=text))
+    else:
+        b64str = to_base64(image, format=('png' if image.has_transparency_data else 'jpeg'))
+        res = await cl.embed.v_2.create(input_type='text_image', model_name=model_name, text_image=twelvelabs.TextImageInputRequest(
+            media_source=twelvelabs.MediaSource(base_64_string=b64str),
+            input_text=text,
+        ))
+    if not res.data:
+        raise pxt.Error(f"Didn't receive embedding for text: {text}\n{res}")
+    vector = res.data[0].embedding
+    return np.array(vector, dtype='float32')
+
+
+@embed.overload
+async def _(
+    model_name: str,
+    *,
+    image: pxt.Image,
+) -> pxt.Array[np.float32] | None:
+    env.Env.get().require_package('twelvelabs')
+    import twelvelabs
+
+    cl = _twelvelabs_client()
+    b64_str = to_base64(image, format=('png' if image.has_transparency_data else 'jpeg'))
+    res = await cl.embed.v_2.create(
+        input_type='image',
+        model_name=model_name,
+        image=twelvelabs.ImageInputRequest(media_source=twelvelabs.MediaSource(base_64_string=b64_str)),
+    )
+    if not res.data:
+        raise pxt.Error(f"Didn't receive embedding for image: {image}\n{res}")
+    vector = res.data[0].embedding
+    return np.array(vector, dtype='float32')
+
+
+@embed.overload
+async def _(
+    model_name: str,
+    *,
+    audio: pxt.Audio,
+    start_sec: float | None = None,
+    end_sec: float | None = None,
+    embedding_option: list[Literal['audio', 'transcription']] | None = None,
+    embedding_scope: list[Literal['clip', 'asset']] | None = None,
+) -> pxt.Array[np.float32] | None:
+    env.Env.get().require_package('twelvelabs')
+    import twelvelabs
+
+    cl = _twelvelabs_client()
+    with open(audio, 'rb') as fp:
+        b64_str = b64encode(fp.read()).decode('utf-8')
+        res = await cl.embed.v_2.create(
+            input_type='audio',
+            model_name=model_name,
+            audio=twelvelabs.AudioInputRequest(
+                media_source=twelvelabs.MediaSource(base_64_string=b64_str),
+                start_sec=start_sec,
+                end_sec=end_sec,
+                embedding_option=embedding_option,
+                embedding_scope=embedding_scope,
+            ),
+        )
+        if not res.data:
             raise pxt.Error(f"Didn't receive embedding for audio: {audio}\n{res}")
-        vector = res.audio_embedding.segments[0].float_
-        return np.array(vector, dtype=np.float64)
-    # TODO: handle audio and image, once we know how to get a non-error response
-    return None
+        vector = res.data[0].embedding
+        return np.array(vector, dtype='float32')
+
+
+@embed.overload
+async def _(
+    model_name: str,
+    *,
+    video: pxt.Video,
+    start_sec: float | None = None,
+    end_sec: float | None = None,
+    embedding_option: list[Literal['visual', 'audio', 'transcription']] | None = None,
+    embedding_scope: list[Literal['clip', 'asset']] | None = None,
+) -> pxt.Array[np.float32] | None:
+    env.Env.get().require_package('twelvelabs')
+    import twelvelabs
+
+    cl = _twelvelabs_client()
+    with open(video, 'rb') as fp:
+        b64_str = b64encode(fp.read()).decode('utf-8')
+        res = await cl.embed.v_2.create(
+            input_type='video',
+            model_name=model_name,
+            video=twelvelabs.VideoInputRequest(
+                media_source=twelvelabs.MediaSource(base_64_string=b64_str),
+                start_sec=start_sec,
+                end_sec=end_sec,
+                embedding_option=embedding_option,
+                embedding_scope=embedding_scope,
+            ),
+        )
+        if not res.data:
+            raise pxt.Error(f"Didn't receive embedding for video: {video}\n{res}")
+        vector = res.data[0].embedding
+        return np.array(vector, dtype='float32')
+
+
+@embed.conditional_return_type
+def _(model_name: str) -> ts.ArrayType:
+    if model_name == 'Marengo-retrieval-2.7':
+        return ts.ArrayType(shape=(1024,), dtype=np.dtype('float32'))
+    if model_name == 'marengo3.0':
+        return ts.ArrayType(shape=(512,), dtype=np.dtype('float32'))
+    return ts.ArrayType(dtype=np.dtype('float32'))
 
 
 __all__ = local_public_names(__name__)

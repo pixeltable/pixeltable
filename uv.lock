@@ -5227,7 +5227,7 @@ dev = [
     { name = "torchaudio", specifier = "~=2.7" },
     { name = "torchvision", specifier = ">=0.22" },
     { name = "transformers", specifier = "~=4.52" },
-    { name = "twelvelabs", specifier = ">=1.0" },
+    { name = "twelvelabs", specifier = ">=1.1.0" },
     { name = "types-beautifulsoup4", specifier = ">=4.2" },
     { name = "types-jmespath", specifier = ">=1.0" },
     { name = "types-jsonschema", specifier = ">=4.1.0" },
@@ -8475,7 +8475,7 @@ wheels = [
 
 [[package]]
 name = "twelvelabs"
-version = "1.0.2"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -8483,9 +8483,9 @@ dependencies = [
     { name = "pydantic-core" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f3/a9/c461bb8ee5e6fb921d62899c3eb168dc60b05853d5bfc847841bccb2fc18/twelvelabs-1.0.2.tar.gz", hash = "sha256:108d583db15148fdab976f7d91d92b2befa338e4562d301aafb6da5efaf085d9", size = 90824, upload-time = "2025-09-17T18:18:28.76Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/68/06faac86aa679ca609597b4fcd8a0d9d642314df79ad8c5b93985088da61/twelvelabs-1.1.0.tar.gz", hash = "sha256:02a26542606fcc4c0ee20fd09b335e664cc79269970d22fc9abfdac443ccd066", size = 141368, upload-time = "2025-11-18T01:40:50.964Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/43/f1/ab42e54c6c380f54fee9cfefcf77506ed871e5c4c30a07a8a47c0f40c4ea/twelvelabs-1.0.2-py3-none-any.whl", hash = "sha256:f6e22265224c2d70a415f25869bec14020e20dc50276bd03a6cc1db5155ef6bd", size = 172798, upload-time = "2025-09-17T18:18:27.35Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/0b/61c8da90f83430732265b3a76172c6946bd642030703be5e37804f5c0531/twelvelabs-1.1.0-py3-none-any.whl", hash = "sha256:01074eb18f8035d3cb860ecb50080220c9b9f42b1cc5114f027e6b8e3589b78a", size = 285767, upload-time = "2025-11-18T01:40:49.776Z" },
 ]
 
 [[package]]
