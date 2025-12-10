@@ -68,15 +68,8 @@ class ColumnType:
                 return t
             return None
 
-    scalar_types: ClassVar[set[Type]] = {
-        Type.STRING,
-        Type.INT,
-        Type.FLOAT,
-        Type.BOOL,
-        Type.TIMESTAMP,
-        Type.DATE,
-        Type.UUID,
-    }
+    scalar_json_types: ClassVar[set[Type]] = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL}
+    scalar_types: ClassVar[set[Type]] = scalar_json_types | {Type.TIMESTAMP, Type.DATE, Type.UUID}
     numeric_types: ClassVar[set[Type]] = {Type.INT, Type.FLOAT}
     common_supertypes: ClassVar[dict[tuple[Type, Type], Type]] = {
         (Type.BOOL, Type.INT): Type.INT,
@@ -210,7 +203,13 @@ class ColumnType:
         # Default: just compare base types (this works for all types whose only parameter is nullable)
         return self._type == other._type
 
-    def supertype(self, other: ColumnType) -> ColumnType | None:
+    def supertype(self, other: ColumnType, for_inference: bool = False) -> ColumnType | None:
+        """
+        Returns the most specific type that is a supertype of both `self` and `other`.
+
+        If `for_inference=True`, then we disallow certain type relationships that are technically correct, but may
+        be confusing for schema inference during data imports.
+        """
         if self == other:
             return self
         if self.matches(other):
@@ -225,7 +224,15 @@ class ColumnType:
             t = self.Type.supertype(self._type, other._type, self.common_supertypes)
             if t is not None:
                 return self.make_type(t).copy(nullable=(self.nullable or other.nullable))
-            return None
+
+        # If we see a mix of JSON and/or JSON-compatible scalar types, resolve to JSON.
+        # (For JSON+JSON, we return None to allow JsonType to handle merging the type schemas.)
+        if not for_inference and (
+            (self.is_json_type() and other.is_scalar_json_type())
+            or (self.is_scalar_json_type() and other.is_json_type())
+            or (self.is_scalar_json_type() and other.is_scalar_json_type())
+        ):
+            return JsonType(nullable=(self.nullable or other.nullable))
 
         return None
 
@@ -280,7 +287,7 @@ class ColumnType:
             if inferred_type is None:
                 inferred_type = val_type
             else:
-                inferred_type = inferred_type.supertype(val_type)
+                inferred_type = inferred_type.supertype(val_type, for_inference=True)
             if inferred_type is None:
                 return None
             if not inferred_type.has_supertype():
@@ -485,6 +492,9 @@ class ColumnType:
 
     def is_scalar_type(self) -> bool:
         return self._type in self.scalar_types
+
+    def is_scalar_json_type(self) -> bool:
+        return self._type in self.scalar_json_types
 
     def is_numeric_type(self) -> bool:
         return self._type in self.numeric_types
@@ -837,7 +847,7 @@ class JsonType(ColumnType):
             return val.model_dump()
         return val
 
-    def supertype(self, other: ColumnType) -> JsonType | None:
+    def supertype(self, other: ColumnType, for_inference: bool = False) -> JsonType | None:
         # Try using the (much faster) supertype logic in ColumnType first. That will work if, for example, the types
         # are identical except for nullability. If that doesn't work and both types are JsonType, then we will need to
         # merge their schemas.
@@ -1012,7 +1022,7 @@ class ArrayType(ColumnType):
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self.shape, self.dtype))
 
-    def supertype(self, other: ColumnType) -> ArrayType | None:
+    def supertype(self, other: ColumnType, for_inference: bool = False) -> ArrayType | None:
         basic_supertype = super().supertype(other)
         if basic_supertype is not None:
             assert isinstance(basic_supertype, ArrayType)
@@ -1173,7 +1183,7 @@ class ImageType(ColumnType):
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self.size, self.mode))
 
-    def supertype(self, other: ColumnType) -> ImageType | None:
+    def supertype(self, other: ColumnType, for_inference: bool = False) -> ImageType | None:
         basic_supertype = super().supertype(other)
         if basic_supertype is not None:
             assert isinstance(basic_supertype, ImageType)

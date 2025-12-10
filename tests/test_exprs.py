@@ -619,11 +619,16 @@ class TestExprs:
         assert col_type.shape == (2, 2)
         assert col_type.dtype == np.dtype('int64')
 
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(
+            pxt.Error,
+            match=r'element of type `Int` at index 1 is not compatible with type `String` of preceding elements',
+        ):
             _ = t.select(pxt.array([t.c1, t.c2])).collect()
-        assert 'element of type `Int` at index 1 is not compatible with type `String` of preceding elements' in str(
-            excinfo.value
-        )
+        with pytest.raises(
+            pxt.Error,
+            match=r'element of type `Int` at index 1 is not compatible with type `Timestamp` of preceding elements',
+        ):
+            _ = t.select(pxt.array([datetime(2025, 12, 5), t.c2])).collect()
 
     def test_json_path(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
