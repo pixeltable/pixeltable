@@ -13,7 +13,7 @@ from pixeltable.iterators import ComponentIterator
 
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
-from .table import Table
+from .table import LocalTable, Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 
-class View(Table):
+class View(LocalTable):
     """A `Table` that presents a virtual view of another table (or view).
 
     A view is typically backed by a store table, which records the view's columns and is joined back to the bases

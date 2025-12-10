@@ -1,5 +1,5 @@
 import datetime
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 import pytest
 
@@ -22,11 +22,9 @@ class TestHistory:
 
     @pytest.mark.parametrize('variant', ['get_versions', 'history'])
     def test_history(self, variant: Literal['get_versions', 'history'], reset_db: None) -> None:
-        fn: Callable[[pxt.Table, int | None], Any]
-        if variant == 'get_versions':
-            fn = pxt.Table.get_versions
-        else:
-            fn = pxt.Table.history
+        def fn(tbl: pxt.Table, **kwargs: Any) -> Any:
+            return getattr(tbl, variant)(**kwargs)
+
         t = pxt.create_table(
             'test',
             source=[{'c1': 1, 'c2': 'a'}, {'c1': 2, 'c2': 'b'}],
@@ -48,13 +46,11 @@ class TestHistory:
         v = pxt.create_view('view_of_test', t, comment='view of test table')
         r = fn(v)
         print(r)
-        view_created_at = (
-            r[0]['created_at'] if variant == 'get_versions' else r['created_at'][0]  # type: ignore[call-overload]
-        )
+        view_created_at = r[0]['created_at'] if variant == 'get_versions' else r['created_at'][0]
         # created_at should be recent
         assert view_created_at > datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(seconds=30)
         assert view_created_at < datetime.datetime.now(tz=datetime.timezone.utc)
-        inserts = r[0]['inserts'] if variant == 'get_versions' else r['inserts'][0]  # type: ignore[call-overload]
+        inserts = r[0]['inserts'] if variant == 'get_versions' else r['inserts'][0]
         assert inserts > 0
         assert len(r) == 1
 
@@ -106,7 +102,7 @@ class TestHistory:
         with pytest.raises(pxt.Error, match='Invalid value for'):
             fn(t, n=0)
         with pytest.raises(pxt.Error, match='Invalid value for'):
-            fn(t, n=1.5)  # type: ignore[arg-type]
+            fn(t, n=1.5)
 
         r = fn(t, n=3)
         print(r)
