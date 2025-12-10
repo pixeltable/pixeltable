@@ -6,7 +6,7 @@ the [Working with TwelveLabs](https://docs.pixeltable.com/notebooks/integrations
 """
 
 from base64 import b64encode
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -55,9 +55,7 @@ async def embed(model_name: str, *, text: str, image: pxt.Image | None = None) -
             [the TwelveLabs documentation](https://docs.twelvelabs.io/v1.3/sdk-reference/python/create-text-image-and-audio-embeddings)
             for available models.
         text: The text to embed.
-        image: The image to embed.
-        audio: The audio to embed.
-        video: The video to embed.
+        image: If specified, the embedding will be created from both the text and the image.
 
     Returns:
         The embedding.
@@ -76,13 +74,18 @@ async def embed(model_name: str, *, text: str, image: pxt.Image | None = None) -
     res: twelvelabs.EmbeddingSuccessResponse
     if image is None:
         # Text-only
-        res = await cl.embed.v_2.create(input_type='text', model_name=model_name, text=twelvelabs.TextInputRequest(input_text=text))
+        res = await cl.embed.v_2.create(
+            input_type='text', model_name=model_name, text=twelvelabs.TextInputRequest(input_text=text)
+        )
     else:
         b64str = to_base64(image, format=('png' if image.has_transparency_data else 'jpeg'))
-        res = await cl.embed.v_2.create(input_type='text_image', model_name=model_name, text_image=twelvelabs.TextImageInputRequest(
-            media_source=twelvelabs.MediaSource(base_64_string=b64str),
-            input_text=text,
-        ))
+        res = await cl.embed.v_2.create(
+            input_type='text_image',
+            model_name=model_name,
+            text_image=twelvelabs.TextImageInputRequest(
+                media_source=twelvelabs.MediaSource(base_64_string=b64str), input_text=text
+            ),
+        )
     if not res.data:
         raise pxt.Error(f"Didn't receive embedding for text: {text}\n{res}")
     vector = res.data[0].embedding
@@ -90,11 +93,7 @@ async def embed(model_name: str, *, text: str, image: pxt.Image | None = None) -
 
 
 @embed.overload
-async def _(
-    model_name: str,
-    *,
-    image: pxt.Image,
-) -> pxt.Array[np.float32] | None:
+async def _(model_name: str, *, image: pxt.Image) -> pxt.Array[np.float32] | None:
     env.Env.get().require_package('twelvelabs')
     import twelvelabs
 

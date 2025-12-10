@@ -2,8 +2,15 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_audio_files, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
-from ..utils import get_image_files, get_video_files
+from ..utils import (
+    get_audio_files,
+    get_image_files,
+    get_video_files,
+    rerun,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 @pytest.mark.remote_api
@@ -19,7 +26,7 @@ class TestTwelveLabs:
         images = get_image_files()
         rows = [
             {'input': 'Twelve Labs provides multimodal embedding models.', 'image': None},
-            {'input': 'An optional image can be specified with text embeddings.', 'image': images[0]}
+            {'input': 'An optional image can be specified with text embeddings.', 'image': images[0]},
         ]
         validate_update_status(t.insert(rows), 2)
         res = t.select(t.embed).collect()
@@ -70,11 +77,7 @@ class TestTwelveLabs:
         v = pxt.create_view(
             'video_segments',
             base_t,
-            iterator=pxt.iterators.VideoSplitter.create(
-                video=base_t.video,
-                duration=5.0,
-                min_segment_duration=4.0,
-            ),
+            iterator=pxt.iterators.VideoSplitter.create(video=base_t.video, duration=5.0, min_segment_duration=4.0),
         )
         v.add_computed_column(embed=embed(model_name='marengo3.0', video=v.video_segment))
         res = v.select(v.embed).collect()
