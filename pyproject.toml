@@ -141,7 +141,7 @@ dev = [
     "fireworks-ai>=0.17.6",
     "mistralai>=1.8.2",
     "replicate>=1.0.7,<2",
-    "google-genai>=1.25.0",
+    "google-genai>=1.53.0",
     "groq>=0.26.0",
     "boto3==1.36.23",
     "botocore==1.36.23",

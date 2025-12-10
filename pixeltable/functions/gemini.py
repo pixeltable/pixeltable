@@ -34,11 +34,10 @@ def _genai_client() -> 'genai.client.Client':
 
 @pxt.udf(resource_pool='request-rate:gemini')
 async def generate_content(
-    contents: str, *, model: str, config: dict | None = None, tools: list[dict] | None = None
+    contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None
 ) -> dict:
     """
-    Generate content from the specified model. For additional details, see:
-    <https://ai.google.dev/gemini-api/docs/text-generation>
+    Generate content from the specified model.
 
     Request throttling:
     Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
@@ -49,11 +48,12 @@ async def generate_content(
     - `pip install google-genai`
 
     Args:
-        contents: The input content to generate from.
+        contents: The input content to generate from. Can be a prompt, or a list containing images and text
+            prompts, as described in: <https://ai.google.dev/gemini-api/docs/text-generation>
         model: The name of the model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateContentConfig`. For details on the parameters, see:
-            <https://googleapis.github.io/python-genai/genai.html#module-genai.types>
+            <https://googleapis.github.io/python-genai/genai.html#genai.types.GenerateContentConfig>
         tools: An optional list of Pixeltable tools to use. It is also possible to specify tools manually via the
             `config['tools']` parameter, but at most one of `config['tools']` or `tools` may be used.
 
@@ -61,10 +61,12 @@ async def generate_content(
         A dictionary containing the response and other metadata.
 
     Examples:
-        Add a computed column that applies the model `gemini-2.0-flash`
+        Add a computed column that applies the model `gemini-2.5-flash`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-2.0-flash'))
+        >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-2.5-flash'))
+
+        Add a computed column that applies the model `gemini-2.5-flash` for image understanding
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -141,7 +143,7 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
         model: The model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateImagesConfig`. For details on the parameters, see:
-            <https://googleapis.github.io/python-genai/genai.html#module-genai.types>
+            <https://googleapis.github.io/python-genai/genai.html#genai.types.GenerateImagesConfig>
 
     Returns:
         The generated image.
@@ -173,6 +175,8 @@ async def generate_videos(
     Generates videos based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/video>
 
+    At least one of `prompt` or `image` must be provided.
+
     Request throttling:
     Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
     limit is configured, uses a default of 600 RPM.
@@ -183,21 +187,20 @@ async def generate_videos(
 
     Args:
         prompt: A text description of the videos to generate.
-        image: An optional image to use as the first frame of the video. At least one of `prompt` or `image` must be
-            provided. (It is ok to specify both.)
+        image: An image to use as the first frame of the video.
         model: The model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateVideosConfig`. For details on the parameters, see:
-            <https://googleapis.github.io/python-genai/genai.html#module-genai.types>
+            <https://googleapis.github.io/python-genai/genai.html#genai.types.GenerateVideosConfig>
 
     Returns:
         The generated video.
 
     Examples:
-        Add a computed column that applies the model `veo-2.0-generate-001`
+        Add a computed column that applies the model `veo-3.0-generate-001`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_videos(tbl.prompt, model='veo-2.0-generate-001'))
+        >>> tbl.add_computed_column(response=generate_videos(tbl.prompt, model='veo-3.0-generate-001'))
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -208,10 +211,11 @@ async def generate_videos(
     image_: types.Image | None = None
     if image is not None:
         with io.BytesIO() as buffer:
-            image.save(buffer, format='jpeg')
-            image_ = types.Image(image_bytes=buffer.getvalue(), mime_type='image/jpeg')
+            image.save(buffer, format='webp')
+            image_ = types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
 
     config_ = types.GenerateVideosConfig(**config) if config else None
+
     operation = await _genai_client().aio.models.generate_videos(
         model=model, prompt=prompt, image=image_, config=config_
     )

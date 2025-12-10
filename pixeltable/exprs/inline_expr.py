@@ -32,7 +32,7 @@ class InlineArray(Expr):
 
         inferred_element_type: ts.ColumnType | None = ts.InvalidType()
         for i, expr in enumerate(exprs):
-            supertype = inferred_element_type.supertype(expr.col_type)
+            supertype = inferred_element_type.supertype(expr.col_type, for_inference=True)
             if supertype is None:
                 raise excs.Error(
                     f'Could not infer element type of array: element of type `{expr.col_type}` at index {i} '
