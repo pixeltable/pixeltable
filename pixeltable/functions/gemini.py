@@ -294,6 +294,7 @@ async def generate_embedding(
         ...)
     """
     env.Env.get().require_package('google.genai')
+    from google.genai import types
 
     client = _genai_client()
     config_ = _embedding_config(config)
@@ -305,8 +306,6 @@ async def generate_embedding(
         return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
     # Batch API
-    from google.genai import types
-
     batch_job = client.batches.create_embeddings(
         model=model,
         src=types.EmbeddingsBatchJobSource(inlined_requests=types.EmbedContentBatch(contents=input, config=config_)),
