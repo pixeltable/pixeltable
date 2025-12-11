@@ -433,7 +433,7 @@ class DocumentSplitter(ComponentIterator):
         doc: pdfium.PdfDocument = self._doc_handle.pdf_doc
         assert isinstance(doc, pdfium.PdfDocument)
 
-        emit_on_page = Separator.PAGE in self._separators or Separator.SENTENCE in self._separators
+        emit_on_page = Separator.PAGE in self._separators
         accumulated_text: list[str] = []
 
         def _add_cleaned(raw: str) -> None:

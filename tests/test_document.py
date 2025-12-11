@@ -25,7 +25,7 @@ from .utils import (
 
 def _check_pdf_metadata(rec: dict, sep1: str, metadata: list[str]) -> None:
     assert sep1 != 'paragraph'  # not currently supported for PDF
-    if 'page' in metadata and sep1 in ['page', 'sentence']:
+    if 'page' in metadata and sep1 in ['page']:
         assert rec.get('page') is not None
 
 
