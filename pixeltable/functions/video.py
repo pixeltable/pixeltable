@@ -1481,6 +1481,95 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[dic
         return scenes
 
 
+def frame_iterator(
+        video: Any,
+        *,
+        fps: float | None = None,
+        num_frames: int | None = None,
+        keyframes_only: bool = False,
+        all_frame_attrs: bool = False,
+) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
+    """
+    Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be specified. If `fps`
+    is specified, then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified,
+    then the exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The
+    first frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
+
+    Args:
+        fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
+            If omitted or set to 0.0, or if greater than the native framerate of the video,
+            then the framerate of the video will be used (all frames will be extracted).
+        num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
+            `num_frames` is greater than the number of frames in the video, all frames will be extracted.
+        keyframes_only: If True, only extract keyframes.
+        all_frame_attrs:
+            If True, outputs a `pxt.Json` column `frame_attrs` with the following `pyav`-provided attributes
+            (for more information, see `pyav`'s documentation on
+            [VideoFrame](https://pyav.org/docs/develop/api/video.html#module-av.video.frame) and
+            [Frame](https://pyav.org/docs/develop/api/frame.html)):
+
+            * `index` (`int`)
+            * `pts` (`int | None`)
+            * `dts` (`int | None`)
+            * `time` (`float | None`)
+            * `is_corrupt` (`bool`)
+            * `key_frame` (`bool`)
+            * `pict_type` (`int`)
+            * `interlaced_frame` (`bool`)
+
+            If False, only outputs frame attributes `frame_idx`, `pos_msec`, and `pos_frame` as separate columns.
+    """
+    return pxt.iterators.video.FrameIterator._create(
+        video=video,
+        fps=fps,
+        num_frames=num_frames,
+        keyframes_only=keyframes_only,
+        all_frame_attrs=all_frame_attrs,
+    )
+
+
+def video_splitter(
+        video: str,
+        *,
+        duration: float | None = None,
+        overlap: float | None = None,
+        min_segment_duration: float | None = None,
+        segment_times: list[float] | None = None,
+        mode: Literal['fast', 'accurate'] = 'accurate',
+        video_encoder: str | None = None,
+        video_encoder_args: dict[str, Any] | None = None,
+) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
+    """
+    Iterator over segments of a video file, which is split into segments. The segments are specified either via a
+    fixed duration or a list of split points.
+
+    Args:
+        duration: Video segment duration in seconds
+        overlap: Overlap between consecutive segments in seconds. Only available for `mode='fast'`.
+        min_segment_duration: Drop the last segment if it is smaller than min_segment_duration.
+        segment_times: List of timestamps (in seconds) in video where segments should be split. Note that these are not
+            segment durations. If all segment times are less than the duration of the video, produces exactly
+            `len(segment_times) + 1` segments. An argument of `[]` will produce a single segment containing the
+            entire video.
+        mode: Segmentation mode:
+            - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
+            - `'accurate'`: Precise segmentation with re-encoding (exact durations, slower)
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+            Only available for `mode='accurate'`.
+        video_encoder_args: Additional arguments to pass to the video encoder. Only available for `mode='accurate'`.
+    """
+    return pxt.iterators.video.VideoSplitter._create(
+        video=video,
+        duration=duration,
+        overlap=overlap,
+        min_segment_duration=min_segment_duration,
+        segment_times=segment_times,
+        mode=mode,
+        video_encoder=video_encoder,
+        video_encoder_args=video_encoder_args,
+    )
+
+
 __all__ = local_public_names(__name__)
 
 
