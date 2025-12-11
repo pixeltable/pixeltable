@@ -36,7 +36,6 @@
               {
                 "group": "Working with Data",
                 "pages": [
-                  "platform/filtering-and-selecting",
                   "platform/bringing-data",
                   "platform/external-files",
                   "platform/sampling",
@@ -375,6 +374,10 @@
     {
       "source": "/platform/computed-columns",
       "destination": "/tutorials/computed-columns"
+    },
+    {
+      "source": "/platform/filtering-and-selecting",
+      "destination": "/tutorials/queries-and-expressions"
     }
   ]
 }
