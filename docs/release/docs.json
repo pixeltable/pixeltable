@@ -392,6 +392,154 @@
     {
       "source": "/platform/deployment",
       "destination": "/howto/deployment/overview"
+    },
+    {
+      "source": "/overview/installation",
+      "destination": "/overview/quick-start"
+    },
+    {
+      "source": "/overview/configuration",
+      "destination": "/platform/configuration"
+    },
+    {
+      "source": "/datastore/tables-and-operations",
+      "destination": "/tutorials/tables-and-data-operations"
+    },
+    {
+      "source": "/datastore/computed-columns",
+      "destination": "/tutorials/computed-columns"
+    },
+    {
+      "source": "/datastore/embedding-index",
+      "destination": "/platform/embedding-indexes"
+    },
+    {
+      "source": "/datastore/views",
+      "destination": "/platform/views"
+    },
+    {
+      "source": "/datastore/custom-functions",
+      "destination": "/platform/udfs-in-pixeltable"
+    },
+    {
+      "source": "/datastore/filtering-and-selecting",
+      "destination": "/tutorials/queries-and-expressions"
+    },
+    {
+      "source": "/datastore/iterators",
+      "destination": "/platform/iterators"
+    },
+    {
+      "source": "/datastore/vector-database",
+      "destination": "/platform/embedding-indexes"
+    },
+    {
+      "source": "/datastore/bringing-data",
+      "destination": "/howto/cookbooks/data/data-import-csv"
+    },
+    {
+      "source": "/examples/chat/tools",
+      "destination": "/howto/cookbooks/agents/llm-tool-calling"
+    },
+    {
+      "source": "/examples/chat/rag",
+      "destination": "/howto/cookbooks/agents/pattern-rag-pipeline"
+    },
+    {
+      "source": "/examples/chat/multimodal",
+      "destination": "/howto/use-cases/rag-demo"
+    },
+    {
+      "source": "/examples/chat/memory",
+      "destination": "/howto/cookbooks/agents/pattern-agent-memory"
+    },
+    {
+      "source": "/examples/use-cases",
+      "destination": "/howto/use-cases/rag-demo"
+    },
+    {
+      "source": "/examples/vision/yolox",
+      "destination": "/howto/cookbooks/images/img-detect-objects"
+    },
+    {
+      "source": "/examples/vision/label-studio",
+      "destination": "/howto/using-label-studio-with-pixeltable"
+    },
+    {
+      "source": "/examples/vision/object-detection",
+      "destination": "/howto/use-cases/object-detection-in-videos"
+    },
+    {
+      "source": "/examples/vision/image-similarity",
+      "destination": "/howto/cookbooks/search/search-similar-images"
+    },
+    {
+      "source": "/examples/vision/voxel51",
+      "destination": "/howto/working-with-fiftyone"
+    },
+    {
+      "source": "/examples/audio/transcription",
+      "destination": "/howto/cookbooks/audio/audio-transcribe"
+    },
+    {
+      "source": "/examples/search/audio",
+      "destination": "/howto/cookbooks/audio/audio-transcribe"
+    },
+    {
+      "source": "/examples/search/images",
+      "destination": "/howto/cookbooks/search/search-similar-images"
+    },
+    {
+      "source": "/examples/search/PDF",
+      "destination": "/howto/cookbooks/agents/pattern-rag-pipeline"
+    },
+    {
+      "source": "/examples/search/video",
+      "destination": "/howto/cookbooks/video/video-extract-frames"
+    },
+    {
+      "source": "/examples/search/website",
+      "destination": "/howto/cookbooks/agents/pattern-rag-pipeline"
+    },
+    {
+      "source": "/notebooks/use-cases/rag-demo",
+      "destination": "/howto/use-cases/rag-demo"
+    },
+    {
+      "source": "/notebooks/use-cases/object-detection-in-videos",
+      "destination": "/howto/use-cases/object-detection-in-videos"
+    },
+    {
+      "source": "/notebooks/use-cases/audio-transcriptions",
+      "destination": "/howto/use-cases/audio-transcriptions"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-openai",
+      "destination": "/howto/providers/working-with-openai"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-anthropic",
+      "destination": "/howto/providers/working-with-anthropic"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-together",
+      "destination": "/howto/providers/working-with-together"
+    },
+    {
+      "source": "/notebooks/feature-guides/udfs-in-pixeltable",
+      "destination": "/platform/udfs-in-pixeltable"
+    },
+    {
+      "source": "/notebooks/feature-guides/embedding-indexes",
+      "destination": "/platform/embedding-indexes"
+    },
+    {
+      "source": "/notebooks/feature-guides/working-with-external-files",
+      "destination": "/platform/external-files"
+    },
+    {
+      "source": "/notebooks/fundamentals/tables-and-data-operations",
+      "destination": "/tutorials/tables-and-data-operations"
     }
   ]
 }
