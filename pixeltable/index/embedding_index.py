@@ -94,13 +94,13 @@ class EmbeddingIndex(IndexBase):
             )
 
         # Now validate the return types of the embedding functions.
-        for embed_type, embed_fn in self.embeddings.items():
+        for _, embed_fn in self.embeddings.items():
             self._validate_embedding_fn(embed_fn)
 
         self.metric = self.Metric[metric.upper()]
 
     def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
-        if not c.col_type._type in (
+        if c.col_type._type not in (
             ts.ColumnType.Type.STRING,
             ts.ColumnType.Type.IMAGE,
             ts.ColumnType.Type.AUDIO,
@@ -227,7 +227,7 @@ class EmbeddingIndex(IndexBase):
             )
 
     def as_dict(self) -> dict:
-        d = {'metric': self.metric.name.lower()}
+        d: dict[str, Any] = {'metric': self.metric.name.lower()}
         for embed_type, embed_fn in self.embeddings.items():
             key = f'{embed_type.name.lower()}_embed'
             d[key] = embed_fn.as_dict()

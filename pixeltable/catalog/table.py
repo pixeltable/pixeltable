@@ -139,16 +139,7 @@ class Table(SchemaObject):
         for info in indices:
             if isinstance(info.idx, index.EmbeddingIndex):
                 col_ref = ColumnRef(info.col)
-                embedding = (
-                    info.idx.string_embed(col_ref)
-                    if info.col.col_type.is_string_type()
-                    else info.idx.image_embed(col_ref)
-                )
-                embedding_functions: list[pxt.Function] = []
-                if info.idx.string_embed is not None:
-                    embedding_functions.append(info.idx.string_embed)
-                if info.idx.image_embed is not None:
-                    embedding_functions.append(info.idx.image_embed)
+                embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
@@ -156,7 +147,7 @@ class Table(SchemaObject):
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
                         embedding=str(embedding),
-                        embedding_functions=[str(fn) for fn in embedding_functions],
+                        embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
                 )
 
@@ -410,11 +401,7 @@ class Table(SchemaObject):
         for name, info in self._tbl_version.get().idxs_by_name.items():
             if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
                 col_ref = ColumnRef(info.col)
-                embedding = (
-                    info.idx.string_embed(col_ref)
-                    if info.col.col_type.is_string_type()
-                    else info.idx.image_embed(col_ref)
-                )
+                embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
                 row = {
                     'Index Name': name,
                     'Column': info.col.name,
