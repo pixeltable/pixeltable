@@ -29,6 +29,7 @@
               "tutorials/computed-columns",
               "tutorials/queries-and-expressions",
               "platform/tables",
+              "platform/type-system",
               "platform/views",
               "platform/computed-columns",
               "platform/iterators",

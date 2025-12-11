@@ -71,86 +71,36 @@ Primary key columns cannot be nullable and must have unique values across all ro
 
 ## Type System
 
-<Tabs>
-  <Tab title="Basic Types">
-    ```python
-    # Schema definition
-    table = pxt.create_table('example', {
-        'text': pxt.String,     # Text data
-        'count': pxt.Int,       # Integer numbers
-        'score': pxt.Float,     # Decimal numbers
-        'active': pxt.Bool,     # Boolean values
-        'created': pxt.Timestamp, # Date/time values
-        'id': pxt.UUID          # UUID
-    })
-    ```
-  </Tab>
+Pixeltable provides a rich type system for structured data, media (images, video, audio, documents), and ML artifacts (arrays, embeddings).
 
-  <Tab title="Media Types">
-    ```python
-    # Media handling
-    media = pxt.create_table('media', {
-        'image': pxt.Image[(224, 224), 'RGB'],  # With size & mode
-        'video': pxt.Video,                     # Video reference
-        'audio': pxt.Audio,                     # Audio file
-        'document': pxt.Document                # PDF/text doc
-    })
-    ```
-  </Tab>
+<CardGroup cols={2}>
+  <Card title="Basic Types" icon="font">
+    `pxt.String`, `pxt.Int`, `pxt.Float`, `pxt.Bool`, `pxt.Timestamp`, `pxt.UUID`
+  </Card>
+  <Card title="Media Types" icon="image">
+    `pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`
+  </Card>
+  <Card title="ML Types" icon="brain">
+    `pxt.Array` for embeddings and tensors
+  </Card>
+  <Card title="Flexible Data" icon="brackets-curly">
+    `pxt.Json` with optional schema validation
+  </Card>
+</CardGroup>
 
-  <Tab title="ML Types">
-    ```python
-    # ML-specific types
-    ml_data = pxt.create_table('ml_features', {
-        'embedding': pxt.Array[(768,), pxt.Float], # Fixed-size array
-        'features': pxt.Array[(None, 512)],        # Variable first dim
-        'metadata': pxt.Json                       # Flexible JSON data
-    })
-    ```
-  </Tab>
+```python
+# Example schema with various types
+table = pxt.create_table('example.media_pipeline', {
+    'text': pxt.String,
+    'image': pxt.Image,
+    'embedding': pxt.Array[(768,), pxt.Float],
+    'metadata': pxt.Json
+})
+```
 
-  <Tab title="JSON Schema Validation">
-    Validate JSON columns against a schema to ensure data integrity:
-    ```python
-    # Define a JSON schema
-    movie_schema = {
-        'type': 'object',
-        'properties': {
-            'title': {'type': 'string'},
-            'year': {'type': 'integer'},
-            'rating': {'type': 'number'}
-        },
-        'required': ['title', 'year']
-    }
-
-    # Create table with validated JSON column
-    movies = pxt.create_table('validated_movies', {
-        'data': pxt.Json[movie_schema]
-    })
-
-    # Valid insert
-    movies.insert(data={'title': 'Inception', 'year': 2010, 'rating': 8.8})
-
-    # Invalid insert raises error (missing required 'year')
-    # movies.insert(data={'title': 'Movie'})  # Error!
-    ```
-
-    You can also use Pydantic models:
-    ```python
-    from pydantic import BaseModel
-
-    class Movie(BaseModel):
-        title: str
-        year: int
-        rating: float | None = None
-
-    # Use the model's JSON schema
-    movies = pxt.create_table('pydantic_movies', {
-        'data': pxt.Json[Movie.model_json_schema()]
-    })
-    ```
-  </Tab>
-</Tabs>
+<Card title="Multimodal Type System" icon="shapes" href="/platform/type-system">
+  Learn more about Pixeltable's type system, including type specialization, JSON schema validation, type conversion, and best practices.
+</Card>
 
 <Tip>
 Table and directory names can include hyphens (e.g., `my-table`, `my-project.sub-dir`). This is useful for matching external naming conventions.
