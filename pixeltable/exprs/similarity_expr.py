@@ -66,22 +66,20 @@ class SimilarityExpr(Expr):
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
         if not isinstance(self.components[1], Literal):
-            raise excs.Error('similarity(): requires a string or a PIL.Image.Image object, not an expression')
-        item = self.components[1].val
+            raise excs.Error('similarity(): requires a value, not an expression')
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
-        return idx_info.idx.similarity_clause(idx_info.val_col, item)
+        return idx_info.idx.similarity_clause(idx_info.val_col, self.components[1])
 
     def as_order_by_clause(self, is_asc: bool) -> sql.ColumnElement | None:
         from pixeltable.index import EmbeddingIndex
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
         if not isinstance(self.components[1], Literal):
-            raise excs.Error('similarity(): requires a string or a PIL.Image.Image object, not an expression')
-        item = self.components[1].val
+            raise excs.Error('similarity(): requires a value, not an expression')
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
-        return idx_info.idx.order_by_clause(idx_info.val_col, item, is_asc)
+        return idx_info.idx.order_by_clause(idx_info.val_col, self.components[1], is_asc)
 
     def _resolve_idx(self) -> 'TableVersion.IndexInfo':
         from pixeltable.index import EmbeddingIndex

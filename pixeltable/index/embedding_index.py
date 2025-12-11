@@ -5,7 +5,6 @@ from typing import Any, ClassVar
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
-import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
@@ -135,15 +134,11 @@ class EmbeddingIndex(IndexBase):
         # TODO: implement
         raise NotImplementedError()
 
-    def similarity_clause(self, val_column: catalog.Column, item: Any) -> sql.ColumnElement:
+    def similarity_clause(self, val_column: catalog.Column, item: exprs.Literal) -> sql.ColumnElement:
         """Create a ColumnElement that represents '<val_column> <op> <item>'"""
-        assert isinstance(item, (str, PIL.Image.Image))
-        embedding: np.ndarray
-        # TODO: Handle audio and video here
-        if isinstance(item, str):
-            embedding = self.embeddings[ts.ColumnType.Type.STRING].exec([item], {})
-        if isinstance(item, PIL.Image.Image):
-            embedding = self.embeddings[ts.ColumnType.Type.IMAGE].exec([item], {})
+        assert item.col_type._type in self.embeddings
+        embedding = self.embeddings[item.col_type._type].exec([item.val], {})
+        assert isinstance(embedding, np.ndarray)
 
         if self.metric == self.Metric.COSINE:
             return val_column.sa_col.cosine_distance(embedding) * -1 + 1
@@ -153,16 +148,11 @@ class EmbeddingIndex(IndexBase):
             assert self.metric == self.Metric.L2
             return val_column.sa_col.l2_distance(embedding)
 
-    def order_by_clause(self, val_column: catalog.Column, item: Any, is_asc: bool) -> sql.ColumnElement:
+    def order_by_clause(self, val_column: catalog.Column, item: exprs.Literal, is_asc: bool) -> sql.ColumnElement:
         """Create a ColumnElement that is used in an ORDER BY clause"""
-        assert isinstance(item, (str, PIL.Image.Image))
-        embedding: np.ndarray | None = None
-        # TODO: Handle audio and video here
-        if isinstance(item, str):
-            embedding = self.embeddings[ts.ColumnType.Type.STRING].exec([item], {})
-        if isinstance(item, PIL.Image.Image):
-            embedding = self.embeddings[ts.ColumnType.Type.IMAGE].exec([item], {})
-        assert embedding is not None
+        assert item.col_type._type in self.embeddings
+        embedding = self.embeddings[item.col_type._type].exec([item.val], {})
+        assert isinstance(embedding, np.ndarray)
 
         if self.metric == self.Metric.COSINE:
             result = val_column.sa_col.cosine_distance(embedding)
