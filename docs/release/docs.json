@@ -35,14 +35,14 @@
               "platform/embedding-indexes",
               "platform/external-files",
               "platform/sampling",
-              "platform/data-sharing",
-              "platform/deployment",
-              "platform/configuration"
+              "platform/data-sharing"
             ]
           },
           {
             "group": "How-To",
             "pages": [
+              "platform/configuration",
+              "platform/deployment",
               {
                 "group": "Integrations",
                 "pages": [
