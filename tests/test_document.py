@@ -10,7 +10,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.iterators.document import DocumentSplitter
+from pixeltable.functions.document import document_splitter
 from pixeltable.utils.documents import get_document_handle
 
 from .utils import get_audio_files, get_documents, get_image_files, get_video_files, skip_test_if_not_installed
@@ -100,21 +100,21 @@ class TestDocument:
         ]
         for sep in invalid_separators:
             with pytest.raises(pxt.Error, match='Invalid separator'):
-                _ = pxt.create_view('chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators=sep))
+                _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators=sep))
 
         with pytest.raises(pxt.Error, match='both'):
             _ = pxt.create_view(
                 'chunks',
                 t,
-                iterator=DocumentSplitter.create(document=t.doc, separators='char_limit, token_limit', limit=10),
+                iterator=document_splitter(document=t.doc, separators='char_limit, token_limit', limit=10),
             )
 
         # test that limit is required for char_limit and token_limit
         with pytest.raises(pxt.Error, match='limit'):
-            _ = pxt.create_view('chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators='char_limit'))
+            _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='char_limit'))
 
         with pytest.raises(pxt.Error, match='limit'):
-            _ = pxt.create_view('chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators='token_limit'))
+            _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='token_limit'))
 
         # test invalid metadata
         invalid_metadata = [
@@ -125,14 +125,14 @@ class TestDocument:
         for md in invalid_metadata:
             with pytest.raises(pxt.Error, match='Invalid metadata'):
                 _ = pxt.create_view(
-                    'chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators='', metadata=md)
+                    'chunks', t, iterator=document_splitter(document=t.doc, separators='', metadata=md)
                 )
 
         invalid_separators = ['page, sentence', 'paragraph, sentence', 'char_limit, sentence', 'token_limit, sentence']
         for sep in invalid_separators:
             with pytest.raises(pxt.Error, match='Image elements are only supported for the "page" separator'):
                 _ = pxt.create_view(
-                    'chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators=sep, elements=['image'])
+                    'chunks', t, iterator=document_splitter(document=t.doc, separators=sep, elements=['image'])
                 )
 
     def test_doc_splitter(self, reset_db: None) -> None:
@@ -181,7 +181,7 @@ class TestDocument:
                 args['overlap'] = 0
             print(f'Testing with args: {args}')
 
-            chunks_t = pxt.create_view('chunks', doc_t, iterator=DocumentSplitter.create(**args))
+            chunks_t = pxt.create_view('chunks', doc_t, iterator=document_splitter(**args))
             res: list[dict] = list(chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect())
 
             if all_text_reference is None:
@@ -252,7 +252,7 @@ class TestDocument:
             chunks_t = pxt.create_view(
                 'chunks',
                 doc_t,
-                iterator=DocumentSplitter.create(document=doc_t.doc, separators='sentence', metadata=md_str),
+                iterator=document_splitter(document=doc_t.doc, separators='sentence', metadata=md_str),
             )
             res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
             requested_md_elements = set(md_str.split(','))
@@ -280,7 +280,7 @@ class TestDocument:
         assert status.num_excs == 0
 
         chunks_t = pxt.create_view(
-            'chunks', doc_t, iterator=DocumentSplitter.create(document=doc_t.doc, separators='', metadata='page')
+            'chunks', doc_t, iterator=document_splitter(document=doc_t.doc, separators='', metadata='page')
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 1
@@ -297,7 +297,7 @@ class TestDocument:
         chunks_t = pxt.create_view(
             'chunks',
             doc_t,
-            iterator=DocumentSplitter.create(document=doc_t.doc, separators='paragraph', metadata='page'),
+            iterator=document_splitter(document=doc_t.doc, separators='paragraph', metadata='page'),
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 1
@@ -312,7 +312,7 @@ class TestDocument:
         chunks_t = pxt.create_view(
             'chunks',
             doc_t,
-            iterator=DocumentSplitter.create(document=doc_t.doc, separators='sentence', metadata='page'),
+            iterator=document_splitter(document=doc_t.doc, separators='sentence', metadata='page'),
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 22
@@ -334,7 +334,7 @@ class TestDocument:
         chunks_t = pxt.create_view(
             'chunks',
             doc_t,
-            iterator=DocumentSplitter.create(
+            iterator=document_splitter(
                 document=doc_t.doc,
                 separators='sentence, char_limit',
                 limit=50,
@@ -363,7 +363,7 @@ class TestDocument:
         chunks = pxt.create_view(
             'chunks',
             t,
-            iterator=DocumentSplitter.create(
+            iterator=document_splitter(
                 document=t.doc, separators='page', elements=['image'], metadata='title,page'
             ),
         )

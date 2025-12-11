@@ -449,9 +449,9 @@ def mode(self: PIL.Image.Image) -> str:
     return self.mode
 
 
-def tile_iterator(image: Any, tile_size: tuple[int, int], *, overlap: tuple[int, int] = (0, 0)) -> tuple[
-    type[pxt.iterators.ComponentIterator], dict[str, Any]
-]:
+def tile_iterator(
+    image: Any, tile_size: tuple[int, int], *, overlap: tuple[int, int] = (0, 0)
+) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
     """
     Iterator over tiles of an image. Each image will be divided into tiles of size `tile_size`, and the tiles will be
     iterated over in row-major order (left-to-right, then top-to-bottom). An optional `overlap` parameter may be
@@ -463,11 +463,7 @@ def tile_iterator(image: Any, tile_size: tuple[int, int], *, overlap: tuple[int,
         tile_size: Size of each tile, as a pair of integers `[width, height]`.
         overlap: Amount of overlap between adjacent tiles, as a pair of integers `[width, height]`.
     """
-    return pxt.iterators.image.TileIterator._create(
-        image=image,
-        tile_size=tile_size,
-        overlap=overlap,
-    )
+    return pxt.iterators.image.TileIterator._create(image=image, tile_size=tile_size, overlap=overlap)
 
 
 __all__ = local_public_names(__name__)

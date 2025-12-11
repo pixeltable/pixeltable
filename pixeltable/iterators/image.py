@@ -1,7 +1,7 @@
 from typing import Any, Sequence
-from deprecated import deprecated
 
 import PIL.Image
+from deprecated import deprecated
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts

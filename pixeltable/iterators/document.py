@@ -4,11 +4,11 @@ import io
 import logging
 from typing import Any, ClassVar, Iterable, Iterator, Literal
 
-from deprecated import deprecated
 import fitz  # type: ignore[import-untyped]
 import ftfy
 import PIL.Image
 from bs4.element import NavigableString, Tag
+from deprecated import deprecated
 
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
@@ -111,31 +111,6 @@ _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 
 
 class DocumentSplitter(ComponentIterator):
-    """Iterator over chunks of a document. The document is chunked according to the specified `separators`.
-
-    The iterator yields a `text` field containing the text of the chunk, and it may also
-    include additional metadata fields if specified in the `metadata` parameter, as explained below.
-
-    Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
-
-    How to init the `DocumentSplitter` class?
-
-    Args:
-        separators: separators to use to chunk the document. Options are:
-             `'heading'`, `'paragraph'`, `'sentence'`, `'token_limit'`, `'char_limit'`, `'page'`.
-             This may be a comma-separated string, e.g., `'heading,token_limit'`.
-        elements: list of elements to extract from the document. Options are:
-            `'text'`, `'image'`. Defaults to `['text']` if not specified. The `'image'` element is only supported
-            for the `'page'` separator on PDF documents.
-        limit: the maximum number of tokens or characters in each chunk, if `'token_limit'`
-             or `'char_limit'` is specified.
-        metadata: additional metadata fields to include in the output. Options are:
-             `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
-             (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
-        image_dpi: DPI to use when extracting images from PDFs. Defaults to 300.
-        image_format: format to use when extracting images from PDFs. Defaults to 'png'.
-    """
-
     METADATA_COLUMN_TYPES: ClassVar[dict[ChunkMetadata, ColumnType]] = {
         ChunkMetadata.TITLE: StringType(nullable=True),
         ChunkMetadata.HEADING: JsonType(nullable=True),
@@ -531,6 +506,8 @@ class DocumentSplitter(ComponentIterator):
         pass
 
     @classmethod
-    @deprecated('create() is deprecated; use `pixeltable.functions.document.document_splitter` instead', version='0.5.5')
+    @deprecated(
+        'create() is deprecated; use `pixeltable.functions.document.document_splitter` instead', version='0.5.5'
+    )
     def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
         return super()._create(**kwargs)

@@ -5,11 +5,11 @@ import subprocess
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterator, Literal
-from warnings import deprecated
 
 import av
 import pandas as pd
 import PIL.Image
+from deprecated import deprecated
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs

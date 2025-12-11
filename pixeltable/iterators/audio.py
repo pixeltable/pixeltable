@@ -2,9 +2,9 @@ import logging
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, ClassVar
-from deprecated import deprecated
 
 import av
+from deprecated import deprecated
 
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.utils.local_store import TempStore
