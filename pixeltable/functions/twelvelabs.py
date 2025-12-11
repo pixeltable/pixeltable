@@ -118,7 +118,6 @@ async def _(
     start_sec: float | None = None,
     end_sec: float | None = None,
     embedding_option: list[Literal['audio', 'transcription']] | None = None,
-    embedding_scope: list[Literal['clip', 'asset']] | None = None,
 ) -> pxt.Array[np.float32] | None:
     env.Env.get().require_package('twelvelabs')
     import twelvelabs
@@ -134,7 +133,6 @@ async def _(
                 start_sec=start_sec,
                 end_sec=end_sec,
                 embedding_option=embedding_option,
-                embedding_scope=embedding_scope,
             ),
         )
         if not res.data:
@@ -151,7 +149,6 @@ async def _(
     start_sec: float | None = None,
     end_sec: float | None = None,
     embedding_option: list[Literal['visual', 'audio', 'transcription']] | None = None,
-    embedding_scope: list[Literal['clip', 'asset']] | None = None,
 ) -> pxt.Array[np.float32] | None:
     env.Env.get().require_package('twelvelabs')
     import twelvelabs
@@ -167,7 +164,6 @@ async def _(
                 start_sec=start_sec,
                 end_sec=end_sec,
                 embedding_option=embedding_option,
-                embedding_scope=embedding_scope,
             ),
         )
         if not res.data:
