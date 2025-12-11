@@ -80,7 +80,7 @@
                 "group": "Cookbooks",
                 "pages": [
                   {
-                    "group": "Core",
+                    "group": "Core Operations",
                     "pages": [
                       "howto/cookbooks/core/workflow-api-keys",
                       "howto/cookbooks/core/dev-iterative-workflow",
