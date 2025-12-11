@@ -8,15 +8,6 @@ from pixeltable.iterators.base import ComponentIterator
 
 
 class StringSplitter(ComponentIterator):
-    """Iterator over chunks of a string. The string is chunked according to the specified `separators`.
-
-    The iterator yields a `text` field containing the text of the chunk.
-    Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
-
-    Args:
-        separators: separators to use to chunk the document. Currently the only supported option is `'sentence'`.
-    """
-
     _text: str
     doc: Any  # spacy doc
     iter: Iterator[dict[str, Any]]

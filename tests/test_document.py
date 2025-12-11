@@ -104,9 +104,7 @@ class TestDocument:
 
         with pytest.raises(pxt.Error, match='both'):
             _ = pxt.create_view(
-                'chunks',
-                t,
-                iterator=document_splitter(document=t.doc, separators='char_limit, token_limit', limit=10),
+                'chunks', t, iterator=document_splitter(document=t.doc, separators='char_limit, token_limit', limit=10)
             )
 
         # test that limit is required for char_limit and token_limit
@@ -124,9 +122,7 @@ class TestDocument:
         ]
         for md in invalid_metadata:
             with pytest.raises(pxt.Error, match='Invalid metadata'):
-                _ = pxt.create_view(
-                    'chunks', t, iterator=document_splitter(document=t.doc, separators='', metadata=md)
-                )
+                _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='', metadata=md))
 
         invalid_separators = ['page, sentence', 'paragraph, sentence', 'char_limit, sentence', 'token_limit, sentence']
         for sep in invalid_separators:
@@ -250,9 +246,7 @@ class TestDocument:
         for md_str in [','.join(t) for t in md_tuples]:
             print(f'{md_str=}')
             chunks_t = pxt.create_view(
-                'chunks',
-                doc_t,
-                iterator=document_splitter(document=doc_t.doc, separators='sentence', metadata=md_str),
+                'chunks', doc_t, iterator=document_splitter(document=doc_t.doc, separators='sentence', metadata=md_str)
             )
             res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
             requested_md_elements = set(md_str.split(','))
@@ -295,9 +289,7 @@ class TestDocument:
         # the 'paragraph' separator is ignored and has no effect.
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
-            'chunks',
-            doc_t,
-            iterator=document_splitter(document=doc_t.doc, separators='paragraph', metadata='page'),
+            'chunks', doc_t, iterator=document_splitter(document=doc_t.doc, separators='paragraph', metadata='page')
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 1
@@ -310,9 +302,7 @@ class TestDocument:
         # The text is split into 22 sentences.
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
-            'chunks',
-            doc_t,
-            iterator=document_splitter(document=doc_t.doc, separators='sentence', metadata='page'),
+            'chunks', doc_t, iterator=document_splitter(document=doc_t.doc, separators='sentence', metadata='page')
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 22
@@ -363,9 +353,7 @@ class TestDocument:
         chunks = pxt.create_view(
             'chunks',
             t,
-            iterator=document_splitter(
-                document=t.doc, separators='page', elements=['image'], metadata='title,page'
-            ),
+            iterator=document_splitter(document=t.doc, separators='page', elements=['image'], metadata='title,page'),
         )
         status = t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0
