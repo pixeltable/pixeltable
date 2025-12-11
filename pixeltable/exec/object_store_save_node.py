@@ -298,9 +298,11 @@ class ObjectStoreSaveNode(ExecNode):
                 work_to_do.extend(row_to_do)
 
         for work_item in work_to_do:
+            # determine size before file gets moved
+            file_size = work_item.src_path.stat().st_size
             f = executor.submit(self.__persist_media_file, work_item)
             self.in_flight_requests[f] = ObjectStoreSaveNode.WorkDesignator(
-                str(work_item.src_path), work_item.destination, work_item.src_path.stat().st_size
+                str(work_item.src_path), work_item.destination, file_size
             )
             _logger.debug(f'submitted {work_item}')
 

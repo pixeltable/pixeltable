@@ -12,7 +12,6 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exceptions as excs
 from pixeltable.catalog.update_status import RowCountStats
-from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
