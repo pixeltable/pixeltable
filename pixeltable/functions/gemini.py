@@ -256,7 +256,7 @@ _DEFAULT_EMBEDDING_DIMENSIONALITY = 1536
 @pxt.udf(resource_pool='request-rate:gemini', batch_size=32)
 async def generate_embedding(
     input: Batch[str], *, model: str = 'gemini-embedding-001', config: dict | None = None, async_: bool = False
-) -> Batch[pxt.Array[(None,), pxt.Float]]:
+) -> Batch[pxt.Array[(None,), np.float32]]:
     """Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
     https://ai.google.dev/gemini-api/docs/embeddings
 
@@ -299,7 +299,7 @@ async def generate_embedding(
         requests: list[Any] = input  # makes mypy happy
         result = await client.aio.models.embed_content(model=model, contents=requests, config=config_)
         assert len(result.embeddings) == len(input)
-        return [np.array(emb.values, dtype=np.float64) for emb in result.embeddings]
+        return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
     # Async embedding generation (Google calls it Batch API)
     from google.genai import types
@@ -329,7 +329,7 @@ async def generate_embedding(
     results = []
     for resp in batch_job.dest.inlined_embed_content_responses:
         assert resp.error is None
-        results.append(np.array(resp.response.embedding.values, dtype=np.float64))
+        results.append(np.array(resp.response.embedding.values, dtype=np.float32))
     return results
 
 
@@ -337,7 +337,7 @@ async def generate_embedding(
 def _(model: str, config: dict | None) -> ts.ArrayType:
     config_ = _embedding_config(config)
     assert config_.output_dimensionality is not None
-    return ts.ArrayType((config_.output_dimensionality,), dtype=np.dtype('float64'), nullable=False)
+    return ts.ArrayType((config_.output_dimensionality,), dtype=np.dtype('float32'), nullable=False)
 
 
 @generate_embedding.resource_pool

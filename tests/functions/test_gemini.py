@@ -150,7 +150,7 @@ class TestGemini:
         t.add_computed_column(
             embedding=generate_embedding(t.text, async_=async_, config={'output_dimensionality': 768})
         )
-        assert t.embedding.col.col_type.matches(ts.ArrayType((768,), np.dtype('float64'))), t.embedding.col.col_type
+        assert t.embedding.col.col_type.matches(ts.ArrayType((768,), np.dtype('float32'))), t.embedding.col.col_type
         validate_update_status(
             t.insert(
                 [
@@ -164,7 +164,7 @@ class TestGemini:
         for row in t.collect():
             embedding = row['embedding']
             assert isinstance(embedding, np.ndarray)
-            assert embedding.dtype == np.float64
+            assert embedding.dtype == np.float32
             assert embedding.shape == (768,)
 
         # Test embeddings as an index
