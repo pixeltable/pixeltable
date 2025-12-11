@@ -41,10 +41,7 @@ class EmbeddingIndex(IndexBase):
     }
 
     metric: Metric
-    string_embed: func.Function | None
-    image_embed: func.Function | None
-    string_embed_signature_idx: int
-    image_embed_signature_idx: int
+    embeddings: dict[ts.ColumnType.Type, func.Function]
 
     def __init__(
         self,
@@ -52,6 +49,8 @@ class EmbeddingIndex(IndexBase):
         embed: func.Function | None = None,
         string_embed: func.Function | None = None,
         image_embed: func.Function | None = None,
+        audio_embed: func.Function | None = None,
+        video_embed: func.Function | None = None,
     ):
         if embed is None and string_embed is None and image_embed is None:
             raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified')
@@ -59,68 +58,62 @@ class EmbeddingIndex(IndexBase):
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
 
-        self.string_embed = None
-        self.image_embed = None
+        self.embeddings = {}
 
-        # Resolve the specific embedding functions corresponding to the user-provided `string_embed`, `image_embed`,
-        # and/or `embed`. For string embeddings, `string_embed` will be used if specified; otherwise, `embed` will
-        # be used as a fallback, if it has a matching signature. Likewise for image embeddings.
+        # Resolve the specific embedding functions corresponding to the user-provided embedding functions.
+        # For string embeddings, for example, `string_embed` will be used if specified; otherwise, `embed` will
+        # be used as a fallback, if it has a matching signature.
 
-        if string_embed is not None:
-            # `string_embed` is specified; it MUST be valid.
-            self.string_embed = self._resolve_embedding_fn(string_embed, ts.ColumnType.Type.STRING)
-            if self.string_embed is None:
-                raise excs.Error(
-                    f'The function `{string_embed.name}` is not a valid string embedding: '
-                    'it must take a single string parameter'
-                )
-        elif embed is not None:
-            # `embed` is specified; see if it has a string signature.
-            self.string_embed = self._resolve_embedding_fn(embed, ts.ColumnType.Type.STRING)
+        for embed_type, embed_fn in (
+            (ts.ColumnType.Type.STRING, string_embed),
+            (ts.ColumnType.Type.IMAGE, image_embed),
+            (ts.ColumnType.Type.AUDIO, audio_embed),
+            (ts.ColumnType.Type.VIDEO, video_embed),
+        ):
+            if embed_fn is not None:
+                # Embedding function for the requisite type is specified directly; it MUST be valid.
+                resolved_fn = self._resolve_embedding_fn(embed_fn, embed_type)
+                if resolved_fn is None:
+                    raise excs.Error(
+                        f'The function `{embed_fn.name}` is not a valid {embed_type.name.lower()} '
+                        f'embedding: it must take a single {embed_type.name.lower()} parameter'
+                    )
+                self.embeddings[embed_type] = resolved_fn
+            elif embed is not None:
+                # General `embed` is specified; see if it has a matching signature.
+                resolved_fn = self._resolve_embedding_fn(embed, embed_type)
+                if resolved_fn is not None:
+                    self.embeddings[embed_type] = resolved_fn
 
-        if image_embed is not None:
-            # `image_embed` is specified; it MUST be valid.
-            self.image_embed = self._resolve_embedding_fn(image_embed, ts.ColumnType.Type.IMAGE)
-            if self.image_embed is None:
-                raise excs.Error(
-                    f'The function `{image_embed.name}` is not a valid image embedding: '
-                    'it must take a single image parameter'
-                )
-        elif embed is not None:
-            # `embed` is specified; see if it has an image signature.
-            self.image_embed = self._resolve_embedding_fn(embed, ts.ColumnType.Type.IMAGE)
-
-        if self.string_embed is None and self.image_embed is None:
-            # No string OR image signature was found. This can only happen if `embed` was specified and
-            # contains no matching signatures.
+        if len(self.embeddings) == 0:
+            # `embed` was specified and contains no matching signatures.
             assert embed is not None
             raise excs.Error(
-                f'The function `{embed.name}` is not a valid embedding: it must take a single string or image parameter'
+                f'The function `{embed.name}` is not a valid embedding: '
+                'it must take a single string, image, audio, or video parameter'
             )
 
         # Now validate the return types of the embedding functions.
-        if self.string_embed is not None:
-            self._validate_embedding_fn(self.string_embed)
-        if self.image_embed is not None:
-            self._validate_embedding_fn(self.image_embed)
+        for embed_type, embed_fn in self.embeddings.items():
+            self._validate_embedding_fn(embed_fn)
 
         self.metric = self.Metric[metric.upper()]
 
     def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
-        if not c.col_type.is_string_type() and not c.col_type.is_image_type():
+        if not c.col_type._type in (
+            ts.ColumnType.Type.STRING,
+            ts.ColumnType.Type.IMAGE,
+            ts.ColumnType.Type.AUDIO,
+            ts.ColumnType.Type.VIDEO,
+        ):
+            raise excs.Error(f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.')
+        if c.col_type._type not in self.embeddings:
             raise excs.Error(
-                f'Embedding index requires string or image column, column {c.name!r} has type {c.col_type}'
+                f'The specified embedding function does not support the type `{c.col_type}` of column {c.name!r}.'
             )
-        if c.col_type.is_string_type() and self.string_embed is None:
-            raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
-        if c.col_type.is_image_type() and self.image_embed is None:
-            raise excs.Error(f"Image embedding function is required for column {c.name} (parameter 'image_embed')")
 
-        return (
-            self.string_embed(exprs.ColumnRef(c))
-            if c.col_type.is_string_type()
-            else self.image_embed(exprs.ColumnRef(c))
-        )
+        embed_fn = self.embeddings[c.col_type._type]
+        return embed_fn(exprs.ColumnRef(c))
 
     def records_value_errors(self) -> bool:
         return True
@@ -146,12 +139,11 @@ class EmbeddingIndex(IndexBase):
         """Create a ColumnElement that represents '<val_column> <op> <item>'"""
         assert isinstance(item, (str, PIL.Image.Image))
         embedding: np.ndarray
+        # TODO: Handle audio and video here
         if isinstance(item, str):
-            assert self.string_embed is not None
-            embedding = self.string_embed.exec([item], {})
+            embedding = self.embeddings[ts.ColumnType.Type.STRING].exec([item], {})
         if isinstance(item, PIL.Image.Image):
-            assert self.image_embed is not None
-            embedding = self.image_embed.exec([item], {})
+            embedding = self.embeddings[ts.ColumnType.Type.IMAGE].exec([item], {})
 
         if self.metric == self.Metric.COSINE:
             return val_column.sa_col.cosine_distance(embedding) * -1 + 1
@@ -165,12 +157,11 @@ class EmbeddingIndex(IndexBase):
         """Create a ColumnElement that is used in an ORDER BY clause"""
         assert isinstance(item, (str, PIL.Image.Image))
         embedding: np.ndarray | None = None
+        # TODO: Handle audio and video here
         if isinstance(item, str):
-            assert self.string_embed is not None
-            embedding = self.string_embed.exec([item], {})
+            embedding = self.embeddings[ts.ColumnType.Type.STRING].exec([item], {})
         if isinstance(item, PIL.Image.Image):
-            assert self.image_embed is not None
-            embedding = self.image_embed.exec([item], {})
+            embedding = self.embeddings[ts.ColumnType.Type.IMAGE].exec([item], {})
         assert embedding is not None
 
         if self.metric == self.Metric.COSINE:
@@ -236,14 +227,22 @@ class EmbeddingIndex(IndexBase):
             )
 
     def as_dict(self) -> dict:
-        return {
-            'metric': self.metric.name.lower(),
-            'string_embed': None if self.string_embed is None else self.string_embed.as_dict(),
-            'image_embed': None if self.image_embed is None else self.image_embed.as_dict(),
-        }
+        d = {'metric': self.metric.name.lower()}
+        for embed_type, embed_fn in self.embeddings.items():
+            key = f'{embed_type.name.lower()}_embed'
+            d[key] = embed_fn.as_dict()
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> EmbeddingIndex:
-        string_embed = func.Function.from_dict(d['string_embed']) if d['string_embed'] is not None else None
-        image_embed = func.Function.from_dict(d['image_embed']) if d['image_embed'] is not None else None
-        return cls(metric=d['metric'], string_embed=string_embed, image_embed=image_embed)
+        string_embed = func.Function.from_dict(d['string_embed']) if d.get('string_embed') is not None else None
+        image_embed = func.Function.from_dict(d['image_embed']) if d.get('image_embed') is not None else None
+        audio_embed = func.Function.from_dict(d['audio_embed']) if d.get('audio_embed') is not None else None
+        video_embed = func.Function.from_dict(d['video_embed']) if d.get('video_embed') is not None else None
+        return cls(
+            metric=d['metric'],
+            string_embed=string_embed,
+            image_embed=image_embed,
+            audio_embed=audio_embed,
+            video_embed=video_embed,
+        )

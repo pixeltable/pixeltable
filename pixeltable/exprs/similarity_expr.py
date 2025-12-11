@@ -43,15 +43,12 @@ class SimilarityExpr(Expr):
         idx = idx_info.idx
         assert isinstance(idx, EmbeddingIndex)
 
-        if item_expr.col_type.is_string_type() and idx.string_embed is None:
+        if item_expr.col_type._type not in idx.embeddings:
+            type_str = item_expr.col_type._type.name.lower()
+            article = 'an' if type_str[0] in 'aeiou' else 'a'
             raise excs.Error(
-                f'Embedding index {idx_info.name!r} on column {idx_info.col.name!r} does not have a '
-                f'string embedding and does not support string queries'
-            )
-        if item_expr.col_type.is_image_type() and idx.image_embed is None:
-            raise excs.Error(
-                f'Embedding index {idx_info.name!r} on column {idx_info.col.name!r} does not have an '
-                f'image embedding and does not support image queries'
+                f'Embedding index {idx_info.name!r} on column {idx_info.col.name!r} does not have {article} '
+                f'{type_str} embedding and does not support {type_str} queries'
             )
         self.id = self._create_id()
 

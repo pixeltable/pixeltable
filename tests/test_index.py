@@ -633,35 +633,31 @@ class TestIndex:
             img_t.add_embedding_index('img')
         assert '`embed`, `string_embed`, or `image_embed` must be specified' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r'Type `Int` of column \'c2\' is not a valid type for an embedding index.'):
             # wrong column type
             test_tbl.add_embedding_index('c2', image_embed=clip_embed)
-        assert 'requires string or image column' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r'The specified embedding function does not support the type `Image` of column \'img\'.'):
             # missing embedding function
             img_t.add_embedding_index('img', string_embed=clip_embed)
-        assert 'image embedding function is required' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
             img_t.add_embedding_index('img', image_embed=clip)
         assert 'must take a single image parameter' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r'The specified embedding function does not support the type `String` of column \'category\'.'):
             # missing embedding function
             img_t.add_embedding_index('category', image_embed=clip_embed)
-        assert 'text embedding function is required' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
             img_t.add_embedding_index('category', string_embed=clip)
         assert 'must take a single string parameter' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r'The function `clip` is not a valid embedding: it must take a single string, image, audio, or video parameter'):
             # no matching signature
             img_t.add_embedding_index('img', embedding=clip)
-        assert 'must take a single string or image parameter' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.add_embedding_index('category', string_embed=self.bad_embed)
