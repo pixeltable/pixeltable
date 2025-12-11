@@ -41,67 +41,50 @@ Many documentation pages are interactive notebooks (marked with <Icon icon="circ
 
 ## What Can You Build?
 
-### RAG & Agents
-
-Build retrieval-augmented generation pipelines and AI agents with automatic embedding indexing and semantic search.
-
-<CardGroup cols={3}>
-  <Card title="RAG Pipeline" icon="brain" href="/howto/cookbooks/agents/pattern-rag-pipeline">
-    End-to-end document retrieval and generation
+<CardGroup cols={2}>
+  <Card title="Declarative Pipelines" icon="code">
+    Replace complex orchestration with simple computed columns. Define transformations once—they run automatically on all data.
   </Card>
-  <Card title="Document Indexing" icon="file-lines" href="/howto/use-cases/rag-demo">
-    Index documents with embeddings for semantic search
+  <Card title="Multimodal RAG" icon="magnifying-glass">
+    Production RAG with automatic embedding indexing, semantic search, and incremental updates across text, images, and video.
   </Card>
-  <Card title="Agent Memory" icon="memory" href="/howto/cookbooks/agents/pattern-agent-memory">
-    Persistent conversation history for chatbots
+  <Card title="AI Agents & MCP" icon="robot">
+    Build tool-calling agents with persistent memory, MCP server integration, and automatic conversation history.
+  </Card>
+  <Card title="ML Data Export" icon="download">
+    Export to PyTorch DataLoaders, Parquet, COCO format, LanceDB, and pandas for training and analytics.
   </Card>
 </CardGroup>
 
-### Audio & Video
+### Explore by Use Case
 
-Process multimedia with automatic transcription, frame extraction, and object detection.
-
-<CardGroup cols={3}>
-  <Card title="Transcribe Audio" icon="microphone" href="/howto/cookbooks/audio/audio-transcribe">
+<CardGroup cols={4}>
+  <Card title="RAG Pipeline" icon="brain" href="/howto/cookbooks/agents/pattern-rag-pipeline">
+    Document retrieval & generation
+  </Card>
+  <Card title="Video Analysis" icon="video" href="/howto/use-cases/object-detection-in-videos">
+    Object detection in video
+  </Card>
+  <Card title="Audio Transcription" icon="microphone" href="/howto/cookbooks/audio/audio-transcribe">
     Speech-to-text with Whisper
   </Card>
-  <Card title="Object Detection" icon="video" href="/howto/use-cases/object-detection-in-videos">
-    Detect objects in video frames with YOLOX
-  </Card>
-  <Card title="Extract Frames" icon="images" href="/howto/cookbooks/video/video-extract-frames">
-    Split videos into analyzable frames
-  </Card>
-</CardGroup>
-
-### Images & Vision
-
-Analyze images with vision models, generate captions, and perform visual search.
-
-<CardGroup cols={3}>
   <Card title="Vision Analysis" icon="eye" href="/howto/cookbooks/images/vision-batch-analysis">
-    Batch image analysis with GPT-4 Vision
-  </Card>
-  <Card title="Object Detection" icon="crosshairs" href="/howto/cookbooks/images/img-detect-objects">
-    Detect and locate objects in images
-  </Card>
-  <Card title="Similar Images" icon="magnifying-glass" href="/howto/cookbooks/search/search-similar-images">
-    Find visually similar images with embeddings
+    GPT-4 Vision on images
   </Card>
 </CardGroup>
 
-### Text & Documents
-
-Summarize, translate, extract entities, and chunk documents for processing.
-
-<CardGroup cols={3}>
-  <Card title="Summarize Text" icon="compress" href="/howto/cookbooks/text/text-summarize">
-    Generate concise summaries with LLMs
+<CardGroup cols={4}>
+  <Card title="Semantic Search" icon="magnifying-glass" href="/howto/cookbooks/search/search-similar-images">
+    Find similar images/text
   </Card>
-  <Card title="Chunk Documents" icon="scissors" href="/howto/cookbooks/text/doc-chunk-for-rag">
-    Split documents for RAG pipelines
+  <Card title="Document Chunking" icon="scissors" href="/howto/cookbooks/text/doc-chunk-for-rag">
+    Split docs for RAG
   </Card>
-  <Card title="Extract Entities" icon="tags" href="/howto/cookbooks/text/text-extract-entities">
-    Pull structured data from unstructured text
+  <Card title="Agent Memory" icon="clock-rotate-left" href="/howto/cookbooks/agents/pattern-agent-memory">
+    Persistent chat history
+  </Card>
+  <Card title="Data Import" icon="upload" href="/howto/cookbooks/data/data-import-csv">
+    CSV, JSON, Parquet, S3
   </Card>
 </CardGroup>
 
