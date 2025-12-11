@@ -2,6 +2,7 @@ import logging
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, ClassVar
+from deprecated import deprecated
 
 import av
 
@@ -202,3 +203,8 @@ class AudioSplitter(ComponentIterator):
 
     def set_pos(self, pos: int) -> None:
         pass
+
+    @classmethod
+    @deprecated('create() is deprecated; use `pixeltable.functions.audio.audio_splitter` instead', version='0.5.5')
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return cls, kwargs

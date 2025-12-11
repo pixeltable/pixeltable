@@ -71,6 +71,7 @@ dependencies = [
     "pixeltable-pgserver==0.4.0",
     "tzlocal>=5.0",
     "aiohttp>=3.9",
+    "deprecated>=1.2.15",
 ]
 
 [project.urls]

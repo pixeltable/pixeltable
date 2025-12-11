@@ -4,6 +4,7 @@ import io
 import logging
 from typing import Any, ClassVar, Iterable, Iterator, Literal
 
+from deprecated import deprecated
 import fitz  # type: ignore[import-untyped]
 import ftfy
 import PIL.Image
@@ -528,3 +529,8 @@ class DocumentSplitter(ComponentIterator):
 
     def set_pos(self, pos: int) -> None:
         pass
+
+    @classmethod
+    @deprecated('create() is deprecated; use `pixeltable.functions.document.document_splitter` instead', version='0.5.5')
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return cls, kwargs

@@ -49,5 +49,5 @@ class ComponentIterator(ABC):
         raise NotImplementedError
 
     @classmethod
-    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+    def _create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
         return cls, kwargs
