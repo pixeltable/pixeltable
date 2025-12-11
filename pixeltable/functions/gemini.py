@@ -262,7 +262,7 @@ async def generate_embedding(
     use_batch_api: bool = False,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     """Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
-    https://ai.google.dev/gemini-api/docs/embeddings
+    <https://ai.google.dev/gemini-api/docs/embeddings>
 
     The `output_dimensionality` in the config must not exceed 2000, if present.
 
