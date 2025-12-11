@@ -69,6 +69,8 @@ class CachePrefetchNode(ExecNode):
         self.file_col_info = file_col_info
 
         self.num_returned_rows = 0
+        self.downloaded_objects_reporter = None
+        self.downloaded_bytes_reporter = None
         self.ready_rows = deque()
         self.in_flight_rows = {}
         self.in_flight_requests = {}

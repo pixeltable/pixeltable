@@ -46,6 +46,7 @@ class ObjectStoreSaveNode(ExecNode):
 
         src_path: str  # source of the file to be processed
         destination: str  # destination URI for the file to be processed
+        file_size: int  # in bytes
 
     class WorkItem(NamedTuple):
         src_path: Path
@@ -75,7 +76,6 @@ class ObjectStoreSaveNode(ExecNode):
     row_idx: Iterator[int | None]
 
     # progress reporting
-    in_flight_sizes: dict[futures.Future, int]  # Future -> file size in bytes
     uploaded_objects_reporter: ExecContext.ProgressReporter | None
     uploaded_bytes_reporter: ExecContext.ProgressReporter | None
 
@@ -97,9 +97,10 @@ class ObjectStoreSaveNode(ExecNode):
         self.in_flight_rows = {}
         self.in_flight_requests = {}
         self.in_flight_work = {}
-        self.in_flight_sizes = {}
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
+        self.uploaded_objects_reporter = None
+        self.uploaded_bytes_reporter = None
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
 
     @property
@@ -178,7 +179,6 @@ class ObjectStoreSaveNode(ExecNode):
 
         for f in done:
             work_designator = self.in_flight_requests.pop(f)
-            file_size = self.in_flight_sizes.pop(f, 0)
             new_file_url, exc = f.result()
             if exc is not None and not ignore_errors:
                 raise exc
@@ -186,7 +186,7 @@ class ObjectStoreSaveNode(ExecNode):
 
             if exc is None:
                 num_objects += 1
-                num_bytes += file_size
+                num_bytes += work_designator.file_size
 
             # add the local path/exception to the slots that reference the url
             for row, info in self.in_flight_work.pop(work_designator):
@@ -248,7 +248,7 @@ class ObjectStoreSaveNode(ExecNode):
                 # Do not copy local file URLs to the LocalStore
                 continue
 
-            work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination)
+            work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination, src_path.stat().st_size)
             locations = self.in_flight_work.get(work_designator)
             if locations is not None:
                 # we've already seen this
@@ -300,9 +300,8 @@ class ObjectStoreSaveNode(ExecNode):
         for work_item in work_to_do:
             f = executor.submit(self.__persist_media_file, work_item)
             self.in_flight_requests[f] = ObjectStoreSaveNode.WorkDesignator(
-                str(work_item.src_path), work_item.destination
+                str(work_item.src_path), work_item.destination, work_item.src_path.stat().st_size
             )
-            self.in_flight_sizes[f] = work_item.src_path.stat().st_size
             _logger.debug(f'submitted {work_item}')
 
     def __persist_media_file(self, work_item: WorkItem) -> tuple[str | None, Exception | None]:
