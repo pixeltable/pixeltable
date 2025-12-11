@@ -347,9 +347,8 @@ class StoreBase:
 
         try:
             table_rows: list[tuple[Any]] = []
-            exec_plan.ctx.show_progress = Config.get().get_bool_value(
-                'show_progress', default=Env.get().is_interactive()
-            )
+            env = Env.get()
+            exec_plan.ctx.show_progress = env.verbosity >= 1 and env.is_interactive()
             with exec_plan:
                 progress_reporter = (
                     exec_plan.ctx.add_progress_reporter(
@@ -425,7 +424,8 @@ class StoreBase:
 
         table_rows: list[tuple[Any]] = []
         # by default, we only show the progress tracker when running in an interactive environment
-        exec_plan.ctx.show_progress = Config.get().get_bool_value('show_progress', default=Env.get().is_interactive())
+        env = Env.get()
+        exec_plan.ctx.show_progress = env.verbosity >= 1 and env.is_interactive()
 
         with exec_plan:
             progress_reporter = (

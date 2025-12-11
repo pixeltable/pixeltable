@@ -1,9 +1,10 @@
+import builtins
 import logging
 import random
 import time
 
 import sqlalchemy as sql
-from rich.progress import Progress, ProgressColumn, Task, TaskID, Text, TextColumn
+from rich.progress import Column, Progress, ProgressColumn, Task, TaskID, Text, TextColumn
 
 from pixeltable import exprs
 
@@ -151,13 +152,13 @@ class ExecContext:
             return
 
         self.progress = Progress(
-            TextColumn('[progress.description]{task.description}'),
+            TextColumn('[progress.description]{task.description}', table_column=Column(min_width=40)),
             AdaptiveNumericColumn(),
             TextColumn('[progress.completed] {task.fields[unit]}', justify='left'),
-            ' ',
-            TextColumn('[progress.percentage]{task.fields[rate]}[/progress.percentage]', justify='right'),
+            # ' ',
+            # TextColumn('[progress.percentage]{task.fields[rate]}[/progress.percentage]', justify='right'),
+            transient=True,  # remove after stop()
         )
-        # self.elapsed_time_task_id = self.progress.add_task('Total time', unit='s', rate='')
         self.progress.start()
         self.progress_start = time.monotonic()
 
@@ -165,12 +166,37 @@ class ExecContext:
         """Stop the timer and print the final progress report. Idempotent."""
         if not self.show_progress or self.progress is None:
             return
-        try:
-            for reporter in self.progress_reporters.values():
-                reporter.finalize()
-            self.progress.refresh()
-        finally:
-            self.progress.stop()
+
+        self.progress.stop()
+        # for some reason, the progress bar is not cleared automatically in jupyter
+        if getattr(builtins, '__IPYTHON__', False):
+            from IPython.display import clear_output
+
+            clear_output(wait=True)
+
+        # report the total throughput of the last stage
+        last_reporter = next(reversed(self.progress_reporters.values()))
+        last_total = last_reporter.total
+        elapsed = time.monotonic() - self.progress_start
+        self.progress.console.print(
+            f'{_print_number(last_total)} {last_reporter.unit} in {elapsed:.2f}s '
+            f'({last_total / elapsed:.2f}{last_reporter.unit}/s)'
+        )
+
+
+def _print_number(val: float | int) -> str:
+    if isinstance(val, int):
+        return str(val)
+    else:
+        assert isinstance(val, float)
+        if val < 1.0:
+            return f'{val:.3f}'
+        elif val < 10.0:
+            return f'{val:.2f}'
+        elif val < 100.0:
+            return f'{val:.1f}'
+        else:
+            return f'{int(val)}'
 
 
 class AdaptiveNumericColumn(ProgressColumn):
@@ -180,18 +206,5 @@ class AdaptiveNumericColumn(ProgressColumn):
     """
 
     def render(self, task: Task) -> Text:
-        formatted_value: str
-        if isinstance(task.completed, int):
-            formatted_value = str(task.completed)
-        else:
-            assert isinstance(task.completed, float)
-            if task.completed < 1.0:
-                formatted_value = f'{task.completed:.3f}'
-            elif task.completed < 10.0:
-                formatted_value = f'{task.completed:.2f}'
-            elif task.completed < 100.0:
-                formatted_value = f'{task.completed:.1f}'
-            else:
-                formatted_value = f'{int(task.completed)}'
-
+        formatted_value = _print_number(task.completed)
         return Text(formatted_value, style='progress.completed', justify='right')
