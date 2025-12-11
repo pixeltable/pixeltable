@@ -25,24 +25,19 @@
           {
             "group": "Core Concepts",
             "pages": [
+              "platform/type-system",
               "tutorials/tables-and-data-operations",
               "tutorials/computed-columns",
-              "tutorials/queries-and-expressions",
-              "platform/type-system",
               "platform/views",
+              "tutorials/queries-and-expressions",
+              "platform/udfs-in-pixeltable",
               "platform/iterators",
               "platform/embedding-indexes",
-              "platform/udfs-in-pixeltable",
-              {
-                "group": "Working with Data",
-                "pages": [
-                  "platform/bringing-data",
-                  "platform/external-files",
-                  "platform/sampling",
-                  "platform/data-sharing",
-                  "platform/time-zones"
-                ]
-              },
+              "platform/bringing-data",
+              "platform/external-files",
+              "platform/sampling",
+              "platform/data-sharing",
+              "platform/time-zones",
               "platform/deployment",
               "platform/configuration"
             ]
