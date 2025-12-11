@@ -36,9 +36,6 @@ class StringSplitter(ComponentIterator):
     def close(self) -> None:
         pass
 
-    def set_pos(self, pos: int) -> None:
-        pass
-
     @classmethod
     def input_schema(cls, *args: Any, **kwargs: Any) -> dict[str, ts.ColumnType]:
         return {'text': ts.StringType(), 'separators': ts.StringType()}
