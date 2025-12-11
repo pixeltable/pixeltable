@@ -119,11 +119,11 @@ def import_huggingface_dataset(
 
     HuggingFace feature types are mapped to Pixeltable column types as follows:
 
-    - `Value(bool)`: `Bool`<br>
-      `Value(int*/uint*)`: `Int`<br>
-      `Value(float*)`: `FloatType`<br>
-      `Value(string/large_string)`: `String`<br>
-      `Value(timestamp*)`: `Timestamp`<br>
+    - `Value(bool)`: `Bool`<br/>
+      `Value(int*/uint*)`: `Int`<br/>
+      `Value(float*)`: `Float`<br/>
+      `Value(string/large_string)`: `String`<br/>
+      `Value(timestamp*)`: `Timestamp`<br/>
       `Value(date*)`: `Date`
     - `ClassLabel`: `String` (converted to label names)
     - `Sequence`/`LargeList` of numeric types: `Array`
