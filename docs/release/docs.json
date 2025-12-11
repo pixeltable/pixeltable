@@ -91,16 +91,16 @@
                 "group": "Cookbooks",
                 "pages": [
                   {
-                    "group": "Fundamentals",
+                    "group": "Core",
                     "pages": [
-                      "howto/cookbooks/fundamentals/workflow-api-keys",
-                      "howto/cookbooks/fundamentals/dev-iterative-workflow",
-                      "howto/cookbooks/fundamentals/workflow-json-extraction",
-                      "howto/cookbooks/fundamentals/workflow-uuid-identity",
-                      "howto/cookbooks/fundamentals/query-join-tables",
-                      "howto/cookbooks/fundamentals/version-control-history",
-                      "howto/cookbooks/fundamentals/custom-aggregates-uda",
-                      "howto/cookbooks/fundamentals/custom-iterators"
+                      "howto/cookbooks/core/workflow-api-keys",
+                      "howto/cookbooks/core/dev-iterative-workflow",
+                      "howto/cookbooks/core/workflow-json-extraction",
+                      "howto/cookbooks/core/workflow-uuid-identity",
+                      "howto/cookbooks/core/query-join-tables",
+                      "howto/cookbooks/core/version-control-history",
+                      "howto/cookbooks/core/custom-aggregates-uda",
+                      "howto/cookbooks/core/custom-iterators"
                     ]
                   },
                   {
