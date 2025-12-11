@@ -4,7 +4,6 @@ from collections import namedtuple
 from typing import TYPE_CHECKING
 
 import numpy as np
-import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -20,6 +19,8 @@ if TYPE_CHECKING:
 )
 @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
 class TestHfDatasets:
+    NUM_SAMPLES = 100
+
     def test_import_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
@@ -192,36 +193,249 @@ class TestHfDatasets:
             check_tup = DatasetTuple(**encoded_tup)
             assert check_tup in acc_dataset
 
-    def test_import_hf_dataset_with_images(self, reset_db: None) -> None:
-        skip_test_if_not_installed('datasets')
-        import datasets
-
-        # Test that datasets with images load properly
-        t = pxt.io.import_huggingface_dataset('mnist', datasets.load_dataset('ylecun/mnist', split='test'))
-        assert t.count() == 10000
-        img = t.head(1)['image'][0]
-        assert isinstance(img, PIL.Image.Image)
-        assert img.size == (28, 28)
-
-    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
-    def test_import_arrays(self, reset_db: None) -> None:
-        skip_test_if_not_installed('datasets')
-        import datasets
-
-        hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset')
-        t = pxt.create_table('hfds', source=hf_dataset)
-        res = t.head(1)
-        row = res[0]
-        assert set(row.keys()) == {'audio', 'sentence'}
-        assert isinstance(row['audio'], dict)
-        assert set(row['audio'].keys()) == {'array', 'path', 'sampling_rate'}
-        assert isinstance(row['audio']['array'], np.ndarray)
-        assert isinstance(row['audio']['path'], str)
-        assert isinstance(row['audio']['sampling_rate'], int)
-        assert isinstance(row['sentence'], str)
-
     def test_import_hf_dataset_invalid(self, reset_db: None) -> None:
         skip_test_if_not_installed('datasets')
         with pytest.raises(pxt.Error) as exc_info:
             pxt.io.import_huggingface_dataset('test', {})
         assert 'Unsupported data source type' in str(exc_info.value)
+
+    @pytest.mark.parametrize('streaming', [False, True])
+    def test_import_images(self, streaming: bool, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        # Test that datasets with images load properly
+        split = f'test[:{self.NUM_SAMPLES}]' if not streaming else 'test'
+        hf_dataset = datasets.load_dataset('ylecun/mnist', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
+        t = pxt.create_table('mnist', source=hf_dataset)
+        md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'image', 'label'}
+        assert md['columns']['image']['type_'] == 'Image'
+        assert md['columns']['label']['type_'] == 'String'
+
+        res = t.select(t.image.localpath).collect()
+        assert all(pathlib.Path(row['image_localpath']).exists() for row in res)
+
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_arrays(self, streaming: bool, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        hf_dataset = datasets.load_dataset('Hani89/medical_asr_recording_dataset', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
+        t = pxt.create_table('hfds', source=hf_dataset)
+        md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'audio', 'sentence'}
+        assert md['columns']['audio']['type_'] == 'Json'
+
+        res = t.collect()
+        assert all(isinstance(row['audio'], dict) for row in res)
+        assert all(isinstance(row['audio']['array'], np.ndarray) for row in res)
+
+    @pytest.mark.parametrize('streaming', [False, True])
+    def test_import_audio_small(self, streaming: bool, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        hf_dataset = datasets.load_dataset(
+            'hf-internal-testing/librispeech_asr_dummy', 'clean', split='validation', streaming=streaming
+        )
+        t = pxt.create_table('audio_test', source=hf_dataset)
+        md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
+        assert md['columns']['audio']['type_'] == 'Audio'
+
+        res = t.collect()
+        assert all(pathlib.Path(row['audio']).exists() for row in res)
+
+    # This dataset is too large not to use in streaming mode (124GB)
+    # TODO: find dataset containing Audio that is not gigantic
+    @pytest.mark.parametrize('streaming', [True])
+    def test_import_audio(self, streaming: bool, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        hf_dataset = datasets.load_dataset('librispeech_asr', split='train.clean.100', streaming=streaming).take(100)
+        t = pxt.create_table('audio_test', source=hf_dataset)
+        md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
+        assert md['columns']['audio']['type_'] == 'Audio'
+
+        res = t.collect()
+        assert all(pathlib.Path(row['audio']).exists() for row in res)
+
+    # This test fails with streaming=True due to a known bug in datasets:
+    # https://github.com/huggingface/datasets/issues/3738
+    # TODO: find out whether we need a workaround
+    # @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.parametrize('streaming', [False])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_list_of_dict(self, streaming: bool, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        num_samples = 1000  # we need more samples to get non-Null prev_messages
+        split = f'train[:{num_samples}]' if not streaming else 'train'
+        dataset = datasets.load_dataset('natolambert/GeneralThought-430K-filtered', split=split, streaming=streaming)
+        if streaming:
+            dataset = dataset.take(num_samples)
+        t = pxt.create_table('natolambert', source=dataset, primary_key='question_id', if_exists='replace')
+        md = t.get_metadata()
+        assert set(md['columns'].keys()) == {
+            'question_id',
+            'question_url',
+            'question',
+            'reference_answer',
+            'prev_messages',
+            'model_name',
+            'model_answer',
+            'model_reasoning',
+            'task',
+            'question_license',
+            'question_source',
+            'community_answer_score',
+            'community_question_score',
+            'verifier_score',
+        }
+        assert md['columns']['prev_messages']['type_'] == 'Json'
+
+        res = t.where(t.prev_messages != None).collect()
+        assert all(isinstance(row['prev_messages'], list) for row in res)
+        assert all(isinstance(x, dict) for row in res for x in row['prev_messages'])
+
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_classlabel(self, streaming: bool, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        hf_dataset = datasets.load_dataset('rotten_tomatoes', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
+        t = pxt.create_table('test', source=hf_dataset)
+        md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'label', 'text'}
+        assert md['columns']['label']['type_'] == 'String'
+
+        res = t.collect()
+        assert all(row['label'] in ['neg', 'pos'] for row in res)
+
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_sequence_of_float(self, streaming: bool, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        # Cohere Wikipedia has embeddings as Sequence(float32); 'mi': a relatively small dataset
+        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        hf_dataset = datasets.load_dataset(
+            'Cohere/wikipedia-2023-11-embed-multilingual-v3', 'mi', split=split, streaming=streaming
+        )
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
+        t = pxt.create_table('test', source=hf_dataset)
+        md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'c_id', 'emb', 'text', 'title', 'url'}
+        assert md['columns']['emb']['type_'] == 'Array[(None,), float32]'
+
+        res = t.collect()
+        assert all(isinstance(row['emb'], np.ndarray) for row in res)
+        assert all(row['emb'].shape == (1024,) for row in res)
+        assert all(row['emb'].dtype == np.float32 for row in res)
+
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_sequence_of_dict(self, streaming: bool, reset_db: None) -> None:
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        # SQuAD has answers as {'text': List(string), 'answer_start': List(int32)}
+        split = f'validation[:{self.NUM_SAMPLES}]' if not streaming else 'validation'
+        hf_dataset = datasets.load_dataset('squad', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
+        t = pxt.create_table('squad_test', source=hf_dataset)
+        md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'answers', 'context', 'id', 'question', 'title'}
+        assert md['columns']['answers']['type_'] == 'Json'
+
+        res = t.collect()
+        # answers should be a dict containing lists; however, the list of ints gets turned into an ndarray
+        # TODO: what kinds of flags should we provide to control whether an inlined numerical array turns into a list or
+        # an ndarray?
+        assert all(isinstance(row['answers'], dict) for row in res)
+        assert all(isinstance(row['answers']['text'], list) for row in res)
+        assert all(isinstance(row['answers']['answer_start'], np.ndarray) for row in res)
+
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_nested_struct(self, streaming: bool, reset_db: None) -> None:
+        """
+        Test importing dataset with nested structures:
+        - supporting_facts: Sequence({'title': string, 'sent_id': int32})
+        - context: Sequence({'title': string, 'sentences': Sequence(string)})
+        """
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        # HotpotQA has complex nested structures
+        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        hf_dataset = datasets.load_dataset('hotpotqa/hotpot_qa', 'distractor', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
+        t = pxt.create_table('hotpotqa_test', source=hf_dataset)
+        md = t.get_metadata()
+        assert set(md['columns'].keys()) == {'id', 'question', 'answer', 'supporting_facts', 'context', 'level', 'type'}
+        assert md['columns']['supporting_facts']['type_'] == 'Json'
+        assert md['columns']['context']['type_'] == 'Json'
+
+        res = t.collect()
+        assert all(isinstance(row['supporting_facts'], dict) for row in res)
+        assert all(isinstance(row['supporting_facts']['title'], list) for row in res)
+        assert all(isinstance(row['supporting_facts']['sent_id'], np.ndarray) for row in res)
+        assert all(isinstance(row['context'], dict) for row in res)
+        assert all(isinstance(row['context']['title'], list) for row in res)
+        assert all(isinstance(row['context']['sentences'], list) for row in res)
+
+    @pytest.mark.parametrize('streaming', [False, True])
+    @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
+    def test_import_arraynd(self, streaming: bool, reset_db: None) -> None:
+        """Test dataset with Array2D and Array3D features."""
+        skip_test_if_not_installed('datasets')
+        import datasets
+
+        split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
+        hf_dataset = datasets.load_dataset('tanganke/nyuv2', split=split, streaming=streaming)
+        if streaming:
+            hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
+        t = pxt.create_table('nyuv2_test', source=hf_dataset)
+        md = t.get_metadata()
+        assert md['columns']['image']['type_'] == 'Array[(3, 288, 384), float32]'
+        assert md['columns']['segmentation']['type_'] == 'Array[(288, 384), int64]'
+        assert md['columns']['depth']['type_'] == 'Array[(1, 288, 384), float32]'
+        assert md['columns']['normal']['type_'] == 'Array[(3, 288, 384), float32]'
+        assert md['columns']['noise']['type_'] == 'Array[(1, 288, 384), float32]'
+
+        res = t.collect()
+        assert set(res.schema.keys()) == {'image', 'segmentation', 'depth', 'normal', 'noise'}
+        assert all(isinstance(row['image'], np.ndarray) for row in res)
+        assert all(row['image'].shape == (3, 288, 384) for row in res)
+        assert all(row['image'].dtype == np.float32 for row in res)
+        assert all(isinstance(row['segmentation'], np.ndarray) for row in res)
+        assert all(row['segmentation'].shape == (288, 384) for row in res)
+        assert all(row['segmentation'].dtype == np.int64 for row in res)
+        assert all(isinstance(row['depth'], np.ndarray) for row in res)
+        assert all(row['depth'].shape == (1, 288, 384) for row in res)
+        assert all(row['depth'].dtype == np.float32 for row in res)
+        assert all(isinstance(row['normal'], np.ndarray) for row in res)
+        assert all(row['normal'].shape == (3, 288, 384) for row in res)
+        assert all(row['normal'].dtype == np.float32 for row in res)
+        assert all(isinstance(row['noise'], np.ndarray) for row in res)
+        assert all(row['noise'].shape == (1, 288, 384) for row in res)
+        assert all(row['noise'].dtype == np.float32 for row in res)
