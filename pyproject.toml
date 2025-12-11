@@ -70,7 +70,7 @@ dependencies = [
     "pixeltable-pgserver==0.4.0",
     "tzlocal>=5.0",
     "aiohttp>=3.9",
-    "pypdfium2>=5.1.0",
+    "pypdfium2>=5.0.0",
 ]
 
 [project.urls]
