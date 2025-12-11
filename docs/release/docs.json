@@ -540,6 +540,10 @@
     {
       "source": "/notebooks/fundamentals/tables-and-data-operations",
       "destination": "/tutorials/tables-and-data-operations"
+    },
+    {
+      "source": "/howto/cookbooks/dev-iterative-workflow",
+      "destination": "/howto/cookbooks/core/dev-iterative-workflow"
     }
   ]
 }
