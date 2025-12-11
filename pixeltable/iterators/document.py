@@ -447,10 +447,7 @@ class DocumentSplitter(ComponentIterator):
             return txt
 
         for page_idx, page in enumerate(doc):
-            img: PIL.Image.Image | None = None
-            if Element.IMAGE in self._elements:
-                img = page.render().to_pil()
-
+            img = page.render().to_pil() if Element.IMAGE in self._elements else None
             text = page.get_textpage().get_text_range()
             _add_cleaned(text)
             if accumulated_text and emit_on_page:
