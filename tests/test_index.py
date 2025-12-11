@@ -800,3 +800,19 @@ class TestIndex:
             start + datetime.timedelta(days=random.randint(0, int(delta_days))) for _ in range(self.BTREE_TEST_NUM_ROWS)
         ]
         self.run_btree_test(data, pxt.Date)
+
+    @pxt.udf
+    @staticmethod
+    def dummy_embed_max_len(text: str) -> pxt.Array[(2000,), np.float32]:
+        pass
+
+    @pxt.udf
+    @staticmethod
+    def dummy_embed_too_long(text: str) -> pxt.Array[(2001,), np.float32]:
+        pass
+
+    def test_embedding_length_limit(self, reset_db: None) -> None:
+        t = pxt.create_table('test', {'text': pxt.String})
+        t.add_embedding_index(t.text, embedding=self.dummy_embed_max_len)
+        with pytest.raises(AssertionError, match='Embedding vector size exceeds the maximum allowed size'):
+            t.add_embedding_index(t.text, embedding=self.dummy_embed_too_long)
