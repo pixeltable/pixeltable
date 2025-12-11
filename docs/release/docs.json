@@ -30,7 +30,6 @@
               "tutorials/queries-and-expressions",
               "platform/type-system",
               "platform/views",
-              "platform/computed-columns",
               "platform/iterators",
               "platform/embedding-indexes",
               "platform/udfs-in-pixeltable",
@@ -372,6 +371,10 @@
     {
       "source": "/platform/tables",
       "destination": "/tutorials/tables-and-data-operations"
+    },
+    {
+      "source": "/platform/computed-columns",
+      "destination": "/tutorials/computed-columns"
     }
   ]
 }
