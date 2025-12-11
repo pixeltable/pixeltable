@@ -33,6 +33,7 @@
               "platform/udfs-in-pixeltable",
               "platform/iterators",
               "platform/embedding-indexes",
+              "platform/version-control",
               "platform/external-files",
               "platform/data-sharing"
             ]
