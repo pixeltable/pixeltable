@@ -133,13 +133,13 @@ class TestGemini:
             assert audio_stream['duration_seconds'] == duration, metadata
 
     def test_generate_embeddings(self, reset_db: None) -> None:
-        self._test_generate_embeddings(async_=False)
+        self._test_generate_embeddings(use_batch_api=False)
 
     @pytest.mark.skip('Very slow')
-    def test_generate_embeddings_async(self, reset_db: None) -> None:
-        self._test_generate_embeddings(async_=True)
+    def test_generate_embeddings_batch_api(self, reset_db: None) -> None:
+        self._test_generate_embeddings(use_batch_api=True)
 
-    def _test_generate_embeddings(self, async_: bool) -> None:
+    def _test_generate_embeddings(self, use_batch_api: bool) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_embedding
@@ -148,7 +148,7 @@ class TestGemini:
 
         # Test embeddings as a computed column
         t.add_computed_column(
-            embedding=generate_embedding(t.text, async_=async_, config={'output_dimensionality': 768})
+            embedding=generate_embedding(t.text, use_batch_api=use_batch_api, config={'output_dimensionality': 768})
         )
         assert t.embedding.col.col_type.matches(ts.ArrayType((768,), np.dtype('float32'))), t.embedding.col.col_type
         validate_update_status(
@@ -168,7 +168,9 @@ class TestGemini:
             assert embedding.shape == (768,)
 
         # Test embeddings as an index
-        t.add_embedding_index(t.text, embedding=generate_embedding.using(model='gemini-embedding-001', async_=async_))
+        t.add_embedding_index(
+            t.text, embedding=generate_embedding.using(model='gemini-embedding-001', use_batch_api=use_batch_api)
+        )
 
         sim = t.text.similarity('Coordinating AI tasks can be achieved with Pixeltable.')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()

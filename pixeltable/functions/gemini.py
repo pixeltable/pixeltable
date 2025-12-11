@@ -255,14 +255,10 @@ _DEFAULT_EMBEDDING_DIMENSIONALITY = 1536
 
 @pxt.udf(resource_pool='request-rate:gemini', batch_size=32)
 async def generate_embedding(
-    input: Batch[str], *, model: str = 'gemini-embedding-001', config: dict | None = None, async_: bool = False
+    input: Batch[str], *, model: str = 'gemini-embedding-001', config: dict | None = None, use_batch_api: bool = False
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     """Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
     https://ai.google.dev/gemini-api/docs/embeddings
-
-    This UDF can run in either synchronous or asynchronous mode. Synchronous mode is optimized for latency.
-    Asynchronous mode uses Gemini's Batch API described at https://ai.google.dev/gemini-api/docs/batch-api which
-    provides a better throughput at lower cost at the expense of higher latency.
 
     The `output_dimensionality` in the config must not exceed 2000, if present.
 
@@ -276,7 +272,8 @@ async def generate_embedding(
         config: Configuration for embedding generation, corresponding to keyword arguments of
             `genai.types.EmbedContentConfig`. For details on the parameters, see:
             <https://googleapis.github.io/python-genai/genai.html#genai.types.EmbedContentConfig>
-        async_: whether asynchronous mode should be used.
+        use_batch_api: If True, use Gemini's Batch API (https://ai.google.dev/gemini-api/docs/batch-api) that provides
+            a higher throughput at a lower cost at the expense of higher latency.
 
     Returns:
         The generated embeddings.
@@ -288,20 +285,22 @@ async def generate_embedding(
 
         Add an embedding index on `text` column:
 
-        >>> t.add_embedding_index(t.text, embedding=generate_embedding.using(model='gemini-embedding-001', async_=True))
+        >>> t.add_embedding_index(
+        ...    t.text, embedding=generate_embedding.using(model='gemini-embedding-001', use_batch_api=True)
+        ...)
     """
     env.Env.get().require_package('google.genai')
 
     client = _genai_client()
     config_ = _embedding_config(config)
 
-    if not async_:
+    if not use_batch_api:
         requests: list[Any] = input  # makes mypy happy
         result = await client.aio.models.embed_content(model=model, contents=requests, config=config_)
         assert len(result.embeddings) == len(input)
         return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
-    # Async embedding generation (Google calls it Batch API)
+    # Batch API
     from google.genai import types
 
     batch_job = client.batches.create_embeddings(
