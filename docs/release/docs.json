@@ -76,15 +76,6 @@
                 ]
               },
               {
-                "group": "Use Cases",
-                "pages": [
-                  "howto/use-cases/audio-transcriptions",
-                  "howto/use-cases/object-detection-in-videos",
-                  "howto/use-cases/rag-demo",
-                  "howto/use-cases/rag-operations"
-                ]
-              },
-              {
                 "group": "Cookbooks",
                 "pages": [
                   {
@@ -105,6 +96,8 @@
                     "group": "Agents",
                     "pages": [
                       "howto/cookbooks/agents/pattern-rag-pipeline",
+                      "howto/use-cases/rag-demo",
+                      "howto/use-cases/rag-operations",
                       "howto/cookbooks/agents/pattern-agent-memory",
                       "howto/cookbooks/agents/pattern-table-as-udf",
                       "howto/cookbooks/agents/pattern-data-lookup",
@@ -140,6 +133,7 @@
                     "group": "Audio",
                     "pages": [
                       "howto/cookbooks/audio/audio-transcribe",
+                      "howto/use-cases/audio-transcriptions",
                       "howto/cookbooks/audio/audio-summarize-podcast",
                       "howto/cookbooks/audio/audio-speaker-diarization",
                       "howto/cookbooks/audio/audio-text-to-speech",
@@ -150,6 +144,7 @@
                     "group": "Video",
                     "pages": [
                       "howto/cookbooks/video/video-extract-frames",
+                      "howto/use-cases/object-detection-in-videos",
                       "howto/cookbooks/video/video-scene-detection",
                       "howto/cookbooks/video/video-generate-thumbnails",
                       "howto/cookbooks/video/video-add-text-overlay",
