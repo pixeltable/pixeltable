@@ -28,7 +28,6 @@
               "tutorials/tables-and-data-operations",
               "tutorials/computed-columns",
               "tutorials/queries-and-expressions",
-              "platform/tables",
               "platform/type-system",
               "platform/views",
               "platform/computed-columns",
@@ -368,5 +367,11 @@
     "body": {
       "family": "Inter"
     }
-  }
+  },
+  "redirects": [
+    {
+      "source": "/platform/tables",
+      "destination": "/tutorials/tables-and-data-operations"
+    }
+  ]
 }
