@@ -19,3 +19,4 @@ __pycache__
 # Node.js
 node_modules/
 package-lock.json
+docs/release/package.json
