@@ -34,7 +34,6 @@
               "platform/iterators",
               "platform/embedding-indexes",
               "platform/external-files",
-              "platform/sampling",
               "platform/data-sharing"
             ]
           },
@@ -380,6 +379,10 @@
     {
       "source": "/platform/time-zones",
       "destination": "/howto/cookbooks/core/time-zones"
+    },
+    {
+      "source": "/platform/sampling",
+      "destination": "/howto/cookbooks/data/data-sampling"
     }
   ]
 }
