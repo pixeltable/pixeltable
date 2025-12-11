@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pytest
@@ -142,7 +141,7 @@ class TestGemini:
         t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
 
         # Test embeddings as a computed column
-        config: dict[str, Any] | None = None
+        config = None
         expected_dim = 1536
         if not default_params:
             expected_dim = 3072

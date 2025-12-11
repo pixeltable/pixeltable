@@ -264,7 +264,8 @@ async def generate_embedding(
     """Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
     <https://ai.google.dev/gemini-api/docs/embeddings>
 
-    The `output_dimensionality` in the config must not exceed 2000, if present.
+    If the output of this UDF is used for an embedding index, the 'output_dimensionality' parameter in `config` must
+    not exceed 2000, if set.
 
     __Requirements:__
 
@@ -325,7 +326,7 @@ async def generate_embedding(
         delay = min(10 + i * 2, 30)
         _logger.debug(
             f'Waiting for embedding batch job {batch_job.name} to complete. Latest state: {batch_job.state}. Sleeping'
-            f' for {delay}s.'
+            f' for {delay}s before the next attempt.'
         )
         await asyncio.sleep(delay)
         i += 1
