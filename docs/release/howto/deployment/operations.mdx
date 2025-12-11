@@ -1,0 +1,172 @@
+---
+title: "Production Operations"
+description: "Concurrency, error handling, schema evolution, and deployment patterns"
+---
+
+## Concurrent Access & Scaling
+
+| Aspect | Details |
+|--------|---------|
+| **Locking** | Automatic table-level locking for schema changes |
+| **Isolation** | PostgreSQL `SERIALIZABLE` isolation prevents data race conditions |
+| **Retries** | Built-in retry logic handles transient serialization failures |
+| **Multi-Process** | Multiple workers/containers can safely read/write to the same instance |
+
+| Scaling Dimension | Current Approach | Limitation |
+|-------------------|------------------|------------|
+| **Metadata Storage** | Single embedded PostgreSQL instance | Vertical scaling (larger EC2/VM) |
+| **Compute** | Multiple API workers connected to same instance | Shared access to storage volume required |
+| **High Availability** | Single attached storage volume | Failover requires volume detach/reattach |
+
+<Info>
+Multi-node HA and horizontal scaling planned for Pixeltable Cloud (2026).
+</Info>
+
+## GPU Acceleration
+
+- **Automatic GPU Detection:** Pixeltable uses CUDA GPUs for local models (Hugging Face, Ollama) when available.
+- **CPU Fallback:** Models run on CPU if no GPU detected (functional but slower).
+- **Configuration:** Control via `CUDA_VISIBLE_DEVICES` environment variable.
+
+## Error Handling
+
+| Error Type | Mode | Behavior |
+|------------|------|----------|
+| **Computed Column Errors** | `on_error='abort'` (default) | Fails entire operation if any row errors |
+| | `on_error='ignore'` | Continues processing; stores `None` with error metadata |
+| **Media Validation** | `media_validation='on_write'` (default) | Validates media during insert (catches errors early) |
+| | `media_validation='on_read'` | Defers validation until media accessed (faster inserts) |
+
+Access error details via `table.column.errortype` and `table.column.errormsg`.
+
+```python
+# Example: Graceful error handling in production
+table.add_computed_column(
+    analysis=llm_analyze(table.document),
+    on_error='ignore'  # Continue processing despite individual failures
+)
+
+# Query for errors
+errors = table.where(table.analysis.errortype != None).collect()
+```
+
+## Schema Evolution
+
+| Operation Type | Examples | Impact |
+|----------------|----------|--------|
+| **Safe** | Add columns, Add computed columns, Add indexes | Incremental computation only |
+| **Destructive** | Modify computed columns (`if_exists='replace'`), Drop columns/tables/views | Full recomputation or data loss |
+
+**Production Safety:**
+```python
+# Use if_exists='ignore' for idempotent schema migrations
+import pixeltable as pxt
+import config
+
+docs_table = pxt.get_table(f'{config.APP_NAMESPACE}.documents')
+docs_table.add_computed_column(
+    embedding=embed_model(docs_table.document),
+    if_exists='ignore'  # No-op if column exists
+)
+```
+- Version control `setup_pixeltable.py` like database migration scripts.
+- Rollback via `table.revert()` (single operation) or Git revert (complex changes).
+
+## Deployment Patterns
+
+**Web Applications:**
+- Execute `setup_pixeltable.py` during deployment initialization
+- Web server processes connect to Pixeltable instance
+- Pixeltable uses connection pooling internally
+- Example: FastAPI with `pxt.get_table()` in endpoint handlers
+
+**Batch Processing:**
+- Schedule via `cron`, Airflow, AWS EventBridge, GCP Cloud Scheduler
+- Isolate batch workloads from real-time serving (separate containers/instances)
+- Use Pixeltable's incremental computation to process only new data
+
+**Containers:**
+- Docker provides reproducible builds across environments
+- **Full Backend:** Mount persistent volume at `~/.pixeltable`
+- **Kubernetes:** Use `ReadWriteOnce` PVC (single-pod write access)
+- Docker Compose or Kubernetes for multi-container deployments
+
+```dockerfile
+# Dockerfile for Pixeltable application
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+# Initialize schema and start application
+CMD python setup_pixeltable.py && uvicorn app:app --host 0.0.0.0
+```
+
+## Environment Management
+
+### Multi-Tenancy and Isolation
+
+| Isolation Type | Implementation | Use Case | Overhead |
+|----------------|----------------|----------|----------|
+| **Logical** | Single Pixeltable instance with directory namespaces (`pxt.create_dir(f"user_{user_id}")`) | Dev/staging environments, simple multi-user apps | Low |
+| **Physical** | Separate container instances per tenant | SaaS with strict data isolation | High |
+
+**Logical Isolation Example:**
+```python
+# Per-user isolation via namespaces
+pxt.create_dir(f"user_{user_id}", if_exists='ignore')
+user_table = pxt.create_table(f"user_{user_id}.chat_history", schema={...})
+```
+
+### High Availability Constraints
+
+| Configuration | Status | Details |
+|---------------|--------|---------|
+| **Single Pod + ReadWriteOnce PVC** | ✅ Supported | One active pod writes to dedicated volume. Failover requires volume detach/reattach. |
+| **Multiple Pods + Shared Volume (NFS/EFS)** | ❌ Not Supported | **Will cause database corruption.** Do not mount same `pgdata` to multiple pods. |
+| **Multi-Node HA** | 🔜 Coming 2026 | Available in Pixeltable Cloud (serverless scaling, API endpoints). [Join waitlist](https://www.pixeltable.com/waitlist) |
+
+<Warning>
+**Single-Writer Limitation:** Pixeltable's storage layer uses an embedded PostgreSQL instance. **Only one process can write to `~/.pixeltable/pgdata` at a time**.
+</Warning>
+
+### Environment Separation
+
+Use environment-specific namespaces to manage dev/staging/prod configurations:
+
+```python
+# config.py
+import os
+
+ENV = os.getenv('ENVIRONMENT', 'dev')
+APP_NAMESPACE = f'{ENV}_myapp'  # Creates: dev_myapp, staging_myapp, prod_myapp
+
+# Model and API configuration
+EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'intfloat/e5-large-v2')
+OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
+
+# Optional: Cloud storage for generated media
+MEDIA_STORAGE_BUCKET = os.getenv('MEDIA_STORAGE_BUCKET')
+```
+
+## Testing
+
+**Staging Environment:**
+- Mirror production configuration.
+- Test schema changes, UDF updates, application code changes.
+- Use representative data (anonymized or synthetic).
+
+```python
+# Test environment with isolated namespace
+import pixeltable as pxt
+
+TEST_NS = 'test_myapp'
+pxt.create_dir(TEST_NS, if_exists='replace')
+# Run setup targeting test namespace
+# Execute tests
+# pxt.drop_dir(TEST_NS, force=True)  # Cleanup
+```
+

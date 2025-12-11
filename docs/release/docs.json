@@ -41,7 +41,16 @@
             "group": "How-To",
             "pages": [
               "platform/configuration",
-              "platform/deployment",
+              {
+                "group": "Deployment",
+                "pages": [
+                  "howto/deployment/overview",
+                  "howto/deployment/infrastructure",
+                  "howto/deployment/operations",
+                  "howto/deployment/monitoring",
+                  "howto/deployment/security"
+                ]
+              },
               {
                 "group": "Integrations",
                 "pages": [
@@ -383,6 +392,10 @@
     {
       "source": "/platform/sampling",
       "destination": "/howto/cookbooks/data/data-sampling"
+    },
+    {
+      "source": "/platform/deployment",
+      "destination": "/howto/deployment/overview"
     }
   ]
 }
