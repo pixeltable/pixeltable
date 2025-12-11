@@ -33,11 +33,9 @@
               "platform/udfs-in-pixeltable",
               "platform/iterators",
               "platform/embedding-indexes",
-              "platform/bringing-data",
               "platform/external-files",
               "platform/sampling",
               "platform/data-sharing",
-              "platform/time-zones",
               "platform/deployment",
               "platform/configuration"
             ]
@@ -91,7 +89,8 @@
                       "howto/cookbooks/core/query-join-tables",
                       "howto/cookbooks/core/version-control-history",
                       "howto/cookbooks/core/custom-aggregates-uda",
-                      "howto/cookbooks/core/custom-iterators"
+                      "howto/cookbooks/core/custom-iterators",
+                      "howto/cookbooks/core/time-zones"
                     ]
                   },
                   {
@@ -373,6 +372,14 @@
     {
       "source": "/platform/filtering-and-selecting",
       "destination": "/tutorials/queries-and-expressions"
+    },
+    {
+      "source": "/platform/bringing-data",
+      "destination": "/howto/cookbooks/data/data-import-csv"
+    },
+    {
+      "source": "/platform/time-zones",
+      "destination": "/howto/cookbooks/core/time-zones"
     }
   ]
 }
