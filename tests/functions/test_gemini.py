@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -132,14 +133,8 @@ class TestGemini:
             assert video_stream['duration_seconds'] == duration, metadata
             assert audio_stream['duration_seconds'] == duration, metadata
 
-    def test_generate_embeddings(self, reset_db: None) -> None:
-        self._test_generate_embeddings(use_batch_api=False)
-
-    @pytest.mark.skip('Very slow')
-    def test_generate_embeddings_batch_api(self, reset_db: None) -> None:
-        self._test_generate_embeddings(use_batch_api=True)
-
-    def _test_generate_embeddings(self, use_batch_api: bool) -> None:
+    @pytest.mark.parametrize('default_params', [True, False], ids=['default_params', 'custom_params'])
+    def test_generate_embeddings(self, reset_db: None, default_params: bool) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_embedding
@@ -147,10 +142,15 @@ class TestGemini:
         t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
 
         # Test embeddings as a computed column
-        t.add_computed_column(
-            embedding=generate_embedding(t.text, use_batch_api=use_batch_api, config={'output_dimensionality': 768})
+        config: dict[str, Any] | None = None
+        expected_dim = 1536
+        if not default_params:
+            expected_dim = 3072
+            config = {'output_dimensionality': expected_dim}
+        t.add_computed_column(embedding=generate_embedding(t.text, config=config))
+        assert t.embedding.col.col_type.matches(ts.ArrayType((expected_dim,), np.dtype('float32'))), (
+            t.embedding.col.col_type
         )
-        assert t.embedding.col.col_type.matches(ts.ArrayType((768,), np.dtype('float32'))), t.embedding.col.col_type
         validate_update_status(
             t.insert(
                 [
@@ -165,11 +165,42 @@ class TestGemini:
             embedding = row['embedding']
             assert isinstance(embedding, np.ndarray)
             assert embedding.dtype == np.float32
-            assert embedding.shape == (768,)
+            assert embedding.shape == (expected_dim,)
 
         # Test embeddings as an index
+        if default_params:
+            t.add_embedding_index(t.text, embedding=generate_embedding)
+        else:
+            t.add_embedding_index(t.text, embedding=generate_embedding.using(model='gemini-embedding-001'))
+
+        sim = t.text.similarity('Coordinating AI tasks can be achieved with Pixeltable.')
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        assert res[0]['rowid'] == 1
+
+        sim = t.text.similarity('The five dueling sorcerers leap rapidly.')
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        assert res[0]['rowid'] == 3
+
+    @pytest.mark.skip('Very slow')
+    def test_generate_embeddings_batch_api(self, reset_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_embedding
+
+        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
+        validate_update_status(
+            t.insert(
+                [
+                    {'rowid': 1, 'text': 'Pixeltable is a great tool for AI workload orchestration and storage'},
+                    {'rowid': 2, 'text': 'The quick brown fox jumps over the lazy dog.'},
+                    {'rowid': 3, 'text': 'The five boxing wizards jump quickly.'},
+                ]
+            ),
+            expected_rows=3,
+        )
+
         t.add_embedding_index(
-            t.text, embedding=generate_embedding.using(model='gemini-embedding-001', use_batch_api=use_batch_api)
+            t.text, embedding=generate_embedding.using(model='gemini-embedding-001', use_batch_api=True)
         )
 
         sim = t.text.similarity('Coordinating AI tasks can be achieved with Pixeltable.')

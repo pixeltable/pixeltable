@@ -247,9 +247,9 @@ def _(model: str) -> str:
     return f'request-rate:veo:{model}'
 
 
-# The vector dimensionality limit imposed by pgvector (note: Pixeltable does not use halfvec yet)
-_MAX_EMBEDDING_DIMENSIONALITY = 2000
-# The highest embedding dimensionality recommended by Google that is within the above limit
+# The default dimensionality for Gemini embeddings that works with embedding indexes.
+# Google recommends using 768, 1536, or 3072 output dimensions, but 3072 exceeds the max vector length for embedding
+# indexes (2000). It's possible to exceed 2000 as long as the output vector is not stored in an embedding index.
 _DEFAULT_EMBEDDING_DIMENSIONALITY = 1536
 
 
@@ -353,11 +353,6 @@ def _embedding_config(config: dict | None) -> 'genai.types.EmbedContentConfig':
     config_ = types.EmbedContentConfig(**config) if config else types.EmbedContentConfig()
     if config_.output_dimensionality is None:
         config_.output_dimensionality = _DEFAULT_EMBEDDING_DIMENSIONALITY
-    elif config_.output_dimensionality > _MAX_EMBEDDING_DIMENSIONALITY:
-        raise excs.Error(
-            f'Requested embedding dimensionality {config_.output_dimensionality} exceeds the limit of'
-            f' {_MAX_EMBEDDING_DIMENSIONALITY}'
-        )
     return config_
 
 
