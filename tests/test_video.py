@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import PIL
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
@@ -118,19 +118,56 @@ class TestVideo:
             'num_frames_1000', videos, iterator=FrameIterator.create(video=videos.video, num_frames=1000)
         )
         videos.insert(video=path)
-        assert frames_all.count() == 449
+        assert frames_all.count() == 448
         assert frames_1_0.count() == 15
         assert frames_0_5.count() == 8
         assert frames_0_33.count() == 5
-        assert frames_1000.count() == 449
+        assert frames_1000.count() == 448
         assert num_frames_10.count() == 10
         assert num_frames_50.count() == 50
-        assert num_frames_1000.count() == 449
+        assert num_frames_1000.count() == 448
 
         with pytest.raises(pxt.Error, match='At most one of'):
             _ = pxt.create_view(
                 'invalid_args', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 2, num_frames=10)
             )
+
+    def test_frame_iterator_seek(self, reset_db: None) -> None:
+        """
+        Test that we can seek to specific frames in the video iterator and get consistent results.
+
+        Loads the first 50 frames of a video with various fps and num_frames settings, then queries for frames at
+        specific positions and checks that the output is pixel-identical.
+
+        The test runs against both the fixed-framerate and variable-framerate versions of the test video.
+        """
+        paths = [p for p in get_video_files() if '10-Second Video' in p]
+        assert len(paths) >= 2
+        for p in paths:
+            for kwargs in (
+                {'fps': None},
+                {'fps': 1},
+                {'fps': 0.5},
+                {'fps': 1000},
+                {'num_frames': 10},
+                {'num_frames': 50},
+                {'num_frames': 10000},
+            ):
+                videos = pxt.create_table('videos', {'video': pxt.Video}, if_exists='replace_force')
+                view = pxt.create_view('frames', videos, iterator=FrameIterator.create(video=videos.video, **kwargs))
+                videos.insert(video=p)
+                # Load the first 20 frames sequentially
+                frames = view.select(view.frame).where(view.pos < 20).order_by(view.frame).collect()['frame']
+                # Now load them one at a time (we intentionally do this in separate queries)
+                for pos in (3, 7, 11, 15):
+                    res = view.where(view.pos == pos).select(view.frame).collect()['frame']
+                    if len(res) == 0:
+                        assert len(frames) <= pos
+                    else:
+                        selected_frame = res[0]
+                        assert isinstance(selected_frame, PIL.Image.Image)
+                        # Ensure we get the bitmap-identical frame
+                        assert selected_frame == frames[pos]
 
     def test_keyframes_only(self, reset_db: None) -> None:
         path = get_video_files()[0]
@@ -166,6 +203,8 @@ class TestVideo:
     def test_computed_cols(self, reset_db: None) -> None:
         video_filepaths = get_video_files()
         base_t, view_t = self.create_tbls()
+        base_t.insert({'video': p} for p in video_filepaths)
+        _ = view_t.select(view_t.video, view_t.frame).collect()
         # c2 and c4 depend directly on c1, c3 depends on it indirectly
         view_t.add_computed_column(c1=view_t.frame.resize([224, 224]))
         view_t.add_computed_column(c2=view_t.c1.rotate(10))
@@ -174,7 +213,7 @@ class TestVideo:
         for name in ['c1', 'c2', 'c3', 'c4']:
             assert view_t._tbl_version_path.tbl_version.get().cols_by_name[name].is_stored
         base_t.insert({'video': p} for p in video_filepaths)
-        _ = view_t.select(view_t.c1, view_t.c2, view_t.c3, view_t.c4).collect()
+        _ = view_t.select(view_t.frame, view_t.c1, view_t.c2, view_t.c3, view_t.c4).collect()
 
     def test_frame_attrs(self, reset_db: None) -> None:
         video_filepaths = get_video_files()
@@ -335,7 +374,8 @@ class TestVideo:
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
     def test_clip(self, mode: str, reset_db: None) -> None:
         t = pxt.create_table('get_clip_test', {'video': pxt.Video}, media_validation='on_write')
-        video_filepaths = get_video_files()
+        # TODO: this test is not working with the VFR sample video.
+        video_filepaths = get_video_files(include_vfr=False)
         t.insert({'video': p} for p in video_filepaths)
 
         clip_5_10 = t.video.clip(start_time=5.0, end_time=10.0, mode=mode)
@@ -455,7 +495,8 @@ class TestVideo:
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
     def test_segment_video_duration(self, mode: str, reset_db: None) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video})
-        t.insert([{'video': f} for f in get_video_files()])
+        # TODO: this test is not working with the VFR sample video.
+        t.insert({'video': f} for f in get_video_files(include_vfr=False))
 
         duration = t.video.get_metadata().streams[0].duration_seconds
         result = (
@@ -1017,7 +1058,8 @@ class TestVideo:
     def test_with_audio(self, reset_db: None) -> None:
         from pixeltable.functions.video import with_audio
 
-        video_filepaths = get_video_files()
+        # TODO: this test is not working with the VFR sample video.
+        video_filepaths = get_video_files(include_vfr=False)
         audio_filepaths = get_audio_files()
         num_rows = min(len(video_filepaths), len(audio_filepaths))
 

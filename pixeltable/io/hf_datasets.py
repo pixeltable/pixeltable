@@ -31,6 +31,7 @@ _hf_to_pxt: dict[str, ts.ColumnType] = {
     'timestamp[s]': ts.TimestampType(nullable=True),
     'timestamp[ms]': ts.TimestampType(nullable=True),  # HF dataset iterator converts timestamps to datetime.datetime
     'timestamp[us]': ts.TimestampType(nullable=True),
+    'timestamp[ns]': ts.TimestampType(nullable=True),
     'date32': ts.DateType(nullable=True),
     'date64': ts.DateType(nullable=True),
 }
@@ -47,7 +48,7 @@ def _to_pixeltable_type(feature_type: Any, nullable: bool) -> ts.ColumnType | No
         # example: Value(dtype='int64', id=None)
         pt = _hf_to_pxt.get(feature_type.dtype, None)
         return pt.copy(nullable=nullable) if pt is not None else None
-    elif isinstance(feature_type, datasets.Sequence):
+    elif isinstance(feature_type, (datasets.Sequence, datasets.LargeList)):
         # example: cohere wiki. Sequence(feature=Value(dtype='float32', id=None), length=-1, id=None)
         dtype = _to_pixeltable_type(feature_type.feature, nullable)
         if dtype is None:
@@ -60,7 +61,20 @@ def _to_pixeltable_type(feature_type: Any, nullable: bool) -> ts.ColumnType | No
             return ts.JsonType(nullable=nullable)
     elif isinstance(feature_type, datasets.Image):
         return ts.ImageType(nullable=nullable)
-    elif isinstance(feature_type, dict):
+    elif isinstance(feature_type, datasets.Audio):
+        return ts.AudioType(nullable=nullable)
+    elif isinstance(feature_type, datasets.Video):
+        return ts.VideoType(nullable=nullable)
+    elif isinstance(feature_type, (datasets.Array2D, datasets.Array3D, datasets.Array4D, datasets.Array5D)):
+        # Multi-dimensional arrays with fixed shape and dtype
+        inner_dtype = _hf_to_pxt.get(feature_type.dtype, None)
+        if inner_dtype is None:
+            return None
+        return ts.ArrayType(shape=feature_type.shape, dtype=inner_dtype, nullable=nullable)
+    elif isinstance(feature_type, (datasets.Translation, datasets.TranslationVariableLanguages)):
+        # Translation types are dict-like structures
+        return ts.JsonType(nullable=nullable)
+    elif isinstance(feature_type, (list, dict)):
         return ts.JsonType(nullable=nullable)
     else:
         return None
@@ -70,7 +84,9 @@ def _get_hf_schema(dataset: datasets.Dataset | datasets.DatasetDict) -> datasets
     """Get the schema of a huggingface dataset as a dictionary."""
     import datasets
 
-    first_dataset = dataset if isinstance(dataset, datasets.Dataset) else next(iter(dataset.values()))
+    first_dataset = (
+        dataset if isinstance(dataset, (datasets.Dataset, datasets.IterableDataset)) else next(iter(dataset.values()))
+    )
     return first_dataset.features
 
 
@@ -91,20 +107,41 @@ def huggingface_schema_to_pxt_schema(
 
 def import_huggingface_dataset(
     table_path: str,
-    dataset: datasets.Dataset | datasets.DatasetDict,
+    dataset: datasets.Dataset | datasets.DatasetDict | datasets.IterableDataset | datasets.IterableDatasetDict,
     *,
     schema_overrides: dict[str, Any] | None = None,
     primary_key: str | list[str] | None = None,
     **kwargs: Any,
 ) -> pxt.Table:
-    """Create a new base table from a Huggingface dataset, or dataset dict with multiple splits.
-        Requires `datasets` library to be installed.
+    """
+    Create a new base table from a Huggingface dataset, or dataset dict with multiple splits.
+    Requires `datasets` library to be installed.
+
+    HuggingFace feature types are mapped to Pixeltable column types as follows:
+
+    - `Value(bool)`: `Bool`<br/>
+      `Value(int*/uint*)`: `Int`<br/>
+      `Value(float*)`: `Float`<br/>
+      `Value(string/large_string)`: `String`<br/>
+      `Value(timestamp*)`: `Timestamp`<br/>
+      `Value(date*)`: `Date`
+    - `ClassLabel`: `String` (converted to label names)
+    - `Sequence`/`LargeList` of numeric types: `Array`
+    - `Sequence`/`LargeList` of string: `Json`
+    - `Sequence`/`LargeList` of dicts: `Json`
+    - `Array2D`-`Array5D`: `Array` (preserves shape)
+    - `Image`: `Image`
+    - `Audio`: `Audio`
+    - `Video`: `Video`
+    - `Translation`/`TranslationVariableLanguages`: `Json`
 
     Args:
         table_path: Path to the table.
-        dataset: Huggingface [`datasets.Dataset`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.Dataset)
-            or [`datasets.DatasetDict`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.DatasetDict)
-            to insert into the table.
+        dataset: An instance of any of the Huggingface dataset classes:
+            [`datasets.Dataset`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.Dataset),
+            [`datasets.DatasetDict`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.DatasetDict),
+            [`datasets.IterableDataset`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.IterableDataset),
+            [`datasets.IterableDatasetDict`](https://huggingface.co/docs/datasets/en/package_reference/main_classes#datasets.IterableDatasetDict)
         schema_overrides: If specified, then for each (name, type) pair in `schema_overrides`, the column with
             name `name` will be given type `type`, instead of being inferred from the `Dataset` or `DatasetDict`.
             The keys in `schema_overrides` should be the column names of the `Dataset` or `DatasetDict` (whether or not
