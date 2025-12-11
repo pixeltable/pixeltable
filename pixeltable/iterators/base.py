@@ -49,5 +49,12 @@ class ComponentIterator(ABC):
         raise NotImplementedError
 
     @classmethod
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        # TODO: This is still needed for compatibility with existing user-defined iterators; it will become deprecated
+        #     when the new decorator pattern is introduced for iterators
+        return cls._create(**kwargs)
+
+    @classmethod
     def _create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        # create() variant that can be called by subclasses without generating a deprecation warning.
         return cls, kwargs

@@ -1,5 +1,7 @@
 from typing import Any, Iterator
 
+from deprecated import deprecated
+
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.iterators.base import ComponentIterator
@@ -46,3 +48,8 @@ class StringSplitter(ComponentIterator):
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         return {'text': ts.StringType()}, []
+
+    @classmethod
+    @deprecated('create() is deprecated; use `pixeltable.functions.string.string_splitter` instead', version='0.5.5')
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return super()._create(**kwargs)

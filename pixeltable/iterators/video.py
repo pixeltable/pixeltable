@@ -5,6 +5,7 @@ import subprocess
 from fractions import Fraction
 from pathlib import Path
 from typing import Any, Iterator, Literal
+from warnings import deprecated
 
 import av
 import pandas as pd
@@ -243,6 +244,11 @@ class FrameIterator(ComponentIterator):
         # then the iterator will step forward to the desired frame on the subsequent call to next().
         self.container.seek(seek_pos, backward=True, stream=self.container.streams.video[0])
         self.next_pos = pos
+
+    @classmethod
+    @deprecated('create() is deprecated; use `pixeltable.functions.video.frame_iterator` instead', version='0.5.5')
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return super()._create(**kwargs)
 
 
 class VideoSplitter(ComponentIterator):
@@ -540,3 +546,8 @@ class VideoSplitter(ComponentIterator):
 
     def set_pos(self, pos: int) -> None:
         pass
+
+    @classmethod
+    @deprecated('create() is deprecated; use `pixeltable.functions.video.video_splitter` instead', version='0.5.5')
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return super()._create(**kwargs)

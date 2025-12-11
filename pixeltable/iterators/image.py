@@ -76,4 +76,4 @@ class TileIterator(ComponentIterator):
     @classmethod
     @deprecated('create() is deprecated; use `pixeltable.functions.image.tile_iterator` instead', version='0.5.5')
     def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
-        return cls, kwargs
+        return super()._create(**kwargs)
