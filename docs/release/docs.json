@@ -25,17 +25,15 @@
           {
             "group": "Platform",
             "pages": [
+              "tutorials/tables-and-data-operations",
+              "tutorials/computed-columns",
+              "tutorials/queries-and-expressions",
               "platform/tables",
               "platform/views",
-              {
-                "group": "Core Components",
-                "pages": [
-                  "platform/computed-columns",
-                  "platform/iterators",
-                  "platform/embedding-indexes",
-                  "platform/udfs-in-pixeltable"
-                ]
-              },
+              "platform/computed-columns",
+              "platform/iterators",
+              "platform/embedding-indexes",
+              "platform/udfs-in-pixeltable",
               {
                 "group": "Working with Data",
                 "pages": [
@@ -181,14 +179,6 @@
                   }
                 ]
               }
-            ]
-          },
-          {
-            "group": "Pixeltable Fundamentals",
-            "pages": [
-              "tutorials/tables-and-data-operations",
-              "tutorials/computed-columns",
-              "tutorials/queries-and-expressions"
             ]
           }
         ]
