@@ -91,8 +91,45 @@
                 "group": "Cookbooks",
                 "pages": [
                   {
+                    "group": "Fundamentals",
+                    "pages": [
+                      "howto/cookbooks/fundamentals/workflow-api-keys",
+                      "howto/cookbooks/fundamentals/dev-iterative-workflow",
+                      "howto/cookbooks/fundamentals/workflow-json-extraction",
+                      "howto/cookbooks/fundamentals/workflow-uuid-identity",
+                      "howto/cookbooks/fundamentals/query-join-tables",
+                      "howto/cookbooks/fundamentals/version-control-history",
+                      "howto/cookbooks/fundamentals/custom-aggregates-uda",
+                      "howto/cookbooks/fundamentals/custom-iterators"
+                    ]
+                  },
+                  {
+                    "group": "Agents",
+                    "pages": [
+                      "howto/cookbooks/agents/pattern-rag-pipeline",
+                      "howto/cookbooks/agents/pattern-agent-memory",
+                      "howto/cookbooks/agents/pattern-table-as-udf",
+                      "howto/cookbooks/agents/pattern-data-lookup",
+                      "howto/cookbooks/agents/llm-tool-calling"
+                    ]
+                  },
+                  {
+                    "group": "Text",
+                    "pages": [
+                      "howto/cookbooks/text/text-summarize",
+                      "howto/cookbooks/text/text-translate",
+                      "howto/cookbooks/text/text-extract-entities",
+                      "howto/cookbooks/text/doc-chunk-for-rag"
+                    ]
+                  },
+                  {
                     "group": "Images",
                     "pages": [
+                      "howto/cookbooks/images/img-detect-objects",
+                      "howto/cookbooks/images/img-visualize-detections",
+                      "howto/cookbooks/images/img-generate-captions",
+                      "howto/cookbooks/images/vision-batch-analysis",
+                      "howto/cookbooks/images/vision-structured-output",
                       "howto/cookbooks/images/img-add-watermarks",
                       "howto/cookbooks/images/img-adjust-opacity",
                       "howto/cookbooks/images/img-apply-filters",
@@ -101,7 +138,47 @@
                       "howto/cookbooks/images/img-rgb-to-grayscale"
                     ]
                   },
-                  "howto/cookbooks/dev-iterative-workflow"
+                  {
+                    "group": "Audio",
+                    "pages": [
+                      "howto/cookbooks/audio/audio-transcribe",
+                      "howto/cookbooks/audio/audio-summarize-podcast",
+                      "howto/cookbooks/audio/audio-speaker-diarization",
+                      "howto/cookbooks/audio/audio-text-to-speech",
+                      "howto/cookbooks/audio/audio-extract-from-video"
+                    ]
+                  },
+                  {
+                    "group": "Video",
+                    "pages": [
+                      "howto/cookbooks/video/video-extract-frames",
+                      "howto/cookbooks/video/video-scene-detection",
+                      "howto/cookbooks/video/video-generate-thumbnails",
+                      "howto/cookbooks/video/video-add-text-overlay",
+                      "howto/cookbooks/video/video-generate-ai"
+                    ]
+                  },
+                  {
+                    "group": "Search & Embeddings",
+                    "pages": [
+                      "howto/cookbooks/search/embed-text-openai",
+                      "howto/cookbooks/search/search-semantic-text",
+                      "howto/cookbooks/search/search-similar-images"
+                    ]
+                  },
+                  {
+                    "group": "Data Import/Export",
+                    "pages": [
+                      "howto/cookbooks/data/data-import-csv",
+                      "howto/cookbooks/data/data-import-json",
+                      "howto/cookbooks/data/data-import-parquet",
+                      "howto/cookbooks/data/data-import-excel",
+                      "howto/cookbooks/data/data-import-huggingface",
+                      "howto/cookbooks/data/data-import-s3",
+                      "howto/cookbooks/data/data-export-pytorch",
+                      "howto/cookbooks/data/data-sampling"
+                    ]
+                  }
                 ]
               }
             ]
