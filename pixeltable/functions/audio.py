@@ -2,6 +2,8 @@
 Pixeltable UDFs for `AudioType`.
 """
 
+from typing import Any
+
 import av
 import numpy as np
 
@@ -123,6 +125,28 @@ def encode_audio(
             output_container.mux(packet)
 
         return output_path
+
+
+def audio_splitter(
+    audio: Any, chunk_duration_sec: float, *, overlap_sec: float = 0.0, min_chunk_duration_sec: float = 0.0
+) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
+    """
+    Iterator over chunks of an audio file. The audio file is split into smaller chunks,
+    where the duration of each chunk is determined by chunk_duration_sec.
+    The iterator yields audio chunks as pxt.Audio, along with the start and end time of each chunk.
+    If the input contains no audio, no chunks are yielded.
+
+    Args:
+        chunk_duration_sec: Audio chunk duration in seconds
+        overlap_sec: Overlap between consecutive chunks in seconds
+        min_chunk_duration_sec: Drop the last chunk if it is smaller than min_chunk_duration_sec
+    """
+    return pxt.iterators.AudioSplitter.create(
+        audio=audio,
+        chunk_duration_sec=chunk_duration_sec,
+        overlap_sec=overlap_sec,
+        min_chunk_duration_sec=min_chunk_duration_sec,
+    )
 
 
 __all__ = local_public_names(__name__)
