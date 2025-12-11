@@ -1,4 +1,5 @@
 import datetime
+import uuid
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
 import jsonschema.exceptions
@@ -7,6 +8,7 @@ import PIL.Image
 import pytest
 
 from pixeltable.type_system import (
+    UUID,
     Array,
     ArrayType,
     Audio,
@@ -31,6 +33,7 @@ from pixeltable.type_system import (
     StringType,
     Timestamp,
     TimestampType,
+    UUIDType,
     Video,
     VideoType,
 )
@@ -101,6 +104,7 @@ class TestTypes:
             (True, BoolType()),
             (datetime.date.today(), DateType()),
             (datetime.datetime.now(), TimestampType()),
+            (uuid.uuid4(), UUIDType()),
             (PIL.Image.new('RGB', (100, 100)), ImageType(height=100, width=100, mode='RGB')),
             (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=np.dtype('int64'))),
             ({'a': 1, 'b': '2'}, JsonType()),
@@ -119,6 +123,7 @@ class TestTypes:
             bool: (BoolType(nullable=False), 'Bool'),
             datetime.datetime: (TimestampType(nullable=False), 'Timestamp'),
             datetime.date: (DateType(nullable=False), 'Date'),
+            uuid.UUID: (UUIDType(nullable=False), 'UUID'),
             list: (JsonType(nullable=False), 'Json'),
             dict: (JsonType(nullable=False), 'Json'),
             list[int]: (JsonType(nullable=False), 'Json'),
@@ -138,6 +143,7 @@ class TestTypes:
             Bool: (BoolType(nullable=False), 'Bool'),
             Timestamp: (TimestampType(nullable=False), 'Timestamp'),
             Date: (DateType(nullable=False), 'Date'),
+            UUID: (UUIDType(nullable=False), 'UUID'),
             Array: (ArrayType(nullable=False), 'Array'),
             Json: (JsonType(nullable=False), 'Json'),
             Image: (ImageType(height=None, width=None, mode=None, nullable=False), 'Image'),

@@ -1,3 +1,5 @@
+import uuid
+
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.formatter import Formatter
@@ -9,6 +11,7 @@ class TestFormatter:
         float_formatter = formatter.get_pandas_formatter(ts.FloatType())
         string_formatter = formatter.get_pandas_formatter(ts.StringType())
         json_formatter = formatter.get_pandas_formatter(ts.JsonType())
+        uuid_formatter = formatter.get_pandas_formatter(ts.UUIDType())
 
         assert float_formatter(0.4171780) == '0.417'
         assert float_formatter(1401.19018) == '1401.19'
@@ -39,3 +42,8 @@ class TestFormatter:
 
         # Test a JSON dict
         assert json_formatter({'items': items}) == f'{{&quot;items&quot;: {expected}}}'
+
+        # Test UUID formatting
+        test_uuid = uuid.uuid4()
+        assert uuid_formatter(test_uuid) == string_formatter(str(test_uuid))
+        assert uuid_formatter(None) == ''
