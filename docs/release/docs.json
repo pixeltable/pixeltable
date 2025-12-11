@@ -23,7 +23,7 @@
             ]
           },
           {
-            "group": "Platform",
+            "group": "Core Concepts",
             "pages": [
               "tutorials/tables-and-data-operations",
               "tutorials/computed-columns",
