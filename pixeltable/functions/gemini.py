@@ -311,7 +311,8 @@ async def generate_embedding(
         src=types.EmbeddingsBatchJobSource(inlined_requests=types.EmbedContentBatch(contents=input, config=config_)),
     )
 
-    await asyncio.sleep(10)
+    await asyncio.sleep(3)
+    i = 0
     while True:
         batch_job = client.batches.get(name=batch_job.name)
         if batch_job.state in (
@@ -321,8 +322,13 @@ async def generate_embedding(
             types.JobState.JOB_STATE_EXPIRED,
         ):
             break
-        _logger.debug(f'Waiting for embedding batch job {batch_job.name} to complete. Latest state: {batch_job.state}')
-        await asyncio.sleep(30)
+        delay = min(10 + i * 2, 30)
+        _logger.debug(
+            f'Waiting for embedding batch job {batch_job.name} to complete. Latest state: {batch_job.state}. Sleeping'
+            f' for {delay}s.'
+        )
+        await asyncio.sleep(delay)
+        i += 1
 
     if batch_job.state != types.JobState.JOB_STATE_SUCCEEDED:
         raise excs.Error(f'Embedding batch job did not succeed: {batch_job.state}. Error: {batch_job.error}')
