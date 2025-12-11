@@ -382,9 +382,9 @@ class TestDocument:
         res = chunks.collect()
         assert all(isinstance(r['image'], PIL.Image.Image) for r in res)
 
-    def test_pdf_paragraph_splitting_not_supported(self) -> None:
+    def test_pdf_paragraph_splitting_not_supported(self, reset_db: None) -> None:
         pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
-        splitter = DocumentSplitter(document=pdf_file, separators='paragraph')
+        t = pxt.create_table('docs', {'doc': pxt.Document})
+        _ = pxt.create_view('paragraphs', t, iterator=DocumentSplitter.create(document=t.doc, separators='paragraph'))
         with pytest.raises(NotImplementedError, match=r'not currently supported.+contact us'):
-            for _ in splitter:
-                pass
+            t.insert(doc=pdf_file)
