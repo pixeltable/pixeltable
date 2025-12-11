@@ -3,7 +3,6 @@ from __future__ import annotations
 import enum
 import json
 import logging
-import math
 import urllib.request
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -11,7 +10,9 @@ from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
 
 import numpy as np
 import pandas as pd
-import PIL
+import pyarrow as pa
+import pyarrow.compute as pc
+import pyarrow.types as pat
 from pyarrow.parquet import ParquetDataset
 
 import pixeltable as pxt
@@ -65,7 +66,7 @@ class TableDataConduit:
 
     total_rows: int = 0  # total number of rows emitted via valid_row_batch Iterator
 
-    _K_BATCH_SIZE_BYTES = 100_000_000  # 100 MB
+    _K_BATCH_SIZE_BYTES = 256 * 2**20
 
     def check_source_format(self) -> None:
         assert self.source_format is None or TableDataConduitFormat.is_valid(self.source_format)
@@ -329,46 +330,54 @@ class JsonTableDataConduit(TableDataConduit):
 
 
 class HFTableDataConduit(TableDataConduit):
-    """
-    TODO:
-    - use set_format('arrow') and convert ChunkedArrays to PIL.Image.Image instead of going through numpy, which is slow
-    """
+    """HuggingFace dataset importer"""
 
     column_name_for_split: str | None = None
     categorical_features: dict[str, dict[int, str]]
-    dataset_dict: dict[str, datasets.Dataset] = None
+    dataset_dict: dict[str, 'datasets.Dataset'] = None  # key: split name
     hf_schema_source: dict[str, Any] = None
 
     @classmethod
-    def from_tds(cls, tds: TableDataConduit) -> 'HFTableDataConduit':
+    def from_tds(cls, tds: TableDataConduit) -> HFTableDataConduit:
         tds_fields = {f.name for f in fields(tds)}
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         import datasets
 
-        assert isinstance(tds.source, (datasets.Dataset, datasets.DatasetDict))
+        assert isinstance(tds.source, cls._get_dataset_classes())
         if 'column_name_for_split' in t.extra_fields:
             t.column_name_for_split = t.extra_fields['column_name_for_split']
 
-        # make sure we get numpy arrays for arrays, not Python lists
-        source = tds.source.with_format(type='numpy')
-        if isinstance(source, datasets.Dataset):
-            # when loading an hf dataset partially, dataset.split._name is sometimes the form "train[0:1000]"
-            raw_name = source.split._name
-            split_name = raw_name.split('[')[0] if raw_name is not None else None
-            t.dataset_dict = {split_name: source}
+        if isinstance(tds.source, (datasets.IterableDataset, datasets.IterableDatasetDict)):
+            tds.source = tds.source.with_format('arrow')
+
+        if isinstance(tds.source, (datasets.Dataset, datasets.IterableDataset)):
+            split_name = str(tds.source.split) if tds.source.split is not None else None
+            t.dataset_dict = {split_name: tds.source}
         else:
-            assert isinstance(source, datasets.DatasetDict)
-            t.dataset_dict = source
+            assert isinstance(tds.source, (datasets.DatasetDict, datasets.IterableDatasetDict))
+            t.dataset_dict = dict(tds.source)
+
+        # Disable auto-decoding for Audio and Image columns, we want to write the bytes directly to temp files
+        for ds_split_name, dataset in list(t.dataset_dict.items()):
+            for col_name, feature in dataset.features.items():
+                if isinstance(feature, (datasets.Audio, datasets.Image)):
+                    t.dataset_dict[ds_split_name] = t.dataset_dict[ds_split_name].cast_column(
+                        col_name, feature.__class__(decode=False)
+                    )
         return t
+
+    @classmethod
+    def _get_dataset_classes(cls) -> tuple[type, ...]:
+        import datasets
+
+        return (datasets.Dataset, datasets.DatasetDict, datasets.IterableDataset, datasets.IterableDatasetDict)
 
     @classmethod
     def is_applicable(cls, tds: TableDataConduit) -> bool:
         try:
-            import datasets
-
             return (isinstance(tds.source_format, str) and tds.source_format.lower() == 'huggingface') or isinstance(
-                tds.source, (datasets.Dataset, datasets.DatasetDict)
+                tds.source, cls._get_dataset_classes()
             )
         except ImportError:
             return False
@@ -379,6 +388,8 @@ class HFTableDataConduit(TableDataConduit):
         if self.source_column_map is None:
             if self.src_schema_overrides is None:
                 self.src_schema_overrides = {}
+            if self.src_pk is None:
+                self.src_pk = []
             self.hf_schema_source = _get_hf_schema(self.source)
             self.src_schema = huggingface_schema_to_pxt_schema(
                 self.hf_schema_source, self.src_schema_overrides, self.src_pk
@@ -394,7 +405,7 @@ class HFTableDataConduit(TableDataConduit):
                 self.src_schema[self.column_name_for_split] = ts.StringType(nullable=True)
 
             inferred_schema, inferred_pk, self.source_column_map = normalize_schema_names(
-                self.src_schema, self.src_pk, self.src_schema_overrides, True
+                self.src_schema, self.src_pk, self.src_schema_overrides
             )
             return inferred_schema, inferred_pk
         else:
@@ -414,7 +425,7 @@ class HFTableDataConduit(TableDataConduit):
     def prepare_insert(self) -> None:
         import datasets
 
-        # extract all class labels from the dataset to translate category ints to strings
+        # Extract all class labels from the dataset to translate category ints to strings
         self.categorical_features = {
             feature_name: feature_type.names
             for (feature_name, feature_type) in self.hf_schema_source.items()
@@ -424,59 +435,182 @@ class HFTableDataConduit(TableDataConduit):
             self.source_column_map = {}
         self.check_source_columns_are_insertable(self.hf_schema_source.keys())
 
-    def _translate_row(self, row: dict[str, Any], split_name: str, features: datasets.Features) -> dict[str, Any]:
-        output_row: dict[str, Any] = {}
-        for col_name, val in row.items():
-            # translate category ints to strings
-            new_val = self.categorical_features[col_name][val] if col_name in self.categorical_features else val
-            mapped_col_name = self.source_column_map.get(col_name, col_name)
-
-            new_val = self._translate_val(new_val, features[col_name])
-            output_row[mapped_col_name] = new_val
-
-        # add split name to output row
-        if self.column_name_for_split is not None:
-            output_row[self.column_name_for_split] = split_name
-        return output_row
-
-    def _translate_val(self, val: Any, feature: datasets.Feature) -> Any:
-        """Convert numpy scalars to Python types and images to PIL.Image.Image"""
+    def _convert_column(self, column: 'pa.ChunkedArray', feature: object) -> list:
+        """
+        Convert an Arrow column to a list of Python values based on HF feature type.
+        Handles all feature types at the column level, recursing for structs.
+        Returns a list of length chunk_size.
+        """
         import datasets
 
+        # return scalars as Python scalars
         if isinstance(feature, datasets.Value):
-            if isinstance(val, (np.generic, np.ndarray)):
-                # a scalar, which we want as a standard Python type
-                assert np.ndim(val) == 0
-                return val.item()
-            else:
-                # a standard Python object
-                return val
-        elif isinstance(feature, datasets.Sequence):
-            assert np.ndim(val) > 0
-            return val
-        elif isinstance(feature, datasets.Image):
-            return PIL.Image.fromarray(val)
-        elif isinstance(feature, dict):
-            assert isinstance(val, dict)
-            return {k: self._translate_val(v, feature[k]) for k, v in val.items()}
+            return column.to_pylist()
+
+        # ClassLabel: int -> string name
+        if isinstance(feature, datasets.ClassLabel):
+            values = column.to_pylist()
+            return [feature.names[v] if v is not None else None for v in values]
+
+        # check for list of dict before Sequence, which could contain array data
+        is_list_of_dict = isinstance(feature, (datasets.Sequence, datasets.LargeList)) and isinstance(
+            feature.feature, dict
+        )
+        if is_list_of_dict:
+            return column.to_pylist()
+
+        # array data represented as a (possibly nested) sequence of numerical data: convert to numpy arrays
+        if self._is_sequence_of_numerical(feature):
+            arr = column.to_numpy(zero_copy_only=False)
+            result: list = []
+            for i in range(len(column)):
+                val = arr[i]
+                assert not isinstance(val, dict)  # we dealt with list of dicts earlier
+                # convert object array of arrays (e.g., multi-channel audio) to proper ndarray
+                if (
+                    isinstance(val, np.ndarray)
+                    and val.dtype == object
+                    and len(val) > 0
+                    and isinstance(val[0], np.ndarray)
+                ):
+                    val = np.stack(list(val))
+                result.append(val)
+            return result
+
+        if isinstance(feature, (datasets.Audio, datasets.Image)):
+            # Audio/Image is stored in Arrow as struct<bytes: binary, path: string>
+
+            from pixeltable.utils.local_store import TempStore
+
+            arrow_type = column.type
+            if not pa.types.is_struct(arrow_type):
+                raise pxt.Error(f'Expected struct type for Audio column, got {arrow_type}')
+            field_names = {field.name for field in arrow_type}
+            if 'bytes' not in field_names or 'path' not in field_names:
+                raise pxt.Error(f"Audio struct missing required fields 'bytes' and/or 'path', has: {field_names}")
+
+            bytes_column = pc.struct_field(column, 'bytes')
+            path_column = pc.struct_field(column, 'path')
+
+            bytes_list = bytes_column.to_pylist()
+            path_list = path_column.to_pylist()
+
+            result = []
+            for bytes, path in zip(bytes_list, path_list):
+                if bytes is None:
+                    result.append(None)
+                    continue
+                # we want to preserve the extension from the original path
+                ext = Path(path).suffix if path is not None else None
+                temp_path = TempStore.create_path(extension=ext)
+                temp_path.write_bytes(bytes)
+                result.append(str(temp_path))
+            return result
+
+        if isinstance(feature, dict):
+            return self._convert_struct_column(column, feature)
+
+        if isinstance(feature, list):
+            return column.to_pylist()
+
+        # Array<N>D: multi-dimensional fixed-shape arrays
+        if isinstance(feature, (datasets.Array2D, datasets.Array3D, datasets.Array4D, datasets.Array5D)):
+            return self._convert_array_feature(column, feature.shape)
+
+        return column.to_pylist()
+
+    def _is_sequence_of_numerical(self, feature: object) -> bool:
+        """Returns True if feature is a (nested) Sequence of numerical values."""
+        import datasets
+
+        if not isinstance(feature, datasets.Sequence):
+            return False
+        if isinstance(feature.feature, datasets.Sequence):
+            return self._is_sequence_of_numerical(feature.feature)
+
+        pa_type = feature.feature.pa_type
+        return pa_type is not None and (pat.is_integer(pa_type) or pat.is_floating(pa_type))
+
+    def _convert_struct_column(self, column: 'pa.ChunkedArray', feature: dict[str, object]) -> list[dict[str, Any]]:
+        """
+        Convert a StructArray column to a list of dicts by recursively
+        converting each field.
+        """
+
+        results: list[dict[str, Any]] = [{} for _ in range(len(column))]
+        for field_name, field_feature in feature.items():
+            field_column = pc.struct_field(column, field_name)
+            field_values = self._convert_column(field_column, field_feature)
+
+            for i, val in enumerate(field_values):
+                results[i][field_name] = val
+
+        return results
+
+    def _convert_array_feature(self, column: 'pa.ChunkedArray', shape: tuple[int, ...]) -> list[np.ndarray]:
+        arr: pa.ExtensionArray
+        # TODO: can we get multiple chunks here?
+        if column.num_chunks == 1:
+            arr = column.chunks[0]  # type: ignore[assignment]
         else:
-            return val
+            arr = column.combine_chunks()  # type: ignore[assignment]
 
-    def valid_row_batch(self) -> Iterator[RowData]:
+        # an Array<N>D feature is stored in Arrow as a list<list<...<dtype>>>; we want to peel off the outer lists
+        # to get to contiguous storage and then reshape that
+        storage = arr.storage
+        vals = storage.values
+        while hasattr(vals, 'values'):
+            vals = vals.values
+        flat_arr = vals.to_numpy()
+        chunk_shape = (len(column), *shape)
+        reshaped = flat_arr.reshape(chunk_shape)
+
+        # Return as list of array views (shares memory with reshaped)
+        return list(reshaped)
+
+    def valid_row_batch(self) -> Iterator['RowData']:
+        import datasets
+
         for split_name, split_dataset in self.dataset_dict.items():
-            num_batches = split_dataset.size_in_bytes / self._K_BATCH_SIZE_BYTES
-            tuples_per_batch = math.ceil(split_dataset.num_rows / num_batches)
-            assert tuples_per_batch > 0
+            features = split_dataset.features
+            if isinstance(split_dataset, datasets.Dataset):
+                table = split_dataset.data  # the underlying Arrow table
+                yield from self._process_arrow_table(table, split_name, features)
+            else:
+                # we're getting batches of Arrow tables, since we did set_format('arrow');
+                # use a trial batch to determine the target batch size
+                first_batch = next(split_dataset.iter(batch_size=16))
+                bytes_per_row = int(first_batch.nbytes / len(first_batch))
+                batch_size = self._K_BATCH_SIZE_BYTES // bytes_per_row
+                yield from self._process_arrow_table(first_batch, split_name, features)
+                for batch in split_dataset.skip(16).iter(batch_size=batch_size):
+                    yield from self._process_arrow_table(batch, split_name, features)
 
-            batch = []
-            for row in split_dataset:
-                batch.append(self._translate_row(row, split_name, split_dataset.features))
-                if len(batch) >= tuples_per_batch:
-                    yield batch
-                    batch = []
-            # last batch
-            if len(batch) > 0:
-                yield batch
+    def _process_arrow_table(self, table: 'pa.Table', split_name: str, features: dict[str, Any]) -> Iterator[RowData]:
+        # get chunk boundaries from first column's ChunkedArray
+        first_column = table.column(0)
+        offset = 0
+        for chunk in first_column.chunks:
+            chunk_size = len(chunk)
+            # zero-copy slice using existing chunk boundaries
+            batch = table.slice(offset, chunk_size)
+
+            # we assemble per-row dicts by from lists of per-column values
+            rows: list[dict[str, Any]] = [{} for _ in range(chunk_size)]
+            if self.column_name_for_split is not None:
+                for row in rows:
+                    row[self.column_name_for_split] = split_name
+
+            for col_idx, col_name in enumerate(batch.schema.names):
+                feature = features[col_name]
+                mapped_col_name = self.source_column_map.get(col_name, col_name)
+                column = batch.column(col_idx)
+                values = self._convert_column(column, feature)
+                for i, val in enumerate(values):
+                    rows[i][mapped_col_name] = val
+
+            offset += chunk_size
+            yield rows
 
 
 class ParquetTableDataConduit(TableDataConduit):
@@ -488,11 +622,9 @@ class ParquetTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
 
-        from pyarrow import parquet
-
         assert isinstance(tds.source, str)
         input_path = Path(tds.source).expanduser()
-        t.pq_ds = parquet.ParquetDataset(str(input_path))
+        t.pq_ds = pa.parquet.ParquetDataset(str(input_path))
         return t
 
     def infer_schema_part1(self) -> tuple[dict[str, ts.ColumnType], list[str]]:

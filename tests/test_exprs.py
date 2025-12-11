@@ -3,6 +3,7 @@ import json
 import math
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -522,8 +523,9 @@ class TestExprs:
                 ]
             )
         )
+        t.add_computed_column(cc10=uuid.uuid4())  # constant uuid
         results = reload_tester.run_query(
-            t.select(t.cc0, t.cc1, t.cc2, t.cc3, t.cc4, t.cc5, t.cc6, t.cc7, t.cc8, t.cc9)
+            t.select(t.cc0, t.cc1, t.cc2, t.cc3, t.cc4, t.cc5, t.cc6, t.cc7, t.cc8, t.cc9, t.cc10)
         )
         print(results.schema)
         reload_tester.run_reload_test()

@@ -1316,13 +1316,13 @@ wheels = [
 
 [[package]]
 name = "datasets"
-version = "3.2.0"
+version = "4.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp" },
     { name = "dill" },
     { name = "filelock" },
     { name = "fsspec", extra = ["http"] },
+    { name = "httpx" },
     { name = "huggingface-hub" },
     { name = "multiprocess" },
     { name = "numpy" },
@@ -1334,9 +1334,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fc/48/744286c044e2b942d4fa67f92816126522ad1f0675def0ea3264e6242005/datasets-3.2.0.tar.gz", hash = "sha256:9a6e1a356052866b5dbdd9c9eedb000bf3fc43d986e3584d9b028f4976937229", size = 558366, upload-time = "2024-12-10T16:56:38.162Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/bf/0dae295d6d1ba0b1a200a9dd216838464b5bbd05da01407cb1330b377445/datasets-4.4.1.tar.gz", hash = "sha256:80322699aa8c0bbbdb7caa87906da689c3c2e29523cff698775c67f28fdab1fc", size = 585341, upload-time = "2025-11-05T16:00:38.162Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/84/0df6c5981f5fc722381662ff8cfbdf8aad64bec875f75d80b55bfef394ce/datasets-3.2.0-py3-none-any.whl", hash = "sha256:f3d2ba2698b7284a4518019658596a6a8bc79f31e51516524249d6c59cf0fe2a", size = 480647, upload-time = "2024-12-10T16:56:34.742Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/5e/6f8d874366788ad5d549e9ba258037d974dda6e004843be1bda794571701/datasets-4.4.1-py3-none-any.whl", hash = "sha256:c1163de5211e42546079ab355cc0250c7e6db16eb209ac5ac6252f801f596c44", size = 511591, upload-time = "2025-11-05T16:00:36.365Z" },
 ]
 
 [[package]]
@@ -5179,7 +5179,7 @@ dev = [
     { name = "boto3", specifier = "==1.36.23" },
     { name = "boto3-stubs", specifier = "==1.36.23" },
     { name = "botocore", specifier = "==1.36.23" },
-    { name = "datasets", specifier = ">=3.2.0" },
+    { name = "datasets", specifier = ">=3.5.0" },
     { name = "diffusers", specifier = ">=0.34" },
     { name = "fal-client", specifier = ">=0.5.6" },
     { name = "fiftyone", specifier = ">=1.7" },
@@ -5227,7 +5227,7 @@ dev = [
     { name = "torchaudio", specifier = "~=2.7" },
     { name = "torchvision", specifier = ">=0.22" },
     { name = "transformers", specifier = "~=4.52" },
-    { name = "twelvelabs", specifier = ">=1.0" },
+    { name = "twelvelabs", specifier = ">=1.1.0" },
     { name = "types-beautifulsoup4", specifier = ">=4.2" },
     { name = "types-jmespath", specifier = ">=1.0" },
     { name = "types-jsonschema", specifier = ">=4.1.0" },
@@ -8475,7 +8475,7 @@ wheels = [
 
 [[package]]
 name = "twelvelabs"
-version = "1.0.2"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -8483,9 +8483,9 @@ dependencies = [
     { name = "pydantic-core" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f3/a9/c461bb8ee5e6fb921d62899c3eb168dc60b05853d5bfc847841bccb2fc18/twelvelabs-1.0.2.tar.gz", hash = "sha256:108d583db15148fdab976f7d91d92b2befa338e4562d301aafb6da5efaf085d9", size = 90824, upload-time = "2025-09-17T18:18:28.76Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/68/06faac86aa679ca609597b4fcd8a0d9d642314df79ad8c5b93985088da61/twelvelabs-1.1.0.tar.gz", hash = "sha256:02a26542606fcc4c0ee20fd09b335e664cc79269970d22fc9abfdac443ccd066", size = 141368, upload-time = "2025-11-18T01:40:50.964Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/43/f1/ab42e54c6c380f54fee9cfefcf77506ed871e5c4c30a07a8a47c0f40c4ea/twelvelabs-1.0.2-py3-none-any.whl", hash = "sha256:f6e22265224c2d70a415f25869bec14020e20dc50276bd03a6cc1db5155ef6bd", size = 172798, upload-time = "2025-09-17T18:18:27.35Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/0b/61c8da90f83430732265b3a76172c6946bd642030703be5e37804f5c0531/twelvelabs-1.1.0-py3-none-any.whl", hash = "sha256:01074eb18f8035d3cb860ecb50080220c9b9f42b1cc5114f027e6b8e3589b78a", size = 285767, upload-time = "2025-11-18T01:40:49.776Z" },
 ]
 
 [[package]]
