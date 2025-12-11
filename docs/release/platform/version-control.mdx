@@ -5,7 +5,7 @@ description: Automatic versioning, time travel queries, and full data lineage tr
 
 Pixeltable automatically tracks every change to your tables—data insertions, updates, deletions, and schema modifications. Query any point in history, undo mistakes, and maintain full reproducibility without manual version management.
 
-## How It Works
+## How it works
 
 Every operation that modifies a table creates a new version:
 
@@ -33,9 +33,9 @@ products.update({'price': 19.99}, where=products.name == 'Widget')
 
 No configuration required—versioning is always on.
 
-## Viewing History
+## Viewing history
 
-### Human-Readable History
+### Human-readable history
 
 ```python
 products.history()
@@ -50,7 +50,7 @@ Returns a DataFrame showing all versions with timestamps, change types, and row 
 | 1 | 2025-01-15 10:28:00 | data | 2 | 0 | 0 | None |
 | 0 | 2025-01-15 10:27:00 | schema | 0 | 0 | 0 | Initial Version |
 
-### Programmatic Access
+### Programmatic access
 
 ```python
 versions = products.get_versions()  # List of dictionaries
@@ -58,7 +58,7 @@ latest = versions[0]
 print(f"Version {latest['version']}: {latest['inserts']} inserts")
 ```
 
-## Time Travel Queries
+## Time travel queries
 
 Query any historical version using the `table_name:version` syntax:
 
@@ -73,14 +73,14 @@ products.collect()  # Returns current data
 
 Version handles are **read-only**—you cannot modify historical data.
 
-### Use Cases
+### Use cases
 
 - **Debugging**: Compare data before and after a problematic update
 - **Auditing**: Track who changed what and when
 - **Recovery**: Find and extract accidentally deleted or modified data
 - **Reproducibility**: Query exact data used for a specific model training run
 
-## Reverting Changes
+## Reverting changes
 
 Undo the most recent change with `revert()`:
 
@@ -117,11 +117,11 @@ baseline.count()   # 2 rows (frozen)
 - Time travel (`pxt.get_table('table:N')`) queries historical versions in place
 - Snapshots create a named, independent copy that persists even if the source table is modified or deleted
 
-## Data Lineage
+## Data lineage
 
 Pixeltable tracks the complete lineage of your data:
 
-### Schema Lineage
+### Schema lineage
 Every computed column records its dependencies:
 
 ```python
@@ -135,7 +135,7 @@ products.add_computed_column(
 # Pixeltable knows: discounted_with_tax → discounted → price
 ```
 
-### View Lineage
+### View lineage
 Views automatically track their source tables:
 
 ```python
@@ -146,7 +146,7 @@ expensive = pxt.create_view(
 # View lineage: expensive_products → products
 ```
 
-### What's Tracked
+### What's tracked
 
 | Change Type | Tracked Information |
 |-------------|---------------------|
@@ -158,7 +158,7 @@ expensive = pxt.create_view(
 | `drop_column()` | Column removed |
 | `rename_column()` | Old name → new name |
 
-## Best Practices
+## Best practices
 
 <CardGroup cols={2}>
   <Card title="Use Snapshots for Milestones" icon="camera">
@@ -175,7 +175,7 @@ expensive = pxt.create_view(
   </Card>
 </CardGroup>
 
-## Comparison with Other Systems
+## Comparison with other systems
 
 | Feature | Pixeltable | Git | Delta Lake |
 |---------|------------|-----|------------|
@@ -186,7 +186,7 @@ expensive = pxt.create_view(
 | Revert | ✅ `revert()` | `git revert` | `RESTORE` |
 | Named snapshots | ✅ `create_snapshot()` | Tags/branches | N/A |
 
-## Next Steps
+## Next steps
 
 <CardGroup cols={2}>
   <Card title="Hands-On Tutorial" icon="circle-play" href="/howto/cookbooks/core/version-control-history">

@@ -5,7 +5,7 @@ description: 'Understanding Pixeltable types for structured data, media, and ML 
 
 Pixeltable provides a rich type system designed for multimodal AI applications. Every column and expression has an associated type that determines what data it can hold and what operations are available.
 
-## Type Overview
+## Type overview
 
 | Pixeltable Type | Python Type | Description |
 |-----------------|-------------|-------------|
@@ -25,7 +25,7 @@ Pixeltable provides a rich type system designed for multimodal AI applications. 
 `pxt.Audio`, `pxt.Video`, and `pxt.Document` return file paths when queried. Pixeltable automatically downloads and caches remote media locally. Use `.fileurl` to get the original URL.
 </Info>
 
-## Basic Types
+## Basic types
 
 ```python
 import pixeltable as pxt
@@ -39,7 +39,7 @@ table = pxt.create_table('example.basic_types', {
 })
 ```
 
-### Auto-Generated UUIDs
+### Auto-generated UUIDs
 
 Use `uuid4()` to create columns that auto-generate unique identifiers:
 
@@ -68,7 +68,7 @@ orders.add_computed_column(order_id=uuid4())
 See the [UUID cookbook](/howto/cookbooks/core/workflow-uuid-identity) for more examples of working with unique identifiers.
 </Tip>
 
-## Media Types
+## Media types
 
 Pixeltable natively supports images, video, audio, and documents as first-class column types.
 
@@ -81,7 +81,7 @@ media = pxt.create_table('example.media', {
 })
 ```
 
-### Image Specialization
+### Image specialization
 
 Images can be constrained by resolution and/or color mode:
 
@@ -106,7 +106,7 @@ rgb_fixed = pxt.create_table('example.rgb_fixed', {
 See the [PIL Documentation](https://pillow.readthedocs.io/en/stable/handbook/concepts.html) for the full list of image modes (`'RGB'`, `'RGBA'`, `'L'`, etc.).
 </Tip>
 
-## Array Types (Embeddings & Tensors)
+## Array types (embeddings & tensors)
 
 Arrays are used for embeddings, feature vectors, and tensor data. They must always specify a shape and dtype.
 
@@ -130,7 +130,7 @@ Array shapes follow NumPy conventions. Use `None` for unconstrained dimensions:
 - `(64, 64, 3)` — fixed 64×64×3 tensor
 </Note>
 
-### Working with Arrays
+### Working with arrays
 
 ```python
 # Arrays can be sliced like NumPy arrays
@@ -141,7 +141,7 @@ t.select(
 ).collect()
 ```
 
-## JSON Type
+## JSON type
 
 The `Json` type stores flexible structured data—dictionaries, lists, or primitives.
 
@@ -157,7 +157,7 @@ logs.insert([
 ])
 ```
 
-### JSON Path Access
+### JSON path access
 
 Access nested data using dictionary or attribute syntax:
 
@@ -179,7 +179,7 @@ t.select(t.event.tags[:2]).collect()
 Pixeltable handles missing keys gracefully—you'll get `None` instead of an exception.
 </Tip>
 
-### JSON Schema Validation
+### JSON schema validation
 
 Validate JSON columns against a schema to ensure data integrity:
 
@@ -207,7 +207,7 @@ movies.insert(data={'title': 'Inception', 'year': 2010, 'rating': 8.8})
 # movies.insert(data={'title': 'Movie'})  # Error!
 ```
 
-### Using Pydantic Models
+### Using Pydantic models
 
 ```python
 from pydantic import BaseModel
@@ -223,7 +223,7 @@ movies = pxt.create_table('example.pydantic_movies', {
 })
 ```
 
-## Type Conversion
+## Type conversion
 
 Use `astype()` to convert between compatible types:
 
@@ -242,9 +242,9 @@ table.select(text=table.json_col.astype(pxt.String)).collect()
 Type conversion assumes the underlying value is compatible. Converting a dict to a string will raise an exception.
 </Warning>
 
-## Column Properties
+## Column properties
 
-### Media Column Properties
+### Media column properties
 
 Media columns (`Image`, `Video`, `Audio`, `Document`) have special properties:
 
@@ -256,7 +256,7 @@ t.select(t.image.localpath).collect()
 t.select(t.image.fileurl).collect()
 ```
 
-### Error Properties
+### Error properties
 
 Computed columns have `errortype` and `errormsg` properties for debugging:
 
@@ -275,7 +275,7 @@ t.where(t.result == None).select(
 ).collect()
 ```
 
-## Best Practices
+## Best practices
 
 <CardGroup cols={2}>
   <Card title="Use Specific Types" icon="bullseye">
@@ -295,7 +295,7 @@ t.where(t.result == None).select(
   </Card>
 </CardGroup>
 
-## See Also
+## See also
 
 <CardGroup cols={2}>
   <Card title="Tables & Data Operations" icon="table" href="/tutorials/tables-and-data-operations">
