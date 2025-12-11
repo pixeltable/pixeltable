@@ -290,7 +290,7 @@ async def generate_embedding(
         Add an embedding index on `text` column:
 
         >>> t.add_embedding_index(
-        ...    t.text, embedding=generate_embedding.using(model='gemini-embedding-001', use_batch_api=True)
+        ...    t.text, embedding=generate_embedding.using(model='gemini-embedding-001')
         ...)
     """
     env.Env.get().require_package('google.genai')
