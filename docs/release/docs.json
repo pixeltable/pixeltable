@@ -51,7 +51,7 @@
             "group": "How-To",
             "pages": [
               {
-                "group": "LLMs & Model Providers",
+                "group": "Integrations",
                 "pages": [
                   "howto/providers/working-with-anthropic",
                   "howto/providers/working-with-bedrock",
@@ -69,11 +69,11 @@
                   "howto/providers/working-with-replicate",
                   "howto/providers/working-with-reve",
                   "howto/providers/working-with-together",
-                  "howto/providers/working-with-voyageai"
+                  "howto/providers/working-with-voyageai",
+                  "howto/using-label-studio-with-pixeltable",
+                  "howto/working-with-fiftyone"
                 ]
               },
-              "howto/using-label-studio-with-pixeltable",
-              "howto/working-with-fiftyone",
               {
                 "group": "Use Cases",
                 "pages": [
