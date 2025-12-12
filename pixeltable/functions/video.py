@@ -1482,12 +1482,12 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[dic
 
 
 def frame_iterator(
-        video: Any,
-        *,
-        fps: float | None = None,
-        num_frames: int | None = None,
-        keyframes_only: bool = False,
-        all_frame_attrs: bool = False,
+    video: Any,
+    *,
+    fps: float | None = None,
+    num_frames: int | None = None,
+    keyframes_only: bool = False,
+    all_frame_attrs: bool = False,
 ) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
     """
     Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be specified. If `fps`
@@ -1520,24 +1520,20 @@ def frame_iterator(
             If False, only outputs frame attributes `frame_idx`, `pos_msec`, and `pos_frame` as separate columns.
     """
     return pxt.iterators.video.FrameIterator._create(
-        video=video,
-        fps=fps,
-        num_frames=num_frames,
-        keyframes_only=keyframes_only,
-        all_frame_attrs=all_frame_attrs,
+        video=video, fps=fps, num_frames=num_frames, keyframes_only=keyframes_only, all_frame_attrs=all_frame_attrs
     )
 
 
 def video_splitter(
-        video: str,
-        *,
-        duration: float | None = None,
-        overlap: float | None = None,
-        min_segment_duration: float | None = None,
-        segment_times: list[float] | None = None,
-        mode: Literal['fast', 'accurate'] = 'accurate',
-        video_encoder: str | None = None,
-        video_encoder_args: dict[str, Any] | None = None,
+    video: str,
+    *,
+    duration: float | None = None,
+    overlap: float | None = None,
+    min_segment_duration: float | None = None,
+    segment_times: list[float] | None = None,
+    mode: Literal['fast', 'accurate'] = 'accurate',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
 ) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
     """
     Iterator over segments of a video file, which is split into segments. The segments are specified either via a

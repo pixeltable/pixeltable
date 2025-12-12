@@ -502,9 +502,6 @@ class DocumentSplitter(ComponentIterator):
     def close(self) -> None:
         pass
 
-    def set_pos(self, pos: int) -> None:
-        pass
-
     @classmethod
     @deprecated(
         'create() is deprecated; use `pixeltable.functions.document.document_splitter` instead', version='0.5.5'
