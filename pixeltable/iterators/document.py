@@ -6,6 +6,7 @@ from typing import Any, ClassVar, Iterable, Iterator, Literal
 import ftfy
 import PIL.Image
 from bs4.element import NavigableString, Tag
+from pypdfium2 import PdfDocument  # type: ignore[import-untyped]
 
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
@@ -428,10 +429,8 @@ class DocumentSplitter(ComponentIterator):
                 ' us at https://github.com/pixeltable/pixeltable/issues if you need this feature.'
             )
 
-        import pypdfium2 as pdfium  # type: ignore[import-untyped]
-
-        doc: pdfium.PdfDocument = self._doc_handle.pdf_doc
-        assert isinstance(doc, pdfium.PdfDocument)
+        doc: PdfDocument = self._doc_handle.pdf_doc
+        assert isinstance(doc, PdfDocument)
 
         emit_on_page = Separator.PAGE in self._separators
         accumulated_text: list[str] = []

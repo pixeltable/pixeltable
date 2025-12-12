@@ -10,6 +10,7 @@ from typing import Any, Callable
 import av
 import numpy as np
 from PIL import Image
+from pypdfium2 import PdfDocument  # type: ignore[import-untyped]
 
 import pixeltable.type_system as ts
 from pixeltable.utils.http_server import get_file_uri
@@ -240,9 +241,7 @@ class Formatter:
         """
         if file_path.lower().endswith('.pdf'):
             try:
-                import pypdfium2 as pdfium  # type: ignore[import-untyped]
-
-                doc = pdfium.PdfDocument(file_path)
+                doc = PdfDocument(file_path)
                 if len(doc) == 0:
                     return None
                 img = doc[0].render().to_pil()
