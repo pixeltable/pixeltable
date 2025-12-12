@@ -132,24 +132,20 @@ class TestGemini:
             assert video_stream['duration_seconds'] == duration, metadata
             assert audio_stream['duration_seconds'] == duration, metadata
 
-    @pytest.mark.parametrize('default_params', [True, False], ids=['default_params', 'custom_params'])
-    def test_generate_embeddings(self, reset_db: None, default_params: bool) -> None:
+    def test_generate_embeddings(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_embedding
 
         t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
 
-        # Test embeddings as a computed column
-        config = None
-        expected_dim = 1536
-        if not default_params:
-            expected_dim = 3072
-            config = {'output_dimensionality': expected_dim}
-        t.add_computed_column(embedding=generate_embedding(t.text, config=config))
-        assert t.embedding.col.col_type.matches(ts.ArrayType((expected_dim,), np.dtype('float32'))), (
-            t.embedding.col.col_type
+        # Test embeddings as computed columns
+        t.add_computed_column(embed0=generate_embedding(t.text))
+        t.add_computed_column(
+            embed1=generate_embedding(t.text, model='gemini-embedding-001', config={'output_dimensionality': 3072})
         )
+        assert t.embed0.col.col_type.matches(ts.ArrayType((1536,), np.dtype('float32'))), t.embed0.col.col_type
+        assert t.embed1.col.col_type.matches(ts.ArrayType((3072,), np.dtype('float32'))), t.embed1.col.col_type
         validate_update_status(
             t.insert(
                 [
@@ -161,22 +157,30 @@ class TestGemini:
             expected_rows=3,
         )
         for row in t.collect():
-            embedding = row['embedding']
+            embedding = row['embed0']
             assert isinstance(embedding, np.ndarray)
             assert embedding.dtype == np.float32
-            assert embedding.shape == (expected_dim,)
+            assert embedding.shape == (1536,)
+            embedding = row['embed1']
+            assert isinstance(embedding, np.ndarray)
+            assert embedding.dtype == np.float32
+            assert embedding.shape == (3072,)
 
-        # Test embeddings as an index
-        if default_params:
-            t.add_embedding_index(t.text, embedding=generate_embedding)
-        else:
-            t.add_embedding_index(t.text, embedding=generate_embedding.using(model='gemini-embedding-001'))
+        # Test embeddings as embedding indexes
+        t.add_embedding_index(t.text, idx_name='embed_idx0', embedding=generate_embedding)
+        t.add_embedding_index(
+            t.text,
+            idx_name='embed_idx1',
+            embedding=generate_embedding.using(
+                model='gemini-embedding-001', config={'output_dimensionality': 768}, use_batch_api=False
+            ),
+        )
 
-        sim = t.text.similarity('Coordinating AI tasks can be achieved with Pixeltable.')
+        sim = t.text.similarity('Coordinating AI tasks can be achieved with Pixeltable.', idx='embed_idx0')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
 
-        sim = t.text.similarity('The five dueling sorcerers leap rapidly.')
+        sim = t.text.similarity('The five dueling sorcerers leap rapidly.', idx='embed_idx1')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
 
