@@ -7,6 +7,7 @@ import sqlalchemy as sql
 from rich.progress import Column, Progress, ProgressColumn, Task, TaskID, Text, TextColumn
 
 from pixeltable import exprs
+from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
 
@@ -118,13 +119,12 @@ class ExecContext:
         self,
         row_builder: exprs.RowBuilder,
         *,
-        show_progress: bool = False,
         batch_size: int = 0,
         pk_clause: list[sql.ClauseElement] | None = None,
         ignore_errors: bool = False,
     ):
         self.row_builder = row_builder
-        self.show_progress = show_progress
+        self.show_progress = Env.get().verbosity >= 1 and Env.get().is_interactive()
         self.progress = None
         self.elapsed_time_task_id = None
         self.progress_reporters = {}

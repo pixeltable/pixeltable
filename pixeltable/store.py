@@ -346,8 +346,6 @@ class StoreBase:
 
         try:
             table_rows: list[tuple[Any]] = []
-            env = Env.get()
-            exec_plan.ctx.show_progress = env.verbosity >= 1 and env.is_interactive()
             with exec_plan:
                 progress_reporter = (
                     exec_plan.ctx.add_progress_reporter(
@@ -422,9 +420,6 @@ class StoreBase:
         store_col_names = row_builder.store_column_names()
 
         table_rows: list[tuple[Any]] = []
-        # by default, we only show the progress tracker when running in an interactive environment
-        env = Env.get()
-        exec_plan.ctx.show_progress = env.verbosity >= 1 and env.is_interactive()
 
         with exec_plan:
             progress_reporter = (
