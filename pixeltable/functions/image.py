@@ -463,7 +463,10 @@ def tile_iterator(
         tile_size: Size of each tile, as a pair of integers `[width, height]`.
         overlap: Amount of overlap between adjacent tiles, as a pair of integers `[width, height]`.
     """
-    return pxt.iterators.image.TileIterator._create(image=image, tile_size=tile_size, overlap=overlap)
+    kwargs: dict[str, Any] = {}
+    if overlap != (0, 0):
+        kwargs['overlap'] = overlap
+    return pxt.iterators.image.TileIterator._create(image=image, tile_size=tile_size, **kwargs)
 
 
 __all__ = local_public_names(__name__)

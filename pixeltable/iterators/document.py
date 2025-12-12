@@ -143,14 +143,14 @@ class DocumentSplitter(ComponentIterator):
         limit: int | None = None,
         overlap: int | None = None,
         metadata: str = '',
-        html_skip_tags: list[str] | None = None,
+        skip_tags: list[str] | None = None,
         tiktoken_encoding: str | None = 'cl100k_base',
         tiktoken_target_model: str | None = None,
         image_dpi: int = 300,
         image_format: str = 'png',
     ):
-        if html_skip_tags is None:
-            html_skip_tags = ['nav']
+        if skip_tags is None:
+            skip_tags = ['nav']
         self._doc_handle = get_document_handle(document)
         self._elements = _parse_elements(elements.copy()) if elements is not None else [Element.TEXT]
         assert self._doc_handle is not None
@@ -165,7 +165,7 @@ class DocumentSplitter(ComponentIterator):
         else:
             self._doc_title = ''
         self._limit = 0 if limit is None else limit
-        self._skip_tags = html_skip_tags
+        self._skip_tags = skip_tags
         self._overlap = 0 if overlap is None else overlap
         self._tiktoken_encoding = tiktoken_encoding
         self._tiktoken_target_model = tiktoken_target_model

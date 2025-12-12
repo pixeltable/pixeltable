@@ -1519,9 +1519,17 @@ def frame_iterator(
 
             If False, only outputs frame attributes `frame_idx`, `pos_msec`, and `pos_frame` as separate columns.
     """
-    return pxt.iterators.video.FrameIterator._create(
-        video=video, fps=fps, num_frames=num_frames, keyframes_only=keyframes_only, all_frame_attrs=all_frame_attrs
-    )
+    kwargs: dict[str, Any] = {}
+    if fps is not None:
+        kwargs['fps'] = fps
+    if num_frames is not None:
+        kwargs['num_frames'] = num_frames
+    if keyframes_only:
+        kwargs['keyframes_only'] = keyframes_only
+    if all_frame_attrs:
+        kwargs['all_frame_attrs'] = all_frame_attrs
+
+    return pxt.iterators.video.FrameIterator._create(video=video, **kwargs)
 
 
 def video_splitter(
@@ -1548,22 +1556,30 @@ def video_splitter(
             `len(segment_times) + 1` segments. An argument of `[]` will produce a single segment containing the
             entire video.
         mode: Segmentation mode:
+
             - `'fast'`: Quick segmentation using stream copy (splits only at keyframes, approximate durations)
             - `'accurate'`: Precise segmentation with re-encoding (exact durations, slower)
         video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
             Only available for `mode='accurate'`.
         video_encoder_args: Additional arguments to pass to the video encoder. Only available for `mode='accurate'`.
     """
-    return pxt.iterators.video.VideoSplitter._create(
-        video=video,
-        duration=duration,
-        overlap=overlap,
-        min_segment_duration=min_segment_duration,
-        segment_times=segment_times,
-        mode=mode,
-        video_encoder=video_encoder,
-        video_encoder_args=video_encoder_args,
-    )
+    kwargs: dict[str, Any] = {}
+    if duration is not None:
+        kwargs['duration'] = duration
+    if overlap is not None:
+        kwargs['overlap'] = overlap
+    if min_segment_duration is not None:
+        kwargs['min_segment_duration'] = min_segment_duration
+    if segment_times is not None:
+        kwargs['segment_times'] = segment_times
+    if mode != 'accurate':
+        kwargs['mode'] = mode
+    if video_encoder is not None:
+        kwargs['video_encoder'] = video_encoder
+    if video_encoder_args is not None:
+        kwargs['video_encoder_args'] = video_encoder_args
+
+    return pxt.iterators.video.VideoSplitter._create(video=video, **kwargs)
 
 
 __all__ = local_public_names(__name__)

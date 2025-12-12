@@ -1,6 +1,4 @@
-from typing import Any
-
-from typing_extensions import Literal
+from typing import Any, Literal
 
 import pixeltable as pxt
 
@@ -13,7 +11,7 @@ def document_splitter(
     limit: int | None = None,
     overlap: int | None = None,
     metadata: str = '',
-    html_skip_tags: list[str] | None = None,
+    skip_tags: list[str] | None = None,
     tiktoken_encoding: str | None = 'cl100k_base',
     tiktoken_target_model: str | None = None,
     image_dpi: int = 300,
@@ -25,8 +23,6 @@ def document_splitter(
     include additional metadata fields if specified in the `metadata` parameter, as explained below.
 
     Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
-
-    How to init the `DocumentSplitter` class?
 
     Args:
         separators: separators to use to chunk the document. Options are:
@@ -44,16 +40,23 @@ def document_splitter(
         image_format: format to use when extracting images from PDFs. Defaults to 'png'.
     """
 
-    return pxt.iterators.document.DocumentSplitter._create(
-        document=document,
-        separators=separators,
-        elements=elements,
-        limit=limit,
-        overlap=overlap,
-        metadata=metadata,
-        html_skip_tags=html_skip_tags,
-        tiktoken_encoding=tiktoken_encoding,
-        tiktoken_target_model=tiktoken_target_model,
-        image_dpi=image_dpi,
-        image_format=image_format,
-    )
+    kwargs: dict[str, Any] = {}
+    if elements is not None:
+        kwargs['elements'] = elements
+    if limit is not None:
+        kwargs['limit'] = limit
+    if overlap is not None:
+        kwargs['overlap'] = overlap
+    if metadata != '':
+        kwargs['metadata'] = metadata
+    if skip_tags is not None:
+        kwargs['skip_tags'] = skip_tags
+    if tiktoken_encoding != 'cl100k_base':
+        kwargs['tiktoken_encoding'] = tiktoken_encoding
+    if tiktoken_target_model is not None:
+        kwargs['tiktoken_target_model'] = tiktoken_target_model
+    if image_dpi != 300:
+        kwargs['image_dpi'] = image_dpi
+    if image_format != 'png':
+        kwargs['image_format'] = image_format
+    return pxt.iterators.document.DocumentSplitter._create(document=document, separators=separators, **kwargs)

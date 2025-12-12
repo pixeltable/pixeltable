@@ -177,7 +177,7 @@ class Signature:
             context = f' ({context})'
 
         for param_name, arg in bound_args.items():
-            assert param_name in self.parameters
+            assert param_name in self.parameters, f'{param_name!r} not in {list(self.parameters.keys())}'
             param = self.parameters[param_name]
             is_var_param = param.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}
             if is_var_param:

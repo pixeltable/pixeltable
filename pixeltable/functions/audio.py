@@ -141,12 +141,12 @@ def audio_splitter(
         overlap_sec: Overlap between consecutive chunks in seconds
         min_chunk_duration_sec: Drop the last chunk if it is smaller than min_chunk_duration_sec
     """
-    return pxt.iterators.AudioSplitter._create(
-        audio=audio,
-        chunk_duration_sec=chunk_duration_sec,
-        overlap_sec=overlap_sec,
-        min_chunk_duration_sec=min_chunk_duration_sec,
-    )
+    kwargs: dict[str, Any] = {}
+    if overlap_sec != 0.0:
+        kwargs['overlap_sec'] = overlap_sec
+    if min_chunk_duration_sec != 0.0:
+        kwargs['min_chunk_duration_sec'] = min_chunk_duration_sec
+    return pxt.iterators.AudioSplitter._create(audio=audio, chunk_duration_sec=chunk_duration_sec, **kwargs)
 
 
 __all__ = local_public_names(__name__)

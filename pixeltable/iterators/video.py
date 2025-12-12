@@ -429,7 +429,7 @@ class VideoSplitter(ComponentIterator):
         segment_times = params.get('segment_times')
         overlap = params.get('overlap')
         min_segment_duration = params.get('min_segment_duration')
-        mode = params.get('mode', 'fast')
+        mode = params.get('mode', 'accurate')
         video_encoder = params.get('video_encoder')
         video_encoder_args = params.get('video_encoder_args')
         cls._check_args(
