@@ -185,6 +185,10 @@ class LocalStore(ObjectStoreBase):
         new_file_url = urllib.parse.urljoin('file:', urllib.request.pathname2url(str(dest_path)))
         return dest_path, new_file_url
 
+    def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
+        """Create a presigned URL for local storage (not supported)."""
+        raise excs.Error('Cannot generate servable URL for local file storage.')
+
     def delete(self, tbl_id: UUID, tbl_version: int | None = None) -> int | None:
         """Delete all files belonging to tbl_id. If tbl_version is not None, delete
         only those files belonging to the specified tbl_version.

@@ -1,11 +1,15 @@
+import datetime
 import logging
 import re
 import threading
 import uuid
+from datetime import timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Iterator
+from urllib.parse import quote
 
 from azure.core.exceptions import AzureError
+from azure.storage.blob import BlobSasPermissions, generate_blob_sas
 
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
@@ -61,8 +65,8 @@ class AzureBlobStore(ObjectStoreBase):
         # Reconstruct base URI in normalized format
         self.__base_uri = self.soa.prefix_free_uri + self.__prefix_name
         _logger.info(
-            f'Initialized AzureBlobStore with base URI: {self.__base_uri},',
-            f'account: {self.__account_name}, container: {self.__container_name}, prefix: {self.__prefix_name}',
+            f'Initialized AzureBlobStore with base URI: {self.__base_uri}, '
+            f'account: {self.__account_name}, container: {self.__container_name}, prefix: {self.__prefix_name}'
         )
 
     def client(self) -> 'BlobServiceClient':
@@ -276,6 +280,51 @@ class AzureBlobStore(ObjectStoreBase):
                 )
         else:
             raise excs.Error(f'Error during {operation} in container {container_name}: {str(e)!r}')
+
+    def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
+        """Create a presigned URL for downloading an object from Azure Blob Storage.
+
+        Args:
+            soa: StorageObjectAddress containing the object location
+            expiration_seconds: Time in seconds for the URL to remain valid
+
+        Returns:
+            A presigned HTTP URL that can be used to access the object
+        """
+        if not soa.has_object:
+            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+
+        azure_client = self.client()
+        account_name = azure_client.account_name if azure_client.account_name else self.__account_name
+
+        # Account key cannot be extracted from client for security reasons, get from config
+        storage_account_key = Config.get().get_string_value('storage_account_key', section='azure')
+
+        if not account_name or not storage_account_key:
+            raise excs.Error(
+                'Azure storage_account_name and storage_account_key must be configured '
+                'to generate presigned URLs. Set them in the config under the [azure] section, '
+                'or include the account name in the Azure URL.'
+            )
+
+        # Use datetime.now(timezone.utc) + timedelta like in pixeltable cloud
+        expiry_time = datetime.datetime.now(timezone.utc) + datetime.timedelta(seconds=expiration_seconds)
+
+        sas_token = generate_blob_sas(
+            account_name=account_name,
+            container_name=soa.container,
+            blob_name=soa.key,
+            account_key=storage_account_key,
+            permission=BlobSasPermissions(read=True),
+            expiry=expiry_time,
+            version='2022-11-02',  # Specify API version to avoid version mismatch issues
+        )
+
+        # Build URL directly - URL encode the blob key to handle special characters
+        # Use safe='/' to preserve path separators in the blob key
+        encoded_key = quote(soa.key, safe='/')
+        blob_url = f'https://{account_name}.blob.core.windows.net/{soa.container}/{encoded_key}?{sas_token}'
+        return blob_url
 
     @classmethod
     def create_client(

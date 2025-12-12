@@ -262,6 +262,34 @@ class GCSStore(ObjectStoreBase):
             self.handle_gcs_error(e, self.bucket_name, f'list objects from {self.prefix}')
         return r
 
+    def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
+        """Create a presigned URL for downloading an object from GCS.
+
+        Args:
+            soa: StorageObjectAddress containing the object location
+            expiration_seconds: Time in seconds for the URL to remain valid
+
+        Returns:
+            A presigned HTTP URL that can be used to access the object
+        """
+        if not soa.has_object:
+            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+
+        # GCS servable URLs have a maximum expiration of 7 days
+        max_gcs_expiration = 7 * 24 * 3600  # 7 days in seconds
+        if expiration_seconds > max_gcs_expiration:
+            raise excs.Error(
+                f'GCS servable URLs have a maximum expiration of 7 days. '
+                f'Requested: {expiration_seconds} seconds ({expiration_seconds / 3600:.1f} hours)'
+            )
+
+        gcs_client = self.client()
+        bucket = gcs_client.bucket(soa.container)
+        blob = bucket.blob(soa.key)
+
+        presigned_url = blob.generate_signed_url(version='v4', expiration=expiration_seconds, method='GET')
+        return presigned_url
+
     @classmethod
     def handle_gcs_error(cls, e: Exception, bucket_name: str, operation: str = '', *, ignore_404: bool = False) -> None:
         """Handle GCS-specific errors and convert them to appropriate exceptions"""
