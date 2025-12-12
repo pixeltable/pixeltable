@@ -423,7 +423,7 @@ class DocumentSplitter(ComponentIterator):
 
     def _pdf_sections(self) -> Iterator[DocumentSection]:
         if Separator.PARAGRAPH in self._separators:
-            raise NotImplementedError(
+            raise Error(
                 'Paragraph splitting is not currently supported for PDF documents. Please contact'
                 ' us at https://github.com/pixeltable/pixeltable/issues if you need this feature.'
             )

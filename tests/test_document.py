@@ -138,6 +138,12 @@ class TestDocument:
                     'chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators=sep, elements=['image'])
                 )
 
+        pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
+        t = pxt.create_table('docs', {'doc': pxt.Document}, if_exists='replace')
+        _ = pxt.create_view('paragraphs', t, iterator=DocumentSplitter.create(document=t.doc, separators='paragraph'))
+        with pytest.raises(pxt.Error, match=r'not currently supported.+contact us'):
+            t.insert(doc=pdf_file)
+
     @pytest.mark.parametrize('pdf', [True, False], ids=['pdf_docs', 'non_pdf_docs'])
     def test_doc_splitter(self, pdf: bool, reset_db: None) -> None:
         skip_test_if_not_installed('tiktoken')
@@ -381,10 +387,3 @@ class TestDocument:
 
         res = chunks.collect()
         assert all(isinstance(r['image'], PIL.Image.Image) for r in res)
-
-    def test_pdf_paragraph_splitting_not_supported(self, reset_db: None) -> None:
-        pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
-        t = pxt.create_table('docs', {'doc': pxt.Document})
-        _ = pxt.create_view('paragraphs', t, iterator=DocumentSplitter.create(document=t.doc, separators='paragraph'))
-        with pytest.raises(NotImplementedError, match=r'not currently supported.+contact us'):
-            t.insert(doc=pdf_file)
