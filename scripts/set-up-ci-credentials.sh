@@ -40,6 +40,16 @@ aws_secret_access_key = ${B2_SECRET_ACCESS_KEY}
 EOF
 fi
 
+if [ -n "${TIGRIS_ACCESS_KEY_ID}" ]; then
+echo "Found Tigris credentials."
+cat >> ~/.aws/credentials << EOF
+[tigris_profile]
+aws_access_key_id = ${TIGRIS_ACCESS_KEY_ID}
+aws_secret_access_key = ${TIGRIS_SECRET_ACCESS_KEY}
+
+EOF
+fi
+
 # Set permissions
 chmod a+r ~/.aws/config
 chmod a+r ~/.aws/credentials || true
