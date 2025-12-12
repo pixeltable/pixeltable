@@ -5106,6 +5106,7 @@ dev = [
     { name = "transformers" },
     { name = "twelvelabs" },
     { name = "types-beautifulsoup4" },
+    { name = "types-deprecated" },
     { name = "types-jmespath" },
     { name = "types-jsonschema" },
     { name = "types-pillow" },
@@ -5231,6 +5232,7 @@ dev = [
     { name = "transformers", specifier = "~=4.52" },
     { name = "twelvelabs", specifier = ">=1.1.0" },
     { name = "types-beautifulsoup4", specifier = ">=4.2" },
+    { name = "types-deprecated", specifier = ">=1.2.15" },
     { name = "types-jmespath", specifier = ">=1.0" },
     { name = "types-jsonschema", specifier = ">=4.1.0" },
     { name = "types-pillow", specifier = ">=10.0" },
@@ -8529,6 +8531,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/56/4a/a5630805a9ab67c7bc852a16826e72b884a9460328c95f5202fb37e3473c/types-beautifulsoup4-4.12.0.20240511.tar.gz", hash = "sha256:004f6096fdd83b19cdbf6cb10e4eae57b10205eccc365d0a69d77da836012e28", size = 11479, upload-time = "2024-05-11T02:18:12.921Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3d/93/c2a9ecb06a2740b59342eaa51099b4f56c398196f99b826586ab0febc31b/types_beautifulsoup4-4.12.0.20240511-py3-none-any.whl", hash = "sha256:7ceda66a93ba28d759d5046d7fec9f4cad2f563a77b3a789efc90bcadafeefd1", size = 12074, upload-time = "2024-05-11T02:18:11.722Z" },
+]
+
+[[package]]
+name = "types-deprecated"
+version = "1.3.1.20251101"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/96/0f96107945697e452c56a2e9f575da627e61d67940e5913d9c968e5e8be1/types_deprecated-1.3.1.20251101.tar.gz", hash = "sha256:f002d266b73201f46ec6fc712c1f016067ec6cb44357559cdb50c86b010951a7", size = 8358, upload-time = "2025-11-01T03:04:05.6Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9e/50/fb191dba89031e30c9ea07c3133c6fe8e7da038ef4d0b79539cf85fb1a97/types_deprecated-1.3.1.20251101-py3-none-any.whl", hash = "sha256:274edcc2a084d3fe31802d3c1379abd630716d3db34e40577e12ad84d6b73134", size = 9057, upload-time = "2025-11-01T03:04:04.633Z" },
 ]
 
 [[package]]

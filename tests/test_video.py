@@ -2,7 +2,7 @@ import math
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import PIL.Image
 import pytest
@@ -356,7 +356,7 @@ class TestVideo:
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
 
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
-    def test_clip(self, mode: str, reset_db: None) -> None:
+    def test_clip(self, mode: Literal['fast', 'accurate'], reset_db: None) -> None:
         t = pxt.create_table('get_clip_test', {'video': pxt.Video}, media_validation='on_write')
         # TODO: this test is not working with the VFR sample video.
         video_filepaths = get_video_files(include_vfr=False)
@@ -477,7 +477,7 @@ class TestVideo:
         pxt.drop_table('validate_segments')
 
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
-    def test_segment_video_duration(self, mode: str, reset_db: None) -> None:
+    def test_segment_video_duration(self, mode: Literal['fast', 'accurate'], reset_db: None) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video})
         # TODO: this test is not working with the VFR sample video.
         t.insert({'video': f} for f in get_video_files(include_vfr=False))
@@ -508,7 +508,7 @@ class TestVideo:
             self._validate_segments(segments, total_duration)
 
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
-    def test_segment_video_segment_times(self, mode: str, reset_db: None) -> None:
+    def test_segment_video_segment_times(self, mode: Literal['fast', 'accurate'], reset_db: None) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video})
         t.insert([{'video': f} for f in get_video_files()])
 
@@ -704,7 +704,9 @@ class TestVideo:
         'segment_duration,mode',
         [(5.0, 'fast'), (5.0, 'accurate'), (10.0, 'fast'), (10.0, 'accurate'), (100.0, 'fast'), (100.0, 'accurate')],
     )
-    def test_video_splitter_duration(self, segment_duration: float, mode: str, reset_db: None) -> None:
+    def test_video_splitter_duration(
+        self, segment_duration: float, mode: Literal['fast', 'accurate'], reset_db: None
+    ) -> None:
         video_filepaths = get_video_files()
         overlaps = [0.0, 1.0, 4.0] if mode == 'fast' else [None]
         eps = 0.1 if mode == 'fast' else 0.0
@@ -727,7 +729,9 @@ class TestVideo:
                 pxt.drop_table('videos', force=True)
 
     @pytest.mark.parametrize('segment_times,mode', [([6.0, 11.0, 16.0], 'fast'), ([6.0, 11.0, 16.0], 'accurate')])
-    def test_video_splitter_segment_times(self, segment_times: list[float], mode: str, reset_db: None) -> None:
+    def test_video_splitter_segment_times(
+        self, segment_times: list[float], mode: Literal['fast', 'accurate'], reset_db: None
+    ) -> None:
         eps = 0.1 if mode == 'fast' else 0.0
         video_filepaths = get_video_files()
         t = pxt.create_table('videos', {'video': pxt.Video})
@@ -738,7 +742,7 @@ class TestVideo:
         self._validate_splitter_segments(t, s, 0.0, 0.0, expected_durations=durations, eps=eps)
 
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
-    def test_video_splitter_empty_segment_times(self, mode: str, reset_db: None) -> None:
+    def test_video_splitter_empty_segment_times(self, mode: Literal['fast', 'accurate'], reset_db: None) -> None:
         video_filepaths = get_video_files()
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.insert({'video': p} for p in video_filepaths)
@@ -1135,7 +1139,9 @@ class TestVideo:
 
         # make sure the output is usable for the VideoSplitter
         v = pxt.create_view(
-            'scenes_view', t, iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate')
+            'scenes_view',
+            t,
+            iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate'),  # type: ignore[arg-type]
         )
         _ = v.collect()
 

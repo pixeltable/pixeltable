@@ -285,7 +285,7 @@ class FrameIterator(ComponentIterator):
         assert self.cur_frame is None or abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
 
     @classmethod
-    @deprecated('create() is deprecated; use `pixeltable.functions.video.frame_iterator` instead', version='0.5.5')
+    @deprecated('create() is deprecated; use `pixeltable.functions.video.frame_iterator` instead', version='0.5.6')
     def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
         return super()._create(**kwargs)
 
@@ -584,6 +584,6 @@ class VideoSplitter(ComponentIterator):
         pass
 
     @classmethod
-    @deprecated('create() is deprecated; use `pixeltable.functions.video.video_splitter` instead', version='0.5.5')
+    @deprecated('create() is deprecated; use `pixeltable.functions.video.video_splitter` instead', version='0.5.6')
     def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
         return super()._create(**kwargs)

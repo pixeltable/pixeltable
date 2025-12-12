@@ -1525,7 +1525,7 @@ def frame_iterator(
 
 
 def video_splitter(
-    video: str,
+    video: Any,
     *,
     duration: float | None = None,
     overlap: float | None = None,

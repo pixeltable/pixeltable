@@ -504,7 +504,7 @@ class DocumentSplitter(ComponentIterator):
 
     @classmethod
     @deprecated(
-        'create() is deprecated; use `pixeltable.functions.document.document_splitter` instead', version='0.5.5'
+        'create() is deprecated; use `pixeltable.functions.document.document_splitter` instead', version='0.5.6'
     )
     def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
         return super()._create(**kwargs)

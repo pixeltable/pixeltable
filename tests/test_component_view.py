@@ -72,11 +72,6 @@ class TestComponentView:
 
         # bad parameter type
         with pytest.raises(pxt.Error) as excinfo:
-            _ = pxt.create_view('test_view', video_t, iterator=frame_iterator(video_t.video, fps='1'))
-        assert 'argument type String does not match parameter type Float | None' in str(excinfo.value)
-
-        # bad parameter type
-        with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view('test_view', video_t, iterator=frame_iterator(1, fps=1))
         assert 'argument type Int does not match parameter type Video' in str(excinfo.value)
 

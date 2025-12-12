@@ -109,6 +109,7 @@ dev = [
     "pandas-stubs>=2.0",
     "pyarrow-stubs>=19",
     "types-beautifulsoup4>=4.2",
+    "types-deprecated>=1.2.15",
     "types-jmespath>=1.0",
     "types-jsonschema>=4.1.0",
     "types-pillow>=10.0",

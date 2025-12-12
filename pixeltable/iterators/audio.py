@@ -202,6 +202,6 @@ class AudioSplitter(ComponentIterator):
         self.container.close()
 
     @classmethod
-    @deprecated('create() is deprecated; use `pixeltable.functions.audio.audio_splitter` instead', version='0.5.5')
+    @deprecated('create() is deprecated; use `pixeltable.functions.audio.audio_splitter` instead', version='0.5.6')
     def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
         return super()._create(**kwargs)
