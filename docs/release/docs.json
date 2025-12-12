@@ -544,6 +544,10 @@
     {
       "source": "/howto/cookbooks/dev-iterative-workflow",
       "destination": "/howto/cookbooks/core/dev-iterative-workflow"
+    },
+    {
+      "source": "/tutorials/embedding-indexes",
+      "destination": "/platform/embedding-indexes"
     }
   ]
 }
