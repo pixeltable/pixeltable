@@ -1,5 +1,5 @@
 """
-Pixeltable UDF for converting media file URLs to presigned HTTP URLs.
+Pixeltable UDF for converting media file URIs to presigned HTTP URLs.
 """
 
 from pixeltable import exceptions as excs
@@ -9,11 +9,11 @@ from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
 
 @udf(is_method=True)
-def presigned_url(url: str, expiration_seconds: int) -> str:
+def presigned_url(uri: str, expiration_seconds: int) -> str:
     """
-    Convert a blob storage URL to a presigned HTTP URL for direct access.
+    Convert a blob storage URI to a presigned HTTP URL for direct access.
 
-    Generates a time-limited, publicly accessible URL from cloud storage URLs
+    Generates a time-limited, publicly accessible URL from cloud storage URIs
     (S3, GCS, Azure, etc.) that can be used to serve media files over HTTP.
 
     Note:
@@ -24,29 +24,29 @@ def presigned_url(url: str, expiration_seconds: int) -> str:
         - Azure: subject to storage account access policies
 
     Args:
-        url: The media file URL (e.g., s3://bucket/path, gs://bucket/path, azure://container/path)
+        uri: The media file URI (e.g., s3://bucket/path, gs://bucket/path, azure://container/path)
         expiration_seconds: How long the URL remains valid
 
     Returns:
         A presigned HTTP URL for accessing the file
 
     Raises:
-        Error: If the URL is a local file:// path
+        Error: If the URI is a local file:// path
 
     Examples:
         >>> tbl = pxt.get_table('my_table')
         >>> # Using with media column fileurl (e.g., Video, Image, Audio)
         >>> tbl.select(tbl.video.fileurl, tbl.video.fileurl.presigned_url(3600)).collect()  # 1-hour expiration
     """
-    if not url:
-        return url
+    if not uri:
+        return uri
 
-    # Parse the object storage address from the URL
-    soa = ObjectPath.parse_object_storage_addr(url, allow_obj_name=True)
+    # Parse the object storage address from the URI
+    soa = ObjectPath.parse_object_storage_addr(uri, allow_obj_name=True)
 
     # HTTP/HTTPS URLs are already publicly accessible
     if soa.storage_target == StorageTarget.HTTP_STORE:
-        return url
+        return uri
 
     # For file:// URLs, we can't generate presigned URLs
     if soa.storage_target == StorageTarget.LOCAL_STORE:
