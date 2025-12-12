@@ -814,5 +814,5 @@ class TestIndex:
     def test_embedding_length_limit(self, reset_db: None) -> None:
         t = pxt.create_table('test', {'text': pxt.String})
         t.add_embedding_index(t.text, embedding=self.dummy_embed_max_len)
-        with pytest.raises(AssertionError, match='Embedding vector size exceeds the maximum allowed size'):
+        with pytest.raises(pxt.Error, match='Embedding vector size exceeds the maximum allowed size'):
             t.add_embedding_index(t.text, embedding=self.dummy_embed_too_long)
