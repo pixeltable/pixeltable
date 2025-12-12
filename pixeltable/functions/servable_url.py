@@ -12,7 +12,7 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
 
-@udf
+@udf(is_method=True)
 def servable_url(url: str, expiration_seconds: int) -> str:
     """
     Convert media columns stored blob URL to a servable HTTP presigned URL.
@@ -36,11 +36,8 @@ def servable_url(url: str, expiration_seconds: int) -> str:
         A servable HTTP URL that can be used to access the media file.
 
     Examples:
-        >>> url = "s3://my-bucket/path/to/image.jpg"
-        >>> servable = pxt.servable_url(url, expiration_seconds=3600)
-
         >>> tbl = pxt.get_table('my_table')
-        >>> tbl.select(tbl.image_url, pxt.servable_url(tbl.image_url, 3600)).collect()
+        >>> tbl.select(tbl.image_url, tbl.image_url.servable_url(3600)).collect()
     """
     if not url:
         return url

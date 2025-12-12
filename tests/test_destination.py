@@ -9,7 +9,6 @@ import requests
 import pixeltable as pxt
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.functions.servable_url import servable_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
@@ -366,7 +365,7 @@ class TestDestination:
             if uri is not None:
                 available_destinations.append(dest_id)
                 dest_uris.append(uri + '/bucket1')
-        print("available_destinations: ", available_destinations)
+        print('available_destinations: ', available_destinations)
         if not available_destinations:
             pytest.skip('No cloud destinations are configured or reachable')
 
@@ -382,7 +381,7 @@ class TestDestination:
         expiration_seconds = 300
         r_dest_with_servable = t.select(
             t.img.fileurl,
-            *[servable_url(t[f'img_rot_{dest_id}'].fileurl, expiration_seconds) for dest_id in available_destinations],
+            *[t[f'img_rot_{dest_id}'].fileurl.servable_url(expiration_seconds) for dest_id in available_destinations],
         ).collect()
 
         # Validate servable URLs - same structure as first query in test_dest_all
