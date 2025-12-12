@@ -34,9 +34,12 @@ def presigned_url(uri: str, expiration_seconds: int) -> str:
         Error: If the URI is a local file:// path
 
     Examples:
-        >>> tbl = pxt.get_table('my_table')
-        >>> # Using with media column fileurl (e.g., Video, Image, Audio)
-        >>> tbl.select(tbl.video.fileurl, tbl.video.fileurl.presigned_url(3600)).collect()  # 1-hour expiration
+        Generate a presigned URL for a video column with 1-hour expiration:
+
+        >>> tbl.select(
+        ...     original_url=tbl.video.fileurl,
+        ...     presigned_url=tbl.video.fileurl.presigned_url(3600)
+        ... ).collect()
     """
     if not uri:
         return uri
