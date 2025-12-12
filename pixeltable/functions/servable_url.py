@@ -35,7 +35,8 @@ def servable_url(url: str, expiration_seconds: int) -> str:
 
     Examples:
         >>> tbl = pxt.get_table('my_table')
-        >>> tbl.select(tbl.image_url, tbl.image_url.servable_url(3600)).collect()  # 1-hour expiration
+        >>> # Using with media column fileurl (e.g., Video, Image, Audio)
+        >>> tbl.select(tbl.video.fileurl, tbl.video.fileurl.servable_url(3600)).collect()  # 1-hour expiration
     """
     if not url:
         return url
