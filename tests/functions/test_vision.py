@@ -1,7 +1,7 @@
 import pytest
 
 import pixeltable as pxt
-from pixeltable.iterators import FrameIterator
+from pixeltable.functions.video import frame_iterator
 
 from ..utils import get_video_files, skip_test_if_not_installed
 
@@ -13,7 +13,7 @@ class TestVision:
 
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view
-        v = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
+        v = pxt.create_view('test_view', video_t, iterator=frame_iterator(video_t.video, fps=1))
 
         files = get_video_files()
         video_t.insert(video=files[-1])
@@ -56,7 +56,7 @@ class TestVision:
 
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view
-        v = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
+        v = pxt.create_view('test_view', video_t, iterator=frame_iterator(video_t.video, fps=1))
 
         files = get_video_files()
         video_t.insert(video=files[-1])

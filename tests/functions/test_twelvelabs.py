@@ -1,6 +1,8 @@
 import pytest
 
 import pixeltable as pxt
+from pixeltable.functions.audio import audio_splitter
+from pixeltable.functions.video import video_splitter
 
 from ..utils import (
     get_audio_files,
@@ -55,12 +57,8 @@ class TestTwelveLabs:
         v = pxt.create_view(
             'audio_chunks',
             base_t,
-            iterator=pxt.iterators.AudioSplitter.create(
-                # Twelvelabs models require a minimum audio duration of 4 seconds
-                audio=base_t.audio,
-                chunk_duration_sec=5.0,
-                min_chunk_duration_sec=4.0,
-            ),
+            # Twelvelabs models require a minimum audio duration of 4 seconds
+            iterator=audio_splitter(base_t.audio, chunk_duration_sec=5.0, min_chunk_duration_sec=4.0),
         )
         v.add_computed_column(embed=embed(model_name='marengo3.0', audio=v.audio_chunk))
         res = v.select(v.embed).collect()
@@ -77,7 +75,7 @@ class TestTwelveLabs:
         v = pxt.create_view(
             'video_segments',
             base_t,
-            iterator=pxt.iterators.VideoSplitter.create(video=base_t.video, duration=5.0, min_segment_duration=4.0),
+            iterator=video_splitter(video=base_t.video, duration=5.0, min_segment_duration=4.0),
         )
         v.add_computed_column(embed=embed(model_name='marengo3.0', video=v.video_segment))
         res = v.select(v.embed).collect()

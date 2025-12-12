@@ -10,7 +10,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
-from pixeltable.iterators import FrameIterator
+from pixeltable.functions.video import frame_iterator, video_splitter
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -31,7 +31,7 @@ class TestVideo:
         pxt.drop_table(base_name, if_not_exists='ignore')
         base_t = pxt.create_table(base_name, {'video': pxt.Video})
         view_t = pxt.create_view(
-            view_name, base_t, iterator=FrameIterator.create(video=base_t.video, fps=1, all_frame_attrs=all_frame_attrs)
+            view_name, base_t, iterator=frame_iterator(base_t.video, fps=1, all_frame_attrs=all_frame_attrs)
         )
         return base_t, view_t
 
@@ -99,23 +99,15 @@ class TestVideo:
     def test_fps(self, reset_db: None) -> None:
         path = get_video_files()[0]
         videos = pxt.create_table('videos', {'video': pxt.Video})
-        frames_all = pxt.create_view('frames_all', videos, iterator=FrameIterator.create(video=videos.video))
-        frames_1_0 = pxt.create_view('frames_1_0', videos, iterator=FrameIterator.create(video=videos.video, fps=1))
-        frames_0_5 = pxt.create_view('frames_0_5', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 2))
-        frames_0_33 = pxt.create_view(
-            'frames_0_33', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 3)
-        )
-        frames_1000 = pxt.create_view(
-            'frames_1000', videos, iterator=FrameIterator.create(video=videos.video, fps=1000)
-        )
-        num_frames_10 = pxt.create_view(
-            'num_frames_10', videos, iterator=FrameIterator.create(video=videos.video, num_frames=10)
-        )
-        num_frames_50 = pxt.create_view(
-            'num_frames_50', videos, iterator=FrameIterator.create(video=videos.video, num_frames=50)
-        )
+        frames_all = pxt.create_view('frames_all', videos, iterator=frame_iterator(videos.video))
+        frames_1_0 = pxt.create_view('frames_1_0', videos, iterator=frame_iterator(videos.video, fps=1))
+        frames_0_5 = pxt.create_view('frames_0_5', videos, iterator=frame_iterator(videos.video, fps=1 / 2))
+        frames_0_33 = pxt.create_view('frames_0_33', videos, iterator=frame_iterator(videos.video, fps=1 / 3))
+        frames_1000 = pxt.create_view('frames_1000', videos, iterator=frame_iterator(videos.video, fps=1000))
+        num_frames_10 = pxt.create_view('num_frames_10', videos, iterator=frame_iterator(videos.video, num_frames=10))
+        num_frames_50 = pxt.create_view('num_frames_50', videos, iterator=frame_iterator(videos.video, num_frames=50))
         num_frames_1000 = pxt.create_view(
-            'num_frames_1000', videos, iterator=FrameIterator.create(video=videos.video, num_frames=1000)
+            'num_frames_1000', videos, iterator=frame_iterator(videos.video, num_frames=1000)
         )
         videos.insert(video=path)
         assert frames_all.count() == 448
@@ -128,9 +120,7 @@ class TestVideo:
         assert num_frames_1000.count() == 448
 
         with pytest.raises(pxt.Error, match='At most one of'):
-            _ = pxt.create_view(
-                'invalid_args', videos, iterator=FrameIterator.create(video=videos.video, fps=1 / 2, num_frames=10)
-            )
+            _ = pxt.create_view('invalid_args', videos, iterator=frame_iterator(videos.video, fps=1 / 2, num_frames=10))
 
     def test_frame_iterator_seek(self, reset_db: None) -> None:
         """
@@ -154,7 +144,7 @@ class TestVideo:
                 {'num_frames': 10000},
             ):
                 videos = pxt.create_table('videos', {'video': pxt.Video}, if_exists='replace_force')
-                view = pxt.create_view('frames', videos, iterator=FrameIterator.create(video=videos.video, **kwargs))
+                view = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, **kwargs))
                 videos.insert(video=p)
                 # Load the first 20 frames sequentially
                 frames = view.select(view.frame).where(view.pos < 20).order_by(view.frame).collect()['frame']
@@ -175,13 +165,9 @@ class TestVideo:
 
         # Test keyframes_only=True extracts all keyframes
         keyframes = pxt.create_view(
-            'keyframes',
-            videos,
-            iterator=FrameIterator.create(video=videos.video, keyframes_only=True, all_frame_attrs=True),
+            'keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True, all_frame_attrs=True)
         )
-        frames = pxt.create_view(
-            'frames', videos, iterator=FrameIterator.create(video=videos.video, fps=0, all_frame_attrs=True)
-        )
+        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=0, all_frame_attrs=True))
 
         videos.insert(video=path)
 
@@ -191,13 +177,11 @@ class TestVideo:
         assert keyframes_count == sum(attrs['key_frame'] for attrs in res['frame_attrs'])
 
         with pytest.raises(pxt.Error, match='At most one of'):
-            _ = pxt.create_view(
-                'invalid', videos, iterator=FrameIterator.create(video=videos.video, keyframes_only=True, fps=1)
-            )
+            _ = pxt.create_view('invalid', videos, iterator=frame_iterator(videos.video, keyframes_only=True, fps=1))
 
         with pytest.raises(pxt.Error, match='At most one of'):
             _ = pxt.create_view(
-                'invalid', videos, iterator=FrameIterator.create(video=videos.video, keyframes_only=True, num_frames=10)
+                'invalid', videos, iterator=frame_iterator(videos.video, keyframes_only=True, num_frames=10)
             )
 
     def test_computed_cols(self, reset_db: None) -> None:
@@ -721,8 +705,6 @@ class TestVideo:
         [(5.0, 'fast'), (5.0, 'accurate'), (10.0, 'fast'), (10.0, 'accurate'), (100.0, 'fast'), (100.0, 'accurate')],
     )
     def test_video_splitter_duration(self, segment_duration: float, mode: str, reset_db: None) -> None:
-        from pixeltable.iterators import VideoSplitter
-
         video_filepaths = get_video_files()
         overlaps = [0.0, 1.0, 4.0] if mode == 'fast' else [None]
         eps = 0.1 if mode == 'fast' else 0.0
@@ -733,8 +715,8 @@ class TestVideo:
                 s = pxt.create_view(
                     'segments',
                     t,
-                    iterator=VideoSplitter.create(
-                        video=t.video,
+                    iterator=video_splitter(
+                        t.video,
                         duration=segment_duration,
                         mode=mode,
                         overlap=overlap,
@@ -746,68 +728,52 @@ class TestVideo:
 
     @pytest.mark.parametrize('segment_times,mode', [([6.0, 11.0, 16.0], 'fast'), ([6.0, 11.0, 16.0], 'accurate')])
     def test_video_splitter_segment_times(self, segment_times: list[float], mode: str, reset_db: None) -> None:
-        from pixeltable.iterators import VideoSplitter
-
         eps = 0.1 if mode == 'fast' else 0.0
         video_filepaths = get_video_files()
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.insert({'video': p} for p in video_filepaths)
-        s = pxt.create_view(
-            'segments', t, iterator=VideoSplitter.create(video=t.video, segment_times=segment_times, mode=mode)
-        )
+        s = pxt.create_view('segments', t, iterator=video_splitter(t.video, segment_times=segment_times, mode=mode))
         start_times = [0.0, *segment_times]
         durations = [start_times[i + 1] - start_times[i] for i in range(len(start_times) - 1)]
         self._validate_splitter_segments(t, s, 0.0, 0.0, expected_durations=durations, eps=eps)
 
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
     def test_video_splitter_empty_segment_times(self, mode: str, reset_db: None) -> None:
-        from pixeltable.iterators import VideoSplitter
-
         video_filepaths = get_video_files()
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.insert({'video': p} for p in video_filepaths)
-        v = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, segment_times=[], mode=mode))
+        v = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[], mode=mode))
         res = v.select(video=v.video.fileurl, segment=v.video_segment.fileurl).collect()
         assert all(row['video'] == row['segment'] for row in res)
 
     def test_video_splitter_errors(self, reset_db: None) -> None:
-        from pixeltable.iterators.video import VideoSplitter
-
         t = pxt.create_table('videos', {'video': pxt.Video})
         with pytest.raises(pxt.Error, match='Must specify either duration or segment_times'):
-            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video))
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video))
         with pytest.raises(pxt.Error, match='duration must be a positive number'):
-            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, duration=-1))
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=-1))
         with pytest.raises(pxt.Error, match='overlap must be less than duration'):
-            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, duration=1, overlap=1))
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=1, overlap=1))
         with pytest.raises(pxt.Error, match='duration must be at least min_segment_duration'):
-            _ = pxt.create_view(
-                's', t, iterator=VideoSplitter.create(video=t.video, duration=1, min_segment_duration=2)
-            )
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=1, min_segment_duration=2))
         with pytest.raises(pxt.Error, match='Cannot specify overlap'):
-            _ = pxt.create_view(
-                's', t, iterator=VideoSplitter.create(video=t.video, duration=10, mode='accurate', overlap=5)
-            )
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video, duration=10, mode='accurate', overlap=5))
         with pytest.raises(pxt.Error, match='Cannot specify video_encoder'):
             _ = pxt.create_view(
-                's', t, iterator=VideoSplitter.create(video=t.video, duration=10, mode='fast', video_encoder='libx264')
+                's', t, iterator=video_splitter(t.video, duration=10, mode='fast', video_encoder='libx264')
             )
         with pytest.raises(pxt.Error, match='Cannot specify video_encoder_args'):
             _ = pxt.create_view(
-                's',
-                t,
-                iterator=VideoSplitter.create(video=t.video, duration=10, mode='fast', video_encoder_args={'crf': 18}),
+                's', t, iterator=video_splitter(t.video, duration=10, mode='fast', video_encoder_args={'crf': 18})
             )
         with pytest.raises(pxt.Error, match='duration and segment_times cannot both be specified'):
             _ = pxt.create_view(
-                's', t, iterator=VideoSplitter.create(video=t.video, duration=10, segment_times=[1, 2], mode='fast')
+                's', t, iterator=video_splitter(t.video, duration=10, segment_times=[1, 2], mode='fast')
             )
         with pytest.raises(pxt.Error, match='Cannot specify overlap'):
-            _ = pxt.create_view(
-                's', t, iterator=VideoSplitter.create(video=t.video, mode='accurate', duration=3, overlap=1)
-            )
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video, mode='accurate', duration=3, overlap=1))
         with pytest.raises(pxt.Error, match='overlap cannot be specified with segment_times'):
-            _ = pxt.create_view('s', t, iterator=VideoSplitter.create(video=t.video, segment_times=[1, 2], overlap=1))
+            _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
 
     @pytest.mark.skipif(
         os.environ.get('PXTTEST_CI_OS') == 'ubuntu-x64-t4', reason='Fonts not available on t4 CI instances'
@@ -1107,8 +1073,6 @@ class TestVideo:
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
 
     def test_scene_detect(self, reset_db: None) -> None:
-        from pixeltable.iterators import VideoSplitter
-
         skip_test_if_not_installed('scenedetect')
         video_filepaths = get_video_files()
 
@@ -1171,9 +1135,7 @@ class TestVideo:
 
         # make sure the output is usable for the VideoSplitter
         v = pxt.create_view(
-            'scenes_view',
-            t,
-            iterator=VideoSplitter.create(video=t.video, segment_times=t.scenes[1:].start_time, mode='accurate'),
+            'scenes_view', t, iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate')
         )
         _ = v.collect()
 
