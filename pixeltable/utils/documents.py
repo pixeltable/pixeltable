@@ -3,7 +3,7 @@ import os
 
 import bs4
 import puremagic
-import pypdfium2 as pdfium  # type: ignore[import-untyped]
+from pypdfium2 import PdfDocument  # type: ignore[import-untyped]
 
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
@@ -14,7 +14,7 @@ class DocumentHandle:
     format: ts.DocumentType.DocumentFormat
     bs_doc: bs4.BeautifulSoup | None = None
     md_ast: dict | None = None
-    pdf_doc: pdfium.PdfDocument | None = None
+    pdf_doc: PdfDocument | None = None
     txt_doc: str | None = None
 
 
@@ -42,7 +42,7 @@ def get_handle_by_extension(path: str, extension: str) -> DocumentHandle | None:
         if doc_format == ts.DocumentType.DocumentFormat.MD:
             return DocumentHandle(doc_format, md_ast=get_markdown_handle(path))
         if doc_format == ts.DocumentType.DocumentFormat.PDF:
-            return DocumentHandle(doc_format, pdf_doc=pdfium.PdfDocument(path))
+            return DocumentHandle(doc_format, pdf_doc=PdfDocument(path))
         if doc_format == ts.DocumentType.DocumentFormat.XML:
             return DocumentHandle(doc_format, bs_doc=get_xml_handle(path))
         if doc_format == ts.DocumentType.DocumentFormat.TXT:
