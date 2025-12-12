@@ -1,5 +1,5 @@
 """
-Pixeltable UDF for converting media file URLs to servable HTTP URLs.
+Pixeltable UDF for converting media file URLs to presigned HTTP URLs.
 """
 
 from pixeltable import exceptions as excs
@@ -9,7 +9,7 @@ from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
 
 @udf(is_method=True)
-def servable_url(url: str, expiration_seconds: int) -> str:
+def presigned_url(url: str, expiration_seconds: int) -> str:
     """
     Convert a blob storage URL to a presigned HTTP URL for direct access.
 
@@ -36,7 +36,7 @@ def servable_url(url: str, expiration_seconds: int) -> str:
     Examples:
         >>> tbl = pxt.get_table('my_table')
         >>> # Using with media column fileurl (e.g., Video, Image, Audio)
-        >>> tbl.select(tbl.video.fileurl, tbl.video.fileurl.servable_url(3600)).collect()  # 1-hour expiration
+        >>> tbl.select(tbl.video.fileurl, tbl.video.fileurl.presigned_url(3600)).collect()  # 1-hour expiration
     """
     if not url:
         return url
@@ -48,11 +48,11 @@ def servable_url(url: str, expiration_seconds: int) -> str:
     if soa.storage_target == StorageTarget.HTTP_STORE:
         return url
 
-    # For file:// URLs, we can't generate servable URLs
+    # For file:// URLs, we can't generate presigned URLs
     if soa.storage_target == StorageTarget.LOCAL_STORE:
         raise excs.Error(
-            'Cannot generate servable URL for local file:// URLs. '
-            'Please use cloud storage (S3, GCS, Azure) for servable URLs.'
+            'Cannot generate presigned URL for local file:// URLs. '
+            'Please use cloud storage (S3, GCS, Azure) for presigned URLs.'
         )
 
     store = ObjectOps.get_store(soa, allow_obj_name=True)

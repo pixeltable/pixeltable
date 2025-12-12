@@ -352,9 +352,9 @@ class TestDestination:
         for uri in dest_uris:
             assert ObjectOps.count(t._id, dest=uri) == 0
 
-    def test_servable_url_all_destinations(self, reset_db: None) -> None:
-        """Test servable_url UDF for all cloud storage destinations"""
-        # Exclude LOCAL_STORE as it doesn't support servable URLs
+    def test_presigned_url_all_destinations(self, reset_db: None) -> None:
+        """Test presigned_url UDF for all cloud storage destinations"""
+        # Exclude LOCAL_STORE as it doesn't support presigned URLs
         cloud_destinations = [d for d in self.TESTED_DESTINATIONS if d != StorageTarget.LOCAL_STORE]
 
         # Filter out destinations that aren't configured or fail to resolve
@@ -369,7 +369,7 @@ class TestDestination:
         if not available_destinations:
             pytest.skip('No cloud destinations are configured or reachable')
 
-        t = pxt.create_table('test_servable_url', schema={'img': pxt.Image})
+        t = pxt.create_table('test_presigned_url', schema={'img': pxt.Image})
         t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
         for i, (dest_id, dest_uri) in enumerate(zip(available_destinations, dest_uris, strict=True)):
             t.add_computed_column(**{f'img_rot_{dest_id}': t.img.rotate(30 * i)}, destination=dest_uri)
@@ -377,16 +377,16 @@ class TestDestination:
 
         assert t.count() == 2
 
-        # Query with servable URLs
+        # Query with presigned URLs
         expiration_seconds = 300
-        r_dest_with_servable = t.select(
+        r_dest_with_presigned = t.select(
             t.img.fileurl,
-            *[t[f'img_rot_{dest_id}'].fileurl.servable_url(expiration_seconds) for dest_id in available_destinations],
+            *[t[f'img_rot_{dest_id}'].fileurl.presigned_url(expiration_seconds) for dest_id in available_destinations],
         ).collect()
 
-        # Validate servable URLs - same structure as first query in test_dest_all
-        # Column 0 is input fileurl, columns 1+ are servable URLs in available_destinations order
-        num_rows = len(r_dest_with_servable)
+        # Validate presigned URLs - same structure as first query in test_dest_all
+        # Column 0 is input fileurl, columns 1+ are presigned URLs in available_destinations order
+        num_rows = len(r_dest_with_presigned)
 
         # Track download failures for presigned URLs
         download_failures: list[tuple[StorageTarget, str]] = []
@@ -395,16 +395,16 @@ class TestDestination:
             # Column 0 is input fileurl (skip validation for input)
             # Columns 1+ correspond to destinations in available_destinations order
             for col_idx, dest_id in enumerate(available_destinations, start=1):
-                col_name = list(r_dest_with_servable.schema.keys())[col_idx]
-                servable_url_str = r_dest_with_servable[col_name][row_idx]
+                col_name = list(r_dest_with_presigned.schema.keys())[col_idx]
+                presigned_url_str = r_dest_with_presigned[col_name][row_idx]
 
-                # Servable URLs should be HTTP/HTTPS
-                assert servable_url_str.startswith('http://') or servable_url_str.startswith('https://'), (
-                    f'Servable URL for {dest_id} should be HTTP/HTTPS, got {servable_url_str}'
+                # Presigned URLs should be HTTP/HTTPS
+                assert presigned_url_str.startswith('http://') or presigned_url_str.startswith('https://'), (
+                    f'Presigned URL for {dest_id} should be HTTP/HTTPS, got {presigned_url_str}'
                 )
 
-                # Download and verify the servable URL
-                success, error_msg = self._download_servable_urls(servable_url_str, dest_id)
+                # Download and verify the presigned URL
+                success, error_msg = self._download_presigned_urls(presigned_url_str, dest_id)
                 if not success:
                     download_failures.append((dest_id, error_msg))
 
@@ -412,19 +412,19 @@ class TestDestination:
         if download_failures:
             failure_summary = '\n'.join([f'{dest_id}: {error_msg}' for dest_id, error_msg in download_failures])
             pytest.fail(
-                f'Failed to download servable URLs for {len(download_failures)} destination(s):\n{failure_summary}'
+                f'Failed to download presigned URLs for {len(download_failures)} destination(s):\n{failure_summary}'
             )
 
         pxt.drop_table(t)
 
-    def _download_servable_urls(self, servable_url_str: str, dest_id: StorageTarget) -> tuple[bool, str]:
-        """Download and verify a servable URL using requests.get
+    def _download_presigned_urls(self, presigned_url_str: str, dest_id: StorageTarget) -> tuple[bool, str]:
+        """Download and verify a presigned URL using requests.get
 
         Returns:
             Tuple of (success: bool, error_message: str)
         """
         try:
-            response = requests.get(servable_url_str, timeout=10)
+            response = requests.get(presigned_url_str, timeout=10)
             if response.status_code != 200:
                 error_msg = f'HTTP {response.status_code}'
                 if response.text:
