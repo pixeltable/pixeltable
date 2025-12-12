@@ -804,15 +804,35 @@ class TestIndex:
     @pxt.udf
     @staticmethod
     def dummy_embed_max_len(text: str) -> pxt.Array[(2000,), np.float32]:
-        pass
+        if 'zeros' in text:
+            return np.zeros((2000,), dtype=np.float32)
+        if 'ones' in text:
+            return np.ones((2000,), dtype=np.float32)
+        return np.random.rand(2000).astype(np.float32)
+
+    def test_embedding_vector_max_length(self, reset_db: None) -> None:
+        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
+        t.add_embedding_index(t.text, embedding=self.dummy_embed_max_len)
+        t.insert(
+            [
+                {'rowid': 0, 'text': "this string's embedding is all zeros"},
+                {'rowid': 1, 'text': "and this string's are all ones"},
+                {'rowid': 2, 'text': 'this will result in random embedding'},
+            ]
+        )
+        sim = t.text.similarity('all zeros embedding query')
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        assert res[0]['rowid'] == 0
+        sim = t.text.similarity('all ones embedding query')
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        assert res[0]['rowid'] == 1
 
     @pxt.udf
     @staticmethod
     def dummy_embed_too_long(text: str) -> pxt.Array[(2001,), np.float32]:
         pass
 
-    def test_embedding_length_limit(self, reset_db: None) -> None:
+    def test_embedding_vector_too_long(self, reset_db: None) -> None:
         t = pxt.create_table('test', {'text': pxt.String})
-        t.add_embedding_index(t.text, embedding=self.dummy_embed_max_len)
         with pytest.raises(pxt.Error, match='Embedding vector size exceeds the maximum allowed size'):
             t.add_embedding_index(t.text, embedding=self.dummy_embed_too_long)
