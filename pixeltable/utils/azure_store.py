@@ -282,15 +282,7 @@ class AzureBlobStore(ObjectStoreBase):
             raise excs.Error(f'Error during {operation} in container {container_name}: {str(e)!r}')
 
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
-        """Create a presigned URL for downloading an object from Azure Blob Storage.
-
-        Args:
-            soa: StorageObjectAddress containing the object location
-            expiration_seconds: Time in seconds for the URL to remain valid
-
-        Returns:
-            A presigned HTTP URL that can be used to access the object
-        """
+        """Create a presigned URL for downloading an object from Azure Blob Storage."""
         if not soa.has_object:
             raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
 
