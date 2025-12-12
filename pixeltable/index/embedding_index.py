@@ -134,6 +134,7 @@ class EmbeddingIndex(IndexBase):
             raise excs.Error(f'Expected a 1-dimensional array, got {len(val_col_type.shape)}: {val_col_type}')
         vector_size = val_col_type.shape[0]
         assert vector_size is not None
+        # TODO(PXT-916): support halfvec embedding indexes
         if vector_size > MAX_EMBEDDING_VECTOR_LENGTH:
             raise excs.Error(
                 f'Embedding vector size exceeds the maximum allowed size of {MAX_EMBEDDING_VECTOR_LENGTH}:'
