@@ -20,7 +20,10 @@ from .base import IndexBase
 
 class EmbeddingIndex(IndexBase):
     """
-    Interface to the pgvector access method in Postgres.
+    Interface to the pgvector/pgvectorscale access methods in Postgres.
+    - Supports two index types:
+      - 'hnsw': HNSW index from pgvector (default)
+      - 'diskann': StreamingDiskANN index from pgvectorscale (higher performance for large datasets)
     - pgvector converts the cosine metric to '1 - metric' and the inner product metric to '-metric', in order to
       satisfy the Postgres requirement that an index scan requires an ORDER BY ... ASC clause
     - similarity_clause() converts those metrics back to their original form; it is used in expressions outside
@@ -34,6 +37,10 @@ class EmbeddingIndex(IndexBase):
         IP = 2
         L2 = 3
 
+    class IndexType(enum.Enum):
+        HNSW = 'hnsw'
+        DISKANN = 'diskann'
+
     PGVECTOR_OPS: ClassVar[dict[Metric, str]] = {
         Metric.COSINE: 'vector_cosine_ops',
         Metric.IP: 'vector_ip_ops',
@@ -41,6 +48,8 @@ class EmbeddingIndex(IndexBase):
     }
 
     metric: Metric
+    index_type: IndexType
+    index_params: dict[str, Any] | None
     string_embed: func.Function | None
     image_embed: func.Function | None
     string_embed_signature_idx: int
@@ -52,12 +61,21 @@ class EmbeddingIndex(IndexBase):
         embed: func.Function | None = None,
         string_embed: func.Function | None = None,
         image_embed: func.Function | None = None,
+        index_type: str = 'hnsw',
+        index_params: dict[str, Any] | None = None,
     ):
         if embed is None and string_embed is None and image_embed is None:
             raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified')
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
+
+        # Validate and set index type
+        index_type_names = [t.value for t in self.IndexType]
+        if index_type.lower() not in index_type_names:
+            raise excs.Error(f'Invalid index_type {index_type!r}, must be one of {index_type_names}')
+        self.index_type = self.IndexType(index_type.lower())
+        self.index_params = index_params
 
         self.string_embed = None
         self.image_embed = None
@@ -134,7 +152,11 @@ class EmbeddingIndex(IndexBase):
     def sa_create_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
         """Return a sqlalchemy statement for creating the index"""
         return Env.get().dbms.create_vector_index_stmt(
-            store_index_name, sa_value_col, metric=self.PGVECTOR_OPS[self.metric]
+            store_index_name,
+            sa_value_col,
+            metric=self.PGVECTOR_OPS[self.metric],
+            index_type=self.index_type.value,
+            index_params=self.index_params,
         )
 
     def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
@@ -240,10 +262,21 @@ class EmbeddingIndex(IndexBase):
             'metric': self.metric.name.lower(),
             'string_embed': None if self.string_embed is None else self.string_embed.as_dict(),
             'image_embed': None if self.image_embed is None else self.image_embed.as_dict(),
+            'index_type': self.index_type.value,
+            'index_params': self.index_params,
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> EmbeddingIndex:
         string_embed = func.Function.from_dict(d['string_embed']) if d['string_embed'] is not None else None
         image_embed = func.Function.from_dict(d['image_embed']) if d['image_embed'] is not None else None
-        return cls(metric=d['metric'], string_embed=string_embed, image_embed=image_embed)
+        # Handle backwards compatibility for indexes created before index_type was added
+        index_type = d.get('index_type', 'hnsw')
+        index_params = d.get('index_params')
+        return cls(
+            metric=d['metric'],
+            string_embed=string_embed,
+            image_embed=image_embed,
+            index_type=index_type,
+            index_params=index_params,
+        )
