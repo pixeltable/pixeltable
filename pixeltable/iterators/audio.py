@@ -211,6 +211,3 @@ class AudioSplitter(ComponentIterator):
 
     def close(self) -> None:
         self.container.close()
-
-    def set_pos(self, pos: int) -> None:
-        pass

@@ -68,7 +68,7 @@ class TileIterator(ComponentIterator):
     def close(self) -> None:
         pass
 
-    def set_pos(self, pos: int) -> None:
+    def set_pos(self, pos: int, **kwargs: Any) -> None:
         self.__j = pos // self.__xlen
         self.__i = pos % self.__xlen
 

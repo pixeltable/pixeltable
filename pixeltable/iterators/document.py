@@ -518,6 +518,3 @@ class DocumentSplitter(ComponentIterator):
 
     def close(self) -> None:
         pass
-
-    def set_pos(self, pos: int) -> None:
-        pass
