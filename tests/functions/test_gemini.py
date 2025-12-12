@@ -140,7 +140,7 @@ class TestGemini:
         t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
 
         # Test embeddings as computed columns
-        t.add_computed_column(embed0=generate_embedding(t.text))
+        t.add_computed_column(embed0=generate_embedding(t.text, model='gemini-embedding-001'))
         t.add_computed_column(
             embed1=generate_embedding(t.text, model='gemini-embedding-001', config={'output_dimensionality': 3072})
         )
@@ -167,7 +167,9 @@ class TestGemini:
             assert embedding.shape == (3072,)
 
         # Test embeddings as embedding indexes
-        t.add_embedding_index(t.text, idx_name='embed_idx0', embedding=generate_embedding)
+        t.add_embedding_index(
+            t.text, idx_name='embed_idx0', embedding=generate_embedding.using(model='gemini-embedding-001')
+        )
         t.add_embedding_index(
             t.text,
             idx_name='embed_idx1',

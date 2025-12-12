@@ -255,11 +255,7 @@ _DEFAULT_EMBEDDING_DIMENSIONALITY = 1536
 
 @pxt.udf(resource_pool='request-rate:gemini', batch_size=32)
 async def generate_embedding(
-    input: Batch[str],
-    *,
-    model: str = 'gemini-embedding-001',
-    config: dict[str, Any] | None = None,
-    use_batch_api: bool = False,
+    input: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     """Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
     <https://ai.google.dev/gemini-api/docs/embeddings>
