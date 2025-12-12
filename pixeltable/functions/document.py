@@ -1,3 +1,7 @@
+"""
+Pixeltable UDFs for `DocumentType`.
+"""
+
 from typing import Any, Literal
 
 import pixeltable as pxt
