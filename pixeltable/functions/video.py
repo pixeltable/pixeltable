@@ -1518,6 +1518,25 @@ def frame_iterator(
             * `interlaced_frame` (`bool`)
 
             If False, only outputs frame attributes `frame_idx`, `pos_msec`, and `pos_frame` as separate columns.
+
+    Examples:
+        All these examples assume an existing table `tbl` with a column `video` of type `pxt.Video`.
+
+        Create a view that extracts all frames from all videos:
+
+        >>> pxt.create_view('all_frames', tbl, iterator=frame_iterator(tbl.video))
+
+        Create a view that extracts only keyframes from all videos:
+
+        >>> pxt.create_view('keyframes', tbl, iterator=frame_iterator(tbl.video, keyframes_only=True))
+
+        Create a view that extracts frames from all videos at a rate of 1 frame per second:
+
+        >>> pxt.create_view('one_fps_frames', tbl, iterator=frame_iterator(tbl.video, fps=1.0))
+
+        Create a view that extracts exactly 10 frames from each video:
+
+        >>> pxt.create_view('ten_frames', tbl, iterator=frame_iterator(tbl.video, num_frames=10))
     """
     kwargs: dict[str, Any] = {}
     if fps is not None:
@@ -1562,6 +1581,23 @@ def video_splitter(
         video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
             Only available for `mode='accurate'`.
         video_encoder_args: Additional arguments to pass to the video encoder. Only available for `mode='accurate'`.
+
+    Examples:
+        All these examples assume an existing table `tbl` with a column `video` of type `pxt.Video`.
+
+        Create a view that splits each video into 10-second segments:
+
+        >>> pxt.create_view('ten_second_segments', tbl, iterator=video_splitter(tbl.video, duration=10.0))
+
+        Create a view that splits each video into segments at specified fixed times:
+
+        >>> split_times = [5.0, 15.0, 30.0]
+        >>> pxt.create_view('custom_segments', tbl, iterator=video_splitter(tbl.video, segment_times=split_times))
+
+        Create a view that splits each video into segments at times specified by a column `split_times` of type
+        `pxt.Json`, containing a list of timestamps in seconds:
+
+        >>> pxt.create_view('custom_segments', tbl, iterator=video_splitter(tbl.video, segment_times=tbl.split_times))
     """
     kwargs: dict[str, Any] = {}
     if duration is not None:

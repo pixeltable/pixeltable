@@ -140,6 +140,17 @@ def audio_splitter(
         chunk_duration_sec: Audio chunk duration in seconds
         overlap_sec: Overlap between consecutive chunks in seconds
         min_chunk_duration_sec: Drop the last chunk if it is smaller than min_chunk_duration_sec
+
+    Examples:
+        This example assumes an existing table `tbl` with a column `audio` of type `pxt.Audio`.
+
+        Create a view that splits all audio files into chunks of 30 seconds with 5 seconds overlap:
+
+        >>> pxt.create_view(
+        ...     'audio_chunks',
+        ...     tbl,
+        ...     iterator=audio_splitter(tbl.audio, chunk_duration_sec=30.0, overlap_sec=5.0)
+        ... )
     """
     kwargs: dict[str, Any] = {}
     if overlap_sec != 0.0:
