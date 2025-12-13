@@ -23,13 +23,13 @@ Iterators are particularly useful when:
 
 ```python
 import pixeltable as pxt
-from pixeltable.iterators import DocumentSplitter
+from pixeltable.functions.document import document_splitter
 
 # Create a view using an iterator
 chunks = pxt.create_view(
     'docs.chunks',
     documents_table,
-    iterator=DocumentSplitter.create(
+    iterator=document_splitter(
         document=documents_table.document,
         separators='paragraph'
     )
@@ -62,13 +62,13 @@ Iterators are powerful tools for processing large media files. They work seamles
 <Tabs>
   <Tab title="DocumentSplitter">
     ```python
-    from pixeltable.iterators import DocumentSplitter
+    from pixeltable.functions.document import document_splitter
 
     # Create view with document chunks
     chunks_view = pxt.create_view(
         'docs.chunks',
         docs_table,
-        iterator=DocumentSplitter.create(
+        iterator=document_splitter(
             document=docs_table.document,
             separators='paragraph,token_limit',
             limit=500,
@@ -92,7 +92,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     frames_view = pxt.create_view(
         'videos.frames',
         videos_table,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=videos_table.video,
             fps=1.0
         )
@@ -102,7 +102,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     frames_view = pxt.create_view(
         'videos.sampled',
         videos_table,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=videos_table.video,
             num_frames=10  # Extract 10 evenly-spaced frames
         )
@@ -112,7 +112,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     keyframes_view = pxt.create_view(
         'videos.keyframes',
         videos_table,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=videos_table.video,
             keyframes_only=True
         )
@@ -134,7 +134,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     tiles_view = pxt.create_view(
         'images.tiles',
         images_table,
-        iterator=TileIterator.create(
+        iterator=tile_iterator(
             image=images_table.image,
             tile_size=(224, 224),  # Width, Height
             overlap=(32, 32)       # Horizontal, Vertical overlap
@@ -155,7 +155,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     chunks_view = pxt.create_view(
         'audio.chunks',
         audio_table,
-        iterator=AudioSplitter.create(
+        iterator=audio_splitter(
             audio=audio_table.audio,
             chunk_duration_sec=30.0,  # Split into 30-second chunks
             overlap_sec=2.0,          # 2-second overlap between chunks
@@ -223,7 +223,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     chunks = pxt.create_view(
         'rag.chunks',
         docs_table,
-        iterator=DocumentSplitter.create(
+        iterator=document_splitter(
             document=docs_table.document,
             separators='paragraph',
             limit=500
@@ -246,7 +246,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     frames = pxt.create_view(
         'detection.frames',
         videos_table,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=videos_table.video,
             fps=1.0
         )
@@ -263,7 +263,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     chunks = pxt.create_view(
         'audio.chunks',
         audio_table,
-        iterator=AudioSplitter.create(
+        iterator=audio_splitter(
             audio=audio_table.audio,
             chunk_duration_sec=30.0
         )
@@ -282,7 +282,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     frames = pxt.create_view(
         'video.frames',
         videos_table,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=videos_table.video,
             fps=1.0
         )

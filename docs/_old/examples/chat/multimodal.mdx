@@ -20,7 +20,7 @@ import pixeltable as pxt
 from pixeltable.functions import openai
 from pixeltable.functions.huggingface import sentence_transformer
 from pixeltable.functions.video import extract_audio
-from pixeltable.iterators import DocumentSplitter
+from pixeltable.functions.document import document_splitter
 from pixeltable.iterators.string import StringSplitter
 
 # Create a directory to organize data (optional)
@@ -57,7 +57,7 @@ Create specialized views for processing different media types:
 chunks_view = pxt.create_view(
     "chatbot.chunks",
     docs_table,
-    iterator=DocumentSplitter.create(
+    iterator=document_splitter(
         document=docs_table.document,
         separators="sentence",
         metadata="title,heading,sourceline",
@@ -68,7 +68,7 @@ chunks_view = pxt.create_view(
 transcription_chunks = pxt.create_view(
     "chatbot.transcription_chunks",
     docs_table,
-    iterator=StringSplitter.create(
+    iterator=string_splitter(
         text=docs_table.transcription_text,
         separators="sentence"
     )
@@ -78,7 +78,7 @@ transcription_chunks = pxt.create_view(
 audio_chunks = pxt.create_view(
     "chatbot.audio_chunks",
     docs_table,
-    iterator=StringSplitter.create(
+    iterator=string_splitter(
         text=docs_table.audio_transcription_text,
         separators="sentence"
     )

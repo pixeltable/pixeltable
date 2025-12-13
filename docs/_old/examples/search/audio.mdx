@@ -52,7 +52,7 @@ Pixeltable lets you build audio search workflows in two phases:
     sentences_view = pxt.create_view(
         "audio_search.audio_sentence_chunks",
         audio_t,
-        iterator=StringSplitter.create(
+        iterator=string_splitter(
             text=audio_t.transcription.text, 
             separators="sentence"
         )
@@ -121,7 +121,7 @@ Pixeltable lets you build audio search workflows in two phases:
   <Card title="Smart Chunking" icon="scissors">
     Intelligent sentence splitting using spaCy:
     ```python
-    iterator=StringSplitter.create(
+    iterator=string_splitter(
         text=audio_t.transcription.text,
         separators="sentence"
     )

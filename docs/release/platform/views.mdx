@@ -22,7 +22,7 @@ Choose views over tables when your data is derived from other base tables and ne
 
 ```python
 import pixeltable as pxt
-from pixeltable.iterators import DocumentSplitter
+from pixeltable.functions.document import document_splitter
 
 # Create a directory to organize data (optional)
 pxt.drop_dir('documents', force=True)
@@ -38,7 +38,7 @@ documents = pxt.create_table(
 chunks = pxt.create_view(
     'documents.chunks',
     documents,
-    iterator=DocumentSplitter.create(
+    iterator=document_splitter(
         document=documents.document,
         separators='token_limit',
         limit=300
@@ -74,7 +74,7 @@ print(chunks.collect())
     chunks = pxt.create_view(
         'docs.chunks',
         documents,
-        iterator=DocumentSplitter.create(
+        iterator=document_splitter(
             document=documents.document
         )
     )

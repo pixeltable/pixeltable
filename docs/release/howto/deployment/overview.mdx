@@ -117,7 +117,7 @@ videos.add_computed_column(
 frames = pxt.create_view(
     'video_processing.frames',
     videos,
-    iterator=FrameIterator.create(video=videos.video, fps=1.0)
+    iterator=frame_iterator(video=videos.video, fps=1.0)
 )
 
 # Insert video for processing

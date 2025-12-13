@@ -47,7 +47,7 @@ This integration requires a local Pixeltable installation and cannot be run in C
     frames = pxt.create_view(
         'annotation.frames',
         videos,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=videos.video,
             fps=0.25  # Extract 1 frame every 4 seconds
         )
@@ -168,7 +168,7 @@ This integration requires a local Pixeltable installation and cannot be run in C
   <Card title="Frame Extraction" icon="film">
     Automatic video frame sampling:
     ```python
-    iterator=FrameIterator.create(
+    iterator=frame_iterator(
         video=videos.video,
         fps=0.25
     )

@@ -52,7 +52,7 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     frames_view = pxt.create_view(
         f'{directory}.video_frames',
         video_index,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=video_index.video,
             fps=1
         )
@@ -74,7 +74,7 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     chunks_view = pxt.create_view(
         f'{directory}.video_chunks',
         video_index,
-        iterator=AudioSplitter.create(
+        iterator=audio_splitter(
             audio=video_index.audio_extract,
             chunk_duration_sec=30.0,
             overlap_sec=2.0,
@@ -93,7 +93,7 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     transcription_chunks = pxt.create_view(
         f'{directory}.video_sentence_chunks',
         chunks_view,
-        iterator=StringSplitter.create(text=chunks_view.transcription.text, separators='sentence'),
+        iterator=string_splitter(text=chunks_view.transcription.text, separators='sentence'),
     )
 
     # Create embedding index for audio
@@ -153,7 +153,7 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     frames_view = pxt.create_view(
         f'{directory}.video_frames',
         video_index,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=video_index.video,
             fps=1
         )
