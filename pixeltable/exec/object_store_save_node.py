@@ -10,9 +10,9 @@ from typing import AsyncIterator, Iterator, NamedTuple
 
 from pixeltable import exprs
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
+from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
-from .exec_context import ExecContext
 from .exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
@@ -76,8 +76,8 @@ class ObjectStoreSaveNode(ExecNode):
     row_idx: Iterator[int | None]
 
     # progress reporting
-    uploaded_objects_reporter: ExecContext.ProgressReporter | None
-    uploaded_bytes_reporter: ExecContext.ProgressReporter | None
+    uploaded_objects_reporter: ProgressReporter | None
+    uploaded_bytes_reporter: ProgressReporter | None
 
     @dataclasses.dataclass
     class RowState:

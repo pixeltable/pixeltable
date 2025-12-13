@@ -10,9 +10,9 @@ import numpy as np
 
 import pixeltable.exceptions as excs
 from pixeltable import exprs
+from pixeltable.utils.progress_reporter import ProgressReporter
 
 from ..data_row_batch import DataRowBatch
-from ..exec_context import ExecContext
 from ..exec_node import ExecNode
 from .evaluators import FnCallEvaluator, NestedRowList
 from .globals import ExprEvalCtx, Scheduler
@@ -62,7 +62,7 @@ class ExprEvalNode(ExecNode):
     num_in_flight: int  # number of dispatched rows that haven't completed
     row_pos_map: dict[int, int] | None  # id(row) -> position of row in input; only set if maintain_input_order
     output_buffer: RowBuffer  # holds rows that are ready to be returned, in order
-    progress_reporter: ExecContext.ProgressReporter | None
+    progress_reporter: ProgressReporter | None
 
     # debugging
     num_input_rows: int

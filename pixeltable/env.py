@@ -31,6 +31,7 @@ import pixeltable_pgserver
 import sqlalchemy as sql
 import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from rich.progress import Progress
 from sqlalchemy import orm
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
@@ -95,6 +96,7 @@ class Env:
     _stdout_handler: logging.StreamHandler
     _default_video_encoder: str | None
     _initialized: bool
+    _progress: Progress | None
 
     _resource_pool_info: dict[str, Any]
     _current_conn: sql.Connection | None
@@ -160,6 +162,7 @@ class Env:
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
         self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
         self._initialized = False
+        self._progress = None
 
         self._resource_pool_info = {}
         self._current_conn = None
@@ -276,6 +279,18 @@ class Env:
         import __main__
 
         return not hasattr(__main__, '__file__')
+
+    def start_progress(self, create_fn: Callable[[], Progress]) -> Progress:
+        if self._progress is None:
+            self._progress = create_fn()
+            self._progress.start()
+        return self._progress
+
+    def stop_progress(self) -> None:
+        if self._progress is None:
+            return
+        self._progress.stop()
+        self._progress = None
 
     @contextmanager
     def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:

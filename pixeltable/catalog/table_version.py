@@ -413,7 +413,10 @@ class TableVersion:
             self.delete_media()
             view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
-            _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
+            try:
+                _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
+            finally:
+                Env.get().stop_progress()
             status = UpdateStatus(row_count_stats=row_counts)
             Catalog.get().store_update_status(self.id, self.version, status)
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
@@ -1024,10 +1027,13 @@ class TableVersion:
                 self.next_row_id += 1
                 yield rowid
 
-        result = self._insert(
-            plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
-        )
-        return result
+        try:
+            result = self._insert(
+                plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
+            )
+            return result
+        finally:
+            Env.get().stop_progress()
 
     def _insert(
         self,

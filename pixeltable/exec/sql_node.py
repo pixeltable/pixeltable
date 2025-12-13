@@ -9,9 +9,9 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
+from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
-from .exec_context import ExecContext
 from .exec_node import ExecNode
 
 if TYPE_CHECKING:
@@ -90,7 +90,7 @@ class SqlNode(ExecNode):
     py_filter_eval_ctx: exprs.RowBuilder.EvalCtx | None
     cte: sql.CTE | None
     sql_elements: exprs.SqlElementCache
-    progress_reporter: ExecContext.ProgressReporter | None
+    progress_reporter: ProgressReporter | None
 
     # execution state
     sql_select_list_exprs: exprs.ExprSet

@@ -374,14 +374,14 @@ class StoreBase:
                         start_ts = time.monotonic()
                         self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
                         if progress_reporter is not None:
-                            progress_reporter.update(len(table_rows), start_ts=start_ts)
+                            progress_reporter.update(len(table_rows))
                         table_rows.clear()
 
                 if len(table_rows) > 0:
                     start_ts = time.monotonic()
                     self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
                     if progress_reporter is not None:
-                        progress_reporter.update(len(table_rows), start_ts=start_ts)
+                        progress_reporter.update(len(table_rows))
 
                 # update store table with values from temp table
                 update_stmt = sql.update(self.sa_tbl)
@@ -456,7 +456,7 @@ class StoreBase:
                     start_ts = time.monotonic()
                     self.sql_insert(self.sa_tbl, store_col_names, table_rows)
                     if progress_reporter is not None:
-                        progress_reporter.update(len(table_rows), start_ts=start_ts)
+                        progress_reporter.update(len(table_rows))
                     table_rows.clear()
 
             # insert any remaining rows
@@ -464,7 +464,7 @@ class StoreBase:
                 start_ts = time.monotonic()
                 self.sql_insert(self.sa_tbl, store_col_names, table_rows)
                 if progress_reporter is not None:
-                    progress_reporter.update(len(table_rows), start_ts=start_ts)
+                    progress_reporter.update(len(table_rows))
 
             row_counts = RowCountStats(ins_rows=num_rows, num_excs=num_excs, computed_values=0)
 

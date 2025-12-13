@@ -15,9 +15,9 @@ from uuid import UUID
 from pixeltable import exceptions as excs, exprs
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
+from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
-from .exec_context import ExecContext
 from .exec_node import ExecNode
 
 _logger = logging.getLogger('pixeltable')
@@ -41,8 +41,8 @@ class CachePrefetchNode(ExecNode):
 
     # execution state
     num_returned_rows: int
-    downloaded_objects_reporter: ExecContext.ProgressReporter | None
-    downloaded_bytes_reporter: ExecContext.ProgressReporter | None
+    downloaded_objects_reporter: ProgressReporter | None
+    downloaded_bytes_reporter: ProgressReporter | None
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
     # the implied row idx of ready_rows[0] is num_returned_rows
