@@ -332,9 +332,7 @@ class TestSample:
 
         print('\n\nCREATE ITERATOR VIEW\n')
         v = pxt.create_view(
-            'test_view',
-            t,
-            iterator=pxt.iterators.TileIterator.create(image=t.image, tile_size=(100, 100), overlap=(10, 10)),
+            'test_view', t, iterator=pxt.functions.image.tile_iterator(t.image, tile_size=(100, 100), overlap=(10, 10))
         )
         v_rows = v.count()
         print(f'total rows: {v_rows}')

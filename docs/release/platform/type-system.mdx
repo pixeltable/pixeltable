@@ -1,0 +1,311 @@
+---
+title: 'Multimodal Type System'
+description: 'Understanding Pixeltable types for structured data, media, and ML workflows'
+---
+
+Pixeltable provides a rich type system designed for multimodal AI applications. Every column and expression has an associated type that determines what data it can hold and what operations are available.
+
+## Type overview
+
+| Pixeltable Type | Python Type | Description |
+|-----------------|-------------|-------------|
+| `pxt.String` | `str` | Text data |
+| `pxt.Int` | `int` | Integer numbers |
+| `pxt.Float` | `float` | Decimal numbers |
+| `pxt.Bool` | `bool` | Boolean values |
+| `pxt.Timestamp` | `datetime.datetime` | Date/time values |
+| `pxt.Json` | `dict`, `list`, `str`, `int`, `float`, `bool` | Flexible JSON data |
+| `pxt.Array` | `np.ndarray` | Numerical arrays (embeddings, tensors) |
+| `pxt.Image` | `PIL.Image.Image` | Image data |
+| `pxt.Video` | `str` (file path) | Video references |
+| `pxt.Audio` | `str` (file path) | Audio files |
+| `pxt.Document` | `str` (file path) | PDF/text documents |
+
+<Info>
+`pxt.Audio`, `pxt.Video`, and `pxt.Document` return file paths when queried. Pixeltable automatically downloads and caches remote media locally. Use `.fileurl` to get the original URL.
+</Info>
+
+## Basic types
+
+```python
+import pixeltable as pxt
+
+table = pxt.create_table('example.basic_types', {
+    'text': pxt.String,        # Text data
+    'count': pxt.Int,          # Integer numbers
+    'score': pxt.Float,        # Decimal numbers
+    'active': pxt.Bool,        # Boolean values
+    'created': pxt.Timestamp   # Date/time values
+})
+```
+
+### Auto-generated UUIDs
+
+Use `uuid4()` to create columns that auto-generate unique identifiers:
+
+```python
+from pixeltable.functions.uuid import uuid4
+
+# UUID as primary key - auto-generated for each row
+products = pxt.create_table('example.products', {
+    'id': uuid4(),           # Auto-generates UUID
+    'name': pxt.String,
+    'price': pxt.Float
+}, primary_key=['id'])
+
+# Insert without providing 'id' - it's generated automatically
+products.insert([{'name': 'Laptop', 'price': 999.99}])
+```
+
+You can also add UUIDs to existing tables:
+
+```python
+# Add UUID column to existing table
+orders.add_computed_column(order_id=uuid4())
+```
+
+<Tip>
+See the [UUID cookbook](/howto/cookbooks/core/workflow-uuid-identity) for more examples of working with unique identifiers.
+</Tip>
+
+## Media types
+
+Pixeltable natively supports images, video, audio, and documents as first-class column types.
+
+```python
+media = pxt.create_table('example.media', {
+    'image': pxt.Image,      # Any image
+    'video': pxt.Video,      # Video reference
+    'audio': pxt.Audio,      # Audio file
+    'document': pxt.Document # PDF/text document
+})
+```
+
+### Image specialization
+
+Images can be constrained by resolution and/or color mode:
+
+```python
+# Constrain by resolution
+thumbnails = pxt.create_table('example.thumbnails', {
+    'thumb': pxt.Image[(224, 224)]  # Width 224, height 224
+})
+
+# Constrain by color mode
+grayscale = pxt.create_table('example.grayscale', {
+    'img': pxt.Image['L']  # Grayscale (1-channel)
+})
+
+# Constrain both
+rgb_fixed = pxt.create_table('example.rgb_fixed', {
+    'img': pxt.Image[(300, 200), 'RGB']  # 300x200 RGB images
+})
+```
+
+<Tip>
+See the [PIL Documentation](https://pillow.readthedocs.io/en/stable/handbook/concepts.html) for the full list of image modes (`'RGB'`, `'RGBA'`, `'L'`, etc.).
+</Tip>
+
+## Array types (embeddings & tensors)
+
+Arrays are used for embeddings, feature vectors, and tensor data. They must always specify a shape and dtype.
+
+```python
+ml_data = pxt.create_table('example.ml_features', {
+    # Fixed-size embedding (e.g., from CLIP or OpenAI)
+    'embedding': pxt.Array[(768,), pxt.Float],
+    
+    # Variable first dimension (batch of 512-dim vectors)
+    'features': pxt.Array[(None, 512), pxt.Float],
+    
+    # 3D tensor with flexible dimensions
+    'tensor': pxt.Array[(None, None, 3), pxt.Float]
+})
+```
+
+<Note>
+Array shapes follow NumPy conventions. Use `None` for unconstrained dimensions:
+- `(512,)` — fixed 512-element vector
+- `(None, 768)` — variable-length sequence of 768-dim vectors
+- `(64, 64, 3)` — fixed 64×64×3 tensor
+</Note>
+
+### Working with arrays
+
+```python
+# Arrays can be sliced like NumPy arrays
+t.select(
+    t.embedding[0],      # First element
+    t.embedding[5:10],   # Slice
+    t.embedding[-3:]     # Last 3 elements
+).collect()
+```
+
+## JSON type
+
+The `Json` type stores flexible structured data—dictionaries, lists, or primitives.
+
+```python
+logs = pxt.create_table('example.logs', {
+    'event': pxt.Json
+})
+
+logs.insert([
+    {'event': {'type': 'click', 'x': 100, 'y': 200}},
+    {'event': {'type': 'scroll', 'delta': 50}},
+    {'event': ['tag1', 'tag2', 'tag3']}
+])
+```
+
+### JSON path access
+
+Access nested data using dictionary or attribute syntax:
+
+```python
+# Dictionary syntax
+t.select(t.event['type']).collect()
+
+# Attribute syntax (JSONPath)
+t.select(t.event.type).collect()
+
+# List indexing
+t.select(t.event.tags[0]).collect()
+
+# Slicing
+t.select(t.event.tags[:2]).collect()
+```
+
+<Tip>
+Pixeltable handles missing keys gracefully—you'll get `None` instead of an exception.
+</Tip>
+
+### JSON schema validation
+
+Validate JSON columns against a schema to ensure data integrity:
+
+```python
+# Define a JSON schema
+movie_schema = {
+    'type': 'object',
+    'properties': {
+        'title': {'type': 'string'},
+        'year': {'type': 'integer'},
+        'rating': {'type': 'number'}
+    },
+    'required': ['title', 'year']
+}
+
+# Create table with validated JSON column
+movies = pxt.create_table('example.validated_movies', {
+    'data': pxt.Json[movie_schema]
+})
+
+# Valid insert
+movies.insert(data={'title': 'Inception', 'year': 2010, 'rating': 8.8})
+
+# Invalid insert raises error (missing required 'year')
+# movies.insert(data={'title': 'Movie'})  # Error!
+```
+
+### Using Pydantic models
+
+```python
+from pydantic import BaseModel
+
+class Movie(BaseModel):
+    title: str
+    year: int
+    rating: float | None = None
+
+# Use the model's JSON schema for validation
+movies = pxt.create_table('example.pydantic_movies', {
+    'data': pxt.Json[Movie.model_json_schema()]
+})
+```
+
+## Type conversion
+
+Use `astype()` to convert between compatible types:
+
+```python
+# Cast float to integer
+table.select(int_score=table.score.astype(pxt.Int)).collect()
+
+# Cast integer to string
+table.select(str_count=table.count.astype(pxt.String)).collect()
+
+# Cast JSON to String (if the value is actually a string)
+table.select(text=table.json_col.astype(pxt.String)).collect()
+```
+
+<Warning>
+Type conversion assumes the underlying value is compatible. Converting a dict to a string will raise an exception.
+</Warning>
+
+## Column properties
+
+### Media column properties
+
+Media columns (`Image`, `Video`, `Audio`, `Document`) have special properties:
+
+```python
+# Local file path (Pixeltable ensures this is on local filesystem)
+t.select(t.image.localpath).collect()
+
+# Original URL where the media resides
+t.select(t.image.fileurl).collect()
+```
+
+### Error properties
+
+Computed columns have `errortype` and `errormsg` properties for debugging:
+
+```python
+# Create a computed column that might fail
+t.add_computed_column(
+    result=some_function(t.input),
+    on_error='ignore'  # Continue on errors
+)
+
+# Query error information for failed rows
+t.where(t.result == None).select(
+    t.input,
+    t.result.errortype,   # Exception class name
+    t.result.errormsg     # Error message
+).collect()
+```
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Use Specific Types" icon="bullseye">
+    Prefer `pxt.Image[(224,224), 'RGB']` over `pxt.Image` when you know the constraints. This enables optimizations and catches errors early.
+  </Card>
+  
+  <Card title="Validate JSON" icon="shield-check">
+    Use JSON schema validation or Pydantic models for structured data to ensure consistency across your pipeline.
+  </Card>
+  
+  <Card title="Specify Array Shapes" icon="vector-square">
+    Always specify array shapes and dtypes. Use `None` for variable dimensions: `pxt.Array[(None, 768), pxt.Float]`.
+  </Card>
+  
+  <Card title="Handle Errors Gracefully" icon="triangle-exclamation">
+    Use `on_error='ignore'` in production pipelines, then query `.errortype` and `.errormsg` to debug failures.
+  </Card>
+</CardGroup>
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Tables & Data Operations" icon="table" href="/tutorials/tables-and-data-operations">
+    Creating and managing tables
+  </Card>
+  <Card title="Computed Columns" icon="calculator" href="/tutorials/computed-columns">
+    Transform data with computed columns
+  </Card>
+  <Card title="SDK Reference" icon="book" href="/sdk/latest">
+    Complete type reference
+  </Card>
+</CardGroup>
+

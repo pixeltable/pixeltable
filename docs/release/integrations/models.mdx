@@ -4,7 +4,7 @@ description: 'Explore pre-trained models and integrations available in Pixeltabl
 icon: 'cube'
 ---
 
-## Model Hubs
+## Model hubs
 
 <CardGroup cols={2}>
   <Card
@@ -24,7 +24,7 @@ icon: 'cube'
   </Card>
 </CardGroup>
 
-## Hugging Face Models
+## Hugging Face models
 
 Pixeltable provides seamless integration with Hugging Face's transformers library through built-in UDFs. These functions allow you to use state-of-the-art models directly in your data workflows.
 
@@ -32,7 +32,7 @@ Pixeltable provides seamless integration with Hugging Face's transformers librar
 Requirements: Install required dependencies with `pip install transformers`. Some models may require additional packages like `sentence-transformers` or `torch`.
 </Note>
 
-### CLIP Models
+### CLIP models
 ```python
 from pixeltable.functions.huggingface import clip
 
@@ -54,7 +54,7 @@ t.add_computed_column(
 ```
 Perfect for multimodal applications combining text and image understanding.
 
-### Cross-Encoders
+### Cross-encoders
 ```python
 from pixeltable.functions.huggingface import cross_encoder
 
@@ -68,7 +68,7 @@ t.add_computed_column(
 ```
 Ideal for semantic similarity tasks and sentence pair classification.
 
-### DETR Object Detection
+### DETR object detection
 ```python
 from pixeltable.functions.huggingface import detr_for_object_detection
 
@@ -87,7 +87,7 @@ t.add_computed_column(
 ```
 Powerful object detection with end-to-end transformer architecture.
 
-### Sentence Transformers
+### Sentence transformers
 ```python
 from pixeltable.functions.huggingface import sentence_transformer
 
@@ -101,7 +101,7 @@ t.add_computed_column(
 ```
 State-of-the-art sentence and document embeddings for semantic search and similarity.
 
-### Speech2Text Models
+### Speech2Text models
 ```python
 from pixeltable.functions.huggingface import speech2text_for_conditional_generation
 
@@ -138,7 +138,7 @@ t.add_computed_column(
 ```
 Modern image classification using transformer architecture.
 
-## Integration Features
+## Integration features
 
 <AccordionGroup>
   <Accordion title="Computed Columns">
@@ -187,7 +187,7 @@ Modern image classification using transformer architecture.
   </Accordion>
 </AccordionGroup>
 
-## Model Selection Guide
+## Model selection guide
 
 <Steps>
   <Step title="Choose Task">

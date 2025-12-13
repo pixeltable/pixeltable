@@ -386,7 +386,7 @@ class TestPackager:
         t = pxt.create_table('base_tbl', {'video': pxt.Video})
         t.insert({'video': video} for video in get_video_files()[:2])
 
-        v = pxt.create_view('frames_view', t, iterator=pxt.iterators.FrameIterator.create(video=t.video, fps=1))
+        v = pxt.create_view('frames_view', t, iterator=pxt.functions.video.frame_iterator(t.video, fps=1))
         # Add a stored computed column that will generate a bunch of media files in the view.
         v.add_computed_column(rot_frame=v.frame.rotate(180))
         snapshot = pxt.create_snapshot('snapshot', v)

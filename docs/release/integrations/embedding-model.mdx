@@ -6,7 +6,7 @@ icon: 'brain'
 
 Pixeltable provides extensive built-in support for popular embedding models, but you can also easily integrate your own custom embedding models. This guide shows you how to create and use custom embedding functions for any model architecture.
 
-## Quick Start
+## Quick start
 
 Here's a simple example using a custom BERT model:
 
@@ -30,13 +30,13 @@ docs = pxt.create_table('documents', {'text': pxt.String})
 docs.add_embedding_index('text', string_embed=custom_bert_embed)
 ```
 
-## Production Best Practices 
+## Production best practices 
 
 <Note>
 The quick start example works but isn't production-ready. Below we'll cover how to optimize your custom embedding UDFs.
 </Note>
 
-### Model Caching
+### Model caching
 
 Always cache your model instances to avoid reloading on every call:
 
@@ -60,7 +60,7 @@ def optimized_bert_embed(text: str) -> pxt.Array[(512,), pxt.Float]:
     return result.numpy()[0, :]
 ```
 
-### Batch Processing
+### Batch processing
 
 Use Pixeltable's batching capabilities for better performance:
 
@@ -86,7 +86,7 @@ def batched_bert_embed(texts: Batch[str]) -> Batch[pxt.Array[(512,), pxt.Float]]
     return [r for r in results.numpy()]
 ```
 
-## Error Handling
+## Error handling
 
 Always implement proper error handling in production UDFs:
 
@@ -114,7 +114,7 @@ def robust_bert_embed(text: str) -> pxt.Array[(512,), pxt.Float]:
         raise
 ```
 
-## Additional Resources
+## Additional resources
 
 <CardGroup cols={3}>
   <Card title="UDF Guide" icon="book" href="/platform/custom-functions">
