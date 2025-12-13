@@ -60,7 +60,7 @@ Iterators are powerful tools for processing large media files. They work seamles
 ## Available iterators
 
 <Tabs>
-  <Tab title="DocumentSplitter">
+  <Tab title="document_splitter">
     ```python
     from pixeltable.functions.document import document_splitter
 
@@ -84,9 +84,9 @@ Iterators are powerful tools for processing large media files. They work seamles
     - `overlap`: Optional overlap between chunks
   </Tab>
 
-  <Tab title="FrameIterator">
+  <Tab title="frame_iterator">
     ```python
-    from pixeltable.iterators import FrameIterator
+    from pixeltable.functions.video import frame_iterator
 
     # Extract frames at 1 FPS
     frames_view = pxt.create_view(
@@ -126,9 +126,9 @@ Iterators are powerful tools for processing large media files. They work seamles
     - Only one of `fps`, `num_frames`, or `keyframes_only` can be specified
   </Tab>
 
-  <Tab title="TileIterator">
+  <Tab title="tile_iterator">
     ```python
-    from pixeltable.iterators import TileIterator
+    from pixeltable.functions.image import tile_iterator
 
     # Create tiles with overlap
     tiles_view = pxt.create_view(
@@ -147,9 +147,9 @@ Iterators are powerful tools for processing large media files. They work seamles
     - `overlap`: Optional tuple for overlap between tiles
   </Tab>
 
-  <Tab title="AudioSplitter">
+  <Tab title="audio_splitter">
     ```python
-    from pixeltable.iterators import AudioSplitter
+    from pixeltable.functions.audio import audio_splitter
 
     # Split audio into chunks
     chunks_view = pxt.create_view(
@@ -319,7 +319,7 @@ Iterators are powerful tools for processing large media files. They work seamles
 ## Tips & tricks
 
 <Warning>
-When using `token_limit` with DocumentSplitter, ensure the limit accounts for any model context windows in your pipeline.
+When using `token_limit` with `document_splitter`, ensure the limit accounts for any model context windows in your pipeline.
 </Warning>
 
 ## Additional resources

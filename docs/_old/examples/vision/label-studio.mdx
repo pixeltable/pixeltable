@@ -25,7 +25,7 @@ This integration requires a local Pixeltable installation and cannot be run in C
     Create `table.py`:
     ```python
     import pixeltable as pxt
-    from pixeltable.iterators import FrameIterator
+    from pixeltable.functions.video import frame_iterator
     from pixeltable.functions.huggingface import detr_for_object_detection, detr_to_coco
     from datetime import datetime
 
