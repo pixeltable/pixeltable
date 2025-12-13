@@ -6,7 +6,7 @@ icon: 'cloud'
 
 Pixeltable supports storing media files (images, videos, audio, documents) in external cloud storage providers instead of local disk. This is essential for production deployments, enabling scalable storage, team collaboration, and integration with existing data infrastructure.
 
-## Supported Providers
+## Supported providers
 
 <CardGroup cols={3}>
   <Card title="Amazon S3" icon="aws">
@@ -29,7 +29,7 @@ Pixeltable supports storing media files (images, videos, audio, documents) in ex
   </Card>
 </CardGroup>
 
-## How It Works
+## How it works
 
 When you configure a storage destination, Pixeltable automatically:
 
@@ -42,7 +42,7 @@ When you configure a storage destination, Pixeltable automatically:
 
 There are two ways to configure cloud storage destinations:
 
-### Global Default Destinations
+### Global default destinations
 
 Set default destinations for all media columns in your `config.toml` (see [Configuration](/platform/configuration) for details):
 
@@ -66,7 +66,7 @@ export PIXELTABLE_OUTPUT_MEDIA_DEST="s3://my-bucket/output/"
 Configure these before creating tables. All media columns will automatically use the configured destinations.
 </Tip>
 
-### Per-Column Destination (Computed Columns Only)
+### Per-column destination (computed columns only)
 
 For **computed columns**, you can override the default with a specific destination:
 
@@ -88,14 +88,14 @@ t.add_computed_column(
 The `destination` parameter only applies to **stored computed columns**. For input columns, use the global `input_media_dest` configuration.
 </Note>
 
-### Precedence Rules
+### Precedence rules
 
 Destinations are resolved in this order:
 1. **Explicit column destination** — highest priority (computed columns only)
 2. **Global default** — `input_media_dest` for input columns, `output_media_dest` for computed columns
 3. **Local storage** — fallback if no destination is configured
 
-## Provider Configuration
+## Provider configuration
 
 ### Amazon S3
 
@@ -317,7 +317,7 @@ Destinations are resolved in this order:
   </Tab>
 </Tabs>
 
-## Complete Example
+## Complete example
 
 Here's a full example using S3 for both input and computed media.
 
@@ -366,7 +366,7 @@ t.insert([
 t.select(t.photo, t.thumbnail, t.description).collect()
 ```
 
-## Best Practices
+## Best practices
 
 <AccordionGroup>
   <Accordion title="Use prefixes to organize data">

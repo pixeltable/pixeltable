@@ -1,14 +1,13 @@
 import dataclasses
 import enum
-import io
 import logging
 from typing import Any, ClassVar, Iterable, Iterator, Literal
 
-import fitz  # type: ignore[import-untyped]
 import ftfy
 import PIL.Image
 from bs4.element import NavigableString, Tag
 from deprecated import deprecated
+from pypdfium2 import PdfDocument  # type: ignore[import-untyped]
 
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
@@ -400,12 +399,16 @@ class DocumentSplitter(ComponentIterator):
         yield from emit()
 
     def _pdf_sections(self) -> Iterator[DocumentSection]:
-        doc: fitz.Document = self._doc_handle.pdf_doc
-        assert doc is not None
+        if Separator.PARAGRAPH in self._separators:
+            raise Error(
+                'Paragraph splitting is not currently supported for PDF documents. Please contact'
+                ' us at https://github.com/pixeltable/pixeltable/issues if you need this feature.'
+            )
 
-        emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
-        emit_on_page = Separator.PAGE in self._separators or emit_on_paragraph
+        doc: PdfDocument = self._doc_handle.pdf_doc
+        assert isinstance(doc, PdfDocument)
 
+        emit_on_page = Separator.PAGE in self._separators
         accumulated_text: list[str] = []
 
         def _add_cleaned(raw: str) -> None:
@@ -418,21 +421,11 @@ class DocumentSplitter(ComponentIterator):
             accumulated_text.clear()
             return txt
 
-        for page_idx, page in enumerate(doc.pages()):
-            img: PIL.Image.Image | None = None
-            if Element.IMAGE in self._elements:
-                pix = page.get_pixmap(dpi=self._image_dpi)
-                img = PIL.Image.open(io.BytesIO(pix.tobytes(self._image_format)))
-
-            for block in page.get_text('blocks'):
-                x1, y1, x2, y2, text, *_ = block
-                _add_cleaned(text)
-                if accumulated_text and emit_on_paragraph:
-                    bbox = {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2}
-                    md = DocumentSectionMetadata(page=page_idx, bounding_box=bbox)
-                    yield DocumentSection(text=_emit_text(), metadata=md)
-
-            if accumulated_text and emit_on_page and not emit_on_paragraph:
+        for page_idx, page in enumerate(doc):
+            img = page.render().to_pil() if Element.IMAGE in self._elements else None
+            text = page.get_textpage().get_text_range()
+            _add_cleaned(text)
+            if accumulated_text and emit_on_page:
                 md = DocumentSectionMetadata(page=page_idx)
                 yield DocumentSection(text=_emit_text(), image=img, metadata=md)
 

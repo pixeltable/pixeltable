@@ -3,7 +3,7 @@ title: 'Configuration'
 description: 'Complete guide to configuring Pixeltable'
 ---
 
-## Configuration Options
+## Configuration options
 
 Pixeltable can be configured through:
 - Environment variables
@@ -32,7 +32,7 @@ url = 'http://localhost:8080/'
 api_key = 'my-label-studio-api-key'
 ```
 
-## System Settings
+## System settings
 
 | Environment Variable | Config File | Meaning |
 | -------------------- | ----------- | ------- |
@@ -52,7 +52,7 @@ api_key = 'my-label-studio-api-key'
 | PIXELTABLE_B2_PROFILE | [pixeltable]<br/>b2_profile | (string) Name of an S3-compatible profile for accessing Backblaze B2. Defaults to the standard AWS credential chain if not set. |
 | PIXELTABLE_TIGRIS_PROFILE | [pixeltable]<br/>tigris_profile | (string) Name of an S3-compatible profile for accessing Tigris. Defaults to the standard AWS credential chain if not set. |
 
-## API Configuration
+## API configuration
 
 | Environment Variable | Config File | Meaning |
 | -------------------- | ----------- | ------- |
@@ -81,12 +81,12 @@ api_key = 'my-label-studio-api-key'
 | TWELVELABS_API_KEY | [twelvelabs]<br/>api_key | (string) API key to use for TwelveLabs services |
 | VOYAGE_API_KEY | [voyage]<br/>api_key | (string) API key to use for Voyage AI services |
 
-## Rate Limit Configuration
+## Rate limit configuration
 
 Pixeltable supports two patterns for configuring API rate limits in `config.toml`. Refer to the docstring of the
 relevant udf in the [SDK Reference](/sdk/latest) for details on the rate limiting pattern used by that udf.
 
-### Single Rate Limit per Provider
+### Single rate limit per provider
 
 For providers with a single rate limit across all models, add a `rate_limit` key to the provider's config section:
 
@@ -100,7 +100,7 @@ api_key = 'my-fireworks-api-key'
 rate_limit = 300
 ```
 
-### Per-Model Rate Limits
+### Per-model rate limits
 
 For providers that support different rate limits for different models, add a `<provider>.rate_limits` section and list the rate limits for each model:
 
@@ -121,9 +121,9 @@ gemini-pro-vision = 300
 
 If no rate limit is configured, Pixeltable uses a default of 600 requests per minute.
 
-## Configuration Best Practices
+## Configuration best practices
 
-### Security Considerations
+### Security considerations
 
 When configuring API keys and sensitive information:
 
@@ -132,13 +132,13 @@ When configuring API keys and sensitive information:
 - Use the config file for persistent configuration
 - Ensure your config.toml file has appropriate permissions (readable only by you)
 
-### Performance Tuning
+### Performance tuning
 
 - Adjust `file_cache_size_g` based on your available system memory
 - For large datasets, increase the cache size to improve performance
 - Set appropriate verbosity level based on your debugging needs
 
-## Applying Configuration Changes
+## Applying configuration changes
 
 Configuration changes take effect when you restart your Python session.
 
