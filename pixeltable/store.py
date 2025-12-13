@@ -349,7 +349,7 @@ class StoreBase:
             with exec_plan:
                 progress_reporter = (
                     exec_plan.ctx.add_progress_reporter(
-                        desc=f'Column values written (table {self.tbl_version.get().name!r})', unit='rows'
+                        f'Column values written (table {self.tbl_version.get().name!r})', 'rows'
                     )
                     if exec_plan.ctx.show_progress
                     else None
@@ -371,14 +371,12 @@ class StoreBase:
                     table_rows.extend(batch_table_rows)
 
                     if len(table_rows) >= self.__INSERT_BATCH_SIZE:
-                        start_ts = time.monotonic()
                         self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
                         if progress_reporter is not None:
                             progress_reporter.update(len(table_rows))
                         table_rows.clear()
 
                 if len(table_rows) > 0:
-                    start_ts = time.monotonic()
                     self.sql_insert(tmp_tbl, tmp_col_names, table_rows)
                     if progress_reporter is not None:
                         progress_reporter.update(len(table_rows))
@@ -423,9 +421,7 @@ class StoreBase:
 
         with exec_plan:
             progress_reporter = (
-                exec_plan.ctx.add_progress_reporter(
-                    desc=f'Rows written (table {self.tbl_version.get().name!r})', unit='rows'
-                )
+                exec_plan.ctx.add_progress_reporter(f'Rows written (table {self.tbl_version.get().name!r})', 'rows')
                 if exec_plan.ctx.show_progress
                 else None
             )
@@ -453,7 +449,6 @@ class StoreBase:
 
                 # if a batch is ready for insertion into the database, insert it
                 if len(table_rows) >= self.__INSERT_BATCH_SIZE:
-                    start_ts = time.monotonic()
                     self.sql_insert(self.sa_tbl, store_col_names, table_rows)
                     if progress_reporter is not None:
                         progress_reporter.update(len(table_rows))
@@ -461,7 +456,6 @@ class StoreBase:
 
             # insert any remaining rows
             if len(table_rows) > 0:
-                start_ts = time.monotonic()
                 self.sql_insert(self.sa_tbl, store_col_names, table_rows)
                 if progress_reporter is not None:
                     progress_reporter.update(len(table_rows))

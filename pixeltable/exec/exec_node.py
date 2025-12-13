@@ -86,8 +86,6 @@ class ExecNode(abc.ABC):
         self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
     ) -> None:
         self._close_aux()
-        if self.ctx.show_progress:
-            self.ctx.stop_progress()
 
     def _close_aux(self) -> None:
         """Call _close() top-down"""

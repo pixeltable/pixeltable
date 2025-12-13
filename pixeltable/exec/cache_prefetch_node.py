@@ -41,8 +41,7 @@ class CachePrefetchNode(ExecNode):
 
     # execution state
     num_returned_rows: int
-    downloaded_objects_reporter: ProgressReporter | None
-    downloaded_bytes_reporter: ProgressReporter | None
+    progress_reporter: ProgressReporter | None
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
     # the implied row idx of ready_rows[0] is num_returned_rows
@@ -69,8 +68,7 @@ class CachePrefetchNode(ExecNode):
         self.file_col_info = file_col_info
 
         self.num_returned_rows = 0
-        self.downloaded_objects_reporter = None
-        self.downloaded_bytes_reporter = None
+        self.progress_reporter = None
         self.ready_rows = deque()
         self.in_flight_rows = {}
         self.in_flight_requests = {}
@@ -85,8 +83,7 @@ class CachePrefetchNode(ExecNode):
 
     def _open(self) -> None:
         if self.ctx.show_progress:
-            self.downloaded_objects_reporter = self.ctx.add_progress_reporter('Downloads', 'objects')
-            self.downloaded_bytes_reporter = self.ctx.add_progress_reporter('Downloads', 'B')
+            self.progress_reporter = self.ctx.add_progress_reporter('Downloads', 'objects', 'B')
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
         """Get the next batch of input rows, or None if there are no more rows"""
@@ -182,8 +179,7 @@ class CachePrefetchNode(ExecNode):
                     self.__add_ready_row(row, state.idx)
 
         if self.ctx.show_progress:
-            self.downloaded_objects_reporter.update(num_objects)
-            self.downloaded_bytes_reporter.update(num_bytes)
+            self.progress_reporter.update(num_objects, num_bytes)
 
     def __process_input_batch(self, input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None:
         """Process a batch of input rows, submitting URLs for download and adding ready rows to ready_rows"""

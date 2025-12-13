@@ -76,8 +76,7 @@ class ObjectStoreSaveNode(ExecNode):
     row_idx: Iterator[int | None]
 
     # progress reporting
-    uploaded_objects_reporter: ProgressReporter | None
-    uploaded_bytes_reporter: ProgressReporter | None
+    progress_reporter: ProgressReporter | None
 
     @dataclasses.dataclass
     class RowState:
@@ -99,8 +98,7 @@ class ObjectStoreSaveNode(ExecNode):
         self.in_flight_work = {}
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
-        self.uploaded_objects_reporter = None
-        self.uploaded_bytes_reporter = None
+        self.progress_reporter = None
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
 
     @property
@@ -109,8 +107,7 @@ class ObjectStoreSaveNode(ExecNode):
 
     def _open(self) -> None:
         if self.ctx.show_progress:
-            self.uploaded_objects_reporter = self.ctx.add_progress_reporter('Uploads', 'objects')
-            self.uploaded_bytes_reporter = self.ctx.add_progress_reporter('Uploads', 'B')
+            self.progress_reporter = self.ctx.add_progress_reporter('Uploads', 'objects', 'B')
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
         """Get the next batch of input rows, or None if there are no more rows"""
@@ -205,8 +202,7 @@ class ObjectStoreSaveNode(ExecNode):
                     self.__add_ready_row(row, state.idx)
 
         if self.ctx.show_progress:
-            self.uploaded_objects_reporter.update(num_objects)
-            self.uploaded_bytes_reporter.update(num_bytes)
+            self.progress_reporter.update(num_objects, num_bytes)
 
     def __process_input_row(self, row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]:
         """Process a batch of input rows, generating a list of work"""
