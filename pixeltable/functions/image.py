@@ -10,7 +10,7 @@ t.select(t.img_col.convert('L')).collect()
 ```
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 import PIL.Image
 
@@ -447,6 +447,26 @@ def mode(self: PIL.Image.Image) -> str:
     Return the image mode.
     """
     return self.mode
+
+
+def tile_iterator(
+    image: Any, tile_size: tuple[int, int], *, overlap: tuple[int, int] = (0, 0)
+) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
+    """
+    Iterator over tiles of an image. Each image will be divided into tiles of size `tile_size`, and the tiles will be
+    iterated over in row-major order (left-to-right, then top-to-bottom). An optional `overlap` parameter may be
+    specified. If the tiles do not exactly cover the image, then the rightmost and bottommost tiles will be padded with
+    blackspace, so that the output images all have the exact size `tile_size`.
+
+    Args:
+        image: Image to split into tiles.
+        tile_size: Size of each tile, as a pair of integers `[width, height]`.
+        overlap: Amount of overlap between adjacent tiles, as a pair of integers `[width, height]`.
+    """
+    kwargs: dict[str, Any] = {}
+    if overlap != (0, 0):
+        kwargs['overlap'] = overlap
+    return pxt.iterators.image.TileIterator._create(image=image, tile_size=tile_size, **kwargs)
 
 
 __all__ = local_public_names(__name__)
