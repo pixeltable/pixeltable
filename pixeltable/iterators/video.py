@@ -10,6 +10,7 @@ import av
 import pandas as pd
 import PIL.Image
 from av.container import InputContainer
+from deprecated import deprecated
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
@@ -283,6 +284,11 @@ class FrameIterator(ComponentIterator):
             self.cur_frame = self.next_frame()
         assert self.cur_frame is None or abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
 
+    @classmethod
+    @deprecated('create() is deprecated; use `pixeltable.functions.video.frame_iterator` instead', version='0.5.6')
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return super()._create(**kwargs)
+
 
 class VideoSplitter(ComponentIterator):
     """
@@ -423,7 +429,7 @@ class VideoSplitter(ComponentIterator):
         segment_times = params.get('segment_times')
         overlap = params.get('overlap')
         min_segment_duration = params.get('min_segment_duration')
-        mode = params.get('mode', 'fast')
+        mode = params.get('mode', 'accurate')
         video_encoder = params.get('video_encoder')
         video_encoder_args = params.get('video_encoder_args')
         cls._check_args(
@@ -576,3 +582,8 @@ class VideoSplitter(ComponentIterator):
 
     def close(self) -> None:
         pass
+
+    @classmethod
+    @deprecated('create() is deprecated; use `pixeltable.functions.video.video_splitter` instead', version='0.5.6')
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return super()._create(**kwargs)

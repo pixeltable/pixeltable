@@ -157,7 +157,7 @@ def export_images_as_fo_dataset(
 
     Images in the dataset that already exist on disk will be exported directly, in whatever format they
     are stored in. Images that are not already on disk (such as frames extracted using a
-    [`FrameIterator`][pixeltable.iterators.FrameIterator]) will first be written to disk in the specified
+    [`frame_iterator`][pixeltable.functions.video.frame_iterator]) will first be written to disk in the specified
     `image_format`.
 
     The label parameters accept one or more sets of labels of each type. If a single `Expr` is provided, then it will

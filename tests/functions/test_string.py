@@ -34,6 +34,7 @@ from pixeltable.functions.string import (
     rjust,
     rstrip,
     startswith,
+    string_splitter,
     strip,
     swapcase,
     title,
@@ -331,9 +332,7 @@ class TestString:
         skip_test_if_not_installed('spacy')
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert([{'s': self.TEST_STR}]), expected_rows=1)
-        v = pxt.create_view(
-            'test_view', t, iterator=pxt.iterators.StringSplitter.create(text=t.s, separators='sentence')
-        )
+        v = pxt.create_view('test_view', t, iterator=string_splitter(t.s, 'sentence'))
         results = v.select(v.text).collect()
         # Verify we got multiple sentences from the TEST_STR
         assert len(results) > 1

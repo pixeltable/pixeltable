@@ -374,7 +374,7 @@ class TestLabelStudio:
         t = ls_video_table
         t.delete(where=(t.id != 0))  # Save just the first video
         v = pxt.create_view(
-            'frames_view', t, iterator=pxt.iterators.FrameIterator.create(video=ls_video_table.video_col, fps=0.5)
+            'frames_view', t, iterator=pxt.functions.video.frame_iterator(ls_video_table.video_col, fps=0.5)
         )
         assert not v.frame.col.is_stored
         assert v.count() == 10
