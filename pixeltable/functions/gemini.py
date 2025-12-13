@@ -273,7 +273,7 @@ async def generate_embedding(
         config: Configuration for embedding generation, corresponding to keyword arguments of
             `genai.types.EmbedContentConfig`. For details on the parameters, see:
             <https://googleapis.github.io/python-genai/genai.html#genai.types.EmbedContentConfig>
-        use_batch_api: If True, use Gemini's Batch API (https://ai.google.dev/gemini-api/docs/batch-api) that provides
+        use_batch_api: If True, use [Gemini's Batch API](https://ai.google.dev/gemini-api/docs/batch-api) that provides
             a higher throughput at a lower cost at the expense of higher latency.
 
     Returns:
