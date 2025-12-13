@@ -63,7 +63,7 @@ class ExecContext:
             unit: str
             if self.total < 2**10:
                 scale = 0
-                unit = 'B'
+                unit = 'B '
             elif self.total < 2**20:
                 scale = 10
                 unit = 'KB'
@@ -105,13 +105,13 @@ class ExecContext:
                 return
             self._create_task()
             # show aggregate rate since start
-            elapsed = time.monotonic() - self.ctx.progress_start
-            rate = self.total / elapsed if elapsed > 0 else 0.0
+            #elapsed = time.monotonic() - self.ctx.progress_start
+            #rate = self.total / elapsed if elapsed > 0 else 0.0
             total = self.total
             unit = self.unit
             if self.reports_bytes:
                 scale, unit = self._get_display_unit()
-                rate /= 2**scale
+                #rate /= 2**scale
                 total /= 2**scale
             self.ctx.progress.update(self.task_id, completed=total, unit=unit, rate=f'{rate:.2f} {unit}/s')
 
@@ -168,21 +168,22 @@ class ExecContext:
             return
 
         self.progress.stop()
+        self.progress.console.clear()
         # for some reason, the progress bar is not cleared automatically in jupyter
-        if getattr(builtins, '__IPYTHON__', False):
-            from IPython.display import clear_output
-
-            clear_output(wait=True)
+        # if getattr(builtins, '__IPYTHON__', False):
+        #     from IPython.display import clear_output
+        #
+        #     clear_output(wait=True)
 
         # report the total throughput of the last stage
-        last_reporter = next(reversed(self.progress_reporters.values()))
-        last_total = last_reporter.total
-        elapsed = time.monotonic() - self.progress_start
-        self.progress.console.print(
-            f'{_print_number(last_total)} {last_reporter.unit} in {elapsed:.2f}s '
-            f'({last_total / elapsed:.2f}{last_reporter.unit}/s)'
-        )
-
+        # last_reporter = next(reversed(self.progress_reporters.values()))
+        # last_total = last_reporter.total
+        # elapsed = time.monotonic() - self.progress_start
+        # self.progress.console.print(
+        #     f'{_print_number(last_total)} {last_reporter.unit} in {elapsed:.2f}s '
+        #     f'({last_total / elapsed:.2f}{last_reporter.unit}/s)'
+        # )
+        #
 
 def _print_number(val: float | int) -> str:
     if isinstance(val, int):
