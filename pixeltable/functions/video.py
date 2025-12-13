@@ -9,7 +9,7 @@ import subprocess
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn
 
 import av
-import av.stream
+import av.container
 import numpy as np
 import PIL.Image
 
@@ -28,58 +28,34 @@ _logger = logging.getLogger('pixeltable')
 @pxt.uda(requires_order_by=True)
 class make_video(pxt.Aggregator):
     """
-    Aggregator that creates a video from a sequence of images, using the default video encoder and yuv420p pixel format.
-
-    Follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video
-
-    TODO: provide parameters for video_encoder and pix_fmt
+    Aggregate function that creates a video from a sequence of images, using the default video encoder and
+    yuv420p pixel format.
 
     Args:
         fps: Frames per second for the output video.
 
     Returns:
-
-    - The created video.
+        The video obtained by combining the input frames at the specified `fps`.
 
     Examples:
-        Create a video from frames extracted using `FrameIterator`:
+        Combine the images in the `img` column of the table `tbl` into a video:
 
-        >>> import pixeltable as pxt
-        >>> from pixeltable.functions.video import make_video
-        >>> from pixeltable.iterators import FrameIterator
-        >>>
-        >>> # Create base table for videos
-        >>> videos_table = pxt.create_table('videos', {'video': pxt.Video})
-        >>>
-        >>> # Create view to extract frames
-        >>> frames_view = pxt.create_view(
-        ...     'video_frames',
-        ...     videos_table,
-        ...     iterator=FrameIterator.create(video=videos_table.video, fps=1)
-        ... )
-        >>>
-        >>> # Reconstruct video from frames
-        >>> frames_view.group_by(videos_table).select(
-        ...     make_video(frames_view.pos, frames_view.frame)
-        ... ).show()
+        >>> tbl.select(make_video(tbl.img, fps=30)).collect()
 
-        Apply transformations to frames before creating a video:
+        Combine a sequence of rotated images into a video:
 
-        >>> # Create video from transformed frames
-        >>> frames_view.group_by(videos_table).select(
-        ...     make_video(frames_view.pos, frames_view.frame.rotate(30))
-        ... ).show()
+        >>> tbl.select(make_video(tbl.img.rotate(45), fps=30)).collect()
 
-        Compare multiple processed versions side-by-side:
-
-        >>> frames_view.group_by(videos_table).select(
-        ...     make_video(frames_view.pos, frames_view.frame),
-        ...     make_video(frames_view.pos, frames_view.frame.rotate(30))
-        ... ).show()
+        For a more extensive example, see the
+        [Object Detection in Videos](https://docs.pixeltable.com/howto/cookbooks/video/object-detection-in-videos)
+        cookbook.
     """
+    # Based on: https://pyav.org/docs/develop/cookbook/numpy.html#generating-video
+
+    # TODO: provide parameters for video_encoder and pix_fmt
 
     container: av.container.OutputContainer | None
-    stream: av.video.stream.VideoStream | None
+    stream: av.VideoStream | None
     fps: int
 
     def __init__(self, fps: int = 25):
