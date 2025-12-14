@@ -802,6 +802,7 @@ class TableVersion:
             col.id = self.next_col_id()
 
         # we're creating a new schema version
+        start_ts = time.monotonic()
         self.bump_version(bump_schema_version=True)
         index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
@@ -824,9 +825,11 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
 
+        duration = time.monotonic() - start_ts
         msg = (
             f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
-            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}.'
+            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}'
+            f'in {duration:.2f}s ({status.num_rows / duration:.2f} rows/s)'
         )
         Env.get().console_logger.info(msg)
         _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
@@ -878,6 +881,7 @@ class TableVersion:
             # populate the column
             plan = Planner.create_add_column_plan(self.path, col)
             try:
+                plan.ctx.title = self.display_str()
                 excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
             except sql_exc.DBAPIError as exc:
                 Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
@@ -886,6 +890,8 @@ class TableVersion:
                 raise excs.Error(
                     f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
                 ) from exc
+            finally:
+                Env.get().stop_progress()
             if excs_per_col > 0:
                 cols_with_excs.append(col)
                 num_excs += excs_per_col
