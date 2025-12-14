@@ -8,7 +8,7 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
 
-@udf(is_method=True)
+@udf
 def presigned_url(uri: str, expiration_seconds: int) -> str:
     """
     Convert a blob storage URI to a presigned HTTP URL for direct access.
@@ -19,12 +19,13 @@ def presigned_url(uri: str, expiration_seconds: int) -> str:
     Note:
         This function uses presigned URLs from storage providers. Provider-specific
         limitations apply:
+
         - Google Cloud Storage: maximum 7-day expiration
         - AWS S3: requires proper region configuration
         - Azure: subject to storage account access policies
 
     Args:
-        uri: The media file URI (e.g., s3://bucket/path, gs://bucket/path, azure://container/path)
+        uri: The media file URI (e.g., `s3://bucket/path`, `gs://bucket/path`, `azure://container/path`)
         expiration_seconds: How long the URL remains valid
 
     Returns:
@@ -38,7 +39,7 @@ def presigned_url(uri: str, expiration_seconds: int) -> str:
 
         >>> tbl.select(
         ...     original_url=tbl.video.fileurl,
-        ...     presigned_url=tbl.video.fileurl.presigned_url(3600)
+        ...     presigned_url=pxtf.net.presigned_url(tbl.video.fileurl, 3600)
         ... ).collect()
     """
     if not uri:

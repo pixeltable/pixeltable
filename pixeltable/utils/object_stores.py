@@ -230,7 +230,7 @@ class ObjectPath:
                 storage_target = StorageTarget.B2_STORE
             elif 'windows' in parsed.netloc:
                 storage_target = StorageTarget.AZURE_STORE
-            elif 't3.storage.dev' in parsed.netloc or parsed.netloc == 't3.storage.dev':
+            elif 't3.storage.dev' in parsed.netloc:
                 storage_target = StorageTarget.TIGRIS_STORE
             else:
                 storage_target = StorageTarget.HTTP_STORE

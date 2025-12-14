@@ -9,6 +9,7 @@ import requests
 import pixeltable as pxt
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.functions.net import presigned_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
@@ -381,7 +382,7 @@ class TestDestination:
         expiration_seconds = 300
         r_dest_with_presigned = t.select(
             t.img.fileurl,
-            *[t[f'img_rot_{dest_id}'].fileurl.presigned_url(expiration_seconds) for dest_id in available_destinations],
+            *[presigned_url(t[f'img_rot_{dest_id}'].fileurl, expiration_seconds) for dest_id in available_destinations],
         ).collect()
 
         # Validate presigned URLs - same structure as first query in test_dest_all
