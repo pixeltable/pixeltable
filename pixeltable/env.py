@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import builtins
+import contextlib
 import datetime
 import glob
 import http.server
 import importlib
 import importlib.util
 import inspect
+import io
 import logging
 import math
 import os
@@ -956,8 +958,6 @@ class Env:
         dependency, we install it programmatically here. This should cause no problems, since the model packages
         have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
         """
-        import contextlib
-        import io
 
         import spacy
         from spacy.cli.download import download
@@ -966,6 +966,7 @@ class Env:
         self._logger.info(f'Ensuring spaCy model is installed: {spacy_model}')
 
         # prevent download() from hanging due to its progress bar, which conflicts with our use of Rich Progress
+        # TODO: get rid of spacy auto-download
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             download(spacy_model)
 

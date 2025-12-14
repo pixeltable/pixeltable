@@ -414,6 +414,7 @@ class TableVersion:
             view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
             try:
+                plan.ctx.title = self.display_str()
                 _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             finally:
                 Env.get().stop_progress()
@@ -1047,6 +1048,7 @@ class TableVersion:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.bump_version(timestamp, bump_schema_version=False)
+        exec_plan.ctx.title = self.display_str()
         cols_with_excs, row_counts = self.store_tbl.insert_rows(
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
@@ -1059,8 +1061,8 @@ class TableVersion:
         for view in self.mutable_views:
             from pixeltable.plan import Planner
 
-            plan2, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
-            status = view.get()._insert(plan2, timestamp, print_stats=print_stats)
+            view_plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
+            status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
         # Use the net status after all propagations
@@ -1638,6 +1640,9 @@ class TableVersion:
     def is_insertable(self) -> bool:
         """Returns True if this corresponds to an InsertableTable"""
         return self.is_mutable and not self.is_view
+
+    def display_str(self) -> str:
+        return f'{"Table" if self.is_insertable else "View"} {self.name!r}'
 
     def is_iterator_column(self, col: Column) -> bool:
         """Returns True if col is produced by an iterator"""

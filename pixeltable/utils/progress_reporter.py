@@ -17,9 +17,9 @@ def _print_number(val: float | int | None) -> str:
     if val < 1.0:
         return f'{val:.3f}'
     elif val < 10.0:
-        return f'{val:.2f}'
+        return f'{val:.2f} '  # trailing space for alignment
     elif val < 100.0:
-        return f'{val:.1f}'
+        return f'{val:.1f}  '  # trailing spaces for alignment
     else:
         return f'{round(val)}'
 
@@ -52,7 +52,7 @@ class ProgressReporter:
     def _create_task(self) -> None:
         if self.task_id is None:
             self.task_id = self.progress.add_task(
-                self.desc, total_1='', unit_1=self.unit_1, total_2='', unit_2=self.unit_2 if self.unit_2 else ''
+                f'| {self.desc}', total_1='', unit_1=self.unit_1, total_2='', unit_2=self.unit_2 if self.unit_2 else ''
             )
 
     def _scale_bytes(self, num_bytes: int) -> tuple[float, str]:

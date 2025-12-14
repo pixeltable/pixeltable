@@ -14,6 +14,7 @@ _logger = logging.getLogger('pixeltable')
 class ExecContext:
     """Class for execution runtime constants"""
 
+    title: str | None  # used in progress reporting
     row_builder: exprs.RowBuilder
     show_progress: bool
     progress: Progress | None
@@ -33,6 +34,7 @@ class ExecContext:
         pk_clause: list[sql.ClauseElement] | None = None,
         ignore_errors: bool = False,
     ):
+        self.title = None
         self.row_builder = row_builder
         self.show_progress = Env.get().verbosity >= 1 and Env.get().is_interactive()
         self.progress = None
@@ -67,7 +69,8 @@ class ExecContext:
                 TextColumn('{task.fields[total_2]}', justify='right', table_column=Column(min_width=10)),
                 TextColumn('{task.fields[unit_2]}', justify='left'),
                 transient=True,  # remove at end
-                #transient=False,  # Keep visible, clear manually at end
             )
 
         self.progress = Env.get().start_progress(create_progress)
+        if self.title is not None:
+            self.progress.add_task(f'{self.title}:', total_1='', unit_1='', total_2='', unit_2='')
