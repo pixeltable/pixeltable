@@ -12,7 +12,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.iterators import FrameIterator
+from pixeltable.functions.video import frame_iterator
 
 from .utils import (
     ReloadTester,
@@ -554,7 +554,7 @@ class TestQuery:
         # grouping_tbl
 
         t2 = pxt.create_table('test_tbl_2', {'name': ts.StringType(), 'video': ts.VideoType()})
-        v2 = pxt.create_view('test_view_2', t2, iterator=FrameIterator.create(video=t2.video, fps=1))
+        v2 = pxt.create_view('test_view_2', t2, iterator=frame_iterator(t2.video, fps=1))
         with pytest.raises(pxt.Error) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
         assert 'Cannot use `update` after `group_by`' in str(exc_info.value)
@@ -723,7 +723,7 @@ class TestQuery:
         from pixeltable.functions.yolox import yolo_to_coco, yolox
 
         base_t = pxt.create_table('videos', {'video': ts.VideoType()})
-        view_t = pxt.create_view('frames', base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
+        view_t = pxt.create_view('frames', base_t, iterator=frame_iterator(base_t.video, fps=1))
         view_t.add_computed_column(detections=yolox(view_t.frame, model_id='yolox_m'))
         base_t.insert(video=get_video_files()[0])
 
