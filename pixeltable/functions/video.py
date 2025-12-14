@@ -50,6 +50,7 @@ class make_video(pxt.Aggregator):
         [Object Detection in Videos](https://docs.pixeltable.com/howto/cookbooks/video/object-detection-in-videos)
         cookbook.
     """
+
     # Based on: https://pyav.org/docs/develop/cookbook/numpy.html#generating-video
 
     # TODO: provide parameters for video_encoder and pix_fmt

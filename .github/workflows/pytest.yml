@@ -220,7 +220,6 @@ jobs:
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: |
-          mkdocs build --strict
           # Install quarto and mintlify in order to build the docs
           conda install -y -c conda-forge quarto nodejs
           npm install -g @mintlify/cli
