@@ -4,7 +4,7 @@ description: 'Learn about iterators for processing documents, videos, audio, and
 icon: 'blank'
 ---
 
-## What are Iterators?
+## What are iterators?
 
 Iterators in Pixeltable are specialized tools for processing and transforming media content. They efficiently break down large files into manageable chunks, enabling analysis at different granularities. Iterators work seamlessly with views to create virtual derived tables without duplicating storage.
 
@@ -23,20 +23,20 @@ Iterators are particularly useful when:
 
 ```python
 import pixeltable as pxt
-from pixeltable.iterators import DocumentSplitter
+from pixeltable.functions.document import document_splitter
 
 # Create a view using an iterator
 chunks = pxt.create_view(
     'docs.chunks',
     documents_table,
-    iterator=DocumentSplitter.create(
+    iterator=document_splitter(
         document=documents_table.document,
         separators='paragraph'
     )
 )
 ```
 
-## Core Concepts
+## Core concepts
 
 <CardGroup cols={2}>
   <Card title="Document Splitting" icon="file-lines">
@@ -57,18 +57,18 @@ chunks = pxt.create_view(
 Iterators are powerful tools for processing large media files. They work seamlessly with Pixeltable's computed columns and versioning system.
 </Info>
 
-## Available Iterators
+## Available iterators
 
 <Tabs>
-  <Tab title="DocumentSplitter">
+  <Tab title="document_splitter">
     ```python
-    from pixeltable.iterators import DocumentSplitter
+    from pixeltable.functions.document import document_splitter
 
     # Create view with document chunks
     chunks_view = pxt.create_view(
         'docs.chunks',
         docs_table,
-        iterator=DocumentSplitter.create(
+        iterator=document_splitter(
             document=docs_table.document,
             separators='paragraph,token_limit',
             limit=500,
@@ -84,15 +84,15 @@ Iterators are powerful tools for processing large media files. They work seamles
     - `overlap`: Optional overlap between chunks
   </Tab>
 
-  <Tab title="FrameIterator">
+  <Tab title="frame_iterator">
     ```python
-    from pixeltable.iterators import FrameIterator
+    from pixeltable.functions.video import frame_iterator
 
     # Extract frames at 1 FPS
     frames_view = pxt.create_view(
         'videos.frames',
         videos_table,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=videos_table.video,
             fps=1.0
         )
@@ -102,7 +102,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     frames_view = pxt.create_view(
         'videos.sampled',
         videos_table,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=videos_table.video,
             num_frames=10  # Extract 10 evenly-spaced frames
         )
@@ -112,7 +112,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     keyframes_view = pxt.create_view(
         'videos.keyframes',
         videos_table,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=videos_table.video,
             keyframes_only=True
         )
@@ -126,15 +126,15 @@ Iterators are powerful tools for processing large media files. They work seamles
     - Only one of `fps`, `num_frames`, or `keyframes_only` can be specified
   </Tab>
 
-  <Tab title="TileIterator">
+  <Tab title="tile_iterator">
     ```python
-    from pixeltable.iterators import TileIterator
+    from pixeltable.functions.image import tile_iterator
 
     # Create tiles with overlap
     tiles_view = pxt.create_view(
         'images.tiles',
         images_table,
-        iterator=TileIterator.create(
+        iterator=tile_iterator(
             image=images_table.image,
             tile_size=(224, 224),  # Width, Height
             overlap=(32, 32)       # Horizontal, Vertical overlap
@@ -147,15 +147,15 @@ Iterators are powerful tools for processing large media files. They work seamles
     - `overlap`: Optional tuple for overlap between tiles
   </Tab>
 
-  <Tab title="AudioSplitter">
+  <Tab title="audio_splitter">
     ```python
-    from pixeltable.iterators import AudioSplitter
+    from pixeltable.functions.audio import audio_splitter
 
     # Split audio into chunks
     chunks_view = pxt.create_view(
         'audio.chunks',
         audio_table,
-        iterator=AudioSplitter.create(
+        iterator=audio_splitter(
             audio=audio_table.audio,
             chunk_duration_sec=30.0,  # Split into 30-second chunks
             overlap_sec=2.0,          # 2-second overlap between chunks
@@ -182,7 +182,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Tab>
 </Tabs>
 
-## Common Use Cases
+## Common use cases
 
 <CardGroup cols={2}>
   <Card title="Document Processing" icon="book">
@@ -214,7 +214,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Card>
 </CardGroup>
 
-## Example Workflows
+## Example workflows
 
 <AccordionGroup>
   <Accordion title="RAG Pipeline" icon="robot">
@@ -223,7 +223,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     chunks = pxt.create_view(
         'rag.chunks',
         docs_table,
-        iterator=DocumentSplitter.create(
+        iterator=document_splitter(
             document=docs_table.document,
             separators='paragraph',
             limit=500
@@ -246,7 +246,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     frames = pxt.create_view(
         'detection.frames',
         videos_table,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=videos_table.video,
             fps=1.0
         )
@@ -263,7 +263,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     chunks = pxt.create_view(
         'audio.chunks',
         audio_table,
-        iterator=AudioSplitter.create(
+        iterator=audio_splitter(
             audio=audio_table.audio,
             chunk_duration_sec=30.0
         )
@@ -282,7 +282,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     frames = pxt.create_view(
         'video.frames',
         videos_table,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=videos_table.video,
             fps=1.0
         )
@@ -300,7 +300,7 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Accordion>
 </AccordionGroup>
 
-## Best Practices
+## Best practices
 
 <CardGroup cols={2}>
   <Card title="Memory Management" icon="memory">
@@ -316,18 +316,15 @@ Iterators are powerful tools for processing large media files. They work seamles
   </Card>
 </CardGroup>
 
-## Tips & Tricks
+## Tips & tricks
 
 <Warning>
-When using `token_limit` with DocumentSplitter, ensure the limit accounts for any model context windows in your pipeline.
+When using `token_limit` with `document_splitter`, ensure the limit accounts for any model context windows in your pipeline.
 </Warning>
 
-## Additional Resources
+## Additional resources
 
 <CardGroup cols={3}>
-  <Card title="SDK Reference" icon="book-bookmark" href="/sdk/latest/iterators">
-    Complete iterator documentation
-  </Card>
   <Card title="Examples" icon="lightbulb" href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps">
     Sample applications
   </Card>

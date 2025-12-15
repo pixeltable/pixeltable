@@ -1656,6 +1656,10 @@ class TableVersion:
         """Return True if column was created by Pixeltable"""
         return col.name == _POS_COLUMN_NAME and self.is_component_view
 
+    def iterator_columns(self) -> list[Column]:
+        """Return all iterator-produced columns"""
+        return self.cols[1 : self.num_iterator_cols + 1]
+
     def user_columns(self) -> list[Column]:
         """Return all non-system columns"""
         return [c for c in self.cols if not self.is_system_column(c)]

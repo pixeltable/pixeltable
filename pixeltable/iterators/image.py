@@ -1,6 +1,7 @@
 from typing import Any, Sequence
 
 import PIL.Image
+from deprecated import deprecated
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
@@ -8,18 +9,6 @@ from pixeltable.iterators.base import ComponentIterator
 
 
 class TileIterator(ComponentIterator):
-    """
-    Iterator over tiles of an image. Each image will be divided into tiles of size `tile_size`, and the tiles will be
-    iterated over in row-major order (left-to-right, then top-to-bottom). An optional `overlap` parameter may be
-    specified. If the tiles do not exactly cover the image, then the rightmost and bottommost tiles will be padded with
-    blackspace, so that the output images all have the exact size `tile_size`.
-
-    Args:
-        image: Image to split into tiles.
-        tile_size: Size of each tile, as a pair of integers `[width, height]`.
-        overlap: Amount of overlap between adjacent tiles, as a pair of integers `[width, height]`.
-    """
-
     __image: PIL.Image.Image
     __tile_size: Sequence[int]
     __overlap: Sequence[int]
@@ -68,7 +57,7 @@ class TileIterator(ComponentIterator):
     def close(self) -> None:
         pass
 
-    def set_pos(self, pos: int) -> None:
+    def set_pos(self, pos: int, **kwargs: Any) -> None:
         self.__j = pos // self.__xlen
         self.__i = pos % self.__xlen
 
@@ -83,3 +72,8 @@ class TileIterator(ComponentIterator):
         if overlap[0] >= tile_size[0] or overlap[1] >= tile_size[1]:
             raise excs.Error(f'overlap dimensions {overlap} are not strictly smaller than tile size {tile_size}')
         return {'tile': ts.ImageType(), 'tile_coord': ts.JsonType(), 'tile_box': ts.JsonType()}, ['tile']
+
+    @classmethod
+    @deprecated('create() is deprecated; use `pixeltable.functions.image.tile_iterator` instead', version='0.5.6')
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return super()._create(**kwargs)

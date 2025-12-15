@@ -10,6 +10,7 @@ from typing import Any, Callable
 import av
 import numpy as np
 from PIL import Image
+from pypdfium2 import PdfDocument  # type: ignore[import-untyped]
 
 import pixeltable.type_system as ts
 from pixeltable.utils.http_server import get_file_uri
@@ -240,16 +241,14 @@ class Formatter:
         """
         if file_path.lower().endswith('.pdf'):
             try:
-                import fitz  # type: ignore[import-untyped]
-
-                doc = fitz.open(file_path)
-                pixmap = doc.get_page_pixmap(0)
-                while pixmap.width > max_width or pixmap.height > max_height:
-                    # shrink(1) will halve each dimension
-                    pixmap.shrink(1)
-                return pixmap.pil_image()
+                doc = PdfDocument(file_path)
+                if len(doc) == 0:
+                    return None
+                img = doc[0].render().to_pil()
+                img.thumbnail((max_width, max_height), Image.LANCZOS)
+                return img
             except Exception:
-                logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have PyMuPDF installed.')
+                logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have pypdfium2 installed.')
 
         return None
 

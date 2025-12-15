@@ -23,8 +23,8 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
+from pixeltable.functions.video import frame_iterator
 from pixeltable.io.external_store import MockProject
-from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -1421,7 +1421,7 @@ class TestTable:
     def test_create_video_table(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
-        view = pxt.create_view('test_view', tbl, iterator=FrameIterator.create(video=tbl.video, fps=0))
+        view = pxt.create_view('test_view', tbl, iterator=frame_iterator(tbl.video, fps=0))
         view.add_computed_column(c1=view.frame.rotate(30), stored=True)
         view.add_computed_column(c2=view.c1.rotate(40), stored=False)
         view.add_computed_column(c3=view.c2.rotate(50), stored=True)

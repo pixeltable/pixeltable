@@ -7,147 +7,105 @@ description: 'Pixeltable unifies storage and orchestration for multimodal AI app
   <Card title="Persistent Storage" icon="database">
     All data and computed results are automatically stored and versioned.
   </Card>
-  <Card title="Incremental Updates" icon="calculator">
-    Data transformations are defined as computed columns; they run automatically on new data.
+  <Card title="Incremental Updates" icon="rotate">
+    Data transformations run automatically on new data—no orchestration code needed.
   </Card>
   <Card title="Multimodal-Native" icon="photo-film">
-    Images, video, audio, and documents integrate seamlessly with structured data in one unified interface.
+    Images, video, audio, and documents integrate seamlessly with structured data.
   </Card>
-  <Card title="AI Integration" icon="brain-circuit">
-    Built-in integration with AI services such as OpenAI, Gemini, Claude, OpenRouter, and dozens more.
-  </Card>
-</CardGroup>
-
-## Pixeltable Documentation
-
-This documentation site is organized into several sections. The following cards should help you navigate to the
-right place.
-
-<Tip>
-Some documentation pages are also available as interactive notebooks, marked in the sidebar by a notebook icon
-<Icon icon="notebook" />. These notebooks contain executable code and can be opened in
-Kaggle, Google Colab, or a local Jupyter environment, if you wish to follow along interactively.
-</Tip>
-
-<CardGroup cols={3}>
-  <Card title="Quick Start" icon="rocket" href="/overview/quick-start">
-    The fastest way to get started with Pixeltable.
-  </Card>
-  <Card title="10-Minute Tour" icon="clock" href="/overview/ten-minute-tour">
-    See Pixeltable in action with a quick walkthrough of an image workflow.
-  </Card>
-  <Card title="Platform Guide" icon="cubes" href="/platform">
-    Comprehensive guide to Pixeltable's features.
-  </Card>
-  <Card title="Cookbooks" icon="book" href="/howto">
-    Learn how to use Pixeltable for specific use cases.
-  </Card>
-  <Card title="Pixeltable Fundamentals" icon="wrench" href="/tutorials">
-    A tutorial-style deep dive into Pixeltable's core features.
-  </Card>
-  <Card title="SDK Reference" icon="code" href="/sdk/latest">
-    Complete reference guide for the Pixeltable Python SDK.
+  <Card title="AI Integration" icon="brain">
+    Built-in support for OpenAI, Anthropic, Gemini, Hugging Face, and dozens more.
   </Card>
 </CardGroup>
 
-## Popular Use Cases
+## Get started
 
 <CardGroup cols={2}>
-<Card
-  title="Enterprise Chat Systems"
-  icon="message"
-  href="https://huggingface.co/spaces/Pixeltable/Multi-LLM-RAG-with-Groundtruth-Comparison"
->
-  <CardGroup cols={1}>
-    <Card title="Multi-model RAG Chatbot" icon="brain-circuit" href="https://huggingface.co/spaces/Pixeltable/Multi-LLM-RAG-with-Groundtruth-Comparison">
-      Build RAG systems that compare multiple LLMs with ground truth evaluation.
-    </Card>
-    <Card title="Discord AI Assistant" icon="discord" href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/context-aware-discord-bot">
-      Create context-aware chat bots with semantic search and memory.
-    </Card>
-    <Card title="Agentic Workflows" icon="toolbox" href="https://github.com/pixeltable/pixelagent">
-      Build tool-calling agents
-    </Card>
-  </CardGroup>
-</Card>
-
-<Card
-  title="Visual Understanding"
-  icon="camera"
-  href="https://huggingface.co/spaces/Pixeltable/object-detection-in-videos-with-yolox"
->
-  <CardGroup cols={1}>
-    <Card title="Video Object Detection" icon="video" href="https://huggingface.co/spaces/Pixeltable/object-detection-in-videos-with-yolox">
-      Real-time object detection in videos using YOLOX.
-    </Card>
-    <Card title="Visual Search Engine" icon="magnifying-glass" href="https://huggingface.co/spaces/Pixeltable/Text-image-similarity-search-on-video-frames-embedding-indexes">
-      Text and image similarity search on video frames.
-    </Card>
-    <Card title="Call Analysis Tool" icon="phone" href="https://huggingface.co/spaces/Pixeltable/Call-Analysis-AI-Tool">
-      Analyze video calls with automatic transcription and insights.
-    </Card>
-  </CardGroup>
-</Card>
-
-<Card
-  title="Document Intelligence"
-  icon="file-lines"
-  href="/howto/use-cases/audio-transcriptions"
->
-  <CardGroup cols={1}>
-    <Card title="Document Audio Synthesis" icon="file-audio" href="https://huggingface.co/spaces/Pixeltable/document-to-podcast">
-      Convert documents to natural speech with context-aware processing.
-    </Card>
-    <Card title="Social Media Generator" icon="share-nodes" href="https://huggingface.co/spaces/Pixeltable/video-to-social-media-post-generator">
-      Generate social posts from video content analysis.
-    </Card>
-    <Card title="Collaborative Writing" icon="pen-to-square" href="https://huggingface.co/spaces/Pixeltable/Collaborative-Story-Builder">
-      Build AI-powered collaborative writing tools.
-    </Card>
-  </CardGroup>
-</Card>
-
-<Card
-  title="Vertical AI Products"
-  icon="code"
-  href="https://huggingface.co/spaces/Pixeltable/Prompt-Engineering-and-LLM-Studio"
->
-  <CardGroup cols={1}>
-    <Card title="LLM Studio" icon="flask" href="https://huggingface.co/spaces/Pixeltable/Prompt-Engineering-and-LLM-Studio">
-      Test and compare LLM performance with structured evaluation.
-    </Card>
-    <Card title="AI-Based Trading Chrome Extension" icon="chart-line" href="https://chromewebstore.google.com/detail/ai-based-day-trading-insi/floglldkiolbdpcfeanilapjmilliiac">
-      Real-time trading analysis using AI for technical indicators.
-    </Card>
-    <Card title="RPG Adventure" icon="gamepad" href="https://huggingface.co/spaces/Pixeltable/AI-RPG-Adventure">
-      Create interactive AI storytelling experiences.
-    </Card>
-  </CardGroup>
-</Card>
+  <Card title="Quick Start" icon="rocket" href="/overview/quick-start">
+    Install Pixeltable and run your first pipeline in 5 minutes.
+  </Card>
+  <Card title="10-Minute Tour" icon="play" href="/overview/ten-minute-tour">
+    See Pixeltable in action with a hands-on image workflow.
+  </Card>
+  <Card title="Core Concepts" icon="cubes" href="/platform/type-system">
+    Learn about tables, computed columns, views, and the type system.
+  </Card>
+  <Card title="SDK Reference" icon="code" href="/sdk/latest">
+    Complete API reference for the Pixeltable Python SDK.
+  </Card>
 </CardGroup>
 
-## Next Steps
+<Tip>
+Many documentation pages are interactive notebooks (marked with <Icon icon="rectangle-code" />). Open them in Colab, Kaggle, or locally to follow along.
+</Tip>
 
-<CardGroup cols={3}>
-  <Card
-    title="Sample Apps"
-    icon="code"
-    href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps"
-  >
-    Working implementations and reference architecture
+## What can you build?
+
+<CardGroup cols={2}>
+  <Card title="Declarative Pipelines" icon="code">
+    Replace complex orchestration with simple computed columns. Define transformations once—they run automatically on all data.
   </Card>
+  <Card title="Multimodal Workloads" icon="photo-film">
+    Production RAG with automatic embedding indexing. Find relevant scenes in video. Semantic search across text, images, and audio.
+  </Card>
+  <Card title="Version Control and Lineage" icon="code-branch">
+    Automatic versioning on every change. Time travel queries to any point. Full data lineage for reproducibility.
+  </Card>
+  <Card title="AI Agents & MCP" icon="robot">
+    Build tool-calling agents with persistent memory, MCP server integration, and automatic conversation history.
+  </Card>
+  <Card title="ML Feature Engineering" icon="download">
+    Curate, augment, and export data to PyTorch, Parquet, COCO format, LanceDB, and pandas for training and analytics.
+  </Card>
+</CardGroup>
+
+### Explore by use case
+
+<CardGroup cols={4}>
+  <Card title="RAG Pipeline" icon="brain" href="/howto/cookbooks/agents/pattern-rag-pipeline">
+    Document retrieval & generation
+  </Card>
+  <Card title="Video Analysis" icon="video" href="/howto/use-cases/object-detection-in-videos">
+    Object detection in video
+  </Card>
+  <Card title="Audio Transcription" icon="microphone" href="/howto/cookbooks/audio/audio-transcribe">
+    Speech-to-text with Whisper
+  </Card>
+  <Card title="Vision Analysis" icon="eye" href="/howto/cookbooks/images/vision-batch-analysis">
+    GPT-4 Vision on images
+  </Card>
+</CardGroup>
+
+<CardGroup cols={4}>
+  <Card title="Semantic Search" icon="magnifying-glass" href="/howto/cookbooks/search/search-similar-images">
+    Find similar images/text
+  </Card>
+  <Card title="Document Chunking" icon="scissors" href="/howto/cookbooks/text/doc-chunk-for-rag">
+    Split docs for RAG
+  </Card>
+  <Card title="Version Control" icon="code-branch" href="/platform/version-control">
+    Time travel & lineage
+  </Card>
+  <Card title="Data Import" icon="upload" href="/howto/cookbooks/data/data-import-csv">
+    CSV, JSON, Parquet, S3
+  </Card>
+</CardGroup>
+
+## Next steps
+
+<CardGroup cols={2}>
   <Card
-    title="Developer Community"
+    title="Join the Community"
     icon="discord"
-    href="https://discord.gg/QPyqFYx2UN"
+    href="https://discord.com/invite/QPyqFYx2UN"
   >
-    Technical discussions and implementation support
+    Get help, share projects, and connect with other developers
   </Card>
   <Card
-    title="Source Repository"
+    title="GitHub"
     icon="github"
     href="https://github.com/pixeltable/pixeltable"
   >
-    Explore the codebase and contribute
+    Star the repo, report issues, and contribute
   </Card>
 </CardGroup>
