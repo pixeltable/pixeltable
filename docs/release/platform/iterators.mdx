@@ -31,7 +31,8 @@ chunks = pxt.create_view(
     documents_table,
     iterator=document_splitter(
         document=documents_table.document,
-        separators='paragraph'
+        separators='sentence,token_limit',
+        limit=300
     )
 )
 ```
@@ -40,7 +41,7 @@ chunks = pxt.create_view(
 
 <CardGroup cols={2}>
   <Card title="Document Splitting" icon="file-lines">
-    Split documents into chunks by headings, paragraphs, or sentences
+    Split documents into chunks by headings, sentences, or token limits
   </Card>
   <Card title="Video Processing" icon="video">
     Extract frames at specified intervals or counts
@@ -70,7 +71,7 @@ Iterators are powerful tools for processing large media files. They work seamles
         docs_table,
         iterator=document_splitter(
             document=docs_table.document,
-            separators='paragraph,token_limit',
+            separators='sentence,token_limit',
             limit=500,
             metadata='title,heading'
         )
@@ -78,7 +79,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     ```
 
     ### Parameters
-    - `separators`: Choose from 'heading', 'paragraph', 'sentence', 'token_limit', 'char_limit', 'page'
+    - `separators`: Choose from 'heading', 'sentence', 'token_limit', 'char_limit', 'page'
     - `limit`: Maximum tokens/characters per chunk
     - `metadata`: Optional fields like 'title', 'heading', 'sourceline', 'page', 'bounding_box'
     - `overlap`: Optional overlap between chunks
@@ -225,7 +226,7 @@ Iterators are powerful tools for processing large media files. They work seamles
         docs_table,
         iterator=document_splitter(
             document=docs_table.document,
-            separators='paragraph',
+            separators='sentence,token_limit',
             limit=500
         )
     )
@@ -325,10 +326,13 @@ When using `token_limit` with `document_splitter`, ensure the limit accounts for
 ## Additional resources
 
 <CardGroup cols={3}>
-  <Card title="Examples" icon="lightbulb" href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps">
-    Sample applications
+  <Card title="Custom Iterators" icon="code" href="/howto/cookbooks/core/custom-iterators">
+    Build your own iterators
   </Card>
-  <Card title="Tutorials" icon="graduation-cap" href="/tutorials">
-    Step-by-step guides
+  <Card title="Document Chunking" icon="file-lines" href="/howto/cookbooks/text/doc-chunk-for-rag">
+    Chunk documents for RAG
+  </Card>
+  <Card title="Frame Extraction" icon="video" href="/howto/cookbooks/video/video-extract-frames">
+    Extract video frames
   </Card>
 </CardGroup>
