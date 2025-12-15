@@ -423,7 +423,7 @@ class DocumentSplitter(ComponentIterator):
 
         for page_idx, page in enumerate(doc):
             img = page.render().to_pil() if Element.IMAGE in self._elements else None
-            text = page.get_textpage().get_text_range()
+            text = page.get_textpage().get_text_bounded()
             _add_cleaned(text)
             if accumulated_text and emit_on_page:
                 md = DocumentSectionMetadata(page=page_idx)
