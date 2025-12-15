@@ -158,7 +158,7 @@ class CellMaterializationNode(ExecNode):
             return any(self._json_has_inlined_objs(v) for v in element)
         if isinstance(element, dict):
             return any(self._json_has_inlined_objs(v) for v in element.values())
-        return isinstance(element, (np.ndarray, PIL.Image.Image))
+        return isinstance(element, (np.ndarray, PIL.Image.Image, bytes))
 
     def _rewrite_json(self, element: Any) -> Any:
         """Recursively rewrites a JSON structure by writing any inlined arrays or images to self.buffered_writer."""
@@ -171,6 +171,9 @@ class CellMaterializationNode(ExecNode):
             return {INLINED_OBJECT_MD_KEY: obj_md.as_dict()}
         if isinstance(element, PIL.Image.Image):
             obj_md = self._write_inlined_image(element)
+            return {INLINED_OBJECT_MD_KEY: obj_md.as_dict()}
+        if isinstance(element, bytes):
+            obj_md = self._write_inlined_bytes(element)
             return {INLINED_OBJECT_MD_KEY: obj_md.as_dict()}
         return element
 
@@ -206,6 +209,16 @@ class CellMaterializationNode(ExecNode):
         end = self.buffered_writer.tell()
         self._flush_buffer()
         return InlinedObjectMd(type=ts.ColumnType.Type.IMAGE.name, url_idx=url_idx, img_start=start, img_end=end)
+
+    def _write_inlined_bytes(self, data: bytes) -> InlinedObjectMd:
+        """Write raw bytes to buffered_writer and return: index into inlined_obj_files, start offset, end offset"""
+        self.init_writer()
+        url_idx = len(self.inlined_obj_files) - 1
+        start = self.buffered_writer.tell()
+        self.buffered_writer.write(data)
+        end = self.buffered_writer.tell()
+        self._flush_buffer()
+        return InlinedObjectMd(type=ts.ColumnType.Type.BINARY.name, url_idx=url_idx, img_start=start, img_end=end)
 
     def _reset_buffer(self) -> None:
         local_path = LocalStore(Env.get().media_dir)._prepare_path_raw(

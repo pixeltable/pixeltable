@@ -12,6 +12,7 @@ INLINED_OBJECT_MD_KEY = '__pxtinlinedobjmd__'
 class InlinedObjectMd:
     type: str  # corresponds to ts.ColumnType.Type
     url_idx: int
+    # TODO: Rename these just `start` and `end`? (Requires a schema migration, unfortunately)
     img_start: int | None = None
     img_end: int | None = None
     array_md: ArrayMd | None = None

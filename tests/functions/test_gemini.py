@@ -11,7 +11,8 @@ from .tool_utils import run_tool_invocations_test
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestGemini:
-    def test_generate_content(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('model', ['gemini-2.5-flash', 'gemini-3-pro-preview'])
+    def test_generate_content(self, model: str, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from google.genai.types import GenerateContentConfigDict
@@ -19,25 +20,32 @@ class TestGemini:
         from pixeltable.functions.gemini import generate_content
 
         t = pxt.create_table('test_tbl', {'contents': pxt.String})
-        t.add_computed_column(output=generate_content(t.contents, model='gemini-2.5-flash'))
-        config = GenerateContentConfigDict(
-            candidate_count=3,
-            stop_sequences=['\n'],
-            max_output_tokens=300,
-            temperature=1.0,
-            top_p=0.95,
-            top_k=40,
-            response_mime_type='text/plain',
-        )
-        t.add_computed_column(output2=generate_content(t.contents, model='gemini-2.5-flash', config=config))
+        t.add_computed_column(output=generate_content(t.contents, model=model))
+
+        if model != 'gemini-3-pro-preview':
+            # Some of these options are not supported for gemini-3-pro
+            config = GenerateContentConfigDict(
+                candidate_count=3,
+                stop_sequences=['\n'],
+                max_output_tokens=300,
+                temperature=1.0,
+                top_p=0.95,
+                top_k=40,
+                response_mime_type='text/plain',
+            )
+            t.add_computed_column(output2=generate_content(t.contents, model=model, config=config))
+
         validate_update_status(t.insert(contents='Write a sentence about a magic backpack.'), expected_rows=1)
         results = t.collect()
+
         text = results['output'][0]['candidates'][0]['content']['parts'][0]['text']
-        text2 = results['output2'][0]['candidates'][0]['content']['parts'][0]['text']
         print(text)
-        print(text2)
-        assert 'backpack' in text
-        assert 'backpack' in text2
+
+        if model != 'gemini-3-pro-preview':
+            assert 'backpack' in text  # sanity check (gemini-3-pro is so "creative" that it often omits this word)
+            text2 = results['output2'][0]['candidates'][0]['content']['parts'][0]['text']
+            print(text2)
+            assert 'backpack' in text2
 
     def test_generate_content_multimodal(self, reset_db: None) -> None:
         skip_test_if_not_installed('google.genai')

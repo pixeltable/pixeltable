@@ -46,6 +46,7 @@ class ColumnType:
         DOCUMENT = 10
         DATE = 11
         UUID = 12
+        BINARY = 13
 
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
         INVALID = 255

@@ -49,13 +49,19 @@ def reconstruct_json(element: Any, urls: list[str], file_handles: dict[Path, io.
                     fp, obj_md.array_md.start, obj_md.array_md.end, obj_md.array_md.is_bool, obj_md.array_md.shape
                 )
                 return ar
-            else:
+            elif obj_md.type == ts.ColumnType.Type.IMAGE.name:
                 fp.seek(obj_md.img_start)
                 bytesio = io.BytesIO(fp.read(obj_md.img_end - obj_md.img_start))
                 img = PIL.Image.open(bytesio)
                 img.load()
-                assert fp.tell() == obj_md.img_end, f'{fp.tell()} != {obj_md.img_end} / {obj_md.img_start}'
+                assert fp.tell() == obj_md.img_end, f'{fp.tell()} != {obj_md.img_end} ({obj_md.img_start})'
                 return img
+            else:
+                assert obj_md.type == ts.ColumnType.Type.BINARY.name
+                fp.seek(obj_md.img_start)
+                data = fp.read(obj_md.img_end - obj_md.img_start)
+                assert fp.tell() == obj_md.img_end, f'{fp.tell()} != {obj_md.img_end} ({obj_md.img_start})'
+                return data
         else:
             return {k: reconstruct_json(v, urls, file_handles) for k, v in element.items()}
     return element
