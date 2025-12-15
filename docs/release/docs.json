@@ -89,7 +89,6 @@
                       "howto/cookbooks/core/query-join-tables",
                       "howto/cookbooks/core/version-control-history",
                       "howto/cookbooks/core/custom-aggregates-uda",
-                      "howto/cookbooks/core/custom-iterators",
                       "howto/cookbooks/core/data-split-rows",
                       "howto/cookbooks/core/time-zones"
                     ]
@@ -137,7 +136,6 @@
                       "howto/cookbooks/audio/audio-transcribe",
                       "howto/use-cases/audio-transcriptions",
                       "howto/cookbooks/audio/audio-summarize-podcast",
-                      "howto/cookbooks/audio/audio-speaker-diarization",
                       "howto/cookbooks/audio/audio-text-to-speech",
                       "howto/cookbooks/audio/audio-extract-from-video"
                     ]
