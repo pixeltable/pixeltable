@@ -51,7 +51,7 @@ Set default destinations for all media columns in your `config.toml` (see [Confi
 # For input media (inserted/referenced files)
 input_media_dest = "s3://my-bucket/input/"
 
-# For computed media (AI-generated outputs)  
+# For computed media (AI-generated outputs)
 output_media_dest = "s3://my-bucket/output/"
 ```
 
@@ -159,7 +159,7 @@ Destinations are resolved in this order:
 
     # Or set destination per computed column
     t.add_computed_column(
-        frames=pxt.iterators.FrameIterator.create(t.video, fps=1),
+        frames=pxt.functions.video.frame_iterator(t.video, fps=1),
         destination='gs://my-gcs-bucket/frames/'
     )
     ```
@@ -202,7 +202,7 @@ Destinations are resolved in this order:
 
     # Or set destination per computed column
     t.add_computed_column(
-        chunks=pxt.iterators.DocumentSplitter.create(t.document),
+        chunks=pxt.functions.video.document_splitter(t.document),
         destination='wasbs://mycontainer@myaccount.blob.core.windows.net/chunks/'
     )
     ```
@@ -274,7 +274,7 @@ Destinations are resolved in this order:
     t = pxt.create_table('app.audio', {'audio': pxt.Audio})
 
     t.add_computed_column(
-        segments=pxt.iterators.AudioSplitter.create(t.audio, chunk_duration_sec=30),
+        segments=pxt.functions.video.audio_splitter(t.audio, chunk_duration_sec=30),
         destination='https://s3.us-west-004.backblazeb2.com/my-bucket/segments/'
     )
     ```
@@ -411,7 +411,7 @@ t.select(t.photo, t.thumbnail, t.description).collect()
     Verify your credentials have the necessary permissions:
     - `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject`
     - `s3:ListBucket` for the bucket
-    
+
     For GCS: `storage.objects.create`, `storage.objects.get`, `storage.objects.delete`
   </Accordion>
 

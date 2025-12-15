@@ -84,7 +84,7 @@ flowchart TB
 import pixeltable as pxt
 from pixeltable.functions.video import extract_audio
 from pixeltable.functions.openai import transcriptions
-from pixeltable.iterators import FrameIterator
+from pixeltable.functions.video import frame_iterator
 import psycopg2
 from datetime import datetime
 
@@ -117,7 +117,7 @@ videos.add_computed_column(
 frames = pxt.create_view(
     'video_processing.frames',
     videos,
-    iterator=FrameIterator.create(video=videos.video, fps=1.0)
+    iterator=frame_iterator(video=videos.video, fps=1.0)
 )
 
 # Insert video for processing
