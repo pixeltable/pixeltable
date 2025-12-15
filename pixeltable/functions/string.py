@@ -826,6 +826,17 @@ def string_splitter(text: Any, separators: str) -> tuple[type[pxt.iterators.Comp
 
     Args:
         separators: separators to use to chunk the document. Currently the only supported option is `'sentence'`.
+
+    Examples:
+        This example assumes an existing table `tbl` with a column `text` of type `pxt.String`.
+
+        Create a view that splits all strings on sentence boundaries:
+
+        >>> pxt.create_view(
+        ...     'sentence_chunks',
+        ...     tbl,
+        ...     iterator=string_splitter(tbl.text, separators='sentence')
+        ... )
     """
     return pxt.iterators.string.StringSplitter._create(text=text, separators=separators)
 

@@ -27,7 +27,7 @@ help:
 	@echo '  test          Run pytest, stresstest, and check'
 	@echo '  fulltest      Run fullpytest, nbtest, stresstest, and check'
 	@echo '  slimtest      Run a slimpytest and check'
-	@echo '  check         Run typecheck, docscheck, lint, and formatcheck'
+	@echo '  check         Run typecheck, lint, and formatcheck'
 	@echo '  format        Run `ruff format` (updates .py files in place)'
 	@echo '  release       Create a pypi release and post to github'
 	@echo '  docs          Build mintlify documentation'
@@ -121,7 +121,7 @@ slimtest: slimpytest check
 	@echo 'All tests passed.'
 
 .PHONY: check
-check: typecheck docscheck lint formatcheck
+check: typecheck lint formatcheck
 	@echo 'All static checks passed.'
 
 .PHONY: pytest

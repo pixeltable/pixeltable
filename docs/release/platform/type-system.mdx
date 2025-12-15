@@ -13,13 +13,15 @@ Pixeltable provides a rich type system designed for multimodal AI applications. 
 | `pxt.Int` | `int` | Integer numbers |
 | `pxt.Float` | `float` | Decimal numbers |
 | `pxt.Bool` | `bool` | Boolean values |
-| `pxt.Timestamp` | `datetime.datetime` | Date/time values |
-| `pxt.Json` | `dict`, `list`, `str`, `int`, `float`, `bool` | Flexible JSON data |
+| `pxt.Timestamp` | `datetime.datetime` | Timestamp values |
+| `pxt.Date` | `datetime.date` | Date values |
+| `pxt.UUID` | `uuid.UUID` | Unique identifiers |
 | `pxt.Array` | `np.ndarray` | Numerical arrays (embeddings, tensors) |
+| `pxt.Json` | `dict`, `list`, `str`, `int`, `float`, `bool` | Flexible JSON data |
 | `pxt.Image` | `PIL.Image.Image` | Image data |
-| `pxt.Video` | `str` (file path) | Video references |
+| `pxt.Video` | `str` (file path) | Video files |
 | `pxt.Audio` | `str` (file path) | Audio files |
-| `pxt.Document` | `str` (file path) | PDF/text documents |
+| `pxt.Document` | `str` (file path) | Documents (PDFs, markdown, html, etc.) |
 
 <Info>
 `pxt.Audio`, `pxt.Video`, and `pxt.Document` return file paths when queried. Pixeltable automatically downloads and caches remote media locally. Use `.fileurl` to get the original URL.
@@ -114,10 +116,10 @@ Arrays are used for embeddings, feature vectors, and tensor data. They must alwa
 ml_data = pxt.create_table('example.ml_features', {
     # Fixed-size embedding (e.g., from CLIP or OpenAI)
     'embedding': pxt.Array[(768,), pxt.Float],
-    
+
     # Variable first dimension (batch of 512-dim vectors)
     'features': pxt.Array[(None, 512), pxt.Float],
-    
+
     # 3D tensor with flexible dimensions
     'tensor': pxt.Array[(None, None, 3), pxt.Float]
 })
@@ -281,15 +283,15 @@ t.where(t.result == None).select(
   <Card title="Use Specific Types" icon="bullseye">
     Prefer `pxt.Image[(224,224), 'RGB']` over `pxt.Image` when you know the constraints. This enables optimizations and catches errors early.
   </Card>
-  
+
   <Card title="Validate JSON" icon="shield-check">
     Use JSON schema validation or Pydantic models for structured data to ensure consistency across your pipeline.
   </Card>
-  
+
   <Card title="Specify Array Shapes" icon="vector-square">
     Always specify array shapes and dtypes. Use `None` for variable dimensions: `pxt.Array[(None, 768), pxt.Float]`.
   </Card>
-  
+
   <Card title="Handle Errors Gracefully" icon="triangle-exclamation">
     Use `on_error='ignore'` in production pipelines, then query `.errortype` and `.errormsg` to debug failures.
   </Card>
@@ -308,4 +310,3 @@ t.where(t.result == None).select(
     Complete type reference
   </Card>
 </CardGroup>
-
