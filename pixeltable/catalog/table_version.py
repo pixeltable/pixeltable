@@ -802,7 +802,7 @@ class TableVersion:
             col.id = self.next_col_id()
 
         # we're creating a new schema version
-        start_ts = time.monotonic()
+        start_ts = time.perf_counter()
         self.bump_version(bump_schema_version=True)
         index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
@@ -825,11 +825,12 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
 
-        duration = time.monotonic() - start_ts
+        duration = time.perf_counter() - start_ts
+        rate_str = f' ({status.num_rows / duration:.2f} rows/s)' if duration > 0 else ''
         msg = (
             f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
             f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}'
-            f'in {duration:.2f}s ({status.num_rows / duration:.2f} rows/s)'
+            f'in {duration:.2f} s{rate_str}'
         )
         Env.get().console_logger.info(msg)
         _logger.info(f'Columns {[col.name for col in cols]}: {msg}')

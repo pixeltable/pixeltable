@@ -185,7 +185,7 @@ class InsertableTable(Table):
         from pixeltable.io.table_data_conduit import QueryTableDataConduit
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            start_ts = time.monotonic()
+            start_ts = time.perf_counter()
             if isinstance(data_source, QueryTableDataConduit):
                 status = pxt.UpdateStatus()
                 status += self._tbl_version.get().insert(

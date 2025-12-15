@@ -144,9 +144,11 @@ class UpdateStatus:
             f'with {self.num_excs} error{"" if self.num_excs == 1 else "s"}{cols_with_excs_str}'
         )
         if start_ts is not None:
-            end_ts = time.monotonic()
+            end_ts = time.perf_counter()
             duration = end_ts - start_ts
-            msg += f' in {duration:.2f} s ({self.num_rows / duration:.2f} rows/s)'
+            msg += f' in {duration:.2f} s'
+            if duration > 0:
+                msg += f' ({self.num_rows / duration:.2f} rows/s)'
         return msg
 
     @classmethod
