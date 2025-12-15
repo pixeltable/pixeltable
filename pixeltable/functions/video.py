@@ -9,7 +9,7 @@ import subprocess
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn
 
 import av
-import av.stream
+import av.container
 import numpy as np
 import PIL.Image
 
@@ -28,58 +28,35 @@ _logger = logging.getLogger('pixeltable')
 @pxt.uda(requires_order_by=True)
 class make_video(pxt.Aggregator):
     """
-    Aggregator that creates a video from a sequence of images, using the default video encoder and yuv420p pixel format.
-
-    Follows https://pyav.org/docs/develop/cookbook/numpy.html#generating-video
-
-    TODO: provide parameters for video_encoder and pix_fmt
+    Aggregate function that creates a video from a sequence of images, using the default video encoder and
+    yuv420p pixel format.
 
     Args:
         fps: Frames per second for the output video.
 
     Returns:
-
-    - The created video.
+        The video obtained by combining the input frames at the specified `fps`.
 
     Examples:
-        Create a video from frames extracted using `FrameIterator`:
+        Combine the images in the `img` column of the table `tbl` into a video:
 
-        >>> import pixeltable as pxt
-        >>> from pixeltable.functions.video import make_video
-        >>> from pixeltable.iterators import FrameIterator
-        >>>
-        >>> # Create base table for videos
-        >>> videos_table = pxt.create_table('videos', {'video': pxt.Video})
-        >>>
-        >>> # Create view to extract frames
-        >>> frames_view = pxt.create_view(
-        ...     'video_frames',
-        ...     videos_table,
-        ...     iterator=FrameIterator.create(video=videos_table.video, fps=1)
-        ... )
-        >>>
-        >>> # Reconstruct video from frames
-        >>> frames_view.group_by(videos_table).select(
-        ...     make_video(frames_view.pos, frames_view.frame)
-        ... ).show()
+        >>> tbl.select(make_video(tbl.img, fps=30)).collect()
 
-        Apply transformations to frames before creating a video:
+        Combine a sequence of rotated images into a video:
 
-        >>> # Create video from transformed frames
-        >>> frames_view.group_by(videos_table).select(
-        ...     make_video(frames_view.pos, frames_view.frame.rotate(30))
-        ... ).show()
+        >>> tbl.select(make_video(tbl.img.rotate(45), fps=30)).collect()
 
-        Compare multiple processed versions side-by-side:
-
-        >>> frames_view.group_by(videos_table).select(
-        ...     make_video(frames_view.pos, frames_view.frame),
-        ...     make_video(frames_view.pos, frames_view.frame.rotate(30))
-        ... ).show()
+        For a more extensive example, see the
+        [Object Detection in Videos](https://docs.pixeltable.com/howto/cookbooks/video/object-detection-in-videos)
+        cookbook.
     """
 
+    # Based on: https://pyav.org/docs/develop/cookbook/numpy.html#generating-video
+
+    # TODO: provide parameters for video_encoder and pix_fmt
+
     container: av.container.OutputContainer | None
-    stream: av.video.stream.VideoStream | None
+    stream: av.VideoStream | None
     fps: int
 
     def __init__(self, fps: int = 25):
@@ -1518,6 +1495,25 @@ def frame_iterator(
             * `interlaced_frame` (`bool`)
 
             If False, only outputs frame attributes `frame_idx`, `pos_msec`, and `pos_frame` as separate columns.
+
+    Examples:
+        All these examples assume an existing table `tbl` with a column `video` of type `pxt.Video`.
+
+        Create a view that extracts all frames from all videos:
+
+        >>> pxt.create_view('all_frames', tbl, iterator=frame_iterator(tbl.video))
+
+        Create a view that extracts only keyframes from all videos:
+
+        >>> pxt.create_view('keyframes', tbl, iterator=frame_iterator(tbl.video, keyframes_only=True))
+
+        Create a view that extracts frames from all videos at a rate of 1 frame per second:
+
+        >>> pxt.create_view('one_fps_frames', tbl, iterator=frame_iterator(tbl.video, fps=1.0))
+
+        Create a view that extracts exactly 10 frames from each video:
+
+        >>> pxt.create_view('ten_frames', tbl, iterator=frame_iterator(tbl.video, num_frames=10))
     """
     kwargs: dict[str, Any] = {}
     if fps is not None:
@@ -1562,6 +1558,23 @@ def video_splitter(
         video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
             Only available for `mode='accurate'`.
         video_encoder_args: Additional arguments to pass to the video encoder. Only available for `mode='accurate'`.
+
+    Examples:
+        All these examples assume an existing table `tbl` with a column `video` of type `pxt.Video`.
+
+        Create a view that splits each video into 10-second segments:
+
+        >>> pxt.create_view('ten_second_segments', tbl, iterator=video_splitter(tbl.video, duration=10.0))
+
+        Create a view that splits each video into segments at specified fixed times:
+
+        >>> split_times = [5.0, 15.0, 30.0]
+        >>> pxt.create_view('custom_segments', tbl, iterator=video_splitter(tbl.video, segment_times=split_times))
+
+        Create a view that splits each video into segments at times specified by a column `split_times` of type
+        `pxt.Json`, containing a list of timestamps in seconds:
+
+        >>> pxt.create_view('custom_segments', tbl, iterator=video_splitter(tbl.video, segment_times=tbl.split_times))
     """
     kwargs: dict[str, Any] = {}
     if duration is not None:
