@@ -983,7 +983,7 @@ class Planner:
         is_python_agg = not sql_elements.contains_all(analyzer.agg_fn_calls) or not sql_elements.contains_all(
             analyzer.window_fn_calls
         )
-        ctx = exec.ExecContext(row_builder)
+        ctx = exec.ExecContext(row_builder, show_progress=False)
 
         combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
         cls._verify_join_clauses(analyzer)
@@ -1167,7 +1167,6 @@ class Planner:
         )
 
         plan.ctx.batch_size = 16
-        plan.ctx.show_progress = True
         plan.ctx.ignore_errors = True
         plan = cls._add_save_node(plan)
 

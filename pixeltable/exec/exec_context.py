@@ -33,10 +33,14 @@ class ExecContext:
         batch_size: int = 0,
         pk_clause: list[sql.ClauseElement] | None = None,
         ignore_errors: bool = False,
+        show_progress: bool | None = None,
     ):
         self.title = None
         self.row_builder = row_builder
-        self.show_progress = Env.get().verbosity >= 1 and Env.get().is_interactive()
+        if show_progress is not None:
+            self.show_progress = show_progress
+        else:
+            self.show_progress = Env.get().verbosity >= 1 and Env.get().is_interactive()
         self.progress = None
         self.progress_reporters = {}
 
