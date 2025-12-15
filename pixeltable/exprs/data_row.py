@@ -274,9 +274,17 @@ class DataRow:
             return self.file_urls[index]
 
         if self.vals[index] is not None and index in self.array_slot_idxs:
-            assert isinstance(self.vals[index], np.ndarray)
-            np_array = self.vals[index]
-            if sa_col_type is not None and isinstance(sa_col_type, pgvector.sqlalchemy.Vector):
+            if isinstance(self.vals[index], np.ndarray):
+                np_array = self.vals[index]
+            elif isinstance(self.vals[index], pgvector.sqlalchemy.HalfVector):
+                # Halfvecs are float16s, but because we dynamically select between Vector and Halfvec for embedding
+                # indexes, we want both to look the same (i.e. as float32 arrays) to the user
+                np_array = self.vals[index].to_numpy().astype(np.float32)
+            else:
+                raise AssertionError(f'Unexpected array value type: {type(self.vals[index])} at index {index}')
+            if sa_col_type is not None and isinstance(
+                sa_col_type, (pgvector.sqlalchemy.Vector, pgvector.sqlalchemy.HALFVEC)
+            ):
                 return np_array
             buffer = io.BytesIO()
             np.save(buffer, np_array)
@@ -325,6 +333,10 @@ class DataRow:
                 self.vals[idx] = self.file_paths[idx] if self.file_paths[idx] is not None else self.file_urls[idx]
         elif idx in self.array_slot_idxs and isinstance(val, bytes):
             self.vals[idx] = np.load(io.BytesIO(val))
+        elif idx in self.array_slot_idxs and isinstance(val, pgvector.sqlalchemy.HalfVector):
+            # Halfvecs are float16s, but because we dynamically select between Vector and Halfvec for embedding
+            # indexes, we want both to look the same (i.e. as float32 arrays) to the user
+            self.vals[idx] = val.to_numpy().astype(np.float32)
         else:
             self.vals[idx] = val
         self.has_val[idx] = True

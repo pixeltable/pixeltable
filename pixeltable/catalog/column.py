@@ -266,7 +266,9 @@ class Column:
         """Returns True if this is an Array column that might store its values externally."""
         assert self.sa_col_type is not None
         # Vector: if this is a vector column (ie, used for a vector index), it stores the array itself
-        return self.col_type.is_array_type() and not isinstance(self.sa_col_type, pgvector.sqlalchemy.Vector)
+        return self.col_type.is_array_type() and not isinstance(
+            self.sa_col_type, (pgvector.sqlalchemy.Vector, pgvector.sqlalchemy.HALFVEC)
+        )
 
     @property
     def is_computed(self) -> bool:

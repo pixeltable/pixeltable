@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import pyarrow.parquet as pq
 import pytest
 import sqlalchemy as sql
@@ -298,11 +299,11 @@ class TestPackager:
                     for result in Env.get().conn.execute(q).fetchall():
                         v_min, v_max, val, undo = result
                         if v_min <= head_version and v_max > head_version:
-                            assert val is None or isinstance(val, np.ndarray)
+                            assert val is None or isinstance(val, (np.ndarray, pgvector.sqlalchemy.HalfVector))
                             assert undo is None
                         else:
                             assert val is None
-                            assert undo is None or isinstance(undo, np.ndarray)
+                            assert undo is None or isinstance(undo, (np.ndarray, pgvector.sqlalchemy.HalfVector))
                         if val is not None:
                             val_count += 1
                         if undo is not None:

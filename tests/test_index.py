@@ -800,3 +800,63 @@ class TestIndex:
             start + datetime.timedelta(days=random.randint(0, int(delta_days))) for _ in range(self.BTREE_TEST_NUM_ROWS)
         ]
         self.run_btree_test(data, pxt.Date)
+
+    @pxt.udf
+    @staticmethod
+    def dummy_embedding(text: str, n: int) -> pxt.Array[(None,), np.float32]:
+        if 'zero' in text:
+            arr = np.zeros((n,), dtype=np.float32)
+            arr[n // 2 :] = 1
+            return arr
+        if 'one' in text:
+            arr = np.zeros((n,), dtype=np.float32)
+            arr[: n // 2] = 1
+            return arr
+        return np.random.rand(n).astype(np.float32)
+
+    @dummy_embedding.conditional_return_type
+    @staticmethod
+    def _(n: int) -> ts.ArrayType:
+        return ts.ArrayType((n,), dtype=np.dtype('float32'), nullable=False)
+
+    @pytest.mark.parametrize('n,reload_cat', [(2000, True), (2000, False), (2001, True), (2001, False), (4000, False)])
+    def test_embedding_index_type_selection(self, reset_db: None, n: int, reload_cat: bool) -> None:
+        for metric in ['l2', 'cosine', 'ip']:
+            # Note: dummy embeddings produced by our test UDF are not normalized, so strictly speaking it cannot be
+            # used with IP metric, however it appears to work fine anyway, and that's good enough for our test purpose.
+            t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String}, if_exists='replace')
+            t.add_embedding_index(
+                t.text,
+                embedding=TestIndex.dummy_embedding.using(n=n),
+                metric=metric,  # type: ignore[arg-type]
+                idx_name='test_idx',
+            )
+            t.insert(
+                [
+                    {'rowid': 0, 'text': 'string zero'},
+                    {'rowid': 1, 'text': 'string one'},
+                    {'rowid': 2, 'text': 'something else'},
+                ]
+            )
+
+            reload_catalog(reload_cat)
+
+            res = t.select(t.text.embedding()).collect()
+            assert len(res.schema) == 1
+            assert ts.ArrayType((n,), np.dtype('float32')).matches(res.schema['col_0']), res.schema
+            assert len(res) == 3
+            assert isinstance(res[0, 0], np.ndarray)
+            assert res[0, 0].dtype == np.float32
+
+            sim = t.text.similarity('zero')
+            res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+            assert res[0]['rowid'] == 0
+
+            sim = t.text.similarity('one')
+            res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+            assert res[0]['rowid'] == 1
+
+    def test_embedding_index_exceeds_limit(self, reset_db: None) -> None:
+        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
+        with pytest.raises(pxt.Error, match='vector length 4001 exceeds maximum'):
+            t.add_embedding_index(t.text, embedding=TestIndex.dummy_embedding.using(n=4001))

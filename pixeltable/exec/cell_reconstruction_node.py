@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 import numpy as np
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import PIL.Image
 
 import pixeltable.type_system as ts
@@ -114,7 +115,9 @@ class CellReconstructionNode(ExecNode):
                         assert cell_md.file_urls is not None and len(cell_md.file_urls) == 1
                         row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
                     else:
-                        assert row[col_ref.slot_idx] is None or isinstance(row[col_ref.slot_idx], np.ndarray)
+                        assert row[col_ref.slot_idx] is None or isinstance(
+                            row[col_ref.slot_idx], (np.ndarray, pgvector.sqlalchemy.HalfVector)
+                        )
 
             yield batch
 

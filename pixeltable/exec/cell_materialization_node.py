@@ -119,7 +119,7 @@ class CellMaterializationNode(ExecNode):
             row.cell_md[col.id] = None
 
     def _materialize_array_cell(self, row: exprs.DataRow, col: catalog.Column, val: np.ndarray) -> None:
-        if isinstance(col.sa_col_type, pgvector.sqlalchemy.Vector):
+        if isinstance(col.sa_col_type, (pgvector.sqlalchemy.Vector, pgvector.sqlalchemy.HALFVEC)):
             # this is a vector column (ie, used for a vector index): store the array itself
             row.cell_vals[col.id] = val
             row.cell_md[col.id] = None
