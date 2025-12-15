@@ -21,7 +21,28 @@ T = typing.TypeVar('T')
 
 @func.uda(allows_window=True, type_substitutions=({T: int | None}, {T: float | None}))  # type: ignore[misc]
 class sum(func.Aggregator, typing.Generic[T]):
-    """Sums the selected integers or floats."""
+    """
+    Aggregate function that computes the sum of non-null values of a numeric column or grouping.
+
+    Args:
+        val: The numeric value to add to the sum.
+
+    Returns:
+        The sum of the non-null values, or `None` if there are no non-null values.
+
+    Examples:
+        Sum the values in the `value` column of the table `tbl`:
+
+        >>> tbl.select(pxt.functions.sum(tbl.value)).collect()
+
+        Group by the `category` column and compute the sum of the `value` column for each category,
+        assigning the name `'category_total'` to the new column:
+
+        >>> tbl.group_by(tbl.category).select(
+        ...     tbl.category,
+        ...     category_total=pxt.functions.sum(tbl.value)
+        ... ).collect()
+    """
 
     def __init__(self) -> None:
         self.sum: T = None
@@ -52,6 +73,29 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
     type_substitutions=tuple({T: t | None} for t in ts.ALL_PIXELTABLE_TYPES),  # type: ignore[misc]
 )
 class count(func.Aggregator, typing.Generic[T]):
+    """
+    Aggregate function that counts the number of non-null values in a column or grouping.
+
+    Args:
+        val: The value to count.
+
+    Returns:
+        The count of non-null values.
+
+    Examples:
+        Count the number of non-null values in the `value` column of the table `tbl`:
+
+        >>> tbl.select(pxt.functions.count(tbl.value)).collect()
+
+        Group by the `category` column and compute the count of non-null values in the `value` column
+        for each category, assigning the name `'category_count'` to the new column:
+
+        >>> tbl.group_by(tbl.category).select(
+        ...     tbl.category,
+        ...     category_count=pxt.functions.count(tbl.value)
+        ... ).collect()
+    """
+
     def __init__(self) -> None:
         self.count = 0
 
@@ -73,6 +117,29 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
     type_substitutions=tuple({T: t | None} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
 )
 class min(func.Aggregator, typing.Generic[T]):
+    """
+    Aggregate function that computes the minimum value in a column or grouping.
+
+    Args:
+        val: The value to compare.
+
+    Returns:
+        The minimum value, or `None` if there are no non-null values.
+
+    Examples:
+        Compute the minimum value in the `value` column of the table `tbl`:
+
+        >>> tbl.select(pxt.functions.min(tbl.value)).collect()
+
+        Group by the `category` column and compute the minimum value in the `value` column for each category,
+        assigning the name `'category_min'` to the new column:
+
+        >>> tbl.group_by(tbl.category).select(
+        ...     tbl.category,
+        ...     category_min=pxt.functions.min(tbl.value)
+        ... ).collect()
+    """
+
     def __init__(self) -> None:
         self.val: T = None
 
@@ -103,6 +170,29 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
     type_substitutions=tuple({T: t | None} for t in (str, int, float, bool, ts.Timestamp)),  # type: ignore[misc]
 )
 class max(func.Aggregator, typing.Generic[T]):
+    """
+    Aggregate function that computes the maximum value in a column or grouping.
+
+    Args:
+        val: The value to compare.
+
+    Returns:
+        The maximum value, or `None` if there are no non-null values.
+
+    Examples:
+        Compute the maximum value in the `value` column of the table `tbl`:
+
+        >>> tbl.select(pxt.functions.max(tbl.value)).collect()
+
+        Group by the `category` column and compute the maximum value in the `value` column for each category,
+        assigning the name `'category_max'` to the new column:
+
+        >>> tbl.group_by(tbl.category).select(
+        ...     tbl.category,
+        ...     category_max=pxt.functions.max(tbl.value)
+        ... ).collect()
+    """
+
     def __init__(self) -> None:
         self.val: T = None
 
@@ -128,6 +218,29 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
 
 @func.uda(type_substitutions=({T: int | None}, {T: float | None}))  # type: ignore[misc]
 class mean(func.Aggregator, typing.Generic[T]):
+    """
+    Aggregate function that computes the mean (average) of non-null values of a numeric column or grouping.
+
+    Args:
+        val: The numeric value to include in the mean.
+
+    Returns:
+        The mean of the non-null values, or `None` if there are no non-null values.
+
+    Examples:
+        Compute the mean of the values in the `value` column of the table `tbl`:
+
+        >>> tbl.select(pxt.functions.mean(tbl.value)).collect()
+
+        Group by the `category` column and compute the mean of the `value` column for each category,
+        assigning the name `'category_mean'` to the new column:
+
+        >>> tbl.group_by(tbl.category).select(
+        ...     tbl.category,
+        ...     category_mean=pxt.functions.mean(tbl.value)
+        ... ).collect()
+    """
+
     def __init__(self) -> None:
         self.sum: T = None
         self.count = 0
@@ -153,6 +266,21 @@ def _(val: sql.ColumnElement) -> sql.ColumnElement | None:
 
 
 def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
+    """
+    Applies a mapping function to each element of a list.
+
+    Args:
+        expr: The list expression to map over; must be an expression of type `pxt.Json`.
+        fn: An operation on Pixeltable expressions that will be applied to each element of the JSON array.
+
+    Examples:
+        Given a table `tbl` with a column `data` of type `pxt.Json` containing lists of integers, add a computed
+        column that produces new lists with each integer doubled:
+
+        >>> tbl.add_computed_column(
+        ...     doubled=pxt.functions.map(t.data, lambda x: x * 2)
+        ... )
+    """
     target_expr: exprs.Expr
     try:
         target_expr = exprs.Expr.from_object(fn(exprs.json_path.RELATIVE_PATH_ROOT))

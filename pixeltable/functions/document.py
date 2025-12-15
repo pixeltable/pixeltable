@@ -42,6 +42,21 @@ def document_splitter(
              (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
         image_dpi: DPI to use when extracting images from PDFs. Defaults to 300.
         image_format: format to use when extracting images from PDFs. Defaults to 'png'.
+
+    Examples:
+        All these examples assume an existing table `tbl` with a column `doc` of type `pxt.Document`.
+
+        Create a view that splits all documents into chunks of up to 300 tokens:
+
+        >>> pxt.create_view('chunks', tbl, iterator=document_splitter(tbl.doc, separators='token_limit', limit=300))
+
+        Create a view that splits all documents along sentence boundaries, including title and heading metadata:
+
+        >>> pxt.create_view(
+        ...     'sentence_chunks',
+        ...     tbl,
+        ...     iterator=document_splitter(tbl.doc, separators='sentence', metadata='title,heading')
+        ... )
     """
 
     kwargs: dict[str, Any] = {}

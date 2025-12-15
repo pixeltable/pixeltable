@@ -274,6 +274,11 @@ def _upload_to_presigned_url(file_path: Path, url: str, max_retries: int = 3) ->
 
     headers = {'Content-Length': str(file_size), 'Content-Type': 'application/octet-stream'}
 
+    # Detect if it's Azure by URL pattern
+    is_azure = 'blob.core.windows.net' in url
+    if is_azure:
+        headers['x-ms-blob-type'] = 'BlockBlob'
+
     session = _create_retry_session(max_retries=max_retries)
     try:
         with Progress(BarColumn(), DownloadColumn(), TransferSpeedColumn()) as progress:
@@ -284,7 +289,7 @@ def _upload_to_presigned_url(file_path: Path, url: str, max_retries: int = 3) ->
                     url,
                     data=file_with_progress,
                     headers=headers,
-                    timeout=(60, 1800),  # 60 seconds to connect and 300 seconds for server response
+                    timeout=(60, 1800),  # 60 seconds to connect and 1800 seconds for server response
                 )
                 response.raise_for_status()
                 return response

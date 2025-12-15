@@ -21,7 +21,7 @@ Pixeltable PDF search works in two phases:
     Create `table.py`:
     ```python
     import pixeltable as pxt
-    from pixeltable.iterators import DocumentSplitter
+    from pixeltable.functions.document import document_splitter
     from pixeltable.functions.huggingface import sentence_transformer
 
     # Initialize app structure
@@ -38,7 +38,7 @@ Pixeltable PDF search works in two phases:
     documents_chunks = pxt.create_view(
         "pdf_search.document_chunks",
         documents_t,
-        iterator=DocumentSplitter.create(
+        iterator=document_splitter(
             document=documents_t.pdf,
             separators="token_limit",
             limit=300  # Tokens per chunk
@@ -107,7 +107,7 @@ Pixeltable PDF search works in two phases:
   <Card title="Smart Chunking" icon="cut">
     Token-aware document splitting:
     ```python
-    iterator=DocumentSplitter.create(
+    iterator=document_splitter(
         document=documents_t.pdf,
         separators="token_limit",
         limit=300
@@ -173,7 +173,7 @@ Configure different chunking approaches:
 chunks_by_para = pxt.create_view(
     "pdf_search.para_chunks",
     documents_t,
-    iterator=DocumentSplitter.create(
+    iterator=document_splitter(
         document=documents_t.pdf,
         separators="paragraph"
     )
@@ -183,7 +183,7 @@ chunks_by_para = pxt.create_view(
 chunks_by_size = pxt.create_view(
     "pdf_search.size_chunks",
     documents_t,
-    iterator=DocumentSplitter.create(
+    iterator=document_splitter(
         document=documents_t.pdf,
         separators="fixed",
         size=1000  # characters

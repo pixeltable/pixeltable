@@ -462,6 +462,17 @@ def tile_iterator(
         image: Image to split into tiles.
         tile_size: Size of each tile, as a pair of integers `[width, height]`.
         overlap: Amount of overlap between adjacent tiles, as a pair of integers `[width, height]`.
+
+    Examples:
+        This example assumes an existing table `tbl` with a column `img` of type `pxt.Image`.
+
+        Create a view that splits all images into 256x256 tiles with 32 pixels of overlap:
+
+        >>> pxt.create_view(
+        ...     'image_tiles',
+        ...     tbl,
+        ...     iterator=image_tile_iterator(tbl.img, tile_size=(256, 256), overlap=(32, 32))
+        ... )
     """
     kwargs: dict[str, Any] = {}
     if overlap != (0, 0):
