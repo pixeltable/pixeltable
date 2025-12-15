@@ -24,6 +24,7 @@ from . import (
     llama_cpp,
     math,
     mistralai,
+    net,
     ollama,
     openai,
     openrouter,

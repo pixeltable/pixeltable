@@ -221,6 +221,7 @@ class ObjectPath:
             # https://account.blob.core.windows.net/container/<optional path>/<optional object>
             # https://account.r2.cloudflarestorage.com/container/<optional path>/<optional object>
             # https://s3.us-west-004.backblazeb2.com/container/<optional path>/<optional object>
+            # https://t3.storage.dev/container/<optional path>/<optional object> (Tigris)
             # and possibly others
             key = parsed.path
             if 'cloudflare' in parsed.netloc:
@@ -229,6 +230,8 @@ class ObjectPath:
                 storage_target = StorageTarget.B2_STORE
             elif 'windows' in parsed.netloc:
                 storage_target = StorageTarget.AZURE_STORE
+            elif 't3.storage.dev' in parsed.netloc:
+                storage_target = StorageTarget.TIGRIS_STORE
             else:
                 storage_target = StorageTarget.HTTP_STORE
             if storage_target in (
@@ -358,15 +361,33 @@ class ObjectStoreBase:
         """
         raise AssertionError
 
+    def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
+        """Create a presigned URL for downloading an object from the store.
+
+        Args:
+            soa: StorageObjectAddress containing the object location
+            expiration_seconds: Time in seconds for the URL to remain valid
+
+        Returns:
+            A presigned HTTP URL that can be used to access the object
+        """
+        raise AssertionError
+
 
 class ObjectOps:
     @classmethod
-    def get_store(cls, dest: str | None, allow_obj_name: bool, col_name: str | None = None) -> ObjectStoreBase:
+    def get_store(
+        cls, dest: str | StorageObjectAddress | None, allow_obj_name: bool, col_name: str | None = None
+    ) -> ObjectStoreBase:
         from pixeltable.env import Env
         from pixeltable.utils.local_store import LocalStore
 
         dest = dest or str(Env.get().media_dir)  # Use local media dir as fallback
-        soa = ObjectPath.parse_object_storage_addr(dest, allow_obj_name=allow_obj_name)
+        soa = (
+            dest
+            if isinstance(dest, StorageObjectAddress)
+            else ObjectPath.parse_object_storage_addr(dest, allow_obj_name=allow_obj_name)
+        )
         if soa.storage_target == StorageTarget.LOCAL_STORE:
             return LocalStore(soa)
         if soa.storage_target in (
@@ -534,3 +555,19 @@ class HTTPStore(ObjectStoreBase):
             f.write(data)
             f.flush()  # Ensures Python buffers are written to OS
             os.fsync(f.fileno())  # Forces OS to write to physical storage
+
+    def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
+        """Create a presigned URL for HTTP storage (returns the HTTP URL as-is).
+
+        Args:
+            soa: StorageObjectAddress containing the object location
+            expiration_seconds: Time in seconds for the URL to remain valid (ignored for HTTP)
+
+        Returns:
+            The HTTP URL as-is since it's already servable
+        """
+        if not soa.has_object:
+            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+
+        # Construct the full HTTP URL from the StorageObjectAddress
+        return f'{soa.scheme}://{soa.account_extension}/{soa.key}'
