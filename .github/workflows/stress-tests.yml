@@ -12,6 +12,7 @@ on:
         default: false
 
 env:
+  GRAFANA_INSTANCE_ID: '1465844'
   GRAFANA_API_KEY: ${{ secrets.GRAFANA_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_PERF_TEST }}
 

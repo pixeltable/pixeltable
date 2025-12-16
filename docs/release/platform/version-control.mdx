@@ -1,0 +1,199 @@
+---
+title: Version Control and Lineage
+description: Automatic versioning, time travel queries, and full data lineage tracking
+---
+
+Pixeltable automatically tracks every change to your tables—data insertions, updates, deletions, and schema modifications. Query any point in history, undo mistakes, and maintain full reproducibility without manual version management.
+
+## How it works
+
+Every operation that modifies a table creates a new version:
+
+```python
+import pixeltable as pxt
+
+# Version 0: Table created
+products = pxt.create_table('demo.products', {
+    'name': pxt.String,
+    'price': pxt.Float
+})
+
+# Version 1: Data inserted
+products.insert([
+    {'name': 'Widget', 'price': 9.99},
+    {'name': 'Gadget', 'price': 24.99}
+])
+
+# Version 2: Schema changed
+products.add_computed_column(price_with_tax=products.price * 1.08)
+
+# Version 3: Data updated
+products.update({'price': 19.99}, where=products.name == 'Widget')
+```
+
+No configuration required—versioning is always on.
+
+## Viewing history
+
+### Human-readable history
+
+```python
+products.history()
+```
+
+Returns a DataFrame showing all versions with timestamps, change types, and row counts:
+
+| version | created_at | change_type | inserts | updates | deletes | schema_change |
+|---------|------------|-------------|---------|---------|---------|---------------|
+| 3 | 2025-01-15 10:30:00 | data | 0 | 1 | 0 | None |
+| 2 | 2025-01-15 10:29:00 | schema | 0 | 2 | 0 | Added: price_with_tax |
+| 1 | 2025-01-15 10:28:00 | data | 2 | 0 | 0 | None |
+| 0 | 2025-01-15 10:27:00 | schema | 0 | 0 | 0 | Initial Version |
+
+### Programmatic access
+
+```python
+versions = products.get_versions()  # List of dictionaries
+latest = versions[0]
+print(f"Version {latest['version']}: {latest['inserts']} inserts")
+```
+
+## Time travel queries
+
+Query any historical version using the `table_name:version` syntax:
+
+```python
+# Get the table at version 1 (before computed column)
+products_v1 = pxt.get_table('demo.products:1')
+products_v1.collect()  # Returns data as it was at version 1
+
+# Compare with current state
+products.collect()  # Returns current data
+```
+
+Version handles are **read-only**—you cannot modify historical data.
+
+### Use cases
+
+- **Debugging**: Compare data before and after a problematic update
+- **Auditing**: Track who changed what and when
+- **Recovery**: Find and extract accidentally deleted or modified data
+- **Reproducibility**: Query exact data used for a specific model training run
+
+## Reverting changes
+
+Undo the most recent change with `revert()`:
+
+```python
+# Oops, wrong update
+products.update({'price': 0.00}, where=products.name == 'Widget')
+
+# Undo it
+products.revert()  # Removes version N, table is now at version N-1
+```
+
+<Warning>
+`revert()` permanently removes the latest version. This cannot be undone.
+</Warning>
+
+You can call `revert()` multiple times to go back further, but cannot revert past version 0 or past a version referenced by a snapshot.
+
+## Snapshots
+
+Create named, persistent point-in-time copies for long-term preservation:
+
+```python
+# Freeze current state before a major data update
+baseline = pxt.create_snapshot('demo.products_baseline', products)
+
+# Later: source table changes, but snapshot remains unchanged
+products.insert([{'name': 'NewItem', 'price': 99.99}])
+
+products.count()   # 3 rows (updated)
+baseline.count()   # 2 rows (frozen)
+```
+
+**Snapshots vs Time Travel:**
+- Time travel (`pxt.get_table('table:N')`) queries historical versions in place
+- Snapshots create a named, independent copy that persists even if the source table is modified or deleted
+
+## Data lineage
+
+Pixeltable tracks the complete lineage of your data:
+
+### Schema lineage
+Every computed column records its dependencies:
+
+```python
+products.add_computed_column(
+    discounted=products.price * 0.9
+)
+products.add_computed_column(
+    discounted_with_tax=products.discounted * 1.08
+)
+
+# Pixeltable knows: discounted_with_tax → discounted → price
+```
+
+### View lineage
+Views automatically track their source tables:
+
+```python
+expensive = pxt.create_view(
+    'demo.expensive_products',
+    products.where(products.price > 20)
+)
+# View lineage: expensive_products → products
+```
+
+### What's tracked
+
+| Change Type | Tracked Information |
+|-------------|---------------------|
+| `insert()` | Row count, timestamp, computed values generated |
+| `update()` | Rows affected, old vs new values (via version comparison) |
+| `delete()` | Row count removed |
+| `add_column()` | Column name, type, dependencies |
+| `add_computed_column()` | Column name, expression, dependencies |
+| `drop_column()` | Column removed |
+| `rename_column()` | Old name → new name |
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Use Snapshots for Milestones" icon="camera">
+    Create snapshots before major data loads, model training runs, or production deployments.
+  </Card>
+  <Card title="Version Numbers for Reproducibility" icon="code-branch">
+    Log table version numbers alongside model artifacts: `products.get_versions()[0]['version']`
+  </Card>
+  <Card title="Revert for Quick Fixes" icon="rotate-left">
+    Use `revert()` immediately after mistakes. For older issues, use time travel to identify the problem.
+  </Card>
+  <Card title="Namespace by Environment" icon="folder-tree">
+    Use directories like `dev.products`, `staging.products` to isolate versioning across environments.
+  </Card>
+</CardGroup>
+
+## Comparison with other systems
+
+| Feature | Pixeltable | Git | Delta Lake |
+|---------|------------|-----|------------|
+| Automatic versioning | ✅ Every operation | Manual commits | ✅ Every operation |
+| Time travel queries | ✅ `table:N` syntax | Checkout commit | ✅ `VERSION AS OF` |
+| Schema versioning | ✅ Tracked | File-based | ✅ Schema evolution |
+| Computed column lineage | ✅ Automatic | N/A | N/A |
+| Revert | ✅ `revert()` | `git revert` | `RESTORE` |
+| Named snapshots | ✅ `create_snapshot()` | Tags/branches | N/A |
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Hands-On Tutorial" icon="circle-play" href="/howto/cookbooks/core/version-control-history">
+    Step-by-step cookbook with runnable examples
+  </Card>
+  <Card title="Data Sharing" icon="share-nodes" href="/platform/data-sharing">
+    Publish and replicate tables across environments
+  </Card>
+</CardGroup>
+

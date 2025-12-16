@@ -7,7 +7,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.utils.av as av_utils
-from pixeltable.functions.audio import encode_audio
+from pixeltable.functions.audio import audio_splitter, encode_audio
 from pixeltable.iterators.audio import AudioSplitter
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
@@ -152,7 +152,7 @@ class TestAudio:
         audio_chunk_view = pxt.create_view(
             'audio_chunks',
             base_t,
-            iterator=AudioSplitter.create(
+            iterator=audio_splitter(
                 audio=base_t.audio, chunk_duration_sec=5.0, overlap_sec=1.25, min_chunk_duration_sec=0.5
             ),
         )
@@ -189,7 +189,7 @@ class TestAudio:
         audio_chunk_view = pxt.create_view(
             'audio_chunks',
             video_t,
-            iterator=AudioSplitter.create(
+            iterator=audio_splitter(
                 audio=video_t.audio, chunk_duration_sec=2.0, overlap_sec=0.5, min_chunk_duration_sec=0.25
             ),
         )
@@ -269,7 +269,7 @@ class TestAudio:
         audio_chunk_view = pxt.create_view(
             'audio_chunks',
             base_t,
-            iterator=AudioSplitter.create(
+            iterator=audio_splitter(
                 audio=base_t.audio, chunk_duration_sec=5.0, overlap_sec=0.0, min_chunk_duration_sec=0.0
             ),
         )
@@ -286,7 +286,7 @@ class TestAudio:
         audio_chunk_view = pxt.create_view(
             'audio_chunks_overlap',
             base_t,
-            iterator=AudioSplitter.create(
+            iterator=audio_splitter(
                 audio=base_t.audio, chunk_duration_sec=14.0, overlap_sec=2.5, min_chunk_duration_sec=0.0
             ),
         )
@@ -299,7 +299,7 @@ class TestAudio:
         audio_chunk_view = pxt.create_view(
             'audio_chunks_overlap_with_drop',
             base_t,
-            iterator=AudioSplitter.create(
+            iterator=audio_splitter(
                 audio=base_t.audio, chunk_duration_sec=14.0, overlap_sec=7.5, min_chunk_duration_sec=10
             ),
         )
@@ -317,7 +317,7 @@ class TestAudio:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,
-                iterator=AudioSplitter.create(
+                iterator=audio_splitter(
                     audio=base_t.audio, chunk_duration_sec=-1, overlap_sec=1, min_chunk_duration_sec=1
                 ),
             )
@@ -327,7 +327,7 @@ class TestAudio:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,
-                iterator=AudioSplitter.create(
+                iterator=audio_splitter(
                     audio=base_t.audio, chunk_duration_sec=1, overlap_sec=0, min_chunk_duration_sec=2
                 ),
             )
@@ -337,7 +337,7 @@ class TestAudio:
             _ = pxt.create_view(
                 'audio_chunks',
                 base_t,
-                iterator=AudioSplitter.create(
+                iterator=audio_splitter(
                     audio=base_t.audio, chunk_duration_sec=1, overlap_sec=1, min_chunk_duration_sec=0
                 ),
             )

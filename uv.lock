@@ -1316,13 +1316,13 @@ wheels = [
 
 [[package]]
 name = "datasets"
-version = "3.2.0"
+version = "4.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp" },
     { name = "dill" },
     { name = "filelock" },
     { name = "fsspec", extra = ["http"] },
+    { name = "httpx" },
     { name = "huggingface-hub" },
     { name = "multiprocess" },
     { name = "numpy" },
@@ -1334,9 +1334,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "xxhash" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fc/48/744286c044e2b942d4fa67f92816126522ad1f0675def0ea3264e6242005/datasets-3.2.0.tar.gz", hash = "sha256:9a6e1a356052866b5dbdd9c9eedb000bf3fc43d986e3584d9b028f4976937229", size = 558366, upload-time = "2024-12-10T16:56:38.162Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/93/bf/0dae295d6d1ba0b1a200a9dd216838464b5bbd05da01407cb1330b377445/datasets-4.4.1.tar.gz", hash = "sha256:80322699aa8c0bbbdb7caa87906da689c3c2e29523cff698775c67f28fdab1fc", size = 585341, upload-time = "2025-11-05T16:00:38.162Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d7/84/0df6c5981f5fc722381662ff8cfbdf8aad64bec875f75d80b55bfef394ce/datasets-3.2.0-py3-none-any.whl", hash = "sha256:f3d2ba2698b7284a4518019658596a6a8bc79f31e51516524249d6c59cf0fe2a", size = 480647, upload-time = "2024-12-10T16:56:34.742Z" },
+    { url = "https://files.pythonhosted.org/packages/3b/5e/6f8d874366788ad5d549e9ba258037d974dda6e004843be1bda794571701/datasets-4.4.1-py3-none-any.whl", hash = "sha256:c1163de5211e42546079ab355cc0250c7e6db16eb209ac5ac6252f801f596c44", size = 511591, upload-time = "2025-11-05T16:00:36.365Z" },
 ]
 
 [[package]]
@@ -5015,6 +5015,7 @@ dependencies = [
     { name = "av", version = "16.0.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '4'" },
     { name = "beautifulsoup4" },
     { name = "cloudpickle" },
+    { name = "deprecated" },
     { name = "ftfy" },
     { name = "httpcore" },
     { name = "httpx" },
@@ -5035,7 +5036,7 @@ dependencies = [
     { name = "puremagic" },
     { name = "pyarrow" },
     { name = "pydantic" },
-    { name = "pymupdf" },
+    { name = "pypdfium2" },
     { name = "pyyaml" },
     { name = "requests" },
     { name = "sqlalchemy" },
@@ -5105,6 +5106,7 @@ dev = [
     { name = "transformers" },
     { name = "twelvelabs" },
     { name = "types-beautifulsoup4" },
+    { name = "types-deprecated" },
     { name = "types-jmespath" },
     { name = "types-jsonschema" },
     { name = "types-pillow" },
@@ -5139,6 +5141,7 @@ requires-dist = [
     { name = "av", specifier = ">=10.0.0" },
     { name = "beautifulsoup4", specifier = ">=4.10" },
     { name = "cloudpickle", specifier = ">=2.2.1" },
+    { name = "deprecated", specifier = ">=1.2.15" },
     { name = "ftfy", specifier = ">=6.2.0" },
     { name = "httpcore", specifier = ">=1.0.3" },
     { name = "httpx", specifier = ">=0.27" },
@@ -5159,7 +5162,7 @@ requires-dist = [
     { name = "puremagic", specifier = ">=1.20" },
     { name = "pyarrow", specifier = ">=19" },
     { name = "pydantic", specifier = ">=2.7.4" },
-    { name = "pymupdf", specifier = ">=1.24.1" },
+    { name = "pypdfium2", specifier = ">=4.30.0" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "sqlalchemy", specifier = ">=2.0.23" },
@@ -5179,7 +5182,7 @@ dev = [
     { name = "boto3", specifier = "==1.36.23" },
     { name = "boto3-stubs", specifier = "==1.36.23" },
     { name = "botocore", specifier = "==1.36.23" },
-    { name = "datasets", specifier = ">=3.2.0" },
+    { name = "datasets", specifier = ">=3.5.0" },
     { name = "diffusers", specifier = ">=0.34" },
     { name = "fal-client", specifier = ">=0.5.6" },
     { name = "fiftyone", specifier = ">=1.7" },
@@ -5227,8 +5230,9 @@ dev = [
     { name = "torchaudio", specifier = "~=2.7" },
     { name = "torchvision", specifier = ">=0.22" },
     { name = "transformers", specifier = "~=4.52" },
-    { name = "twelvelabs", specifier = ">=1.0" },
+    { name = "twelvelabs", specifier = ">=1.1.0" },
     { name = "types-beautifulsoup4", specifier = ">=4.2" },
+    { name = "types-deprecated", specifier = ">=1.2.15" },
     { name = "types-jmespath", specifier = ">=1.0" },
     { name = "types-jsonschema", specifier = ">=4.1.0" },
     { name = "types-pillow", specifier = ">=10.0" },
@@ -5258,7 +5262,7 @@ test = [
 [[package]]
 name = "pixeltable-doctools"
 version = "0.1.0"
-source = { git = "https://github.com/pixeltable/pixeltable-doctools#4810b1cb2b8216f737c89ffa0d2bb0d870d3018c" }
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#f6afda04d7ed4782d013b724ee261a6c76800d40" }
 dependencies = [
     { name = "docstring-parser" },
     { name = "griffe" },
@@ -6271,27 +6275,32 @@ wheels = [
 ]
 
 [[package]]
-name = "pymupdf"
-version = "1.25.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/06/47/b61c1c44b87cbdaeecdec3f43ce524ed6b3c72172bc6184eb82c94fbc43d/pymupdf-1.25.3.tar.gz", hash = "sha256:b640187c64c5ac5d97505a92e836da299da79c2f689f3f94a67a37a493492193", size = 67259841, upload-time = "2025-02-06T13:06:03.067Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/61/9b/98ef4b98309e9db3baa9fe572f0e61b6130bb9852d13189970f35b703499/pymupdf-1.25.3-cp39-abi3-macosx_10_9_x86_64.whl", hash = "sha256:96878e1b748f9c2011aecb2028c5f96b5a347a9a91169130ad0133053d97915e", size = 19343576, upload-time = "2025-02-06T13:03:51.663Z" },
-    { url = "https://files.pythonhosted.org/packages/14/62/4e12126db174c8cfbf692281cda971cc4046c5f5226032c2cfaa6f83e08d/pymupdf-1.25.3-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:6ef753005b72ebfd23470f72f7e30f61e21b0b5e748045ec5b8f89e6e3068d62", size = 18580114, upload-time = "2025-02-06T13:03:25.619Z" },
-    { url = "https://files.pythonhosted.org/packages/ec/c5/cf7ecf005e4f8ba3664d6aaa0613adeba4c2ab524832c452c69857e7184f/pymupdf-1.25.3-cp39-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:cbff443d899f37b17f1e67563cc03673d50b4bf33ccc237e73d34f18f3a07ccf", size = 19442580, upload-time = "2025-03-12T11:47:22.196Z" },
-    { url = "https://files.pythonhosted.org/packages/52/de/bd1418e31f73d37b8381cd5deacfd681e6be702b8890e123e83724569ee1/pymupdf-1.25.3-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:46d90c4f9e62d1856e8db4b9f04a202ff4a7f086a816af73abdc86adb7f5e25a", size = 19999825, upload-time = "2025-02-06T13:04:39.487Z" },
-    { url = "https://files.pythonhosted.org/packages/42/ee/3c449b0de061440ba1ac984aa845315e9e2dca0ff2003c5adfc6febff203/pymupdf-1.25.3-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:a5de51efdbe4d486b6c1111c84e8a231cbfb426f3d6ff31ab530ad70e6f39756", size = 21123157, upload-time = "2025-02-06T13:03:06.966Z" },
-    { url = "https://files.pythonhosted.org/packages/83/53/71faaaf91c56f2883b13f3dd849bf2697f012eb35eb7b952d62734cff41f/pymupdf-1.25.3-cp39-abi3-win32.whl", hash = "sha256:bca72e6089f985d800596e22973f79cc08af6cbff1d93e5bda9248326a03857c", size = 15094211, upload-time = "2025-02-06T13:04:52.08Z" },
-    { url = "https://files.pythonhosted.org/packages/09/e0/d72e88a1d5e23aa381fd463057dc3d0fb29090e1e7308a870c334716579c/pymupdf-1.25.3-cp39-abi3-win_amd64.whl", hash = "sha256:4fb357438c9129fbf939b5af85323434df64e36759c399c376b62ad6da95498c", size = 16542949, upload-time = "2025-02-06T13:04:22.444Z" },
-]
-
-[[package]]
 name = "pyparsing"
 version = "3.1.1"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/37/fe/65c989f70bd630b589adfbbcd6ed238af22319e90f059946c26b4835e44b/pyparsing-3.1.1.tar.gz", hash = "sha256:ede28a1a32462f5a9705e07aea48001a08f7cf81a021585011deba701581a0db", size = 884814, upload-time = "2023-07-30T15:07:02.617Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/39/92/8486ede85fcc088f1b3dba4ce92dd29d126fd96b0008ea213167940a2475/pyparsing-3.1.1-py3-none-any.whl", hash = "sha256:32c7c0b711493c72ff18a981d24f28aaf9c1fb7ed5e9667c9e84e3db623bdbfb", size = 103139, upload-time = "2023-07-30T15:06:59.829Z" },
+]
+
+[[package]]
+name = "pypdfium2"
+version = "4.30.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a1/14/838b3ba247a0ba92e4df5d23f2bea9478edcfd72b78a39d6ca36ccd84ad2/pypdfium2-4.30.0.tar.gz", hash = "sha256:48b5b7e5566665bc1015b9d69c1ebabe21f6aee468b509531c3c8318eeee2e16", size = 140239, upload-time = "2024-05-09T18:33:17.552Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c7/9a/c8ff5cc352c1b60b0b97642ae734f51edbab6e28b45b4fcdfe5306ee3c83/pypdfium2-4.30.0-py3-none-macosx_10_13_x86_64.whl", hash = "sha256:b33ceded0b6ff5b2b93bc1fe0ad4b71aa6b7e7bd5875f1ca0cdfb6ba6ac01aab", size = 2837254, upload-time = "2024-05-09T18:32:48.653Z" },
+    { url = "https://files.pythonhosted.org/packages/21/8b/27d4d5409f3c76b985f4ee4afe147b606594411e15ac4dc1c3363c9a9810/pypdfium2-4.30.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:4e55689f4b06e2d2406203e771f78789bd4f190731b5d57383d05cf611d829de", size = 2707624, upload-time = "2024-05-09T18:32:51.458Z" },
+    { url = "https://files.pythonhosted.org/packages/11/63/28a73ca17c24b41a205d658e177d68e198d7dde65a8c99c821d231b6ee3d/pypdfium2-4.30.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:4e6e50f5ce7f65a40a33d7c9edc39f23140c57e37144c2d6d9e9262a2a854854", size = 2793126, upload-time = "2024-05-09T18:32:53.581Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/96/53b3ebf0955edbd02ac6da16a818ecc65c939e98fdeb4e0958362bd385c8/pypdfium2-4.30.0-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.whl", hash = "sha256:3d0dd3ecaffd0b6dbda3da663220e705cb563918249bda26058c6036752ba3a2", size = 2591077, upload-time = "2024-05-09T18:32:55.99Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/ee/0394e56e7cab8b5b21f744d988400948ef71a9a892cbeb0b200d324ab2c7/pypdfium2-4.30.0-py3-none-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:cc3bf29b0db8c76cdfaac1ec1cde8edf211a7de7390fbf8934ad2aa9b4d6dfad", size = 2864431, upload-time = "2024-05-09T18:32:57.911Z" },
+    { url = "https://files.pythonhosted.org/packages/65/cd/3f1edf20a0ef4a212a5e20a5900e64942c5a374473671ac0780eaa08ea80/pypdfium2-4.30.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f1f78d2189e0ddf9ac2b7a9b9bd4f0c66f54d1389ff6c17e9fd9dc034d06eb3f", size = 2812008, upload-time = "2024-05-09T18:32:59.886Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/91/2d517db61845698f41a2a974de90762e50faeb529201c6b3574935969045/pypdfium2-4.30.0-py3-none-musllinux_1_1_aarch64.whl", hash = "sha256:5eda3641a2da7a7a0b2f4dbd71d706401a656fea521b6b6faa0675b15d31a163", size = 6181543, upload-time = "2024-05-09T18:33:02.597Z" },
+    { url = "https://files.pythonhosted.org/packages/ba/c4/ed1315143a7a84b2c7616569dfb472473968d628f17c231c39e29ae9d780/pypdfium2-4.30.0-py3-none-musllinux_1_1_i686.whl", hash = "sha256:0dfa61421b5eb68e1188b0b2231e7ba35735aef2d867d86e48ee6cab6975195e", size = 6175911, upload-time = "2024-05-09T18:33:05.376Z" },
+    { url = "https://files.pythonhosted.org/packages/7a/c4/9e62d03f414e0e3051c56d5943c3bf42aa9608ede4e19dc96438364e9e03/pypdfium2-4.30.0-py3-none-musllinux_1_1_x86_64.whl", hash = "sha256:f33bd79e7a09d5f7acca3b0b69ff6c8a488869a7fab48fdf400fec6e20b9c8be", size = 6267430, upload-time = "2024-05-09T18:33:08.067Z" },
+    { url = "https://files.pythonhosted.org/packages/90/47/eda4904f715fb98561e34012826e883816945934a851745570521ec89520/pypdfium2-4.30.0-py3-none-win32.whl", hash = "sha256:ee2410f15d576d976c2ab2558c93d392a25fb9f6635e8dd0a8a3a5241b275e0e", size = 2775951, upload-time = "2024-05-09T18:33:10.567Z" },
+    { url = "https://files.pythonhosted.org/packages/25/bd/56d9ec6b9f0fc4e0d95288759f3179f0fcd34b1a1526b75673d2f6d5196f/pypdfium2-4.30.0-py3-none-win_amd64.whl", hash = "sha256:90dbb2ac07be53219f56be09961eb95cf2473f834d01a42d901d13ccfad64b4c", size = 2892098, upload-time = "2024-05-09T18:33:13.107Z" },
+    { url = "https://files.pythonhosted.org/packages/be/7a/097801205b991bc3115e8af1edb850d30aeaf0118520b016354cf5ccd3f6/pypdfium2-4.30.0-py3-none-win_arm64.whl", hash = "sha256:119b2969a6d6b1e8d55e99caaf05290294f2d0fe49c12a3f17102d01c441bd29", size = 2752118, upload-time = "2024-05-09T18:33:15.489Z" },
 ]
 
 [[package]]
@@ -8475,7 +8484,7 @@ wheels = [
 
 [[package]]
 name = "twelvelabs"
-version = "1.0.2"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "httpx" },
@@ -8483,9 +8492,9 @@ dependencies = [
     { name = "pydantic-core" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f3/a9/c461bb8ee5e6fb921d62899c3eb168dc60b05853d5bfc847841bccb2fc18/twelvelabs-1.0.2.tar.gz", hash = "sha256:108d583db15148fdab976f7d91d92b2befa338e4562d301aafb6da5efaf085d9", size = 90824, upload-time = "2025-09-17T18:18:28.76Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/bf/68/06faac86aa679ca609597b4fcd8a0d9d642314df79ad8c5b93985088da61/twelvelabs-1.1.0.tar.gz", hash = "sha256:02a26542606fcc4c0ee20fd09b335e664cc79269970d22fc9abfdac443ccd066", size = 141368, upload-time = "2025-11-18T01:40:50.964Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/43/f1/ab42e54c6c380f54fee9cfefcf77506ed871e5c4c30a07a8a47c0f40c4ea/twelvelabs-1.0.2-py3-none-any.whl", hash = "sha256:f6e22265224c2d70a415f25869bec14020e20dc50276bd03a6cc1db5155ef6bd", size = 172798, upload-time = "2025-09-17T18:18:27.35Z" },
+    { url = "https://files.pythonhosted.org/packages/f0/0b/61c8da90f83430732265b3a76172c6946bd642030703be5e37804f5c0531/twelvelabs-1.1.0-py3-none-any.whl", hash = "sha256:01074eb18f8035d3cb860ecb50080220c9b9f42b1cc5114f027e6b8e3589b78a", size = 285767, upload-time = "2025-11-18T01:40:49.776Z" },
 ]
 
 [[package]]
@@ -8527,6 +8536,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/56/4a/a5630805a9ab67c7bc852a16826e72b884a9460328c95f5202fb37e3473c/types-beautifulsoup4-4.12.0.20240511.tar.gz", hash = "sha256:004f6096fdd83b19cdbf6cb10e4eae57b10205eccc365d0a69d77da836012e28", size = 11479, upload-time = "2024-05-11T02:18:12.921Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3d/93/c2a9ecb06a2740b59342eaa51099b4f56c398196f99b826586ab0febc31b/types_beautifulsoup4-4.12.0.20240511-py3-none-any.whl", hash = "sha256:7ceda66a93ba28d759d5046d7fec9f4cad2f563a77b3a789efc90bcadafeefd1", size = 12074, upload-time = "2024-05-11T02:18:11.722Z" },
+]
+
+[[package]]
+name = "types-deprecated"
+version = "1.3.1.20251101"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c6/96/0f96107945697e452c56a2e9f575da627e61d67940e5913d9c968e5e8be1/types_deprecated-1.3.1.20251101.tar.gz", hash = "sha256:f002d266b73201f46ec6fc712c1f016067ec6cb44357559cdb50c86b010951a7", size = 8358, upload-time = "2025-11-01T03:04:05.6Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9e/50/fb191dba89031e30c9ea07c3133c6fe8e7da038ef4d0b79539cf85fb1a97/types_deprecated-1.3.1.20251101-py3-none-any.whl", hash = "sha256:274edcc2a084d3fe31802d3c1379abd630716d3db34e40577e12ad84d6b73134", size = 9057, upload-time = "2025-11-01T03:04:04.633Z" },
 ]
 
 [[package]]

@@ -1,3 +1,9 @@
+"""
+General Pixeltable UDFs.
+
+This parent module contains general-purpose UDFs that apply to multiple data types.
+"""
+
 # ruff: noqa: F401
 
 from pixeltable.utils.code import local_public_names
@@ -18,6 +24,7 @@ from . import (
     llama_cpp,
     math,
     mistralai,
+    net,
     ollama,
     openai,
     openrouter,
@@ -27,6 +34,7 @@ from . import (
     timestamp,
     together,
     twelvelabs,
+    uuid,
     video,
     vision,
     voyageai,
