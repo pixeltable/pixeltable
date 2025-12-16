@@ -89,6 +89,7 @@
                       "howto/cookbooks/core/query-join-tables",
                       "howto/cookbooks/core/version-control-history",
                       "howto/cookbooks/core/custom-aggregates-uda",
+                      "howto/cookbooks/core/data-split-rows",
                       "howto/cookbooks/core/time-zones"
                     ]
                   },
