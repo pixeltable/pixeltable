@@ -262,6 +262,8 @@ class ColumnType:
             return DateType(nullable=nullable)
         if isinstance(val, uuid.UUID):
             return UUIDType(nullable=nullable)
+        if isinstance(val, bytes):
+            return BinaryType(nullable=nullable)
         if isinstance(val, PIL.Image.Image):
             return ImageType(width=val.width, height=val.height, mode=val.mode, nullable=nullable)
         if isinstance(val, np.ndarray):

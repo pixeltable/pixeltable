@@ -100,7 +100,7 @@ class Literal(Expr):
             assert isinstance(self.val, uuid.UUID)
             encoded_val = str(self.val)
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
-        elif self.col_type.is_bytes_type():
+        elif self.col_type.is_binary_type():
             assert isinstance(self.val, bytes)
             encoded_val = base64.b64encode(self.val).decode('utf-8')
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}

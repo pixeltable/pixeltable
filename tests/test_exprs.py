@@ -4,9 +4,9 @@ import math
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import date, datetime
+import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -468,7 +468,7 @@ class TestExprs:
             (t.c1, 'test string 10'),  # string-to-string
             (t.c2, 50),  # int-to-int
             (t.c3, 50.1),  # float-to-float
-            (t.c5, datetime(2024, 7, 2)),  # datetime-to-datetime
+            (t.c5, datetime.datetime(2024, 7, 2)),  # datetime-to-datetime
         )
         for expr1, expr2 in comparison_pairs:
             forced_expr1 = expr1.apply(lambda x: x, col_type=expr1.col_type)
@@ -501,18 +501,24 @@ class TestExprs:
 
     def test_constant_literals(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
+        class LiteralCase(NamedTuple):
+            input: Any
+            expected_output: Any
         literals = [
             'abc',
             100,
             10.4,
             True,
-            datetime.now(),
-            date.today(),
+            datetime.datetime.now(datetime.timezone.utc),
+            datetime.date.today(),
             uuid.uuid4(),  # constant uuid
             b'1$\x01\x03',  # binary data
             # various json literals
-            (100, 200),
-            {'a': 'str100', 'b': 3.14, 'c': [1, 2, 3], 'd': {'e': (0.99, 100.1)}},
+            LiteralCase(input=(100, 200), expected_output=[100, 200]),
+            LiteralCase(
+                input={'a': 'str100', 'b': 3.14, 'c': [1, 2, 3], 'd': {'e': (0.99, 100.1)}},
+                expected_output={'a': 'str100', 'b': 3.14, 'c': [1, 2, 3], 'd': {'e': [0.99, 100.1]}},
+            ),
             [[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]],
             pxt.array([100.1, 200.1, 300.1]),  # one dimensional floating point array
             pxt.array(['abc', 'bcd', 'efg']),  # one dimensional string array
@@ -525,12 +531,21 @@ class TestExprs:
                 ]
             ),
         ]
+
         for i, lit in enumerate(literals):
-            t.add_computed_column(**{f'literal_{i}': lit})
+            input = lit.input if isinstance(lit, LiteralCase) else lit
+            t.add_computed_column(**{f'literal_{i}': input})
         results = reload_tester.run_query(
             t.select(*[t[f'literal_{i}'] for i in range(len(literals))])
         )
-        print(results.schema)
+
+        for i in range(len(literals)):
+            col_name = f'literal_{i}'
+            expected_output = lit.expected_output if isinstance(lit, LiteralCase) else lit
+            assert type(expected_output) == type(results[col_name][0]), f'Column {col_name} has wrong type'
+            assert expected_output == results[col_name][0]
+            assert all(expected_output == results[col_name][j] for j in range(len(results))), f'Column {col_name}, row {i} did not match expected literal value: {expected_output}'
+
         reload_tester.run_reload_test()
 
     def test_inline_constants(self, test_tbl: pxt.Table) -> None:
@@ -631,7 +646,7 @@ class TestExprs:
             pxt.Error,
             match=r'element of type `Int` at index 1 is not compatible with type `Timestamp` of preceding elements',
         ):
-            _ = t.select(pxt.array([datetime(2025, 12, 5), t.c2])).collect()
+            _ = t.select(pxt.array([datetime.datetime(2025, 12, 5), t.c2])).collect()
 
     def test_json_path(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -777,7 +792,7 @@ class TestExprs:
         assert len(rows) == 3
 
         # list of literals with some incompatible values
-        rows = list(t.where(t.c2.isin(['a', datetime.now(), 1, 2, 3])).select(*user_cols).collect())
+        rows = list(t.where(t.c2.isin(['a', datetime.datetime.now(), 1, 2, 3])).select(*user_cols).collect())
         assert len(rows) == 3
 
         # set of literals
