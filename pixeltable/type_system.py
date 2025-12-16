@@ -381,6 +381,8 @@ class ColumnType:
                     return DateType(nullable=nullable_default)
                 if t is uuid.UUID:
                     return UUIDType(nullable=nullable_default)
+                if t is bytes:
+                    return BinaryType(nullable=nullable_default)
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
                 if isinstance(t, type) and issubclass(t, (Sequence, Mapping, pydantic.BaseModel)):
@@ -410,9 +412,9 @@ class ColumnType:
         (datetime.date, 'pxt.Date'),
         (uuid.UUID, 'pxt.UUID'),
         (PIL.Image.Image, 'pxt.Image'),
+        (bytes, 'pxt.Binary'),
         (Sequence, 'pxt.Json'),
         (Mapping, 'pxt.Json'),
-        (bytes, 'pxt.Binary'),
     ]
 
     @classmethod

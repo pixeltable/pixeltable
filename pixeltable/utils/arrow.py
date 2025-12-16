@@ -32,7 +32,7 @@ PA_TO_PXT_TYPES: dict[pa.DataType, ts.ColumnType] = {
     pa.date32(): ts.DateType(nullable=True),
     pa.date64(): ts.DateType(nullable=True),
     pa.uuid(): ts.UUIDType(nullable=True),
-    pa.binary(): None,  # cannot import binary (inline image)
+    pa.binary(): ts.BinaryType(nullable=True),
 }
 
 PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
@@ -43,6 +43,7 @@ PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
     ts.BoolType: pa.bool_(),
     ts.IntType: pa.int64(),
     ts.FloatType: pa.float32(),
+    ts.BinaryType: pa.binary(),
     ts.JsonType: pa.string(),  # TODO(orm) pa.struct() is possible
     ts.ImageType: pa.binary(),  # inline image
     ts.AudioType: pa.string(),  # path
@@ -151,6 +152,8 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                     # pa.uuid() uses fixed_size_binary(16) as storage type
                     val = val.bytes  # Convert UUID to 16-byte binary for arrow
                     val_size_bytes = len(val)
+                elif col_type.is_binary_type():
+                    val_size_bytes = len(val)
                 elif col_type.is_media_type():
                     assert data_row.file_paths[e.slot_idx] is not None
                     val = data_row.file_paths[e.slot_idx]
@@ -237,6 +240,9 @@ def _ar_val_to_pxt_val(val: Any, pxt_type: ts.ColumnType) -> Any:
         if isinstance(val, bytes):
             return uuid.UUID(bytes=val)
         return uuid.UUID(val)
+    elif pxt_type.is_binary_type():
+        assert isinstance(val, bytes)
+        return val
     elif pxt_type.is_date_type():
         if isinstance(val, str):
             return datetime.date.fromisoformat(val)

@@ -522,7 +522,15 @@ class TestExprs:
             [[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]],
             pxt.array([100.1, 200.1, 300.1]),  # one dimensional floating point array
             pxt.array(['abc', 'bcd', 'efg']),  # one dimensional string array
-            # multidimensional string arrays
+            # multidimensional int array
+            pxt.array(
+                [
+                    [[1, 2, 3], [4, 5, 6]],
+                    [[10, 20, 30], [40, 50, 60]],
+                    [[100, 200, 300], [400, 500, 600]],
+                ]
+            ),
+            # multidimensional string array
             pxt.array(
                 [
                     [['a1', 'b2', 'c3'], ['a4', 'b5', 'c6']],
