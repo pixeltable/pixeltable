@@ -14,7 +14,6 @@ from pixeltable.functions.huggingface import clip
 
 from .utils import (
     ReloadTester,
-    assert_img_eq,
     assert_resultset_eq,
     get_sentences,
     reload_catalog,
@@ -98,7 +97,7 @@ class TestIndex:
             )
             res = reload_tester.run_query(query)
             out_img = res[0, 'img']
-            assert_img_eq(sample_img, out_img, f'{metric} failed when using index {iname}')
+            assert sample_img == out_img, f'{metric} failed when using index {iname}'
 
             # TODO:  how to verify the output?
             query = (

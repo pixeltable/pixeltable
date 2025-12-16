@@ -516,10 +516,6 @@ __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
 }
 
 
-def assert_json_eq(x: Any, y: Any, context: str = '') -> None:
-    assert __json_comparer(x, y), f'{context}: {x} != {y}'
-
-
 def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatches: list[int]) -> str:
     lines = [f'Column {col_name!r} does not match.']
     for i in mismatches[:5]:
@@ -680,13 +676,6 @@ def make_test_arrow_table(output_path: Path) -> str:
     assert read_table.schema.equals(test_table.schema)
     assert read_table.equals(test_table)
     return table_path
-
-
-def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) -> None:
-    assert img1.mode == img2.mode, context
-    assert img1.size == img2.size, context
-    diff = PIL.ImageChops.difference(img1, img2)  # type: ignore[attr-defined]
-    assert diff.getbbox() is None, context
 
 
 def reload_catalog(reload: bool = True) -> None:

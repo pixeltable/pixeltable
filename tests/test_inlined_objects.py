@@ -9,7 +9,7 @@ import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore
 
-from .utils import assert_columns_eq, assert_json_eq, inf_array_iterator, inf_image_iterator, validate_update_status, ReloadTester
+from .utils import ReloadTester, assert_columns_eq, inf_array_iterator, inf_image_iterator, validate_update_status
 
 
 class TestInlinedObjects:
@@ -35,13 +35,14 @@ class TestInlinedObjects:
 
         # 5 columns: cycle through different shapes and sizes in each row
         t = pxt.create_table(
-            'test', {'id': pxt.Int, 'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array, 'ar4': pxt.Array, 'ar5': pxt.Array}
+            'test',
+            {'id': pxt.Int, 'ar1': pxt.Array, 'ar2': pxt.Array, 'ar3': pxt.Array, 'ar4': pxt.Array, 'ar5': pxt.Array},
         )
 
         vals = inf_array_iterator(
             shapes=[(4, 4), (40, 40), (500, 500), (1000, 2000)], dtypes=[np.int64, np.float32, np.bool_]
         )
-        rows = [
+        rows: list[dict[str, Any]] = [
             {'id': i, 'ar1': next(vals), 'ar2': next(vals), 'ar3': next(vals), 'ar4': next(vals), 'ar5': next(vals)}
             for i in range(60)
         ]
@@ -61,11 +62,8 @@ class TestInlinedObjects:
         assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
-        assert all(np.array_equal(row['ar1'], rows[i]['ar1']) for i, row in enumerate(res))
-        assert all(np.array_equal(row['ar2'], rows[i]['ar2']) for i, row in enumerate(res))
-        assert all(np.array_equal(row['ar3'], rows[i]['ar3']) for i, row in enumerate(res))
-        assert all(np.array_equal(row['ar4'], rows[i]['ar4']) for i, row in enumerate(res))
-        assert all(np.array_equal(row['ar5'], rows[i]['ar5']) for i, row in enumerate(res))
+        for col in ('ar1', 'ar2', 'ar3', 'ar4', 'ar5'):
+            assert_columns_eq(col, res.schema[col], [row[col] for row in rows], res[col])
 
         reload_tester.run_reload_test()
 
@@ -141,13 +139,22 @@ class TestInlinedObjects:
         assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         res = reload_tester.run_query(t.order_by(t.id))
-        for i, row in enumerate(res):
-            assert_json_eq(row['array_list'], rows[i]['array_list'])
-            assert_json_eq(row['array_dict'], rows[i]['array_dict'])
-            assert_json_eq(row['img_list'], [row['img1'], row['img2'], row['img3']])
-            assert_json_eq(row['img_dict'], {'img1': row['img1'], 'img2': row['img2'], 'img3': row['img3']})
-            assert_json_eq(row['bytes_list'], rows[i]['bytes_list'])
-            assert_json_eq(row['bytes_dict'], rows[i]['bytes_dict'])
+        for col in ('array_list', 'array_dict', 'bytes_list', 'bytes_dict'):
+            assert_columns_eq(col, res.schema[col], [row[col] for row in rows], res[col])
+
+        # For img_list and img_dict, we need to compare the images as they appear in the DB, on both sides.
+        assert_columns_eq(
+            'img_list',
+            res.schema['img_list'],
+            [[row['img1'], row['img2'], row['img3']] for row in res],
+            res['img_list'],
+        )
+        assert_columns_eq(
+            'img_dict',
+            res.schema['img_dict'],
+            [{'img1': row['img1'], 'img2': row['img2'], 'img3': row['img3']} for row in res],
+            res['img_dict'],
+        )
 
         reload_tester.run_reload_test()
 
@@ -211,9 +218,10 @@ class TestInlinedObjects:
         assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
 
         # list construction
-        res = reload_tester.run_query(t.select(t.l1, l2=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5]).order_by(t.id))
-        for i, row in enumerate(res):
-            assert_json_eq(row['l1'], row['l2'], context=f'row {i}')
+        res = reload_tester.run_query(
+            t.select(t.l1, l2=[t.a1, t.img1, t.a2, t.img2, t.a3, t.img3, t.a4, t.img4, t.a5]).order_by(t.id)
+        )
+        assert_columns_eq('l1', res.schema['l1'], res['l1'], res['l2'])
 
         # dict construction
         res = reload_tester.run_query(
@@ -230,26 +238,20 @@ class TestInlinedObjects:
                     'w': t.img4,
                     'e': t.a5,
                 },
-            )
-            .order_by(t.id)
+            ).order_by(t.id)
         )
-        for i, row in enumerate(res):
-            assert_json_eq(row['d1'], row['d2'], context=f'row {i}')
+        assert_columns_eq('d1', res.schema['d1'], res['d1'], res['d2'])
 
         # test json path materialization (instead of full reconstruction of l1/d1)
         # TODO: collect runtime information to verify that we're only reconstructing l1[0], not the entire cell
         res = reload_tester.run_query(t.select(t.a1, l_a1=t.l1[0]).order_by(t.id))
-        for i, row in enumerate(res):
-            assert_json_eq(row['a1'], row['l_a1'], context=f'row {i}')
+        assert_columns_eq('a1', res.schema['a1'], res['a1'], res['l_a1'])
         res = reload_tester.run_query(t.select(t.img1, l_img1=t.l1[1]).order_by(t.id))
-        for i, row in enumerate(res):
-            assert_json_eq(row['img1'], row['l_img1'], context=f'row {i}')
+        assert_columns_eq('img1', res.schema['img1'], res['img1'], res['l_img1'])
         res = reload_tester.run_query(t.select(t.a2, d_a2=t.d1['b']).order_by(t.id))
-        for i, row in enumerate(res):
-            assert_json_eq(row['a2'], row['d_a2'], context=f'row {i}')
+        assert_columns_eq('a2', res.schema['a2'], res['a2'], res['d_a2'])
         res = reload_tester.run_query(t.select(t.img2, d_img2=t.d1['y']).order_by(t.id))
-        for i, row in enumerate(res):
-            assert_json_eq(row['img2'], row['d_img2'], context=f'row {i}')
+        assert_columns_eq('img2', res.schema['img2'], res['img2'], res['d_img2'])
 
         reload_tester.run_reload_test()
 
