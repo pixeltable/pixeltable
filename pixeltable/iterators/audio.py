@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any, ClassVar
 
 import av
+from deprecated import deprecated
 
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.utils.local_store import TempStore
@@ -14,18 +15,6 @@ _logger = logging.getLogger('pixeltable')
 
 
 class AudioSplitter(ComponentIterator):
-    """
-    Iterator over chunks of an audio file. The audio file is split into smaller chunks,
-    where the duration of each chunk is determined by chunk_duration_sec.
-    The iterator yields audio chunks as pxt.Audio, along with the start and end time of each chunk.
-    If the input contains no audio, no chunks are yielded.
-
-    Args:
-        chunk_duration_sec: Audio chunk duration in seconds
-        overlap_sec: Overlap between consecutive chunks in seconds.
-        min_chunk_duration_sec: Drop the last chunk if it is smaller than min_chunk_duration_sec
-    """
-
     # Input parameters
     audio_path: Path
     chunk_duration_sec: float
@@ -212,5 +201,7 @@ class AudioSplitter(ComponentIterator):
     def close(self) -> None:
         self.container.close()
 
-    def set_pos(self, pos: int) -> None:
-        pass
+    @classmethod
+    @deprecated('create() is deprecated; use `pixeltable.functions.audio.audio_splitter` instead', version='0.5.6')
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return super()._create(**kwargs)

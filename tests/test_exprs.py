@@ -3,6 +3,7 @@ import json
 import math
 import urllib.parse
 import urllib.request
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,7 @@ from pixeltable import exprs, functions as pxtf
 from pixeltable.catalog import Catalog
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
-from pixeltable.iterators import FrameIterator
+from pixeltable.functions.video import frame_iterator
 
 from .utils import (
     ReloadTester,
@@ -522,8 +523,9 @@ class TestExprs:
                 ]
             )
         )
+        t.add_computed_column(cc10=uuid.uuid4())  # constant uuid
         results = reload_tester.run_query(
-            t.select(t.cc0, t.cc1, t.cc2, t.cc3, t.cc4, t.cc5, t.cc6, t.cc7, t.cc8, t.cc9)
+            t.select(t.cc0, t.cc1, t.cc2, t.cc3, t.cc4, t.cc5, t.cc6, t.cc7, t.cc8, t.cc9, t.cc10)
         )
         print(results.schema)
         reload_tester.run_reload_test()
@@ -1172,7 +1174,7 @@ class TestExprs:
 
         # ordering conflict between frame extraction and window fn
         base_t = pxt.create_table('videos', {'video': pxt.Video, 'c2': pxt.Int})
-        v = pxt.create_view('frame_view', base_t, iterator=FrameIterator.create(video=base_t.video, fps=0))
+        v = pxt.create_view('frame_view', base_t, iterator=frame_iterator(base_t.video, fps=0))
         # compatible ordering
         _ = v.select(v.frame, pxtf.sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
         with pytest.raises(pxt.Error):

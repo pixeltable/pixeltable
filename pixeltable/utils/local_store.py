@@ -306,10 +306,12 @@ class TempStore:
         _logger.debug(f'Media Storage: deleted {file_path}')
 
     @classmethod
-    def create_path(cls, tbl_id: UUID | None = None, extension: str = '') -> Path:
+    def create_path(cls, tbl_id: UUID | None = None, extension: str | None = None) -> Path:
         """Return a new, unique Path located in the temporary store.
         If tbl_id is provided, the path name will be similar to a LocalStore path based on the tbl_id.
         If tbl_id is None, a random UUID will be used to create the path."""
+        if extension is None:
+            extension = ''
         if tbl_id is not None:
             return LocalStore(cls._tmp_dir())._prepare_path_raw(tbl_id, 0, 0, extension)
         return cls._tmp_dir() / f'{uuid.uuid4()}{extension}'

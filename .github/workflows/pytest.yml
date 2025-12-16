@@ -86,6 +86,7 @@ env:
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
   REVE_API_KEY: ${{ secrets.REVE_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+  TWELVELABS_API_KEY: ${{ secrets.TWELVELABS_API_KEY }}
   VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
 
 jobs:
@@ -222,7 +223,6 @@ jobs:
       - name: Validate docstrings
         if: ${{ matrix.test-category == 'lint' }}
         run: |
-          mkdocs build --strict
           # Install quarto and mintlify in order to build the docs
           conda install -y -c conda-forge quarto nodejs
           npm install -g @mintlify/cli
