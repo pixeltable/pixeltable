@@ -24,6 +24,7 @@ from pixeltable.functions.video import frame_iterator
 
 from .utils import (
     ReloadTester,
+    assert_columns_eq,
     create_all_datatypes_tbl,
     create_scalars_tbl,
     get_image_files,
@@ -520,10 +521,10 @@ class TestExprs:
                 expected_output={'a': 'str100', 'b': 3.14, 'c': [1, 2, 3], 'd': {'e': [0.99, 100.1]}},
             ),
             [[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]],
-            pxt.array([100.1, 200.1, 300.1]),  # one dimensional floating point array
-            pxt.array(['abc', 'bcd', 'efg']),  # one dimensional string array
+            np.array([100.1, 200.1, 300.1], dtype='float16'),  # one dimensional floating point array
+            np.array(['abc', 'bcd', 'efg']),  # one dimensional string array
             # multidimensional int array
-            pxt.array(
+            np.array(
                 [
                     [[1, 2, 3], [4, 5, 6]],
                     [[10, 20, 30], [40, 50, 60]],
@@ -531,7 +532,7 @@ class TestExprs:
                 ]
             ),
             # multidimensional string array
-            pxt.array(
+            np.array(
                 [
                     [['a1', 'b2', 'c3'], ['a4', 'b5', 'c6']],
                     [['a10', 'b20', 'c30'], ['a40', 'b50', 'c60']],
@@ -543,16 +544,16 @@ class TestExprs:
         for i, lit in enumerate(literals):
             input = lit.input if isinstance(lit, LiteralCase) else lit
             t.add_computed_column(**{f'literal_{i}': input})
+
         results = reload_tester.run_query(
             t.select(*[t[f'literal_{i}'] for i in range(len(literals))])
         )
 
-        for i in range(len(literals)):
+        for i, lit in enumerate(literals):
             col_name = f'literal_{i}'
             expected_output = lit.expected_output if isinstance(lit, LiteralCase) else lit
             assert type(expected_output) == type(results[col_name][0]), f'Column {col_name} has wrong type'
-            assert expected_output == results[col_name][0]
-            assert all(expected_output == results[col_name][j] for j in range(len(results))), f'Column {col_name}, row {i} did not match expected literal value: {expected_output}'
+            assert_columns_eq(col_name, results.schema[col_name], [expected_output] * len(results), results[col_name])
 
         reload_tester.run_reload_test()
 

@@ -456,8 +456,12 @@ def assert_resultset_eq(r1: ResultSet, r2: ResultSet, compare_col_names: bool = 
     if compare_col_names:
         assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):
-        mismatches = __find_column_mismatches(r1.schema[r1_col], r1[r1_col], r2[r2_col])
-        assert len(mismatches) == 0, __mismatch_err_string(r1_col, r1[r1_col], r2[r2_col], mismatches)
+        assert_columns_eq(r1_col, r1.schema[r1_col], r1[r1_col], r2[r2_col])
+
+
+def assert_columns_eq(col_name: str, col_type: ts.ColumnType, c1: list[Any], c2: list[Any]) -> None:
+    mismatches = __find_column_mismatches(col_type, c1, c2)
+    assert len(mismatches) == 0, __mismatch_err_string(col_name, c1, c2, mismatches)
 
 
 def __find_column_mismatches(col_type: ts.ColumnType, s1: list[Any], s2: list[Any]) -> list[int]:
