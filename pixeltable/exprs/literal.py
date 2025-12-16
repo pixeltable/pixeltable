@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import datetime
 import uuid
 from typing import Any
@@ -99,6 +100,10 @@ class Literal(Expr):
             assert isinstance(self.val, uuid.UUID)
             encoded_val = str(self.val)
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
+        elif self.col_type.is_bytes_type():
+            assert isinstance(self.val, bytes)
+            encoded_val = base64.b64encode(self.val).decode('utf-8')
+            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         elif self.col_type.is_array_type():
             assert isinstance(self.val, np.ndarray)
             return {'val': self.val.tolist(), 'val_t': self.col_type._type.name, **super()._as_dict()}
@@ -123,6 +128,10 @@ class Literal(Expr):
             elif val_t == ts.ColumnType.Type.UUID.name:
                 uuid_val = uuid.UUID(d['val'])
                 return cls(uuid_val)
+            elif val_t == ts.ColumnType.Type.BINARY.name:
+                assert isinstance(d['val'], str)
+                bytes_val = base64.b64decode(d['val'].encode('utf-8'))
+                return cls(bytes_val)
             elif val_t == ts.ColumnType.Type.ARRAY.name:
                 arrays = np.array(d['val'])
                 return cls(arrays)

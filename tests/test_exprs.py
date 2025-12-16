@@ -4,7 +4,7 @@ import math
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -501,31 +501,34 @@ class TestExprs:
 
     def test_constant_literals(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
-        t.add_computed_column(cc0=datetime.now())  # timestamp
-        t.add_computed_column(cc1=100)  # integer
-        t.add_computed_column(cc2='abc')  # string
-        t.add_computed_column(cc3=10.4)  # floating point
-        t.add_computed_column(cc4=(100, 200))  # tuple of integer
-        t.add_computed_column(cc5={'a': 'str100', 'b': 3.14, 'c': [1, 2, 3], 'd': {'e': (0.99, 100.1)}})
-        t.add_computed_column(cc6=pxt.array([100.1, 200.1, 300.1]))  # one dimensional floating point array
-        t.add_computed_column(cc7=pxt.array(['abc', 'bcd', 'efg']))  # one dimensional string array
-        # list if list (integers)
-        t.add_computed_column(
-            cc8=[[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]]
-        )
-        # multidimensional string arrays
-        t.add_computed_column(
-            cc9=pxt.array(
+        literals = [
+            'abc',
+            100,
+            10.4,
+            True,
+            datetime.now(),
+            date.today(),
+            uuid.uuid4(),  # constant uuid
+            b'1$\x01\x03',  # binary data
+            # various json literals
+            (100, 200),
+            {'a': 'str100', 'b': 3.14, 'c': [1, 2, 3], 'd': {'e': (0.99, 100.1)}},
+            [[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]],
+            pxt.array([100.1, 200.1, 300.1]),  # one dimensional floating point array
+            pxt.array(['abc', 'bcd', 'efg']),  # one dimensional string array
+            # multidimensional string arrays
+            pxt.array(
                 [
                     [['a1', 'b2', 'c3'], ['a4', 'b5', 'c6']],
                     [['a10', 'b20', 'c30'], ['a40', 'b50', 'c60']],
                     [['a100', 'b200', 'c300'], ['a400', 'b500', 'c600']],
                 ]
-            )
-        )
-        t.add_computed_column(cc10=uuid.uuid4())  # constant uuid
+            ),
+        ]
+        for i, lit in enumerate(literals):
+            t.add_computed_column(**{f'literal_{i}': lit})
         results = reload_tester.run_query(
-            t.select(t.cc0, t.cc1, t.cc2, t.cc3, t.cc4, t.cc5, t.cc6, t.cc7, t.cc8, t.cc9, t.cc10)
+            t.select(*[t[f'literal_{i}'] for i in range(len(literals))])
         )
         print(results.schema)
         reload_tester.run_reload_test()

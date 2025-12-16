@@ -139,33 +139,37 @@ class ColumnType:
 
     @classmethod
     def make_type(cls, t: Type) -> ColumnType:
-        assert t != cls.Type.INVALID
-        if t == cls.Type.STRING:
-            return StringType()
-        if t == cls.Type.INT:
-            return IntType()
-        if t == cls.Type.FLOAT:
-            return FloatType()
-        if t == cls.Type.BOOL:
-            return BoolType()
-        if t == cls.Type.TIMESTAMP:
-            return TimestampType()
-        if t == cls.Type.ARRAY:
-            return ArrayType()
-        if t == cls.Type.JSON:
-            return JsonType()
-        if t == cls.Type.IMAGE:
-            return ImageType()
-        if t == cls.Type.VIDEO:
-            return VideoType()
-        if t == cls.Type.AUDIO:
-            return AudioType()
-        if t == cls.Type.DOCUMENT:
-            return DocumentType()
-        if t == cls.Type.DATE:
-            return DateType()
-        if t == cls.Type.UUID:
-            return UUIDType()
+        match t:
+            case cls.Type.STRING:
+                return StringType()
+            case cls.Type.INT:
+                return IntType()
+            case cls.Type.FLOAT:
+                return FloatType()
+            case cls.Type.BOOL:
+                return BoolType()
+            case cls.Type.TIMESTAMP:
+                return TimestampType()
+            case cls.Type.JSON:
+                return JsonType()
+            case cls.Type.ARRAY:
+                return ArrayType()
+            case cls.Type.IMAGE:
+                return ImageType()
+            case cls.Type.VIDEO:
+                return VideoType()
+            case cls.Type.AUDIO:
+                return AudioType()
+            case cls.Type.DOCUMENT:
+                return DocumentType()
+            case cls.Type.DATE:
+                return DateType()
+            case cls.Type.UUID:
+                return UUIDType()
+            case cls.Type.BINARY:
+                return BinaryType()
+            case _:
+                raise AssertionError(t)
 
     def __repr__(self) -> str:
         return self._to_str(as_schema=False)
@@ -406,6 +410,7 @@ class ColumnType:
         (PIL.Image.Image, 'pxt.Image'),
         (Sequence, 'pxt.Json'),
         (Mapping, 'pxt.Json'),
+        (bytes, 'pxt.Binary'),
     ]
 
     @classmethod
@@ -529,6 +534,9 @@ class ColumnType:
 
     def is_array_type(self) -> bool:
         return self._type == self.Type.ARRAY
+
+    def is_binary_type(self) -> bool:
+        return self._type == self.Type.BINARY
 
     def is_image_type(self) -> bool:
         return self._type == self.Type.IMAGE
@@ -772,6 +780,22 @@ class UUIDType(ColumnType):
         if isinstance(val, str):
             return uuid.UUID(val)
         return val
+
+
+class BinaryType(ColumnType):
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.BINARY, nullable=nullable)
+
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
+        return sql.LargeBinary()
+
+    def _to_base_str(self) -> str:
+        return 'Binary'
+
+    def _validate_literal(self, val: Any) -> None:
+        if not isinstance(val, bytes):
+            raise TypeError(f'Expected `bytes`, got `{val.__class__.__name__}`')
 
 
 class JsonType(ColumnType):
@@ -1386,6 +1410,7 @@ Bool = typing.Annotated[bool, BoolType(nullable=False)]
 Timestamp = typing.Annotated[datetime.datetime, TimestampType(nullable=False)]
 Date = typing.Annotated[datetime.date, DateType(nullable=False)]
 UUID = typing.Annotated[uuid.UUID, UUIDType(nullable=False)]
+Binary = typing.Annotated[bytes, BinaryType(nullable=False)]
 
 
 class _PxtType:
@@ -1527,4 +1552,4 @@ class Document(str, _PxtType):
         return DocumentType(nullable=nullable)
 
 
-ALL_PIXELTABLE_TYPES = (String, Bool, Int, Float, Timestamp, Date, UUID, Json, Array, Image, Video, Audio, Document)
+ALL_PIXELTABLE_TYPES = (String, Bool, Int, Float, Timestamp, Json, Array, Image, Video, Audio, Document, Date, UUID, Binary)

@@ -90,6 +90,7 @@ class DataRow:
     - TimestampType: datetime.datetime
     - DateType: datetime.date
     - UUIDType: uuid.UUID
+    - BinaryType: bytes
     - JsonType: json-serializable object
     - ArrayType: numpy.ndarray
     - ImageType: PIL.Image.Image
