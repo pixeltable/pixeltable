@@ -502,9 +502,13 @@ class TestExprs:
 
     def test_constant_literals(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
+
         class LiteralCase(NamedTuple):
             input: Any
             expected_output: Any
+
+        # For each entry in this list, if it's a bare object, then we assume the round-trip output is identical to the
+        # input; if it's an instance of LiteralCase, then they may differ (as in the case of tuples converted to lists)
         literals = [
             'abc',
             100,
@@ -521,8 +525,8 @@ class TestExprs:
                 expected_output={'a': 'str100', 'b': 3.14, 'c': [1, 2, 3], 'd': {'e': [0.99, 100.1]}},
             ),
             [[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]],
-            np.array([100.1, 200.1, 300.1], dtype='float16'),  # one dimensional floating point array
-            np.array(['abc', 'bcd', 'efg']),  # one dimensional string array
+            np.array([100.1, 200.1, 300.1], dtype='float16'),  # one-dimensional floating point array
+            np.array(['abc', 'bcd', 'efg']),  # one-dimensional string array
             # multidimensional int array
             np.array(
                 [
@@ -539,6 +543,8 @@ class TestExprs:
                     [['a100', 'b200', 'c300'], ['a400', 'b500', 'c600']],
                 ]
             ),
+            # boolean array
+            np.array([[True, False, True], [False, True, False], [True, True, True]]),
         ]
 
         for i, lit in enumerate(literals):
