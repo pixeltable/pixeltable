@@ -558,6 +558,10 @@ class ColumnType:
         # types that refer to external media files
         return self.is_image_type() or self.is_video_type() or self.is_audio_type() or self.is_document_type()
 
+    def is_materializable(self) -> bool:
+        # types that can be materialized via a CellMaterializationNode
+        return self.is_array_type() or self.is_json_type() or self.is_binary_type()
+
     @classmethod
     @abc.abstractmethod
     def to_sa_type(cls) -> sql.types.TypeEngine:
@@ -861,7 +865,7 @@ class JsonType(ColumnType):
 
     @classmethod
     def __is_valid_json(cls, val: Any) -> bool:
-        if val is None or isinstance(val, (str, int, float, bool, np.ndarray, PIL.Image.Image)):
+        if val is None or isinstance(val, (str, int, float, bool, np.ndarray, PIL.Image.Image, bytes)):
             return True
         if isinstance(val, (list, tuple)):
             return all(cls.__is_valid_json(v) for v in val)

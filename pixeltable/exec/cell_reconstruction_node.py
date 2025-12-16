@@ -4,6 +4,7 @@ import io
 import logging
 from pathlib import Path
 from typing import Any, AsyncIterator
+from types import NoneType
 
 import numpy as np
 import PIL.Image
@@ -87,18 +88,21 @@ class CellReconstructionNode(ExecNode):
 
     json_refs: list[exprs.ColumnRef]
     array_refs: list[exprs.ColumnRef]
+    binary_refs: list[exprs.ColumnRef]
     file_handles: dict[Path, io.BufferedReader]  # key: file path
 
     def __init__(
         self,
         json_refs: list[exprs.ColumnRef],
         array_refs: list[exprs.ColumnRef],
+        binary_refs: list[exprs.ColumnRef],
         row_builder: exprs.RowBuilder,
         input: ExecNode | None = None,
     ):
         super().__init__(row_builder, [], [], input)
         self.json_refs = json_refs
         self.array_refs = array_refs
+        self.binary_refs = binary_refs
         self.file_handles = {}
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
@@ -117,10 +121,17 @@ class CellReconstructionNode(ExecNode):
                     cell_md = row.slot_md.get(col_ref.slot_idx)
                     if cell_md is not None and cell_md.array_md is not None:
                         assert row[col_ref.slot_idx] is None
-                        assert cell_md.file_urls is not None and len(cell_md.file_urls) == 1
                         row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
                     else:
-                        assert row[col_ref.slot_idx] is None or isinstance(row[col_ref.slot_idx], np.ndarray)
+                        assert isinstance(row[col_ref.slot_idx], (NoneType, np.ndarray))
+
+                for col_ref in self.binary_refs:
+                    cell_md = row.slot_md.get(col_ref.slot_idx)
+                    if cell_md is not None and cell_md.binary_md is not None:
+                        assert row[col_ref.slot_idx] is None
+                        row[col_ref.slot_idx] = self._reconstruct_binary(cell_md)
+                    else:
+                        assert isinstance(row[col_ref.slot_idx], (NoneType, bytes))
 
             yield batch
 
@@ -130,12 +141,25 @@ class CellReconstructionNode(ExecNode):
 
     def _reconstruct_array(self, cell_md: exprs.CellMd) -> np.ndarray:
         assert cell_md.array_md is not None
-        local_path = parse_local_file_path(cell_md.file_urls[0])
-        assert local_path is not None
-        if local_path not in self.file_handles:
-            self.file_handles[local_path] = open(str(local_path), 'rb')  # noqa: SIM115
-        fp = self.file_handles[local_path]
+        assert cell_md.file_urls is not None and len(cell_md.file_urls) == 1
+        fp = self.__get_file_pointer(cell_md.file_urls[0])
         ar = load_array(
             fp, cell_md.array_md.start, cell_md.array_md.end, bool(cell_md.array_md.is_bool), cell_md.array_md.shape
         )
         return ar
+
+    def _reconstruct_binary(self, cell_md: exprs.CellMd) -> bytes:
+        assert cell_md.binary_md is not None
+        assert cell_md.file_urls is not None and len(cell_md.file_urls) == 1
+        fp = self.__get_file_pointer(cell_md.file_urls[0])
+        fp.seek(cell_md.binary_md.start)
+        data = fp.read(cell_md.binary_md.end - cell_md.binary_md.start)
+        assert fp.tell() == cell_md.binary_md.end
+        return data
+
+    def __get_file_pointer(self, file_url: str) -> io.BufferedReader:
+        local_path = parse_local_file_path(file_url)
+        assert local_path is not None
+        if local_path not in self.file_handles:
+            self.file_handles[local_path] = open(str(local_path), 'rb')  # noqa: SIM115
+        return self.file_handles[local_path]

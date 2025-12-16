@@ -56,14 +56,14 @@ class CellMaterializationNode(ExecNode):
     buffered_writer: io.BufferedWriter | None  # BufferedWriter for inlined_obj_files[-1]
 
     MIN_FILE_SIZE = 8 * 2**20  # 8MB
-    MAX_DB_ARRAY_SIZE = 512  # max size of array stored in table column; in bytes
+    MAX_DB_BINARY_SIZE = 512  # max size of binary data stored in table column; in bytes
 
     def __init__(self, input: ExecNode):
         super().__init__(input.row_builder, [], [], input)
         self.output_col_info = {
             col: slot_idx
             for col, slot_idx in input.row_builder.table_columns.items()
-            if slot_idx is not None and (col.col_type.is_json_type() or col.col_type.is_array_type())
+            if slot_idx is not None and col.col_type.is_materializable()
         }
         self.inlined_obj_files = []
         self.buffered_writer = None
@@ -87,10 +87,13 @@ class CellMaterializationNode(ExecNode):
 
                     if col.col_type.is_json_type():
                         self._materialize_json_cell(row, col, val)
-                    else:
-                        assert col.col_type.is_array_type()
+                    elif col.col_type.is_array_type():
                         assert isinstance(val, np.ndarray)
                         self._materialize_array_cell(row, col, val)
+                    else:
+                        assert col.col_type.is_binary_type()
+                        assert isinstance(val, bytes)
+                        self._materialize_binary_cell(row, col, val)
 
                     # continue with only the currently open file
                     self.inlined_obj_files = self.inlined_obj_files[-1:]
@@ -123,7 +126,7 @@ class CellMaterializationNode(ExecNode):
             # this is a vector column (ie, used for a vector index): store the array itself
             row.cell_vals[col.id] = val
             row.cell_md[col.id] = None
-        elif val.nbytes <= self.MAX_DB_ARRAY_SIZE:
+        elif val.nbytes <= self.MAX_DB_BINARY_SIZE:
             # this array is small enough to store in the db column (type: binary) directly
             buffer = io.BytesIO()
             np.save(buffer, val, allow_pickle=False)
@@ -148,6 +151,25 @@ class CellMaterializationNode(ExecNode):
             if np.issubdtype(val.dtype, np.bool_):
                 cell_md.array_md.is_bool = True
                 cell_md.array_md.shape = val.shape
+            row.cell_md[col.id] = cell_md
+            self._flush_buffer()
+
+        assert row.cell_vals[col.id] is not None or row.cell_md[col.id] is not None
+
+    def _materialize_binary_cell(self, row: exprs.DataRow, col: catalog.Column, val: bytes) -> None:
+        if len(val) <= self.MAX_DB_BINARY_SIZE:
+            # this binary is small enough to store in the db column (type: binary) directly
+            row.cell_vals[col.id] = val
+            row.cell_md[col.id] = None
+        else:
+            self.init_writer()
+            start = self.buffered_writer.tell()
+            self.buffered_writer.write(val)
+            end = self.buffered_writer.tell()
+            row.cell_vals[col.id] = None
+            cell_md = exprs.CellMd(
+                file_urls=[self.inlined_obj_files[-1].as_uri()], binary_md=exprs.BinaryMd(start=start, end=end)
+            )
             row.cell_md[col.id] = cell_md
             self._flush_buffer()
 

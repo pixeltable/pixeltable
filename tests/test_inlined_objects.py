@@ -3,12 +3,13 @@ from typing import Any
 
 import numpy as np
 import PIL.Image
+import random
 
 import pixeltable as pxt
 from pixeltable.env import Env
 from pixeltable.utils.local_store import LocalStore
 
-from .utils import assert_json_eq, inf_array_iterator, inf_image_iterator, validate_update_status
+from .utils import assert_columns_eq, assert_json_eq, inf_array_iterator, inf_image_iterator, validate_update_status
 
 
 class TestInlinedObjects:
@@ -67,8 +68,26 @@ class TestInlinedObjects:
         pxt.drop_table('test')
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
+    def test_insert_binary(self, reset_db: None) -> None:
+        """Test storing binary data of various sizes."""
+        t = pxt.create_table('test', {'data': pxt.Binary})
+
+        rnd = random.Random(4171780)
+        data = [rnd.randbytes(size) for size in (0, 2**10, 2**5, 2**20, 2**8)]
+        validate_update_status(t.insert({'data': d} for d in data), expected_rows=len(data))
+        tbl_id = t._id
+        assert LocalStore(Env.get().media_dir).count(tbl_id) > 0
+
+        res = t.head(100)  # head(): return in insertion order
+        assert_columns_eq('data', res.schema['data'], data, res['data'])
+
+        pxt.drop_table('test')
+        assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
+
     def test_insert_inlined_objects(self, reset_db: None) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
+        rnd = random.Random(4171780)
+
         schema = {
             'array_list': pxt.Json,
             'array_dict': pxt.Json,
@@ -77,6 +96,8 @@ class TestInlinedObjects:
             'img3': pxt.Image,
             'img_list': pxt.Json,
             'img_dict': pxt.Json,
+            'bytes_list': pxt.Json,
+            'bytes_dict': pxt.Json,
         }
         t = pxt.create_table('test', schema)
 
@@ -101,6 +122,8 @@ class TestInlinedObjects:
                     'img3': img3,
                     'img_list': [img1, img2, img3],
                     'img_dict': {'img1': img1, 'img2': img2, 'img3': img3},
+                    'bytes_list': [rnd.randbytes(size) for size in (0, 2**10, 2**5, 2**20, 2**8)],
+                    'bytes_dict': {str(size): rnd.randbytes(size) for size in (0, 2**10, 2**5, 2**20, 2**8)},
                 }
             )
         status = t.insert(rows)
@@ -114,6 +137,8 @@ class TestInlinedObjects:
             assert_json_eq(row['array_dict'], rows[i]['array_dict'])
             assert_json_eq(row['img_list'], [row['img1'], row['img2'], row['img3']])
             assert_json_eq(row['img_dict'], {'img1': row['img1'], 'img2': row['img2'], 'img3': row['img3']})
+            assert_json_eq(row['bytes_list'], rows[i]['bytes_list'])
+            assert_json_eq(row['bytes_dict'], rows[i]['bytes_dict'])
 
         pxt.drop_table('test')
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0

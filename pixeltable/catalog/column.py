@@ -129,8 +129,7 @@ class Column:
             self.stores_cellmd = stored and (
                 self.is_computed
                 or self.col_type.is_media_type()
-                or self.col_type.is_json_type()
-                or self.col_type.is_array_type()
+                or self.col_type.is_materializable()
             )
 
         # column in the stored table for the values of this Column
