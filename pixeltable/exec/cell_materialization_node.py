@@ -240,7 +240,9 @@ class CellMaterializationNode(ExecNode):
         self.buffered_writer.write(data)
         end = self.buffered_writer.tell()
         self._flush_buffer()
-        return InlinedObjectMd(type=ts.ColumnType.Type.BINARY.name, url_idx=url_idx, img_start=start, img_end=end)
+        return InlinedObjectMd(
+            type=ts.ColumnType.Type.BINARY.name, url_idx=url_idx, binary_md=exprs.BinaryMd(start, end)
+        )
 
     def _reset_buffer(self) -> None:
         local_path = LocalStore(Env.get().media_dir)._prepare_path_raw(

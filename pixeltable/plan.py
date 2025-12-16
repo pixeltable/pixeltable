@@ -421,9 +421,7 @@ class Planner:
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
-            needs_cell_materialization = (
-                needs_cell_materialization or col.col_type.is_materializable()
-            )
+            needs_cell_materialization = needs_cell_materialization or col.col_type.is_materializable()
 
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
@@ -620,10 +618,8 @@ class Planner:
         array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
         array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
         binary_refs = list(
-            exprs.Expr.list_subexprs(
-                expr_list,
-                filter=binary_filter,
-                traverse_matches=False))
+            exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
+        )
         if len(json_refs) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
             return exec.CellReconstructionNode(json_refs, array_refs, binary_refs, input.row_builder, input=input)
         else:

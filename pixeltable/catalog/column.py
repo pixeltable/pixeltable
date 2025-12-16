@@ -127,9 +127,7 @@ class Column:
             self.stores_cellmd = stores_cellmd
         else:
             self.stores_cellmd = stored and (
-                self.is_computed
-                or self.col_type.is_media_type()
-                or self.col_type.is_materializable()
+                self.is_computed or self.col_type.is_media_type() or self.col_type.is_materializable()
             )
 
         # column in the stored table for the values of this Column

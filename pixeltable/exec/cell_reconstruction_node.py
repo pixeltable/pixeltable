@@ -3,8 +3,8 @@ from __future__ import annotations
 import io
 import logging
 from pathlib import Path
-from typing import Any, AsyncIterator
 from types import NoneType
+from typing import Any, AsyncIterator
 
 import numpy as np
 import PIL.Image
@@ -59,9 +59,12 @@ def reconstruct_json(element: Any, urls: list[str], file_handles: dict[Path, io.
                 return img
             else:
                 assert obj_md.type == ts.ColumnType.Type.BINARY.name
-                fp.seek(obj_md.img_start)
-                data = fp.read(obj_md.img_end - obj_md.img_start)
-                assert fp.tell() == obj_md.img_end, f'{fp.tell()} != {obj_md.img_end} ({obj_md.img_start})'
+                assert obj_md.binary_md is not None
+                fp.seek(obj_md.binary_md.start)
+                data = fp.read(obj_md.binary_md.end - obj_md.binary_md.start)
+                assert fp.tell() == obj_md.binary_md.end, (
+                    f'{fp.tell()} != {obj_md.binary_md.end} ({obj_md.binary_md.start})'
+                )
                 return data
         else:
             return {k: reconstruct_json(v, urls, file_handles) for k, v in element.items()}

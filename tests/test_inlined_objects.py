@@ -1,9 +1,9 @@
+import random
 import time
 from typing import Any
 
 import numpy as np
 import PIL.Image
-import random
 
 import pixeltable as pxt
 from pixeltable.env import Env
