@@ -123,6 +123,9 @@ class ExprEvalNode(ExecNode):
         assert not self.input_complete
         try:
             batch = await anext(self.input_iter)
+            if self.progress_reporter is not None:
+                # make sure our progress reporter shows up before we run anything long
+                self.progress_reporter.update(0)
             assert self.next_input_batch is None
             if self.current_input_batch is None:
                 self.current_input_batch = batch

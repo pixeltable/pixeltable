@@ -128,7 +128,6 @@ dev = [
     "pixeltable-doctools @ git+https://github.com/pixeltable/pixeltable-doctools",
     "pycocotools>=2.0.10",
     "ipykernel>=6.27.1,<7",
-    "ipywidgets>=7.6,<9",
     "tabulate>=0.9",
     "nbmake>=1.5,<2",
     "mistune>=3.0.2,<4",

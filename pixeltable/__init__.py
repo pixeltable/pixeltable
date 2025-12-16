@@ -2,7 +2,12 @@
 Core Pixeltable API for table operations, data processing, and UDF management.
 """
 
-# ruff: noqa: F401
+# ruff: noqa: F401 E402
+
+import warnings
+
+# Suppress tqdm's ipywidgets warning in Jupyter environments
+warnings.filterwarnings('ignore', message='IProgress not found')
 
 from ._query import Query, ResultSet
 from ._version import __version__

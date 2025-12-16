@@ -2,6 +2,7 @@ import logging
 import random
 
 import sqlalchemy as sql
+from rich.console import Console
 from rich.progress import Column, Progress, TextColumn
 
 from pixeltable import exprs
@@ -73,8 +74,10 @@ class ExecContext:
                 TextColumn('{task.fields[total_2]}', justify='right', table_column=Column(min_width=10)),
                 TextColumn('{task.fields[unit_2]}', justify='left'),
                 transient=True,  # remove at end
+                console=Console(force_terminal=True, force_jupyter=False),  # avoid ipywidgets warning
             )
 
         self.progress = Env.get().start_progress(create_progress)
+        print(f'start progress with title {self.title}')
         if self.title is not None:
             self.progress.add_task(f'{self.title}:', total_1='', unit_1='', total_2='', unit_2='')
