@@ -1,5 +1,5 @@
 """
-Pixeltable UDFs that wrap the VLM Run Orion API for multimodal chat completions.
+Pixeltable UDFs that wrap the VLM Run Orion chat completions API.
 
 In order to use them, you must first `pip install vlmrun` and configure your VLM Run API key,
 as described in the [VLM Run documentation](https://docs.vlm.run/).
@@ -7,14 +7,11 @@ as described in the [VLM Run documentation](https://docs.vlm.run/).
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-import PIL.Image
+from typing import TYPE_CHECKING, Optional
 
 import pixeltable as pxt
 from pixeltable import env
 from pixeltable.utils.code import local_public_names
-from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
     from vlmrun.client import VLMRun
@@ -31,21 +28,16 @@ def _vlmrun_client() -> 'VLMRun':
     return env.Env.get().get_client('vlmrun')
 
 
+SUPPORTED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf', '.mp4', '.mov', '.avi', '.mkv'}
+
+
 @pxt.udf(resource_pool='request-rate:vlmrun')
-async def chat_image(
-    image: PIL.Image.Image,
-    prompt: str,
-    *,
-    model: str = 'vlmrun-orion-1:auto',
-) -> str:
+async def upload_file(path: str) -> str:
     """
-    Analyzes images using VLM Run's chat completions API.
+    Uploads a file to VLM Run and returns the file_id.
 
-    This UDF accepts a PIL Image, uploads it to VLM Run, sends a chat completion
-    request with the specified prompt, and returns the text response.
-
-    For running multiple analyses on the same image, consider using `upload()` +
-    `chat_with_file()` to avoid re-uploading.
+    Supports images, documents, and videos. The returned file_id can be used
+    with `chat_completions()` to run analyses without re-uploading.
 
     Request throttling:
     Applies the rate limit set in the config (section `vlmrun`, key `rate_limit`). If no rate
@@ -56,187 +48,38 @@ async def chat_image(
     - `pip install vlmrun`
 
     Args:
-        image: The image to analyze.
-        prompt: The text prompt describing what to analyze or extract from the image.
-        model: The name of the model to use. Options: `vlmrun-orion-1:fast`, `vlmrun-orion-1:auto`,
-            `vlmrun-orion-1:pro`. Defaults to `vlmrun-orion-1:auto`.
+        path: The file path to upload.
 
     Returns:
-        The text response from the model.
+        The file_id string for use with `chat_completions()`.
+
+    Raises:
+        ValueError: If the file format is not supported.
 
     Examples:
-        Analyze images stored in a Pixeltable column:
+        Upload a video and run multiple analyses:
 
-        >>> tbl.add_computed_column(
-        ...     image_description=vlmrun.chat_image(tbl.image, "Describe this image in detail")
-        ... )
-
-        Extract specific information from receipts:
-
-        >>> tbl.add_computed_column(
-        ...     total=vlmrun.chat_image(tbl.receipt, "What is the total amount on this receipt?")
+        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.video.localpath))
+        >>> t.add_computed_column(
+        ...     description=vlmrun.chat_completions(t.file_id, 'Describe this video')
         ... )
     """
 
     def _call_api() -> str:
-        import os
+        file_path = Path(path)
+        ext = file_path.suffix.lower()
 
-        client = _vlmrun_client()
-
-        # Save image to temp file for upload
-        temp_path = TempStore.create_path(extension='.png')
-        try:
-            image.save(temp_path, format='PNG')
-
-            # Upload file to VLM Run object store
-            uploaded = client.files.upload(file=Path(temp_path))
-
-            # Chat completion using file_id
-            response = client.agent.completions.create(
-                model=model,
-                messages=[
-                    {
-                        'role': 'user',
-                        'content': [
-                            {'type': 'text', 'text': prompt},
-                            {'type': 'input_file', 'file_id': uploaded.id},
-                        ],
-                    }
-                ],
-                temperature=0,
+        if ext not in SUPPORTED_EXTENSIONS:
+            raise ValueError(
+                f"Unsupported file format: {ext}. "
+                f"Supported formats: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
             )
-            return response.choices[0].message.content
-        finally:
-            # Clean up temp file after upload
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
 
-    result = await asyncio.to_thread(_call_api)
-    return result
-
-
-@pxt.udf(resource_pool='request-rate:vlmrun')
-async def chat_document(
-    document: str,
-    prompt: str,
-    *,
-    model: str = 'vlmrun-orion-1:auto',
-) -> str:
-    """
-    Analyzes PDF documents using VLM Run's chat completions API.
-
-    This UDF accepts a document file path, uploads it to VLM Run, sends a chat completion
-    request with the specified prompt, and returns the text response.
-
-    For running multiple analyses on the same document, consider using `upload()` +
-    `chat_with_file()` to avoid re-uploading.
-
-    Request throttling:
-    Applies the rate limit set in the config (section `vlmrun`, key `rate_limit`). If no rate
-    limit is configured, uses a default of 600 RPM.
-
-    __Requirements:__
-
-    - `pip install vlmrun`
-
-    Args:
-        document: The file path to the PDF document to analyze.
-        prompt: The text prompt describing what to analyze or extract from the document.
-        model: The name of the model to use. Options: `vlmrun-orion-1:fast`, `vlmrun-orion-1:auto`,
-            `vlmrun-orion-1:pro`. Defaults to `vlmrun-orion-1:auto`.
-
-    Returns:
-        The text response from the model.
-
-    Examples:
-        Summarize PDF documents:
-
-        >>> tbl.add_computed_column(
-        ...     doc_summary=vlmrun.chat_document(tbl.document.localpath, "Summarize the key points")
-        ... )
-
-        Extract specific information from contracts:
-
-        >>> tbl.add_computed_column(
-        ...     parties=vlmrun.chat_document(tbl.contract.localpath, "Who are the parties in this contract?")
-        ... )
-    """
-
-    def _call_api() -> str:
         client = _vlmrun_client()
-
-        # Upload file to VLM Run object store
-        uploaded = client.files.upload(file=Path(document))
-
-        # Chat completion using file_id
-        response = client.agent.completions.create(
-            model=model,
-            messages=[
-                {
-                    'role': 'user',
-                    'content': [
-                        {'type': 'text', 'text': prompt},
-                        {'type': 'input_file', 'file_id': uploaded.id},
-                    ],
-                }
-            ],
-            temperature=0,
-        )
-        return response.choices[0].message.content
-
-    result = await asyncio.to_thread(_call_api)
-    return result
-
-
-@pxt.udf(resource_pool='request-rate:vlmrun')
-async def upload(media: str) -> str:
-    """
-    Uploads a file to VLM Run and returns the file_id for later use.
-
-    This UDF supports images, videos, and PDF documents. It is designed for a two-stage
-    workflow where files are uploaded once and then analyzed multiple times using the
-    stored file_id. This avoids redundant uploads when running multiple analyses.
-
-    Request throttling:
-    Applies the rate limit set in the config (section `vlmrun`, key `rate_limit`). If no rate
-    limit is configured, uses a default of 600 RPM.
-
-    __Requirements:__
-
-    - `pip install vlmrun`
-
-    Args:
-        media: The file path to upload (supports images, videos, and PDFs).
-
-    Returns:
-        The file_id string that can be used with `chat_with_file()`.
-
-    Examples:
-        Upload video and run multiple analyses:
-
-        >>> tbl.add_computed_column(file_id=vlmrun.upload(tbl.video.localpath))
-        >>> tbl.add_computed_column(
-        ...     description=vlmrun.chat_with_file(tbl.file_id, "Describe this video")
-        ... )
-
-        Upload image for multiple analyses:
-
-        >>> tbl.add_computed_column(file_id=vlmrun.upload(tbl.image.localpath))
-        >>> tbl.add_computed_column(
-        ...     objects=vlmrun.chat_with_file(tbl.file_id, "What objects are visible?")
-        ... )
-
-        Upload PDF for multiple queries:
-
-        >>> tbl.add_computed_column(file_id=vlmrun.upload(tbl.document.localpath))
-        >>> tbl.add_computed_column(
-        ...     summary=vlmrun.chat_with_file(tbl.file_id, "Summarize this document")
-        ... )
-    """
-
-    def _call_api() -> str:
-        client = _vlmrun_client()
-        uploaded = client.files.upload(file=Path(media))
+        try:
+            uploaded = client.files.upload(file=file_path)
+        except Exception as e:
+            raise RuntimeError(f"Failed to upload file '{file_path.name}': {e}") from e
         return uploaded.id
 
     result = await asyncio.to_thread(_call_api)
@@ -244,19 +87,18 @@ async def upload(media: str) -> str:
 
 
 @pxt.udf(resource_pool='request-rate:vlmrun')
-async def chat_with_file(
+async def chat_completions(
     file_id: str,
     prompt: str,
     *,
     model: str = 'vlmrun-orion-1:auto',
-) -> str:
+    response_format: Optional[dict] = None,
+) -> dict:
     """
-    Analyzes an already-uploaded file using VLM Run's chat completions API.
+    Runs chat completions on an uploaded file using VLM Run's Orion API.
 
-    This UDF uses a previously obtained file_id (from `upload()`) to run chat
-    completions without re-uploading the file. Works with any file type that was
-    uploaded: images, videos, or PDFs. This enables efficient workflows where a
-    single upload supports multiple analysis queries.
+    Takes a file_id (from `upload_file()`) and a prompt, and returns the full response
+    dictionary. Supports images, documents, and videos.
 
     Request throttling:
     Applies the rate limit set in the config (section `vlmrun`, key `rate_limit`). If no rate
@@ -267,42 +109,41 @@ async def chat_with_file(
     - `pip install vlmrun`
 
     Args:
-        file_id: The file_id returned from `upload()`.
+        file_id: The file_id returned from `upload_file()`.
         prompt: The text prompt describing what to analyze or extract.
-        model: The name of the model to use. Options: `vlmrun-orion-1:fast`, `vlmrun-orion-1:auto`,
+        model: The model to use. Options: `vlmrun-orion-1:fast`, `vlmrun-orion-1:auto`,
             `vlmrun-orion-1:pro`. Defaults to `vlmrun-orion-1:auto`.
+        response_format: Optional response format specification for structured output.
 
     Returns:
-        The text response from the model.
+        A dictionary containing the response and other metadata.
 
     Examples:
         Analyze an uploaded video:
 
-        >>> tbl.add_computed_column(file_id=vlmrun.upload(tbl.video.localpath))
-        >>> tbl.add_computed_column(
-        ...     description=vlmrun.chat_with_file(tbl.file_id, "What happens in this video?")
+        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.video.localpath))
+        >>> t.add_computed_column(
+        ...     response=vlmrun.chat_completions(t.file_id, 'Describe this video')
         ... )
+        >>> t.add_computed_column(text=t.response['choices'][0]['message']['content'])
 
-        Analyze an uploaded image:
+        Run multiple analyses on the same file:
 
-        >>> tbl.add_computed_column(file_id=vlmrun.upload(tbl.image.localpath))
-        >>> tbl.add_computed_column(
-        ...     description=vlmrun.chat_with_file(tbl.file_id, "Describe this image")
+        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.image.localpath))
+        >>> t.add_computed_column(
+        ...     objects=vlmrun.chat_completions(t.file_id, 'List all objects')
         ... )
-
-        Analyze an uploaded PDF:
-
-        >>> tbl.add_computed_column(file_id=vlmrun.upload(tbl.document.localpath))
-        >>> tbl.add_computed_column(
-        ...     summary=vlmrun.chat_with_file(tbl.file_id, "Summarize this document")
+        >>> t.add_computed_column(
+        ...     colors=vlmrun.chat_completions(t.file_id, 'What colors are present?')
         ... )
     """
 
-    def _call_api() -> str:
+    def _call_api() -> dict:
         client = _vlmrun_client()
-        response = client.agent.completions.create(
-            model=model,
-            messages=[
+
+        kwargs = {
+            'model': model,
+            'messages': [
                 {
                     'role': 'user',
                     'content': [
@@ -311,27 +152,29 @@ async def chat_with_file(
                     ],
                 }
             ],
-            temperature=0,
-        )
-        return response.choices[0].message.content
+            'temperature': 0,
+        }
+
+        if response_format is not None:
+            kwargs['response_format'] = response_format
+
+        try:
+            response = client.agent.completions.create(**kwargs)
+        except Exception as e:
+            raise RuntimeError(f"Chat completion failed for file_id '{file_id}': {e}") from e
+        return response.model_dump()
 
     result = await asyncio.to_thread(_call_api)
     return result
 
 
 @pxt.udf(resource_pool='request-rate:vlmrun')
-async def redact(
-    document: str,
-    *,
-    instructions: str = 'Redact all PII from this document.',
-    model: str = 'vlmrun-orion-1:auto',
-) -> str:
+async def get_artifact(artifact_id: str) -> str:
     """
-    Redacts PII from documents using VLM Run's chat completions API.
+    Downloads an artifact from VLM Run and returns the local file path.
 
-    This UDF accepts a document or image file path, uploads it to VLM Run, sends a chat
-    completion request with redaction instructions, downloads the redacted file, and
-    returns the local file path.
+    Use this to retrieve generated files (e.g., redacted documents, generated images)
+    from VLM Run's artifact store.
 
     Request throttling:
     Applies the rate limit set in the config (section `vlmrun`, key `rate_limit`). If no rate
@@ -342,78 +185,52 @@ async def redact(
     - `pip install vlmrun`
 
     Args:
-        document: The file path to the document or image to redact.
-        instructions: Custom redaction instructions. Defaults to redacting common PII.
-        model: The name of the model to use. Defaults to `vlmrun-orion-1:auto`.
+        artifact_id: The artifact ID or URL returned from a chat completion.
 
     Returns:
-        The local file path to the redacted document.
+        The local file path to the downloaded artifact.
 
     Examples:
-        Redact PII from documents:
+        Redact a document and download the result:
 
-        >>> tbl.add_computed_column(
-        ...     redacted=vlmrun.redact(tbl.document.localpath)
-        ... )
-
-        Custom redaction instructions:
-
-        >>> tbl.add_computed_column(
-        ...     redacted=vlmrun.redact(
-        ...         tbl.document.localpath,
-        ...         instructions="Redact all patient names and medical record numbers"
+        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.doc.localpath))
+        >>> t.add_computed_column(
+        ...     redacted_url=vlmrun.chat_completions(
+        ...         t.file_id,
+        ...         'Redact all PII. Return the artifact URL.'
         ...     )
+        ... )
+        >>> t.add_computed_column(
+        ...     redacted_path=vlmrun.get_artifact(t.redacted_url)
         ... )
     """
     import urllib.request
     from urllib.parse import urlparse
 
-    from pydantic import BaseModel, Field
-
-    class RedactedUrlResponse(BaseModel):
-        url: str = Field(..., description='The presigned URL to the redacted image')
+    from pixeltable.utils.local_store import TempStore
 
     def _call_api() -> str:
-        client = _vlmrun_client()
+        try:
+            # If it's a URL, download directly
+            if artifact_id.startswith('http'):
+                parsed = urlparse(artifact_id)
+                ext = Path(parsed.path).suffix or '.png'
+                local_path = TempStore.create_path(extension=ext)
+                urllib.request.urlretrieve(artifact_id, local_path)
+                return str(local_path)
 
-        # Upload file to VLM Run object store
-        uploaded = client.files.upload(file=Path(document))
+            # Otherwise, use the artifacts API
+            client = _vlmrun_client()
+            artifact = client.artifacts.get(artifact_id)
 
-        # Build prompt with redaction instructions
-        prompt = f'{instructions} Return the presigned URL to the redacted image.'
-
-        # Chat completion with redaction prompt and structured response
-        response = client.agent.completions.create(
-            model=model,
-            messages=[
-                {
-                    'role': 'user',
-                    'content': [
-                        {'type': 'text', 'text': prompt},
-                        {'type': 'input_file', 'file_id': uploaded.id},
-                    ],
-                }
-            ],
-            response_format={
-                'type': 'json_schema',
-                'schema': RedactedUrlResponse.model_json_schema(),
-            },
-            temperature=0,
-        )
-
-        # Parse response to get URL
-        content = response.choices[0].message.content
-        result = RedactedUrlResponse.model_validate_json(content)
-
-        # Get file extension from URL path
-        parsed = urlparse(result.url)
-        ext = Path(parsed.path).suffix or '.png'
-
-        # Download to temp file
-        local_path = TempStore.create_path(extension=ext)
-        urllib.request.urlretrieve(result.url, local_path)
-
-        return str(local_path)
+            # Download from the artifact URL
+            parsed = urlparse(artifact.url)
+            ext = Path(parsed.path).suffix or '.png'
+            local_path = TempStore.create_path(extension=ext)
+            urllib.request.urlretrieve(artifact.url, local_path)
+            return str(local_path)
+        except Exception as e:
+            raise RuntimeError(f"Failed to retrieve artifact '{artifact_id}': {e}") from e
 
     result = await asyncio.to_thread(_call_api)
     return result
