@@ -148,6 +148,7 @@ class TestTypes:
             Timestamp: (TimestampType(nullable=False), 'Timestamp'),
             Date: (DateType(nullable=False), 'Date'),
             UUID: (UUIDType(nullable=False), 'UUID'),
+            Binary: (BinaryType(nullable=False), 'Binary'),
             Array: (ArrayType(nullable=False), 'Array'),
             Json: (JsonType(nullable=False), 'Json'),
             Image: (ImageType(height=None, width=None, mode=None, nullable=False), 'Image'),

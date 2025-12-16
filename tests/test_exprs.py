@@ -1,10 +1,10 @@
 import base64
+import datetime
 import json
 import math
 import urllib.parse
 import urllib.request
 import uuid
-import datetime
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -528,13 +528,7 @@ class TestExprs:
             np.array([100.1, 200.1, 300.1], dtype='float16'),  # one-dimensional floating point array
             np.array(['abc', 'bcd', 'efg']),  # one-dimensional string array
             # multidimensional int array
-            np.array(
-                [
-                    [[1, 2, 3], [4, 5, 6]],
-                    [[10, 20, 30], [40, 50, 60]],
-                    [[100, 200, 300], [400, 500, 600]],
-                ]
-            ),
+            np.array([[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]]),
             # multidimensional string array
             np.array(
                 [
@@ -551,14 +545,12 @@ class TestExprs:
             input = lit.input if isinstance(lit, LiteralCase) else lit
             t.add_computed_column(**{f'literal_{i}': input})
 
-        results = reload_tester.run_query(
-            t.select(*[t[f'literal_{i}'] for i in range(len(literals))])
-        )
+        results = reload_tester.run_query(t.select(*[t[f'literal_{i}'] for i in range(len(literals))]))
 
         for i, lit in enumerate(literals):
             col_name = f'literal_{i}'
             expected_output = lit.expected_output if isinstance(lit, LiteralCase) else lit
-            assert type(expected_output) == type(results[col_name][0]), f'Column {col_name} has wrong type'
+            assert type(expected_output) is type(results[col_name][0]), f'Column {col_name} has wrong type'
             assert_columns_eq(col_name, results.schema[col_name], [expected_output] * len(results), results[col_name])
 
         reload_tester.run_reload_test()

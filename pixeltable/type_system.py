@@ -1556,4 +1556,19 @@ class Document(str, _PxtType):
         return DocumentType(nullable=nullable)
 
 
-ALL_PIXELTABLE_TYPES = (String, Bool, Int, Float, Timestamp, Json, Array, Image, Video, Audio, Document, Date, UUID, Binary)
+ALL_PIXELTABLE_TYPES = (
+    String,
+    Bool,
+    Int,
+    Float,
+    Timestamp,
+    Json,
+    Array,
+    Image,
+    Video,
+    Audio,
+    Document,
+    Date,
+    UUID,
+    Binary,
+)
