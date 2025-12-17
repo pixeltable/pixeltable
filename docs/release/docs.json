@@ -336,10 +336,6 @@
   "metadata": {
     "timestamp": true
   },
-  "banner": {
-    "content": "📊 **Collaborate on Datasets** — Share and discover multimodal AI datasets with the community. [Explore Datasets →](https://www.pixeltable.com/)",
-    "dismissible": true
-  },
   "navbar": {
     "links": [
       {
