@@ -2,6 +2,7 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Pixeltable Documentation",
+  "description": "The only open source Python library providing declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.",
   "colors": {
     "primary": "#022A59",
     "light": "#F1AE03",
@@ -325,6 +326,20 @@
       "dark": "#020704"
     }
   },
+  "styling": {
+    "eyebrows": "breadcrumbs"
+  },
+  "appearance": {
+    "default": "system",
+    "strict": false
+  },
+  "metadata": {
+    "timestamp": true
+  },
+  "banner": {
+    "content": "📊 **Collaborate on Datasets** — Share and discover multimodal AI datasets with the community. [Explore Datasets →](https://www.pixeltable.com/)",
+    "dismissible": true
+  },
   "navbar": {
     "links": [
       {
@@ -373,6 +388,13 @@
       "claude",
       "cursor"
     ]
+  },
+  "errors": {
+    "404": {
+      "redirect": false,
+      "title": "Page Not Found",
+      "description": "The page you're looking for doesn't exist. Check the URL or [return to the docs home](/overview/pixeltable)."
+    }
   },
   "redirects": [
     {
