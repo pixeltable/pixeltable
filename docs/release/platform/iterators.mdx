@@ -31,7 +31,8 @@ chunks = pxt.create_view(
     documents_table,
     iterator=document_splitter(
         document=documents_table.document,
-        separators='paragraph'
+        separators='sentence,token_limit',
+        limit=300
     )
 )
 ```
@@ -40,7 +41,7 @@ chunks = pxt.create_view(
 
 <CardGroup cols={2}>
   <Card title="Document Splitting" icon="file-lines">
-    Split documents into chunks by headings, paragraphs, or sentences
+    Split documents into chunks by headings, sentences, or token limits
   </Card>
   <Card title="Video Processing" icon="video">
     Extract frames at specified intervals or counts
@@ -70,7 +71,7 @@ Iterators are powerful tools for processing large media files. They work seamles
         docs_table,
         iterator=document_splitter(
             document=docs_table.document,
-            separators='paragraph,token_limit',
+            separators='sentence,token_limit',
             limit=500,
             metadata='title,heading'
         )
@@ -78,7 +79,7 @@ Iterators are powerful tools for processing large media files. They work seamles
     ```
 
     ### Parameters
-    - `separators`: Choose from 'heading', 'paragraph', 'sentence', 'token_limit', 'char_limit', 'page'
+    - `separators`: Choose from 'heading', 'sentence', 'token_limit', 'char_limit', 'page'
     - `limit`: Maximum tokens/characters per chunk
     - `metadata`: Optional fields like 'title', 'heading', 'sourceline', 'page', 'bounding_box'
     - `overlap`: Optional overlap between chunks
@@ -124,6 +125,57 @@ Iterators are powerful tools for processing large media files. They work seamles
     - `num_frames`: Exact number of frames to extract
     - `keyframes_only`: Extract only keyframes (I-frames) - efficient for quick video scanning
     - Only one of `fps`, `num_frames`, or `keyframes_only` can be specified
+  </Tab>
+
+  <Tab title="video_splitter">
+    ```python
+    from pixeltable.functions.video import video_splitter
+
+    # Split video into 10-second segments
+    segments_view = pxt.create_view(
+        'videos.segments',
+        videos_table,
+        iterator=video_splitter(
+            video=videos_table.video,
+            duration=10.0,
+            min_segment_duration=1.0
+        )
+    )
+    ```
+
+    ### Parameters
+    - `duration`: Duration of each segment in seconds
+    - `overlap`: Overlap between segments in seconds
+    - `min_segment_duration`: Drop last segment if shorter than this value
+
+    ### Returns
+    For each segment, yields:
+    - `segment_start`: Start time of the segment in seconds
+    - `segment_end`: End time of the segment in seconds
+    - `video_segment`: The video segment file
+  </Tab>
+
+  <Tab title="string_splitter">
+    ```python
+    from pixeltable.functions.string import string_splitter
+
+    # Split text into sentences
+    sentences_view = pxt.create_view(
+        'texts.sentences',
+        texts_table,
+        iterator=string_splitter(
+            text=texts_table.content,
+            separators='sentence'
+        )
+    )
+    ```
+
+    ### Parameters
+    - `separators`: Choose from 'sentence' (requires spacy)
+
+    ### Returns
+    For each chunk, yields:
+    - `text`: The text chunk
   </Tab>
 
   <Tab title="tile_iterator">
@@ -225,7 +277,7 @@ Iterators are powerful tools for processing large media files. They work seamles
         docs_table,
         iterator=document_splitter(
             document=docs_table.document,
-            separators='paragraph',
+            separators='sentence,token_limit',
             limit=500
         )
     )
@@ -325,10 +377,13 @@ When using `token_limit` with `document_splitter`, ensure the limit accounts for
 ## Additional resources
 
 <CardGroup cols={3}>
-  <Card title="Examples" icon="lightbulb" href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps">
-    Sample applications
+  <Card title="Split Data into Rows" icon="code" href="/howto/cookbooks/core/data-split-rows">
+    All built-in iterators
   </Card>
-  <Card title="Tutorials" icon="graduation-cap" href="/tutorials">
-    Step-by-step guides
+  <Card title="Document Chunking" icon="file-lines" href="/howto/cookbooks/text/doc-chunk-for-rag">
+    Chunk documents for RAG
+  </Card>
+  <Card title="Frame Extraction" icon="video" href="/howto/cookbooks/video/video-extract-frames">
+    Extract video frames
   </Card>
 </CardGroup>
