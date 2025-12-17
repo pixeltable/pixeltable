@@ -62,7 +62,8 @@ class SimilarityExpr(Expr):
         from pixeltable.index import EmbeddingIndex
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
-        assert isinstance(self.components[1], Literal)
+        if not isinstance(self.components[1], Literal):
+            raise excs.Error('similarity(): requires a value, not an expression')
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info.idx.similarity_clause(idx_info.val_col, self.components[1])
@@ -71,7 +72,8 @@ class SimilarityExpr(Expr):
         from pixeltable.index import EmbeddingIndex
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
-        assert isinstance(self.components[1], Literal)
+        if not isinstance(self.components[1], Literal):
+            raise excs.Error('similarity(): requires a value, not an expression')
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info.idx.order_by_clause(idx_info.val_col, self.components[1], is_asc)
