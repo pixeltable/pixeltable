@@ -91,30 +91,72 @@ class TestIndex:
                 embed_args = {'embedding': clip_embed}
             t.add_embedding_index('img', idx_name=iname, metric=metric, **embed_args)  # type: ignore[arg-type]
 
+            # Similarity search on the image itself should reliably retrieve it as the top choice.
             query = (
-                t.select(img=t.img, sim=t.img.similarity(sample_img, idx=iname))
-                .order_by(t.img.similarity(sample_img, idx=iname), asc=is_asc)
+                t.select(img=t.img, sim=t.img.similarity(image=sample_img, idx=iname))
+                .order_by(t.img.similarity(image=sample_img, idx=iname), asc=is_asc)
                 .limit(1)
             )
             res = reload_tester.run_query(query)
             out_img = res[0, 'img']
             assert_img_eq(sample_img, out_img, f'{metric} failed when using index {iname}')
 
-            # TODO:  how to verify the output?
+            # There are only three images of parachutes in small_img_tbl; `clip` is good enough to reliably retrieve
+            # the test image from a top-k query (with any metric).
             query = (
-                t.select(path=t.img.localpath, sim=t.img.similarity('parachute', idx=iname))
-                .order_by(t.img.similarity('parachute', idx=iname), asc=is_asc)
-                .limit(1)
+                t.select(img=t.img, sim=t.img.similarity(string='parachute', idx=iname))
+                .order_by(t.img.similarity(string='parachute', idx=iname), asc=is_asc)
+                .limit(5)
             )
-            _ = reload_tester.run_query(query)
+            res = reload_tester.run_query(query)
+            out_imgs = res['img']
+            assert sample_img in out_imgs, f'{metric} failed when using index {iname}'
 
             # can also be used in a computed column
-            validate_update_status(t.add_computed_column(sim=t.img.similarity('parachute')))
+            validate_update_status(t.add_computed_column(sim=t.img.similarity(string='parachute')))
             t.drop_column('sim')
 
-            reload_tester.run_reload_test(clear=True)
+            reload_tester.run_reload_test()
 
             t.drop_embedding_index(column='img')
+
+    def test_deprecated_similarity(
+        self, small_img_tbl: pxt.Table, clip_embed: pxt.Function, reload_tester: ReloadTester
+    ) -> None:
+        """
+        Test that the deprecated pattern still works, with a warning.
+        (Deprecated pattern = calling similarity() without a specific modality)
+        """
+        skip_test_if_not_installed('transformers')
+        t = small_img_tbl
+        sample_img = t.select(t.img).head(1)[0, 'img']
+        _ = t.select(t.img.localpath).collect()
+
+        t.add_embedding_index('img', embedding=clip_embed)
+
+        with pytest.warns(DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'):
+            query = (
+                t.select(img=t.img, sim=t.img.similarity(sample_img))
+                .order_by(t.img.similarity(sample_img), asc=False)
+                .limit(1)
+            )
+            res = reload_tester.run_query(query)
+            out_img = res[0, 'img']
+            assert sample_img == out_img, 'deprecated similarity check failed'
+
+        with pytest.warns(DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'):
+            query = (
+                t.select(img=t.img, sim=t.img.similarity('parachute'))
+                .order_by(t.img.similarity('parachute'), asc=False)
+                .limit(5)
+            )
+            res = reload_tester.run_query(query)
+            out_imgs = res['img']
+            assert sample_img in out_imgs, 'deprecated similarity check failed'
+
+        reload_tester.run_reload_test()
+
+        t.drop_embedding_index(column='img')
 
     def test_query(self, reset_db: None, clip_embed: pxt.Function) -> None:
         skip_test_if_not_installed('transformers')

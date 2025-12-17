@@ -2,18 +2,22 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Sequence, cast
 from uuid import UUID
+import warnings
 
+import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.iterators as iters
+import pixeltable.type_system as ts
 from pixeltable.catalog.table_version import TableVersionKey
 
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .data_row import DataRow
 from .expr import Expr
+from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
@@ -167,10 +171,56 @@ class ColumnRef(Expr):
             FileCache.get().emit_eviction_warnings()
             return status
 
-    def similarity(self, item: Any, *, idx: str | None = None) -> Expr:
+    def similarity(self, item: Any = None, *,
+                   string: str | None = None,
+                   image: PIL.Image.Image | None = None,
+                   audio: str | None = None,
+                   video: str | None = None,
+                   idx: str | None = None) -> Expr:
         from .similarity_expr import SimilarityExpr
 
-        return SimilarityExpr(self, item, idx_name=idx)
+        if item is not None:
+            warnings.warn(
+                'Use of similarity() without specifying an explicit modality is deprecated -- since version 0.5.7. Please use one of the following instead:\n'
+                '  .similarity(string=...)\n'
+                '  .similarity(image=...)\n'
+                '  .similarity(audio=...)\n'
+                '  .similarity(video=...)',
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        if (item is not None) + (string is not None) + (image is not None) + (audio is not None) + (video is not None) != 1:
+            raise excs.Error('similarity(): expected exactly one of string=..., image=..., audio=..., video=...')
+
+        if item is not None:
+            literal = Expr.from_object(item)
+            if literal is None or not (literal.col_type.is_string_type() or literal.col_type.is_image_type()):
+                raise excs.Error(f'similarity(): expected `str` or `PIL.Image.Image`; got {type(item)}')
+
+        if string is not None:
+            if not isinstance(string, str):
+                raise excs.Error(f'similarity(string=...): expected `str`; got `{type(string)}`')
+            literal = Expr.from_object(string)
+            assert literal.col_type.is_string_type()
+
+        if image is not None:
+            if not isinstance(image, PIL.Image.Image):
+                raise excs.Error(f'similarity(image=...): expected `PIL.Image.Image`; got `{type(image)}`')
+            literal = Expr.from_object(image)
+            assert literal.col_type.is_image_type()
+
+        if audio is not None:
+            if not isinstance(audio, str):
+                raise excs.Error(f'similarity(audio=...): expected `str` (path to audio file); got `{type(audio)}`')
+            literal = Literal(audio, ts.AudioType())
+
+        if video is not None:
+            if not isinstance(video, str):
+                raise excs.Error(f'similarity(video=...): expected `str` (path to video file); got `{type(video)}`')
+            literal = Literal(video, ts.VideoType())
+
+        return SimilarityExpr(self, literal, idx_name=idx)
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
         from pixeltable.index import EmbeddingIndex
