@@ -365,6 +365,15 @@
       "weight": 400
     }
   },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "cursor"
+    ]
+  },
   "redirects": [
     {
       "source": "/platform/tables",
