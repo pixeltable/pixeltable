@@ -278,6 +278,106 @@ def detr_for_object_detection(
 
 
 @pxt.udf(batch_size=4)
+def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.85) -> Batch[dict]:
+    """
+    Computes panoptic segmentation for the specified image. `model_id` should be a reference to a pretrained
+    [DETR segmentation model](https://huggingface.co/docs/transformers/model_doc/detr).
+
+    Panoptic segmentation combines:
+    - **Instance segmentation**: Detecting and separating individual "things" (countable objects like people, cars)
+    - **Semantic segmentation**: Labeling "stuff" regions (amorphous regions like sky, grass, road)
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+
+    Args:
+        image: The image to segment.
+        model_id: The pretrained model to use for segmentation (e.g., 'facebook/detr-resnet-50-panoptic').
+        threshold: Confidence threshold (0.0-1.0) for including segments.
+
+    Returns:
+        A dictionary containing the segmentation output, in the following format:
+
+            ```python
+            {
+                'num_segments': 5,  # total number of segments detected
+                'segments': [
+                    {
+                        'id': 1,  # segment identifier
+                        'label': 17,  # COCO class label
+                        'label_text': 'cat',  # text name of class label
+                        'area': 45000,  # number of pixels in segment
+                        'is_thing': True,  # True for countable objects, False for stuff
+                    },
+                    ...
+                ]
+            }
+            ```
+
+    Examples:
+        Add a computed column that applies segmentation to an existing
+        Pixeltable column `image` of the table `tbl`:
+
+        >>> tbl.add_computed_column(segmentation=detr_for_segmentation(
+        ...     tbl.image,
+        ...     model_id='facebook/detr-resnet-50-panoptic',
+        ...     threshold=0.85
+        ... ))
+
+        Query segments by type:
+
+        >>> # Count things vs stuff in each image
+        >>> tbl.select(
+        ...     tbl.image,
+        ...     tbl.segmentation.num_segments
+        ... ).show()
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import DetrForSegmentation, DetrImageProcessor
+
+    model = _lookup_model(model_id, DetrForSegmentation.from_pretrained, device=device)
+    processor = _lookup_processor(model_id, DetrImageProcessor.from_pretrained)
+    normalized_images = [normalize_image_mode(img) for img in image]
+
+    with torch.no_grad():
+        inputs = processor(images=normalized_images, return_tensors='pt')
+        outputs = model(**inputs.to(device))
+        results = processor.post_process_panoptic_segmentation(
+            outputs, threshold=threshold, target_sizes=[(img.height, img.width) for img in image]
+        )
+
+    output = []
+    for result in results:
+        segments = []
+        segmentation_map = result['segmentation']
+        # Move to CPU if on GPU (e.g., MPS on Apple Silicon)
+        if hasattr(segmentation_map, 'cpu'):
+            segmentation_map = segmentation_map.cpu()
+        for seg_info in result['segments_info']:
+            seg_id = seg_info['id']
+            label_id = int(seg_info['label_id'])
+            mask = segmentation_map == seg_id
+            if hasattr(mask, 'numpy'):
+                mask = mask.numpy()
+            area = int(mask.sum())
+            segments.append(
+                {
+                    'id': seg_id,
+                    'label': label_id,
+                    'label_text': model.config.id2label.get(label_id, 'unknown'),
+                    'area': area,
+                    'is_thing': label_id < 80,  # COCO: 0-79 are things, 80+ are stuff
+                }
+            )
+        output.append({'num_segments': len(segments), 'segments': segments})
+
+    return output
+
+
+@pxt.udf(batch_size=4)
 def vit_for_image_classification(
     image: Batch[PIL.Image.Image], *, model_id: str, top_k: int = 5
 ) -> Batch[dict[str, Any]]:

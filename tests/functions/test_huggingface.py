@@ -186,6 +186,31 @@ class TestHuggingface:
         assert 'bowl' in label_text
         assert 'broccoli' in label_text
 
+    def test_detr_for_segmentation(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import detr_for_segmentation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(
+            seg=detr_for_segmentation(t.img, model_id='facebook/detr-resnet-50-panoptic', threshold=0.85)
+        )
+        status = t.insert(img=SAMPLE_IMAGE_URL)
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+        result = t.select(t.seg).collect()[0]['seg']
+        assert 'num_segments' in result
+        assert 'segments' in result
+        assert result['num_segments'] > 0
+        # Check segment structure
+        segment = result['segments'][0]
+        assert 'id' in segment
+        assert 'label' in segment
+        assert 'label_text' in segment
+        assert 'area' in segment
+        assert 'is_thing' in segment
+        assert isinstance(segment['area'], int)
+        assert isinstance(segment['is_thing'], bool)
+
     def test_vit_for_image_classification(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import vit_for_image_classification

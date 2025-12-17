@@ -391,6 +391,145 @@ def draw_bounding_boxes(
     return img_to_draw
 
 
+@pxt.udf
+def draw_segmentation_masks(
+    img: PIL.Image.Image,
+    segmentation: dict,
+    *,
+    alpha: float = 0.5,
+    show_labels: bool = True,
+    font: str | None = None,
+    font_size: int | None = None,
+) -> PIL.Image.Image:
+    """
+    Draws segmentation masks from panoptic segmentation output onto an image.
+
+    This function visualizes segmentation results by overlaying colored masks on the original image.
+    Each segment gets a unique color based on its label, making it easy to distinguish different
+    objects and regions.
+
+    Colors can be specified as common HTML color names (e.g., 'red') supported by PIL's
+    [`ImageColor`](https://pillow.readthedocs.io/en/stable/reference/ImageColor.html#imagecolor-module) module or as
+    RGB hex codes (e.g., '#FF0000').
+
+    Args:
+        img: The original image on which to draw the segmentation masks.
+        segmentation: Segmentation output from `detr_for_panoptic_segmentation()`, containing
+            'segments' list with segment metadata.
+        alpha: Transparency of the overlay (0.0 = fully transparent, 1.0 = fully opaque).
+        show_labels: Whether to display label text on each segment.
+        font: Name of a system font or path to a TrueType font file, as required by
+            [`PIL.ImageFont.truetype()`](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.truetype).
+            If `None`, uses the default provided by
+            [`PIL.ImageFont.load_default()`](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.load_default).
+        font_size: Size of the font used for labels in points. Only used in conjunction with non-`None` `font` argument.
+
+    Returns:
+        The image with segmentation masks overlaid.
+
+    Examples:
+        Visualize panoptic segmentation results:
+
+        >>> tbl.add_computed_column(segmentation=detr_for_panoptic_segmentation(
+        ...     tbl.image,
+        ...     model_id='facebook/detr-resnet-50-panoptic'
+        ... ))
+        >>> tbl.add_computed_column(seg_viz=draw_segmentation_masks(
+        ...     tbl.image,
+        ...     tbl.segmentation,
+        ...     alpha=0.5,
+        ...     show_labels=True
+        ... ))
+    """
+    # Import panoptic segmentation model to re-run for the segmentation map
+    # This is needed because the segmentation output from detr_for_panoptic_segmentation
+    # only contains metadata, not the actual pixel-level mask
+    try:
+        import torch
+        from transformers import DetrForSegmentation, DetrImageProcessor
+    except ImportError as e:
+        raise ImportError(
+            'draw_segmentation_masks requires torch and transformers. Install with: pip install torch transformers'
+        ) from e
+
+    from PIL import ImageDraw, ImageFont
+
+    # Re-run segmentation to get the mask (we need the pixel-level segmentation map)
+    processor = DetrImageProcessor.from_pretrained('facebook/detr-resnet-50-panoptic')
+    model = DetrForSegmentation.from_pretrained('facebook/detr-resnet-50-panoptic')
+
+    with torch.no_grad():
+        inputs = processor(images=img, return_tensors='pt')
+        outputs = model(**inputs)
+        result = processor.post_process_panoptic_segmentation(
+            outputs, threshold=0.85, target_sizes=[(img.height, img.width)]
+        )[0]
+
+    seg_map = result['segmentation']
+    if hasattr(seg_map, 'numpy'):
+        seg_map = seg_map.numpy()
+
+    # Create colored overlay
+    colored_mask = np.zeros((img.height, img.width, 3), dtype=np.uint8)
+
+    # Generate colors for each segment based on label
+    label_colors = __create_label_colors([seg['label_text'] for seg in segmentation['segments']])
+
+    segment_centers = []
+    for seg_info in result['segments_info']:
+        seg_id = seg_info['id']
+        label_id = int(seg_info['label_id'])
+        label_text = model.config.id2label.get(label_id, 'unknown')
+
+        # Get mask for this segment
+        mask = seg_map == seg_id
+
+        # Get color for this label
+        hex_color = label_colors.get(label_text, '#808080')
+        # Convert hex to RGB
+        r = int(hex_color[1:3], 16)
+        g = int(hex_color[3:5], 16)
+        b = int(hex_color[5:7], 16)
+
+        # Apply color to masked region
+        colored_mask[mask] = [r, g, b]
+
+        # Calculate center of mass for label placement
+        if show_labels:
+            ys, xs = np.where(mask)
+            if len(xs) > 0 and len(ys) > 0:
+                center_x = int(np.mean(xs))
+                center_y = int(np.mean(ys))
+                segment_centers.append((center_x, center_y, label_text))
+
+    # Create overlay image
+    overlay = PIL.Image.fromarray(colored_mask)
+    result_img = PIL.Image.blend(img.convert('RGB'), overlay, alpha=alpha)
+
+    # Draw labels if requested
+    if show_labels and segment_centers:
+        draw = ImageDraw.Draw(result_img)
+        txt_font: ImageFont.ImageFont | ImageFont.FreeTypeFont = (
+            ImageFont.load_default() if font is None else ImageFont.truetype(font=font, size=font_size or 12)
+        )
+
+        for center_x, center_y, label_text in segment_centers:
+            # Get text dimensions
+            bbox = draw.textbbox((0, 0), label_text, font=txt_font)
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+
+            # Center text on segment
+            x = max(0, min(center_x - text_width // 2, result_img.width - text_width))
+            y = max(0, min(center_y - text_height // 2, result_img.height - text_height))
+
+            # Draw background rectangle for readability
+            draw.rectangle((x - 2, y - 2, x + text_width + 2, y + text_height + 2), fill='black')
+            draw.text((x, y), label_text, fill='white', font=txt_font)
+
+    return result_img
+
+
 __all__ = local_public_names(__name__)
 
 

@@ -115,3 +115,29 @@ class TestVision:
         assert 'number of boxes and box colors must match' in str(exc_info.value).lower()
 
         # TODO: test font and font_size parameters in a system-independent way
+
+    def test_draw_segmentation_masks(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        from pixeltable.functions.huggingface import detr_for_segmentation
+        from pixeltable.functions.vision import draw_segmentation_masks
+
+        # Use a sample image URL
+        sample_url = (
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000034.jpg'
+        )
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(
+            seg=detr_for_segmentation(t.img, model_id='facebook/detr-resnet-50-panoptic', threshold=0.85)
+        )
+        t.insert(img=sample_url)
+
+        # Test basic segmentation visualization
+        result = t.select(draw_segmentation_masks(t.img, t.seg)).collect()
+        assert len(result) == 1
+        # Result should be a PIL Image
+        assert result[0, 0] is not None
+
+        # Test with different alpha values
+        _ = t.select(draw_segmentation_masks(t.img, t.seg, alpha=0.3)).collect()
+        _ = t.select(draw_segmentation_masks(t.img, t.seg, alpha=0.7, show_labels=False)).collect()
