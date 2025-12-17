@@ -3,7 +3,7 @@
   "theme": "mint",
   "name": "Pixeltable Documentation",
   "colors": {
-    "primary": "#1E5AA8",
+    "primary": "#022A59",
     "light": "#F1AE03",
     "dark": "#020704"
   },
@@ -321,7 +321,7 @@
   },
   "background": {
     "color": {
-      "light": "#FAF6F0",
+      "light": "#fafaf9",
       "dark": "#020704"
     }
   },
@@ -357,10 +357,12 @@
   },
   "fonts": {
     "heading": {
-      "family": "Inter"
+      "family": "DM Sans",
+      "weight": 600
     },
     "body": {
-      "family": "Inter"
+      "family": "Inter",
+      "weight": 400
     }
   },
   "redirects": [
