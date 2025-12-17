@@ -111,7 +111,8 @@
                       "howto/cookbooks/text/text-summarize",
                       "howto/cookbooks/text/text-translate",
                       "howto/cookbooks/text/text-extract-entities",
-                      "howto/cookbooks/text/doc-chunk-for-rag"
+                      "howto/cookbooks/text/doc-chunk-for-rag",
+                      "howto/cookbooks/text/doc-extract-text-from-office-files"
                     ]
                   },
                   {
