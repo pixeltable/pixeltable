@@ -13,7 +13,7 @@ from pixeltable.functions.net import presigned_url
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
 
-from .utils import skip_test_if_not_installed
+from .utils import rerun, skip_test_if_not_installed
 
 
 class TestDestination:
@@ -353,6 +353,7 @@ class TestDestination:
         for uri in dest_uris:
             assert ObjectOps.count(t._id, dest=uri) == 0
 
+    @rerun(reruns=3, reruns_delay=5)
     def test_presigned_url_all_destinations(self, reset_db: None) -> None:
         """Test presigned_url UDF for all cloud storage destinations"""
         # Exclude LOCAL_STORE as it doesn't support presigned URLs
