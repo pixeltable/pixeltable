@@ -154,6 +154,9 @@
           <outline text="udf|pixeltable.functions.math.bitwise_or" />
           <outline text="udf|pixeltable.functions.math.bitwise_xor" />
         </outline>
+        <outline text="module|pixeltable.functions.net">
+          <outline text="udf|pixeltable.functions.net.presigned_url" />
+        </outline>
         <outline text="module|pixeltable.functions.string">
           <outline text="iter|pixeltable.functions.string.string_splitter" />
           <outline text="udf|pixeltable.functions.string.capitalize" />
@@ -325,6 +328,9 @@
         </outline>
         <outline text="module|pixeltable.functions.twelvelabs">
           <outline text="udf|pixeltable.functions.twelvelabs.embed" />
+        </outline>
+        <outline text="module|pixeltable.functions.uuid">
+          <outline text="udf|pixeltable.functions.uuid.uuid4" />
         </outline>
         <outline text="module|pixeltable.functions.vision">
           <outline text="func|pixeltable.functions.vision.eval_detections" />
