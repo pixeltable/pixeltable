@@ -1,20 +1,13 @@
 from typing import Any, Iterator
 
+from deprecated import deprecated
+
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.iterators.base import ComponentIterator
 
 
 class StringSplitter(ComponentIterator):
-    """Iterator over chunks of a string. The string is chunked according to the specified `separators`.
-
-    The iterator yields a `text` field containing the text of the chunk.
-    Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
-
-    Args:
-        separators: separators to use to chunk the document. Currently the only supported option is `'sentence'`.
-    """
-
     _text: str
     doc: Any  # spacy doc
     iter: Iterator[dict[str, Any]]
@@ -36,9 +29,6 @@ class StringSplitter(ComponentIterator):
     def close(self) -> None:
         pass
 
-    def set_pos(self, pos: int) -> None:
-        pass
-
     @classmethod
     def input_schema(cls, *args: Any, **kwargs: Any) -> dict[str, ts.ColumnType]:
         return {'text': ts.StringType(), 'separators': ts.StringType()}
@@ -46,3 +36,8 @@ class StringSplitter(ComponentIterator):
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         return {'text': ts.StringType()}, []
+
+    @classmethod
+    @deprecated('create() is deprecated; use `pixeltable.functions.string.string_splitter` instead', version='0.5.6')
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return super()._create(**kwargs)

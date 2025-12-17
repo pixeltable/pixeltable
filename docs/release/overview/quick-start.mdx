@@ -1,0 +1,237 @@
+---
+title: 'Quick Start'
+description: 'The fastest way to get started using Pixeltable'
+icon: "blank"
+---
+
+## System requirements
+
+Before installing, ensure your system meets these requirements:
+
+- Python 3.10 or higher
+- Linux, MacOS, or Windows
+
+## Installation
+
+It is recommended that you install Pixeltable in a virtual environment.
+
+<Tabs>
+  <Tab title="venv">
+    <Steps>
+      <Step title="Create virtual environment">
+        ```bash
+        python -m venv .venv
+        ```
+      </Step>
+      <Step title="Activate environment">
+        <CodeGroup>
+          ```bash Linux/MacOS
+          source .venv/bin/activate
+          ```
+          ```bash Windows
+          .venv\Scripts\activate
+          ```
+        </CodeGroup>
+      </Step>
+      <Step title="Install Pixeltable">
+        ```bash
+        pip install pixeltable
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="uv">
+    <Steps>
+      <Step title="Install uv">
+        Install uv from the [Installing uv](https://docs.astral.sh/uv/getting-started/installation/) guide.
+      </Step>
+      <Step title="Create environment">
+        ```bash
+        uv venv --python 3.12
+        ```
+      </Step>
+      <Step title="Activate environment">
+        <CodeGroup>
+          ```bash Linux/MacOS
+          source .venv/bin/activate
+          ```
+          ```bash Windows
+          .venv\Scripts\activate
+          ```
+        </CodeGroup>
+      </Step>
+      <Step title="Install Pixeltable">
+        ```bash
+        uv pip install pixeltable
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="conda">
+    <Steps>
+      <Step title="Install Miniconda">
+        Download and install from the [Miniconda Installation](https://www.anaconda.com/docs/getting-started/miniconda/main) guide.
+      </Step>
+      <Step title="Create and activate environment">
+        ```bash
+        conda create --name pxt python=3.12
+        conda activate pxt
+        ```
+      </Step>
+      <Step title="Install Pixeltable">
+        ```bash
+        pip install pixeltable
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Getting help
+
+- Join our [Discord Community](https://discord.com/invite/QPyqFYx2UN)
+- Report issues on [GitHub](https://github.com/pixeltable/pixeltable/issues)
+- Contact [support@pixeltable.com](mailto:support@pixeltable.com)
+
+## Build an image analysis app
+
+<Tip>
+This guide will help you spin up a functioning AI workload in 5 minutes.
+</Tip>
+
+<Steps>
+  <Step title="Install Required Packages">
+    Pixeltable requires only a minimal set of Python packages by default. To use AI models, you'll need to install
+    additional dependencies.
+    ```bash
+    pip install torch transformers openai
+    ```
+  </Step>
+
+  <Step title="Create a Table">
+    ```python
+    import pixeltable as pxt
+
+    # Create a namespace and table
+    pxt.create_dir('quickstart', if_exists='replace_force')
+    t = pxt.create_table('quickstart.images', {'image': pxt.Image})
+    ```
+
+    <Note>
+    Tables are persistent: your data survives restarts and can be queried anytime.
+    </Note>
+  </Step>
+
+  <Step title="Add AI Object Detection">
+    ```python
+    from pixeltable.functions import huggingface
+
+    # Add DETR object detection as a computed column
+    t.add_computed_column(
+        detections=huggingface.detr_for_object_detection(
+            t.image,
+            model_id='facebook/detr-resnet-50'
+        )
+    )
+
+    # Extract labels from detections
+    t.add_computed_column(labels=t.detections.label_text)
+    ```
+
+    <Note>
+    Computed columns run automatically whenever new data is inserted.
+    </Note>
+  </Step>
+
+  <Step title="Insert Data">
+    ```python
+    # Insert a few images
+    t.insert([
+      {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000001.jpg'},
+      {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000025.jpg'}
+    ])
+    ```
+
+    <Note>
+    You can insert images from URLs and/or local paths in any combination.
+    </Note>
+  </Step>
+
+  <Step title="Query Results">
+    ```python
+    # Query results
+    t.select(t.image, t.labels).collect()
+    ```
+
+    **Expected output:**
+
+    | image      | labels              |
+    |------------|---------------------|
+    | [Image]    | [car, parking meter, truck, car, car, truck]   |
+    | [Image]    | [giraffe, giraffe] |
+
+  </Step>
+
+  <Step title="(Optional) Add LLM Vision">
+    <Tip>
+    You'll need an OpenAI API key to use this step. If you don't have one, you can
+    safely skip this step.
+    </Tip>
+
+    ```python
+    import os
+    from pixeltable.functions import openai
+
+    # Set your API key
+    os.environ['OPENAI_API_KEY'] = 'your-key-here'
+
+    t.add_computed_column(
+        description=openai.vision(
+            prompt="Describe this image in one sentence.",
+            image=t.image,
+            model='gpt-4o-mini'
+        )
+    )
+
+    t.select(t.image, t.labels, t.description).collect()
+    ```
+
+    ```python
+    # See the full text of the description in row 0
+    t.select(t.description).collect()[0]
+    ```
+
+    <Note>
+    Pixeltable orchestrates LLM calls for optimized throughput, handling
+    rate limiting, retries, and caching automatically.
+    </Note>
+  </Step>
+
+  <Step>
+    Insert a few more images.
+
+    ```python
+    t.insert([
+      {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000034.jpg'},
+      {'image': 'https://raw.githubusercontent.com/pixeltable/pixeltable/release/docs/resources/images/000000000057.jpg'}
+    ])
+
+    t.select(t.image, t.labels, t.description).collect()
+    ```
+
+    <Note>
+    When new data is insterted into tables, Pixeltable incrementally runs all
+    computed columns against the new data, ensuring the table is up to date.
+    </Note>
+  </Step>
+</Steps>
+
+<Accordion title="What happened behind the scenes?">
+Pixeltable automatically:
+
+1. Created a persistent multimodal table
+2. Downloaded and cached the DETR model
+3. Ran inference on your image
+4. Stored all results (including computed columns) for instant retrieval
+5. Will incrementally process any new images you insert
+</Accordion>

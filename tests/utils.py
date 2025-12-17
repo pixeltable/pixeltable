@@ -7,6 +7,7 @@ import random
 import shutil
 import subprocess
 import sysconfig
+import uuid
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
@@ -54,6 +55,8 @@ def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
         return ts.TimestampType()
     if t == ts.ColumnType.Type.DATE:
         return ts.DateType()
+    if t == ts.ColumnType.Type.UUID:
+        return ts.UUIDType()
     raise AssertionError()
 
 
@@ -120,6 +123,8 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
             col_data = [datetime.datetime.now()] * num_rows
         if col_type.is_date_type():
             col_data = [datetime.date.today()] * num_rows
+        if col_type.is_uuid_type():
+            col_data = [uuid.uuid4() for _ in range(num_rows)]
         if col_type.is_json_type():
             col_data = [sample_dict] * num_rows
         if col_type.is_array_type():
@@ -227,6 +232,7 @@ def create_all_datatypes_tbl() -> pxt.Table:
         'c_json': pxt.Json,
         'c_string': pxt.String,
         'c_timestamp': pxt.Timestamp,
+        'c_uuid': pxt.UUID,
         'c_video': pxt.Video,
     }
     tbl = pxt.create_table('all_datatype_tbl', schema)
@@ -320,10 +326,12 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: list[str] | No
     return df.to_dict(orient='records')  # type: ignore[return-value]
 
 
-def get_video_files(include_bad_video: bool = False) -> list[str]:
+def get_video_files(include_bad_video: bool = False, include_vfr: bool = True) -> list[str]:
     glob_result = glob.glob(f'{TESTS_DIR}/**/videos/*', recursive=True)
     if not include_bad_video:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
+    if not include_vfr:
+        glob_result = [f for f in glob_result if 'vfr' not in f]
 
     half_res = [f for f in glob_result if 'half_res' in f or 'bad_video' in f]
     half_res.sort()
@@ -371,11 +379,12 @@ def get_image_files(include_bad_image: bool = False) -> list[str]:
     if not __IMAGE_FILES:
         img_files_path = TESTS_DIR / 'data' / 'imagenette2-160'
         glob_result = glob.glob(f'{img_files_path}/*.JPEG')
+        glob_result.sort()
         assert len(glob_result) > 1000
         bad_image = next(f for f in glob_result if 'bad_image' in f)
         good_images = [(__image_mode(f), f) for f in glob_result if 'bad_image' not in f]
         # Group images by mode
-        modes = {mode for mode, _ in good_images}
+        modes = sorted({mode for mode, _ in good_images})  # Ensure modes are in a deterministic order
         groups = [[f for mode, f in good_images if mode == mode_group] for mode_group in modes]
         # Sort and randomize the images in each group to ensure that the ordering is both
         # deterministic and not dependent on extrinsic characteristics such as filename
@@ -628,6 +637,7 @@ def make_test_arrow_table(output_path: Path) -> str:
             datetime.datetime(2012, 1, 4, 12, 0, 0, 25),
             None,
         ],
+        'c_uuid': [uuid.uuid4().bytes, uuid.uuid4().bytes, uuid.uuid4().bytes, uuid.uuid4().bytes, None],
         # The pyarrow fixed_shape_tensor type does not support NULLs (currently can write them but not read them)
         # So, no nulls in this column
         'c_array_float32': float_array,
@@ -644,6 +654,7 @@ def make_test_arrow_table(output_path: Path) -> str:
         ('c_string', pa.string()),
         ('c_boolean', pa.bool_()),
         ('c_timestamp', pa.timestamp('us')),
+        ('c_uuid', pa.uuid()),
         ('c_array_float32', tensor_type),
     ]
     schema = pa.schema(fields)  # type: ignore[arg-type]

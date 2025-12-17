@@ -1,4 +1,5 @@
 import os
+import uuid
 from typing import Any
 
 import numpy as np
@@ -230,6 +231,13 @@ def _df_row_to_pxt_row(
                     nval = pd.Timestamp(tval).tz_localize(tz=Env.get().default_time_zone)
                 else:
                     nval = tval.astimezone(Env.get().default_time_zone)
+        elif pxt_type.is_uuid_type():
+            if pd.isnull(val):
+                nval = None
+            elif isinstance(val, uuid.UUID):
+                nval = val
+            else:
+                nval = uuid.UUID(val)
         else:
             nval = val
         pxt_row[pxt_name] = nval

@@ -1,5 +1,5 @@
 """
-Pixeltable [UDFs](https://docs.pixeltable.com/datastore/custom-functions) that wrap [Reve](https://app.reve.com/) image
+Pixeltable [UDFs](https://docs.pixeltable.com/platform/udfs-in-pixeltable) that wrap [Reve](https://app.reve.com/) image
 generation API. In order to use them, the API key must be specified either with `REVE_API_KEY` environment variable,
 or as `api_key` in the `reve` section of the Pixeltable config file.
 """

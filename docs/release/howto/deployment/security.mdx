@@ -1,0 +1,166 @@
+---
+title: "Security & Backup"
+description: "Backup strategies, recovery procedures, and security best practices"
+---
+
+## Backup Strategies
+
+| Deployment Approach | Backup Strategy | Recovery Method |
+|---------------------|-----------------|-----------------|
+| **Orchestration Layer** | External RDBMS + Blob Storage backups | Re-run transformation pipelines |
+| **Full Backend** | `pg_dump` of `~/.pixeltable/pgdata` + S3/GCS versioning | Restore `pgdata` + media files |
+
+### Full Backend Backup
+
+For deployments using Pixeltable as the full backend:
+
+```bash
+# Backup PostgreSQL data
+pg_dump -h ~/.pixeltable/pgdata -U postgres pixeltable > backup.sql
+
+# Backup media files (if stored locally)
+tar -czf media_backup.tar.gz ~/.pixeltable/media/
+
+# For cloud media storage, ensure S3/GCS versioning is enabled
+```
+
+### Orchestration Layer Backup
+
+For orchestration-only deployments:
+- Primary data lives in your external RDBMS and blob storage
+- Pixeltable state can be rebuilt by re-running transformation pipelines
+- Back up your `setup_pixeltable.py` and UDF code in version control
+
+## Recovery Procedures
+
+### Full Backend Recovery
+
+1. Stop the Pixeltable application
+2. Restore PostgreSQL data: `psql -f backup.sql`
+3. Restore media files to `~/.pixeltable/media/`
+4. Restart the application
+
+### Orchestration Layer Recovery
+
+1. Deploy fresh Pixeltable instance
+2. Run `setup_pixeltable.py` to recreate schema
+3. Re-process data through computed columns (incremental)
+
+## Security Best Practices
+
+| Security Layer | Recommendation | Implementation |
+|----------------|----------------|----------------|
+| **Network** | Deploy within private VPC | Do not expose PostgreSQL port (5432) to internet |
+| **Authentication** | Application layer (FastAPI/Django) | Pixeltable does not manage end-user accounts |
+| **Cloud Credentials** | IAM Roles / Workload Identity | Avoid long-lived keys in `config.toml` |
+
+### Network Security
+
+```yaml
+# Example: Kubernetes NetworkPolicy
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pixeltable-network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app: pixeltable
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api-server
+      ports:
+        - protocol: TCP
+          port: 8000
+```
+
+### Secrets Management
+
+**Never hardcode secrets.** Use environment variables or secrets managers:
+
+```python
+# config.py - Load from environment
+import os
+
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+
+# Or use python-dotenv for local development
+from dotenv import load_dotenv
+load_dotenv()
+```
+
+For production, use:
+- **AWS:** Secrets Manager, Parameter Store
+- **GCP:** Secret Manager
+- **Kubernetes:** Secrets, External Secrets Operator
+
+### Cloud Storage Credentials
+
+For S3/GCS/Azure media storage:
+
+```python
+# Prefer IAM roles over long-lived credentials
+# AWS: Use EC2 instance profile or EKS IRSA
+# GCP: Use Workload Identity
+
+# If credentials required, set via environment variables:
+# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+# GOOGLE_APPLICATION_CREDENTIALS
+```
+
+## Audit and Compliance
+
+### Data Lineage
+
+Pixeltable automatically tracks:
+- Table versions and schema changes
+- Computed column definitions and dependencies
+- Insert/update/delete operations
+
+```python
+# View table history
+table.history()
+
+# Get specific version
+old_version = pxt.get_table('myapp.documents:5')  # Version 5
+```
+
+### Access Logging
+
+Implement application-level access logging:
+
+```python
+from fastapi import FastAPI, Request
+import logging
+
+logger = logging.getLogger("audit")
+
+@app.middleware("http")
+async def audit_log(request: Request, call_next):
+    logger.info(f"User: {request.user} Action: {request.method} {request.url}")
+    response = await call_next(request)
+    return response
+```
+
+## Disaster Recovery
+
+### Recovery Time Objectives
+
+| Deployment | RTO | Strategy |
+|------------|-----|----------|
+| Orchestration Layer | Minutes | Spin up new instance, re-run pipelines |
+| Full Backend | Hours | Restore from backup, validate data integrity |
+
+### Recommendations
+
+1. **Regular backups:** Daily for production workloads
+2. **Test recovery:** Quarterly disaster recovery drills
+3. **Multi-region:** Store backups in different region than primary
+4. **Immutable backups:** Use S3 Object Lock or GCS retention policies
+

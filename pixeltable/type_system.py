@@ -8,6 +8,7 @@ import json
 import types
 import typing
 import urllib.request
+import uuid
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 
@@ -42,6 +43,7 @@ class ColumnType:
         AUDIO = 9
         DOCUMENT = 10
         DATE = 11
+        UUID = 12
 
         # exprs that don't evaluate to a computable value in Pixeltable, such as an Image member function
         INVALID = 255
@@ -64,7 +66,8 @@ class ColumnType:
                 return t
             return None
 
-    scalar_types: ClassVar[set[Type]] = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL, Type.TIMESTAMP, Type.DATE}
+    scalar_json_types: ClassVar[set[Type]] = {Type.STRING, Type.INT, Type.FLOAT, Type.BOOL}
+    scalar_types: ClassVar[set[Type]] = scalar_json_types | {Type.TIMESTAMP, Type.DATE, Type.UUID}
     numeric_types: ClassVar[set[Type]] = {Type.INT, Type.FLOAT}
     common_supertypes: ClassVar[dict[tuple[Type, Type], Type]] = {
         (Type.BOOL, Type.INT): Type.INT,
@@ -158,6 +161,8 @@ class ColumnType:
             return DocumentType()
         if t == cls.Type.DATE:
             return DateType()
+        if t == cls.Type.UUID:
+            return UUIDType()
 
     def __repr__(self) -> str:
         return self._to_str(as_schema=False)
@@ -196,7 +201,13 @@ class ColumnType:
         # Default: just compare base types (this works for all types whose only parameter is nullable)
         return self._type == other._type
 
-    def supertype(self, other: ColumnType) -> ColumnType | None:
+    def supertype(self, other: ColumnType, for_inference: bool = False) -> ColumnType | None:
+        """
+        Returns the most specific type that is a supertype of both `self` and `other`.
+
+        If `for_inference=True`, then we disallow certain type relationships that are technically correct, but may
+        be confusing for schema inference during data imports.
+        """
         if self == other:
             return self
         if self.matches(other):
@@ -211,7 +222,15 @@ class ColumnType:
             t = self.Type.supertype(self._type, other._type, self.common_supertypes)
             if t is not None:
                 return self.make_type(t).copy(nullable=(self.nullable or other.nullable))
-            return None
+
+        # If we see a mix of JSON and/or JSON-compatible scalar types, resolve to JSON.
+        # (For JSON+JSON, we return None to allow JsonType to handle merging the type schemas.)
+        if not for_inference and (
+            (self.is_json_type() and other.is_scalar_json_type())
+            or (self.is_scalar_json_type() and other.is_json_type())
+            or (self.is_scalar_json_type() and other.is_scalar_json_type())
+        ):
+            return JsonType(nullable=(self.nullable or other.nullable))
 
         return None
 
@@ -234,6 +253,8 @@ class ColumnType:
             return TimestampType(nullable=nullable)
         if isinstance(val, datetime.date):
             return DateType(nullable=nullable)
+        if isinstance(val, uuid.UUID):
+            return UUIDType(nullable=nullable)
         if isinstance(val, PIL.Image.Image):
             return ImageType(width=val.width, height=val.height, mode=val.mode, nullable=nullable)
         if isinstance(val, np.ndarray):
@@ -264,7 +285,7 @@ class ColumnType:
             if inferred_type is None:
                 inferred_type = val_type
             else:
-                inferred_type = inferred_type.supertype(val_type)
+                inferred_type = inferred_type.supertype(val_type, for_inference=True)
             if inferred_type is None:
                 return None
             if not inferred_type.has_supertype():
@@ -349,6 +370,8 @@ class ColumnType:
                     return TimestampType(nullable=nullable_default)
                 if t is datetime.date:
                     return DateType(nullable=nullable_default)
+                if t is uuid.UUID:
+                    return UUIDType(nullable=nullable_default)
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
                 if isinstance(t, type) and issubclass(t, (Sequence, Mapping, pydantic.BaseModel)):
@@ -376,6 +399,7 @@ class ColumnType:
         (float, 'pxt.Float'),
         (datetime.datetime, 'pxt.Timestamp'),
         (datetime.date, 'pxt.Date'),
+        (uuid.UUID, 'pxt.UUID'),
         (PIL.Image.Image, 'pxt.Image'),
         (Sequence, 'pxt.Json'),
         (Mapping, 'pxt.Json'),
@@ -467,6 +491,9 @@ class ColumnType:
     def is_scalar_type(self) -> bool:
         return self._type in self.scalar_types
 
+    def is_scalar_json_type(self) -> bool:
+        return self._type in self.scalar_json_types
+
     def is_numeric_type(self) -> bool:
         return self._type in self.numeric_types
 
@@ -490,6 +517,9 @@ class ColumnType:
 
     def is_date_type(self) -> bool:
         return self._type == self.Type.DATE
+
+    def is_uuid_type(self) -> bool:
+        return self._type == self.Type.UUID
 
     def is_json_type(self) -> bool:
         return self._type == self.Type.JSON
@@ -711,6 +741,36 @@ class DateType(ColumnType):
         return val
 
 
+class UUIDType(ColumnType):
+    def __init__(self, nullable: bool = False):
+        super().__init__(self.Type.UUID, nullable=nullable)
+
+    def has_supertype(self) -> bool:
+        return not self.nullable
+
+    @classmethod
+    def to_sa_type(cls) -> sql.types.TypeEngine:
+        return sql.UUID(as_uuid=True)
+
+    def _to_json_schema(self) -> dict[str, Any]:
+        return {'type': 'string', 'format': 'uuid'}
+
+    def print_value(self, val: Any) -> str:
+        return f"'{val}'"
+
+    def _to_base_str(self) -> str:
+        return 'UUID'
+
+    def _validate_literal(self, val: Any) -> None:
+        if not isinstance(val, uuid.UUID):
+            raise TypeError(f'Expected uuid.UUID, got {val.__class__.__name__}')
+
+    def _create_literal(self, val: Any) -> Any:
+        if isinstance(val, str):
+            return uuid.UUID(val)
+        return val
+
+
 class JsonType(ColumnType):
     json_schema: dict[str, Any] | None
     __validator: jsonschema.protocols.Validator | None
@@ -785,7 +845,7 @@ class JsonType(ColumnType):
             return val.model_dump()
         return val
 
-    def supertype(self, other: ColumnType) -> JsonType | None:
+    def supertype(self, other: ColumnType, for_inference: bool = False) -> JsonType | None:
         # Try using the (much faster) supertype logic in ColumnType first. That will work if, for example, the types
         # are identical except for nullability. If that doesn't work and both types are JsonType, then we will need to
         # merge their schemas.
@@ -960,7 +1020,7 @@ class ArrayType(ColumnType):
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self.shape, self.dtype))
 
-    def supertype(self, other: ColumnType) -> ArrayType | None:
+    def supertype(self, other: ColumnType, for_inference: bool = False) -> ArrayType | None:
         basic_supertype = super().supertype(other)
         if basic_supertype is not None:
             assert isinstance(basic_supertype, ArrayType)
@@ -1121,7 +1181,7 @@ class ImageType(ColumnType):
     def __hash__(self) -> int:
         return hash((self._type, self.nullable, self.size, self.mode))
 
-    def supertype(self, other: ColumnType) -> ImageType | None:
+    def supertype(self, other: ColumnType, for_inference: bool = False) -> ImageType | None:
         basic_supertype = super().supertype(other)
         if basic_supertype is not None:
             assert isinstance(basic_supertype, ImageType)
@@ -1331,6 +1391,7 @@ Float = typing.Annotated[float, FloatType(nullable=False)]
 Bool = typing.Annotated[bool, BoolType(nullable=False)]
 Timestamp = typing.Annotated[datetime.datetime, TimestampType(nullable=False)]
 Date = typing.Annotated[datetime.date, DateType(nullable=False)]
+UUID = typing.Annotated[uuid.UUID, UUIDType(nullable=False)]
 
 
 class _PxtType:
@@ -1472,4 +1533,4 @@ class Document(str, _PxtType):
         return DocumentType(nullable=nullable)
 
 
-ALL_PIXELTABLE_TYPES = (String, Bool, Int, Float, Timestamp, Json, Array, Image, Video, Audio, Document)
+ALL_PIXELTABLE_TYPES = (String, Bool, Int, Float, Timestamp, Date, UUID, Json, Array, Image, Video, Audio, Document)
