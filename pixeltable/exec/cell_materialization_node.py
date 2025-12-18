@@ -56,14 +56,14 @@ class CellMaterializationNode(ExecNode):
     buffered_writer: io.BufferedWriter | None  # BufferedWriter for inlined_obj_files[-1]
 
     MIN_FILE_SIZE = 8 * 2**20  # 8MB
-    MAX_DB_ARRAY_SIZE = 512  # max size of array stored in table column; in bytes
+    MAX_DB_BINARY_SIZE = 512  # max size of binary data stored in table column; in bytes
 
     def __init__(self, input: ExecNode):
         super().__init__(input.row_builder, [], [], input)
         self.output_col_info = {
             col: slot_idx
             for col, slot_idx in input.row_builder.table_columns.items()
-            if slot_idx is not None and (col.col_type.is_json_type() or col.col_type.is_array_type())
+            if slot_idx is not None and col.col_type.supports_file_offloading()
         }
         self.inlined_obj_files = []
         self.buffered_writer = None
@@ -87,10 +87,13 @@ class CellMaterializationNode(ExecNode):
 
                     if col.col_type.is_json_type():
                         self._materialize_json_cell(row, col, val)
-                    else:
-                        assert col.col_type.is_array_type()
+                    elif col.col_type.is_array_type():
                         assert isinstance(val, np.ndarray)
                         self._materialize_array_cell(row, col, val)
+                    else:
+                        assert col.col_type.is_binary_type()
+                        assert isinstance(val, bytes)
+                        self._materialize_binary_cell(row, col, val)
 
                     # continue with only the currently open file
                     self.inlined_obj_files = self.inlined_obj_files[-1:]
@@ -123,7 +126,7 @@ class CellMaterializationNode(ExecNode):
             # this is a vector column (ie, used for a vector index): store the array itself
             row.cell_vals[col.id] = val
             row.cell_md[col.id] = None
-        elif val.nbytes <= self.MAX_DB_ARRAY_SIZE:
+        elif val.nbytes <= self.MAX_DB_BINARY_SIZE:
             # this array is small enough to store in the db column (type: binary) directly
             buffer = io.BytesIO()
             np.save(buffer, val, allow_pickle=False)
@@ -153,12 +156,31 @@ class CellMaterializationNode(ExecNode):
 
         assert row.cell_vals[col.id] is not None or row.cell_md[col.id] is not None
 
+    def _materialize_binary_cell(self, row: exprs.DataRow, col: catalog.Column, val: bytes) -> None:
+        if len(val) <= self.MAX_DB_BINARY_SIZE:
+            # this `bytes` object is small enough to store in the db column (type: binary) directly
+            row.cell_vals[col.id] = val
+            row.cell_md[col.id] = None
+        else:
+            self.init_writer()
+            start = self.buffered_writer.tell()
+            self.buffered_writer.write(val)
+            end = self.buffered_writer.tell()
+            row.cell_vals[col.id] = None
+            cell_md = exprs.CellMd(
+                file_urls=[self.inlined_obj_files[-1].as_uri()], binary_md=exprs.BinaryMd(start=start, end=end)
+            )
+            row.cell_md[col.id] = cell_md
+            self._flush_buffer()
+
+        assert row.cell_vals[col.id] is not None or row.cell_md[col.id] is not None
+
     def _json_has_inlined_objs(self, element: Any) -> bool:
         if isinstance(element, list):
             return any(self._json_has_inlined_objs(v) for v in element)
         if isinstance(element, dict):
             return any(self._json_has_inlined_objs(v) for v in element.values())
-        return isinstance(element, (np.ndarray, PIL.Image.Image))
+        return isinstance(element, (np.ndarray, PIL.Image.Image, bytes))
 
     def _rewrite_json(self, element: Any) -> Any:
         """Recursively rewrites a JSON structure by writing any inlined arrays or images to self.buffered_writer."""
@@ -171,6 +193,9 @@ class CellMaterializationNode(ExecNode):
             return {INLINED_OBJECT_MD_KEY: obj_md.as_dict()}
         if isinstance(element, PIL.Image.Image):
             obj_md = self._write_inlined_image(element)
+            return {INLINED_OBJECT_MD_KEY: obj_md.as_dict()}
+        if isinstance(element, bytes):
+            obj_md = self._write_inlined_bytes(element)
             return {INLINED_OBJECT_MD_KEY: obj_md.as_dict()}
         return element
 
@@ -206,6 +231,18 @@ class CellMaterializationNode(ExecNode):
         end = self.buffered_writer.tell()
         self._flush_buffer()
         return InlinedObjectMd(type=ts.ColumnType.Type.IMAGE.name, url_idx=url_idx, img_start=start, img_end=end)
+
+    def _write_inlined_bytes(self, data: bytes) -> InlinedObjectMd:
+        """Write raw bytes to buffered_writer and return: index into inlined_obj_files, start offset, end offset"""
+        self.init_writer()
+        url_idx = len(self.inlined_obj_files) - 1
+        start = self.buffered_writer.tell()
+        self.buffered_writer.write(data)
+        end = self.buffered_writer.tell()
+        self._flush_buffer()
+        return InlinedObjectMd(
+            type=ts.ColumnType.Type.BINARY.name, url_idx=url_idx, binary_md=exprs.BinaryMd(start, end)
+        )
 
     def _reset_buffer(self) -> None:
         local_path = LocalStore(Env.get().media_dir)._prepare_path_raw(

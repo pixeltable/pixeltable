@@ -46,6 +46,8 @@ class Formatter:
             return self.format_string
         if col_type.is_uuid_type():
             return self.format_uuid
+        if col_type.is_binary_type():
+            return self.format_binary
         if col_type.is_float_type():
             return self.format_float
         if col_type.is_json_type():
@@ -75,6 +77,13 @@ class Formatter:
         Formats a UUID by converting it to a string and applying string formatting.
         """
         return '' if val is None else cls.format_string(str(val))
+
+    @classmethod
+    def format_binary(cls, val: bytes) -> str:
+        """
+        Formats binary data by converting it to an encoded string and applying string formatting.
+        """
+        return cls.format_string(str(val))
 
     @classmethod
     def abbreviate(cls, val: str, max_len: int = __STRING_MAX_LEN) -> str:

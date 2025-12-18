@@ -40,6 +40,16 @@ class ArrayMd:
 
 
 @dataclasses.dataclass
+class BinaryMd:
+    """
+    Metadata for binary cells that are stored externally.
+    """
+
+    start: int
+    end: int
+
+
+@dataclasses.dataclass
 class CellMd:
     """
     Content of the cellmd column.
@@ -56,17 +66,16 @@ class CellMd:
     file_urls: list[str] | None = None
 
     array_md: ArrayMd | None = None
+    binary_md: BinaryMd | None = None
 
     @classmethod
     def from_dict(cls, d: dict) -> CellMd:
-        x: CellMd
+        d = d.copy()
         if 'array_md' in d:
-            d2 = d.copy()
-            del d2['array_md']
-            x = cls(**d2, array_md=ArrayMd(**d['array_md']))
-        else:
-            x = cls(**d)
-        return x
+            d['array_md'] = ArrayMd(**d['array_md'])
+        if 'binary_md' in d:
+            d['binary_md'] = BinaryMd(**d['binary_md'])
+        return cls(**d)
 
     def as_dict(self) -> dict:
         x = dataclasses.asdict(self, dict_factory=non_none_dict_factory)
@@ -90,6 +99,7 @@ class DataRow:
     - TimestampType: datetime.datetime
     - DateType: datetime.date
     - UUIDType: uuid.UUID
+    - BinaryType: bytes
     - JsonType: json-serializable object
     - ArrayType: numpy.ndarray
     - ImageType: PIL.Image.Image
