@@ -558,8 +558,8 @@ class ColumnType:
         # types that refer to external media files
         return self.is_image_type() or self.is_video_type() or self.is_audio_type() or self.is_document_type()
 
-    def is_materializable(self) -> bool:
-        # types that can be materialized via a CellMaterializationNode
+    def supports_file_offloading(self) -> bool:
+        # types that can be offloaded to file-based storage via a CellMaterializationNode
         return self.is_array_type() or self.is_json_type() or self.is_binary_type()
 
     @classmethod
