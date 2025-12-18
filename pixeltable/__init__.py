@@ -46,6 +46,7 @@ from .type_system import (
     UUID,
     Array,
     Audio,
+    Binary,
     Bool,
     Date,
     Document,

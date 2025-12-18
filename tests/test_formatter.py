@@ -15,6 +15,7 @@ class TestFormatter:
         string_formatter = formatter.get_pandas_formatter(ts.StringType())
         json_formatter = formatter.get_pandas_formatter(ts.JsonType())
         uuid_formatter = formatter.get_pandas_formatter(ts.UUIDType())
+        binary_formatter = formatter.get_pandas_formatter(ts.BinaryType())
 
         assert float_formatter(0.4171780) == '0.417'
         assert float_formatter(1401.19018) == '1401.19'
@@ -50,6 +51,9 @@ class TestFormatter:
         test_uuid = uuid.uuid4()
         assert uuid_formatter(test_uuid) == string_formatter(str(test_uuid))
         assert uuid_formatter(None) == ''
+
+        binary = b'$1\x01\x03\xfe'
+        assert binary_formatter(binary) == r'b&#x27;\$1\x01\x03\xfe&#x27;'
 
     def test_make_pdf_thumbnail(self) -> None:
         docs_dir = Path(os.path.dirname(__file__)) / 'data' / 'documents'

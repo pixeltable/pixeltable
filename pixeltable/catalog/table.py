@@ -139,16 +139,7 @@ class Table(SchemaObject):
         for info in indices:
             if isinstance(info.idx, index.EmbeddingIndex):
                 col_ref = ColumnRef(info.col)
-                embedding = (
-                    info.idx.string_embed(col_ref)
-                    if info.col.col_type.is_string_type()
-                    else info.idx.image_embed(col_ref)
-                )
-                embedding_functions: list[pxt.Function] = []
-                if info.idx.string_embed is not None:
-                    embedding_functions.append(info.idx.string_embed)
-                if info.idx.image_embed is not None:
-                    embedding_functions.append(info.idx.image_embed)
+                embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
                 index_info[info.name] = IndexMetadata(
                     name=info.name,
                     columns=[info.col.name],
@@ -156,7 +147,7 @@ class Table(SchemaObject):
                     parameters=EmbeddingIndexParams(
                         metric=info.idx.metric.name.lower(),  # type: ignore[typeddict-item]
                         embedding=str(embedding),
-                        embedding_functions=[str(fn) for fn in embedding_functions],
+                        embedding_functions=[str(fn) for fn in info.idx.embeddings.values()],
                     ),
                 )
 
@@ -410,11 +401,7 @@ class Table(SchemaObject):
         for name, info in self._tbl_version.get().idxs_by_name.items():
             if isinstance(info.idx, index.EmbeddingIndex) and (columns is None or info.col.name in columns):
                 col_ref = ColumnRef(info.col)
-                embedding = (
-                    info.idx.string_embed(col_ref)
-                    if info.col.col_type.is_string_type()
-                    else info.idx.image_embed(col_ref)
-                )
+                embedding = info.idx.embeddings[info.col.col_type._type](col_ref)
                 row = {
                     'Index Name': name,
                     'Column': info.col.name,
@@ -1016,15 +1003,20 @@ class Table(SchemaObject):
             Once the index is created, similarity lookups can be performed using the `similarity` pseudo-function:
 
             >>> reference_img = PIL.Image.open('my_image.jpg')
-            >>> sim = tbl.img.similarity(reference_img)
+            >>> sim = tbl.img.similarity(image=reference_img)
             >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
 
             If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
-            performed using any of its supported types. In our example, CLIP supports both text and images, so we can
-            also search for images using a text description:
+            performed using any of its supported modalities. In our example, CLIP supports both text and images, so we
+            can also search for images using a text description:
 
-            >>> sim = tbl.img.similarity('a picture of a train')
+            >>> sim = tbl.img.similarity(string='a picture of a train')
             >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+
+            Audio and video lookups would look like this:
+
+            >>> sim = tbl.img.similarity(audio='/path/to/audio.flac')
+            >>> sim = tbl.img.similarity(video='/path/to/video.mp4')
 
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.

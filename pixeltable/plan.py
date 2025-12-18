@@ -384,7 +384,7 @@ class Planner:
             plan = exec.ExprEvalNode(
                 row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
             )
-        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
+        if any(c.col_type.supports_file_offloading() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
 
         plan.set_ctx(
@@ -420,9 +420,7 @@ class Planner:
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
-            needs_cell_materialization = (
-                needs_cell_materialization or col.col_type.is_json_type() or col.col_type.is_array_type()
-            )
+            needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
 
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
@@ -561,13 +559,22 @@ class Planner:
             )
         )
 
-        return json_col_refs + array_col_refs
+        binary_col_refs = list(
+            exprs.Expr.list_subexprs(
+                expr_list,
+                expr_class=exprs.ColumnRef,
+                filter=lambda e: cast(exprs.ColumnRef, e).col.col_type.is_binary_type(),
+                traverse_matches=False,
+            )
+        )
+
+        return json_col_refs + array_col_refs + binary_col_refs
 
     @classmethod
     def _add_cell_materialization_node(cls, input: exec.ExecNode) -> exec.ExecNode:
         # we need a CellMaterializationNode if any of the evaluated output columns are json or array-typed
         has_target_cols = any(
-            col.col_type.is_json_type() or col.col_type.is_array_type()
+            col.col_type.supports_file_offloading()
             for col, slot_idx in input.row_builder.table_columns.items()
             if slot_idx is not None
         )
@@ -602,12 +609,18 @@ class Planner:
             # Vector-typed array columns are used for vector indexes, and are stored in the db
             return e.col.col_type.is_array_type() and not e.col.is_sa_vector_type()
 
+        def binary_filter(e: exprs.Expr) -> bool:
+            return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_binary_type()
+
         json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
         json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
         array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
         array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
-        if len(json_refs) > 0 or len(array_refs) > 0:
-            return exec.CellReconstructionNode(json_refs, array_refs, input.row_builder, input=input)
+        binary_refs = list(
+            exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
+        )
+        if len(json_refs) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
+            return exec.CellReconstructionNode(json_refs, array_refs, binary_refs, input.row_builder, input=input)
         else:
             return input
 
@@ -827,7 +840,7 @@ class Planner:
 
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
-        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
+        if any(c.col_type.supports_file_offloading() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
         plan = cls._add_save_node(plan)
 

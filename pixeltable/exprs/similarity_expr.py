@@ -26,15 +26,12 @@ class SimilarityExpr(Expr):
     idx_id: int
     idx_name: str
 
-    def __init__(self, col_ref: ColumnRef, item: Any, idx_name: str | None = None):
+    def __init__(self, col_ref: ColumnRef, item: Expr, idx_name: str | None = None):
         from pixeltable.index import EmbeddingIndex
 
         super().__init__(ts.FloatType())
-        item_expr = Expr.from_object(item)
-        if item_expr is None or not (item_expr.col_type.is_string_type() or item_expr.col_type.is_image_type()):
-            raise excs.Error(f'similarity(): requires a string or a PIL.Image.Image object, not a {type(item)}')
 
-        self.components = [col_ref, item_expr]
+        self.components = [col_ref, item]
 
         # determine index to use
         idx_info = col_ref.tbl.get().get_idx(col_ref.col, idx_name, EmbeddingIndex)
@@ -43,15 +40,12 @@ class SimilarityExpr(Expr):
         idx = idx_info.idx
         assert isinstance(idx, EmbeddingIndex)
 
-        if item_expr.col_type.is_string_type() and idx.string_embed is None:
+        if item.col_type._type not in idx.embeddings:
+            type_str = item.col_type._type.name.lower()
+            article = 'an' if type_str[0] in 'aeiou' else 'a'
             raise excs.Error(
-                f'Embedding index {idx_info.name!r} on column {idx_info.col.name!r} does not have a '
-                f'string embedding and does not support string queries'
-            )
-        if item_expr.col_type.is_image_type() and idx.image_embed is None:
-            raise excs.Error(
-                f'Embedding index {idx_info.name!r} on column {idx_info.col.name!r} does not have an '
-                f'image embedding and does not support image queries'
+                f'Embedding index {idx_info.name!r} on column {idx_info.col.name!r} does not have {article} '
+                f'{type_str} embedding and does not support {type_str} queries'
             )
         self.id = self._create_id()
 
@@ -69,22 +63,20 @@ class SimilarityExpr(Expr):
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
         if not isinstance(self.components[1], Literal):
-            raise excs.Error('similarity(): requires a string or a PIL.Image.Image object, not an expression')
-        item = self.components[1].val
+            raise excs.Error('similarity(): requires a value, not an expression')
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
-        return idx_info.idx.similarity_clause(idx_info.val_col, item)
+        return idx_info.idx.similarity_clause(idx_info.val_col, self.components[1])
 
     def as_order_by_clause(self, is_asc: bool) -> sql.ColumnElement | None:
         from pixeltable.index import EmbeddingIndex
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
         if not isinstance(self.components[1], Literal):
-            raise excs.Error('similarity(): requires a string or a PIL.Image.Image object, not an expression')
-        item = self.components[1].val
+            raise excs.Error('similarity(): requires a value, not an expression')
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
-        return idx_info.idx.order_by_clause(idx_info.val_col, item, is_asc)
+        return idx_info.idx.order_by_clause(idx_info.val_col, self.components[1], is_asc)
 
     def _resolve_idx(self) -> 'TableVersion.IndexInfo':
         from pixeltable.index import EmbeddingIndex

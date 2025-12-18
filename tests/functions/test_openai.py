@@ -309,7 +309,7 @@ class TestOpenai:
         validate_update_status(t.insert(input='Another sentence for you to index.'), 1)
         _ = t.head()
 
-        sim = t.input.similarity('Indexing sentences is fun.')
+        sim = t.input.similarity(string='Indexing sentences is fun.')
         res = t.select(t.input, sim=sim).order_by(sim, asc=False).collect()
 
         # The exact values are probabilistic, but we should reliably get similarity > 0.5 for the sentence about
