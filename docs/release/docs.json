@@ -386,6 +386,11 @@
       "cursor"
     ]
   },
+  "integrations": {
+    "telemetry": {
+      "enabled": false
+    }
+  },
   "errors": {
     "404": {
       "redirect": false,
