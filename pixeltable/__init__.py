@@ -4,14 +4,9 @@ Core Pixeltable API for table operations, data processing, and UDF management.
 
 # ruff: noqa: F401 E402
 
-import warnings
 
-# Suppress tqdm's ipywidgets warning in Jupyter environments
-warnings.filterwarnings('ignore', message='IProgress not found')
-# suppress Rich's ipywidgets warning in Jupyter environments
-warnings.filterwarnings('ignore', message='install "ipywidgets" for Jupyter support')
-
-
+# This import must go last to avoid circular imports.
+from . import functions, io, iterators  # isort: skip
 from ._query import Query, ResultSet
 from ._version import __version__
 from .catalog import (
@@ -67,9 +62,6 @@ from .type_system import (
     Timestamp,
     Video,
 )
-
-# This import must go last to avoid circular imports.
-from . import functions, io, iterators  # isort: skip
 
 # This is the safest / most maintainable way to construct __all__: start with the default and "blacklist"
 # stuff that we don't want in there. (Using a "whitelist" is considerably harder to maintain.)

@@ -469,11 +469,23 @@ class Env:
 
         self._pxt_api_key = config.get_string_value('api_key')
 
-        # Disable spurious warnings
+        # Disable spurious warnings:
+        # Suppress tqdm's ipywidgets warning in Jupyter environments
+        warnings.filterwarnings('ignore', message='IProgress not found')
+        # suppress Rich's ipywidgets warning in Jupyter environments
+        warnings.filterwarnings('ignore', message='install "ipywidgets" for Jupyter support')
         if config.get_bool_value('hide_warnings'):
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
+
+        # if we're running in a Jupyter notebook, warn about missing ipywidgets
+        if self.is_notebook() and importlib.util.find_spec('ipywidgets') is None:
+            warnings.warn(
+                'Progress reporting is disabled because ipywidgets is not installed. '
+                'To fix this, run: `pip install ipywidgets`',
+                stacklevel=1,
+            )
 
         # Set verbosity level for user visible console messages
         self._verbosity = config.get_int_value('verbosity')
@@ -545,14 +557,6 @@ class Env:
         # we now have a home directory and db; start other services
         self._set_up_runtime()
         self.log_to_stdout(False)
-
-        # if we're running in a Jupyter notebook, warn about missing ipywidgets
-        if self.is_notebook() and importlib.util.find_spec('ipywidgets') is None:
-            warnings.warn(
-                'Progress reporting is disabled because ipywidgets is not installed. '
-                'To fix this, run: `pip install ipywidgets`',
-                stacklevel=1,
-            )
 
     def _init_db(self, config: Config) -> None:
         """
