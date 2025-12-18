@@ -983,7 +983,7 @@ class Planner:
         is_python_agg = not sql_elements.contains_all(analyzer.agg_fn_calls) or not sql_elements.contains_all(
             analyzer.window_fn_calls
         )
-        ctx = exec.ExecContext(row_builder, show_progress=False)
+        ctx = exec.ExecContext(row_builder)
 
         combined_ordering = cls._create_combined_ordering(analyzer, verify_agg=is_python_agg)
         cls._verify_join_clauses(analyzer)

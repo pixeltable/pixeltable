@@ -57,6 +57,7 @@ class ExecContext:
         assert self.progress is not None
         if desc in self.progress_reporters:
             return self.progress_reporters[desc]
+        desc = desc if self.title is None else f'| {desc}'
         reporter = ProgressReporter(self.progress, desc, unit_1, unit_2)
         self.progress_reporters[desc] = reporter
         return reporter
@@ -74,10 +75,8 @@ class ExecContext:
                 TextColumn('{task.fields[total_2]}', justify='right', table_column=Column(min_width=10)),
                 TextColumn('{task.fields[unit_2]}', justify='left'),
                 transient=True,  # remove at end
-                console=Console(force_terminal=True, force_jupyter=False),  # avoid ipywidgets warning
             )
 
         self.progress = Env.get().start_progress(create_progress)
-        print(f'start progress with title {self.title}')
         if self.title is not None:
             self.progress.add_task(f'{self.title}:', total_1='', unit_1='', total_2='', unit_2='')

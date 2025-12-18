@@ -331,6 +331,8 @@ class Query:
         def exec_plan() -> Iterator[exprs.DataRow]:
             with plan:
                 for row_batch in plan:
+                    # stop progress output before we display anything, otherwise it'll mess up the output
+                    Env.get().stop_progress()
                     yield from row_batch
 
         yield from exec_plan()

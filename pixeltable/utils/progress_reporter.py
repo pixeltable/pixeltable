@@ -52,7 +52,7 @@ class ProgressReporter:
     def _create_task(self) -> None:
         if self.task_id is None:
             self.task_id = self.progress.add_task(
-                f'| {self.desc}', total_1='', unit_1=self.unit_1, total_2='', unit_2=self.unit_2 if self.unit_2 else ''
+                self.desc, total_1='', unit_1=self.unit_1, total_2='', unit_2=self.unit_2 if self.unit_2 else ''
             )
 
     def _scale_bytes(self, num_bytes: int) -> tuple[float, str]:
@@ -68,6 +68,10 @@ class ProgressReporter:
 
     def update(self, advance_1: float | int, advance_2: float | int | None = None) -> None:
         self._create_task()
+        if self.progress.finished:
+            # nothing to report
+            return
+
         self.total_1 += advance_1
         if self.unit_2 is not None:
             assert advance_2 is not None
@@ -86,7 +90,7 @@ class ProgressReporter:
         )
 
     def finalize(self) -> None:
-        if self.task_id is None:
+        if self.progress.finished or self.task_id is None:
             # nothing to finalize
             return
 
