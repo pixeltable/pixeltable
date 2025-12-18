@@ -158,7 +158,7 @@ class CellMaterializationNode(ExecNode):
 
     def _materialize_binary_cell(self, row: exprs.DataRow, col: catalog.Column, val: bytes) -> None:
         if len(val) <= self.MAX_DB_BINARY_SIZE:
-            # this binary is small enough to store in the db column (type: binary) directly
+            # this `bytes` object is small enough to store in the db column (type: binary) directly
             row.cell_vals[col.id] = val
             row.cell_md[col.id] = None
         else:
