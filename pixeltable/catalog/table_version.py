@@ -413,11 +413,9 @@ class TableVersion:
             self.delete_media()
             view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
-            try:
+            with Env.get().report_progress():
                 plan.ctx.title = self.display_str()
                 _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
-            finally:
-                Env.get().stop_progress()
             status = UpdateStatus(row_count_stats=row_counts)
             Catalog.get().store_update_status(self.id, self.version, status)
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
@@ -881,18 +879,17 @@ class TableVersion:
 
             # populate the column
             plan = Planner.create_add_column_plan(self.path, col)
-            try:
-                plan.ctx.title = self.display_str()
-                excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
-            except sql_exc.DBAPIError as exc:
-                Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
-                # If it wasn't converted, re-raise as a generic Pixeltable error
-                # (this means it's not a known concurrency error; it's something else)
-                raise excs.Error(
-                    f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
-                ) from exc
-            finally:
-                Env.get().stop_progress()
+            with Env.get().report_progress():
+                try:
+                    plan.ctx.title = self.display_str()
+                    excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
+                except sql_exc.DBAPIError as exc:
+                    Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
+                    # If it wasn't converted, re-raise as a generic Pixeltable error
+                    # (this means it's not a known concurrency error; it's something else)
+                    raise excs.Error(
+                        f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
+                    ) from exc
             if excs_per_col > 0:
                 cols_with_excs.append(col)
                 num_excs += excs_per_col
@@ -1035,13 +1032,11 @@ class TableVersion:
                 self.next_row_id += 1
                 yield rowid
 
-        try:
+        with Env.get().report_progress():
             result = self._insert(
                 plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
             )
             return result
-        finally:
-            Env.get().stop_progress()
 
     def _insert(
         self,

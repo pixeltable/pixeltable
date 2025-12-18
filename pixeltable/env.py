@@ -312,6 +312,14 @@ class Env:
                 pass
 
     @contextmanager
+    def report_progress(self) -> Iterator[None]:
+        """Context manager for the Progress instance."""
+        try:
+            yield
+        finally:
+            self.stop_progress()
+
+    @contextmanager
     def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
         """
         Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly.

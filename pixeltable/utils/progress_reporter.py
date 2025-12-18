@@ -21,7 +21,7 @@ def _print_number(val: float | int | None) -> str:
     elif val < 100.0:
         return f'{val:.1f}  '  # trailing spaces for alignment
     else:
-        return f'{round(val)}'
+        return f'{round(val)}    '  # trailing spaces for alignment
 
 
 class ProgressReporter:
