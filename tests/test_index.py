@@ -932,11 +932,11 @@ class TestIndex:
         assert len(res) == 3
         assert all(isinstance(row['col_0'], np.ndarray) and row['col_0'].dtype == np.float32 for row in res)
 
-        sim = t.text.similarity('zero')
+        sim = t.text.similarity(string='zero')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 0
 
-        sim = t.text.similarity('one')
+        sim = t.text.similarity(string='one')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
 
