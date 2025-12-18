@@ -57,6 +57,8 @@ def make_default_type(t: ts.ColumnType.Type) -> ts.ColumnType:
         return ts.DateType()
     if t == ts.ColumnType.Type.UUID:
         return ts.UUIDType()
+    if t == ts.ColumnType.Type.BINARY:
+        return ts.BinaryType()
     raise AssertionError()
 
 
@@ -125,6 +127,8 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
             col_data = [datetime.date.today()] * num_rows
         if col_type.is_uuid_type():
             col_data = [uuid.uuid4() for _ in range(num_rows)]
+        if col_type.is_binary_type():
+            col_data = [b'1$\x03\xfe'] * num_rows
         if col_type.is_json_type():
             col_data = [sample_dict] * num_rows
         if col_type.is_array_type():
@@ -233,6 +237,7 @@ def create_all_datatypes_tbl() -> pxt.Table:
         'c_string': pxt.String,
         'c_timestamp': pxt.Timestamp,
         'c_uuid': pxt.UUID,
+        'c_binary': pxt.Binary,
         'c_video': pxt.Video,
     }
     tbl = pxt.create_table('all_datatype_tbl', schema)
@@ -451,8 +456,12 @@ def assert_resultset_eq(r1: ResultSet, r2: ResultSet, compare_col_names: bool = 
     if compare_col_names:
         assert r1.schema.keys() == r2.schema.keys()
     for r1_col, r2_col in zip(r1.schema, r2.schema):
-        mismatches = __find_column_mismatches(r1.schema[r1_col], r1[r1_col], r2[r2_col])
-        assert len(mismatches) == 0, __mismatch_err_string(r1_col, r1[r1_col], r2[r2_col], mismatches)
+        assert_columns_eq(r1_col, r1.schema[r1_col], r1[r1_col], r2[r2_col])
+
+
+def assert_columns_eq(col_name: str, col_type: ts.ColumnType, c1: list[Any], c2: list[Any]) -> None:
+    mismatches = __find_column_mismatches(col_type, c1, c2)
+    assert len(mismatches) == 0, __mismatch_err_string(col_name, c1, c2, mismatches)
 
 
 def __find_column_mismatches(col_type: ts.ColumnType, s1: list[Any], s2: list[Any]) -> list[int]:
@@ -505,10 +514,6 @@ __COMPARERS: dict[ts.ColumnType.Type, Callable[[Any, Any], bool]] = {
     ts.ColumnType.Type.AUDIO: __file_comparer,
     ts.ColumnType.Type.DOCUMENT: __file_comparer,
 }
-
-
-def assert_json_eq(x: Any, y: Any, context: str = '') -> None:
-    assert __json_comparer(x, y), f'{context}: {x} != {y}'
 
 
 def __mismatch_err_string(col_name: str, s1: list[Any], s2: list[Any], mismatches: list[int]) -> str:
@@ -638,6 +643,7 @@ def make_test_arrow_table(output_path: Path) -> str:
             None,
         ],
         'c_uuid': [uuid.uuid4().bytes, uuid.uuid4().bytes, uuid.uuid4().bytes, uuid.uuid4().bytes, None],
+        'c_binary': [b'abc', b'\x03\x05\xfe', b'ghi', b'jkl', None],
         # The pyarrow fixed_shape_tensor type does not support NULLs (currently can write them but not read them)
         # So, no nulls in this column
         'c_array_float32': float_array,
@@ -655,6 +661,7 @@ def make_test_arrow_table(output_path: Path) -> str:
         ('c_boolean', pa.bool_()),
         ('c_timestamp', pa.timestamp('us')),
         ('c_uuid', pa.uuid()),
+        ('c_binary', pa.binary()),
         ('c_array_float32', tensor_type),
     ]
     schema = pa.schema(fields)  # type: ignore[arg-type]
@@ -669,13 +676,6 @@ def make_test_arrow_table(output_path: Path) -> str:
     assert read_table.schema.equals(test_table.schema)
     assert read_table.equals(test_table)
     return table_path
-
-
-def assert_img_eq(img1: PIL.Image.Image, img2: PIL.Image.Image, context: str) -> None:
-    assert img1.mode == img2.mode, context
-    assert img1.size == img2.size, context
-    diff = PIL.ImageChops.difference(img1, img2)  # type: ignore[attr-defined]
-    assert diff.getbbox() is None, context
 
 
 def reload_catalog(reload: bool = True) -> None:
@@ -740,6 +740,7 @@ class ReloadTester:
 
     def run_reload_test(self, clear: bool = True) -> None:
         reload_catalog()
+        assert len(self.query_info) > 0, 'No queries in ReloadTester!'
         # enumerate(): the list index is useful for debugging
         for _idx, (query_dict, result_set) in enumerate(self.query_info):
             query = pxt.Query.from_dict(query_dict)
