@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any, Sequence, cast
 from uuid import UUID
-import warnings
 
 import PIL.Image
 import sqlalchemy as sql
@@ -171,17 +171,22 @@ class ColumnRef(Expr):
             FileCache.get().emit_eviction_warnings()
             return status
 
-    def similarity(self, item: Any = None, *,
-                   string: str | None = None,
-                   image: PIL.Image.Image | None = None,
-                   audio: str | None = None,
-                   video: str | None = None,
-                   idx: str | None = None) -> Expr:
+    def similarity(
+        self,
+        item: Any = None,
+        *,
+        string: str | None = None,
+        image: PIL.Image.Image | None = None,
+        audio: str | None = None,
+        video: str | None = None,
+        idx: str | None = None,
+    ) -> Expr:
         from .similarity_expr import SimilarityExpr
 
         if item is not None:
             warnings.warn(
-                'Use of similarity() without specifying an explicit modality is deprecated -- since version 0.5.7. Please use one of the following instead:\n'
+                'Use of similarity() without specifying an explicit modality is deprecated -- '
+                'since version 0.5.7. Please use one of the following instead:\n'
                 '  .similarity(string=...)\n'
                 '  .similarity(image=...)\n'
                 '  .similarity(audio=...)\n'
@@ -240,7 +245,9 @@ class ColumnRef(Expr):
                 expr = audio
             else:
                 if not isinstance(audio, str):
-                    raise excs.Error(f'similarity(audio=...): expected `str` (path to audio file); got `{type(audio).__name__}`')
+                    raise excs.Error(
+                        f'similarity(audio=...): expected `str` (path to audio file); got `{type(audio).__name__}`'
+                    )
                 expr = Literal(audio, ts.AudioType())
 
         if video is not None:
@@ -250,7 +257,9 @@ class ColumnRef(Expr):
                 expr = video
             else:
                 if not isinstance(video, str):
-                    raise excs.Error(f'similarity(video=...): expected `str` (path to video file); got `{type(video).__name__}`')
+                    raise excs.Error(
+                        f'similarity(video=...): expected `str` (path to video file); got `{type(video).__name__}`'
+                    )
                 expr = Literal(video, ts.VideoType())
 
         return SimilarityExpr(self, expr, idx_name=idx)

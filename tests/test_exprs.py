@@ -1104,7 +1104,9 @@ class TestExprs:
         assert sim1.serialize() == sim2.serialize()
 
         # Deprecated pattern; verify it still gives the same results
-        with pytest.warns(DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'):
+        with pytest.warns(
+            DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
+        ):
             sim1 = t1.img.similarity('red truck')
             sim2 = t1.img.similarity('red truck', idx='img_idx0')
             assert sim1.id == sim2.id

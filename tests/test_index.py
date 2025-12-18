@@ -48,9 +48,13 @@ class TestIndex:
         with pytest.raises(pxt.Error, match="Column 'img' has multiple embedding indices"):
             _ = t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img), asc=False).limit(1).collect()
         # but we can specify the index to use, and the query should work
-        query = t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img, idx='img_idx1'), asc=False).limit(1)
+        query = (
+            t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img, idx='img_idx1'), asc=False).limit(1)
+        )
         _ = reload_tester.run_query(query)
-        query = t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img, idx='img_idx2'), asc=False).limit(1)
+        query = (
+            t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img, idx='img_idx2'), asc=False).limit(1)
+        )
         _ = reload_tester.run_query(query)
 
         # verify that the result is the same as the original query after reload
@@ -134,7 +138,9 @@ class TestIndex:
 
         t.add_embedding_index('img', embedding=clip_embed)
 
-        with pytest.warns(DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'):
+        with pytest.warns(
+            DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
+        ):
             query = (
                 t.select(img=t.img, sim=t.img.similarity(sample_img))
                 .order_by(t.img.similarity(sample_img), asc=False)
@@ -144,7 +150,9 @@ class TestIndex:
             out_img = res[0, 'img']
             assert sample_img == out_img, 'deprecated similarity check failed'
 
-        with pytest.warns(DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'):
+        with pytest.warns(
+            DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
+        ):
             query = (
                 t.select(img=t.img, sim=t.img.similarity('parachute'))
                 .order_by(t.img.similarity('parachute'), asc=False)
@@ -197,7 +205,10 @@ class TestIndex:
 
         # Test the deprecated pattern too (similarity() without modality)
 
-        with pytest.warns(DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'):
+        with pytest.warns(
+            DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
+        ):
+
             @pxt.query
             def top_k_chunks_deprecated(query_text: str) -> pxt.Query:
                 return (
@@ -245,16 +256,18 @@ class TestIndex:
             ('video', r'`str` \(path to video file\)'),
         )
 
-        with pytest.warns(DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'):
+        with pytest.warns(
+            DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
+        ):
             for param, expected in type_failures:
                 with pytest.raises(pxt.Error, match=rf'similarity\(.*\): expected {expected}; got `tuple`') as exc_info:
-                    _ = t.order_by(t.img.similarity(**{param: ('red truck',)})).limit(1).collect()
+                    _ = t.order_by(t.img.similarity(**{param: ('red truck',)})).limit(1).collect()  # type: ignore[arg-type]
             for param, expected in type_failures:
                 with pytest.raises(pxt.Error, match=rf'similarity\(.*\): expected {expected}; got `list`') as exc_info:
-                    _ = t.order_by(t.img.similarity(**{param: ['red truck']})).limit(1).collect()
+                    _ = t.order_by(t.img.similarity(**{param: ['red truck']})).limit(1).collect()  # type: ignore[arg-type]
 
         with pytest.raises(pxt.Error) as exc_info:
-            _ = t.order_by(t.img.similarity(string=t.split)).limit(1).collect()
+            _ = t.order_by(t.img.similarity(string=t.split)).limit(1).collect()  # type: ignore[arg-type]
         assert 'not an expression' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error, match="No embedding index found for column 'split'"):
