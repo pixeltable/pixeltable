@@ -127,7 +127,7 @@ def run_user_workflow_test() -> None:
         step3_start_time = time.monotonic()
         try:
             query_text = 'a bowl of broccoli'
-            sim_expr = images_tbl.image.similarity(query_text)
+            sim_expr = images_tbl.image.similarity(string=query_text)
             select_kwargs = {'similarity': sim_expr}
             results_rs = (
                 images_tbl.order_by(sim_expr, asc=False)
