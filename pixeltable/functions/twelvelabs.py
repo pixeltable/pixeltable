@@ -31,7 +31,7 @@ def _twelvelabs_client() -> 'AsyncTwelveLabs':
 
 
 @pxt.udf(resource_pool='request-rate:twelvelabs')
-async def embed(model_name: str, *, text: str, image: pxt.Image | None = None) -> pxt.Array[np.float32] | None:
+async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -> pxt.Array[np.float32] | None:
     """
     Creates an embedding vector for the given text, audio, image, or video input.
 
@@ -93,7 +93,7 @@ async def embed(model_name: str, *, text: str, image: pxt.Image | None = None) -
 
 
 @embed.overload
-async def _(model_name: str, *, image: pxt.Image) -> pxt.Array[np.float32] | None:
+async def _(image: pxt.Image, *, model_name: str) -> pxt.Array[np.float32] | None:
     env.Env.get().require_package('twelvelabs')
     import twelvelabs
 
@@ -112,9 +112,9 @@ async def _(model_name: str, *, image: pxt.Image) -> pxt.Array[np.float32] | Non
 
 @embed.overload
 async def _(
-    model_name: str,
-    *,
     audio: pxt.Audio,
+    *,
+    model_name: str,
     start_sec: float | None = None,
     end_sec: float | None = None,
     embedding_option: list[Literal['audio', 'transcription']] | None = None,
@@ -143,9 +143,9 @@ async def _(
 
 @embed.overload
 async def _(
-    model_name: str,
-    *,
     video: pxt.Video,
+    *,
+    model_name: str,
     start_sec: float | None = None,
     end_sec: float | None = None,
     embedding_option: list[Literal['visual', 'audio', 'transcription']] | None = None,

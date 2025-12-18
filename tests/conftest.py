@@ -318,14 +318,14 @@ def img_tbl_exprs(indexed_img_tbl: pxt.Table) -> list[exprs.Expr]:
         t.img.rotate(90).resize([224, 224]),
         t.img.fileurl,
         t.img.localpath,
-        t.img.similarity('red truck', idx='img_idx0'),
+        t.img.similarity(string='red truck', idx='img_idx0'),
     ]
 
 
 @pytest.fixture(scope='function')
 def multi_img_tbl_exprs(multi_idx_img_tbl: pxt.Table) -> list[exprs.Expr]:
     t = multi_idx_img_tbl
-    return [t.img.similarity('red truck', idx='img_idx1'), t.img.similarity('red truck', idx='img_idx2')]
+    return [t.img.similarity(string='red truck', idx='img_idx1'), t.img.similarity(string='red truck', idx='img_idx2')]
 
 
 @pytest.fixture(scope='function')

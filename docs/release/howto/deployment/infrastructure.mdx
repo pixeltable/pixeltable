@@ -136,7 +136,7 @@ docs.add_embedding_index('embedding', metric='cosine', if_not_exists=True)
 @pxt.query
 def search_documents(query_text: str, limit: int = 5):
     """RAG retrieval query."""
-    sim = docs.embedding.similarity(query_text)
+    sim = docs.embedding.similarity(string=query_text)
     return docs.order_by(sim, asc=False).limit(limit).select(docs.document, sim)
 ```
   </Tab>

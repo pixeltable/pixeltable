@@ -207,7 +207,7 @@ The query phase allows you to search your indexed content using the `similarity(
 <Tabs>
   <Tab title="Similarity Search">
     ```python
-      sim = docs.content.similarity("what is the documentation")
+      sim = docs.content.similarity(string="what is the documentation")
 
       # Return top-k most similar documents
       results = (docs.order_by(sim, asc=False)
@@ -225,7 +225,7 @@ The query phase allows you to search your indexed content using the `similarity(
     ```python
     @pxt.query
     def filtered_search(query: str, category: str):
-        sim = docs.content.similarity(query)
+        sim = docs.content.similarity(string=query)
 
         return (
             docs
