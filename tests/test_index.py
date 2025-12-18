@@ -846,8 +846,7 @@ class TestIndex:
         assert len(res.schema) == 1
         assert ts.ArrayType((n,), np.dtype('float32')).matches(res.schema['col_0']), res.schema
         assert len(res) == 3
-        assert isinstance(res[0, 0], np.ndarray)
-        assert res[0, 0].dtype == np.float32
+        assert all(isinstance(row['col_0'], np.ndarray) and row['col_0'].dtype == np.float32 for row in res)
 
         sim = t.text.similarity('zero')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
