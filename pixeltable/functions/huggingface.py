@@ -75,20 +75,6 @@ def _(model_id: str) -> ts.ArrayType:
     return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
 
 
-@pxt.udf
-def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embeddings: bool = False) -> list:
-    env.Env.get().require_package('sentence_transformers')
-    device = resolve_torch_device('auto')
-    from sentence_transformers import SentenceTransformer
-
-    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
-    model = _lookup_model(model_id, SentenceTransformer, device=device, pass_device_to_create=True)
-
-    # specifying the device, uses it for computation
-    array = model.encode(sentences, device=device, normalize_embeddings=normalize_embeddings)
-    return [array[i].tolist() for i in range(array.shape[0])]
-
-
 @pxt.udf(batch_size=32)
 def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: str) -> Batch[float]:
     """
@@ -126,20 +112,6 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
     model = _lookup_model(model_id, CrossEncoder, device=device, pass_device_to_create=True)
 
     array = model.predict([[s1, s2] for s1, s2 in zip(sentences1, sentences2)], convert_to_numpy=True)
-    return array.tolist()
-
-
-@pxt.udf
-def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> list:
-    env.Env.get().require_package('sentence_transformers')
-    device = resolve_torch_device('auto')
-    from sentence_transformers import CrossEncoder
-
-    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
-    # and uses the device for predict computation
-    model = _lookup_model(model_id, CrossEncoder, device=device, pass_device_to_create=True)
-
-    array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
     return array.tolist()
 
 
