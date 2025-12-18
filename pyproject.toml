@@ -69,7 +69,7 @@ dependencies = [
     "pyarrow>=19",
     "pixeltable-pgserver==0.4.0",
     "tzlocal>=5.0",
-    "aiohttp>=3.9",
+    "aiohttp>=3.10",
     "deprecated>=1.2.15",
     "pypdfium2>=4.30.0",
 ]
