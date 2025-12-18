@@ -245,13 +245,13 @@ class TestIndex:
             ('video', r'`str` \(path to video file\)'),
         )
 
-        for param, expected in type_failures:
-            with pytest.raises(pxt.Error, match=rf'similarity\(.*\): expected {expected}; got `tuple`') as exc_info:
-                _ = t.order_by(t.img.similarity(**{param: ('red truck',)})).limit(1).collect()
-
-        for param, expected in type_failures:
-            with pytest.raises(pxt.Error, match=rf'similarity\(.*\): expected {expected}; got `list`') as exc_info:
-                _ = t.order_by(t.img.similarity(**{param: ['red truck']})).limit(1).collect()
+        with pytest.warns(DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'):
+            for param, expected in type_failures:
+                with pytest.raises(pxt.Error, match=rf'similarity\(.*\): expected {expected}; got `tuple`') as exc_info:
+                    _ = t.order_by(t.img.similarity(**{param: ('red truck',)})).limit(1).collect()
+            for param, expected in type_failures:
+                with pytest.raises(pxt.Error, match=rf'similarity\(.*\): expected {expected}; got `list`') as exc_info:
+                    _ = t.order_by(t.img.similarity(**{param: ['red truck']})).limit(1).collect()
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.order_by(t.img.similarity(string=t.split)).limit(1).collect()

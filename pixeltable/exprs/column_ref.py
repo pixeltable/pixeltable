@@ -179,6 +179,17 @@ class ColumnRef(Expr):
                    idx: str | None = None) -> Expr:
         from .similarity_expr import SimilarityExpr
 
+        if item is not None:
+            warnings.warn(
+                'Use of similarity() without specifying an explicit modality is deprecated -- since version 0.5.7. Please use one of the following instead:\n'
+                '  .similarity(string=...)\n'
+                '  .similarity(image=...)\n'
+                '  .similarity(audio=...)\n'
+                '  .similarity(video=...)',
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
         arg_count = (string is not None) + (image is not None) + (audio is not None) + (video is not None)
 
         if item is not None and arg_count != 0:
@@ -241,17 +252,6 @@ class ColumnRef(Expr):
                 if not isinstance(video, str):
                     raise excs.Error(f'similarity(video=...): expected `str` (path to video file); got `{type(video).__name__}`')
                 expr = Literal(video, ts.VideoType())
-
-        if item is not None:
-            warnings.warn(
-                'Use of similarity() without specifying an explicit modality is deprecated -- since version 0.5.7. Please use one of the following instead:\n'
-                '  .similarity(string=...)\n'
-                '  .similarity(image=...)\n'
-                '  .similarity(audio=...)\n'
-                '  .similarity(video=...)',
-                DeprecationWarning,
-                stacklevel=2,
-            )
 
         return SimilarityExpr(self, expr, idx_name=idx)
 
