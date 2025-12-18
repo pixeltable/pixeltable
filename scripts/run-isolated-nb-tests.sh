@@ -20,7 +20,7 @@ eval "$(conda shell.bash hook)"
 export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
 
-"$SCRIPT_DIR/prepare-nb-tests.sh" "$TEST_PATH" docs/notebooks
+"$SCRIPT_DIR/prepare-nb-tests.sh" "$TEST_PATH" docs/release
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
 
 NB_CONDA_ENV=nb-test-env

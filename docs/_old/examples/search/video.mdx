@@ -127,7 +127,7 @@ Pixeltable lets you build comprehensive video search workflows combining both au
 
     query_text = "Summarize the conversation"
 
-    audio_sim = transcription_chunks.text.similarity(query_text)
+    audio_sim = transcription_chunks.text.similarity(string=query_text)
     audio_results = (
         transcription_chunks.order_by(audio_sim, transcription_chunks.uploaded_at, asc=False)
         .limit(5)
@@ -199,8 +199,8 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     Search independently across audio or visual content:
     ```python
     # Get similarity scores
-    audio_sim = transcription_chunks.text.similarity("Definition of happiness according to the guest")
-    image_sim = frames_view.image_description.similarity("Lex Fridman interviewing a guest in a podcast setting")
+    audio_sim = transcription_chunks.text.similarity(string="Definition of happiness according to the guest")
+    image_sim = frames_view.image_description.similarity(string="Lex Fridman interviewing a guest in a podcast setting")
     ```
   </Card>
 </CardGroup>

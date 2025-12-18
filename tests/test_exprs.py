@@ -1,12 +1,12 @@
 import base64
+import datetime
 import json
 import math
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 import pandas as pd
@@ -24,6 +24,7 @@ from pixeltable.functions.video import frame_iterator
 
 from .utils import (
     ReloadTester,
+    assert_columns_eq,
     create_all_datatypes_tbl,
     create_scalars_tbl,
     get_image_files,
@@ -468,7 +469,7 @@ class TestExprs:
             (t.c1, 'test string 10'),  # string-to-string
             (t.c2, 50),  # int-to-int
             (t.c3, 50.1),  # float-to-float
-            (t.c5, datetime(2024, 7, 2)),  # datetime-to-datetime
+            (t.c5, datetime.datetime(2024, 7, 2)),  # datetime-to-datetime
         )
         for expr1, expr2 in comparison_pairs:
             forced_expr1 = expr1.apply(lambda x: x, col_type=expr1.col_type)
@@ -501,33 +502,57 @@ class TestExprs:
 
     def test_constant_literals(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
-        t.add_computed_column(cc0=datetime.now())  # timestamp
-        t.add_computed_column(cc1=100)  # integer
-        t.add_computed_column(cc2='abc')  # string
-        t.add_computed_column(cc3=10.4)  # floating point
-        t.add_computed_column(cc4=(100, 200))  # tuple of integer
-        t.add_computed_column(cc5={'a': 'str100', 'b': 3.14, 'c': [1, 2, 3], 'd': {'e': (0.99, 100.1)}})
-        t.add_computed_column(cc6=pxt.array([100.1, 200.1, 300.1]))  # one dimensional floating point array
-        t.add_computed_column(cc7=pxt.array(['abc', 'bcd', 'efg']))  # one dimensional string array
-        # list if list (integers)
-        t.add_computed_column(
-            cc8=[[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]]
-        )
-        # multidimensional string arrays
-        t.add_computed_column(
-            cc9=pxt.array(
+
+        class LiteralCase(NamedTuple):
+            input: Any
+            expected_output: Any
+
+        # For each entry in this list, if it's a bare object, then we assume the round-trip output is identical to the
+        # input; if it's an instance of LiteralCase, then they may differ (as in the case of tuples converted to lists)
+        literals = [
+            'abc',
+            100,
+            10.4,
+            True,
+            datetime.datetime.now(datetime.timezone.utc),
+            datetime.date.today(),
+            uuid.uuid4(),  # constant uuid
+            b'1$\x01\x03',  # binary data
+            # various json literals
+            LiteralCase(input=(100, 200), expected_output=[100, 200]),
+            LiteralCase(
+                input={'a': 'str100', 'b': 3.14, 'c': [1, 2, 3], 'd': {'e': (0.99, 100.1)}},
+                expected_output={'a': 'str100', 'b': 3.14, 'c': [1, 2, 3], 'd': {'e': [0.99, 100.1]}},
+            ),
+            [[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]],
+            np.array([100.1, 200.1, 300.1], dtype='float16'),  # one-dimensional floating point array
+            np.array(['abc', 'bcd', 'efg']),  # one-dimensional string array
+            # multidimensional int array
+            np.array([[[1, 2, 3], [4, 5, 6]], [[10, 20, 30], [40, 50, 60]], [[100, 200, 300], [400, 500, 600]]]),
+            # multidimensional string array
+            np.array(
                 [
                     [['a1', 'b2', 'c3'], ['a4', 'b5', 'c6']],
                     [['a10', 'b20', 'c30'], ['a40', 'b50', 'c60']],
                     [['a100', 'b200', 'c300'], ['a400', 'b500', 'c600']],
                 ]
-            )
-        )
-        t.add_computed_column(cc10=uuid.uuid4())  # constant uuid
-        results = reload_tester.run_query(
-            t.select(t.cc0, t.cc1, t.cc2, t.cc3, t.cc4, t.cc5, t.cc6, t.cc7, t.cc8, t.cc9, t.cc10)
-        )
-        print(results.schema)
+            ),
+            # boolean array
+            np.array([[True, False, True], [False, True, False], [True, True, True]]),
+        ]
+
+        for i, lit in enumerate(literals):
+            input = lit.input if isinstance(lit, LiteralCase) else lit
+            t.add_computed_column(**{f'literal_{i}': input})
+
+        results = reload_tester.run_query(t.select(*[t[f'literal_{i}'] for i in range(len(literals))]))
+
+        for i, lit in enumerate(literals):
+            col_name = f'literal_{i}'
+            expected_output = lit.expected_output if isinstance(lit, LiteralCase) else lit
+            assert type(expected_output) is type(results[col_name][0]), f'Column {col_name} has wrong type'
+            assert_columns_eq(col_name, results.schema[col_name], [expected_output] * len(results), results[col_name])
+
         reload_tester.run_reload_test()
 
     def test_inline_constants(self, test_tbl: pxt.Table) -> None:
@@ -628,7 +653,7 @@ class TestExprs:
             pxt.Error,
             match=r'element of type `Int` at index 1 is not compatible with type `Timestamp` of preceding elements',
         ):
-            _ = t.select(pxt.array([datetime(2025, 12, 5), t.c2])).collect()
+            _ = t.select(pxt.array([datetime.datetime(2025, 12, 5), t.c2])).collect()
 
     def test_json_path(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -774,7 +799,7 @@ class TestExprs:
         assert len(rows) == 3
 
         # list of literals with some incompatible values
-        rows = list(t.where(t.c2.isin(['a', datetime.now(), 1, 2, 3])).select(*user_cols).collect())
+        rows = list(t.where(t.c2.isin(['a', datetime.datetime.now(), 1, 2, 3])).select(*user_cols).collect())
         assert len(rows) == 3
 
         # set of literals
@@ -1098,17 +1123,26 @@ class TestExprs:
         # for a table with a single embedding index, whether we
         # specify the index or not, the similarity expression
         # would use that index. So these exressions should be equivalent.
-        sim1 = t1.img.similarity('red truck')
-        sim2 = t1.img.similarity('red truck', idx='img_idx0')
+        sim1 = t1.img.similarity(string='red truck')
+        sim2 = t1.img.similarity(string='red truck', idx='img_idx0')
         assert sim1.id == sim2.id
         assert sim1.serialize() == sim2.serialize()
+
+        # Deprecated pattern; verify it still gives the same results
+        with pytest.warns(
+            DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
+        ):
+            sim1 = t1.img.similarity('red truck')
+            sim2 = t1.img.similarity('red truck', idx='img_idx0')
+            assert sim1.id == sim2.id
+            assert sim1.serialize() == sim2.serialize()
 
         t2 = multi_idx_img_tbl
         # for a table with multiple embedding indexes, the index
         # to use must be specified to the similarity expression.
         # So similarity expressions using different indexes should differ.
-        sim1 = t2.img.similarity('red truck', idx='img_idx1')
-        sim2 = t2.img.similarity('red truck', idx='img_idx2')
+        sim1 = t2.img.similarity(string='red truck', idx='img_idx1')
+        sim2 = t2.img.similarity(string='red truck', idx='img_idx2')
         assert sim1.id != sim2.id
         assert sim1.serialize() != sim2.serialize()
 

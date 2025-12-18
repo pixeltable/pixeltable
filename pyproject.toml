@@ -69,7 +69,7 @@ dependencies = [
     "pyarrow>=19",
     "pixeltable-pgserver==0.4.0",
     "tzlocal>=5.0",
-    "aiohttp>=3.9",
+    "aiohttp>=3.10",
     "deprecated>=1.2.15",
     "pypdfium2>=4.30.0",
 ]
@@ -244,6 +244,9 @@ markers = [
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
 ]
 filterwarnings = [
+    # Treat *our* warnings as errors (we shouldn't see them fall through in tests)
+    'error:Use of similarity\(\):DeprecationWarning',
+    'error:create\(\) is deprecated:DeprecationWarning',
     "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
     "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning",
     "ignore:Pydantic V1 style `@root_validator` validators are deprecated.:DeprecationWarning",

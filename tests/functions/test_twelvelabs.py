@@ -34,6 +34,10 @@ class TestTwelveLabs:
         res = t.select(t.embed).collect()
         assert res['embed'][0].shape == (512,)
 
+        t.add_embedding_index(t.input, embedding=embed.using(model_name='marengo3.0'))
+        res = t.select(embedding=t.input.embedding()).collect()
+        assert res['embedding'][0].shape == (512,)
+
     def test_embed_image(self, reset_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
@@ -45,6 +49,10 @@ class TestTwelveLabs:
         validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
         res = t.select(t.embed).collect()
         assert res['embed'][0].shape == (512,)
+
+        t.add_embedding_index(t.image, embedding=embed.using(model_name='marengo3.0'))
+        res = t.select(embedding=t.image.embedding()).collect()
+        assert res['embedding'][0].shape == (512,)
 
     def test_embed_audio(self, reset_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
@@ -60,9 +68,9 @@ class TestTwelveLabs:
             # Twelvelabs models require a minimum audio duration of 4 seconds
             iterator=audio_splitter(base_t.audio, chunk_duration_sec=5.0, min_chunk_duration_sec=4.0),
         )
-        v.add_computed_column(embed=embed(model_name='marengo3.0', audio=v.audio_chunk))
-        res = v.select(v.embed).collect()
-        assert res['embed'][0].shape == (512,)
+        v.add_embedding_index(v.audio_chunk, embedding=embed.using(model_name='marengo3.0'))
+        res = v.select(embedding=v.audio_chunk.embedding()).collect()
+        assert res['embedding'][0].shape == (512,)
 
     def test_embed_video(self, reset_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
@@ -77,6 +85,6 @@ class TestTwelveLabs:
             base_t,
             iterator=video_splitter(video=base_t.video, duration=5.0, min_segment_duration=4.0),
         )
-        v.add_computed_column(embed=embed(model_name='marengo3.0', video=v.video_segment))
-        res = v.select(v.embed).collect()
-        assert res['embed'][0].shape == (512,)
+        v.add_embedding_index(v.video_segment, embedding=embed.using(model_name='marengo3.0'))
+        res = v.select(embedding=v.video_segment.embedding()).collect()
+        assert res['embedding'][0].shape == (512,)

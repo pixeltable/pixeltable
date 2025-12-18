@@ -314,6 +314,10 @@ class TablePackager:
                 assert isinstance(val, uuid.UUID)
                 return str(val)
 
+            case ts.ColumnType.Type.BINARY:
+                assert isinstance(val, bytes)
+                return Formatter.format_binary(val)
+
             case ts.ColumnType.Type.ARRAY:
                 assert isinstance(val, np.ndarray)
                 return Formatter.format_array(val)

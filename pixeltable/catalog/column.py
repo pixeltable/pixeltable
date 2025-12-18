@@ -127,10 +127,7 @@ class Column:
             self.stores_cellmd = stores_cellmd
         else:
             self.stores_cellmd = stored and (
-                self.is_computed
-                or self.col_type.is_media_type()
-                or self.col_type.is_json_type()
-                or self.col_type.is_array_type()
+                self.is_computed or self.col_type.is_media_type() or self.col_type.supports_file_offloading()
             )
 
         # column in the stored table for the values of this Column
