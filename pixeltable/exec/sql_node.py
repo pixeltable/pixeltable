@@ -5,6 +5,8 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
+import numpy as np
+import pgvector  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 from pixeltable import catalog, exprs
@@ -407,6 +409,10 @@ class SqlNode(ExecNode):
                             output_row[slot_idx] = sql_row[i]
                     else:
                         raise RuntimeError(f'Unexpected datetime value for {e}')
+                elif isinstance(sql_row[i], pgvector.sqlalchemy.HalfVector):
+                    # Halfvecs are float16s, but because we dynamically select between Vector and Halfvec for embedding
+                    # indexes, we want both to look the same (i.e. as float32 arrays) to the user
+                    output_row[slot_idx] = sql_row[i].to_numpy().astype(np.float32)
                 else:
                     output_row[slot_idx] = sql_row[i]
 
