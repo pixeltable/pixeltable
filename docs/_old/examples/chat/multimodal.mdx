@@ -182,7 +182,7 @@ audio_chunks.add_embedding_index(
 @chunks_view.query
 def get_relevant_chunks(query_text: str):
     """Find relevant document chunks"""
-    sim = chunks_view.text.similarity(query_text)
+    sim = chunks_view.text.similarity(string=query_text)
     return (
         chunks_view.order_by(sim, asc=False)
         .select(chunks_view.text, sim=sim)
@@ -192,7 +192,7 @@ def get_relevant_chunks(query_text: str):
 @transcription_chunks.query
 def get_relevant_transcript_chunks(query_text: str):
     """Find relevant video transcript chunks"""
-    sim = transcription_chunks.text.similarity(query_text)
+    sim = transcription_chunks.text.similarity(string=query_text)
     return (
         transcription_chunks.order_by(sim, asc=False)
         .select(transcription_chunks.text, sim=sim)
@@ -202,7 +202,7 @@ def get_relevant_transcript_chunks(query_text: str):
 @audio_chunks.query
 def get_relevant_audio_chunks(query_text: str):
     """Find relevant audio transcript chunks"""
-    sim = audio_chunks.text.similarity(query_text)
+    sim = audio_chunks.text.similarity(string=query_text)
     return (
         audio_chunks.order_by(sim, asc=False)
         .select(audio_chunks.text, sim=sim)

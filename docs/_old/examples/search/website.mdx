@@ -79,7 +79,7 @@ Pixeltable website search works in two phases:
 
     # Search content
     query = "Find inspirational quotes about life"
-    sim = websites_chunks.text.similarity(query)
+    sim = websites_chunks.text.similarity(string=query)
     top_k = 3
     results = (
         websites_chunks.order_by(sim, asc=False)
@@ -199,7 +199,7 @@ def search_with_metadata(
     min_similarity: float,
     limit: int
 ):
-    sim = websites_chunks.text.similarity(query)
+    sim = websites_chunks.text.similarity(string=query)
     return (
         websites_chunks.where(sim >= min_similarity)
         .order_by(sim, asc=False)

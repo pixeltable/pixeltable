@@ -203,7 +203,7 @@ async def upload_document(file: UploadFile):
 
 @app.get("/documents/search")
 async def search_documents(query: str, limit: int = 10):
-    sim = docs_table.embedding.similarity(query)
+    sim = docs_table.embedding.similarity(string=query)
     results = docs_table.select(
         docs_table.document,
         docs_table.summary,  # LLM-generated summary (computed column)

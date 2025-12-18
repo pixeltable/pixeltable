@@ -163,7 +163,7 @@ t.add_embedding_index(
    )
 )
 
-sim = t.img.similarity("cat playing with yarn")
+sim = t.img.similarity(string="cat playing with yarn")
 ```
 
 **[Incremental View Maintenance:](https://docs.pixeltable.com/platform/views)** Create virtual tables using iterators
@@ -376,21 +376,12 @@ images.add_embedding_index(
 
 # Text-based image search
 query_text = "a dog playing fetch"
-sim_text = images.img.similarity(query_text)
+sim_text = images.img.similarity(string=query_text)
 results_text = images.order_by(sim_text, asc=False).limit(3).select(
     image=images.img, similarity=sim_text
 ).collect()
 print("--- Text Query Results ---")
 print(results_text)
-
-# Image-based image search
-query_image_url = 'https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/Huskiesatrest.jpg/2880px-Huskiesatrest.jpg'
-sim_image = images.img.similarity(query_image_url)
-results_image = images.order_by(sim_image, asc=False).limit(3).select(
-    image=images.img, similarity=sim_image
-).collect()
-print("--- Image URL Query Results ---")
-print(results_image)
 ```
 
 **4. Multimodal/Incremental RAG Workflow (Document Chunking & LLM Call):**
@@ -433,7 +424,7 @@ chunks.add_embedding_index('text', string_embed=embed_model)
 # Define query function for retrieval - Returns a Query expression
 @pxt.query
 def get_relevant_context(query_text: str, limit: int = 3):
-    sim = chunks.text.similarity(query_text)
+    sim = chunks.text.similarity(string=query_text)
     # Return a list of strings (text of relevant chunks)
     return chunks.order_by(sim, asc=False).limit(limit).select(chunks.text)
 

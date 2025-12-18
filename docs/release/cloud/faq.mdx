@@ -175,7 +175,7 @@ icon: 'circle-question'
     # Define context retrieval query
     @chunks.query
     def get_context(query: str):
-        sim = chunks.text.similarity(query)
+        sim = chunks.text.similarity(string=query)
         return chunks.order_by(sim, asc=False).limit(5)
 
     # Generate response with context
@@ -226,7 +226,7 @@ icon: 'circle-question'
     )
 
     # Text query for video frames
-    results = frames.frame.similarity("person walking on beach")
+    results = frames.frame.similarity(string="person walking on beach")
                 .order_by(sim, asc=False)
                 .limit(5)
                 .collect()
