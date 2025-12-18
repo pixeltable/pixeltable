@@ -302,6 +302,15 @@ class Env:
         self._progress.stop()
         self._progress = None
 
+        # if we're running in a notebook, we need to clear the Progress output manually
+        if self.is_notebook():
+            try:
+                from IPython.display import clear_output
+
+                clear_output(wait=True)
+            except ImportError:
+                pass
+
     @contextmanager
     def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
         """

@@ -75,6 +75,8 @@ class ExecContext:
                 TextColumn('{task.fields[total_2]}', justify='right', table_column=Column(min_width=10)),
                 TextColumn('{task.fields[unit_2]}', justify='left'),
                 transient=True,  # remove at end
+                redirect_stdout=False,  # avoid bad tqdm interaction
+                redirect_stderr=False,  # avoid bad tqdm interaction
             )
 
         self.progress = Env.get().start_progress(create_progress)
