@@ -2,7 +2,6 @@ import logging
 import random
 
 import sqlalchemy as sql
-from rich.console import Console
 from rich.progress import Column, Progress, TextColumn
 
 from pixeltable import exprs
@@ -42,6 +41,7 @@ class ExecContext:
             self.show_progress = show_progress
         else:
             self.show_progress = Env.get().verbosity >= 1 and Env.get().is_interactive()
+
         self.progress = None
         self.progress_reporters = {}
 

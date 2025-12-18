@@ -826,7 +826,7 @@ class TableVersion:
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
 
         duration = time.perf_counter() - start_ts
-        rate_str = f' ({status.num_rows / duration:.2f} rows/s)' if duration > 0 else ''
+        rate_str = f' ({status.num_rows / duration:.2f} rows/s)' if duration > 0 and status.num_rows > 0 else ''
         msg = (
             f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
             f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"} '

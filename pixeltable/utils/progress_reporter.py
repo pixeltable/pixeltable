@@ -30,6 +30,11 @@ class ProgressReporter:
 
     Task creation is deferred until the first update() call, in order to avoid useless output.
     Supports one or two value/unit pairs per task line.
+
+    Progress updates:
+    - Rich needs ipywidgets in a Jupyter notebook in order to display live Progress updates
+    - trying to get this to work with a combination of Console(force_terminal=True, force_jupyter=False),
+      Progress.refresh() and IPython.display.clear_output() didn't work
     """
 
     task_id: TaskID | None
@@ -84,7 +89,6 @@ class ProgressReporter:
         total_2, unit_2 = (None, '') if self.unit_2 is None else (self.total_2, self.unit_2)
         if self.unit_2 == 'B':
             total_2, unit_2 = self._scale_bytes(cast(int, self.total_2))
-
         self.progress.update(
             self.task_id, total_1=_print_number(total_1), unit_1=unit_1, total_2=_print_number(total_2), unit_2=unit_2
         )

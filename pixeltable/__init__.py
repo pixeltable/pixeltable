@@ -8,6 +8,9 @@ import warnings
 
 # Suppress tqdm's ipywidgets warning in Jupyter environments
 warnings.filterwarnings('ignore', message='IProgress not found')
+# suppress Rich's ipywidgets warning in Jupyter environments
+warnings.filterwarnings('ignore', message='install "ipywidgets" for Jupyter support')
+
 
 from ._query import Query, ResultSet
 from ._version import __version__

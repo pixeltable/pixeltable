@@ -282,6 +282,14 @@ class Env:
 
         return not hasattr(__main__, '__file__')
 
+    def is_notebook(self) -> bool:
+        """Return True if running in a Jupyter notebook."""
+        try:
+            shell = get_ipython()  # type: ignore[name-defined]
+            return 'ZMQInteractiveShell' in str(shell)
+        except NameError:
+            return False
+
     def start_progress(self, create_fn: Callable[[], Progress]) -> Progress:
         if self._progress is None:
             self._progress = create_fn()
@@ -537,6 +545,14 @@ class Env:
         # we now have a home directory and db; start other services
         self._set_up_runtime()
         self.log_to_stdout(False)
+
+        # if we're running in a Jupyter notebook, warn about missing ipywidgets
+        if self.is_notebook() and importlib.util.find_spec('ipywidgets') is None:
+            warnings.warn(
+                'Progress reporting is disabled because ipywidgets is not installed. '
+                'To fix this, run: `pip install ipywidgets`',
+                stacklevel=1,
+            )
 
     def _init_db(self, config: Config) -> None:
         """

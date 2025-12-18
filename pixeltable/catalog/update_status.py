@@ -143,7 +143,7 @@ class UpdateStatus:
             f'Inserted {self.num_rows} row{"" if self.num_rows == 1 else "s"} '
             f'with {self.num_excs} error{"" if self.num_excs == 1 else "s"}{cols_with_excs_str}'
         )
-        if start_ts is not None:
+        if start_ts is not None and self.num_rows > 0:
             end_ts = time.perf_counter()
             duration = end_ts - start_ts
             msg += f' in {duration:.2f} s'
