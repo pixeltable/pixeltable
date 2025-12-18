@@ -410,8 +410,8 @@ class SqlNode(ExecNode):
                     else:
                         raise RuntimeError(f'Unexpected datetime value for {e}')
                 elif isinstance(sql_row[i], pgvector.sqlalchemy.HalfVector):
-                    # Halfvecs are float16s, but because we dynamically select between Vector and Halfvec for embedding
-                    # indexes, we want both to look the same (i.e. as float32 arrays) to the user
+                    # The type returned by selecting from an index should match the declared return type of the UDF
+                    # regardless of the underlying data type used to store the index.
                     output_row[slot_idx] = sql_row[i].to_numpy().astype(np.float32)
                 else:
                     output_row[slot_idx] = sql_row[i]
