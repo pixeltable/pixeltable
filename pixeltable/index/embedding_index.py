@@ -111,8 +111,11 @@ class EmbeddingIndex(IndexBase):
             self._validate_embedding_fn(embed_fn)
 
         self.metric = self.Metric[metric.upper()]
-        # TODO what happens if the value is invalid?
-        self.precision = self.Precision(precision)
+        try:
+            self.precision = self.Precision(precision)
+        except ValueError:
+            valid_values = [p.value for p in self.Precision]
+            raise excs.Error(f"Invalid precision '{precision}'. Must be one of: {valid_values}") from None
 
     def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
         if c.col_type._type not in (
