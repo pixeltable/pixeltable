@@ -216,7 +216,7 @@ class TablePackager:
             # Handle media files as described above
             assert isinstance(val, str)
             return self.__process_media_url(val)
-        if isinstance(sql_type, (sql_vector.HALFVEC)):
+        if isinstance(sql_type, sql_vector.HALFVEC):
             # Convert an array of float16s to float32s
             assert isinstance(val, sql_vector.HalfVector)
             return val.to_numpy().astype(np.float32)
