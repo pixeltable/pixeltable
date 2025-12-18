@@ -551,7 +551,7 @@ class Planner:
         def needs_reconstruction(e: exprs.Expr) -> bool:
             assert isinstance(e, exprs.ColumnRef)
             # Vector-typed array columns are used for vector indexes, and are stored in the db
-            return e.col.col_type.is_array_type() and not e.col.is_sa_vector_type()
+            return e.col.col_type.is_array_type() and not e.col.has_sa_vector_type()
 
         array_col_refs = list(
             exprs.Expr.list_subexprs(
@@ -607,7 +607,7 @@ class Planner:
             if not isinstance(e, exprs.ColumnRef):
                 return False
             # Vector-typed array columns are used for vector indexes, and are stored in the db
-            return e.col.col_type.is_array_type() and not e.col.is_sa_vector_type()
+            return e.col.col_type.is_array_type() and not e.col.has_sa_vector_type()
 
         def binary_filter(e: exprs.Expr) -> bool:
             return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_binary_type()
