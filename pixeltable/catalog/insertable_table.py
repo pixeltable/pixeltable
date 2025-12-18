@@ -82,7 +82,10 @@ class InsertableTable(Table):
                 raise excs.Error(f'Primary key column {pk_col!r} not found in table schema.')
             col = columns[column_names.index(pk_col)]
             if col.col_type.nullable:
-                raise excs.Error(f'Primary key column {pk_col!r} cannot be nullable.')
+                raise excs.Error(
+                    f'Primary key column {pk_col!r} cannot be nullable. '
+                    f'Declare it as `Required` instead: `pxt.Required[pxt.{col.col_type._to_base_str()}]`'
+                )
             col.is_pk = True
 
         md = TableVersion.create_initial_md(
