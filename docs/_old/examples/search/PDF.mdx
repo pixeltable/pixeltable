@@ -86,7 +86,7 @@ Pixeltable PDF search works in two phases:
     # Search documents
     query = "What are the growth projections for tech companies?"
     top_n = 3
-    sim = documents_chunks.text.similarity(query)
+    sim = documents_chunks.text.similarity(string=query)
     result = (
         documents_chunks.order_by(sim, asc=False)
         .select(documents_chunks.text, sim=sim)
@@ -217,7 +217,7 @@ def search_with_metadata(
     min_similarity: float,
     limit: int
 ):
-    sim = documents_chunks.text.similarity(query)
+    sim = documents_chunks.text.similarity(string=query)
     return (
         documents_chunks.where(sim >= min_similarity)
         .order_by(sim, asc=False)

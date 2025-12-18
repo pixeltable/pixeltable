@@ -837,26 +837,26 @@ class TestPackager:
         t.insert({'id': i, 'image': image} for i, image in enumerate(images[:10]))
         t.add_embedding_index('image', embedding=clip_embed)
         bundle1 = self.__package_table(t)
-        sim_1 = t.image.similarity(images[25])
+        sim_1 = t.image.similarity(string=images[25])
         sim_results_1 = t.select(t.id, sim_1).order_by(sim_1, asc=False).limit(5).collect()
 
         t.delete(t.id < 5)
         t.insert({'id': i, 'image': image} for i, image in enumerate(images[10:20], start=10))
         bundle2 = self.__package_table(t)
-        sim_2 = t.image.similarity(images[25])
+        sim_2 = t.image.similarity(string=images[25])
         sim_results_2 = t.select(t.id, sim_2).order_by(sim_2, asc=False).limit(5).collect()
 
         self.__purge_db()
 
         self.__restore_and_check_table(bundle1, 'replica')
         t = pxt.get_table('replica')
-        sim_1_replica = t.image.similarity(images[25])
+        sim_1_replica = t.image.similarity(string=images[25])
         sim_results_1_replica = t.select(t.id, sim_1_replica).order_by(sim_1_replica, asc=False).limit(5).collect()
         assert_resultset_eq(sim_results_1, sim_results_1_replica)
 
         self.__restore_and_check_table(bundle2, 'replica')
         t = pxt.get_table('replica')
-        sim_2_replica = t.image.similarity(images[25])
+        sim_2_replica = t.image.similarity(string=images[25])
         sim_results_2_replica = t.select(t.id, sim_2_replica).order_by(sim_2_replica, asc=False).limit(5).collect()
         assert_resultset_eq(sim_results_2, sim_results_2_replica)
 
