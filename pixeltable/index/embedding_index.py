@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import enum
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
@@ -36,6 +36,10 @@ class EmbeddingIndex(IndexBase):
         IP = 2
         L2 = 3
 
+    class Precision(enum.Enum):
+        _16BIT = '16bit'
+        _32BIT = '32bit'
+
     PGVECTOR_OPS: ClassVar[dict[Metric, str]] = {
         Metric.COSINE: 'vector_cosine_ops',
         Metric.IP: 'vector_ip_ops',
@@ -49,10 +53,12 @@ class EmbeddingIndex(IndexBase):
 
     metric: Metric
     embeddings: dict[ts.ColumnType.Type, func.Function]
+    precision: Precision
 
     def __init__(
         self,
         metric: str,
+        precision: Literal['16bit', '32bit'],
         embed: func.Function | None = None,
         string_embed: func.Function | None = None,
         image_embed: func.Function | None = None,
@@ -105,6 +111,8 @@ class EmbeddingIndex(IndexBase):
             self._validate_embedding_fn(embed_fn)
 
         self.metric = self.Metric[metric.upper()]
+        # TODO what happens if the value is invalid?
+        self.precision = self.Precision(precision)
 
     def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
         if c.col_type._type not in (
@@ -131,13 +139,21 @@ class EmbeddingIndex(IndexBase):
         vector_length = val_col_type.shape[0]
         assert vector_length is not None
 
-        if vector_length <= MAX_EMBEDDING_VECTOR_LENGTH:
+        if self.precision == self.Precision._32BIT:
+            if vector_length > MAX_EMBEDDING_VECTOR_LENGTH:
+                raise excs.Error(
+                    f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
+                    f' {MAX_EMBEDDING_VECTOR_LENGTH} for {self.precision.value} precision'
+                )
             return pgvector.sqlalchemy.Vector(vector_length)
-        if vector_length <= MAX_EMBEDDING_HALFVEC_LENGTH:
-            return pgvector.sqlalchemy.HALFVEC(vector_length)
-        raise excs.Error(
-            f"Embedding index's vector length {vector_length} exceeds maximum of {MAX_EMBEDDING_HALFVEC_LENGTH}"
-        )
+
+        assert self.precision == self.Precision._16BIT
+        if vector_length > MAX_EMBEDDING_HALFVEC_LENGTH:
+            raise excs.Error(
+                f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
+                f' {MAX_EMBEDDING_HALFVEC_LENGTH} for {self.precision.value} precision'
+            )
+        return pgvector.sqlalchemy.HALFVEC(vector_length)
 
     def sa_create_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
         """Return a sqlalchemy statement for creating the index"""
@@ -238,7 +254,7 @@ class EmbeddingIndex(IndexBase):
             )
 
     def as_dict(self) -> dict:
-        d: dict[str, Any] = {'metric': self.metric.name.lower()}
+        d: dict[str, Any] = {'metric': self.metric.name.lower(), 'precision': self.precision.value}
         for embed_type, embed_fn in self.embeddings.items():
             key = f'{embed_type.name.lower()}_embed'
             d[key] = embed_fn.as_dict()
@@ -256,4 +272,5 @@ class EmbeddingIndex(IndexBase):
             image_embed=image_embed,
             audio_embed=audio_embed,
             video_embed=video_embed,
+            precision=d['precision'],
         )

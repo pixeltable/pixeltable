@@ -983,6 +983,7 @@ class Table(SchemaObject):
         string_embed: pxt.Function | None = None,
         image_embed: pxt.Function | None = None,
         metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
+        precision: Literal['16bit', '32bit'] = '16bit',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
         """
@@ -991,6 +992,9 @@ class Table(SchemaObject):
 
         To add an embedding index, one must specify, at minimum, the column to be indexed and an embedding UDF.
         Only `String` and `Image` columns are currently supported.
+
+        TODO update examples
+        TODO find add_embedding_index in all docs, notebooks, etc. and update there
 
         Examples:
             Here's an example that uses a
@@ -1033,6 +1037,7 @@ class Table(SchemaObject):
                 specifying different embedding functions for different data types.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`.
                 The default is `'cosine'`.
+            precision: TODO
             if_exists: Directive for handling an existing index with the same name. Must be one of the following:
 
                 - `'error'`: raise an error if an index with the same name already exists.
@@ -1101,7 +1106,9 @@ class Table(SchemaObject):
                 Table.validate_column_name(idx_name)
 
             # validate EmbeddingIndex args
-            idx = EmbeddingIndex(metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed)
+            idx = EmbeddingIndex(
+                metric=metric, precision=precision, embed=embedding, string_embed=string_embed, image_embed=image_embed
+            )
             _ = idx.create_value_expr(col)
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?

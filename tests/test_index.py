@@ -942,5 +942,7 @@ class TestIndex:
 
     def test_embedding_index_exceeds_limit(self, reset_db: None) -> None:
         t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
-        with pytest.raises(pxt.Error, match='vector length 4001 exceeds maximum'):
-            t.add_embedding_index(t.text, embedding=TestIndex.dummy_embedding.using(n=4001))
+        with pytest.raises(pxt.Error, match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for 16bit precision"):
+            t.add_embedding_index(t.text, embedding=TestIndex.dummy_embedding.using(n=4001), precision='16bit')
+        with pytest.raises(pxt.Error, match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for 32bit precision"):
+            t.add_embedding_index(t.text, embedding=TestIndex.dummy_embedding.using(n=2001), precision='32bit')
