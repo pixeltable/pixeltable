@@ -68,7 +68,6 @@ def sentence_transformer(
 
 @sentence_transformer.conditional_return_type
 def _(model_id: str) -> ts.ArrayType:
-    env.Env.get().require_package('sentence_transformers')
     from sentence_transformers import SentenceTransformer
 
     model = _lookup_model(model_id, SentenceTransformer)
@@ -176,7 +175,6 @@ def _(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,
 
 @clip.conditional_return_type
 def _(model_id: str) -> ts.ArrayType:
-    env.Env.get().require_package('transformers')
     from transformers import CLIPModel
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained)
