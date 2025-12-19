@@ -924,15 +924,17 @@ class TestIndex:
 
     @pytest.mark.parametrize('reload_cat', [True, False], ids=['reload_cat', 'no_reload_cat'])
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
-    @pytest.mark.parametrize('n', [2000, 2001, 4000])
-    def test_embedding_index_type_selection(self, reset_db: None, n: int, reload_cat: bool, metric: str) -> None:
+    @pytest.mark.parametrize('precision', ['16bit', '32bit'])
+    def test_embedding_index_precision(self, reset_db: None, reload_cat: bool, metric: str, precision: str) -> None:
         # Note: dummy embeddings produced by our test UDF are not normalized, so strictly speaking it cannot be
         # used with IP metric, however it appears to work fine anyway, and that's good enough for our test purpose.
         t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String}, if_exists='replace')
+        n = 123
         t.add_embedding_index(
             t.text,
             embedding=TestIndex.dummy_embedding.using(n=n),
             metric=metric,  # type: ignore[arg-type]
+            precision=precision,  # type: ignore[arg-type]
             idx_name='test_idx',
         )
         t.insert(
