@@ -1048,8 +1048,7 @@ class Table(SchemaObject):
             >>> sim = tbl.img.similarity(video='/path/to/video.mp4')
 
             Multiple indexes can be defined on each column. Add a second index to the `img` column, using the inner
-            product as the distance metric,
-            and with a specific name:
+            product as the distance metric, and with a specific name:
 
             >>> tbl.add_embedding_index(
             ...     tbl.img,
