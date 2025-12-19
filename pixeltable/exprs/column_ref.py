@@ -1,19 +1,23 @@
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any, Sequence, cast
 from uuid import UUID
 
+import PIL.Image
 import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.iterators as iters
+import pixeltable.type_system as ts
 from pixeltable.catalog.table_version import TableVersionKey
 
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .data_row import DataRow
 from .expr import Expr
+from .literal import Literal
 from .row_builder import RowBuilder
 from .sql_element_cache import SqlElementCache
 
@@ -52,6 +56,7 @@ class ColumnRef(Expr):
     is_unstored_iter_col: bool
     perform_validation: bool  # if True, performs media validation
     iter_arg_ctx: RowBuilder.EvalCtx | None
+    iter_outputs: list[ColumnRef] | None
     base_rowid_len: int  # number of rowid columns in the base table
 
     # execution state
@@ -72,6 +77,7 @@ class ColumnRef(Expr):
 
         self.is_unstored_iter_col = col.is_iterator_col and not col.is_stored
         self.iter_arg_ctx = None
+        self.iter_outputs = None
         self.base_rowid_len = 0
         self.base_rowid = []
         self.iterator = None
@@ -94,8 +100,13 @@ class ColumnRef(Expr):
             self.components = [non_validating_col_ref]
         self.id = self._create_id()
 
-    def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx) -> None:
+    def set_iter_arg_ctx(self, iter_arg_ctx: RowBuilder.EvalCtx, iter_outputs: list[ColumnRef]) -> None:
         self.iter_arg_ctx = iter_arg_ctx
+        self.iter_outputs = iter_outputs
+        # If this is an unstored iterator column, then the iterator outputs may be needed in order to properly set the
+        # iterator position. Therefore, we need to add them as components in order to ensure they're marked as
+        # eval dependencies.
+        self.components.extend(iter_outputs)
         assert len(self.iter_arg_ctx.target_slot_idxs) == 1  # a single inline dict
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
@@ -160,10 +171,98 @@ class ColumnRef(Expr):
             FileCache.get().emit_eviction_warnings()
             return status
 
-    def similarity(self, item: Any, *, idx: str | None = None) -> Expr:
+    def similarity(
+        self,
+        item: Any = None,
+        *,
+        string: str | None = None,
+        image: PIL.Image.Image | None = None,
+        audio: str | None = None,
+        video: str | None = None,
+        idx: str | None = None,
+    ) -> Expr:
         from .similarity_expr import SimilarityExpr
 
-        return SimilarityExpr(self, item, idx_name=idx)
+        if item is not None:
+            warnings.warn(
+                'Use of similarity() without specifying an explicit modality is deprecated -- '
+                'since version 0.5.7. Please use one of the following instead:\n'
+                '  .similarity(string=...)\n'
+                '  .similarity(image=...)\n'
+                '  .similarity(audio=...)\n'
+                '  .similarity(video=...)',
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        arg_count = (string is not None) + (image is not None) + (audio is not None) + (video is not None)
+
+        if item is not None and arg_count != 0:
+            raise excs.Error('similarity(): `item` is deprecated and cannot be used together with modality arguments')
+
+        if arg_count > 1:
+            raise excs.Error('similarity(): expected exactly one of string=..., image=..., audio=..., video=...')
+
+        expr: Expr
+
+        if item is not None:
+            if isinstance(item, Expr):  # This can happen when using similarity() with @query
+                if not (item.col_type.is_string_type() or item.col_type.is_image_type()):
+                    raise excs.Error(f'similarity(): expected `String` or `Image`; got `{item.col_type}`')
+                expr = item
+            else:
+                if not isinstance(item, (str, PIL.Image.Image)):
+                    raise excs.Error(f'similarity(): expected `str` or `PIL.Image.Image`; got `{type(item).__name__}`')
+                expr = Expr.from_object(item)
+                assert expr.col_type.is_string_type() or expr.col_type.is_image_type()
+
+        if string is not None:
+            if isinstance(string, Expr):
+                if not string.col_type.is_string_type():
+                    raise excs.Error(f'similarity(string=...): expected `String`; got `{expr.col_type}`')
+                expr = string
+            else:
+                if not isinstance(string, str):
+                    raise excs.Error(f'similarity(string=...): expected `str`; got `{type(string).__name__}`')
+                expr = Expr.from_object(string)
+                assert expr.col_type.is_string_type()
+
+        if image is not None:
+            if isinstance(image, Expr):
+                if not image.col_type.is_image_type():
+                    raise excs.Error(f'similarity(image=...): expected `Image`; got `{image.col_type}`')
+                expr = image
+            else:
+                if not isinstance(image, PIL.Image.Image):
+                    raise excs.Error(f'similarity(image=...): expected `PIL.Image.Image`; got `{type(image).__name__}`')
+                expr = Expr.from_object(image)
+                assert expr.col_type.is_image_type()
+
+        if audio is not None:
+            if isinstance(audio, Expr):
+                if not audio.col_type.is_audio_type():
+                    raise excs.Error(f'similarity(audio=...): expected `Audio`; got `{audio.col_type}`')
+                expr = audio
+            else:
+                if not isinstance(audio, str):
+                    raise excs.Error(
+                        f'similarity(audio=...): expected `str` (path to audio file); got `{type(audio).__name__}`'
+                    )
+                expr = Literal(audio, ts.AudioType())
+
+        if video is not None:
+            if isinstance(video, Expr):
+                if not video.col_type.is_video_type():
+                    raise excs.Error(f'similarity(video=...): expected `Video`; got `{video.col_type}`')
+                expr = video
+            else:
+                if not isinstance(video, str):
+                    raise excs.Error(
+                        f'similarity(video=...): expected `str` (path to video file); got `{type(video).__name__}`'
+                    )
+                expr = Literal(video, ts.VideoType())
+
+        return SimilarityExpr(self, expr, idx_name=idx)
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
         from pixeltable.index import EmbeddingIndex
@@ -286,11 +385,14 @@ class ColumnRef(Expr):
 
         # if this is a new base row, we need to instantiate a new iterator
         if self.base_rowid != data_row.pk[: self.base_rowid_len]:
+            assert self.iter_arg_ctx is not None
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
             self.iterator = self.col.get_tbl().iterator_cls(**iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
-        self.iterator.set_pos(data_row.pk[self.pos_idx])
+        stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
+        assert all(name is not None for name in stored_outputs)
+        self.iterator.set_pos(data_row.pk[self.pos_idx], **stored_outputs)
         res = next(self.iterator)
         data_row[self.slot_idx] = res[self.col.name]
 

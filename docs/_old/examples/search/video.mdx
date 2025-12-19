@@ -24,9 +24,9 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     import pixeltable as pxt
     from pixeltable.functions import openai
     from pixeltable.functions.huggingface import sentence_transformer
-    from pixeltable.functions.video import extract_audio
-    from pixeltable.iterators import AudioSplitter, FrameIterator
-    from pixeltable.iterators.string import StringSplitter
+    from pixeltable.functions.video import extract_audio, frame_iterator
+    from pixeltable.functions.audio import audio_splitter
+    from pixeltable.functions.string import string_splitter
     from pixeltable.functions.openai import vision
 
     # Define the embedding model once for reuse
@@ -40,19 +40,19 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     pxt.create_dir(directory, if_exists='replace_force')
 
     video_index = pxt.create_table(
-        table_name, 
+        table_name,
         {'video': pxt.Video, 'uploaded_at': pxt.Timestamp}
     )
 
     video_index.add_computed_column(
         audio_extract=extract_audio(video_index.video, format='mp3')
-    ) 
+    )
 
     # Create view for frames
     frames_view = pxt.create_view(
         f'{directory}.video_frames',
         video_index,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=video_index.video,
             fps=1
         )
@@ -65,16 +65,16 @@ Pixeltable lets you build comprehensive video search workflows combining both au
             image=frames_view.frame,
             model="gpt-4o-mini"
         )
-    )    
+    )
 
     # Create embedding index for image description
-    frames_view.add_embedding_index('image_description', string_embed=EMBED_MODEL)    
+    frames_view.add_embedding_index('image_description', string_embed=EMBED_MODEL)
 
     # Create view for audio chunks
     chunks_view = pxt.create_view(
         f'{directory}.video_chunks',
         video_index,
-        iterator=AudioSplitter.create(
+        iterator=audio_splitter(
             audio=video_index.audio_extract,
             chunk_duration_sec=30.0,
             overlap_sec=2.0,
@@ -93,7 +93,7 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     transcription_chunks = pxt.create_view(
         f'{directory}.video_sentence_chunks',
         chunks_view,
-        iterator=StringSplitter.create(text=chunks_view.transcription.text, separators='sentence'),
+        iterator=string_splitter(text=chunks_view.transcription.text, separators='sentence'),
     )
 
     # Create embedding index for audio
@@ -127,7 +127,7 @@ Pixeltable lets you build comprehensive video search workflows combining both au
 
     query_text = "Summarize the conversation"
 
-    audio_sim = transcription_chunks.text.similarity(query_text)
+    audio_sim = transcription_chunks.text.similarity(string=query_text)
     audio_results = (
         transcription_chunks.order_by(audio_sim, transcription_chunks.uploaded_at, asc=False)
         .limit(5)
@@ -148,17 +148,17 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     ```python
     # Extract audio from video
     video_index.add_computed_column(audio_extract=extract_audio(video_index.video, format='mp3'))
-    
+
     # Extract frames from video
     frames_view = pxt.create_view(
         f'{directory}.video_frames',
         video_index,
-        iterator=FrameIterator.create(
+        iterator=frame_iterator(
             video=video_index.video,
             fps=1
         )
     )
-    
+
     # Optionally, create new videos from processed frames
     from pixeltable.functions.video import make_video
     processed_videos = frames_view.select(
@@ -186,10 +186,10 @@ Pixeltable lets you build comprehensive video search workflows combining both au
     ```python
     # Define once, use for both modalities
     EMBED_MODEL = sentence_transformer.using(model_id='intfloat/e5-large-v2')
-    
+
     # Use for frame descriptions
     frames_view.add_embedding_index('image_description', string_embed=EMBED_MODEL)
-    
+
     # Use for transcriptions
     transcription_chunks.add_embedding_index('text', string_embed=EMBED_MODEL)
     ```
@@ -198,9 +198,9 @@ Pixeltable lets you build comprehensive video search workflows combining both au
   <Card title="Dual Search Capabilities" icon="magnifying-glass">
     Search independently across audio or visual content:
     ```python
-    # Get similarity scores   
-    audio_sim = transcription_chunks.text.similarity("Definition of happiness according to the guest")
-    image_sim = frames_view.image_description.similarity("Lex Fridman interviewing a guest in a podcast setting")
+    # Get similarity scores
+    audio_sim = transcription_chunks.text.similarity(string="Definition of happiness according to the guest")
+    image_sim = frames_view.image_description.similarity(string="Lex Fridman interviewing a guest in a podcast setting")
     ```
   </Card>
 </CardGroup>

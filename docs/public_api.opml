@@ -81,7 +81,16 @@
 
       <!-- Built-in Functions and Operators group -->
       <outline text="group|Built-in Functions and Operators">
+        <outline text="module|pixeltable.functions">
+          <outline text="func|pixeltable.functions.map" />
+          <outline text="uda|pixeltable.functions.count" />
+          <outline text="uda|pixeltable.functions.max" />
+          <outline text="uda|pixeltable.functions.mean" />
+          <outline text="uda|pixeltable.functions.min" />
+          <outline text="uda|pixeltable.functions.sum" />
+        </outline>
         <outline text="module|pixeltable.functions.audio">
+          <outline text="iter|pixeltable.functions.audio.audio_splitter" />
           <outline text="udf|pixeltable.functions.audio.encode_audio" />
           <outline text="udf|pixeltable.functions.audio.get_metadata" />
         </outline>
@@ -98,7 +107,11 @@
           <outline text="udf|pixeltable.functions.date.strftime" />
           <outline text="udf|pixeltable.functions.date.add_days" />
         </outline>
+        <outline text="module|pixeltable.functions.document">
+          <outline text="iter|pixeltable.functions.document.document_splitter" />
+        </outline>
         <outline text="module|pixeltable.functions.image">
+          <outline text="iter|pixeltable.functions.image.tile_iterator" />
           <outline text="udf|pixeltable.functions.image.b64_encode" />
           <outline text="udf|pixeltable.functions.image.alpha_composite" />
           <outline text="udf|pixeltable.functions.image.blend" />
@@ -141,7 +154,11 @@
           <outline text="udf|pixeltable.functions.math.bitwise_or" />
           <outline text="udf|pixeltable.functions.math.bitwise_xor" />
         </outline>
+        <outline text="module|pixeltable.functions.net">
+          <outline text="udf|pixeltable.functions.net.presigned_url" />
+        </outline>
         <outline text="module|pixeltable.functions.string">
+          <outline text="iter|pixeltable.functions.string.string_splitter" />
           <outline text="udf|pixeltable.functions.string.capitalize" />
           <outline text="udf|pixeltable.functions.string.casefold" />
           <outline text="udf|pixeltable.functions.string.center" />
@@ -217,6 +234,9 @@
           <outline text="udf|pixeltable.functions.timestamp.posix_timestamp" />
         </outline>
         <outline text="module|pixeltable.functions.video">
+          <outline text="iter|pixeltable.functions.video.frame_iterator" />
+          <outline text="iter|pixeltable.functions.video.video_splitter" />
+          <outline text="uda|pixeltable.functions.video.make_video" />
           <outline text="udf|pixeltable.functions.video.clip" />
           <outline text="udf|pixeltable.functions.video.concat_videos" />
           <outline text="udf|pixeltable.functions.video.extract_audio" />
@@ -309,6 +329,9 @@
         <outline text="module|pixeltable.functions.twelvelabs">
           <outline text="udf|pixeltable.functions.twelvelabs.embed" />
         </outline>
+        <outline text="module|pixeltable.functions.uuid">
+          <outline text="udf|pixeltable.functions.uuid.uuid4" />
+        </outline>
         <outline text="module|pixeltable.functions.vision">
           <outline text="func|pixeltable.functions.vision.eval_detections" />
           <outline text="func|pixeltable.functions.vision.draw_bounding_boxes" />
@@ -327,19 +350,6 @@
         <outline text="module|pixeltable.functions.yolox">
           <outline text="udf|pixeltable.functions.yolox.yolox" />
           <outline text="udf|pixeltable.functions.yolox.yolo_to_coco" />
-        </outline>
-      </outline>
-
-      <!-- Iterators group -->
-      <outline text="group|Iterators">
-        <outline text="module|pixeltable.iterators">
-          <outline text="class|pixeltable.iterators.AudioSplitter" />
-          <outline text="class|pixeltable.iterators.ComponentIterator" />
-          <outline text="class|pixeltable.iterators.DocumentSplitter" />
-          <outline text="class|pixeltable.iterators.FrameIterator" />
-          <outline text="class|pixeltable.iterators.StringSplitter" />
-          <outline text="class|pixeltable.iterators.TileIterator" />
-          <outline text="class|pixeltable.iterators.VideoSplitter" />
         </outline>
       </outline>
 

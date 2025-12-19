@@ -1,4 +1,5 @@
 import datetime
+import uuid
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
 
 import jsonschema.exceptions
@@ -7,10 +8,13 @@ import PIL.Image
 import pytest
 
 from pixeltable.type_system import (
+    UUID,
     Array,
     ArrayType,
     Audio,
     AudioType,
+    Binary,
+    BinaryType,
     Bool,
     BoolType,
     ColumnType,
@@ -31,6 +35,7 @@ from pixeltable.type_system import (
     StringType,
     Timestamp,
     TimestampType,
+    UUIDType,
     Video,
     VideoType,
 )
@@ -101,6 +106,8 @@ class TestTypes:
             (True, BoolType()),
             (datetime.date.today(), DateType()),
             (datetime.datetime.now(), TimestampType()),
+            (uuid.uuid4(), UUIDType()),
+            (b'ab\x03\xfe', BinaryType()),
             (PIL.Image.new('RGB', (100, 100)), ImageType(height=100, width=100, mode='RGB')),
             (np.ndarray((1, 2, 3), dtype=np.int64), ArrayType((1, 2, 3), dtype=np.dtype('int64'))),
             ({'a': 1, 'b': '2'}, JsonType()),
@@ -119,6 +126,8 @@ class TestTypes:
             bool: (BoolType(nullable=False), 'Bool'),
             datetime.datetime: (TimestampType(nullable=False), 'Timestamp'),
             datetime.date: (DateType(nullable=False), 'Date'),
+            uuid.UUID: (UUIDType(nullable=False), 'UUID'),
+            bytes: (BinaryType(nullable=False), 'Binary'),
             list: (JsonType(nullable=False), 'Json'),
             dict: (JsonType(nullable=False), 'Json'),
             list[int]: (JsonType(nullable=False), 'Json'),
@@ -138,6 +147,8 @@ class TestTypes:
             Bool: (BoolType(nullable=False), 'Bool'),
             Timestamp: (TimestampType(nullable=False), 'Timestamp'),
             Date: (DateType(nullable=False), 'Date'),
+            UUID: (UUIDType(nullable=False), 'UUID'),
+            Binary: (BinaryType(nullable=False), 'Binary'),
             Array: (ArrayType(nullable=False), 'Array'),
             Json: (JsonType(nullable=False), 'Json'),
             Image: (ImageType(height=None, width=None, mode=None, nullable=False), 'Image'),
@@ -194,7 +205,6 @@ class TestTypes:
             (IntType(), FloatType(), FloatType()),
             (BoolType(), IntType(), IntType()),
             (BoolType(), FloatType(), FloatType()),
-            (IntType(), StringType(), None),
             (
                 ImageType(height=100, width=200, mode='RGB'),
                 ImageType(height=100, width=200, mode='RGB'),
@@ -218,13 +228,17 @@ class TestTypes:
             (ImageType(height=100, width=200, mode='RGB'), ImageType(height=300, width=400, mode='RGBA'), ImageType()),
             (ImageType(height=100, width=200, mode='RGB'), ImageType(), ImageType()),
             (JsonType(), JsonType(), JsonType()),
+            (IntType(), StringType(), JsonType()),
+            (IntType(), JsonType(), JsonType()),
+            (JsonType(), IntType(), JsonType()),
+            (TimestampType(), IntType(), None),
+            (DateType(), StringType(), None),
             (JsonType(json_schema=self.json_schema_1), JsonType(), JsonType()),
             (
                 JsonType(json_schema=self.json_schema_1),
                 JsonType(json_schema=self.json_schema_2),
                 JsonType(json_schema=self.json_schema_12),
             ),
-            (JsonType(), IntType(), None),
         ]
         for i, (t1, t2, expected) in enumerate(test_cases):
             for n1 in [True, False]:

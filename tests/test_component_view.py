@@ -7,8 +7,8 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.functions.video import frame_iterator
 from pixeltable.iterators import ComponentIterator
-from pixeltable.iterators.video import FrameIterator
 
 from .utils import assert_resultset_eq, get_test_video_files, reload_catalog, validate_update_status
 
@@ -52,7 +52,7 @@ class ConstantImgIterator(ComponentIterator):
     def close(self) -> None:
         pass
 
-    def set_pos(self, pos: int) -> None:
+    def set_pos(self, pos: int, **kwargs: Any) -> None:
         if pos == self.next_frame_idx:
             return
         self.next_frame_idx = pos
@@ -100,23 +100,13 @@ class TestComponentView:
             video_t.add_column(pos=pxt.Int)
         assert 'reserved' in str(excinfo.value)
 
-        # parameter missing
-        with pytest.raises(pxt.Error) as excinfo:
-            _ = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(fps=1))
-        assert 'missing a required argument' in str(excinfo.value)
-
         # bad parameter type
         with pytest.raises(pxt.Error) as excinfo:
-            _ = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps='1'))
-        assert 'argument type String does not match parameter type Float | None' in str(excinfo.value)
-
-        # bad parameter type
-        with pytest.raises(pxt.Error) as excinfo:
-            _ = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=1, fps=1))
+            _ = pxt.create_view('test_view', video_t, iterator=frame_iterator(1, fps=1))
         assert 'argument type Int does not match parameter type Video' in str(excinfo.value)
 
         # create frame view
-        view_t = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
+        view_t = pxt.create_view('test_view', video_t, iterator=frame_iterator(video_t.video, fps=1))
         # computed column that references a column from the base
         view_t.add_computed_column(angle2=view_t.angle + 1)
         # computed column that references an unstored and a stored computed view column
@@ -153,7 +143,7 @@ class TestComponentView:
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         video_filepaths = get_test_video_files()
         # create frame view
-        view_t = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
+        view_t = pxt.create_view('test_view', video_t, iterator=frame_iterator(video_t.video, fps=1))
 
         rows = [{'video': p} for p in video_filepaths]
         validate_update_status(video_t.insert(rows))
@@ -175,7 +165,7 @@ class TestComponentView:
             'test_view',
             video_t,
             additional_columns={'annotation': pxt.Json},
-            iterator=FrameIterator.create(video=video_t.video, fps=1),
+            iterator=frame_iterator(video_t.video, fps=1),
         )
 
         video_filepaths = get_test_video_files()
@@ -207,7 +197,7 @@ class TestComponentView:
                 'bad_view',
                 video_t,
                 additional_columns={'annotation': pxt.Required[pxt.Json]},
-                iterator=FrameIterator.create(video=video_t.video, fps=1),
+                iterator=frame_iterator(video_t.video, fps=1),
             )
         assert 'must be nullable' in str(excinfo.value)
 

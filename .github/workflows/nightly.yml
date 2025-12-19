@@ -31,6 +31,7 @@ env:
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
+  TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD: true  # Workaround for WhisperX
 
 jobs:
   tests:
@@ -38,7 +39,7 @@ jobs:
       fail-fast: false
       matrix:
         # Test with a variety of different packages on ubuntu, with the minimum and maximum supported Python versions.
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.10", "3.12"]
         package-configs:
           - ""
           - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.9' 'torchaudio<2.9' 'torchvision<0.24' transformers"
@@ -133,7 +134,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
-        python-version: ["3.10", "3.12"]
+        python-version: ["3.10", "3.13"]
     runs-on: ${{ matrix.os }}
     defaults:
       run:

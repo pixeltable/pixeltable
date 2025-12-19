@@ -1,3 +1,8 @@
+import glob
+import os
+import uuid
+from pathlib import Path
+
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.formatter import Formatter
@@ -9,6 +14,8 @@ class TestFormatter:
         float_formatter = formatter.get_pandas_formatter(ts.FloatType())
         string_formatter = formatter.get_pandas_formatter(ts.StringType())
         json_formatter = formatter.get_pandas_formatter(ts.JsonType())
+        uuid_formatter = formatter.get_pandas_formatter(ts.UUIDType())
+        binary_formatter = formatter.get_pandas_formatter(ts.BinaryType())
 
         assert float_formatter(0.4171780) == '0.417'
         assert float_formatter(1401.19018) == '1401.19'
@@ -39,3 +46,23 @@ class TestFormatter:
 
         # Test a JSON dict
         assert json_formatter({'items': items}) == f'{{&quot;items&quot;: {expected}}}'
+
+        # Test UUID formatting
+        test_uuid = uuid.uuid4()
+        assert uuid_formatter(test_uuid) == string_formatter(str(test_uuid))
+        assert uuid_formatter(None) == ''
+
+        binary = b'$1\x01\x03\xfe'
+        assert binary_formatter(binary) == r'b&#x27;\$1\x01\x03\xfe&#x27;'
+
+    def test_make_pdf_thumbnail(self) -> None:
+        docs_dir = Path(os.path.dirname(__file__)) / 'data' / 'documents'
+        file_paths = glob.glob(f'{docs_dir}/*', recursive=True)
+        file_paths = [path for path in file_paths if path.endswith('.pdf')]
+        assert len(file_paths) > 2
+        max_size = 128
+        for pdf_path in file_paths:
+            thumb = Formatter.make_document_thumbnail(pdf_path, max_size, max_size)
+            thumb.verify()
+            assert thumb.width <= max_size
+            assert thumb.height <= max_size

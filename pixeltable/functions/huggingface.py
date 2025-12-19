@@ -74,20 +74,6 @@ def _(model_id: str) -> ts.ArrayType:
     return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
 
 
-@pxt.udf
-def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embeddings: bool = False) -> list:
-    env.Env.get().require_package('sentence_transformers')
-    device = resolve_torch_device('auto')
-    from sentence_transformers import SentenceTransformer
-
-    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
-    model = _lookup_model(model_id, SentenceTransformer, device=device, pass_device_to_create=True)
-
-    # specifying the device, uses it for computation
-    array = model.encode(sentences, device=device, normalize_embeddings=normalize_embeddings)
-    return [array[i].tolist() for i in range(array.shape[0])]
-
-
 @pxt.udf(batch_size=32)
 def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: str) -> Batch[float]:
     """
@@ -125,20 +111,6 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
     model = _lookup_model(model_id, CrossEncoder, device=device, pass_device_to_create=True)
 
     array = model.predict([[s1, s2] for s1, s2 in zip(sentences1, sentences2)], convert_to_numpy=True)
-    return array.tolist()
-
-
-@pxt.udf
-def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> list:
-    env.Env.get().require_package('sentence_transformers')
-    device = resolve_torch_device('auto')
-    from sentence_transformers import CrossEncoder
-
-    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
-    # and uses the device for predict computation
-    model = _lookup_model(model_id, CrossEncoder, device=device, pass_device_to_create=True)
-
-    array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
     return array.tolist()
 
 
@@ -1065,9 +1037,9 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     env.Env.get().require_package('datasets')
     env.Env.get().require_package('soundfile')
     device = resolve_torch_device('auto')
+    import datasets  # type: ignore[import-untyped]
     import soundfile as sf  # type: ignore[import-untyped]
     import torch
-    from datasets import load_dataset  # type: ignore[import-untyped]
     from transformers import (
         AutoModelForTextToWaveform,
         AutoProcessor,
@@ -1097,8 +1069,16 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     # Load speaker embeddings once for SpeechT5 (following speech2text pattern)
     speaker_embeddings = None
     if 'speecht5' in model_id.lower():
-        embeddings_dataset = load_dataset('Matthijs/cmu-arctic-xvectors', split='validation')
-        speaker_embeddings = torch.tensor(embeddings_dataset[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
+        ds: datasets.Dataset
+        if len(_speecht5_embeddings_dataset) == 0:
+            ds = datasets.load_dataset(
+                'Matthijs/cmu-arctic-xvectors', split='validation', revision='refs/convert/parquet'
+            )
+            _speecht5_embeddings_dataset.append(ds)
+        else:
+            assert len(_speecht5_embeddings_dataset) == 1
+            ds = _speecht5_embeddings_dataset[0]
+        speaker_embeddings = torch.tensor(ds[speaker_id or 7306]['xvector']).unsqueeze(0).to(device)
 
     with torch.no_grad():
         # Generate speech based on model type
@@ -1511,6 +1491,7 @@ def _lookup_processor(model_id: str, create: Callable[[str], T]) -> T:
 
 
 _model_cache: dict[tuple[str, Callable, str | None], Any] = {}
+_speecht5_embeddings_dataset: list[Any] = []  # contains only the speecht5 embeddings loaded by text_to_speech()
 _processor_cache: dict[tuple[str, Callable], Any] = {}
 
 

@@ -57,7 +57,7 @@ class TestVoyageAI:
         )
 
         # Test similarity search using the index
-        sim = t.text.similarity('What is machine learning?')
+        sim = t.text.similarity(string='What is machine learning?')
         results = t.order_by(sim, asc=False).limit(2).select(t.text, similarity=sim).collect()
 
         assert len(results) == 2

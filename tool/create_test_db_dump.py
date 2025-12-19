@@ -294,7 +294,7 @@ class Dumper:
 
         @pxt.query
         def q2(s: str) -> pxt.Query:
-            sim = t[f'{col_prefix}_function_call'].similarity(s)
+            sim = t[f'{col_prefix}_function_call'].similarity(string=s)
             return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
 
         add_computed_column('sim_output', q2(t.c1))

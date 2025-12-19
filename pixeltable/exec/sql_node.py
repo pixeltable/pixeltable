@@ -9,6 +9,7 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
+from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -57,10 +58,8 @@ def combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> OrderByClause 
 
 def print_order_by_clause(clause: OrderByClause) -> str:
     return ', '.join(
-        [
-            f'({item.expr}{", asc=True" if item.asc is True else ""}{", asc=False" if item.asc is False else ""})'
-            for item in clause
-        ]
+        f'({item.expr}{", asc=True" if item.asc is True else ""}{", asc=False" if item.asc is False else ""})'
+        for item in clause
     )
 
 
@@ -91,6 +90,7 @@ class SqlNode(ExecNode):
     py_filter_eval_ctx: exprs.RowBuilder.EvalCtx | None
     cte: sql.CTE | None
     sql_elements: exprs.SqlElementCache
+    progress_reporter: ProgressReporter | None
 
     # execution state
     sql_select_list_exprs: exprs.ExprSet
@@ -119,6 +119,7 @@ class SqlNode(ExecNode):
         # create Select stmt
         self.sql_elements = sql_elements
         self.tbl = tbl
+        self.progress_reporter = None
         self.columns = columns
         if cell_md_col_refs is not None:
             assert all(ref.col.stores_cellmd for ref in cell_md_col_refs)
@@ -128,11 +129,21 @@ class SqlNode(ExecNode):
         else:
             self.cell_md_refs = []
         self.select_list = exprs.ExprSet(select_list)
-        # unstored iter columns: we also need to retrieve whatever is needed to materialize the iter args
+        # unstored iter columns: we also need to retrieve whatever is needed to materialize the
+        # iter args and stored outputs
         for iter_arg in row_builder.unstored_iter_args.values():
             sql_subexprs = iter_arg.subexprs(filter=self.sql_elements.contains, traverse_matches=False)
-            for e in sql_subexprs:
-                self.select_list.add(e)
+            self.select_list.update(sql_subexprs)
+        # We query for unstored outputs only if we're not loading a view; when we're loading a view, we are populating
+        # those columns, so we need to keep them out of the select list. This isn't a problem, because view loads never
+        # need to call set_pos().
+        # TODO: This is necessary because create_view_load_plan passes stored output columns to `RowBuilder` via the
+        #     `columns` parameter (even though they don't appear in `output_exprs`). This causes them to be recorded as
+        #     expressions in `RowBuilder`, which creates a conflict if we add them here. If `RowBuilder` is restructured
+        #     to keep them out of `unique_exprs`, then this conditional can be removed.
+        if not row_builder.for_view_load:
+            for outputs in row_builder.unstored_iter_outputs.values():
+                self.select_list.update(outputs)
         super().__init__(row_builder, self.select_list, [], None)  # we materialize self.select_list
 
         if tbl is not None:
@@ -166,6 +177,13 @@ class SqlNode(ExecNode):
             tv = self.tbl.tbl_version._tbl_version
             if tv is not None:
                 assert tv.is_validated
+
+    def _open(self) -> None:
+        if self.ctx.show_progress:
+            desc = 'Rows read'
+            if self.tbl is not None:
+                desc += f' (table {self.tbl.tbl_name()!r})'
+            self.progress_reporter = self.ctx.add_progress_reporter(desc, 'rows')
 
     def _pk_col_items(self) -> list[sql.Column]:
         if self.set_pk:
@@ -419,11 +437,15 @@ class SqlNode(ExecNode):
 
             if self.ctx.batch_size > 0 and len(output_batch) == self.ctx.batch_size:
                 _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
+                if self.progress_reporter is not None:
+                    self.progress_reporter.update(len(output_batch))
                 yield output_batch
                 output_batch = DataRowBatch(self.row_builder)
 
         if len(output_batch) > 0:
             _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
+            if self.progress_reporter is not None:
+                self.progress_reporter.update(len(output_batch))
             yield output_batch
 
     def _close(self) -> None:

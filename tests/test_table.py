@@ -4,6 +4,7 @@ import math
 import os
 import random
 import re
+import uuid
 from pathlib import Path
 from typing import Any, Literal, _GenericAlias, cast  # type: ignore[attr-defined]
 
@@ -22,8 +23,8 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
+from pixeltable.functions.video import frame_iterator
 from pixeltable.io.external_store import MockProject
-from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -863,6 +864,10 @@ class TestTable:
             'req_ts_col': pxt.Required[pxt.Timestamp],
             'date_col': pxt.Date,
             'req_date_col': pxt.Required[pxt.Date],
+            'uuid_col': pxt.UUID,
+            'req_uuid_col': pxt.Required[pxt.UUID],
+            'binary_col': pxt.Binary,
+            'req_binary_col': pxt.Required[pxt.Binary],
             'json_col': pxt.Json,
             'req_json_col': pxt.Required[pxt.Json],
             'array_col': pxt.Array[(5, None, 3), pxt.Int],  # type: ignore[misc]
@@ -902,6 +907,10 @@ class TestTable:
             'req_ts_col': ts.TimestampType(nullable=False),
             'date_col': ts.DateType(nullable=True),
             'req_date_col': ts.DateType(nullable=False),
+            'uuid_col': ts.UUIDType(nullable=True),
+            'req_uuid_col': ts.UUIDType(nullable=False),
+            'binary_col': ts.BinaryType(nullable=True),
+            'req_binary_col': ts.BinaryType(nullable=False),
             'json_col': ts.JsonType(nullable=True),
             'req_json_col': ts.JsonType(nullable=False),
             'array_col': ts.ArrayType((5, None, 3), dtype=ts.IntType(), nullable=True),
@@ -938,6 +947,10 @@ class TestTable:
             'Required[Timestamp]',
             'Date',
             'Required[Date]',
+            'UUID',
+            'Required[UUID]',
+            'Binary',
+            'Required[Binary]',
             'Json',
             'Required[Json]',
             'Array[(5, None, 3), int64]',
@@ -1189,6 +1202,9 @@ class TestTable:
             (float, 'float', 'pxt.Float'),
             (bool, 'bool', 'pxt.Bool'),
             (datetime.datetime, 'datetime.datetime', 'pxt.Timestamp'),
+            (datetime.date, 'datetime.date', 'pxt.Date'),
+            (uuid.UUID, 'uuid.UUID', 'pxt.UUID'),
+            (bytes, 'bytes', 'pxt.Binary'),
             (list, 'list', 'pxt.Json'),
             (dict, 'dict', 'pxt.Json'),
             (PIL.Image.Image, 'PIL.Image.Image', 'pxt.Image'),
@@ -1410,9 +1426,15 @@ class TestTable:
             assert container.streams.video[0].codec_context.name == 'h264'
 
     def test_create_video_table(self, reset_db: None) -> None:
+        if Env.get().is_using_cockroachdb:
+            # TODO(PXT-921): fix this on CockroachDB
+            pytest.skip(
+                'Skipped on CockroachDB due to: RETRY_SERIALIZABLE - failed preemptive refresh due to'
+                ' encountered recently written committed value...'
+            )
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
-        view = pxt.create_view('test_view', tbl, iterator=FrameIterator.create(video=tbl.video, fps=0))
+        view = pxt.create_view('test_view', tbl, iterator=frame_iterator(tbl.video, fps=0))
         view.add_computed_column(c1=view.frame.rotate(30), stored=True)
         view.add_computed_column(c2=view.c1.rotate(40), stored=False)
         view.add_computed_column(c3=view.c2.rotate(50), stored=True)

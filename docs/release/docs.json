@@ -2,8 +2,9 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Pixeltable Documentation",
+  "description": "The only open source Python library providing declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.",
   "colors": {
-    "primary": "#1E5AA8",
+    "primary": "#022A59",
     "light": "#F1AE03",
     "dark": "#020704"
   },
@@ -23,39 +24,37 @@
             ]
           },
           {
-            "group": "Platform",
+            "group": "Core Concepts",
             "pages": [
-              "platform/tables",
+              "platform/type-system",
+              "tutorials/tables-and-data-operations",
+              "tutorials/computed-columns",
               "platform/views",
-              {
-                "group": "Core Components",
-                "pages": [
-                  "platform/computed-columns",
-                  "platform/iterators",
-                  "platform/embedding-indexes",
-                  "platform/udfs-in-pixeltable"
-                ]
-              },
-              {
-                "group": "Working with Data",
-                "pages": [
-                  "platform/filtering-and-selecting",
-                  "platform/bringing-data",
-                  "platform/external-files",
-                  "platform/sampling",
-                  "platform/data-sharing",
-                  "platform/time-zones"
-                ]
-              },
-              "platform/deployment",
-              "platform/configuration"
+              "tutorials/queries-and-expressions",
+              "platform/udfs-in-pixeltable",
+              "platform/iterators",
+              "platform/embedding-indexes",
+              "platform/version-control",
+              "platform/external-files",
+              "platform/data-sharing"
             ]
           },
           {
             "group": "How-To",
             "pages": [
+              "platform/configuration",
               {
-                "group": "LLMs & Model Providers",
+                "group": "Deployment",
+                "pages": [
+                  "howto/deployment/overview",
+                  "howto/deployment/infrastructure",
+                  "howto/deployment/operations",
+                  "howto/deployment/monitoring",
+                  "howto/deployment/security"
+                ]
+              },
+              {
+                "group": "Integrations",
                 "pages": [
                   "howto/providers/working-with-anthropic",
                   "howto/providers/working-with-bedrock",
@@ -72,27 +71,59 @@
                   "howto/providers/working-with-openrouter",
                   "howto/providers/working-with-replicate",
                   "howto/providers/working-with-reve",
+                  "howto/providers/working-with-tigris",
                   "howto/providers/working-with-together",
-                  "howto/providers/working-with-voyageai"
-                ]
-              },
-              "howto/using-label-studio-with-pixeltable",
-              "howto/working-with-fiftyone",
-              {
-                "group": "Use Cases",
-                "pages": [
-                  "howto/use-cases/audio-transcriptions",
-                  "howto/use-cases/object-detection-in-videos",
-                  "howto/use-cases/rag-demo",
-                  "howto/use-cases/rag-operations"
+                  "howto/providers/working-with-voyageai",
+                  "howto/using-label-studio-with-pixeltable",
+                  "howto/working-with-fiftyone"
                 ]
               },
               {
                 "group": "Cookbooks",
                 "pages": [
                   {
+                    "group": "Core Operations",
+                    "pages": [
+                      "howto/cookbooks/core/workflow-api-keys",
+                      "howto/cookbooks/core/dev-iterative-workflow",
+                      "howto/cookbooks/core/workflow-json-extraction",
+                      "howto/cookbooks/core/workflow-uuid-identity",
+                      "howto/cookbooks/core/query-join-tables",
+                      "howto/cookbooks/core/version-control-history",
+                      "howto/cookbooks/core/custom-aggregates-uda",
+                      "howto/cookbooks/core/data-split-rows",
+                      "howto/cookbooks/core/time-zones"
+                    ]
+                  },
+                  {
+                    "group": "Agents",
+                    "pages": [
+                      "howto/cookbooks/agents/pattern-rag-pipeline",
+                      "howto/use-cases/rag-demo",
+                      "howto/use-cases/rag-operations",
+                      "howto/cookbooks/agents/pattern-agent-memory",
+                      "howto/cookbooks/agents/pattern-table-as-udf",
+                      "howto/cookbooks/agents/pattern-data-lookup",
+                      "howto/cookbooks/agents/llm-tool-calling"
+                    ]
+                  },
+                  {
+                    "group": "Text",
+                    "pages": [
+                      "howto/cookbooks/text/text-summarize",
+                      "howto/cookbooks/text/text-translate",
+                      "howto/cookbooks/text/text-extract-entities",
+                      "howto/cookbooks/text/doc-chunk-for-rag"
+                    ]
+                  },
+                  {
                     "group": "Images",
                     "pages": [
+                      "howto/cookbooks/images/img-detect-objects",
+                      "howto/cookbooks/images/img-visualize-detections",
+                      "howto/cookbooks/images/img-generate-captions",
+                      "howto/cookbooks/images/vision-batch-analysis",
+                      "howto/cookbooks/images/vision-structured-output",
                       "howto/cookbooks/images/img-add-watermarks",
                       "howto/cookbooks/images/img-adjust-opacity",
                       "howto/cookbooks/images/img-apply-filters",
@@ -101,17 +132,50 @@
                       "howto/cookbooks/images/img-rgb-to-grayscale"
                     ]
                   },
-                  "howto/cookbooks/dev-iterative-workflow"
+                  {
+                    "group": "Audio",
+                    "pages": [
+                      "howto/cookbooks/audio/audio-transcribe",
+                      "howto/use-cases/audio-transcriptions",
+                      "howto/cookbooks/audio/audio-summarize-podcast",
+                      "howto/cookbooks/audio/audio-text-to-speech",
+                      "howto/cookbooks/audio/audio-extract-from-video"
+                    ]
+                  },
+                  {
+                    "group": "Video",
+                    "pages": [
+                      "howto/cookbooks/video/video-extract-frames",
+                      "howto/use-cases/object-detection-in-videos",
+                      "howto/cookbooks/video/video-scene-detection",
+                      "howto/cookbooks/video/video-generate-thumbnails",
+                      "howto/cookbooks/video/video-add-text-overlay",
+                      "howto/cookbooks/video/video-generate-ai"
+                    ]
+                  },
+                  {
+                    "group": "Search & Embeddings",
+                    "pages": [
+                      "howto/cookbooks/search/embed-text-openai",
+                      "howto/cookbooks/search/search-semantic-text",
+                      "howto/cookbooks/search/search-similar-images"
+                    ]
+                  },
+                  {
+                    "group": "Data Import/Export",
+                    "pages": [
+                      "howto/cookbooks/data/data-import-csv",
+                      "howto/cookbooks/data/data-import-json",
+                      "howto/cookbooks/data/data-import-parquet",
+                      "howto/cookbooks/data/data-import-excel",
+                      "howto/cookbooks/data/data-import-huggingface",
+                      "howto/cookbooks/data/data-import-s3",
+                      "howto/cookbooks/data/data-export-pytorch",
+                      "howto/cookbooks/data/data-sampling"
+                    ]
+                  }
                 ]
               }
-            ]
-          },
-          {
-            "group": "Pixeltable Fundamentals",
-            "pages": [
-              "tutorials/tables-and-data-operations",
-              "tutorials/computed-columns",
-              "tutorials/queries-and-expressions"
             ]
           }
         ]
@@ -259,9 +323,19 @@
   },
   "background": {
     "color": {
-      "light": "#FAF6F0",
+      "light": "#fafaf9",
       "dark": "#020704"
     }
+  },
+  "styling": {
+    "eyebrows": "breadcrumbs"
+  },
+  "appearance": {
+    "default": "system",
+    "strict": false
+  },
+  "metadata": {
+    "timestamp": true
   },
   "navbar": {
     "links": [
@@ -295,10 +369,214 @@
   },
   "fonts": {
     "heading": {
-      "family": "Inter"
+      "family": "DM Sans",
+      "weight": 600
     },
     "body": {
-      "family": "Inter"
+      "family": "Inter",
+      "weight": 400
     }
-  }
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "cursor"
+    ]
+  },
+  "errors": {
+    "404": {
+      "redirect": false,
+      "title": "Page Not Found",
+      "description": "The page you're looking for doesn't exist. Check the URL or [return to the docs home](/overview/pixeltable)."
+    }
+  },
+  "redirects": [
+    {
+      "source": "/platform/tables",
+      "destination": "/tutorials/tables-and-data-operations"
+    },
+    {
+      "source": "/platform/computed-columns",
+      "destination": "/tutorials/computed-columns"
+    },
+    {
+      "source": "/platform/filtering-and-selecting",
+      "destination": "/tutorials/queries-and-expressions"
+    },
+    {
+      "source": "/platform/bringing-data",
+      "destination": "/howto/cookbooks/data/data-import-csv"
+    },
+    {
+      "source": "/platform/time-zones",
+      "destination": "/howto/cookbooks/core/time-zones"
+    },
+    {
+      "source": "/platform/sampling",
+      "destination": "/howto/cookbooks/data/data-sampling"
+    },
+    {
+      "source": "/platform/deployment",
+      "destination": "/howto/deployment/overview"
+    },
+    {
+      "source": "/overview/installation",
+      "destination": "/overview/quick-start"
+    },
+    {
+      "source": "/overview/configuration",
+      "destination": "/platform/configuration"
+    },
+    {
+      "source": "/datastore/tables-and-operations",
+      "destination": "/tutorials/tables-and-data-operations"
+    },
+    {
+      "source": "/datastore/computed-columns",
+      "destination": "/tutorials/computed-columns"
+    },
+    {
+      "source": "/datastore/embedding-index",
+      "destination": "/platform/embedding-indexes"
+    },
+    {
+      "source": "/datastore/views",
+      "destination": "/platform/views"
+    },
+    {
+      "source": "/datastore/custom-functions",
+      "destination": "/platform/udfs-in-pixeltable"
+    },
+    {
+      "source": "/datastore/filtering-and-selecting",
+      "destination": "/tutorials/queries-and-expressions"
+    },
+    {
+      "source": "/datastore/iterators",
+      "destination": "/platform/iterators"
+    },
+    {
+      "source": "/datastore/vector-database",
+      "destination": "/platform/embedding-indexes"
+    },
+    {
+      "source": "/datastore/bringing-data",
+      "destination": "/howto/cookbooks/data/data-import-csv"
+    },
+    {
+      "source": "/examples/chat/tools",
+      "destination": "/howto/cookbooks/agents/llm-tool-calling"
+    },
+    {
+      "source": "/examples/chat/rag",
+      "destination": "/howto/cookbooks/agents/pattern-rag-pipeline"
+    },
+    {
+      "source": "/examples/chat/multimodal",
+      "destination": "/howto/use-cases/rag-demo"
+    },
+    {
+      "source": "/examples/chat/memory",
+      "destination": "/howto/cookbooks/agents/pattern-agent-memory"
+    },
+    {
+      "source": "/examples/use-cases",
+      "destination": "/howto/use-cases/rag-demo"
+    },
+    {
+      "source": "/examples/vision/yolox",
+      "destination": "/howto/cookbooks/images/img-detect-objects"
+    },
+    {
+      "source": "/examples/vision/label-studio",
+      "destination": "/howto/using-label-studio-with-pixeltable"
+    },
+    {
+      "source": "/examples/vision/object-detection",
+      "destination": "/howto/use-cases/object-detection-in-videos"
+    },
+    {
+      "source": "/examples/vision/image-similarity",
+      "destination": "/howto/cookbooks/search/search-similar-images"
+    },
+    {
+      "source": "/examples/vision/voxel51",
+      "destination": "/howto/working-with-fiftyone"
+    },
+    {
+      "source": "/examples/audio/transcription",
+      "destination": "/howto/cookbooks/audio/audio-transcribe"
+    },
+    {
+      "source": "/examples/search/audio",
+      "destination": "/howto/cookbooks/audio/audio-transcribe"
+    },
+    {
+      "source": "/examples/search/images",
+      "destination": "/howto/cookbooks/search/search-similar-images"
+    },
+    {
+      "source": "/examples/search/PDF",
+      "destination": "/howto/cookbooks/agents/pattern-rag-pipeline"
+    },
+    {
+      "source": "/examples/search/video",
+      "destination": "/howto/cookbooks/video/video-extract-frames"
+    },
+    {
+      "source": "/examples/search/website",
+      "destination": "/howto/cookbooks/agents/pattern-rag-pipeline"
+    },
+    {
+      "source": "/notebooks/use-cases/rag-demo",
+      "destination": "/howto/use-cases/rag-demo"
+    },
+    {
+      "source": "/notebooks/use-cases/object-detection-in-videos",
+      "destination": "/howto/use-cases/object-detection-in-videos"
+    },
+    {
+      "source": "/notebooks/use-cases/audio-transcriptions",
+      "destination": "/howto/use-cases/audio-transcriptions"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-openai",
+      "destination": "/howto/providers/working-with-openai"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-anthropic",
+      "destination": "/howto/providers/working-with-anthropic"
+    },
+    {
+      "source": "/notebooks/integrations/working-with-together",
+      "destination": "/howto/providers/working-with-together"
+    },
+    {
+      "source": "/notebooks/feature-guides/udfs-in-pixeltable",
+      "destination": "/platform/udfs-in-pixeltable"
+    },
+    {
+      "source": "/notebooks/feature-guides/embedding-indexes",
+      "destination": "/platform/embedding-indexes"
+    },
+    {
+      "source": "/notebooks/feature-guides/working-with-external-files",
+      "destination": "/platform/external-files"
+    },
+    {
+      "source": "/notebooks/fundamentals/tables-and-data-operations",
+      "destination": "/tutorials/tables-and-data-operations"
+    },
+    {
+      "source": "/howto/cookbooks/dev-iterative-workflow",
+      "destination": "/howto/cookbooks/core/dev-iterative-workflow"
+    },
+    {
+      "source": "/tutorials/embedding-indexes",
+      "destination": "/platform/embedding-indexes"
+    }
+  ]
 }
