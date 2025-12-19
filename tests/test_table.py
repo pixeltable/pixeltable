@@ -1096,6 +1096,9 @@ class TestTable:
         pxt.drop_table(non_existing_t, if_not_exists='ignore')
         # force=True should not raise an error, irrespective of if_not_exists value
         pxt.drop_table(non_existing_t, force=True)
+        # same if the parent dir does not exist
+        pxt.drop_table('not_a_parent_dir.non_existing_table', if_not_exists='ignore')
+        pxt.drop_table('not_a_parent_dir.non_existing_table', force=True)
         assert table_list == pxt.list_tables()
 
     def test_image_table(self, reset_db: None) -> None:
