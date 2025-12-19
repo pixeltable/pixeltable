@@ -987,8 +987,6 @@ class Table(SchemaObject):
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
         """
-        TODO update examples
-        TODO find add_embedding_index in all docs, notebooks, etc. and update there
         Add an embedding index to the table. Once the index is created, it will be automatically kept up-to-date as new
         rows are inserted into the table.
 
@@ -1010,7 +1008,7 @@ class Table(SchemaObject):
                 specifying different embedding functions for different data types.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`.
                 The default is `'cosine'`.
-            precision: TODO
+            precision: level of precision for the embeddings; one of `'16bit'` or `'32bit'`.
             if_exists: Directive for handling an existing index with the same name. Must be one of the following:
 
                 - `'error'`: raise an error if an index with the same name already exists.
