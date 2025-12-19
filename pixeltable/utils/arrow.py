@@ -1,11 +1,10 @@
 import datetime
 import io
-import json
 import uuid
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
-import numpy as np
 import PIL.Image
+import numpy as np
 import pyarrow as pa
 
 import pixeltable.exceptions as excs
@@ -44,11 +43,11 @@ PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
     ts.IntType: pa.int64(),
     ts.FloatType: pa.float32(),
     ts.BinaryType: pa.binary(),
-    ts.JsonType: pa.string(),  # TODO(orm) pa.struct() is possible
     ts.ImageType: pa.binary(),  # inline image
     ts.AudioType: pa.string(),  # path
     ts.VideoType: pa.string(),  # path
     ts.DocumentType: pa.string(),  # path
+    # ts.JsonType is ommitted, because mapping to pa.StructType requires schema
 }
 
 
@@ -114,7 +113,8 @@ def _to_record_batch(column_vals: dict[str, list[Any]], schema: pa.Schema) -> pa
 
 
 def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.RecordBatch]:
-    arrow_schema = to_arrow_schema(query.schema)
+    # arrow_schema = to_arrow_schema(query.schema)
+    arrow_schema: pa.Schema | None = None  # initialized after first batch, when we have data to infer struct schemas
     batch_columns: dict[str, list[Any]] = {k: [] for k in query.schema}
     current_byte_estimate = 0
     num_batch_rows = 0
@@ -159,8 +159,9 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                     val = data_row.file_paths[e.slot_idx]
                     val_size_bytes = len(val)
                 elif col_type.is_json_type():
-                    val = json.dumps(val)
-                    val_size_bytes = len(val)
+                    # val = json.dumps(val)
+                    # TODO: estimate actual size
+                    val_size_bytes = 256
                 elif col_type.is_array_type():
                     val_size_bytes = val.nbytes
                 elif col_type.is_int_type() or col_type.is_float_type():
@@ -179,6 +180,16 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                 current_byte_estimate += val_size_bytes
 
             if current_byte_estimate > batch_size_bytes and num_batch_rows > 0:
+                if arrow_schema is None:
+                    pa_column_types: dict[str, pa.DataType] = {}
+                    for col_name, col_type in query.schema.items():
+                        if col_type.is_json_type():
+                            pa_type = pa.infer_type(batch_columns[col_name])
+                            pa_column_types[col_name] = pa_type
+                        else:
+                            pa_column_types[col_name] = to_arrow_type(col_type)
+                    arrow_schema = pa.schema(pa_column_types.items())
+
                 record_batch = _to_record_batch(batch_columns, arrow_schema)
                 yield record_batch
                 batch_columns = {k: [] for k in query.schema}
