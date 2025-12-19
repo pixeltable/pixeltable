@@ -819,6 +819,8 @@ class TestIndex:
                 embedding=TestIndex.dummy_embedding.using(n=2001),
                 precision='invalid',  # type: ignore[arg-type]
             )
+        with pytest.raises(pxt.Error, match='is not a valid embedding: it returns an array of invalid length 0'):
+            test_tbl.add_embedding_index(test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=0), precision='16bit')
 
     def run_btree_test(self, data: list, data_type: type | _GenericAlias) -> pxt.Table:
         t = pxt.create_table('btree_test', {'data': data_type})

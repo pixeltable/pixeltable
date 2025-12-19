@@ -141,6 +141,7 @@ class EmbeddingIndex(IndexBase):
         assert len(val_col_type.shape) == 1
         vector_length = val_col_type.shape[0]
         assert vector_length is not None
+        assert vector_length > 0
 
         if self.precision == self.Precision._32BIT:
             if vector_length > MAX_EMBEDDING_VECTOR_LENGTH:
@@ -254,6 +255,11 @@ class EmbeddingIndex(IndexBase):
             raise excs.Error(
                 f'The function `{embed_fn.name}` is not a valid embedding: '
                 f'it must return a 1-dimensional array of a specific length, but returns {return_type}'
+            )
+        if shape[0] <= 0:
+            raise excs.Error(
+                f'The function `{embed_fn.name}` is not a valid embedding: '
+                f'it returns an array of invalid length {shape[0]}'
             )
 
     def as_dict(self) -> dict:
