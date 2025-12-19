@@ -16,6 +16,9 @@ from pixeltable.env import Env
 
 from .base import IndexBase
 
+# The embedding vector length limit imposed by pgvector (note: Pixeltable does not use halfvec yet)
+MAX_EMBEDDING_VECTOR_LENGTH = 2000
+
 
 class EmbeddingIndex(IndexBase):
     """
@@ -119,8 +122,16 @@ class EmbeddingIndex(IndexBase):
 
     def get_index_sa_type(self, val_col_type: ts.ColumnType) -> sql.types.TypeEngine:
         assert isinstance(val_col_type, ts.ArrayType) and val_col_type.shape is not None
+        if len(val_col_type.shape) != 1:
+            raise excs.Error(f'Expected a 1-dimensional array, got {len(val_col_type.shape)}: {val_col_type}')
         vector_size = val_col_type.shape[0]
         assert vector_size is not None
+        # TODO(PXT-916): support halfvec embedding indexes
+        if vector_size > MAX_EMBEDDING_VECTOR_LENGTH:
+            raise excs.Error(
+                f'Embedding vector size exceeds the maximum allowed size of {MAX_EMBEDDING_VECTOR_LENGTH}:'
+                f' {val_col_type}'
+            )
         return pgvector.sqlalchemy.Vector(vector_size)
 
     def sa_create_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
