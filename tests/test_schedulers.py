@@ -4,7 +4,7 @@ import asyncio
 from unittest.mock import AsyncMock, Mock
 
 from pixeltable import func
-from pixeltable.exec.expr_eval.globals import Dispatcher, ExecCtx, FnCallArgs
+from pixeltable.exec.expr_eval.globals import Dispatcher, ExprEvalCtx, FnCallArgs
 from pixeltable.exec.expr_eval.schedulers import RateLimitsScheduler
 
 
@@ -48,9 +48,9 @@ class TestSchedulers:
             mock_request.args = []
             mock_request.kwargs = {}
 
-            mock_exec_ctx = Mock(spec=ExecCtx)
+            mock_ctx = Mock(spec=ExprEvalCtx)
 
-            await scheduler._exec(mock_request, mock_exec_ctx, 0, is_task=False)
+            await scheduler._exec(mock_request, mock_ctx, 0, is_task=False)
 
             # Verify that the exception was recorded
             assert mock_row.set_exc.called
