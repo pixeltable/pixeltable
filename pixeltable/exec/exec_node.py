@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import abc
 import logging
+from types import TracebackType
 from typing import AsyncIterator, Iterable, Iterator, TypeVar
+
+from typing_extensions import Self
 
 from pixeltable import exprs
 from pixeltable.env import Env
@@ -14,7 +17,9 @@ _logger = logging.getLogger('pixeltable')
 
 
 class ExecNode(abc.ABC):
-    """Base class of all execution nodes"""
+    """
+    Base class of all execution nodes
+    """
 
     output_exprs: Iterable[exprs.Expr]
     row_builder: exprs.RowBuilder
@@ -65,17 +70,28 @@ class ExecNode(abc.ABC):
         # - however, blindly cancelling all pending tasks doesn't work when running in a jupyter environment, which
         #   creates tasks on its own
 
-    def open(self) -> None:
-        """Bottom-up initialization of nodes for execution. Must be called before __next__."""
+    def __enter__(self) -> Self:
+        if self.ctx.show_progress:
+            self.ctx.start_progress()
+        self._open_aux()
+        return self
+
+    def _open_aux(self) -> None:
+        """Call _open() bottom-up"""
         if self.input is not None:
-            self.input.open()
+            self.input._open_aux()
         self._open()
 
-    def close(self) -> None:
-        """Frees node resources top-down after execution. Must be called after final __next__."""
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
+    ) -> None:
+        self._close_aux()
+
+    def _close_aux(self) -> None:
+        """Call _close() top-down"""
         self._close()
         if self.input is not None:
-            self.input.close()
+            self.input._close_aux()
 
     def _open(self) -> None:
         pass

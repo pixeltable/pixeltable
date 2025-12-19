@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -126,9 +127,11 @@ class UpdateStatus:
             ext_row_count_stats=self.ext_row_count_stats + other.ext_row_count_stats,
         )
 
-    @property
-    def insert_msg(self) -> str:
-        """A message describing the results of an insert operation."""
+    def insert_msg(self, start_ts: float | None = None) -> str:
+        """
+        Returns message describing the results of an insert operation.
+        If start_ts is provided, also includes duration and throughput.
+        """
         if self.num_excs == 0:
             cols_with_excs_str = ''
         else:
@@ -138,8 +141,14 @@ class UpdateStatus:
             cols_with_excs_str += f' ({", ".join(self.cols_with_excs)})'
         msg = (
             f'Inserted {self.num_rows} row{"" if self.num_rows == 1 else "s"} '
-            f'with {self.num_excs} error{"" if self.num_excs == 1 else "s"}{cols_with_excs_str}.'
+            f'with {self.num_excs} error{"" if self.num_excs == 1 else "s"}{cols_with_excs_str}'
         )
+        if start_ts is not None and self.num_rows > 0:
+            end_ts = time.perf_counter()
+            duration = end_ts - start_ts
+            msg += f' in {duration:.2f} s'
+            if duration > 0:
+                msg += f' ({self.num_rows / duration:.2f} rows/s)'
         return msg
 
     @classmethod
