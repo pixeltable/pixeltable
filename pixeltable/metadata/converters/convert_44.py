@@ -8,7 +8,10 @@ from pixeltable.metadata.converters.util import convert_table_md
 
 @register_converter(version=44)
 def _(engine: sql.engine.Engine) -> None:
-    """Adds a required parameter "precision" to EmbeddingIndex"""
+    """A "precision" parameter was added to EmbeddingIndex, with the default behavior (16 bit) different from the
+    behavior before (32 bit). This converter adds precision='32bit' to all pre-existing EmbeddingIndex instances to
+    preserve their behavior.
+    """
     convert_table_md(engine, substitution_fn=_substitution_fn)
 
 
