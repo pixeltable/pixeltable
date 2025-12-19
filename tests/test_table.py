@@ -1195,9 +1195,10 @@ class TestTable:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=0)  # type: ignore[arg-type]
         assert 'primary_key must be a' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error, match=r'cannot be nullable. Declare it as `Required` instead: `pxt.Required\[pxt.String\]`'
+        ) as exc_info:
             pxt.create_table('test', {'c1': pxt.String}, primary_key='c1')
-        assert 'cannot be nullable' in str(exc_info.value).lower()
 
         for badtype, name, suggestion in [
             (str, 'str', 'pxt.String'),
