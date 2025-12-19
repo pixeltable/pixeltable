@@ -926,7 +926,7 @@ class TestIndex:
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
     @pytest.mark.parametrize('precision', ['16bit', '32bit'])
     def test_embedding_index_precision(self, reset_db: None, reload_cat: bool, metric: str, precision: str) -> None:
-        # Note: dummy embeddings produced by our test UDF are not normalized, so strictly speaking it cannot be
+        # Note: dummy embeddings produced by our test UDF are not normalized, so, strictly speaking, it cannot be
         # used with IP metric, however it appears to work fine anyway, and that's good enough for our test purpose.
         t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String}, if_exists='replace')
         n = 123
