@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import enum
 import logging
+import time
 from typing import TYPE_CHECKING, Any, Literal, Sequence, cast, overload
 from uuid import UUID
 
@@ -144,6 +145,7 @@ class InsertableTable(Table):
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             table = self
+            start_ts = time.monotonic()
 
             # TODO: unify with TableDataConduit
             if source is not None and isinstance(source, Sequence) and isinstance(source[0], pydantic.BaseModel):
@@ -152,7 +154,7 @@ class InsertableTable(Table):
                     print_stats=print_stats,
                     fail_on_exception=fail_on_exception,
                 )
-                Env.get().console_logger.info(status.insert_msg)
+                Env.get().console_logger.info(status.insert_msg(start_ts))
                 FileCache.get().emit_eviction_warnings()
                 return status
 
@@ -183,6 +185,7 @@ class InsertableTable(Table):
         from pixeltable.io.table_data_conduit import QueryTableDataConduit
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            start_ts = time.perf_counter()
             if isinstance(data_source, QueryTableDataConduit):
                 status = pxt.UpdateStatus()
                 status += self._tbl_version.get().insert(
@@ -195,7 +198,7 @@ class InsertableTable(Table):
                         rows=row_batch, query=None, print_stats=print_stats, fail_on_exception=fail_on_exception
                     )
 
-        Env.get().console_logger.info(status.insert_msg)
+        Env.get().console_logger.info(status.insert_msg(start_ts))
 
         FileCache.get().emit_eviction_warnings()
         return status
