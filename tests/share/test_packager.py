@@ -820,23 +820,27 @@ class TestPackager:
         for i in (3, 0, 1, 4, 2):
             self.__restore_and_check_table(bundles[i], f'replica_view_{i}')
 
-    def test_embedding_index(self, reset_db: None, clip_embed: pxt.Function) -> None:
+    @pytest.mark.parametrize('embedding_precision', ['16bit', '32bit'])
+    def test_embedding_index(self, reset_db: None, clip_embed: pxt.Function, embedding_precision: str) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP
 
         t = pxt.create_table('tbl', {'image': pxt.Image})
         images = get_image_files()[:10]
         t.insert({'image': image} for image in images)
-        t.add_embedding_index('image', embedding=clip_embed)
+        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)  # type: ignore[arg-type]
 
         self.__do_round_trip(t)
 
-    def test_multi_version_embedding_index(self, reset_db: None, clip_embed: pxt.Function) -> None:
+    @pytest.mark.parametrize('embedding_precision', ['16bit', '32bit'])
+    def test_multi_version_embedding_index(
+        self, reset_db: None, clip_embed: pxt.Function, embedding_precision: str
+    ) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP
 
         t = pxt.create_table('tbl', {'id': pxt.Int, 'image': pxt.Image})
         images = get_image_files()
         t.insert({'id': i, 'image': image} for i, image in enumerate(images[:10]))
-        t.add_embedding_index('image', embedding=clip_embed)
+        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)  # type: ignore[arg-type]
         bundle1 = self.__package_table(t)
         sim_1 = t.image.similarity(string=images[25])
         sim_results_1 = t.select(t.id, sim_1).order_by(sim_1, asc=False).limit(5).collect()
