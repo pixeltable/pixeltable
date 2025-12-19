@@ -1,5 +1,5 @@
 """
-Pixeltable UDFs that wrap the VLM Run Orion chat completions API.
+Pixeltable UDFs that wrap the VLM Run API.
 
 In order to use them, you must first `pip install vlmrun` and configure your VLM Run API key,
 as described in the [VLM Run documentation](https://docs.vlm.run/).
@@ -7,17 +7,17 @@ as described in the [VLM Run documentation](https://docs.vlm.run/).
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
-from pixeltable import env
+from pixeltable.env import Env, register_client
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
     from vlmrun.client import VLMRun
 
 
-@env.register_client('vlmrun')
+@register_client('vlmrun')
 def _(api_key: str) -> 'VLMRun':
     from vlmrun.client import VLMRun
 
@@ -25,10 +25,10 @@ def _(api_key: str) -> 'VLMRun':
 
 
 def _vlmrun_client() -> 'VLMRun':
-    return env.Env.get().get_client('vlmrun')
+    return Env.get().get_client('vlmrun')
 
 
-SUPPORTED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf', '.mp4', '.mov', '.avi', '.mkv'}
+_SUPPORTED_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf', '.mp4', '.mov', '.avi', '.mkv', '.webm'}
 
 
 @pxt.udf(resource_pool='request-rate:vlmrun')
@@ -37,7 +37,7 @@ async def upload_file(path: str) -> str:
     Uploads a file to VLM Run and returns the file_id.
 
     Supports images, documents, and videos. The returned file_id can be used
-    with `chat_completions()` to run analyses without re-uploading.
+    in messages for `chat_completions()`.
 
     Request throttling:
     Applies the rate limit set in the config (section `vlmrun`, key `rate_limit`). If no rate
@@ -48,38 +48,83 @@ async def upload_file(path: str) -> str:
     - `pip install vlmrun`
 
     Args:
-        path: The file path to upload.
+        path: The local file path to upload. For Image columns, use `.localpath`.
+            For Video and Document columns, pass the column directly (they are already file paths).
 
     Returns:
-        The file_id string for use with `chat_completions()`.
+        The file_id string for use in chat completion messages.
 
     Raises:
         ValueError: If the file format is not supported.
 
     Examples:
-        Upload a video and run multiple analyses:
+        Upload an image (requires .localpath since Image is PIL.Image):
 
-        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.video.localpath))
-        >>> t.add_computed_column(
-        ...     description=vlmrun.chat_completions(t.file_id, 'Describe this video')
-        ... )
+        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.image.localpath))
+
+        Upload a video or document (already file paths):
+
+        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.video))
+        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.document))
     """
+    Env.get().require_package('vlmrun')
 
     def _call_api() -> str:
         file_path = Path(path)
         ext = file_path.suffix.lower()
 
-        if ext not in SUPPORTED_EXTENSIONS:
+        if ext not in _SUPPORTED_EXTENSIONS:
             raise ValueError(
                 f"Unsupported file format: {ext}. "
-                f"Supported formats: {', '.join(sorted(SUPPORTED_EXTENSIONS))}"
+                f"Supported formats: {', '.join(sorted(_SUPPORTED_EXTENSIONS))}"
             )
 
         client = _vlmrun_client()
-        try:
-            uploaded = client.files.upload(file=file_path)
-        except Exception as e:
-            raise RuntimeError(f"Failed to upload file '{file_path.name}': {e}") from e
+        uploaded = client.files.upload(file=file_path)
+        return uploaded.id
+
+    result = await asyncio.to_thread(_call_api)
+    return result
+
+
+@pxt.udf(resource_pool='request-rate:vlmrun')
+async def upload_image(image: pxt.Image) -> str:
+    """
+    Uploads an image to VLM Run and returns the file_id.
+
+    This is a convenience function that accepts a Pixeltable Image directly,
+    without needing to use `.localpath`.
+
+    Request throttling:
+    Applies the rate limit set in the config (section `vlmrun`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    __Requirements:__
+
+    - `pip install vlmrun`
+
+    Args:
+        image: The image to upload.
+
+    Returns:
+        The file_id string for use in chat completion messages.
+
+    Examples:
+        Upload an image directly:
+
+        >>> t.add_computed_column(file_id=vlmrun.upload_image(t.image))
+    """
+    from pixeltable.utils.local_store import TempStore
+
+    Env.get().require_package('vlmrun')
+
+    def _call_api() -> str:
+        # Save PIL Image to temp file
+        local_path = TempStore.create_path(extension='.png')
+        image.save(local_path)
+
+        client = _vlmrun_client()
+        uploaded = client.files.upload(file=Path(local_path))
         return uploaded.id
 
     result = await asyncio.to_thread(_call_api)
@@ -88,17 +133,16 @@ async def upload_file(path: str) -> str:
 
 @pxt.udf(resource_pool='request-rate:vlmrun')
 async def chat_completions(
-    file_id: str,
-    prompt: str,
+    messages: list[dict[str, Any]],
     *,
     model: str = 'vlmrun-orion-1:auto',
-    response_format: Optional[dict] = None,
-) -> dict:
+    model_kwargs: dict[str, Any] | None = None,
+) -> pxt.Json:
     """
-    Runs chat completions on an uploaded file using VLM Run's Orion API.
+    Creates a model response for the given chat conversation.
 
-    Takes a file_id (from `upload_file()`) and a prompt, and returns the full response
-    dictionary. Supports images, documents, and videos.
+    Equivalent to the VLM Run chat completions API endpoint.
+    For additional details, see: <https://docs.vlm.run/>
 
     Request throttling:
     Applies the rate limit set in the config (section `vlmrun`, key `rate_limit`). If no rate
@@ -109,59 +153,36 @@ async def chat_completions(
     - `pip install vlmrun`
 
     Args:
-        file_id: The file_id returned from `upload_file()`.
-        prompt: The text prompt describing what to analyze or extract.
+        messages: A list of messages comprising the conversation so far.
         model: The model to use. Options: `vlmrun-orion-1:fast`, `vlmrun-orion-1:auto`,
             `vlmrun-orion-1:pro`. Defaults to `vlmrun-orion-1:auto`.
-        response_format: Optional response format specification for structured output.
+        model_kwargs: Additional keyword args for the VLM Run chat completions API.
 
     Returns:
-        A dictionary containing the response and other metadata.
+        A JSON object containing the response and other metadata.
 
     Examples:
-        Analyze an uploaded video:
+        Add a computed column that analyzes an uploaded file:
 
-        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.video.localpath))
-        >>> t.add_computed_column(
-        ...     response=vlmrun.chat_completions(t.file_id, 'Describe this video')
-        ... )
-        >>> t.add_computed_column(text=t.response['choices'][0]['message']['content'])
-
-        Run multiple analyses on the same file:
-
-        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.image.localpath))
-        >>> t.add_computed_column(
-        ...     objects=vlmrun.chat_completions(t.file_id, 'List all objects')
-        ... )
-        >>> t.add_computed_column(
-        ...     colors=vlmrun.chat_completions(t.file_id, 'What colors are present?')
-        ... )
+        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.media.localpath))
+        >>> messages = [{'role': 'user', 'content': [
+        ...     {'type': 'text', 'text': 'Describe this file'},
+        ...     {'type': 'input_file', 'file_id': t.file_id}
+        ... ]}]
+        >>> t.add_computed_column(response=vlmrun.chat_completions(messages, model='vlmrun-orion-1:auto'))
     """
+    Env.get().require_package('vlmrun')
+
+    if model_kwargs is None:
+        model_kwargs = {}
 
     def _call_api() -> dict:
         client = _vlmrun_client()
-
-        kwargs = {
-            'model': model,
-            'messages': [
-                {
-                    'role': 'user',
-                    'content': [
-                        {'type': 'text', 'text': prompt},
-                        {'type': 'input_file', 'file_id': file_id},
-                    ],
-                }
-            ],
-            'temperature': 0,
-        }
-
-        if response_format is not None:
-            kwargs['response_format'] = response_format
-
-        try:
-            response = client.agent.completions.create(**kwargs)
-        except Exception as e:
-            raise RuntimeError(f"Chat completion failed for file_id '{file_id}': {e}") from e
+        response = client.agent.completions.create(
+            model=model,
+            messages=messages,
+            **model_kwargs,
+        )
         return response.model_dump()
 
     result = await asyncio.to_thread(_call_api)
@@ -191,46 +212,36 @@ async def get_artifact(artifact_id: str) -> str:
         The local file path to the downloaded artifact.
 
     Examples:
-        Redact a document and download the result:
+        Download an artifact from VLM Run:
 
-        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.doc.localpath))
-        >>> t.add_computed_column(
-        ...     redacted_url=vlmrun.chat_completions(
-        ...         t.file_id,
-        ...         'Redact all PII. Return the artifact URL.'
-        ...     )
-        ... )
-        >>> t.add_computed_column(
-        ...     redacted_path=vlmrun.get_artifact(t.redacted_url)
-        ... )
+        >>> t.add_computed_column(artifact_path=vlmrun.get_artifact(t.artifact_id))
     """
     import urllib.request
     from urllib.parse import urlparse
 
     from pixeltable.utils.local_store import TempStore
 
+    Env.get().require_package('vlmrun')
+
     def _call_api() -> str:
-        try:
-            # If it's a URL, download directly
-            if artifact_id.startswith('http'):
-                parsed = urlparse(artifact_id)
-                ext = Path(parsed.path).suffix or '.png'
-                local_path = TempStore.create_path(extension=ext)
-                urllib.request.urlretrieve(artifact_id, local_path)
-                return str(local_path)
-
-            # Otherwise, use the artifacts API
-            client = _vlmrun_client()
-            artifact = client.artifacts.get(artifact_id)
-
-            # Download from the artifact URL
-            parsed = urlparse(artifact.url)
+        # If it's a URL, download directly
+        if artifact_id.startswith('http'):
+            parsed = urlparse(artifact_id)
             ext = Path(parsed.path).suffix or '.png'
             local_path = TempStore.create_path(extension=ext)
-            urllib.request.urlretrieve(artifact.url, local_path)
+            urllib.request.urlretrieve(artifact_id, local_path)
             return str(local_path)
-        except Exception as e:
-            raise RuntimeError(f"Failed to retrieve artifact '{artifact_id}': {e}") from e
+
+        # Otherwise, use the artifacts API
+        client = _vlmrun_client()
+        artifact = client.artifacts.get(artifact_id)
+
+        # Download from the artifact URL
+        parsed = urlparse(artifact.url)
+        ext = Path(parsed.path).suffix or '.png'
+        local_path = TempStore.create_path(extension=ext)
+        urllib.request.urlretrieve(artifact.url, local_path)
+        return str(local_path)
 
     result = await asyncio.to_thread(_call_api)
     return result
