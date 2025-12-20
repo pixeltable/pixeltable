@@ -1,8 +1,9 @@
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_no_aws_credentials, skip_test_if_not_installed
+from ..utils import get_image_files, rerun, skip_test_if_no_aws_credentials, skip_test_if_not_installed
 from .tool_utils import run_tool_invocations_test
 
 
@@ -73,3 +74,46 @@ class TestBedrock:
             return t
 
         run_tool_invocations_test(make_table, test_multiple_tool_use=False)
+
+    def test_embed_string(self, reset_db: None) -> None:
+        skip_test_if_not_installed('boto3')
+        skip_test_if_no_aws_credentials()
+        from pixeltable.functions.bedrock import embed
+
+        t = pxt.create_table('docs', {'text': pxt.String})
+        t.add_embedding_index('text', string_embed=embed.using(model_id='amazon.titan-embed-text-v2:0', dimensions=512))
+
+        t.insert(
+            [
+                {'text': 'Machine learning is a subset of artificial intelligence.'},
+                {'text': 'Deep learning uses neural networks with many layers.'},
+                {'text': 'Python is a popular programming language.'},
+            ]
+        )
+
+        sim = t.text.similarity(string='What is machine learning?')
+        results = t.order_by(sim, asc=False).limit(2).select(t.text, similarity=sim).collect()
+
+        assert len(results) == 2
+        # The ML-related text should be ranked first
+        assert (
+            'machine learning' in results['text'][0].lower() or 'artificial intelligence' in results['text'][0].lower()
+        )
+
+    def test_embed_image(self, reset_db: None) -> None:
+        skip_test_if_not_installed('boto3')
+        skip_test_if_no_aws_credentials()
+        from pixeltable.functions.bedrock import embed
+
+        t = pxt.create_table('images', {'image': pxt.Image})
+        t.add_embedding_index('image', image_embed=embed.using(model_id='amazon.titan-embed-image-v1'))
+        img_paths = get_image_files()[:3]
+        t.insert([{'image': p} for p in img_paths])
+
+        sample_img = PIL.Image.open(img_paths[0])
+        sim = t.image.similarity(image=sample_img)
+        results = t.order_by(sim, asc=False).limit(2).select(t.image, similarity=sim).collect()
+
+        assert len(results) == 2
+        # The query image should be the most similar to itself
+        assert results['similarity'][0] > results['similarity'][1]

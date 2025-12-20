@@ -182,8 +182,6 @@ async def embed(
     *,
     model_id: str,
     dimensions: int | None = None,
-    normalize: bool = True,
-    embedding_types: Literal['float', 'binary'] | None = None,
 ) -> pxt.Array[(None,), np.float32]:
     """
     Generate embeddings using Amazon Titan embedding models.
@@ -200,11 +198,9 @@ async def embed(
         text: Input text to embed.
         model_id: The Titan embedding model identifier (e.g., 'amazon.titan-embed-text-v2:0').
         dimensions: Output embedding dimensions (V2 only). Valid values: 256, 512, 1024.
-        normalize: Whether to normalize the embedding (V2 only). Defaults to True.
-        embedding_types: Embedding type to return (V2 only). Valid values: 'float', 'binary'.
 
     Returns:
-        Array of embedding vectors.
+        Embedding vector
 
     Examples:
         Create an embedding index on a column `description` with Titan embeddings and custom dimensions:
@@ -240,27 +236,9 @@ async def embed(
         raise pxt.Error(f'Failed to generate embedding: {e}') from e
 
 
-@embed.conditional_return_type
-def _(
-    *,
-    model_id: str,
-    dimensions: int | None = None,
-    normalize: bool = True,
-    embedding_types: Literal['float', 'binary'] | None = None,
-) -> ts.ArrayType:
-    if dimensions is not None:
-        return ts.ArrayType((dimensions,), dtype=np.dtype(np.float32), nullable=False)
-    if model_id in _titan_embedding_dimensions:
-        return ts.ArrayType((_titan_embedding_dimensions[model_id],), dtype=np.dtype(np.float32), nullable=False)
-    return ts.ArrayType((None,), dtype=np.dtype(np.float32), nullable=False)
-
-
 @embed.overload
 async def _(
-    image: PIL.Image.Image,
-    *,
-    model_id: str = 'amazon.titan-embed-image-v1',
-    dimensions: int | None = None,
+    image: PIL.Image.Image, *, model_id: str = 'amazon.titan-embed-image-v1', dimensions: int | None = None
 ) -> pxt.Array[(None,), np.float32]:
     from botocore.exceptions import ClientError
 
@@ -282,6 +260,15 @@ async def _(
         return embedding
     except ClientError as e:
         raise pxt.Error(f'Failed to generate embedding: {e}') from e
+
+
+@embed.conditional_return_type
+def _(*, model_id: str, dimensions: int | None = None) -> ts.ArrayType:
+    if dimensions is not None:
+        return ts.ArrayType((dimensions,), dtype=np.dtype(np.float32), nullable=False)
+    if model_id in _titan_embedding_dimensions:
+        return ts.ArrayType((_titan_embedding_dimensions[model_id],), dtype=np.dtype(np.float32), nullable=False)
+    return ts.ArrayType((None,), dtype=np.dtype(np.float32), nullable=False)
 
 
 def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
