@@ -56,8 +56,7 @@ class PixeltablePytorchDataset(torch.utils.data.IterableDataset):
             # https://github.com/pixeltable/pixeltable/issues/69
             return torchvision.transforms.ToTensor()(arr)
         elif self.column_types[k].is_json_type():
-            assert isinstance(v, str)
-            return json.loads(v)
+            return v
         elif self.column_types[k].is_array_type():
             assert isinstance(v, np.ndarray)
             if not v.flags['WRITEABLE']:
