@@ -37,11 +37,12 @@ def _bedrock_client() -> Any:
     return env.Env.get().get_client('bedrock')
 
 
-# Default embedding dimensions for Titan models
-_titan_embedding_dimensions: dict[str, int] = {
+# Default embedding dimensions for models
+_embedding_dimensions: dict[str, int] = {
     'amazon.titan-embed-text-v1': 1536,
     'amazon.titan-embed-text-v2:0': 1024,
     'amazon.titan-embed-image-v1': 1024,
+    'amazon.nova-2-multimodal-embeddings-v1:0': 3072,
 }
 
 
@@ -184,11 +185,12 @@ async def embed(
     dimensions: int | None = None,
 ) -> pxt.Array[(None,), np.float32]:
     """
-    Generate embeddings using Amazon Titan embedding models.
+    Generate embeddings using Amazon Titan or Nova embedding models.
 
-    Calls the AWS Bedrock `invoke_model` API for Titan embedding models.
+    Calls the AWS Bedrock `invoke_model` API for embedding models.
     For additional details, see:
     <https://docs.aws.amazon.com/bedrock/latest/userguide/titan-embedding-models.html>
+    <https://docs.aws.amazon.com/nova/latest/userguide/modality-embedding.html>
 
     __Requirements:__
 
@@ -196,8 +198,8 @@ async def embed(
 
     Args:
         text: Input text to embed.
-        model_id: The Titan embedding model identifier (e.g., 'amazon.titan-embed-text-v2:0').
-        dimensions: Output embedding dimensions (V2 only). Valid values: 256, 512, 1024.
+        model_id: The embedding model identifier (e.g., 'amazon.titan-embed-text-v2:0' or 'amazon.nova-embed-text-v1:0').
+        dimensions: Output embedding dimensions. For Titan V2: 256, 512, 1024. For Nova: 256, 512, 1024.
 
     Returns:
         Embedding vector
@@ -213,12 +215,8 @@ async def embed(
     from botocore.exceptions import ClientError
 
     body: dict[str, Any] = {'inputText': text}
-    if 'v2' in model_id:
-        if dimensions is not None:
-            body['dimensions'] = dimensions
-        body['normalize'] = normalize
-        if embedding_types is not None:
-            body['embeddingTypes'] = [embedding_types]
+    if ('nova' in model_id or 'v2' in model_id) and dimensions is not None:
+        body['dimensions'] = dimensions
 
     kwargs: dict[str, Any] = {
         'body': json.dumps(body),
@@ -243,7 +241,9 @@ async def _(
     from botocore.exceptions import ClientError
 
     body: dict[str, Any] = {'inputImage': to_base64(image)}
-    if dimensions is not None:
+    if 'nova' in model_id and dimensions is not None:
+        body['dimensions'] = dimensions
+    elif 'nova' not in model_id and dimensions is not None:
         body['embeddingConfig'] = {'outputEmbeddingLength': dimensions}
 
     kwargs: dict[str, Any] = {
@@ -266,8 +266,8 @@ async def _(
 def _(*, model_id: str, dimensions: int | None = None) -> ts.ArrayType:
     if dimensions is not None:
         return ts.ArrayType((dimensions,), dtype=np.dtype(np.float32), nullable=False)
-    if model_id in _titan_embedding_dimensions:
-        return ts.ArrayType((_titan_embedding_dimensions[model_id],), dtype=np.dtype(np.float32), nullable=False)
+    if model_id in _embedding_dimensions:
+        return ts.ArrayType((_embedding_dimensions[model_id],), dtype=np.dtype(np.float32), nullable=False)
     return ts.ArrayType((None,), dtype=np.dtype(np.float32), nullable=False)
 
 
