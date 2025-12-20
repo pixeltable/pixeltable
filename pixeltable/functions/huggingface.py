@@ -250,6 +250,88 @@ def detr_for_object_detection(
 
 
 @pxt.udf(batch_size=4)
+def detr_for_segmentation(
+    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str = 'main'
+) -> Batch[dict]:
+    """
+    Computes DETR panoptic segmentation for the specified image. `model_id` should be a reference to a pretrained
+    [DETR Model](https://huggingface.co/docs/transformers/model_doc/detr) with a segmentation head.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+
+    Args:
+        image: The image to segment.
+        model_id: The pretrained model to use for segmentation (e.g., 'facebook/detr-resnet-50-panoptic').
+        threshold: Confidence threshold for filtering segments.
+        revision: Model revision.
+
+    Returns:
+        A dictionary containing the output of the segmentation model, in the following format:
+
+            ```python
+            {
+                'segmentation': np.ndarray,  # (H, W) array where each pixel value is a segment ID
+                'segments_info': [
+                    {
+                        'id': 1,  # segment ID (matches pixel values in segmentation array)
+                        'label_id': 0,  # class label index
+                        'label_text': 'person',  # human-readable class name
+                        'score': 0.98,  # confidence score
+                        'was_fused': False  # whether segment was fused from multiple instances
+                    },
+                    ...
+                ]
+            }
+            ```
+
+    Examples:
+        Add a computed column that applies the model `facebook/detr-resnet-50-panoptic` to an existing
+        Pixeltable column `image` of the table `tbl`:
+
+        >>> tbl.add_computed_column(segmentation=detr_for_segmentation(
+        ...     tbl.image,
+        ...     model_id='facebook/detr-resnet-50-panoptic',
+        ...     threshold=0.5
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import DetrForSegmentation, DetrImageProcessor
+
+    model = _lookup_model(model_id, lambda x: DetrForSegmentation.from_pretrained(x, revision=revision), device=device)
+    processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision=revision))
+    normalized_images = [normalize_image_mode(img) for img in image]
+
+    with torch.no_grad():
+        inputs = processor(images=normalized_images, return_tensors='pt')
+        outputs = model(**inputs.to(device))
+        results = processor.post_process_panoptic_segmentation(
+            outputs, threshold=threshold, target_sizes=[(img.height, img.width) for img in image]
+        )
+
+    output_list: list[dict] = []
+    for result in results:
+        seg_array = result['segmentation'].cpu().numpy()
+
+        segments_info = [
+            {
+                'id': seg['id'],
+                'label_id': seg['label_id'],
+                'label_text': model.config.id2label[seg['label_id']],
+                'score': seg['score'],
+                'was_fused': seg['was_fused'],
+            }
+            for seg in result['segments_info']
+        ]
+        output_list.append({'segmentation': seg_array, 'segments_info': segments_info})
+
+    return output_list
+
+
+@pxt.udf(batch_size=4)
 def vit_for_image_classification(
     image: Batch[PIL.Image.Image], *, model_id: str, top_k: int = 5
 ) -> Batch[dict[str, Any]]:
