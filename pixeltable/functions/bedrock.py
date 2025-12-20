@@ -7,7 +7,7 @@ including Anthropic Claude, Amazon Titan, and other providers.
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import pixeltable as pxt
 from pixeltable import env, exprs
@@ -104,6 +104,54 @@ async def converse(
         kwargs['toolConfig'] = tool_config_
 
     return await asyncio.to_thread(_bedrock_client().converse, **kwargs)
+
+
+@pxt.udf
+async def invoke_model(
+    body: dict,
+    *,
+    model_id: str,
+    performance_config_latency: Literal['standard', 'optimized'] | None = None,
+) -> dict:
+    """
+    Invoke a Bedrock model with a raw request body.
+
+    Equivalent to the AWS Bedrock `invoke_model` API endpoint.
+    For additional details, see: <https://docs.aws.amazon.com/bedrock/latest/userguide/inference.html>
+
+    __Requirements:__
+
+    - `pip install boto3`
+
+    Args:
+        body: The prompt and inference parameters as a dictionary.
+        model_id: The model identifier to invoke.
+        performance_config_latency: Performance setting: 'standard' or 'optimized'.
+
+    Returns:
+        A dictionary containing the model response.
+
+    Examples:
+        Add a computed column using Amazon Titan embedding model:
+
+        >>> body = {'inputText': tbl.text, 'dimensions': 512, 'normalize': True}
+        ... tbl.add_computed_column(response=invoke_model(body, model_id='amazon.titan-embed-text-v2:0'))
+    """
+    import json
+
+    kwargs: dict[str, Any] = {
+        'body': json.dumps(body),
+        'modelId': model_id,
+    }
+
+    if performance_config_latency is not None:
+        kwargs['performanceConfigLatency'] = performance_config_latency
+
+    response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
+
+    # Read and parse the streaming body
+    response_body = json.loads(response['body'].read())
+    return response_body
 
 
 def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
