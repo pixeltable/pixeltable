@@ -39,7 +39,12 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
-from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
+from pixeltable.utils.console_output import (
+    ConsoleLogger,
+    ConsoleMessageFilter,
+    ConsoleOutputHandler,
+    map_level,
+)
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
 from pixeltable.utils.object_stores import ObjectPath
@@ -49,9 +54,9 @@ if TYPE_CHECKING:
     import spacy
 
 
-_logger = logging.getLogger('pixeltable')
+_logger = logging.getLogger("pixeltable")
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class Env:
@@ -61,11 +66,13 @@ class Env:
     For a non-local environment, Pixeltable uses a connection string to the externally managed database.
     """
 
-    SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
+    SERIALIZABLE_ISOLATION_LEVEL = "SERIALIZABLE"
 
     _instance: Env | None = None
     __initializing: bool = False
-    _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
+    _log_fmt_str = (
+        "%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s"
+    )
 
     _media_dir: Path | None
     _file_cache_dir: Path | None  # cached object files with external URL
@@ -75,7 +82,9 @@ class Env:
     _sa_engine: sql.engine.base.Engine | None
     _pgdata_dir: Path | None
     _db_name: str | None
-    _db_server: pixeltable_pgserver.PostgresServer | None  # set only when running in local environment
+    _db_server: (
+        pixeltable_pgserver.PostgresServer | None
+    )  # set only when running in local environment
     _db_url: str | None
     _default_time_zone: ZoneInfo | None
     _verbosity: int
@@ -115,7 +124,7 @@ class Env:
 
     @classmethod
     def _init_env(cls, reinit_db: bool = False) -> None:
-        assert not cls.__initializing, 'Circular env initialization detected.'
+        assert not cls.__initializing, "Circular env initialization detected."
         cls.__initializing = True
         if cls._instance is not None:
             cls._instance._clean_up()
@@ -131,7 +140,9 @@ class Env:
             cls.__initializing = False
 
     def __init__(self) -> None:
-        assert self._instance is None, 'Env is a singleton; use Env.get() to access the instance'
+        assert (
+            self._instance is None
+        ), "Env is a singleton; use Env.get() to access the instance"
 
         self._media_dir = None  # computed media files
         self._file_cache_dir = None  # cached object files with external URL
@@ -151,8 +162,10 @@ class Env:
         self._default_video_encoder = None
 
         # logging-related state
-        self._logger = logging.getLogger('pixeltable')
-        self._logger.setLevel(logging.DEBUG)  # allow everything to pass, we filter in _log_filter()
+        self._logger = logging.getLogger("pixeltable")
+        self._logger.setLevel(
+            logging.DEBUG
+        )  # allow everything to pass, we filter in _log_filter()
         self._logger.propagate = False
         self._logger.addFilter(self._log_filter)
         self._default_log_level = logging.INFO
@@ -179,7 +192,7 @@ class Env:
             # multiple run_until_complete()
             running_loop = asyncio.get_running_loop()
             self._event_loop = running_loop
-            _logger.debug('Patched running loop')
+            _logger.debug("Patched running loop")
         except RuntimeError:
             self._event_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(self._event_loop)
@@ -210,15 +223,15 @@ class Env:
 
     @property
     def user(self) -> str | None:
-        return Config.get().get_string_value('user')
+        return Config.get().get_string_value("user")
 
     @user.setter
     def user(self, user: str | None) -> None:
         if user is None:
-            if 'PIXELTABLE_USER' in os.environ:
-                del os.environ['PIXELTABLE_USER']
+            if "PIXELTABLE_USER" in os.environ:
+                del os.environ["PIXELTABLE_USER"]
         else:
-            os.environ['PIXELTABLE_USER'] = user
+            os.environ["PIXELTABLE_USER"] = user
 
     @property
     def default_time_zone(self) -> ZoneInfo | None:
@@ -267,26 +280,28 @@ class Env:
 
     @property
     def is_local(self) -> bool:
-        assert self._db_url is not None  # is_local should be called only after db initialization
+        assert (
+            self._db_url is not None
+        )  # is_local should be called only after db initialization
         return self._db_server is not None
 
     def is_interactive(self) -> bool:
         """Return True if running in an interactive environment."""
-        if getattr(builtins, '__IPYTHON__', False):
+        if getattr(builtins, "__IPYTHON__", False):
             return True
         # Python interactive shell
-        if hasattr(sys, 'ps1'):
+        if hasattr(sys, "ps1"):
             return True
         # for script execution, __main__ has __file__
         import __main__
 
-        return not hasattr(__main__, '__file__')
+        return not hasattr(__main__, "__file__")
 
     def is_notebook(self) -> bool:
         """Return True if running in a Jupyter notebook."""
         try:
             shell = get_ipython()  # type: ignore[name-defined]
-            return 'ZMQInteractiveShell' in str(shell)
+            return "ZMQInteractiveShell" in str(shell)
         except NameError:
             return False
 
@@ -334,7 +349,9 @@ class Env:
             try:
                 self._current_isolation_level = self.SERIALIZABLE_ISOLATION_LEVEL
                 with (
-                    self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
+                    self.engine.connect().execution_options(
+                        isolation_level=self._current_isolation_level
+                    ) as conn,
                     orm.Session(conn) as session,
                     conn.begin(),
                 ):
@@ -347,7 +364,10 @@ class Env:
                 self._current_isolation_level = None
         else:
             assert self._current_session is not None
-            assert self._current_isolation_level == self.SERIALIZABLE_ISOLATION_LEVEL or not for_write
+            assert (
+                self._current_isolation_level == self.SERIALIZABLE_ISOLATION_LEVEL
+                or not for_write
+            )
             yield self._current_conn
 
     def configure_logging(
@@ -371,20 +391,20 @@ class Env:
         if level is not None:
             self.set_log_level(level)
         if add is not None:
-            for module, level_str in [t.split(':') for t in add.split(',')]:
+            for module, level_str in [t.split(":") for t in add.split(",")]:
                 self.set_module_log_level(module, int(level_str))
         if remove is not None:
-            for module in remove.split(','):
+            for module in remove.split(","):
                 self.set_module_log_level(module, None)
         if to_stdout is None and level is None and add is None and remove is None:
             self.print_log_config()
 
     def print_log_config(self) -> None:
-        print(f'logging to {self._logfilename}')
+        print(f"logging to {self._logfilename}")
         print(f'{"" if self._log_to_stdout else "not "}logging to stdout')
-        print(f'default log level: {logging.getLevelName(self._default_log_level)}')
+        print(f"default log level: {logging.getLevelName(self._default_log_level)}")
         print(
-            f'module log levels: '
+            f"module log levels: "
             f'{",".join([name + ":" + logging.getLevelName(val) for name, val in self._module_log_level.items()])}'
         )
 
@@ -409,15 +429,18 @@ class Env:
         return self.__optional_packages[package_name].is_installed
 
     def _log_filter(self, record: logging.LogRecord) -> bool:
-        if record.name == 'pixeltable':
+        if record.name == "pixeltable":
             # accept log messages from a configured pixeltable module (at any level of the module hierarchy)
             path_parts = list(Path(record.pathname).parts)
             path_parts.reverse()
-            if 'pixeltable' not in path_parts:
+            if "pixeltable" not in path_parts:
                 return False
-            max_idx = path_parts.index('pixeltable')
+            max_idx = path_parts.index("pixeltable")
             for module_name in path_parts[:max_idx]:
-                if module_name in self._module_log_level and record.levelno >= self._module_log_level[module_name]:
+                if (
+                    module_name in self._module_log_level
+                    and record.levelno >= self._module_log_level[module_name]
+                ):
                     return True
         return record.levelno >= self._default_log_level
 
@@ -431,16 +454,18 @@ class Env:
         Returns:
             str: The time zone name.
         """
-        tz_name = Config.get().get_string_value('time_zone')
+        tz_name = Config.get().get_string_value("time_zone")
         if tz_name is not None:
             # Validate tzname
             if not isinstance(tz_name, str):
-                self._logger.error('Invalid time zone specified in configuration.')
+                self._logger.error("Invalid time zone specified in configuration.")
             else:
                 try:
                     _ = ZoneInfo(tz_name)
                 except ZoneInfoNotFoundError:
-                    self._logger.error(f'Invalid time zone specified in configuration: {tz_name}')
+                    self._logger.error(
+                        f"Invalid time zone specified in configuration: {tz_name}"
+                    )
         else:
             tz_name = tzlocal.get_localzone_name()
         return tz_name
@@ -449,17 +474,17 @@ class Env:
         if self._initialized:
             return
 
-        os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+        os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
         config = Config.get()
 
         self._initialized = True
 
-        self._media_dir = Config.get().home / 'media'
-        self._file_cache_dir = Config.get().home / 'file_cache'
-        self._dataset_cache_dir = Config.get().home / 'dataset_cache'
-        self._log_dir = Config.get().home / 'logs'
-        self._tmp_dir = Config.get().home / 'tmp'
+        self._media_dir = Config.get().home / "media"
+        self._file_cache_dir = Config.get().home / "file_cache"
+        self._dataset_cache_dir = Config.get().home / "dataset_cache"
+        self._log_dir = Config.get().home / "logs"
+        self._tmp_dir = Config.get().home / "tmp"
 
         self._media_dir.mkdir(exist_ok=True)
         self._file_cache_dir.mkdir(exist_ok=True)
@@ -467,45 +492,52 @@ class Env:
         self._log_dir.mkdir(exist_ok=True)
         self._tmp_dir.mkdir(exist_ok=True)
 
-        self._file_cache_size_g = config.get_float_value('file_cache_size_g')
+        self._file_cache_size_g = config.get_float_value("file_cache_size_g")
         if self._file_cache_size_g is None:
             raise excs.Error(
-                'pixeltable/file_cache_size_g is missing from configuration\n'
-                f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {Config.get().config_file},\n'
-                'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
+                "pixeltable/file_cache_size_g is missing from configuration\n"
+                f"(either add a `file_cache_size_g` entry to the `pixeltable` section of {Config.get().config_file},\n"
+                "or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)"
             )
 
-        self._default_input_media_dest = config.get_string_value('input_media_dest')
-        self._default_output_media_dest = config.get_string_value('output_media_dest')
-        for mode, uri in (('input', self._default_input_media_dest), ('output', self._default_output_media_dest)):
+        self._default_input_media_dest = config.get_string_value("input_media_dest")
+        self._default_output_media_dest = config.get_string_value("output_media_dest")
+        for mode, uri in (
+            ("input", self._default_input_media_dest),
+            ("output", self._default_output_media_dest),
+        ):
             if uri is not None:
                 try:
                     _ = ObjectPath.parse_object_storage_addr(uri, False)
                 except Exception as e:
-                    raise excs.Error(f'Invalid {mode} media destination URI: {uri}') from e
+                    raise excs.Error(
+                        f"Invalid {mode} media destination URI: {uri}"
+                    ) from e
 
-        self._pxt_api_key = config.get_string_value('api_key')
+        self._pxt_api_key = config.get_string_value("api_key")
 
         # Disable spurious warnings:
         # Suppress tqdm's ipywidgets warning in Jupyter environments
-        warnings.filterwarnings('ignore', message='IProgress not found')
+        warnings.filterwarnings("ignore", message="IProgress not found")
         # suppress Rich's ipywidgets warning in Jupyter environments
-        warnings.filterwarnings('ignore', message='install "ipywidgets" for Jupyter support')
-        if config.get_bool_value('hide_warnings'):
+        warnings.filterwarnings(
+            "ignore", message='install "ipywidgets" for Jupyter support'
+        )
+        if config.get_bool_value("hide_warnings"):
             # Disable more warnings
-            warnings.simplefilter('ignore', category=UserWarning)
-            warnings.simplefilter('ignore', category=FutureWarning)
+            warnings.simplefilter("ignore", category=UserWarning)
+            warnings.simplefilter("ignore", category=FutureWarning)
 
         # if we're running in a Jupyter notebook, warn about missing ipywidgets
-        if self.is_notebook() and importlib.util.find_spec('ipywidgets') is None:
+        if self.is_notebook() and importlib.util.find_spec("ipywidgets") is None:
             warnings.warn(
-                'Progress reporting is disabled because ipywidgets is not installed. '
-                'To fix this, run: `pip install ipywidgets`',
+                "Progress reporting is disabled because ipywidgets is not installed. "
+                "To fix this, run: `pip install ipywidgets`",
                 stacklevel=1,
             )
 
         # Set verbosity level for user visible console messages
-        self._verbosity = config.get_int_value('verbosity')
+        self._verbosity = config.get_int_value("verbosity")
         if self._verbosity is None:
             self._verbosity = 1
         stdout_handler = ConsoleOutputHandler(stream=stdout)
@@ -515,30 +547,30 @@ class Env:
         self._console_logger = ConsoleLogger(self._logger)
 
         # configure _logger to log to a file
-        self._logfilename = datetime.datetime.now().strftime('%Y%m%d_%H%M%S') + '.log'
-        fh = logging.FileHandler(self._log_dir / self._logfilename, mode='w')
+        self._logfilename = datetime.datetime.now().strftime("%Y%m%d_%H%M%S") + ".log"
+        fh = logging.FileHandler(self._log_dir / self._logfilename, mode="w")
         fh.setFormatter(logging.Formatter(self._log_fmt_str))
         self._logger.addHandler(fh)
 
         # configure sqlalchemy logging
-        sql_logger = logging.getLogger('sqlalchemy.engine')
+        sql_logger = logging.getLogger("sqlalchemy.engine")
         sql_logger.setLevel(logging.INFO)
         sql_logger.addHandler(fh)
         sql_logger.propagate = False
 
         # configure pyav logging
-        av_logfilename = self._logfilename.replace('.log', '_av.log')
-        av_fh = logging.FileHandler(self._log_dir / av_logfilename, mode='w')
+        av_logfilename = self._logfilename.replace(".log", "_av.log")
+        av_fh = logging.FileHandler(self._log_dir / av_logfilename, mode="w")
         av_fh.setFormatter(logging.Formatter(self._log_fmt_str))
-        av_logger = logging.getLogger('libav')
+        av_logger = logging.getLogger("libav")
         av_logger.addHandler(av_fh)
         av_logger.propagate = False
 
         # configure web-server logging
-        http_logfilename = self._logfilename.replace('.log', '_http.log')
-        http_fh = logging.FileHandler(self._log_dir / http_logfilename, mode='w')
+        http_logfilename = self._logfilename.replace(".log", "_http.log")
+        http_fh = logging.FileHandler(self._log_dir / http_logfilename, mode="w")
         http_fh.setFormatter(logging.Formatter(self._log_fmt_str))
-        http_logger = logging.getLogger('pixeltable.http.server')
+        http_logger = logging.getLogger("pixeltable.http.server")
         http_logger.addHandler(http_fh)
         http_logger.propagate = False
 
@@ -550,7 +582,7 @@ class Env:
 
         if reinit_db and not self.is_local:
             raise excs.Error(
-                'Reinitializing pixeltable database is not supported when running in non-local environment'
+                "Reinitializing pixeltable database is not supported when running in non-local environment"
             )
 
         if reinit_db and self._store_db_exists():
@@ -558,10 +590,10 @@ class Env:
 
         create_db = not self._store_db_exists()
         if create_db:
-            self._logger.info(f'creating database at: {self.db_url}')
+            self._logger.info(f"creating database at: {self.db_url}")
             self._create_store_db()
         else:
-            self._logger.info(f'found database at: {self.db_url}')
+            self._logger.info(f"found database at: {self.db_url}")
 
         # Create the SQLAlchemy engine. This will also set the default time zone.
         self._create_engine(time_zone_name=tz_name, echo=echo)
@@ -569,7 +601,7 @@ class Env:
         # Create catalog tables and system metadata
         self._init_metadata()
 
-        self.console_logger.info(f'Connected to Pixeltable database at: {self.db_url}')
+        self.console_logger.info(f"Connected to Pixeltable database at: {self.db_url}")
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
@@ -579,37 +611,43 @@ class Env:
         """
         Initialize the pixeltable database along with its associated DBMS.
         """
-        db_connect_str = config.get_string_value('DB_CONNECT_STR')
+        db_connect_str = config.get_string_value("DB_CONNECT_STR")
         if db_connect_str is not None:
             try:
                 db_url = sql.make_url(db_connect_str)
             except sql.exc.ArgumentError as e:
-                error = f'Invalid db connection string {db_connect_str}: {e}'
+                error = f"Invalid db connection string {db_connect_str}: {e}"
                 self._logger.error(error)
                 raise excs.Error(error) from e
             self._db_url = db_url.render_as_string(hide_password=False)
             self._db_name = db_url.database  # use the dbname given in connect string
             dialect = db_url.get_dialect().name
-            if dialect == 'cockroachdb':
+            if dialect == "cockroachdb":
                 self._dbms = CockroachDbms(db_url)
             else:
-                raise excs.Error(f'Unsupported DBMS {dialect}')
+                raise excs.Error(f"Unsupported DBMS {dialect}")
             # Check if database exists
             if not self._store_db_exists():
-                error = f'Database {self._db_name!r} does not exist'
+                error = f"Database {self._db_name!r} does not exist"
                 self._logger.error(error)
                 raise excs.Error(error)
-            self._logger.info(f'Using database at: {self.db_url}')
+            self._logger.info(f"Using database at: {self.db_url}")
         else:
-            self._db_name = config.get_string_value('db') or 'pixeltable'
-            self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
+            self._db_name = config.get_string_value("db") or "pixeltable"
+            self._pgdata_dir = Path(
+                os.environ.get("PIXELTABLE_PGDATA", str(Config.get().home / "pgdata"))
+            )
             # cleanup_mode=None will leave the postgres process running after Python exits
             # cleanup_mode='stop' will terminate the postgres process when Python exits
             # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
             # process (such as Terminal or VSCode) exits, potentially leaving it in an unusable state.
-            cleanup_mode = 'stop' if platform.system() == 'Windows' else None
-            self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
-            self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
+            cleanup_mode = "stop" if platform.system() == "Windows" else None
+            self._db_server = pixeltable_pgserver.get_server(
+                self._pgdata_dir, cleanup_mode=cleanup_mode
+            )
+            self._db_url = self._db_server.get_uri(
+                database=self._db_name, driver="psycopg"
+            )
             self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
         assert self._dbms is not None
         assert self._db_url is not None
@@ -617,7 +655,9 @@ class Env:
 
     @retry(
         stop=stop_after_attempt(3),  # Stop after 3 attempts
-        wait=wait_exponential_jitter(initial=0.2, max=1.0, jitter=0.2),  # Exponential backoff with jitter
+        wait=wait_exponential_jitter(
+            initial=0.2, max=1.0, jitter=0.2
+        ),  # Exponential backoff with jitter
     )
     def _init_metadata(self) -> None:
         """
@@ -632,33 +672,39 @@ class Env:
         assert self._sa_engine is not None
         from pixeltable import metadata
 
-        self._logger.debug('Creating pixeltable metadata')
+        self._logger.debug("Creating pixeltable metadata")
         metadata.schema.base_metadata.create_all(self._sa_engine, checkfirst=True)
         metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
         # Add timezone option to connection string
-        updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
+        updated_url = add_option_to_db_url(self.db_url, f"-c timezone={time_zone_name}")
 
         self._sa_engine = sql.create_engine(
-            updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
+            updated_url,
+            echo=echo,
+            isolation_level=self._dbms.transaction_isolation_level,
         )
 
-        self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
-        self._logger.info(f'Engine dialect: {self._sa_engine.dialect.name}')
-        self._logger.info(f'Engine driver : {self._sa_engine.dialect.driver}')
+        self._logger.info(f"Created SQLAlchemy engine at: {self.db_url}")
+        self._logger.info(f"Engine dialect: {self._sa_engine.dialect.name}")
+        self._logger.info(f"Engine driver : {self._sa_engine.dialect.driver}")
 
         with self.engine.begin() as conn:
-            tz_name = conn.execute(sql.text('SHOW TIME ZONE')).scalar()
+            tz_name = conn.execute(sql.text("SHOW TIME ZONE")).scalar()
             assert isinstance(tz_name, str)
-            self._logger.info(f'Database time zone is now: {tz_name}')
+            self._logger.info(f"Database time zone is now: {tz_name}")
             self._default_time_zone = ZoneInfo(tz_name)
             if self.is_using_cockroachdb:
                 # This could be set when the database is created, but we set it now
-                conn.execute(sql.text('SET null_ordered_last = true;'))
-                null_ordered_last = conn.execute(sql.text('SHOW null_ordered_last')).scalar()
+                conn.execute(sql.text("SET null_ordered_last = true;"))
+                null_ordered_last = conn.execute(
+                    sql.text("SHOW null_ordered_last")
+                ).scalar()
                 assert isinstance(null_ordered_last, str)
-                self._logger.info(f'Database null_ordered_last is now: {null_ordered_last}')
+                self._logger.info(
+                    f"Database null_ordered_last is now: {null_ordered_last}"
+                )
 
     def _store_db_exists(self) -> bool:
         assert self._db_name is not None
@@ -676,7 +722,11 @@ class Env:
     def _create_store_db(self) -> None:
         assert self._db_name is not None
         # create the db
-        engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(
+            self._dbms.default_system_db_url(),
+            future=True,
+            isolation_level="AUTOCOMMIT",
+        )
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
@@ -686,10 +736,12 @@ class Env:
             engine.dispose()
 
         # enable pgvector
-        engine = sql.create_engine(self.db_url, future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(
+            self.db_url, future=True, isolation_level="AUTOCOMMIT"
+        )
         try:
             with engine.begin() as conn:
-                conn.execute(sql.text('CREATE EXTENSION vector'))
+                conn.execute(sql.text("CREATE EXTENSION vector"))
         finally:
             engine.dispose()
 
@@ -703,7 +755,11 @@ class Env:
 
     def _drop_store_db(self) -> None:
         assert self._db_name is not None
-        engine = sql.create_engine(self._dbms.default_system_db_url(), future=True, isolation_level='AUTOCOMMIT')
+        engine = sql.create_engine(
+            self._dbms.default_system_db_url(),
+            future=True,
+            isolation_level="AUTOCOMMIT",
+        )
         preparer = engine.dialect.identifier_preparer
         try:
             with engine.begin() as conn:
@@ -757,9 +813,9 @@ class Env:
                 init_kwargs[pname] = arg
             elif param.default is inspect.Parameter.empty:
                 raise excs.Error(
-                    f'`{name}` client not initialized: parameter `{pname}` is not configured.\n'
-                    f'To fix this, specify the `{name.upper()}_{pname.upper()}` environment variable, '
-                    f'or put `{pname.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
+                    f"`{name}` client not initialized: parameter `{pname}` is not configured.\n"
+                    f"To fix this, specify the `{name.upper()}_{pname.upper()}` environment variable, "
+                    f"or put `{pname.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml."
                 )
 
         # Construct the requested client
@@ -767,7 +823,9 @@ class Env:
             if cl.client_obj is not None:
                 return cl.client_obj  # Already initialized
             cl.client_obj = cl.init_fn(**init_kwargs)
-            self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
+            self._logger.info(
+                f"Initialized `{name}` client with parameters: {init_kwargs}."
+            )
             return cl.client_obj
 
     def _start_web_server(self) -> None:
@@ -780,12 +838,12 @@ class Env:
         The port is chosen dynamically to prevent conflicts.
         """
         # Port 0 means OS picks one for us.
-        self._httpd = make_server('127.0.0.1', 0)
+        self._httpd = make_server("127.0.0.1", 0)
         port = self._httpd.server_address[1]
-        self._http_address = f'http://127.0.0.1:{port}'
+        self._http_address = f"http://127.0.0.1:{port}"
 
         def run_server() -> None:
-            logging.log(logging.INFO, f'running web server at {self._http_address}')
+            logging.log(logging.INFO, f"running web server at {self._http_address}")
             self._httpd.serve_forever()
 
         # Run the server in a separate thread
@@ -814,20 +872,26 @@ class Env:
         """
         # look for available encoders, in this order
         candidates = [
-            'libx264',  # GPL, best quality
-            'libopenh264',  # BSD
+            "libx264",  # GPL, best quality
+            "libopenh264",  # BSD
         ]
 
         try:
             # Get list of available encoders
-            result = subprocess.run(['ffmpeg', '-encoders'], capture_output=True, text=True, timeout=10, check=True)
+            result = subprocess.run(
+                ["ffmpeg", "-encoders"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=True,
+            )
 
             if result.returncode == 0:
                 available_encoders = result.stdout
                 for encoder in candidates:
                     # ffmpeg -encoders output format: " V..... encoder_name  description"
-                    if f' {encoder} ' in available_encoders:
-                        _logger.debug(f'Using H.264 encoder: {encoder}')
+                    if f" {encoder} " in available_encoders:
+                        _logger.debug(f"Using H.264 encoder: {encoder}")
                         return encoder
         except Exception:
             pass
@@ -835,51 +899,58 @@ class Env:
 
     def __register_packages(self) -> None:
         """Declare optional packages that are utilized by some parts of the code."""
-        self.__register_package('accelerate')
-        self.__register_package('anthropic')
-        self.__register_package('azure.storage.blob', library_name='azure-storage-blob')
-        self.__register_package('boto3')
-        self.__register_package('datasets')
-        self.__register_package('diffusers')
-        self.__register_package('fiftyone')
-        self.__register_package('twelvelabs')
-        self.__register_package('fal_client', library_name='fal-client')
-        self.__register_package('fireworks', library_name='fireworks-ai')
-        self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
-        self.__register_package('google.genai', library_name='google-genai')
-        self.__register_package('groq')
-        self.__register_package('huggingface_hub', library_name='huggingface-hub')
-        self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
-        self.__register_package('librosa')
-        self.__register_package('llama_cpp', library_name='llama-cpp-python')
-        self.__register_package('mcp')
-        self.__register_package('mistralai')
-        self.__register_package('mistune')
-        self.__register_package('ollama')
-        self.__register_package('openai')
-        self.__register_package('openpyxl')
-        self.__register_package('pyarrow')
-        self.__register_package('pydantic')
-        self.__register_package('replicate')
-        self.__register_package('reve')
-        self.__register_package('sentencepiece')
-        self.__register_package('sentence_transformers', library_name='sentence-transformers')
-        self.__register_package('soundfile')
-        self.__register_package('spacy')
-        self.__register_package('tiktoken')
-        self.__register_package('together')
-        self.__register_package('torch')
-        self.__register_package('torchaudio')
-        self.__register_package('torchvision')
-        self.__register_package('transformers')
-        self.__register_package('voyageai')
-        self.__register_package('whisper', library_name='openai-whisper')
-        self.__register_package('whisperx')
-        self.__register_package('yolox', library_name='pixeltable-yolox')
-        self.__register_package('lancedb')
-        self.__register_package('scenedetect')
+        self.__register_package("accelerate")
+        self.__register_package("anthropic")
+        self.__register_package("azure.storage.blob", library_name="azure-storage-blob")
+        self.__register_package("boto3")
+        self.__register_package("datasets")
+        self.__register_package("diffusers")
+        self.__register_package("fiftyone")
+        self.__register_package("twelvelabs")
+        self.__register_package("fal_client", library_name="fal-client")
+        self.__register_package("fireworks", library_name="fireworks-ai")
+        self.__register_package(
+            "google.cloud.storage", library_name="google-cloud-storage"
+        )
+        self.__register_package("google.genai", library_name="google-genai")
+        self.__register_package("groq")
+        self.__register_package("huggingface_hub", library_name="huggingface-hub")
+        self.__register_package("label_studio_sdk", library_name="label-studio-sdk")
+        self.__register_package("librosa")
+        self.__register_package("llama_cpp", library_name="llama-cpp-python")
+        self.__register_package("mcp")
+        self.__register_package("mistralai")
+        self.__register_package("mistune")
+        self.__register_package("ollama")
+        self.__register_package("openai")
+        self.__register_package("openpyxl")
+        self.__register_package("pyarrow")
+        self.__register_package("pydantic")
+        self.__register_package("replicate")
+        self.__register_package("reve")
+        self.__register_package("runwayml")
+        self.__register_package("sentencepiece")
+        self.__register_package(
+            "sentence_transformers", library_name="sentence-transformers"
+        )
+        self.__register_package("soundfile")
+        self.__register_package("spacy")
+        self.__register_package("tiktoken")
+        self.__register_package("together")
+        self.__register_package("torch")
+        self.__register_package("torchaudio")
+        self.__register_package("torchvision")
+        self.__register_package("transformers")
+        self.__register_package("voyageai")
+        self.__register_package("whisper", library_name="openai-whisper")
+        self.__register_package("whisperx")
+        self.__register_package("yolox", library_name="pixeltable-yolox")
+        self.__register_package("lancedb")
+        self.__register_package("scenedetect")
 
-    def __register_package(self, package_name: str, library_name: str | None = None) -> None:
+    def __register_package(
+        self, package_name: str, library_name: str | None = None
+    ) -> None:
         is_installed: bool
         try:
             is_installed = importlib.util.find_spec(package_name) is not None
@@ -888,14 +959,19 @@ class Env:
             is_installed = False
         self.__optional_packages[package_name] = PackageInfo(
             is_installed=is_installed,
-            library_name=library_name or package_name,  # defaults to package_name unless specified otherwise
+            library_name=library_name
+            or package_name,  # defaults to package_name unless specified otherwise
         )
 
     def require_binary(self, binary_name: str) -> None:
         if not shutil.which(binary_name):
-            raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
+            raise excs.Error(
+                f"{binary_name} is not installed or not in PATH. Please install it to use this feature."
+            )
 
-    def require_package(self, package_name: str, min_version: list[int] | None = None) -> None:
+    def require_package(
+        self, package_name: str, min_version: list[int] | None = None
+    ) -> None:
         """
         Checks whether the specified optional package is available. If not, raises an exception
         with an error message informing the user how to install it.
@@ -908,12 +984,14 @@ class Env:
             # We do this so that if a user gets an "optional library not found" error message, they can
             # `pip install` the library and re-run the Pixeltable operation without having to restart
             # their Python session.
-            package_info.is_installed = importlib.util.find_spec(package_name) is not None
+            package_info.is_installed = (
+                importlib.util.find_spec(package_name) is not None
+            )
             if not package_info.is_installed:
                 # Still not found.
                 raise excs.Error(
-                    f'This feature requires the `{package_name}` package. To install it, run: '
-                    f'`pip install -U {package_info.library_name}`'
+                    f"This feature requires the `{package_name}` package. To install it, run: "
+                    f"`pip install -U {package_info.library_name}`"
                 )
 
         if min_version is None:
@@ -922,25 +1000,27 @@ class Env:
         # check whether we have a version >= the required one
         if package_info.version is None:
             module = importlib.import_module(package_name)
-            package_info.version = [int(x) for x in module.__version__.split('.')]
+            package_info.version = [int(x) for x in module.__version__.split(".")]
 
         if min_version > package_info.version:
             raise excs.Error(
-                f'The installed version of package `{package_name}` is '
+                f"The installed version of package `{package_name}` is "
                 f'{".".join(str(v) for v in package_info.version)}, '
                 f'but version >={".".join(str(v) for v in min_version)} is required. '
-                f'To fix this, run: `pip install -U {package_info.library_name}`'
+                f"To fix this, run: `pip install -U {package_info.library_name}`"
             )
 
     def clear_tmp_dir(self) -> None:
-        for path in glob.glob(f'{self._tmp_dir}/*'):
+        for path in glob.glob(f"{self._tmp_dir}/*"):
             if os.path.isdir(path):
                 shutil.rmtree(path)
             else:
                 os.remove(path)
 
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
-    def get_resource_pool_info(self, pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T:
+    def get_resource_pool_info(
+        self, pool_id: str, make_pool_info: Callable[[], T] | None = None
+    ) -> T:
         """Returns the info object for the given id, creating it if necessary."""
         info = self._resource_pool_info.get(pool_id)
         if info is None and make_pool_info is not None:
@@ -983,7 +1063,7 @@ class Env:
 
     @property
     def spacy_nlp(self) -> spacy.Language:
-        Env.get().require_package('spacy')
+        Env.get().require_package("spacy")
         if self._spacy_nlp is None:
             self.__init_spacy()
         assert self._spacy_nlp is not None
@@ -999,19 +1079,22 @@ class Env:
         import spacy
         from spacy.cli.download import download
 
-        spacy_model = 'en_core_web_sm'
-        self._logger.info(f'Ensuring spaCy model is installed: {spacy_model}')
+        spacy_model = "en_core_web_sm"
+        self._logger.info(f"Ensuring spaCy model is installed: {spacy_model}")
 
         # prevent download() from hanging due to its progress bar, which conflicts with our use of Rich Progress
         # TODO: get rid of spacy auto-download
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with (
+            contextlib.redirect_stdout(io.StringIO()),
+            contextlib.redirect_stderr(io.StringIO()),
+        ):
             download(spacy_model)
 
-        self._logger.info(f'Loading spaCy model: {spacy_model}')
+        self._logger.info(f"Loading spaCy model: {spacy_model}")
         try:
             self._spacy_nlp = spacy.load(spacy_model)
         except Exception as exc:
-            raise excs.Error(f'Failed to load spaCy model: {spacy_model}') from exc
+            raise excs.Error(f"Failed to load spaCy model: {spacy_model}") from exc
 
     def _clean_up(self) -> None:
         """
@@ -1027,31 +1110,37 @@ class Env:
                 self._httpd.shutdown()
                 self._httpd.server_close()
             except Exception as e:
-                _logger.warning(f'Error stopping HTTP server: {e}')
+                _logger.warning(f"Error stopping HTTP server: {e}")
 
         # First terminate all connections to the database
         if self._db_server is not None:
             assert self._dbms is not None
             assert self._db_name is not None
             try:
-                temp_engine = sql.create_engine(self._dbms.default_system_db_url(), isolation_level='AUTOCOMMIT')
+                temp_engine = sql.create_engine(
+                    self._dbms.default_system_db_url(), isolation_level="AUTOCOMMIT"
+                )
                 try:
                     with temp_engine.begin() as conn:
-                        conn.execute(sql.text(self._pgserver_terminate_connections_stmt()))
-                        _logger.info(f"Terminated all connections to database '{self._db_name}'")
+                        conn.execute(
+                            sql.text(self._pgserver_terminate_connections_stmt())
+                        )
+                        _logger.info(
+                            f"Terminated all connections to database '{self._db_name}'"
+                        )
                 except Exception as e:
-                    _logger.warning(f'Error terminating database connections: {e}')
+                    _logger.warning(f"Error terminating database connections: {e}")
                 finally:
                     temp_engine.dispose()
             except Exception as e:
-                _logger.warning(f'Error stopping database server: {e}')
+                _logger.warning(f"Error stopping database server: {e}")
 
         # Dispose of SQLAlchemy engine (after stopping db server)
         if self._sa_engine is not None:
             try:
                 self._sa_engine.dispose()
             except Exception as e:
-                _logger.warning(f'Error disposing engine: {e}')
+                _logger.warning(f"Error disposing engine: {e}")
 
         # Close event loop
         if self._event_loop is not None:
@@ -1060,7 +1149,7 @@ class Env:
                     self._event_loop.stop()
                 self._event_loop.close()
             except Exception as e:
-                _logger.warning(f'Error closing event loop: {e}')
+                _logger.warning(f"Error closing event loop: {e}")
 
         # Remove logging handlers
         for handler in self._logger.handlers[:]:
@@ -1068,7 +1157,7 @@ class Env:
                 handler.close()
                 self._logger.removeHandler(handler)
             except Exception as e:
-                _logger.warning(f'Error removing handler: {e}')
+                _logger.warning(f"Error removing handler: {e}")
 
 
 def register_client(name: str) -> Callable:
@@ -1120,10 +1209,12 @@ class ApiClient:
 class PackageInfo:
     is_installed: bool
     library_name: str  # pypi library name (may be different from package name)
-    version: list[int] | None = None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")
+    version: list[int] | None = (
+        None  # installed version, as a list of components (such as [3,0,2] for "3.0.2")
+    )
 
 
-TIME_FORMAT = '%H:%M.%S %f'
+TIME_FORMAT = "%H:%M.%S %f"
 # As far as rate limiting goes, we try not go lower than 5% of the capacity because we don't have perfect information
 # about the rate limits and the usage
 TARGET_RATE_LIMIT_RESOURCE_FRACT = 0.05
@@ -1152,7 +1243,7 @@ class RateLimitsInfo:
     has_exc: bool = False
 
     def debug_str(self) -> str:
-        return ','.join(info.debug_str() for info in self.resource_limits.values())
+        return ",".join(info.debug_str() for info in self.resource_limits.values())
 
     def is_initialized(self) -> bool:
         return len(self.resource_limits) > 0
@@ -1160,27 +1251,33 @@ class RateLimitsInfo:
     def reset(self) -> None:
         self.resource_limits.clear()
 
-    def record(self, request_ts: datetime.datetime, reset_exc: bool = False, **kwargs: Any) -> None:
+    def record(
+        self, request_ts: datetime.datetime, reset_exc: bool = False, **kwargs: Any
+    ) -> None:
         """Update self.resource_limits with the provided rate limit info.
         Args:
             - request_ts: time at which the request was made
             - reset_exc: if True, reset the has_exc flag
         """
         if len(self.resource_limits) == 0:
-            self.resource_limits = {k: RateLimitInfo(k, request_ts, *v) for k, v in kwargs.items() if v is not None}
+            self.resource_limits = {
+                k: RateLimitInfo(k, request_ts, *v)
+                for k, v in kwargs.items()
+                if v is not None
+            }
             # TODO: remove
             for info in self.resource_limits.values():
-                _logger.debug(f'Updated resource state: {info}')
+                _logger.debug(f"Updated resource state: {info}")
         else:
             if self.has_exc and not reset_exc:
                 # ignore updates until we're asked to reset
-                _logger.debug(f'rate_limits.record(): ignoring update {kwargs}')
+                _logger.debug(f"rate_limits.record(): ignoring update {kwargs}")
                 return
             self.has_exc = False
             for k, v in kwargs.items():
                 if v is not None:
                     self.resource_limits[k].update(request_ts, *v)
-                    _logger.debug(f'Updated resource state: {self.resource_limits[k]}')
+                    _logger.debug(f"Updated resource state: {self.resource_limits[k]}")
 
     def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:
         """Update self.resource_limits based on the exception headers
@@ -1214,12 +1311,16 @@ class RateLimitInfo:
 
     def debug_str(self) -> str:
         return (
-            f'{self.resource}@{self.request_start_ts.strftime(TIME_FORMAT)}: '
-            f'{self.limit}/{self.remaining}/{self.reset_at.strftime(TIME_FORMAT)}'
+            f"{self.resource}@{self.request_start_ts.strftime(TIME_FORMAT)}: "
+            f"{self.limit}/{self.remaining}/{self.reset_at.strftime(TIME_FORMAT)}"
         )
 
     def update(
-        self, request_start_ts: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime
+        self,
+        request_start_ts: datetime.datetime,
+        limit: int,
+        remaining: int,
+        reset_at: datetime.datetime,
     ) -> None:
         # Responses can come out of order, especially for failed requests. We need to be careful not to overwrite
         # the current state with less up-to-date information. We use request_start_ts as a proxy for rate limit info
@@ -1227,8 +1328,8 @@ class RateLimitInfo:
         if self.request_start_ts > request_start_ts:
             # The current state is more up-to-date than the update
             _logger.debug(
-                f'Ignoring out-of-date update for {self.resource}. Current request_start_ts: '
-                f'{self.request_start_ts}, update: {request_start_ts}'
+                f"Ignoring out-of-date update for {self.resource}. Current request_start_ts: "
+                f"{self.request_start_ts}, update: {request_start_ts}"
             )
             return
         self.request_start_ts = request_start_ts
@@ -1249,18 +1350,22 @@ class RateLimitInfo:
             return None
 
         # Estimate resource refill rate based on the recorded state and timestamps. Assumes linear refill.
-        refill_rate = (self.limit - self.remaining) / (self.reset_at - self.request_start_ts).total_seconds()
-        assert refill_rate > 0, f'self={self}, target_remaining={target_remaining}'
+        refill_rate = (self.limit - self.remaining) / (
+            self.reset_at - self.request_start_ts
+        ).total_seconds()
+        assert refill_rate > 0, f"self={self}, target_remaining={target_remaining}"
 
         now = datetime.datetime.now(tz=datetime.timezone.utc)
-        time_until = (target_remaining - self.remaining) / refill_rate - (now - self.request_start_ts).total_seconds()
+        time_until = (target_remaining - self.remaining) / refill_rate - (
+            now - self.request_start_ts
+        ).total_seconds()
         return max(0, math.ceil(time_until))
 
     def __repr__(self) -> str:
         return (
-            f'RateLimitInfo(resource={self.resource}, request_start_ts={self.request_start_ts}, '
-            f'remaining={self.remaining}/{self.limit} ({(100 * self.remaining / self.limit):.1f}%), '
-            f'reset_at={self.reset_at})'
+            f"RateLimitInfo(resource={self.resource}, request_start_ts={self.request_start_ts}, "
+            f"remaining={self.remaining}/{self.limit} ({(100 * self.remaining / self.limit):.1f}%), "
+            f"reset_at={self.reset_at})"
         )
 
 
