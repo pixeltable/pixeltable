@@ -75,13 +75,14 @@ class TestBedrock:
 
         run_tool_invocations_test(make_table, test_multiple_tool_use=False)
 
-    def test_embed_string(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('model_id', ['amazon.titan-embed-text-v2:0', 'amazon.nova-2-multimodal-embeddings-v1:0'])
+    def test_embed_string(self, model_id: str, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
         t = pxt.create_table('docs', {'text': pxt.String})
-        t.add_embedding_index('text', string_embed=embed.using(model_id='amazon.titan-embed-text-v2:0', dimensions=512))
+        t.add_embedding_index('text', string_embed=embed.using(model_id=model_id, dimensions=1024))
 
         t.insert(
             [
@@ -100,13 +101,14 @@ class TestBedrock:
             'machine learning' in results['text'][0].lower() or 'artificial intelligence' in results['text'][0].lower()
         )
 
-    def test_embed_image(self, reset_db: None) -> None:
+    @pytest.mark.parametrize('model_id', ['amazon.titan-embed-image-v1', 'amazon.nova-2-multimodal-embeddings-v1:0'])
+    def test_embed_image(self, model_id: str, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
 
         t = pxt.create_table('images', {'image': pxt.Image})
-        t.add_embedding_index('image', image_embed=embed.using(model_id='amazon.titan-embed-image-v1'))
+        t.add_embedding_index('image', image_embed=embed.using(model_id=model_id, dimensions=1024))
         img_paths = get_image_files()[:3]
         t.insert([{'image': p} for p in img_paths])
 

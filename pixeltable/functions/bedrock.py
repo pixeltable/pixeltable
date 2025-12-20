@@ -178,12 +178,7 @@ async def invoke_model(
 
 
 @pxt.udf
-async def embed(
-    text: str,
-    *,
-    model_id: str,
-    dimensions: int | None = None,
-) -> pxt.Array[(None,), np.float32]:
+async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> pxt.Array[(None,), np.float32]:
     """
     Generate embeddings using Amazon Titan or Nova embedding models.
 
@@ -198,25 +193,33 @@ async def embed(
 
     Args:
         text: Input text to embed.
-        model_id: The embedding model identifier (e.g., 'amazon.titan-embed-text-v2:0' or 'amazon.nova-embed-text-v1:0').
-        dimensions: Output embedding dimensions. For Titan V2: 256, 512, 1024. For Nova: 256, 512, 1024.
+        model_id: The embedding model identifier.
+        dimensions: Output embedding dimensions. For Titan V2: 256, 512, 1024. For Nova: 256, 512, 1024, 3072.
 
     Returns:
         Embedding vector
 
     Examples:
-        Create an embedding index on a column `description` with Titan embeddings and custom dimensions:
+        Create an embedding index on a column `description` with Nova embeddings and custom dimensions:
 
         >>> tbl.add_embedding_index(
         ...     tbl.description,
-        ...     string_embed=embed.using(model_id='amazon.titan-embed-text-v2:0', dimensions=512)
+        ...     string_embed=embed.using(model_id='amazon.nova-2-multimodal-embeddings-v1:0', dimensions=1024)
         ... )
     """
     from botocore.exceptions import ClientError
 
-    body: dict[str, Any] = {'inputText': text}
-    if ('nova' in model_id or 'v2' in model_id) and dimensions is not None:
-        body['dimensions'] = dimensions
+    body: dict[str, Any]
+    if 'nova' in model_id:
+        body = {'taskType': 'SINGLE_EMBEDDING', 'singleEmbeddingParams': {'text': {'value': text}}}
+        if dimensions is not None:
+            body['singleEmbeddingParams']['embeddingDimension'] = dimensions
+    elif 'v2' in model_id:
+        body = {'inputText': text}
+        if dimensions is not None:
+            body['dimensions'] = dimensions
+    else:
+        body = {'inputText': text}
 
     kwargs: dict[str, Any] = {
         'body': json.dumps(body),
@@ -235,16 +238,22 @@ async def embed(
 
 
 @embed.overload
-async def _(
-    image: PIL.Image.Image, *, model_id: str = 'amazon.titan-embed-image-v1', dimensions: int | None = None
-) -> pxt.Array[(None,), np.float32]:
+async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = None) -> pxt.Array[(None,), np.float32]:
     from botocore.exceptions import ClientError
 
-    body: dict[str, Any] = {'inputImage': to_base64(image)}
-    if 'nova' in model_id and dimensions is not None:
-        body['dimensions'] = dimensions
-    elif 'nova' not in model_id and dimensions is not None:
-        body['embeddingConfig'] = {'outputEmbeddingLength': dimensions}
+    if 'nova' in model_id:
+        body: dict[str, Any] = {
+            'taskType': 'SINGLE_EMBEDDING',
+            'singleEmbeddingParams': {
+                'image': {'format': 'jpeg', 'source': {'bytes': to_base64(image, format='jpeg')}}
+            },
+        }
+        if dimensions is not None:
+            body['singleEmbeddingParams']['embeddingDimension'] = dimensions
+    else:
+        body = {'inputImage': to_base64(image)}
+        if dimensions is not None:
+            body['embeddingConfig'] = {'outputEmbeddingLength': dimensions}
 
     kwargs: dict[str, Any] = {
         'body': json.dumps(body),
