@@ -39,6 +39,8 @@ from ..utils import (
 )
 
 
+# Bug: non-latest row versions have non-NULL index column values
+@pytest.mark.corrupts_db
 class TestPackager:
     def test_packager(self, test_tbl: pxt.Table) -> None:
         packager = TablePackager(test_tbl)

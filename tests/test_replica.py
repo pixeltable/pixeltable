@@ -1,3 +1,5 @@
+import pytest
+
 import pixeltable as pxt
 from pixeltable.catalog import Catalog
 from pixeltable.catalog.path import Path
@@ -44,6 +46,8 @@ class TestReplica:
         assert t2.get_metadata()['is_snapshot']
         assert t2.get_metadata()['is_replica']
 
+    # Bug: for some reason we fail in list_views() on replica_s51
+    @pytest.mark.corrupts_db
     def test_complex_replica(self, reset_db: None) -> None:
         """
         This test involves various more complicated arrangements of tables and snapshots.

@@ -243,6 +243,7 @@ addopts = '-v -m "not remote_api and not expensive" --strict-markers'
 markers = [
     "expensive: marks tests as expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
+    "corrupts_db: marks tests as corrupting the database and disables the database validation after the test",
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)

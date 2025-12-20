@@ -4,7 +4,7 @@ import os
 import pathlib
 import shutil
 import uuid
-from typing import Callable
+from typing import Any, Callable, Generator
 
 import pytest
 import requests
@@ -12,13 +12,14 @@ import sqlalchemy as sql
 import tenacity
 from _pytest.config import Config as PytestConfig, argparsing
 from filelock import FileLock
-from sqlalchemy import orm, text
+from sqlalchemy import func, or_, orm, text
 
 import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
+from pixeltable.index import btree
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
@@ -387,3 +388,76 @@ def all_mpnet_embed() -> pxt.Function:
         return sentence_transformer.using(model_id='all-mpnet-base-v2')
     except ImportError:
         return None
+
+
+@pytest.fixture(autouse=True)
+def validate_db_state_after_test(request: pytest.FixtureRequest) -> Generator[Any, Any, Any]:
+    """Lists all tables and views created during the test, and runs validation queries on them."""
+    if 'corrupts_db' in request.keywords:
+        yield
+        return
+
+    # Not all tests reset DB in the beginning. Ignore the tables that existed before the test started.
+    # TODO find a better way of handling this.
+    pre_existing_tables = set(pxt.list_tables('', recursive=True))
+
+    yield
+
+    # Collect tables and views that need to be validated
+    tables_to_check = set()
+    for tbl_path in set(pxt.list_tables('', recursive=True)) - pre_existing_tables:
+        tables_to_check.add(tbl_path)
+        tbl = pxt.get_table(tbl_path)
+        if tbl._tbl_version is None:
+            continue
+        tables_to_check.update(tbl.list_views(recursive=True))
+
+    # Run the validation
+    with Env.get().engine.connect() as conn:
+        for tbl_path in tables_to_check:
+            _validate_table_or_view(tbl_path, conn)
+
+
+def _validate_table_or_view(tbl_path: str, conn: sql.Connection) -> None:
+    tbl = pxt.get_table(tbl_path)
+    if tbl._tbl_version is None:
+        return
+    tv = tbl._tbl_version.get()
+    sa_tbl = tv.store_tbl.sa_tbl
+
+    # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
+    stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max == Table.MAX_VERSION)
+    conditions = []
+    for idx in tv.idxs.values():
+        if isinstance(idx.idx, btree.BtreeIndex):
+            col = getattr(sa_tbl.c, f'col_{idx.col.id}')
+            index_val_col = getattr(sa_tbl.c, f'col_{idx.val_col.id}')
+            if idx.val_col.col_type.is_string_type():
+                conditions.append(func.left(col, btree.BtreeIndex.MAX_STRING_LEN) != index_val_col)
+            else:
+                conditions.append(col != index_val_col)
+    if len(conditions) > 0:
+        stmt = stmt.where(or_(*conditions)).limit(1)
+        _logger.info(f'Running index value column validation query on table {tbl_path}: {stmt}')
+        for row in conn.execute(stmt).all():
+            raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
+{row._asdict()}.
+This means that one of the indexes in table {tbl_path} is corrupted, i.e. the index value out of sync with the actual
+value for a current row. The query was:
+{stmt}""")
+
+    # Validate that the index values are NULL for non-latest version rows
+    stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max < Table.MAX_VERSION)
+    conditions = []
+    for idx in tv.idxs.values():
+        index_val_col = getattr(sa_tbl.c, f'col_{idx.val_col.id}')
+        conditions.append(index_val_col != None)
+    if len(conditions) > 0:
+        stmt = stmt.where(or_(*conditions)).limit(1)
+        _logger.info(f'Running index value column validation query on table {tbl_path}: {stmt}')
+        for row in conn.execute(stmt).all():
+            raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
+{row._asdict()}.
+This means that one of the indexes in table {tbl_path} is corrupted, i.e. the index value is not NULL for a non-latest
+version row. The query was:
+{stmt}""")
