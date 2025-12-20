@@ -5,6 +5,7 @@ Provides integration with AWS Bedrock for accessing various foundation models
 including Anthropic Claude, Amazon Titan, and other providers.
 """
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -32,7 +33,7 @@ def _bedrock_client() -> Any:
 
 
 @pxt.udf
-def converse(
+async def converse(
     messages: list[dict[str, Any]],
     *,
     model_id: str,
@@ -102,7 +103,7 @@ def converse(
         }
         kwargs['toolConfig'] = tool_config_
 
-    return _bedrock_client().converse(**kwargs)
+    return await asyncio.to_thread(_bedrock_client().converse, **kwargs)
 
 
 def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
