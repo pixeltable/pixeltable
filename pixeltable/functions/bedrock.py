@@ -6,15 +6,18 @@ including Anthropic Claude, Amazon Titan, and other providers.
 """
 
 import asyncio
+import json
 import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
+import PIL.Image
 
 import pixeltable as pxt
 from pixeltable import env, exprs, type_system as ts
-from pixeltable.func import Batch, Tools
+from pixeltable.func import Tools
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.image import to_base64
 
 if TYPE_CHECKING:
     from botocore.client import BaseClient
@@ -38,6 +41,7 @@ def _bedrock_client() -> Any:
 _titan_embedding_dimensions: dict[str, int] = {
     'amazon.titan-embed-text-v1': 1536,
     'amazon.titan-embed-text-v2:0': 1024,
+    'amazon.titan-embed-image-v1': 1024,
 }
 
 
@@ -168,21 +172,19 @@ async def invoke_model(
         kwargs['serviceTier'] = service_tier
 
     response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
-
-    # Read and parse the streaming body
     response_body = json.loads(response['body'].read())
     return response_body
 
 
-@pxt.udf(batch_size=32)
-async def embed_titan(
-    text: Batch[str],
+@pxt.udf
+async def embed(
+    text: str,
     *,
     model_id: str,
     dimensions: int | None = None,
     normalize: bool = True,
-    embedding_types: list[str] | None = None,
-) -> Batch[pxt.Array[(None,), pxt.Float]]:
+    embedding_types: Literal['float', 'binary'] | None = None,
+) -> pxt.Array[(None,), np.float32]:
     """
     Generate embeddings using Amazon Titan embedding models.
 
@@ -199,64 +201,87 @@ async def embed_titan(
         model_id: The Titan embedding model identifier (e.g., 'amazon.titan-embed-text-v2:0').
         dimensions: Output embedding dimensions (V2 only). Valid values: 256, 512, 1024.
         normalize: Whether to normalize the embedding (V2 only). Defaults to True.
-        embedding_types: List of embedding types to return (V2 only). Valid values: 'float', 'binary'.
+        embedding_types: Embedding type to return (V2 only). Valid values: 'float', 'binary'.
 
     Returns:
         Array of embedding vectors.
 
     Examples:
-        Add a computed column with Titan embeddings:
+        Create an embedding index on a column `description` with Titan embeddings and custom dimensions:
 
-        >>> tbl.add_computed_column(embed=embed_titan(tbl.text, model_id='amazon.titan-embed-text-v2:0'))
-
-        With custom dimensions:
-
-        >>> tbl.add_computed_column(embed=embed_titan(tbl.text, model_id='amazon.titan-embed-text-v2:0', dimensions=512))
+        >>> tbl.add_embedding_index(
+        ...     tbl.description,
+        ...     string_embed=embed.using(model_id='amazon.titan-embed-text-v2:0', dimensions=512)
+        ... )
     """
-    import json
+    from botocore.exceptions import ClientError
 
-    client = _bedrock_client()
-    is_v2 = 'v2' in model_id
+    body: dict[str, Any] = {'inputText': text}
+    if 'v2' in model_id:
+        if dimensions is not None:
+            body['dimensions'] = dimensions
+        body['normalize'] = normalize
+        if embedding_types is not None:
+            body['embeddingTypes'] = [embedding_types]
 
-    results = []
-    for t in text:
-        # Build request body based on model version
-        body: dict[str, Any] = {'inputText': t}
+    kwargs: dict[str, Any] = {
+        'body': json.dumps(body),
+        'modelId': model_id,
+        'contentType': 'application/json',
+        'accept': 'application/json',
+    }
 
-        if is_v2:
-            if dimensions is not None:
-                body['dimensions'] = dimensions
-            body['normalize'] = normalize
-            if embedding_types is not None:
-                body['embeddingTypes'] = embedding_types
-
-        response = await asyncio.to_thread(
-            client.invoke_model,
-            body=json.dumps(body),
-            modelId=model_id,
-            contentType='application/json',
-            accept='application/json',
-        )
-
+    try:
+        response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
         response_body = json.loads(response['body'].read())
-        embedding = response_body['embedding']
-        results.append(np.array(embedding, dtype=np.float64))
+        embedding = np.array(response_body['embedding'], dtype=np.float32)
+        return embedding
+    except ClientError as e:
+        raise pxt.Error(f'Failed to generate embedding: {e}') from e
 
-    return results
 
-
-@embed_titan.conditional_return_type
+@embed.conditional_return_type
 def _(
+    *,
     model_id: str,
     dimensions: int | None = None,
     normalize: bool = True,
-    embedding_types: list[str] | None = None,
+    embedding_types: Literal['float', 'binary'] | None = None,
 ) -> ts.ArrayType:
     if dimensions is not None:
-        return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
+        return ts.ArrayType((dimensions,), dtype=np.dtype(np.float32), nullable=False)
     if model_id in _titan_embedding_dimensions:
-        return ts.ArrayType((_titan_embedding_dimensions[model_id],), dtype=ts.FloatType(), nullable=False)
-    return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
+        return ts.ArrayType((_titan_embedding_dimensions[model_id],), dtype=np.dtype(np.float32), nullable=False)
+    return ts.ArrayType((None,), dtype=np.dtype(np.float32), nullable=False)
+
+
+@embed.overload
+async def _(
+    image: PIL.Image.Image,
+    *,
+    model_id: str = 'amazon.titan-embed-image-v1',
+    dimensions: int | None = None,
+) -> pxt.Array[(None,), np.float32]:
+    from botocore.exceptions import ClientError
+
+    body: dict[str, Any] = {'inputImage': to_base64(image)}
+    if dimensions is not None:
+        body['embeddingConfig'] = {'outputEmbeddingLength': dimensions}
+
+    kwargs: dict[str, Any] = {
+        'body': json.dumps(body),
+        'modelId': model_id,
+        'contentType': 'application/json',
+        'accept': 'application/json',
+    }
+
+    try:
+        response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
+        response_body = json.loads(response['body'].read())
+        embedding = np.array(response_body['embedding'], dtype=np.float32)
+        return embedding
+    except ClientError as e:
+        raise pxt.Error(f'Failed to generate embedding: {e}') from e
 
 
 def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
