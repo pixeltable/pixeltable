@@ -46,7 +46,8 @@ async def converse(
     Generate a conversation response.
 
     Equivalent to the AWS Bedrock `converse` API endpoint.
-    For additional details, see: <https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference.html>
+    For additional details, see:
+    <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/bedrock-runtime/client/converse.html>
 
     __Requirements:__
 
@@ -60,7 +61,7 @@ async def converse(
         additional_model_request_fields: Additional inference parameters to use.
 
     For details on the optional parameters, see:
-    <https://docs.aws.amazon.com/bedrock/latest/userguide/conversation-inference.html>
+    <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/bedrock-runtime/client/converse.html>
 
     Returns:
         A dictionary containing the response and other metadata.
@@ -112,12 +113,14 @@ async def invoke_model(
     *,
     model_id: str,
     performance_config_latency: Literal['standard', 'optimized'] | None = None,
+    service_tier: Literal['priority', 'default', 'flex', 'reserved'] | None = None,
 ) -> dict:
     """
     Invoke a Bedrock model with a raw request body.
 
     Equivalent to the AWS Bedrock `invoke_model` API endpoint.
-    For additional details, see: <https://docs.aws.amazon.com/bedrock/latest/userguide/inference.html>
+    For additional details, see:
+    <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/bedrock-runtime/client/invoke_model.html>
 
     __Requirements:__
 
@@ -126,7 +129,11 @@ async def invoke_model(
     Args:
         body: The prompt and inference parameters as a dictionary.
         model_id: The model identifier to invoke.
-        performance_config_latency: Performance setting: 'standard' or 'optimized'.
+        performance_config_latency: Performance setting.
+        service_tier: processing tier.
+
+    For details on the optional parameters, see:
+    <https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/bedrock-runtime/client/invoke_model.html>
 
     Returns:
         A dictionary containing the model response.
@@ -142,10 +149,14 @@ async def invoke_model(
     kwargs: dict[str, Any] = {
         'body': json.dumps(body),
         'modelId': model_id,
+        'contentType': 'application/json',
+        'accept': 'application/json',
     }
 
     if performance_config_latency is not None:
         kwargs['performanceConfigLatency'] = performance_config_latency
+    if service_tier is not None:
+        kwargs['serviceTier'] = service_tier
 
     response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
 

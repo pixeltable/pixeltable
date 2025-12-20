@@ -41,6 +41,21 @@ class TestBedrock:
         assert 'Katy Perry' in results['response']
         assert 'Katy Perry' in results['response2']
 
+    def test_invoke_model(self, reset_db: None) -> None:
+        skip_test_if_not_installed('boto3')
+        skip_test_if_no_aws_credentials()
+        from pixeltable.functions.bedrock import invoke_model
+
+        t = pxt.create_table('test_tbl', {'text': pxt.String})
+        body = {'inputText': t.text, 'dimensions': 256, 'normalize': True}
+        t.add_computed_column(response=invoke_model(body, model_id='amazon.titan-embed-text-v2:0'))
+        t.add_computed_column(embedding=t.response.embedding)
+
+        t.insert(text='Hello, world!')
+        results = t.collect()[0]
+        assert 'embedding' in results
+        assert len(results['embedding']) == 256
+
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_aws_credentials()
