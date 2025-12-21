@@ -107,7 +107,7 @@ class CellMaterializationNode(ExecNode):
             self._reset_buffer()
             assert self.buffered_writer is not None
 
-    def close(self) -> None:
+    def _close(self) -> None:
         if self.buffered_writer is not None:
             # there must have been an error, otherwise _flush_full_buffer(finalize=True) would have set this to None
             self.buffered_writer.close()
