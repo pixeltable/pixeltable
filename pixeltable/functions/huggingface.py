@@ -251,7 +251,7 @@ def detr_for_object_detection(
 
 @pxt.udf(batch_size=4)
 def detr_for_segmentation(
-    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str = 'main'
+    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5,
 ) -> Batch[dict]:
     """
     Computes DETR panoptic segmentation for the specified image. `model_id` should be a reference to a pretrained
@@ -265,7 +265,6 @@ def detr_for_segmentation(
         image: The image to segment.
         model_id: The pretrained model to use for segmentation (e.g., 'facebook/detr-resnet-50-panoptic').
         threshold: Confidence threshold for filtering segments.
-        revision: Model revision.
 
     Returns:
         A dictionary containing the output of the segmentation model, in the following format:
@@ -301,8 +300,8 @@ def detr_for_segmentation(
     import torch
     from transformers import DetrForSegmentation, DetrImageProcessor
 
-    model = _lookup_model(model_id, lambda x: DetrForSegmentation.from_pretrained(x, revision=revision), device=device)
-    processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x, revision=revision))
+    model = _lookup_model(model_id, lambda x: DetrForSegmentation.from_pretrained(x), device=device)
+    processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x))
     normalized_images = [normalize_image_mode(img) for img in image]
 
     with torch.no_grad():
