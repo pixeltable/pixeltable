@@ -3,7 +3,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.functions.video import frame_iterator
 
-from ..utils import get_video_files, skip_test_if_not_installed
+from ..utils import get_image_files, get_video_files, skip_test_if_not_installed
 
 
 class TestVision:
@@ -115,3 +115,25 @@ class TestVision:
         assert 'number of boxes and box colors must match' in str(exc_info.value).lower()
 
         # TODO: test font and font_size parameters in a system-independent way
+
+    def test_overlay_segmentation(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+
+        from pixeltable.functions.huggingface import detr_for_segmentation
+        from pixeltable.functions.vision import overlay_segmentation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(
+            segmentation=detr_for_segmentation(t.img, model_id='facebook/detr-resnet-50-panoptic', threshold=0.5)
+        )
+        image_files = get_image_files()[:3]
+        t.insert({'img': f} for f in image_files)
+
+        result = t.select(overlay_segmentation(t.img, t.segmentation.segmentation)).collect()
+        assert len(result) == 3
+
+        label_colors = {0: 'red', 1: '#00FF00'}
+        result = t.select(
+            overlay_segmentation(t.img, t.segmentation.segmentation, alpha=0.3, background=1, label_colors=label_colors)
+        ).collect()
+        assert len(result) == 3
