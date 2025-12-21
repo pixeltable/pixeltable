@@ -18,6 +18,7 @@ from typing import Any
 
 import numpy as np
 import PIL.Image
+import PIL
 
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
@@ -389,6 +390,51 @@ def draw_bounding_boxes(
             draw.text((x, y), label_str, fill='white', font=txt_font)
 
     return img_to_draw
+
+
+@pxt.udf
+def overlay_segmentation(
+    img: PIL.Image.Image,
+    segmentation: pxt.Array[(None, None), pxt.Int],
+    alpha: float = 0.5,
+    background: int = 0,
+) -> PIL.Image.Image:
+    """
+    Overlays a colored segmentation map on an image.
+
+    Each unique segment id in the segmentation map is assigned a deterministic color based on a hash
+    of the id, using the same color generation scheme as
+    [`draw_bounding_boxes()`][pixeltable.functions.vision.draw_bounding_boxes].
+
+    Args:
+        img: Input image.
+        segmentation: 2D array of the same shape as `img` where each pixel value is a segment id.
+        alpha: Blend factor for the overlay (0.0 = only original image, 1.0 = only segmentation colors).
+        background: Segment id to treat as background (not overlaid with color, showing the original
+            image through).
+
+    Returns:
+        The image with the colored segmentation overlay.
+    """
+    if segmentation.shape != (img.height, img.width):
+        raise ValueError(
+            f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})'
+        )
+    segment_ids = [int(sid) for sid in np.unique(segmentation) if sid != background]
+    segment_colors = __create_label_colors(segment_ids)
+    segment_alpha = int(alpha * 255)
+
+    overlay_array = np.zeros((img.height, img.width, 4), dtype=np.uint8)
+    for seg_id in segment_ids:
+        hex_color = segment_colors[seg_id]
+        rgb = PIL.ImageColor.getrgb(hex_color)
+        mask = segmentation == seg_id
+        overlay_array[mask] = (*rgb, segment_alpha)
+
+    overlay = PIL.Image.fromarray(overlay_array, mode='RGBA')
+    img_rgba = img.convert('RGBA')
+    result = PIL.Image.alpha_composite(img_rgba, overlay)
+    return result.convert('RGB')
 
 
 __all__ = local_public_names(__name__)
