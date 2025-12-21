@@ -18,7 +18,7 @@ from typing import Any
 
 import numpy as np
 import PIL.Image
-import PIL
+import PIL.ImageColor
 
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
@@ -398,6 +398,7 @@ def overlay_segmentation(
     segmentation: pxt.Array[(None, None), pxt.Int],
     alpha: float = 0.5,
     background: int = 0,
+    label_colors: dict[int, str] | None = None,
 ) -> PIL.Image.Image:
     """
     Overlays a colored segmentation map on an image.
@@ -412,16 +413,29 @@ def overlay_segmentation(
         alpha: Blend factor for the overlay (0.0 = only original image, 1.0 = only segmentation colors).
         background: Segment id to treat as background (not overlaid with color, showing the original
             image through).
+        label_colors: Optional dict mapping segment ids to colors. Colors can be specified as common HTML
+            color names (e.g., 'red') or RGB hex codes (e.g., '#FF0000'). Segment ids not in this dict
+            will be assigned colors automatically.
 
     Returns:
         The image with the colored segmentation overlay.
     """
+
     if segmentation.shape != (img.height, img.width):
         raise ValueError(
             f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})'
         )
     segment_ids = [int(sid) for sid in np.unique(segmentation) if sid != background]
-    segment_colors = __create_label_colors(segment_ids)
+
+    # Generate colors: use label_colors if provided, otherwise auto-generate
+    if label_colors is not None:
+        # Use provided colors, auto-generate for any missing segment ids
+        missing_ids = [sid for sid in segment_ids if sid not in label_colors]
+        auto_colors = __create_label_colors(missing_ids) if missing_ids else {}
+        segment_colors = {**auto_colors, **label_colors}
+    else:
+        segment_colors = __create_label_colors(segment_ids)
+
     segment_alpha = int(alpha * 255)
 
     overlay_array = np.zeros((img.height, img.width, 4), dtype=np.uint8)
