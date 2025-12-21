@@ -211,7 +211,13 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
 
     body: dict[str, Any]
     if 'nova' in model_id:
-        body = {'taskType': 'SINGLE_EMBEDDING', 'singleEmbeddingParams': {'text': {'value': text}}}
+        body = {
+            'taskType': 'SINGLE_EMBEDDING',
+            'singleEmbeddingParams': {
+                'embeddingPurpose': 'GENERIC_INDEX',
+                'text': {'truncationMode': 'END', 'value': text},
+            },
+        }
         if dimensions is not None:
             body['singleEmbeddingParams']['embeddingDimension'] = dimensions
     elif 'v2' in model_id:
@@ -231,8 +237,10 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
     try:
         response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
         response_body = json.loads(response['body'].read())
-        embedding = np.array(response_body['embedding'], dtype=np.float32)
-        return embedding
+        if 'nova' in model_id:
+            return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
+        else:
+            return np.array(response_body['embedding'], dtype=np.float32)
     except ClientError as e:
         raise pxt.Error(f'Failed to generate embedding: {e}') from e
 
@@ -245,7 +253,8 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
         body: dict[str, Any] = {
             'taskType': 'SINGLE_EMBEDDING',
             'singleEmbeddingParams': {
-                'image': {'format': 'jpeg', 'source': {'bytes': to_base64(image, format='jpeg')}}
+                'embeddingPurpose': 'GENERIC_INDEX',
+                'image': {'format': 'jpeg', 'source': {'bytes': to_base64(image, format='jpeg')}},
             },
         }
         if dimensions is not None:
@@ -265,8 +274,10 @@ async def _(image: PIL.Image.Image, *, model_id: str, dimensions: int | None = N
     try:
         response = await asyncio.to_thread(_bedrock_client().invoke_model, **kwargs)
         response_body = json.loads(response['body'].read())
-        embedding = np.array(response_body['embedding'], dtype=np.float32)
-        return embedding
+        if 'nova' in model_id:
+            return np.array(response_body['embeddings'][0]['embedding'], dtype=np.float32)
+        else:
+            return np.array(response_body['embedding'], dtype=np.float32)
     except ClientError as e:
         raise pxt.Error(f'Failed to generate embedding: {e}') from e
 

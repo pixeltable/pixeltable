@@ -50,12 +50,12 @@ class TestBedrock:
         t = pxt.create_table('test_tbl', {'text': pxt.String})
         body = {'inputText': t.text, 'dimensions': 256, 'normalize': True}
         t.add_computed_column(response=invoke_model(body, model_id='amazon.titan-embed-text-v2:0'))
-        t.add_computed_column(embedding=t.response.embedding)
 
         t.insert(text='Hello, world!')
         results = t.collect()[0]
-        assert 'embedding' in results
-        assert len(results['embedding']) == 256
+        assert 'response' in results
+        assert 'embedding' in results['response']
+        assert len(results['response']['embedding']) == 256
 
     def test_tool_invocations(self, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
