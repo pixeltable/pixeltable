@@ -36,6 +36,9 @@ for nb in "$TEST_PATH"/*.ipynb; do
     conda activate "$NB_CONDA_ENV"
     conda info
 
+    echo "Installing ffmpeg ..."
+    conda install -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
+
     echo "Installing pytest ..."
     pip install -qU pip
     pip install -q pytest nbmake

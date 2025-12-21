@@ -388,15 +388,7 @@ class Planner:
         if any(c.col_type.supports_file_offloading() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(
-            exec.ExecContext(
-                row_builder,
-                batch_size=0,
-                show_pbar=True,
-                num_computed_exprs=len(computed_exprs),
-                ignore_errors=ignore_errors,
-            )
-        )
+        plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
 
         return plan
@@ -426,12 +418,7 @@ class Planner:
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(
-            exec.ExecContext(
-                plan.row_builder, batch_size=0, show_pbar=True, num_computed_exprs=0, ignore_errors=ignore_errors
-            )
-        )
-        plan.ctx.num_rows = 0  # Unknown
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
 
         return plan
 
@@ -511,7 +498,6 @@ class Planner:
         plan.row_builder.add_table_columns(copied_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        plan.ctx.num_computed_exprs = len(recomputed_exprs)
 
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
@@ -710,7 +696,7 @@ class Planner:
         plan.row_builder.add_table_columns(copied_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        ctx = exec.ExecContext(row_builder, num_computed_exprs=len(recomputed_exprs))
+        ctx = exec.ExecContext(row_builder)
         # TODO: correct batch size?
         ctx.batch_size = 0
         plan.set_ctx(ctx)
@@ -766,7 +752,6 @@ class Planner:
             ignore_errors=True,
             exact_version_only=view.get_bases(),
         )
-        plan.ctx.num_computed_exprs = len(recomputed_exprs)
         materialized_cols = copied_cols + list(recomputed_cols)  # same order as select_list
         for i, col in enumerate(materialized_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
@@ -1195,10 +1180,7 @@ class Planner:
         )
 
         plan.ctx.batch_size = 16
-        plan.ctx.show_pbar = True
         plan.ctx.ignore_errors = True
-        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
-        plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
         plan = cls._add_save_node(plan)
 
         return plan

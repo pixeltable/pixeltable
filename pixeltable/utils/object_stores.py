@@ -550,7 +550,9 @@ class HTTPStore(ObjectStoreBase):
             self.base_url += '/'
 
     def copy_object_to_local_file(self, src_path: str, dest_path: Path) -> None:
-        with urllib.request.urlopen(self.base_url + src_path) as resp, open(dest_path, 'wb') as f:
+        url = self.base_url + src_path
+        req = urllib.request.Request(url, headers={'User-Agent': 'Pixeltable/1.0 (https://pixeltable.com)'})
+        with urllib.request.urlopen(req) as resp, open(dest_path, 'wb') as f:
             data = resp.read()
             f.write(data)
             f.flush()  # Ensures Python buffers are written to OS
