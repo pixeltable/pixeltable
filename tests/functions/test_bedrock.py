@@ -75,10 +75,15 @@ class TestBedrock:
 
         run_tool_invocations_test(make_table, test_multiple_tool_use=False)
 
-    @pytest.mark.parametrize('model_id', [
-        'amazon.titan-embed-text-v2:0',
-        pytest.param('amazon.nova-2-multimodal-embeddings-v1:0', marks=pytest.mark.skip(reason='Only available in us-east-1')),
-    ])
+    @pytest.mark.parametrize(
+        'model_id',
+        [
+            'amazon.titan-embed-text-v2:0',
+            pytest.param(
+                'amazon.nova-2-multimodal-embeddings-v1:0', marks=pytest.mark.skip(reason='Only available in us-east-1')
+            ),
+        ],
+    )
     def test_embed_string(self, model_id: str, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_aws_credentials()
@@ -104,10 +109,15 @@ class TestBedrock:
             'machine learning' in results['text'][0].lower() or 'artificial intelligence' in results['text'][0].lower()
         )
 
-    @pytest.mark.parametrize('model_id', [
-        'amazon.titan-embed-image-v1',
-        pytest.param('amazon.nova-2-multimodal-embeddings-v1:0', marks=pytest.mark.skip(reason='Only available in us-east-1')),
-    ])
+    @pytest.mark.parametrize(
+        'model_id',
+        [
+            'amazon.titan-embed-image-v1',
+            pytest.param(
+                'amazon.nova-2-multimodal-embeddings-v1:0', marks=pytest.mark.skip(reason='Only available in us-east-1')
+            ),
+        ],
+    )
     def test_embed_image(self, model_id: str, reset_db: None) -> None:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_aws_credentials()
