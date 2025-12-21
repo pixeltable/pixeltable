@@ -250,9 +250,7 @@ def detr_for_object_detection(
 
 
 @pxt.udf(batch_size=4)
-def detr_for_segmentation(
-    image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5,
-) -> Batch[dict]:
+def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
     """
     Computes DETR panoptic segmentation for the specified image. `model_id` should be a reference to a pretrained
     [DETR Model](https://huggingface.co/docs/transformers/model_doc/detr) with a segmentation head.
