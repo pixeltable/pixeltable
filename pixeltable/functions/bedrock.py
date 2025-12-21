@@ -156,7 +156,7 @@ async def invoke_model(
         Add a computed column using Amazon Titan embedding model:
 
         >>> body = {'inputText': tbl.text, 'dimensions': 512, 'normalize': True}
-        ... tbl.add_computed_column(response=invoke_model(body, model_id='amazon.titan-embed-text-v2:0'))
+        >>> tbl.add_computed_column(response=invoke_model(body, model_id='amazon.titan-embed-text-v2:0'))
     """
     import json
 
