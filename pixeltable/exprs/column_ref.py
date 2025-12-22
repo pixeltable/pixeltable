@@ -13,9 +13,9 @@ import pixeltable.iterators as iters
 import pixeltable.type_system as ts
 from pixeltable.catalog.table_version import TableVersionKey
 
-from ..utils import fetch_url
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
+from ..utils.http import fetch_url
 from .data_row import DataRow
 from .expr import Expr
 from .literal import Literal

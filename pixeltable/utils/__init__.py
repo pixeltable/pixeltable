@@ -1,11 +1,7 @@
 import hashlib
-import logging
-import threading
 import urllib.parse
 import urllib.request
 from pathlib import Path
-
-_logger = logging.getLogger('pixeltable')
 
 
 def print_perf_counter_delta(delta: float) -> str:
@@ -59,40 +55,3 @@ def parse_local_file_path(file_or_url: str) -> Path | None:
         return Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
     else:
         return None
-
-
-def fetch_url(url: str, allow_local_file: bool = False) -> Path:
-    """
-    Fetches a remote URL into the TempStore and returns its path.
-
-    If `allow_local_file` is True, and the URL is a file:// URL or a local file path, then the local path is returned
-    directly without copying. If `allow_local_file` is False, then an AssertionError is raised.
-    """
-    from .local_store import TempStore
-    from .object_stores import ObjectOps
-
-    _logger.debug(f'fetching url={url} thread_name={threading.current_thread().name}')
-    parsed = urllib.parse.urlparse(url)
-
-    if len(parsed.scheme) <= 1:
-        # local file path (len(parsed.scheme) == 1 implies a Windows path with drive letter)
-        assert allow_local_file
-        return Path(url)
-
-    path: Path | None = None
-    if parsed.path:
-        path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
-
-    if parsed.scheme == 'file':
-        assert allow_local_file
-        assert path is not None
-        return path
-
-    # preserve the file extension, if there is one
-    tmp_path = TempStore.create_path(extension=(path.suffix if path else ''))
-
-    _logger.debug(f'Downloading {url} to {tmp_path}')
-    ObjectOps.copy_object_to_local_file(url, tmp_path)
-    _logger.debug(f'Downloaded {url} to {tmp_path}')
-
-    return tmp_path

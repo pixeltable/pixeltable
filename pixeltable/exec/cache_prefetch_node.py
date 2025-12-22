@@ -3,9 +3,6 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import logging
-import threading
-import urllib.parse
-import urllib.request
 from collections import deque
 from concurrent import futures
 from pathlib import Path
@@ -13,9 +10,8 @@ from typing import AsyncIterator, Iterator
 from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
-from pixeltable.utils import fetch_url
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.object_stores import ObjectOps
+from pixeltable.utils.http import fetch_url
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
