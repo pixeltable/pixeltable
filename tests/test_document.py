@@ -155,7 +155,7 @@ class TestDocument:
         if pdf:
             assert extensions == {'.pdf'}
         else:
-            assert extensions == {'.md', '.html', '.txt'}
+            assert extensions == {'.md', '.html', '.txt', '.pptx', '.docx', '.xlsx'}
 
         doc_t = pxt.create_table('docs', {'doc': pxt.Document})
         validate_update_status(doc_t.insert({'doc': p} for p in file_paths), expected_rows=len(file_paths))
