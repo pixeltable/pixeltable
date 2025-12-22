@@ -5065,10 +5065,10 @@ dependencies = [
     { name = "pypdfium2" },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "rich" },
     { name = "sqlalchemy" },
     { name = "tenacity" },
     { name = "toml" },
-    { name = "tqdm" },
     { name = "tzlocal" },
 ]
 
@@ -5191,10 +5191,10 @@ requires-dist = [
     { name = "pypdfium2", specifier = ">=4.30.0" },
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "requests", specifier = ">=2.31.0" },
+    { name = "rich", specifier = ">=13.0" },
     { name = "sqlalchemy", specifier = ">=2.0.23" },
     { name = "tenacity", specifier = ">=8.2" },
     { name = "toml", specifier = ">=0.10" },
-    { name = "tqdm", specifier = ">=4.64" },
     { name = "tzlocal", specifier = ">=5.0" },
 ]
 
