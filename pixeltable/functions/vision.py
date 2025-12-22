@@ -467,7 +467,7 @@ def overlay_segmentation(
         raise ValueError(
             f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})'
         )
-    segment_ids = sorted([int(sid) for sid in np.unique(segmentation) if sid != background])
+    segment_ids = sorted(int(sid) for sid in np.unique(segmentation) if sid != background)
     if segment_colors is None:
         segment_colors = []
     missing_ids = segment_ids[len(segment_colors) :]

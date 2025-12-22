@@ -298,8 +298,8 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
     import torch
     from transformers import DetrForSegmentation, DetrImageProcessor
 
-    model = _lookup_model(model_id, lambda x: DetrForSegmentation.from_pretrained(x), device=device)
-    processor = _lookup_processor(model_id, lambda x: DetrImageProcessor.from_pretrained(x))
+    model = _lookup_model(model_id, DetrForSegmentation.from_pretrained, device=device)
+    processor = _lookup_processor(model_id, DetrImageProcessor.from_pretrained)
     normalized_images = [normalize_image_mode(img) for img in image]
 
     with torch.no_grad():
