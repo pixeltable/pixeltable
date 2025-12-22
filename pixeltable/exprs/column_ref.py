@@ -13,6 +13,7 @@ import pixeltable.iterators as iters
 import pixeltable.type_system as ts
 from pixeltable.catalog.table_version import TableVersionKey
 
+from ..utils import fetch_url
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .data_row import DataRow
@@ -235,6 +236,10 @@ class ColumnRef(Expr):
             else:
                 if not isinstance(image, (str, PIL.Image.Image)):
                     raise excs.Error(f'similarity(image=...): expected `str` or `PIL.Image.Image`; got `{type(image).__name__}`')
+                if isinstance(image, str):
+                    image_path = fetch_url(image, allow_local_file=True)
+                    image = PIL.Image.open(image_path)
+                    image.load()
                 expr = Expr.from_object(image)
                 assert expr.col_type.is_image_type()
 

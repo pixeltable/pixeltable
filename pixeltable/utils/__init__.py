@@ -73,14 +73,18 @@ def fetch_url(url: str, allow_local_file: bool = False) -> Path:
     _logger.debug(f'fetching url={url} thread_name={threading.current_thread().name}')
     parsed = urllib.parse.urlparse(url)
 
-    # Sanity check to ensure we're not being passed a Windows filename and misinterpreting it as a URL
-    assert len(parsed.scheme) > 1
-    assert allow_local_file or parsed.scheme != 'file'
+    if len(parsed.scheme) <= 1:
+        # local file path (len(parsed.scheme) == 1 implies a Windows path with drive letter)
+        assert allow_local_file
+        return Path(url)
+
 
     path: Path | None = None
     if parsed.path:
         path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
+
     if parsed.scheme == 'file':
+        assert allow_local_file
         assert path is not None
         return path
 
