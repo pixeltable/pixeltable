@@ -235,7 +235,9 @@ class ColumnRef(Expr):
                 expr = image
             else:
                 if not isinstance(image, (str, PIL.Image.Image)):
-                    raise excs.Error(f'similarity(image=...): expected `str` or `PIL.Image.Image`; got `{type(image).__name__}`')
+                    raise excs.Error(
+                        f'similarity(image=...): expected `str` or `PIL.Image.Image`; got `{type(image).__name__}`'
+                    )
                 if isinstance(image, str):
                     image_path = fetch_url(image, allow_local_file=True)
                     image = PIL.Image.open(image_path)

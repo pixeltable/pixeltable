@@ -1,11 +1,12 @@
 import hashlib
+import logging
+import threading
 import urllib.parse
 import urllib.request
 from pathlib import Path
-import threading
-import logging
 
 _logger = logging.getLogger('pixeltable')
+
 
 def print_perf_counter_delta(delta: float) -> str:
     """Prints a performance counter delta in a human-readable format.
@@ -77,7 +78,6 @@ def fetch_url(url: str, allow_local_file: bool = False) -> Path:
         # local file path (len(parsed.scheme) == 1 implies a Windows path with drive letter)
         assert allow_local_file
         return Path(url)
-
 
     path: Path | None = None
     if parsed.path:

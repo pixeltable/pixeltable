@@ -2,8 +2,9 @@ import datetime
 import random
 import string
 import sys
-from typing import Any, _GenericAlias  # type: ignore[attr-defined]
 from pathlib import Path
+from typing import Any, _GenericAlias  # type: ignore[attr-defined]
+
 import numpy as np
 import PIL.Image
 import pytest
