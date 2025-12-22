@@ -250,7 +250,7 @@ class TestIndex:
         type_failures = (
             ('item', '`str` or `PIL.Image.Image`'),
             ('string', '`str`'),
-            ('image', '`PIL.Image.Image`'),
+            ('image', '`str` or `PIL.Image.Image`'),
             ('audio', r'`str` \(path to audio file\)'),
             ('video', r'`str` \(path to video file\)'),
         )

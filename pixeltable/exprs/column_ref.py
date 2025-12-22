@@ -176,7 +176,7 @@ class ColumnRef(Expr):
         item: Any = None,
         *,
         string: str | None = None,
-        image: PIL.Image.Image | None = None,
+        image: str | PIL.Image.Image | None = None,
         audio: str | None = None,
         video: str | None = None,
         idx: str | None = None,
@@ -233,8 +233,8 @@ class ColumnRef(Expr):
                     raise excs.Error(f'similarity(image=...): expected `Image`; got `{image.col_type}`')
                 expr = image
             else:
-                if not isinstance(image, PIL.Image.Image):
-                    raise excs.Error(f'similarity(image=...): expected `PIL.Image.Image`; got `{type(image).__name__}`')
+                if not isinstance(image, (str, PIL.Image.Image)):
+                    raise excs.Error(f'similarity(image=...): expected `str` or `PIL.Image.Image`; got `{type(image).__name__}`')
                 expr = Expr.from_object(image)
                 assert expr.col_type.is_image_type()
 
