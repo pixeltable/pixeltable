@@ -477,9 +477,9 @@ def overlay_segmentation(
     segment_alpha = int(alpha * 255)
 
     overlay_array = np.zeros((img.height, img.width, 4), dtype=np.uint8)
+    segment_colors = {id: PIL.ImageColor.getrgb(color_map[id]) for id in segment_ids}
     for segment_id in segment_ids:
-        hex_color = color_map[segment_id]
-        rgb = PIL.ImageColor.getrgb(hex_color)
+        rgb = segment_colors[segment_id]
         mask = segmentation == segment_id
         overlay_array[mask] = (*rgb, segment_alpha)
         if draw_contours:
