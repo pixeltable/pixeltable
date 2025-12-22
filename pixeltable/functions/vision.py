@@ -392,20 +392,61 @@ def draw_bounding_boxes(
     return img_to_draw
 
 
+def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
+    """Get contour mask with specified thickness."""
+    assert mask.dtype == bool
+    # find boundaries using 8-connectivity
+    padded = np.pad(mask, 1, mode='constant', constant_values=False)
+    eroded = (
+        padded[1:-1, 1:-1]
+        & padded[:-2, 1:-1]
+        & padded[2:, 1:-1]
+        & padded[1:-1, :-2]
+        & padded[1:-1, 2:]
+        & padded[:-2, :-2]
+        & padded[:-2, 2:]
+        & padded[2:, :-2]
+        & padded[2:, 2:]
+    )
+    boundaries = mask & ~eroded
+
+    for _ in range(thickness - 1):
+        # binary dilation with 8-connectivity
+        padded = np.pad(boundaries, 1, mode='constant', constant_values=False)
+        boundaries = (
+            padded[1:-1, 1:-1]
+            | padded[:-2, 1:-1]
+            | padded[2:, 1:-1]
+            | padded[1:-1, :-2]
+            | padded[1:-1, 2:]
+            | padded[:-2, :-2]
+            | padded[:-2, 2:]
+            | padded[2:, :-2]
+            | padded[2:, 2:]
+        )
+
+    return boundaries
+
+
 @pxt.udf
 def overlay_segmentation(
     img: PIL.Image.Image,
-    segmentation: pxt.Array[(None, None), pxt.Int],
+    segmentation: pxt.Array[(None, None), np.int32],
+    *,
     alpha: float = 0.5,
     background: int = 0,
-    label_colors: dict[int, str] | None = None,
+    segment_colors: list[str] | None = None,
+    draw_contours: bool = True,
+    contour_thickness: int = 1,
 ) -> PIL.Image.Image:
     """
     Overlays a colored segmentation map on an image.
 
-    Each unique segment id in the segmentation map is assigned a deterministic color based on a hash
-    of the id, using the same color generation scheme as
-    [`draw_bounding_boxes()`][pixeltable.functions.vision.draw_bounding_boxes].
+    Colors can be specified as common HTML color names (e.g., 'red') supported by PIL's
+    [`ImageColor`](https://pillow.readthedocs.io/en/stable/reference/ImageColor.html#imagecolor-module) module or as
+    RGB hex codes (e.g., '#FF0000').
+
+    If no colors are specified, this function randomly assigns each segment a specific color based on a hash of its id.
 
     Args:
         img: Input image.
@@ -413,9 +454,10 @@ def overlay_segmentation(
         alpha: Blend factor for the overlay (0.0 = only original image, 1.0 = only segmentation colors).
         background: Segment id to treat as background (not overlaid with color, showing the original
             image through).
-        label_colors: Optional dict mapping segment ids to colors. Colors can be specified as common HTML
-            color names (e.g., 'red') or RGB hex codes (e.g., '#FF0000'). Segment ids not in this dict
-            will be assigned colors automatically.
+        segment_colors: List of colors, one per segment id. If the list is shorter than the number of segments, the
+            remaining segments will be assigned colors automatically.
+        draw_contours: If True, draw contours around each segment with full opacity.
+        contour_thickness: Thickness of the contour lines in pixels.
 
     Returns:
         The image with the colored segmentation overlay.
@@ -425,25 +467,24 @@ def overlay_segmentation(
         raise ValueError(
             f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})'
         )
-    segment_ids = [int(sid) for sid in np.unique(segmentation) if sid != background]
-
-    # Generate colors: use label_colors if provided, otherwise auto-generate
-    if label_colors is not None:
-        # Use provided colors, auto-generate for any missing segment ids
-        missing_ids = [sid for sid in segment_ids if sid not in label_colors]
-        auto_colors = __create_label_colors(missing_ids) if missing_ids else {}
-        segment_colors = {**auto_colors, **label_colors}
-    else:
-        segment_colors = __create_label_colors(segment_ids)
+    segment_ids = sorted([int(sid) for sid in np.unique(segmentation) if sid != background])
+    if segment_colors is None:
+        segment_colors = []
+    missing_ids = segment_ids[len(segment_colors) :]
+    auto_colors = __create_label_colors(missing_ids)
+    color_map = {**auto_colors, **dict(zip(segment_ids, segment_colors))}
 
     segment_alpha = int(alpha * 255)
 
     overlay_array = np.zeros((img.height, img.width, 4), dtype=np.uint8)
-    for seg_id in segment_ids:
-        hex_color = segment_colors[seg_id]
+    for segment_id in segment_ids:
+        hex_color = color_map[segment_id]
         rgb = PIL.ImageColor.getrgb(hex_color)
-        mask = segmentation == seg_id
+        mask = segmentation == segment_id
         overlay_array[mask] = (*rgb, segment_alpha)
+        if draw_contours:
+            contour_mask = _get_contours(mask, contour_thickness)
+            overlay_array[contour_mask] = (*rgb, 255)
 
     overlay = PIL.Image.fromarray(overlay_array, mode='RGBA')
     img_rgba = img.convert('RGBA')

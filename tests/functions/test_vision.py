@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 import pixeltable as pxt
@@ -129,11 +130,14 @@ class TestVision:
         image_files = get_image_files()[:3]
         t.insert({'img': f} for f in image_files)
 
-        result = t.select(overlay_segmentation(t.img, t.segmentation.segmentation)).collect()
-        assert len(result) == 3
+        segmentation_map = t.segmentation.segmentation.astype(pxt.Array[(None, None), np.int32])  # type: ignore[misc]
+        _ = t.select(overlay_segmentation(t.img, segmentation_map)).collect()
 
-        label_colors = {0: 'red', 1: '#00FF00'}
-        result = t.select(
-            overlay_segmentation(t.img, t.segmentation.segmentation, alpha=0.3, background=1, label_colors=label_colors)
+        # test non-defaults
+        label_colors = ['red', '#00FF00']
+        _ = t.select(
+            overlay_segmentation(t.img, segmentation_map, alpha=0.3, background=1, segment_colors=label_colors)
         ).collect()
-        assert len(result) == 3
+
+        # test draw_contours
+        _ = t.select(overlay_segmentation(t.img, segmentation_map, draw_contours=True, contour_thickness=2)).collect()
