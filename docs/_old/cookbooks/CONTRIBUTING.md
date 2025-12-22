@@ -38,6 +38,7 @@ Place your recipe in the appropriate directory:
 
 Recipes use prefixes to indicate their category:
 
+- `doc-` - Document processing (office files, PDFs, text extraction)
 - `img-` - Image processing (PIL/Pillow operations and custom UDFs)
 - `vision-` - AI vision analysis (Anthropic, OpenAI)  
 - `workflow-` - Common workflows (JSON extraction, API keys)
