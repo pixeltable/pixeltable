@@ -1,25 +1,19 @@
 """
-Pixeltable UDFs that wrap various endpoints from the RunwayML API.
-
-In order to use them, you must first `pip install runwayml` and configure your
-RunwayML API key. You can set your API key either:
-
-1. As an environment variable: `RUNWAYML_API_KEY`
-2. In `~/.pixeltable/config.toml` under the `[runwayml]` section:
-   ```toml
-   [runwayml]
-   api_key = "your-api-key"
-   ```
-
-For more information, see: https://docs.dev.runwayml.com/
+Pixeltable UDFs
+that wrap various endpoints from the RunwayML API. In order to use them, you must
+first `pip install runwayml` and configure your RunwayML credentials, as described in
+the [Working with RunwayML](https://docs.pixeltable.com/docs/working-with-runwayml) guide.
 """
 
 import datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
+
+import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.image import to_base64
 
 if TYPE_CHECKING:
     from runwayml import AsyncRunwayML  # type: ignore[import-untyped,import-not-found,unused-ignore]
@@ -36,6 +30,13 @@ def _runwayml_client() -> "AsyncRunwayML":
     return Env.get().get_client("runwayml")
 
 
+def _image_to_data_uri(image: PIL.Image.Image) -> str:
+    """Convert a PIL Image to a data URI suitable for RunwayML API."""
+    fmt = "png" if image.has_transparency_data else "jpeg"
+    b64 = to_base64(image, format=fmt)
+    return f"data:image/{fmt};base64,{b64}"
+
+
 def _serialize_result(obj: Any) -> Any:
     """Convert RunwayML result to JSON-serializable format.
 
@@ -50,39 +51,10 @@ def _serialize_result(obj: Any) -> Any:
     return obj
 
 
-# Type aliases for supported models and ratios
-TextToImageModel = Literal["gen4_image", "gen4_image_turbo", "gemini_2.5_flash"]
-TextToVideoModel = Literal["veo3.1", "veo3.1_fast", "veo3"]
-ImageToVideoModel = Literal[
-    "gen4_turbo", "gen3a_turbo", "veo3.1", "veo3.1_fast", "veo3"
-]
-VideoToVideoModel = Literal["gen4_aleph"]
-
-ImageRatio = Literal[
-    "1024:1024",
-    "1080:1080",
-    "1168:880",
-    "1360:768",
-    "1440:1080",
-    "1080:1440",
-    "1808:768",
-    "1920:1080",
-    "1080:1920",
-    "2112:912",
-    "1280:720",
-    "720:1280",
-    "720:720",
-    "960:720",
-    "720:960",
-    "1680:720",
-]
-VideoRatio = Literal["1280:720", "720:1280", "1080:1920", "1920:1080"]
-
-
 @pxt.udf(resource_pool="request-rate:runwayml")
 async def text_to_image(
     prompt_text: str,
-    reference_images: list[str],
+    reference_images: list[PIL.Image.Image],
     *,
     model: str = "gen4_image",
     ratio: str = "1920:1080",
@@ -90,58 +62,38 @@ async def text_to_image(
     model_kwargs: dict[str, Any] | None = None,
 ) -> pxt.Json:
     """
-    Generate images from text prompts and reference images using RunwayML models.
+    Generate images from text prompts and reference images.
 
-    This function starts a text-to-image generation task and waits for it to complete.
-    The task is queued and processed asynchronously by RunwayML.
-
-    Note: The RunwayML text_to_image endpoint requires at least one reference image.
-    To guide the generation, provide 1-3 reference images as HTTPS URLs.
-
-    Request throttling:
-    Applies the rate limit set in the config (section `runwayml`, key `rate_limit`).
-    If no rate limit is configured, uses a default of 600 RPM.
+    For additional details, see: <https://docs.dev.runwayml.com/api#tag/Start-generating/paths/~1v1~1text_to_image/post>
 
     __Requirements:__
 
     - `pip install runwayml`
 
     Args:
-        prompt_text: A text description of the image to generate (up to 1000 characters).
-        reference_images: A list of 1-3 HTTPS URLs pointing to reference images.
-            These images guide the style or content of the generated output.
-        model: The RunwayML model to use. Options: 'gen4_image', 'gen4_image_turbo', 'gemini_2.5_flash'.
-            Default: 'gen4_image'.
-        ratio: The aspect ratio of the generated image. Common options include:
-            '1920:1080', '1080:1920', '1024:1024', '1280:720', '720:1280', etc.
-            Default: '1920:1080'.
-        seed: Optional seed for reproducible results. If not specified, a random seed is used.
-        model_kwargs: Additional model-specific parameters passed to the API.
+        prompt_text: Text description of the image to generate.
+        reference_images: List of 1-3 reference images.
+        model: The model to use.
+        ratio: Aspect ratio of the generated image.
+        seed: Seed for reproducibility.
+        model_kwargs: Additional API parameters.
 
     Returns:
-        A JSON object containing the task result with generated image URLs and metadata.
-        The output images are available at `result['output']` as a list of URLs.
+        A dictionary containing the response and metadata.
 
     Examples:
-        Add a computed column that generates images from prompts with a reference image:
+        Add a computed column that generates images from prompts:
 
         >>> tbl.add_computed_column(
-        ...     response=text_to_image(
-        ...         tbl.prompt,
-        ...         [tbl.reference_image_url],
-        ...         model='gen4_image',
-        ...         ratio='1920:1080'
-        ...     )
+        ...     response=text_to_image(tbl.prompt, [tbl.ref_image], model='gen4_image')
         ... )
-        >>> tbl.add_computed_column(
-        ...     image=tbl.response['output'][0].astype(pxt.Image)
-        ... )
+        >>> tbl.add_computed_column(image=tbl.response['output'][0].astype(pxt.Image))
     """
     Env.get().require_package("runwayml")
     client = _runwayml_client()
 
-    # Convert reference images to the format expected by the API
-    ref_images = [{"uri": url} for url in reference_images]
+    # Convert reference images to data URIs
+    ref_images = [{"uri": _image_to_data_uri(img)} for img in reference_images]
 
     kwargs: dict[str, Any] = {
         "model": model,
@@ -171,45 +123,30 @@ async def text_to_video(
     model_kwargs: dict[str, Any] | None = None,
 ) -> pxt.Json:
     """
-    Generate videos from text prompts using RunwayML models.
+    Generate videos from text prompts.
 
-    This function starts a text-to-video generation task and waits for it to complete.
-    The task is queued and processed asynchronously by RunwayML.
-
-    Request throttling:
-    Applies the rate limit set in the config (section `runwayml`, key `rate_limit`).
-    If no rate limit is configured, uses a default of 600 RPM.
+    For additional details, see: <https://docs.dev.runwayml.com/api#tag/Start-generating/paths/~1v1~1text_to_video/post>
 
     __Requirements:__
 
     - `pip install runwayml`
 
     Args:
-        prompt_text: A text description of the video to generate (up to 1000 characters).
-        model: The RunwayML model to use. Options: 'veo3.1', 'veo3.1_fast', 'veo3'.
-            Default: 'veo3.1'.
-        ratio: The aspect ratio of the generated video. Options:
-            '1280:720', '720:1280', '1080:1920', '1920:1080'.
-            Default: '1280:720'.
-        duration: Duration of the video in seconds. Valid values depend on the model:
-            - veo3.1/veo3.1_fast: 4, 6, or 8 seconds
-            - veo3: 8 seconds (fixed)
-        audio: Whether to generate audio for the video. Audio inclusion affects pricing.
-        model_kwargs: Additional model-specific parameters passed to the API.
+        prompt_text: Text description of the video to generate.
+        model: The model to use.
+        ratio: Aspect ratio of the generated video.
+        duration: Duration in seconds.
+        audio: Whether to generate audio.
+        model_kwargs: Additional API parameters.
 
     Returns:
-        A JSON object containing the task result with the generated video URL and metadata.
-        The output video URL is available at `result['output']`.
+        A dictionary containing the response and metadata.
 
     Examples:
         Add a computed column that generates videos from prompts:
 
-        >>> tbl.add_computed_column(
-        ...     response=text_to_video(tbl.prompt, model='veo3.1', duration=4)
-        ... )
-        >>> tbl.add_computed_column(
-        ...     video=tbl.response['output'].astype(pxt.Video)
-        ... )
+        >>> tbl.add_computed_column(response=text_to_video(tbl.prompt, model='veo3.1', duration=4))
+        >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
     Env.get().require_package("runwayml")
     client = _runwayml_client()
@@ -234,7 +171,7 @@ async def text_to_video(
 
 @pxt.udf(resource_pool="request-rate:runwayml")
 async def image_to_video(
-    prompt_image: str,
+    prompt_image: PIL.Image.Image,
     *,
     model: str = "gen4_turbo",
     ratio: str = "1280:720",
@@ -245,63 +182,40 @@ async def image_to_video(
     model_kwargs: dict[str, Any] | None = None,
 ) -> pxt.Json:
     """
-    Generate videos from images using RunwayML models.
+    Generate videos from images.
 
-    This function starts an image-to-video generation task and waits for it to complete.
-    The input image is used as the first frame, and the model generates the subsequent frames.
-
-    Request throttling:
-    Applies the rate limit set in the config (section `runwayml`, key `rate_limit`).
-    If no rate limit is configured, uses a default of 600 RPM.
+    For additional details, see: <https://docs.dev.runwayml.com/api#tag/Start-generating/paths/~1v1~1image_to_video/post>
 
     __Requirements:__
 
     - `pip install runwayml`
 
     Args:
-        prompt_image: A HTTPS URL to the input image to use as the first frame.
-        model: The RunwayML model to use. Options:
-            'gen4_turbo', 'gen3a_turbo', 'veo3.1', 'veo3.1_fast', 'veo3'.
-            Default: 'gen4_turbo'.
-        ratio: The aspect ratio of the generated video. Options depend on the model.
-            Default: '1280:720'.
-        prompt_text: Optional text description to guide the video generation
-            (up to 1000 characters).
-        duration: Duration of the video in seconds. Valid values depend on the model:
-            - gen4_turbo: variable (2-10 seconds typically)
-            - gen3a_turbo: 5 or 10 seconds
-            - veo3.1/veo3.1_fast: 4, 6, or 8 seconds
-            - veo3: 8 seconds (fixed)
-        seed: Optional seed for reproducible results.
-        audio: Whether to generate audio for the video (for veo models).
-        model_kwargs: Additional model-specific parameters passed to the API.
+        prompt_image: Input image to use as the first frame.
+        model: The model to use.
+        ratio: Aspect ratio of the generated video.
+        prompt_text: Text description to guide generation.
+        duration: Duration in seconds.
+        seed: Seed for reproducibility.
+        audio: Whether to generate audio.
+        model_kwargs: Additional API parameters.
 
     Returns:
-        A JSON object containing the task result with the generated video URL and metadata.
+        A dictionary containing the response and metadata.
 
     Examples:
         Add a computed column that generates videos from images:
 
         >>> tbl.add_computed_column(
-        ...     response=image_to_video(
-        ...         tbl.image_url,
-        ...         prompt_text='A person walking slowly',
-        ...         model='gen4_turbo',
-        ...         duration=5
-        ...     )
+        ...     response=image_to_video(tbl.image, prompt_text='Slow motion', duration=5)
         ... )
-        >>> tbl.add_computed_column(
-        ...     video=tbl.response['output'].astype(pxt.Video)
-        ... )
+        >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
     Env.get().require_package("runwayml")
     client = _runwayml_client()
 
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "prompt_image": prompt_image,
-        "ratio": ratio,
-    }
+    image_uri = _image_to_data_uri(prompt_image)
+    kwargs: dict[str, Any] = {"model": model, "prompt_image": image_uri, "ratio": ratio}
 
     if prompt_text is not None:
         kwargs["prompt_text"] = prompt_text
@@ -330,47 +244,32 @@ async def video_to_video(
     model_kwargs: dict[str, Any] | None = None,
 ) -> pxt.Json:
     """
-    Transform videos using RunwayML models.
+    Transform videos with text guidance.
 
-    This function starts a video-to-video transformation task and waits for it to complete.
-    The input video is transformed based on the text prompt.
-
-    Request throttling:
-    Applies the rate limit set in the config (section `runwayml`, key `rate_limit`).
-    If no rate limit is configured, uses a default of 600 RPM.
+    For additional details, see: <https://docs.dev.runwayml.com/api#tag/Start-generating/paths/~1v1~1video_to_video/post>
 
     __Requirements:__
 
     - `pip install runwayml`
 
     Args:
-        video_uri: A HTTPS URL to the input video.
-        prompt_text: A text description of how to transform the video (up to 1000 characters).
-        model: The RunwayML model to use. Currently only 'gen4_aleph' is supported.
-            Default: 'gen4_aleph'.
-        ratio: The aspect ratio of the output video. Options:
-            '1280:720', '720:1280', '1104:832', '960:960', '832:1104', '1584:672',
-            '848:480', '640:480'.
-            Default: '1280:720'.
-        seed: Optional seed for reproducible results.
-        model_kwargs: Additional model-specific parameters passed to the API.
+        video_uri: HTTPS URL to the input video.
+        prompt_text: Text description of the transformation.
+        model: The model to use.
+        ratio: Aspect ratio of the output video.
+        seed: Seed for reproducibility.
+        model_kwargs: Additional API parameters.
 
     Returns:
-        A JSON object containing the task result with the transformed video URL and metadata.
+        A dictionary containing the response and metadata.
 
     Examples:
         Add a computed column that transforms videos:
 
         >>> tbl.add_computed_column(
-        ...     response=video_to_video(
-        ...         tbl.video_url,
-        ...         prompt_text='Transform to anime style',
-        ...         model='gen4_aleph'
-        ...     )
+        ...     response=video_to_video(tbl.video_url, 'Anime style', model='gen4_aleph')
         ... )
-        >>> tbl.add_computed_column(
-        ...     video=tbl.response['output'].astype(pxt.Video)
-        ... )
+        >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
     Env.get().require_package("runwayml")
     client = _runwayml_client()

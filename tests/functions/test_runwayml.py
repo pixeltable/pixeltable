@@ -1,96 +1,143 @@
+import datetime
+
+import PIL.Image
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    get_image_files,
+    rerun,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 @pytest.mark.remote_api
-@pytest.mark.expensive  # RunwayML credits are expensive - run only when explicitly needed
-@rerun(reruns=3, reruns_delay=30)  # RunwayML tasks can take longer
+@pytest.mark.expensive
+@rerun(reruns=3, reruns_delay=30)
 class TestRunwayML:
-    """Tests for RunwayML integration.
+    def test_image_to_data_uri(self) -> None:
+        from pixeltable.functions.runwayml import _image_to_data_uri
 
-    Note: These tests make actual API calls to RunwayML and will consume credits.
-    They are marked with @pytest.mark.remote_api and @pytest.mark.expensive.
+        # RGB image -> jpeg
+        rgb_image = PIL.Image.new('RGB', (100, 100), color='red')
+        uri = _image_to_data_uri(rgb_image)
+        assert uri.startswith('data:image/jpeg;base64,')
+        assert len(uri) > 30
 
-    To run these tests: pytest -m "remote_api and expensive" tests/functions/test_runwayml.py
+        # RGBA image -> png
+        rgba_image = PIL.Image.new('RGBA', (100, 100), color=(255, 0, 0, 128))
+        uri = _image_to_data_uri(rgba_image)
+        assert uri.startswith('data:image/png;base64,')
+        assert len(uri) > 30
 
-    Cost estimates (approximate):
-    - text_to_image: ~5 credits per image
-    - text_to_video: ~50-100 credits per 4-second video
-    - image_to_video: ~25-50 credits per 2-second video (gen4_turbo is cheaper)
+    def test_serialize_result(self) -> None:
+        from pixeltable.functions.runwayml import _serialize_result
 
-    The smoke test (test_image_to_video_smoke) is the cheapest option for verifying the integration.
-    """
+        dt = datetime.datetime(2024, 1, 15, 10, 30, 0)
+        result = _serialize_result({'created_at': dt, 'data': [{'time': dt}]})
+        assert result['created_at'] == '2024-01-15T10:30:00'
+        assert result['data'][0]['time'] == '2024-01-15T10:30:00'
 
-    def test_image_to_video_smoke(self, reset_db: None) -> None:
-        """Smoke test: cheapest option to verify RunwayML integration works.
+    def test_udf_accepts_pil_image(self, reset_db: None) -> None:
+        from pixeltable.functions.runwayml import image_to_video
 
-        Uses gen4_turbo (cheaper) with minimum duration (2 seconds).
-        Run this test first to verify credits and API are working.
-        """
+        t = pxt.create_table('test_tbl', {'image': pxt.Image, 'prompt': pxt.String})
+        t.add_computed_column(
+            video_output=image_to_video(
+                t.image, prompt_text=t.prompt, model='gen4_turbo'
+            )
+        )
+        _ = t.video_output
+
+    def test_text_to_image_accepts_image_list(self, reset_db: None) -> None:
+        from pixeltable.functions.runwayml import text_to_image
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'ref_image': pxt.Image})
+        t.add_computed_column(
+            output=text_to_image(t.prompt, [t.ref_image], model='gen4_image')
+        )
+        _ = t.output
+
+    def test_image_to_video(self, reset_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
         from pixeltable.functions.runwayml import image_to_video
 
-        t = pxt.create_table('test_tbl', {'image_url': pxt.String, 'prompt': pxt.String})
+        image_files = get_image_files()[:1]
+        t = pxt.create_table('test_tbl', {'image': pxt.Image, 'prompt': pxt.String})
         t.add_computed_column(
             output=image_to_video(
-                t.image_url,
+                t.image,
                 prompt_text=t.prompt,
-                model='gen4_turbo',  # Cheapest video model
+                model='gen4_turbo',
                 ratio='1280:720',
-                duration=2,  # Minimum duration = minimum cost
+                duration=2,
             )
         )
-        # Use a small, publicly accessible test image
         validate_update_status(
-            t.insert(
-                image_url='https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/280px-PNG_transparency_demonstration_1.png',
-                prompt='Subtle movement',
-            ),
-            1,
+            t.insert(image=image_files[0], prompt='Subtle movement'), 1
         )
         results = t.collect()
-        print(results['output'][0])
         assert results['output'][0] is not None
         assert 'output' in results['output'][0]
 
-    def test_text_to_image_turbo(self, reset_db: None) -> None:
-        """Test text-to-image with turbo model (faster and cheaper than gen4_image)."""
+    def test_text_to_image(self, reset_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
         from pixeltable.functions.runwayml import text_to_image
 
-        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'ref_images': pxt.Json})
+        image_files = get_image_files()[:1]
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'ref_image': pxt.Image})
         t.add_computed_column(
             output=text_to_image(
-                t.prompt,
-                t.ref_images,
-                model='gen4_image_turbo',  # Turbo is cheaper
-                ratio='720:720',  # Smaller ratio = less cost
+                t.prompt, [t.ref_image], model='gen4_image_turbo', ratio='720:720'
             )
         )
-        # Use a publicly accessible test image as reference
-        ref_url = 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Image_created_with_a_mobile_phone.png/1200px-Image_created_with_a_mobile_phone.png'
-        validate_update_status(t.insert(prompt='A colorful abstract painting', ref_images=[ref_url]), 1)
+        validate_update_status(
+            t.insert(prompt='A colorful abstract painting', ref_image=image_files[0]), 1
+        )
         results = t.collect()
         assert results['output'][0] is not None
         assert 'output' in results['output'][0]
 
-
-@pytest.mark.remote_api
-class TestRunwayMLErrors:
-    """Test error handling for RunwayML integration."""
-
-    def test_missing_api_key(self, reset_db: None, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Test that appropriate error is raised when API key is missing."""
+    def test_text_to_video(self, reset_db: None) -> None:
         skip_test_if_not_installed('runwayml')
+        skip_test_if_no_client('runwayml')
+        from pixeltable.functions.runwayml import text_to_video
 
-        # Clear the API key from environment
-        monkeypatch.delenv('RUNWAYML_API_KEY', raising=False)
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        t.add_computed_column(
+            output=text_to_video(
+                t.prompt, model='veo3.1_fast', ratio='1280:720', duration=4
+            )
+        )
+        validate_update_status(t.insert(prompt='A cat walking on a sunny day'), 1)
+        results = t.collect()
+        assert results['output'][0] is not None
+        assert 'output' in results['output'][0]
 
-        # This test would require mocking the client registration
-        # to properly test missing API key behavior
-        pass
+    def test_video_to_video(self, reset_db: None) -> None:
+        skip_test_if_not_installed('runwayml')
+        skip_test_if_no_client('runwayml')
+        from pixeltable.functions.runwayml import video_to_video
+
+        video_url = (
+            'https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4'
+        )
+        t = pxt.create_table(
+            'test_tbl', {'video_url': pxt.String, 'prompt': pxt.String}
+        )
+        t.add_computed_column(
+            output=video_to_video(
+                t.video_url, t.prompt, model='gen4_aleph', ratio='1280:720'
+            )
+        )
+        validate_update_status(
+            t.insert(video_url=video_url, prompt='Transform to anime style'), 1
+        )
+        results = t.collect()
+        assert results['output'][0] is not None
+        assert 'output' in results['output'][0]
