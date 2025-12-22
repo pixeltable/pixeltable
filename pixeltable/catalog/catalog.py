@@ -2318,9 +2318,7 @@ class Catalog:
 
         if pending_ops is not None:
             for op in pending_ops:
-                op_record = schema.PendingTableOp(
-                    tbl_id=tbl_id, op_sn=op.op_sn, op=op.to_dict()
-                )
+                op_record = schema.PendingTableOp(tbl_id=tbl_id, op_sn=op.op_sn, op=op.to_dict())
                 session.add(op_record)
 
         session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.

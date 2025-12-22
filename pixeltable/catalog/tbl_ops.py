@@ -35,6 +35,7 @@ class TableOp:
     @classmethod
     def from_dict(cls, data: dict) -> TableOp:
         import pixeltable.catalog.tbl_ops as tbl_ops
+
         classname = data.pop('_classname')
         op_class = getattr(tbl_ops, classname)
         return schema.md_from_dict(op_class, data)
