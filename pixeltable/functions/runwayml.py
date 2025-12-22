@@ -19,22 +19,22 @@ if TYPE_CHECKING:
     from runwayml import AsyncRunwayML  # type: ignore[import-untyped,import-not-found,unused-ignore]
 
 
-@register_client("runwayml")
-def _(api_key: str) -> "AsyncRunwayML":
+@register_client('runwayml')
+def _(api_key: str) -> 'AsyncRunwayML':
     from runwayml import AsyncRunwayML  # type: ignore[import-untyped,import-not-found,unused-ignore]
 
     return AsyncRunwayML(api_key=api_key)
 
 
-def _runwayml_client() -> "AsyncRunwayML":
-    return Env.get().get_client("runwayml")
+def _runwayml_client() -> 'AsyncRunwayML':
+    return Env.get().get_client('runwayml')
 
 
 def _image_to_data_uri(image: PIL.Image.Image) -> str:
     """Convert a PIL Image to a data URI suitable for RunwayML API."""
-    fmt = "png" if image.has_transparency_data else "jpeg"
+    fmt = 'png' if image.has_transparency_data else 'jpeg'
     b64 = to_base64(image, format=fmt)
-    return f"data:image/{fmt};base64,{b64}"
+    return f'data:image/{fmt};base64,{b64}'
 
 
 def _serialize_result(obj: Any) -> Any:
@@ -51,13 +51,13 @@ def _serialize_result(obj: Any) -> Any:
     return obj
 
 
-@pxt.udf(resource_pool="request-rate:runwayml")
+@pxt.udf(resource_pool='request-rate:runwayml')
 async def text_to_image(
     prompt_text: str,
     reference_images: list[PIL.Image.Image],
     *,
-    model: str = "gen4_image",
-    ratio: str = "1920:1080",
+    model: str = 'gen4_image',
+    ratio: str = '1920:1080',
     seed: int | None = None,
     model_kwargs: dict[str, Any] | None = None,
 ) -> pxt.Json:
@@ -89,21 +89,21 @@ async def text_to_image(
         ... )
         >>> tbl.add_computed_column(image=tbl.response['output'][0].astype(pxt.Image))
     """
-    Env.get().require_package("runwayml")
+    Env.get().require_package('runwayml')
     client = _runwayml_client()
 
     # Convert reference images to data URIs
-    ref_images = [{"uri": _image_to_data_uri(img)} for img in reference_images]
+    ref_images = [{'uri': _image_to_data_uri(img)} for img in reference_images]
 
     kwargs: dict[str, Any] = {
-        "model": model,
-        "prompt_text": prompt_text,
-        "ratio": ratio,
-        "reference_images": ref_images,
+        'model': model,
+        'prompt_text': prompt_text,
+        'ratio': ratio,
+        'reference_images': ref_images,
     }
 
     if seed is not None:
-        kwargs["seed"] = seed
+        kwargs['seed'] = seed
     if model_kwargs is not None:
         kwargs.update(model_kwargs)
 
@@ -112,12 +112,12 @@ async def text_to_image(
     return _serialize_result(result.to_dict())
 
 
-@pxt.udf(resource_pool="request-rate:runwayml")
+@pxt.udf(resource_pool='request-rate:runwayml')
 async def text_to_video(
     prompt_text: str,
     *,
-    model: str = "veo3.1",
-    ratio: str = "1280:720",
+    model: str = 'veo3.1',
+    ratio: str = '1280:720',
     duration: int | None = None,
     audio: bool | None = None,
     model_kwargs: dict[str, Any] | None = None,
@@ -148,19 +148,15 @@ async def text_to_video(
         >>> tbl.add_computed_column(response=text_to_video(tbl.prompt, model='veo3.1', duration=4))
         >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
-    Env.get().require_package("runwayml")
+    Env.get().require_package('runwayml')
     client = _runwayml_client()
 
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "prompt_text": prompt_text,
-        "ratio": ratio,
-    }
+    kwargs: dict[str, Any] = {'model': model, 'prompt_text': prompt_text, 'ratio': ratio}
 
     if duration is not None:
-        kwargs["duration"] = duration
+        kwargs['duration'] = duration
     if audio is not None:
-        kwargs["audio"] = audio
+        kwargs['audio'] = audio
     if model_kwargs is not None:
         kwargs.update(model_kwargs)
 
@@ -169,12 +165,12 @@ async def text_to_video(
     return _serialize_result(result.to_dict())
 
 
-@pxt.udf(resource_pool="request-rate:runwayml")
+@pxt.udf(resource_pool='request-rate:runwayml')
 async def image_to_video(
     prompt_image: PIL.Image.Image,
     *,
-    model: str = "gen4_turbo",
-    ratio: str = "1280:720",
+    model: str = 'gen4_turbo',
+    ratio: str = '1280:720',
     prompt_text: str | None = None,
     duration: int | None = None,
     seed: int | None = None,
@@ -211,20 +207,20 @@ async def image_to_video(
         ... )
         >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
-    Env.get().require_package("runwayml")
+    Env.get().require_package('runwayml')
     client = _runwayml_client()
 
     image_uri = _image_to_data_uri(prompt_image)
-    kwargs: dict[str, Any] = {"model": model, "prompt_image": image_uri, "ratio": ratio}
+    kwargs: dict[str, Any] = {'model': model, 'prompt_image': image_uri, 'ratio': ratio}
 
     if prompt_text is not None:
-        kwargs["prompt_text"] = prompt_text
+        kwargs['prompt_text'] = prompt_text
     if duration is not None:
-        kwargs["duration"] = duration
+        kwargs['duration'] = duration
     if seed is not None:
-        kwargs["seed"] = seed
+        kwargs['seed'] = seed
     if audio is not None:
-        kwargs["audio"] = audio
+        kwargs['audio'] = audio
     if model_kwargs is not None:
         kwargs.update(model_kwargs)
 
@@ -233,13 +229,13 @@ async def image_to_video(
     return _serialize_result(result.to_dict())
 
 
-@pxt.udf(resource_pool="request-rate:runwayml")
+@pxt.udf(resource_pool='request-rate:runwayml')
 async def video_to_video(
     video_uri: str,
     prompt_text: str,
     *,
-    model: str = "gen4_aleph",
-    ratio: str = "1280:720",
+    model: str = 'gen4_aleph',
+    ratio: str = '1280:720',
     seed: int | None = None,
     model_kwargs: dict[str, Any] | None = None,
 ) -> pxt.Json:
@@ -271,18 +267,13 @@ async def video_to_video(
         ... )
         >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
-    Env.get().require_package("runwayml")
+    Env.get().require_package('runwayml')
     client = _runwayml_client()
 
-    kwargs: dict[str, Any] = {
-        "model": model,
-        "video_uri": video_uri,
-        "prompt_text": prompt_text,
-        "ratio": ratio,
-    }
+    kwargs: dict[str, Any] = {'model': model, 'video_uri': video_uri, 'prompt_text': prompt_text, 'ratio': ratio}
 
     if seed is not None:
-        kwargs["seed"] = seed
+        kwargs['seed'] = seed
     if model_kwargs is not None:
         kwargs.update(model_kwargs)
 
