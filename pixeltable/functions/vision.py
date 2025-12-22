@@ -395,9 +395,9 @@ def draw_bounding_boxes(
 def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
     """Get contour mask with specified thickness."""
     assert mask.dtype == bool
-    # find boundaries using 8-connectivity
+    # find interior pixels: those with all 8 neighbors in the mask (8: include diagonals)
     padded = np.pad(mask, 1, mode='constant', constant_values=False)
-    eroded = (
+    interior = (
         padded[1:-1, 1:-1]
         & padded[:-2, 1:-1]
         & padded[2:, 1:-1]
@@ -408,10 +408,10 @@ def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
         & padded[2:, :-2]
         & padded[2:, 2:]
     )
-    boundaries = mask & ~eroded
+    boundaries = mask & ~interior
 
     for _ in range(thickness - 1):
-        # binary dilation with 8-connectivity
+        # binary dilation to all 8 neighbors
         padded = np.pad(boundaries, 1, mode='constant', constant_values=False)
         boundaries = (
             padded[1:-1, 1:-1]
