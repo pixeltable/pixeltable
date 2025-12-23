@@ -802,13 +802,13 @@ class TestIndex:
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
 
         with pytest.raises(
-            pxt.Error, match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for 16bit precision"
+            pxt.Error, match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for fp16 precision"
         ):
             test_tbl.add_embedding_index(
                 test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=4001), precision='fp16'
             )
         with pytest.raises(
-            pxt.Error, match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for 32bit precision"
+            pxt.Error, match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for fp32 precision"
         ):
             test_tbl.add_embedding_index(
                 test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=2001), precision='fp32'
