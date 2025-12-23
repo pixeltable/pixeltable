@@ -9,7 +9,7 @@ from pixeltable.metadata.converters.util import convert_table_md
 @register_converter(version=44)
 def _(engine: sql.engine.Engine) -> None:
     """A "precision" parameter was added to EmbeddingIndex, with the default behavior (16 bit) different from the
-    behavior before (32 bit). This converter adds precision='32bit' to all pre-existing EmbeddingIndex instances to
+    behavior before (32 bit). This converter adds precision='fp32' to all pre-existing EmbeddingIndex instances to
     preserve their behavior.
     """
     convert_table_md(engine, substitution_fn=_substitution_fn)
@@ -25,5 +25,5 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
     assert isinstance(value['init_args'], dict), value
     if 'precision' in value['init_args']:
         return None
-    value['init_args']['precision'] = '32bit'
+    value['init_args']['precision'] = 'fp32'
     return (key, value)
