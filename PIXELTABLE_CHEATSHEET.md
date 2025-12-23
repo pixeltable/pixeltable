@@ -454,17 +454,7 @@ local.pull()  # Sync cloud → local
 [📖 Provider Guide](https://docs.pixeltable.com/howto/providers/working-with-openai) | [📖 API Reference](https://docs.pixeltable.com/sdk/latest/openai)
 
 ```python
-from pixeltable.functions.openai import (
-    chat_completions,
-    embeddings,
-    image_generations,
-    speech,
-    transcriptions,
-    translations,
-    moderations,
-    vision,
-    invoke_tools
-)
+from pixeltable.functions.openai import chat_completions, embeddings, invoke_tools
 
 # Chat
 t.add_computed_column(
@@ -479,102 +469,44 @@ t.add_computed_column(
     emb=embeddings(input=t.text, model='text-embedding-3-small').data[0].embedding
 )
 
-# Image generation
+# Vision (multimodal)
 t.add_computed_column(
-    img=image_generations(prompt=t.prompt, model='dall-e-3').data[0].image
-)
-
-# Text-to-speech
-t.add_computed_column(
-    audio=speech(input=t.text, model='tts-1', voice='alloy')
-)
-
-# Transcription
-t.add_computed_column(
-    text=transcriptions(audio=t.audio, model='whisper-1').text
-)
-
-# Translation
-t.add_computed_column(
-    english=translations(audio=t.audio, model='whisper-1').text
-)
-
-# Moderation
-t.add_computed_column(
-    flags=moderations(input=t.content, model='omni-moderation-latest')
-)
-
-# Vision
-t.add_computed_column(
-    desc=vision(
-        prompt='Describe',
-        image=t.image,
+    desc=chat_completions(
+        messages=[{
+            'role': 'user',
+            'content': [
+                {'type': 'text', 'text': 'Describe'},
+                {'type': 'image_url', 'image_url': {'url': t.image}}
+            ]
+        }],
         model='gpt-4o'
     ).choices[0].message.content
 )
 
 # Tool calling
-t.add_computed_column(
-    tool_results=invoke_tools(tools, t.llm_response)
-)
+t.add_computed_column(tool_results=invoke_tools(tools, t.llm_response))
 ```
 
-### Anthropic
+**Other functions:** `image_generations` (DALL-E), `speech` (TTS), `transcriptions` (Whisper), `translations`, `moderations` - see [API docs](https://docs.pixeltable.com/sdk/latest/openai)
 
-[📖 Provider Guide](https://docs.pixeltable.com/howto/providers/working-with-anthropic) | [📖 API Reference](https://docs.pixeltable.com/sdk/latest/anthropic)
+### Other Major Providers
 
+**Anthropic** ([Guide](https://docs.pixeltable.com/howto/providers/working-with-anthropic) | [API](https://docs.pixeltable.com/sdk/latest/anthropic))
 ```python
-from pixeltable.functions.anthropic import messages, invoke_tools
-
-t.add_computed_column(
-    response=messages(
-        messages=[{'role': 'user', 'content': t.prompt}],
-        model='claude-sonnet-4-20250514'
-    ).content[0].text
-)
+from pixeltable.functions.anthropic import messages
+t.add_computed_column(response=messages(messages=[...], model='claude-sonnet-4-20250514').content[0].text)
 ```
 
-### Google Gemini
-
-[📖 Provider Guide](https://docs.pixeltable.com/howto/providers/working-with-gemini) | [📖 API Reference](https://docs.pixeltable.com/sdk/latest/gemini)
-
+**Google Gemini** ([Guide](https://docs.pixeltable.com/howto/providers/working-with-gemini) | [API](https://docs.pixeltable.com/sdk/latest/gemini))
 ```python
-from pixeltable.functions.gemini import (
-    generate_content,
-    generate_images,
-    generate_videos,
-    invoke_tools
-)
-
-# Text generation
-t.add_computed_column(
-    text=generate_content(contents=t.prompt, model='gemini-2.0-flash').text
-)
-
-# Image generation
-t.add_computed_column(
-    img=generate_images(prompt=t.prompt, model='imagen-3.0-generate-001')
-)
-
-# Video generation
-t.add_computed_column(
-    video=generate_videos(prompt=t.prompt, model='veo-001')
-)
+from pixeltable.functions.gemini import generate_content
+t.add_computed_column(text=generate_content(contents=t.prompt, model='gemini-2.0-flash').text)
 ```
 
-### AWS Bedrock
-
-[📖 Provider Guide](https://docs.pixeltable.com/howto/providers/working-with-bedrock) | [📖 API Reference](https://docs.pixeltable.com/sdk/latest/bedrock)
-
+**AWS Bedrock** ([Guide](https://docs.pixeltable.com/howto/providers/working-with-bedrock) | [API](https://docs.pixeltable.com/sdk/latest/bedrock))
 ```python
-from pixeltable.functions.bedrock import converse, invoke_tools
-
-t.add_computed_column(
-    response=converse(
-        messages=[{'role': 'user', 'content': [{'text': t.prompt}]}],
-        model_id='anthropic.claude-3-5-sonnet-20241022-v2:0'
-    ).output.message.content[0].text
-)
+from pixeltable.functions.bedrock import converse
+t.add_computed_column(response=converse(messages=[...], model_id='anthropic.claude-3-5-sonnet-20241022-v2:0')...)
 ```
 
 ### Other LLM Providers
@@ -597,93 +529,39 @@ t.add_computed_column(
 
 [📖 Provider Guide](https://docs.pixeltable.com/howto/providers/working-with-hugging-face) | [📖 API Reference](https://docs.pixeltable.com/sdk/latest/huggingface)
 
-```python
-from pixeltable.functions.huggingface import (
-    # Embeddings
-    sentence_transformer,  # Text embeddings
-    clip,                  # Image/text embeddings
-    cross_encoder,         # Similarity scoring
-    
-    # Vision
-    detr_for_object_detection,
-    vit_for_image_classification,
-    image_captioning,
-    
-    # Generation
-    text_to_image,
-    image_to_image,
-    image_to_video,
-    text_to_speech,
-    text_generation,
-    
-    # NLP
-    summarization,
-    translation,
-    text_classification,
-    token_classification,  # NER
-    question_answering,
-    
-    # Speech
-    automatic_speech_recognition,
-    speech2text_for_conditional_generation,
-)
+**20+ functions:** embeddings (sentence_transformer, clip, cross_encoder), vision (detr_for_object_detection, vit_for_image_classification, image_captioning), generation (text_to_image, image_to_image, image_to_video, text_to_speech, text_generation), NLP (summarization, translation, text_classification, token_classification, question_answering), speech (automatic_speech_recognition, speech2text_for_conditional_generation)
 
-# Examples
+```python
+from pixeltable.functions.huggingface import sentence_transformer, detr_for_object_detection, image_to_image
+
 t.add_computed_column(emb=sentence_transformer(t.text, model_id='all-MiniLM-L6-v2'))
 t.add_computed_column(obj=detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50'))
-t.add_computed_column(img=text_to_image(t.prompt, model_id='stable-diffusion-v1-5/stable-diffusion-v1-5'))
+t.add_computed_column(transformed=image_to_image(t.img, t.prompt, model_id='stable-diffusion-v1-5/stable-diffusion-v1-5'))
 ```
 
-📚 [Image-to-Image](https://docs.pixeltable.com/howto/cookbooks/images/img-image-to-image)
+📚 [Image-to-Image Cookbook](https://docs.pixeltable.com/howto/cookbooks/images/img-image-to-image)
 
-### Whisper & Speech
+### Local Speech Models
 
-[📖 Whisper Guide](https://docs.pixeltable.com/sdk/latest/whisper) | [📖 WhisperX Guide](https://docs.pixeltable.com/sdk/latest/whisperx)
+**Whisper & WhisperX** ([Whisper API](https://docs.pixeltable.com/sdk/latest/whisper) | [WhisperX API](https://docs.pixeltable.com/sdk/latest/whisperx) | [Cookbook](https://docs.pixeltable.com/howto/cookbooks/audio/audio-transcribe))
 
 ```python
 from pixeltable.functions.whisper import transcribe
-from pixeltable.functions.whisperx import transcribe_audio
-
 t.add_computed_column(transcript=transcribe(t.audio, model='base'))
 ```
 
-📚 [Audio Transcription](https://docs.pixeltable.com/howto/cookbooks/audio/audio-transcribe) | [TTS](https://docs.pixeltable.com/howto/cookbooks/audio/audio-text-to-speech)
+### Specialized Models
 
-### Vision Models
-
-[📖 Vision API](https://docs.pixeltable.com/sdk/latest/vision) | [📖 YOLOX API](https://docs.pixeltable.com/sdk/latest/yolox)
-
+**YOLOX - Object Detection** ([API](https://docs.pixeltable.com/sdk/latest/yolox) | [Cookbook](https://docs.pixeltable.com/howto/cookbooks/images/img-detect-objects))
 ```python
-from pixeltable.functions.yolox import yolox, yolo_to_coco
-from pixeltable.functions.vision import draw_bounding_boxes, eval_detections
-
+from pixeltable.functions.yolox import yolox
+from pixeltable.functions.vision import draw_bounding_boxes
 t.add_computed_column(boxes=yolox(t.image, model_id='yolox_m'))
-t.add_computed_column(coco=yolo_to_coco(t.image, t.boxes))
 t.add_computed_column(annotated=draw_bounding_boxes(t.image, t.boxes['boxes'], t.boxes['labels']))
 ```
 
-📚 [Object Detection](https://docs.pixeltable.com/howto/cookbooks/images/img-detect-objects) | [Visualize Detections](https://docs.pixeltable.com/howto/cookbooks/images/img-visualize-detections)
-
-### Reve (Audio/Video Editing)
-
-[📖 API Reference](https://docs.pixeltable.com/sdk/latest/reve)
-
-```python
-from pixeltable.functions.reve import create, edit, remix
-
-t.add_computed_column(audio=create(script=t.script))
-t.add_computed_column(edited=edit(audio=t.audio, edits=t.edits))
-```
-
-### TwelveLabs (Video Understanding)
-
-[📖 API Reference](https://docs.pixeltable.com/sdk/latest/twelvelabs)
-
-```python
-from pixeltable.functions.twelvelabs import embed
-
-t.add_computed_column(video_emb=embed(video=t.video))
-```
+**Reve - Audio/Video Editing** ([API](https://docs.pixeltable.com/sdk/latest/reve))
+**TwelveLabs - Video Understanding** ([API](https://docs.pixeltable.com/sdk/latest/twelvelabs))
 
 ---
 
@@ -691,173 +569,67 @@ t.add_computed_column(video_emb=embed(video=t.video))
 
 ### String
 
-[📖 API Reference](https://docs.pixeltable.com/sdk/latest/string)
+[📖 API Reference](https://docs.pixeltable.com/sdk/latest/string) - 40+ functions
 
 ```python
-# Use as methods (no import needed)
-t.name.lower()
-t.name.upper()
-t.name.strip()
-t.name.replace('old', 'new')
-t.name.split(' ')
-t.name.contains('text')
-t.name.startswith('A')
-t.name.endswith('z')
-t.name.len()
-
-# Full list: capitalize, casefold, center, contains_re, count, fill, find, findall, 
-# format, fullmatch, index, is*, join, ljust, lstrip, match, normalize, pad, 
-# partition, removeprefix, removesuffix, repeat, replace_re, reverse, rfind, 
-# rindex, rjust, rpartition, rstrip, slice, slice_replace, swapcase, title, 
-# translate, upper, wrap, zfill
+# Common methods (no import needed)
+t.name.lower() / .upper() / .strip() / .replace('old', 'new') / .split(' ')
+t.name.contains('text') / .startswith('A') / .endswith('z') / .len()
+t.name.contains_re(r'\d+') / .findall(r'\w+')  # Regex
 ```
 
 ### Image
 
-[📖 API Reference](https://docs.pixeltable.com/sdk/latest/image)
+[📖 API Reference](https://docs.pixeltable.com/sdk/latest/image) - 25+ functions
 
 ```python
-# Properties
-t.image.width
-t.image.height
-t.image.mode
-
-# Transformations
-t.image.resize((256, 256))
-t.image.rotate(90)
-t.image.crop((x1, y1, x2, y2))
-t.image.convert('L')
-t.image.transpose(method)
-
-# Operations
-t.image.blend(other, alpha=0.5)
-t.image.composite(overlay, mask)
-
-# Analysis
-t.image.histogram()
-t.image.entropy()
-t.image.get_metadata()
-
-# Full list: alpha_composite, b64_encode, getbands, getbbox, getcolors, 
-# getchannel, getextrema, getpalette, getpixel, getprojection, point, 
-# quantize, reduce, thumbnail, effect_spread
+# Properties & Transformations
+t.image.width / .height / .mode
+t.image.resize((256, 256)) / .rotate(90) / .crop((x1, y1, x2, y2)) / .convert('L')
+t.image.blend(other, alpha=0.5) / .histogram() / .get_metadata()
 ```
 
 📚 [Apply Filters](https://docs.pixeltable.com/howto/cookbooks/images/img-apply-filters) | [PIL Transforms](https://docs.pixeltable.com/howto/cookbooks/images/img-pil-transforms) | [Brightness/Contrast](https://docs.pixeltable.com/howto/cookbooks/images/img-brightness-contrast)
 
-### Video
+### Video, Audio, Document
 
-[📖 API Reference](https://docs.pixeltable.com/sdk/latest/video)
-
-```python
-# Metadata
-t.video.get_metadata()
-t.video.get_duration()
-
-# Extract
-t.video.extract_frame(timestamp=5.0)
-t.video.extract_audio()
-
-# Edit
-t.video.clip(start=10.0, end=30.0)
-t.video.concat_videos([t.vid1, t.vid2])
-t.video.segment_video(timestamps=[10, 20, 30])
-t.video.overlay_text(text='Title', position='center')
-t.video.with_audio(audio=t.audio_file)
-
-# Scene detection
-t.video.scene_detect_content()
-t.video.scene_detect_adaptive()
-t.video.scene_detect_threshold(threshold=30.0)
-t.video.scene_detect_histogram()
-t.video.scene_detect_hash()
-```
-
-📚 [Extract Frames](https://docs.pixeltable.com/howto/cookbooks/video/video-extract-frames) | [Scene Detection](https://docs.pixeltable.com/howto/cookbooks/video/video-scene-detection) | [Video Overlay](https://docs.pixeltable.com/howto/cookbooks/video/video-add-text-overlay) | [Generate Video AI](https://docs.pixeltable.com/howto/cookbooks/video/video-generate-ai)
-
-### Audio
-
-[📖 API Reference](https://docs.pixeltable.com/sdk/latest/audio)
+[📖 Video API](https://docs.pixeltable.com/sdk/latest/video) | [📖 Audio API](https://docs.pixeltable.com/sdk/latest/audio)
 
 ```python
-from pixeltable.functions.audio import get_metadata, encode_audio
+# Video - 14+ functions
+t.video.get_metadata() / .get_duration() / .extract_frame(timestamp=5.0) / .extract_audio()
+t.video.clip(start=10, end=30) / .overlay_text(text='Title') / .scene_detect_content()
 
+# Audio - 2 functions  
 t.audio.get_metadata()
-t.add_computed_column(aac=encode_audio(t.audio, codec='aac'))
+
+# Document - use iterators for chunking (see Iterators section)
 ```
 
-📚 [Extract Audio](https://docs.pixeltable.com/howto/cookbooks/audio/audio-extract-from-video) | [Summarize Podcast](https://docs.pixeltable.com/howto/cookbooks/audio/audio-summarize-podcast)
+📚 [Video Frames](https://docs.pixeltable.com/howto/cookbooks/video/video-extract-frames) | [Scene Detection](https://docs.pixeltable.com/howto/cookbooks/video/video-scene-detection) | [Extract Audio](https://docs.pixeltable.com/howto/cookbooks/audio/audio-extract-from-video) | [Extract Text](https://docs.pixeltable.com/howto/cookbooks/text/doc-extract-text-from-office-files)
 
-### Document
+### Timestamp, Date, Math, JSON, UUID, Net
 
-```python
-# Document chunking via iterator (see Iterators section)
-from pixeltable.iterators import DocumentSplitter
-```
-
-📚 [Extract Text](https://docs.pixeltable.com/howto/cookbooks/text/doc-extract-text-from-office-files)
-
-### Timestamp & Date
-
-[📖 Timestamp API](https://docs.pixeltable.com/sdk/latest/timestamp) | [📖 Date API](https://docs.pixeltable.com/sdk/latest/date)
+[📖 Timestamp](https://docs.pixeltable.com/sdk/latest/timestamp) | [📖 Date](https://docs.pixeltable.com/sdk/latest/date) | [📖 Math](https://docs.pixeltable.com/sdk/latest/math) | [📖 JSON](https://docs.pixeltable.com/sdk/latest/json)
 
 ```python
-from pixeltable.functions import timestamp, date
+# Timestamp
+t.created_at.year / .month / .day / .hour / .weekday() / .strftime('%Y-%m-%d')
 
-# Timestamp properties
-t.created_at.year
-t.created_at.month
-t.created_at.day
-t.created_at.hour
-t.created_at.minute
-t.created_at.second
-
-# Methods
-t.created_at.weekday()
-t.created_at.strftime('%Y-%m-%d')
-t.created_at.astimezone('US/Pacific')
-
-# Date operations
-date.make_date(year=2024, month=1, day=1)
-date.add_days(t.date_col, days=7)
-```
-
-📚 [Time Zones](https://docs.pixeltable.com/howto/cookbooks/core/time-zones)
-
-### Math & JSON
-
-[📖 Math API](https://docs.pixeltable.com/sdk/latest/math) | [📖 JSON API](https://docs.pixeltable.com/sdk/latest/json)
-
-```python
-from pixeltable.functions import math, json
+# Date  
+date.make_date(year=2024, month=1, day=1) / date.add_days(t.date, days=7)
 
 # Math
-math.abs(t.val)
-math.ceil(t.val)
-math.floor(t.val)
-math.round(t.val, 2)
-math.sqrt(t.val)
-math.pow(t.base, t.exp)
+math.abs() / .ceil() / .floor() / .round() / .sqrt() / .pow()
 
 # JSON
-t.metadata['key']
-t.metadata['nested']['field']
-json.make_list([t.a, t.b, t.c])
+t.metadata['key']['nested']
+
+# UUID & Net
+uuid4() / presigned_url(t.s3_path, expiration=3600)
 ```
 
-### UUID & Net
-
-[📖 UUID API](https://docs.pixeltable.com/sdk/latest/pixeltable#pixeltablefunctionsuuiduuid4)
-
-```python
-from pixeltable.functions.uuid import uuid4
-from pixeltable.functions.net import presigned_url
-
-t.add_computed_column(id=uuid4())
-t.add_computed_column(url=presigned_url(t.s3_path, expiration=3600))
-```
-
-📚 [UUID Identity](https://docs.pixeltable.com/howto/cookbooks/core/workflow-uuid-identity)
+📚 [Time Zones](https://docs.pixeltable.com/howto/cookbooks/core/time-zones) | [UUID Workflow](https://docs.pixeltable.com/howto/cookbooks/core/workflow-uuid-identity) | [JSON Extraction](https://docs.pixeltable.com/howto/cookbooks/core/workflow-json-extraction)
 
 ---
 
@@ -975,10 +747,9 @@ pxt.init({'home': '/path/to/data'})
 
 | Decorator | Purpose | Docs |
 |-----------|---------|------|
-| `@pxt.udf` | Basic UDF | [Guide](https://docs.pixeltable.com/platform/udfs-in-pixeltable) |
-| `@pxt.expr_udf` | SQL-optimized | [Guide](https://docs.pixeltable.com/platform/udfs-in-pixeltable) |
-| `@pxt.uda` | Custom aggregate | [Cookbook](https://docs.pixeltable.com/howto/cookbooks/core/custom-aggregates-uda) |
-| `@pxt.query` | Reusable query | [Cookbook](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline) |
+| `@pxt.udf` | User-defined function | [Guide](https://docs.pixeltable.com/platform/udfs-in-pixeltable) |
+| `@pxt.uda` | User-defined aggregate | [Cookbook](https://docs.pixeltable.com/howto/cookbooks/core/custom-aggregates-uda) |
+| `@pxt.query` | Reusable query function | [Cookbook](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline) |
 
 ### Tool Calling
 
