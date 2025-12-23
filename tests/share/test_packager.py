@@ -820,7 +820,7 @@ class TestPackager:
         for i in (3, 0, 1, 4, 2):
             self.__restore_and_check_table(bundles[i], f'replica_view_{i}')
 
-    @pytest.mark.parametrize('embedding_precision', ['16bit', '32bit'])
+    @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
     def test_embedding_index(self, reset_db: None, clip_embed: pxt.Function, embedding_precision: str) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP
 
@@ -831,7 +831,7 @@ class TestPackager:
 
         self.__do_round_trip(t)
 
-    @pytest.mark.parametrize('embedding_precision', ['16bit', '32bit'])
+    @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
     def test_multi_version_embedding_index(
         self, reset_db: None, clip_embed: pxt.Function, embedding_precision: str
     ) -> None:
