@@ -805,22 +805,22 @@ class TestIndex:
             pxt.Error, match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for 16bit precision"
         ):
             test_tbl.add_embedding_index(
-                test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=4001), precision='16bit'
+                test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=4001), precision='fp16'
             )
         with pytest.raises(
             pxt.Error, match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for 32bit precision"
         ):
             test_tbl.add_embedding_index(
-                test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=2001), precision='32bit'
+                test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=2001), precision='fp32'
             )
-        with pytest.raises(pxt.Error, match=r"Invalid precision.+Must be one of: \['16bit', '32bit'\]"):
+        with pytest.raises(pxt.Error, match=r"Invalid precision.+Must be one of: \['fp16', 'fp32'\]"):
             test_tbl.add_embedding_index(
                 test_tbl.c1,
                 embedding=TestIndex.dummy_embedding.using(n=2001),
                 precision='invalid',  # type: ignore[arg-type]
             )
         with pytest.raises(pxt.Error, match='is not a valid embedding: it returns an array of invalid length 0'):
-            test_tbl.add_embedding_index(test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=0), precision='16bit')
+            test_tbl.add_embedding_index(test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=0), precision='fp16')
 
     def run_btree_test(self, data: list, data_type: type | _GenericAlias) -> pxt.Table:
         t = pxt.create_table('btree_test', {'data': data_type})
@@ -926,7 +926,7 @@ class TestIndex:
 
     @pytest.mark.parametrize('reload_cat', [True, False], ids=['reload_cat', 'no_reload_cat'])
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
-    @pytest.mark.parametrize('precision', ['16bit', '32bit'])
+    @pytest.mark.parametrize('precision', ['fp16', 'fp32'])
     def test_embedding_index_precision(self, reset_db: None, reload_cat: bool, metric: str, precision: str) -> None:
         # Note: dummy embeddings produced by our test UDF are not normalized, so, strictly speaking, it cannot be
         # used with IP metric, however it appears to work fine anyway, and that's good enough for our test purpose.

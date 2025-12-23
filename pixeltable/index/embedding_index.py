@@ -37,8 +37,8 @@ class EmbeddingIndex(IndexBase):
         L2 = 3
 
     class Precision(enum.Enum):
-        _16BIT = '16bit'
-        _32BIT = '32bit'
+        FP16 = 'fp16'
+        FP32 = 'fp32'
 
     PGVECTOR_OPS: ClassVar[dict[Metric, str]] = {
         Metric.COSINE: 'vector_cosine_ops',
@@ -58,7 +58,7 @@ class EmbeddingIndex(IndexBase):
     def __init__(
         self,
         metric: str,
-        precision: Literal['16bit', '32bit'],
+        precision: Literal['fp16', 'fp32'],
         embed: func.Function | None = None,
         string_embed: func.Function | None = None,
         image_embed: func.Function | None = None,
@@ -143,7 +143,7 @@ class EmbeddingIndex(IndexBase):
         assert vector_length is not None
         assert vector_length > 0
 
-        if self.precision == self.Precision._32BIT:
+        if self.precision == self.Precision.FP32:
             if vector_length > MAX_EMBEDDING_VECTOR_LENGTH:
                 raise excs.Error(
                     f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
@@ -151,7 +151,7 @@ class EmbeddingIndex(IndexBase):
                 )
             return pgvector.sqlalchemy.Vector(vector_length)
 
-        assert self.precision == self.Precision._16BIT
+        assert self.precision == self.Precision.FP16
         if vector_length > MAX_EMBEDDING_HALFVEC_LENGTH:
             raise excs.Error(
                 f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
