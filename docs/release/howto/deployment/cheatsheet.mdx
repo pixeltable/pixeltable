@@ -1,0 +1,963 @@
+---
+title: "Pixeltable Cheat Sheet"
+description: "Complete quick reference for Pixeltable - the declarative data infrastructure for multimodal AI"
+icon: "book"
+---
+
+<Info>
+**Pixeltable** is the open-source Python library providing declarative data infrastructure for multimodal AI applications—enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.
+</Info>
+
+## Installation
+
+<CodeGroup>
+```bash Basic
+pip install pixeltable
+```
+</CodeGroup>
+
+```python
+import pixeltable as pxt
+```
+
+---
+
+## Core Operations
+
+<Tabs>
+  <Tab title="Directories">
+    ```python
+    # Create
+    pxt.create_dir('project')
+    pxt.create_dir('project.subdir')
+
+    # List
+    pxt.ls()                           # DataFrame of contents
+    pxt.list_dirs()                    # List of directory names
+    pxt.list_tables()                  # List of table names
+    contents = pxt.get_dir_contents('project')
+
+    # Move/rename
+    pxt.move('old.path', 'new.path')
+
+    # Delete
+    pxt.drop_dir('project', force=True)
+    ```
+  </Tab>
+  <Tab title="Tables">
+    ```python
+    # Create
+    t = pxt.create_table('project.users', {
+        'id': pxt.Required[pxt.String],
+        'name': pxt.String,
+        'age': pxt.Int,
+        'created_at': pxt.Timestamp,
+    }, primary_key='id')
+
+    # Get
+    t = pxt.get_table('project.users')
+
+    # Operations
+    t.describe()                       # Show schema
+    t.count()                          # Row count
+    t.columns()                        # Column names
+    metadata = t.get_metadata()        # Table metadata
+    t.list_views()                     # Views based on this table
+
+    # Modify schema
+    t.add_column(email=pxt.String)
+    t.rename_column('old', 'new')
+    t.drop_column('column')
+
+    # Delete
+    pxt.drop_table('project.users')
+    ```
+  </Tab>
+</Tabs>
+
+<Card title="API Reference" icon="book" href="/sdk/latest/pixeltable">
+  Full directory and table operations
+</Card>
+
+---
+
+## Type System
+
+<CardGroup cols={2}>
+  <Card title="Core Types">
+    | Python | Pixeltable |
+    |--------|------------|
+    | `str` | `pxt.String` |
+    | `int` | `pxt.Int` |
+    | `float` | `pxt.Float` |
+    | `bool` | `pxt.Bool` |
+    | `datetime` | `pxt.Timestamp` |
+    | `date` | `pxt.Date` |
+    | `dict` | `pxt.Json` |
+    | `bytes` | `pxt.Binary` |
+    | `UUID` | `pxt.UUID` |
+  </Card>
+  <Card title="Media & Arrays">
+    ```python
+    pxt.Image              # Images
+    pxt.Video              # Videos
+    pxt.Audio              # Audio
+    pxt.Document           # PDFs, Word docs
+    
+    # Arrays
+    pxt.Array[(768,), pxt.Float]    # Fixed-dim
+    pxt.Array[(None,), pxt.Float]   # Variable-dim
+    
+    # Non-nullable
+    pxt.Required[pxt.String]
+    ```
+  </Card>
+</CardGroup>
+
+<Card title="Type System Guide" icon="shapes" href="/platform/type-system">
+  Complete type system documentation
+</Card>
+
+---
+
+## Queries & Data Operations
+
+<Tabs>
+  <Tab title="Insert/Update/Delete">
+    ```python
+    # Insert
+    t.insert([{'name': 'Alice', 'age': 30}])
+    t.insert([User(name='Alice', age=30)])  # Pydantic
+
+    # Update
+    t.where(t.name == 'Alice').update({'age': 31})
+    t.batch_update([{'_rowid': id1, 'score': 100}])
+
+    # Delete
+    t.where(t.age < 18).delete()
+
+    # Recompute
+    t.recompute_columns(['embedding'])
+    ```
+  </Tab>
+  <Tab title="Queries">
+    ```python
+    # Basic
+    t.collect()                        # All rows
+    t.head(10)                         # First 10
+    t.select(t.name, t.age).collect()  # Specific columns
+
+    # Filter
+    t.where(t.age > 25).collect()
+    t.where((t.age > 25) & (t.active == True)).collect()
+
+    # Order & limit
+    t.order_by(t.created_at, asc=False).limit(100).collect()
+
+    # Sample
+    t.sample(fraction=0.1).collect()
+    t.sample(n=100, seed=42).collect()
+    ```
+  </Tab>
+  <Tab title="Aggregations & Joins">
+    ```python
+    # Aggregate
+    t.group_by(t.category).select(
+        t.category,
+        total=count(t.id),
+        avg=avg(t.score)
+    ).collect()
+
+    # Join
+    orders.join(users, on=(orders.user_id == users.id)).collect()
+    ```
+  </Tab>
+</Tabs>
+
+<CardGroup cols={2}>
+  <Card title="Queries Guide" icon="magnifying-glass" href="/tutorials/queries-and-expressions">
+    Learn query expressions
+  </Card>
+  <Card title="Join Tables" icon="link" href="/howto/cookbooks/core/query-join-tables">
+    Join cookbook
+  </Card>
+</CardGroup>
+
+---
+
+## Computed Columns
+
+```python
+# Basic expression
+t.add_computed_column(total=t.price * t.quantity)
+
+# With LLM
+from pixeltable.functions.openai import chat_completions
+
+t.add_computed_column(
+    summary=chat_completions(
+        messages=[{'role': 'user', 'content': t.text}],
+        model='gpt-4o-mini'
+    ).choices[0].message.content
+)
+
+# With UDF
+@pxt.udf
+def word_count(text: str) -> int:
+    return len(text.split())
+
+t.add_computed_column(words=word_count(t.content))
+```
+
+<Tip>
+**Options:**
+- `stored=False` — Compute on demand (not stored)
+- `destination='s3://bucket/path/'` — Store media in S3
+</Tip>
+
+<Card title="Computed Columns Guide" icon="calculator" href="/tutorials/computed-columns">
+  Full computed columns documentation
+</Card>
+
+---
+
+## Custom Functions (UDFs)
+
+<AccordionGroup>
+  <Accordion title="Basic UDF" icon="function">
+    ```python
+    @pxt.udf
+    def multiply(a: int, b: int) -> int:
+        return a * b
+
+    t.select(result=multiply(t.x, t.y)).collect()
+    ```
+  </Accordion>
+  
+  <Accordion title="Batched UDF" icon="layer-group">
+    ```python
+    from pixeltable.func import Batch
+
+    @pxt.udf(batch_size=32)
+    def embed(texts: Batch[str]) -> Batch[list[float]]:
+        return model.encode(texts).tolist()
+    ```
+  </Accordion>
+  
+  <Accordion title="Query Function (@pxt.query)" icon="database">
+    ```python
+    @pxt.query
+    def top_k_search(query: str, k: int = 5):
+        """Reusable query function."""
+        sim = docs.content.similarity(string=query)
+        return docs.order_by(sim, asc=False).select(docs.content, score=sim).limit(k)
+
+    # Use in computed column
+    t.add_computed_column(context=top_k_search(t.question))
+    ```
+  </Accordion>
+  
+  <Accordion title="Retrieval UDF" icon="magnifying-glass">
+    ```python
+    # Convert table to callable function
+    lookup = pxt.retrieval_udf(
+        kb_table,
+        name='search_kb',
+        description='Search knowledge base',
+        parameters=['topic'],
+        limit=5
+    )
+
+    results = lookup(topic='python')
+    tools = pxt.tools(lookup)  # Use as LLM tool
+    ```
+  </Accordion>
+  
+  <Accordion title="User-Defined Aggregates (UDA)" icon="chart-line">
+    ```python
+    @pxt.uda(value_type=pxt.Float, update_type=pxt.Json)
+    class RunningAvg:
+        def __init__(self):
+            self.sum = 0.0
+            self.count = 0
+        def update(self, val: float):
+            self.sum += val
+            self.count += 1
+        def value(self) -> float:
+            return self.sum / self.count if self.count > 0 else 0.0
+    ```
+  </Accordion>
+  
+  <Accordion title="MCP UDFs" icon="plug">
+    ```python
+    # Connect to MCP server
+    udfs = pxt.mcp_udfs('http://localhost:8000/mcp')
+    t.add_computed_column(result=udfs[0](t.data))
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Card title="UDFs Guide" icon="code" href="/platform/udfs-in-pixeltable">
+  Complete UDF documentation
+</Card>
+
+---
+
+## Embedding Indexes & Vector Search
+
+<Steps>
+  <Step title="Create Index">
+    ```python
+    from pixeltable.functions.openai import embeddings
+
+    t.add_embedding_index(
+        'idx',
+        column=t.content,
+        embedding=embeddings(input=t.content, model='text-embedding-3-small'),
+        metric='cosine'  # 'cosine', 'ip', 'l2'
+    )
+    ```
+  </Step>
+  <Step title="Search with .similarity()">
+    ```python
+    sim = t.content.similarity(string='query')
+    results = t.order_by(sim, asc=False).select(t.content, score=sim).limit(10)
+    ```
+  </Step>
+  <Step title="Or use named index">
+    ```python
+    results = t.idx.similarity_search('query', k=10)
+    ```
+  </Step>
+</Steps>
+
+```python
+# Get raw embeddings
+t.select(t.content, emb=t.content.embedding()).collect()
+
+# Drop index
+t.drop_embedding_index('idx')
+```
+
+<CardGroup cols={3}>
+  <Card title="Embedding Indexes" icon="database" href="/platform/embedding-indexes">
+    Guide
+  </Card>
+  <Card title="Semantic Search" icon="magnifying-glass" href="/howto/cookbooks/search/search-semantic-text">
+    Cookbook
+  </Card>
+  <Card title="Image Search" icon="image" href="/howto/cookbooks/search/search-similar-images">
+    Cookbook
+  </Card>
+</CardGroup>
+
+---
+
+## Iterators
+
+```python
+from pixeltable.iterators import (
+    DocumentSplitter,
+    FrameIterator,
+    VideoSplitter,
+    AudioSplitter,
+    StringSplitter,
+    TileIterator
+)
+```
+
+<Tabs>
+  <Tab title="Video Frames">
+    ```python
+    frames = pxt.create_view(
+        'project.frames',
+        videos,
+        iterator=FrameIterator.create(video=videos.video, fps=1)
+    )
+    ```
+  </Tab>
+  <Tab title="Document Chunking">
+    ```python
+    chunks = pxt.create_view(
+        'project.chunks',
+        docs,
+        iterator=DocumentSplitter.create(
+            document=docs.document,
+            separators='paragraph',
+            limit=500,
+            overlap=50
+        )
+    )
+    ```
+  </Tab>
+</Tabs>
+
+<CardGroup cols={2}>
+  <Card title="Iterators Guide" icon="arrows-split-up-and-left" href="/platform/iterators">
+    Full documentation
+  </Card>
+  <Card title="Document Chunking" icon="file-lines" href="/howto/cookbooks/text/doc-chunk-for-rag">
+    RAG chunking cookbook
+  </Card>
+</CardGroup>
+
+---
+
+## Views & Snapshots
+
+```python
+# Filtered view
+active = pxt.create_view(
+    'project.active_users',
+    users,
+    filter=users.status == 'active'
+)
+
+# View with iterator
+frames = pxt.create_view(
+    'project.frames',
+    videos,
+    iterator=FrameIterator.create(video=videos.video, fps=2)
+)
+
+# Snapshot (read-only)
+snapshot = pxt.create_snapshot('project.backup', users)
+```
+
+<Card title="Views Guide" icon="eye" href="/platform/views">
+  Full views documentation
+</Card>
+
+---
+
+## Version Control
+
+```python
+t.history()                        # Version history
+t.history(n=10)                    # Last 10 versions
+versions = t.get_versions()
+t.revert()                         # Undo last change (cannot be undone!)
+```
+
+<Warning>
+`t.revert()` cannot be undone! Use with caution.
+</Warning>
+
+<Card title="Version Control Guide" icon="clock-rotate-left" href="/platform/version-control">
+  Full documentation
+</Card>
+
+---
+
+## Data Sharing
+
+<CodeGroup>
+```python Publish
+# Publish to cloud
+pxt.publish(
+    source='my.table',
+    destination_uri='pxt://username/dataset',
+    access='public'  # or 'private' (default)
+)
+t.push()  # Sync local → cloud
+```
+
+```python Replicate
+# Replicate (clone)
+local = pxt.replicate(
+    remote_uri='pxt://user/dataset',
+    local_path='my-copy'
+)
+local.pull()  # Sync cloud → local
+```
+</CodeGroup>
+
+<Card title="Data Sharing Guide" icon="share-nodes" href="/platform/data-sharing">
+  Full documentation
+</Card>
+
+---
+
+## AI Integrations
+
+### OpenAI
+
+```python
+from pixeltable.functions.openai import chat_completions, embeddings, invoke_tools
+
+# Chat
+t.add_computed_column(
+    response=chat_completions(
+        messages=[{'role': 'user', 'content': t.prompt}],
+        model='gpt-4o'
+    ).choices[0].message.content
+)
+
+# Embeddings
+t.add_computed_column(
+    emb=embeddings(input=t.text, model='text-embedding-3-small').data[0].embedding
+)
+
+# Vision (multimodal)
+t.add_computed_column(
+    desc=chat_completions(
+        messages=[{
+            'role': 'user',
+            'content': [
+                {'type': 'text', 'text': 'Describe'},
+                {'type': 'image_url', 'image_url': {'url': t.image}}
+            ]
+        }],
+        model='gpt-4o'
+    ).choices[0].message.content
+)
+
+# Tool calling
+t.add_computed_column(tool_results=invoke_tools(tools, t.llm_response))
+```
+
+<Note>
+**Other OpenAI functions:** `image_generations` (DALL-E), `speech` (TTS), `transcriptions` (Whisper), `translations`, `moderations`
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="OpenAI Guide" icon="brain" href="/howto/providers/working-with-openai">
+    Provider guide
+  </Card>
+  <Card title="OpenAI API" icon="code" href="/sdk/latest/openai">
+    API reference
+  </Card>
+</CardGroup>
+
+### Other Major Providers
+
+<Tabs>
+  <Tab title="Anthropic">
+    ```python
+    from pixeltable.functions.anthropic import messages
+    t.add_computed_column(
+        response=messages(
+            messages=[{'role': 'user', 'content': t.prompt}],
+            model='claude-sonnet-4-20250514'
+        ).content[0].text
+    )
+    ```
+    <Card title="Anthropic Guide" href="/howto/providers/working-with-anthropic" />
+  </Tab>
+  <Tab title="Google Gemini">
+    ```python
+    from pixeltable.functions.gemini import generate_content
+    t.add_computed_column(
+        text=generate_content(contents=t.prompt, model='gemini-2.0-flash').text
+    )
+    ```
+    <Card title="Gemini Guide" href="/howto/providers/working-with-gemini" />
+  </Tab>
+  <Tab title="AWS Bedrock">
+    ```python
+    from pixeltable.functions.bedrock import converse
+    t.add_computed_column(
+        response=converse(
+            messages=[{'role': 'user', 'content': [{'text': t.prompt}]}],
+            model_id='anthropic.claude-3-5-sonnet-20241022-v2:0'
+        ).output.message.content[0].text
+    )
+    ```
+    <Card title="Bedrock Guide" href="/howto/providers/working-with-bedrock" />
+  </Tab>
+</Tabs>
+
+### All LLM Providers
+
+| Provider | Module | Key Functions | Guide |
+|----------|--------|---------------|-------|
+| Together AI | `together` | `chat_completions`, `embeddings`, `image_generations` | [Guide](/howto/providers/working-with-together) |
+| Groq | `groq` | `chat_completions`, `invoke_tools` | [Guide](/howto/providers/working-with-groq) |
+| Fireworks | `fireworks` | `chat_completions` | [Guide](/howto/providers/working-with-fireworks) |
+| Mistral AI | `mistralai` | `chat_completions`, `fim_completions`, `embeddings` | [Guide](/howto/providers/working-with-mistralai) |
+| DeepSeek | `deepseek` | `chat_completions` | [Guide](/howto/providers/working-with-deepseek) |
+| OpenRouter | `openrouter` | `chat_completions` | [Guide](/howto/providers/working-with-openrouter) |
+| Ollama | `ollama` | `chat`, `generate`, `embed` | [Guide](/howto/providers/working-with-ollama) |
+| Llama.cpp | `llama_cpp` | `create_chat_completion` | [Guide](/howto/providers/working-with-llama-cpp) |
+| Replicate | `replicate` | `run` | [Guide](/howto/providers/working-with-replicate) |
+| fal | `fal` | `run` | [Guide](/howto/providers/working-with-fal) |
+| Voyage AI | `voyageai` | `embeddings`, `rerank`, `multimodal_embed` | [Guide](/howto/providers/working-with-voyageai) |
+
+### Hugging Face
+
+**20+ functions:** embeddings, vision, generation, NLP, speech
+
+```python
+from pixeltable.functions.huggingface import sentence_transformer, detr_for_object_detection, image_to_image
+
+t.add_computed_column(emb=sentence_transformer(t.text, model_id='all-MiniLM-L6-v2'))
+t.add_computed_column(obj=detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50'))
+t.add_computed_column(transformed=image_to_image(t.img, t.prompt, model_id='stable-diffusion-v1-5/stable-diffusion-v1-5'))
+```
+
+<CardGroup cols={2}>
+  <Card title="Hugging Face Guide" icon="face-smile" href="/howto/providers/working-with-hugging-face">
+    Provider guide
+  </Card>
+  <Card title="Hugging Face API" icon="code" href="/sdk/latest/huggingface">
+    API reference
+  </Card>
+</CardGroup>
+
+### Local & Specialized Models
+
+<CardGroup cols={3}>
+  <Card title="Whisper" icon="microphone" href="/sdk/latest/whisper">
+    Speech-to-text
+  </Card>
+  <Card title="WhisperX" icon="microphone-lines" href="/sdk/latest/whisperx">
+    Advanced transcription
+  </Card>
+  <Card title="YOLOX" icon="crosshairs" href="/sdk/latest/yolox">
+    Object detection
+  </Card>
+  <Card title="Reve" icon="waveform-lines" href="/sdk/latest/reve">
+    Audio/video editing
+  </Card>
+  <Card title="TwelveLabs" icon="video" href="/sdk/latest/twelvelabs">
+    Video understanding
+  </Card>
+  <Card title="Vision" icon="eye" href="/sdk/latest/vision">
+    Bounding boxes
+  </Card>
+</CardGroup>
+
+---
+
+## Built-in Functions
+
+<Tabs>
+  <Tab title="String">
+    ```python
+    # Common methods (no import needed)
+    t.name.lower() / .upper() / .strip() / .replace('old', 'new') / .split(' ')
+    t.name.contains('text') / .startswith('A') / .endswith('z') / .len()
+    t.name.contains_re(r'\d+') / .findall(r'\w+')  # Regex
+    ```
+    <Card title="String API (40+ functions)" href="/sdk/latest/string" />
+  </Tab>
+  <Tab title="Image">
+    ```python
+    # Properties & Transformations
+    t.image.width / .height / .mode
+    t.image.resize((256, 256)) / .rotate(90) / .crop((x1, y1, x2, y2)) / .convert('L')
+    t.image.blend(other, alpha=0.5) / .histogram() / .get_metadata()
+    ```
+    <Card title="Image API (25+ functions)" href="/sdk/latest/image" />
+  </Tab>
+  <Tab title="Video/Audio">
+    ```python
+    # Video
+    t.video.get_metadata() / .get_duration() / .extract_frame(timestamp=5.0)
+    t.video.clip(start=10, end=30) / .overlay_text(text='Title') / .scene_detect_content()
+
+    # Audio
+    t.audio.get_metadata()
+    ```
+    <CardGroup cols={2}>
+      <Card title="Video API" href="/sdk/latest/video" />
+      <Card title="Audio API" href="/sdk/latest/audio" />
+    </CardGroup>
+  </Tab>
+  <Tab title="Date/Math/JSON">
+    ```python
+    # Timestamp
+    t.created_at.year / .month / .day / .hour / .weekday() / .strftime('%Y-%m-%d')
+
+    # Date
+    date.make_date(year=2024, month=1, day=1)
+    date.add_days(t.date, days=7)
+
+    # Math
+    math.abs() / .ceil() / .floor() / .round() / .sqrt() / .pow()
+
+    # JSON
+    t.metadata['key']['nested']
+
+    # UUID & Net
+    uuid4()
+    presigned_url(t.s3_path, expiration=3600)
+    ```
+  </Tab>
+</Tabs>
+
+<CardGroup cols={4}>
+  <Card title="Timestamp" href="/sdk/latest/timestamp" />
+  <Card title="Date" href="/sdk/latest/date" />
+  <Card title="Math" href="/sdk/latest/math" />
+  <Card title="JSON" href="/sdk/latest/json" />
+</CardGroup>
+
+---
+
+## Data Import/Export
+
+<Tabs>
+  <Tab title="Import">
+    ```python
+    from pixeltable import io
+
+    # CSV, JSON, Parquet, Excel
+    t.insert(io.import_csv('data.csv'))
+    t.insert(io.import_json('data.json'))
+    t.insert(io.import_parquet('data.parquet'))
+    t.insert(io.import_excel('data.xlsx', sheet_name='Sheet1'))
+
+    # Pandas
+    import pandas as pd
+    t.insert(io.import_pandas(pd.read_csv('data.csv')))
+
+    # Hugging Face datasets
+    from datasets import load_dataset
+    ds = load_dataset('squad', split='train[:100]')
+    t.insert(io.import_huggingface_dataset(ds))
+    ```
+  </Tab>
+  <Tab title="Export">
+    ```python
+    # Pandas
+    df = t.collect().to_pandas()
+
+    # Parquet
+    io.export_parquet(t, 'output.parquet')
+
+    # PyTorch
+    from torch.utils.data import DataLoader
+    loader = DataLoader(t.to_pytorch_dataset(), batch_size=32)
+
+    # COCO format
+    coco_path = t.to_coco_dataset()
+
+    # LanceDB
+    io.export_lancedb(t, 'lancedb_uri', 'table_name')
+
+    # Label Studio / FiftyOne
+    io.create_label_studio_project(t, media_column=t.image)
+    io.export_images_as_fo_dataset(t, img_column=t.image)
+    ```
+  </Tab>
+  <Tab title="External Storage">
+    ```python
+    # Configure in config.toml or env vars
+    # PIXELTABLE_OUTPUT_MEDIA_DEST="s3://bucket/path/"
+
+    # Per-column destination
+    t.add_computed_column(
+        thumbnail=t.image.resize((128, 128)),
+        destination='s3://bucket/thumbnails/'
+    )
+    ```
+    <Card title="Cloud Storage" href="/integrations/cloud-storage" />
+  </Tab>
+</Tabs>
+
+<CardGroup cols={3}>
+  <Card title="Import CSV" href="/howto/cookbooks/data/data-import-csv" />
+  <Card title="Import S3" href="/howto/cookbooks/data/data-import-s3" />
+  <Card title="Export PyTorch" href="/howto/cookbooks/data/data-export-pytorch" />
+</CardGroup>
+
+---
+
+## Configuration
+
+```python
+# API Keys
+import os
+os.environ['OPENAI_API_KEY'] = 'sk-...'
+os.environ['ANTHROPIC_API_KEY'] = 'sk-ant-...'
+
+# Logging
+pxt.configure_logging(level='INFO')
+
+# Custom database
+pxt.init({'home': '/path/to/data'})
+```
+
+```toml Config file: ~/.pixeltable/config.toml
+[openai]
+api_key = "sk-..."
+```
+
+<Card title="Configuration Guide" icon="gear" href="/platform/configuration">
+  Full configuration documentation
+</Card>
+
+---
+
+## Tool Calling
+
+```python
+# Create tools
+tools = pxt.tools(my_udf1, my_udf2)
+
+# Use with LLM
+response = chat_completions(
+    messages=[{'role': 'user', 'content': query}],
+    model='gpt-4o',
+    tools=tools,
+    tool_choice=tools.choice(required=True)
+)
+
+# Execute tools
+results = invoke_tools(tools, response)
+```
+
+<Tip>
+**Providers with `invoke_tools`:** OpenAI, Anthropic, Gemini, Bedrock, Groq
+</Tip>
+
+<Card title="Tool Calling Cookbook" icon="wrench" href="/howto/cookbooks/agents/llm-tool-calling">
+  Full tool calling guide
+</Card>
+
+---
+
+## Common Patterns
+
+<AccordionGroup>
+  <Accordion title="RAG Pipeline" icon="brain" defaultOpen>
+    ```python
+    from pixeltable.iterators import DocumentSplitter
+    from pixeltable.functions.openai import embeddings, chat_completions
+
+    # 1. Chunk documents
+    chunks = pxt.create_view(
+        'rag.chunks',
+        docs,
+        iterator=DocumentSplitter.create(document=docs.doc, separators='paragraph', limit=500)
+    )
+
+    # 2. Index
+    chunks.add_embedding_index(
+        'idx',
+        column=chunks.text,
+        embedding=embeddings(input=chunks.text, model='text-embedding-3-small')
+    )
+
+    # 3. Query function
+    @pxt.query
+    def retrieve(query: str, k: int = 5):
+        sim = chunks.text.similarity(string=query)
+        return chunks.order_by(sim, asc=False).select(chunks.text, score=sim).limit(k)
+
+    # 4. Generate answers
+    qa = pxt.create_table('rag.qa', {'question': pxt.String})
+    qa.add_computed_column(context=retrieve(qa.question))
+    qa.add_computed_column(
+        answer=chat_completions(
+            messages=[
+                {'role': 'system', 'content': 'Answer using context: ' + qa.context},
+                {'role': 'user', 'content': qa.question}
+            ],
+            model='gpt-4o-mini'
+        ).choices[0].message.content
+    )
+    ```
+    <CardGroup cols={3}>
+      <Card title="RAG Pipeline" href="/howto/cookbooks/agents/pattern-rag-pipeline" />
+      <Card title="RAG Operations" href="/howto/use-cases/rag-operations" />
+      <Card title="RAG Demo" href="/howto/use-cases/rag-demo" />
+    </CardGroup>
+  </Accordion>
+  
+  <Accordion title="Agent with Memory" icon="memory">
+    ```python
+    # Memory store
+    memories = pxt.create_table('agent.memories', {'content': pxt.String})
+    memories.add_embedding_index('idx', column=memories.content, embedding=...)
+
+    # Retrieval
+    @pxt.query
+    def recall(context: str, k: int = 3):
+        sim = memories.content.similarity(string=context)
+        return memories.order_by(sim, asc=False).limit(k).select(memories.content)
+
+    # Use in conversation
+    conversations.add_computed_column(recalled=recall(conversations.message))
+    ```
+    <Card title="Agent Memory Pattern" href="/howto/cookbooks/agents/pattern-agent-memory" />
+  </Accordion>
+  
+  <Accordion title="Video Object Detection" icon="video">
+    ```python
+    from pixeltable.iterators import FrameIterator
+    from pixeltable.functions.yolox import yolox
+
+    frames = pxt.create_view(
+        'project.frames',
+        videos,
+        iterator=FrameIterator.create(video=videos.video, fps=1)
+    )
+    frames.add_computed_column(detections=yolox(frames.frame))
+    ```
+    <Card title="Object Detection in Videos" href="/howto/use-cases/object-detection-in-videos" />
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Quick Reference
+
+### Essential Commands
+
+| Task | Command |
+|------|---------|
+| Create table | `pxt.create_table('dir.table', schema)` |
+| Get table | `pxt.get_table('dir.table')` |
+| Query | `t.where(condition).collect()` |
+| Add computed | `t.add_computed_column(name=expr)` |
+| Embed index | `t.add_embedding_index('idx', column, embedding)` |
+| Create view | `pxt.create_view('name', base, iterator=...)` |
+
+### Decorators
+
+| Decorator | Purpose |
+|-----------|---------|
+| `@pxt.udf` | User-defined function |
+| `@pxt.uda` | User-defined aggregate |
+| `@pxt.query` | Reusable query function |
+
+---
+
+## Additional Resources
+
+<CardGroup cols={2}>
+  <Card title="Label Studio Integration" icon="tag" href="/howto/using-label-studio-with-pixeltable">
+    Data labeling
+  </Card>
+  <Card title="FiftyOne Integration" icon="images" href="/howto/working-with-fiftyone">
+    Dataset visualization
+  </Card>
+  <Card title="Pydantic Integration" icon="brackets-curly" href="/howto/providers/working-with-pydantic">
+    Structured outputs
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/howto/deployment/infrastructure">
+    Production deployment
+  </Card>
+</CardGroup>
+
+<CardGroup cols={3}>
+  <Card title="Discord" icon="discord" href="https://discord.com/invite/QPyqFYx2UN">
+    Community
+  </Card>
+  <Card title="GitHub" icon="github" href="https://github.com/pixeltable/pixeltable">
+    Source code
+  </Card>
+  <Card title="Changelog" icon="list" href="/changelog/changelog">
+    Updates
+  </Card>
+</CardGroup>
+
+---
+
+<Info>
+**Full API Documentation:** [docs.pixeltable.com/sdk/latest](https://docs.pixeltable.com/sdk/latest)
+
+*Last updated: December 2025 | Pixeltable v0.5.x*
+</Info>
