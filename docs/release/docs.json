@@ -277,11 +277,14 @@
           {
             "group": "Cloud",
             "pages": [
-              "cloud/get-started",
-              "cloud/faq"
+              "cloud/get-started"
             ]
           }
         ]
+      },
+      {
+        "tab": "Cheat Sheet",
+        "href": "cheatsheet"
       },
       {
         "tab": "Integrations",
