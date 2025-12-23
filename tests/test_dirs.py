@@ -175,6 +175,7 @@ class TestDirs:
             pxt.drop_dir('dir1:120')
         # doesn't exist
         self._test_drop_if_not_exists('dir2')
+        self._test_drop_if_not_exists('not_a_parent_dir.subdir')
         # not empty
         with pytest.raises(pxt.Error, match='is not empty'):
             pxt.drop_dir('dir1')

@@ -39,7 +39,7 @@ jobs:
       fail-fast: false
       matrix:
         # Test with a variety of different packages on ubuntu, with the minimum and maximum supported Python versions.
-        python-version: ["3.10", "3.13"]
+        python-version: ["3.10", "3.12"]
         package-configs:
           - ""
           - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.9' 'torchaudio<2.9' 'torchvision<0.24' transformers"

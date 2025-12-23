@@ -10,6 +10,7 @@ from typing import AsyncIterator, Iterator, NamedTuple
 
 from pixeltable import exprs
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath, StorageTarget
+from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -45,6 +46,7 @@ class ObjectStoreSaveNode(ExecNode):
 
         src_path: str  # source of the file to be processed
         destination: str  # destination URI for the file to be processed
+        file_size: int  # in bytes
 
     class WorkItem(NamedTuple):
         src_path: Path
@@ -73,6 +75,9 @@ class ObjectStoreSaveNode(ExecNode):
     input_finished: bool
     row_idx: Iterator[int | None]
 
+    # progress reporting
+    progress_reporter: ProgressReporter | None
+
     @dataclasses.dataclass
     class RowState:
         row: exprs.DataRow
@@ -93,11 +98,16 @@ class ObjectStoreSaveNode(ExecNode):
         self.in_flight_work = {}
         self.input_finished = False
         self.row_idx = itertools.count() if retain_input_order else itertools.repeat(None)
+        self.progress_reporter = None
         assert self.QUEUE_DEPTH_HIGH_WATER > self.QUEUE_DEPTH_LOW_WATER
 
     @property
     def queued_work(self) -> int:
         return len(self.in_flight_requests)
+
+    def _open(self) -> None:
+        if self.ctx.show_progress:
+            self.progress_reporter = self.ctx.add_progress_reporter('Uploads', 'objects', 'B')
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
         """Get the next batch of input rows, or None if there are no more rows"""
@@ -161,12 +171,19 @@ class ObjectStoreSaveNode(ExecNode):
     def __process_completions(self, done: set[futures.Future], ignore_errors: bool) -> None:
         from pixeltable.utils.local_store import TempStore
 
+        num_objects = 0
+        num_bytes = 0
+
         for f in done:
             work_designator = self.in_flight_requests.pop(f)
             new_file_url, exc = f.result()
             if exc is not None and not ignore_errors:
                 raise exc
             assert new_file_url is not None
+
+            if exc is None:
+                num_objects += 1
+                num_bytes += work_designator.file_size
 
             # add the local path/exception to the slots that reference the url
             for row, info in self.in_flight_work.pop(work_designator):
@@ -183,6 +200,9 @@ class ObjectStoreSaveNode(ExecNode):
                         TempStore.delete_media_file(src_path)
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
+
+        if self.ctx.show_progress:
+            self.progress_reporter.update(num_objects, num_bytes)
 
     def __process_input_row(self, row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]:
         """Process a batch of input rows, generating a list of work"""
@@ -224,7 +244,7 @@ class ObjectStoreSaveNode(ExecNode):
                 # Do not copy local file URLs to the LocalStore
                 continue
 
-            work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination)
+            work_designator = ObjectStoreSaveNode.WorkDesignator(str(src_path), destination, src_path.stat().st_size)
             locations = self.in_flight_work.get(work_designator)
             if locations is not None:
                 # we've already seen this
@@ -274,9 +294,11 @@ class ObjectStoreSaveNode(ExecNode):
                 work_to_do.extend(row_to_do)
 
         for work_item in work_to_do:
+            # determine size before file gets moved
+            file_size = work_item.src_path.stat().st_size
             f = executor.submit(self.__persist_media_file, work_item)
             self.in_flight_requests[f] = ObjectStoreSaveNode.WorkDesignator(
-                str(work_item.src_path), work_item.destination
+                str(work_item.src_path), work_item.destination, file_size
             )
             _logger.debug(f'submitted {work_item}')
 
