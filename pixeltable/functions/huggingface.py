@@ -1154,7 +1154,8 @@ def image_to_image(
     """
     Transforms input images based on text prompts using a pretrained image-to-image model.
     `model_id` should be a reference to a pretrained
-    [image-to-image model](https://huggingface.co/models?pipeline_tag=image-to-image).
+    [image-to-image model](https://huggingface.co/models?pipeline_tag=image-to-image) such as
+    Stable Diffusion or FLUX.
 
     __Requirements:__
 
@@ -1177,24 +1178,34 @@ def image_to_image(
         >>> tbl.add_computed_column(transformed=image_to_image(
         ...     tbl.source_image,
         ...     tbl.transformation_prompt,
-        ...     model_id='runwayml/stable-diffusion-v1-5'
+        ...     model_id='stable-diffusion-v1-5/stable-diffusion-v1-5'
+        ... ))
+
+        Using FLUX for image-to-image transformation:
+
+        >>> tbl.add_computed_column(transformed=image_to_image(
+        ...     tbl.source_image,
+        ...     tbl.transformation_prompt,
+        ...     model_id='black-forest-labs/FLUX.1-dev',
+        ...     model_kwargs={'strength': 0.75, 'num_inference_steps': 50}
         ... ))
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('diffusers')
     env.Env.get().require_package('accelerate')
-    device = resolve_torch_device('auto')
+    device = resolve_torch_device('auto', allow_mps=False)
     import torch
-    from diffusers import StableDiffusionImg2ImgPipeline
+    from diffusers import AutoPipelineForImage2Image
 
     if model_kwargs is None:
         model_kwargs = {}
 
-    pipe = _lookup_model(
+    pipeline = _lookup_model(
         model_id,
-        lambda x: StableDiffusionImg2ImgPipeline.from_pretrained(
+        lambda x: AutoPipelineForImage2Image.from_pretrained(
             x,
             torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+            device_map='auto' if device == 'cuda' else None,
             safety_checker=None,
             requires_safety_checker=False,
         ),
@@ -1202,10 +1213,10 @@ def image_to_image(
     )
 
     try:
-        if device == 'cuda' and hasattr(pipe, 'enable_model_cpu_offload'):
-            pipe.enable_model_cpu_offload()
-        if hasattr(pipe, 'enable_memory_efficient_attention'):
-            pipe.enable_memory_efficient_attention()
+        if device == 'cuda' and hasattr(pipeline, 'enable_model_cpu_offload'):
+            pipeline.enable_model_cpu_offload()
+        if hasattr(pipeline, 'enable_memory_efficient_attention'):
+            pipeline.enable_memory_efficient_attention()
     except Exception:
         pass  # Ignore optimization failures
 
@@ -1214,7 +1225,7 @@ def image_to_image(
     processed_image = image.convert('RGB')
 
     with torch.no_grad():
-        result = pipe(prompt=prompt, image=processed_image, generator=generator, **model_kwargs)
+        result = pipeline(prompt=prompt, image=processed_image, generator=generator, **model_kwargs)
         return result.images[0]
 
 
