@@ -69,6 +69,7 @@
                   "howto/providers/working-with-ollama",
                   "howto/providers/working-with-openai",
                   "howto/providers/working-with-openrouter",
+                  "howto/providers/working-with-pydantic",
                   "howto/providers/working-with-replicate",
                   "howto/providers/working-with-reve",
                   "howto/providers/working-with-tigris",
@@ -123,6 +124,7 @@
                       "howto/cookbooks/images/img-detect-objects",
                       "howto/cookbooks/images/img-visualize-detections",
                       "howto/cookbooks/images/img-generate-captions",
+                      "howto/cookbooks/images/img-image-to-image",
                       "howto/cookbooks/images/vision-batch-analysis",
                       "howto/cookbooks/images/vision-structured-output",
                       "howto/cookbooks/images/img-add-watermarks",
@@ -275,8 +277,7 @@
           {
             "group": "Cloud",
             "pages": [
-              "cloud/get-started",
-              "cloud/faq"
+              "cloud/get-started"
             ]
           }
         ]
