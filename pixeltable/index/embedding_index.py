@@ -143,21 +143,23 @@ class EmbeddingIndex(IndexBase):
         assert vector_length is not None
         assert vector_length > 0
 
-        if self.precision == self.Precision.FP32:
-            if vector_length > MAX_EMBEDDING_VECTOR_LENGTH:
-                raise excs.Error(
-                    f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
-                    f' {MAX_EMBEDDING_VECTOR_LENGTH} for {self.precision.value} precision'
-                )
-            return pgvector.sqlalchemy.Vector(vector_length)
-
-        assert self.precision == self.Precision.FP16
-        if vector_length > MAX_EMBEDDING_HALFVEC_LENGTH:
-            raise excs.Error(
-                f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
-                f' {MAX_EMBEDDING_HALFVEC_LENGTH} for {self.precision.value} precision'
-            )
-        return pgvector.sqlalchemy.HALFVEC(vector_length)
+        match self.precision:
+            case self.Precision.FP32:
+                if vector_length > MAX_EMBEDDING_VECTOR_LENGTH:
+                    raise excs.Error(
+                        f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
+                        f' {MAX_EMBEDDING_VECTOR_LENGTH} for {self.precision.value} precision'
+                    )
+                return pgvector.sqlalchemy.Vector(vector_length)
+            case self.Precision.FP16:
+                if vector_length > MAX_EMBEDDING_HALFVEC_LENGTH:
+                    raise excs.Error(
+                        f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
+                        f' {MAX_EMBEDDING_HALFVEC_LENGTH} for {self.precision.value} precision'
+                    )
+                return pgvector.sqlalchemy.HALFVEC(vector_length)
+            case _:
+                raise AssertionError(self.precision)
 
     def sa_create_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
         """Return a sqlalchemy statement for creating the index"""
