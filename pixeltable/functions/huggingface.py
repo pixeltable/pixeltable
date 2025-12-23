@@ -1206,7 +1206,7 @@ def image_to_image(
             x,
             torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
             device_map='auto' if device == 'cuda' else None,
-            safety_checker=None,
+            safety_checker=None,  # Disable safety checker for performance
             requires_safety_checker=False,
         ),
         device=device,
