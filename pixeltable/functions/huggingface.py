@@ -932,7 +932,7 @@ def text_to_image(
     """
     Generates images from text prompts using a pretrained text-to-image model. `model_id` should be a reference to a
     pretrained [text-to-image model](https://huggingface.co/models?pipeline_tag=text-to-image) such as
-    Stable Diffusion or FLUX.
+    Stable Diffusion.
 
     __Requirements:__
 
@@ -1127,7 +1127,7 @@ def image_to_image(
     Transforms input images based on text prompts using a pretrained image-to-image model.
     `model_id` should be a reference to a pretrained
     [image-to-image model](https://huggingface.co/models?pipeline_tag=image-to-image) such as
-    Stable Diffusion or FLUX.
+    Stable Diffusion.
 
     __Requirements:__
 
@@ -1153,12 +1153,12 @@ def image_to_image(
         ...     model_id='stable-diffusion-v1-5/stable-diffusion-v1-5'
         ... ))
 
-        Using FLUX for image-to-image transformation:
+        With custom transformation strength:
 
         >>> tbl.add_computed_column(transformed=image_to_image(
         ...     tbl.source_image,
         ...     tbl.transformation_prompt,
-        ...     model_id='black-forest-labs/FLUX.1-dev',
+        ...     model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
         ...     model_kwargs={'strength': 0.75, 'num_inference_steps': 50}
         ... ))
     """
