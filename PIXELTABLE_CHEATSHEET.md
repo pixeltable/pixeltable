@@ -15,18 +15,20 @@
 3. [Tables](#tables)
 4. [Type System](#type-system)
 5. [Data Operations](#data-operations)
-6. [Queries](#queries)
+6. [Queries & Filtering](#queries--filtering)
 7. [Computed Columns](#computed-columns)
 8. [User-Defined Functions (UDFs)](#user-defined-functions-udfs)
-9. [Embedding Indexes (Vector Search)](#embedding-indexes-vector-search)
-10. [Iterators](#iterators)
-11. [Views](#views)
-12. [Version Control](#version-control)
-13. [AI Integrations](#ai-integrations)
-14. [Built-in Functions](#built-in-functions)
-15. [Data Import/Export](#data-importexport)
-16. [Configuration](#configuration)
-17. [Common Patterns](#common-patterns)
+9. [Query Functions & Retrieval](#query-functions--retrieval)
+10. [Embedding Indexes (Vector Search)](#embedding-indexes-vector-search)
+11. [Iterators](#iterators)
+12. [Views & Snapshots](#views--snapshots)
+13. [Version Control](#version-control)
+14. [Data Sharing](#data-sharing)
+15. [AI Integrations](#ai-integrations)
+16. [Built-in Functions](#built-in-functions)
+17. [Data Import/Export](#data-importexport)
+18. [Configuration](#configuration)
+19. [Common Patterns](#common-patterns)
 
 ---
 
@@ -86,6 +88,9 @@ pxt.move('my_project.old_name', 'my_project.new_name')
 # Delete
 pxt.drop_dir('my_project', force=True)  # force=True for non-empty
 pxt.drop_dir('my_project', if_not_exists='ignore')
+
+# List all available functions
+pxt.list_functions()  # Returns styled DataFrame of all UDFs
 ```
 
 ---
@@ -160,8 +165,11 @@ t.describe()
 # Get metadata
 metadata = t.get_metadata()
 metadata['name']
+metadata['path']
 metadata['version']
 metadata['comment']
+metadata['columns']
+metadata['indices']
 
 # Count rows
 t.count()
@@ -185,6 +193,10 @@ t.drop_column('column_name', if_not_exists='ignore')
 pxt.drop_table('project.users')
 pxt.drop_table('project.users', force=True)  # Even with dependents
 pxt.drop_table('project.users', if_not_exists='ignore')
+
+# List views for a table
+t.list_views()  # Get all views based on this table
+t.list_views(recursive=False)  # Only direct views
 ```
 
 ---
@@ -311,7 +323,7 @@ t.recompute_columns(['summary'], cascade=True)
 
 ---
 
-## Queries
+## Queries & Filtering
 
 ### Basic Queries
 
@@ -534,6 +546,12 @@ t.add_computed_column(col=expr, if_exists='replace')
 # Store vs compute on demand
 t.add_computed_column(col=expr, stored=True)   # Default: stored
 t.add_computed_column(col=expr, stored=False)  # Compute on query
+
+# External storage destination (S3, GCS, etc.)
+t.add_computed_column(
+    thumbnail=t.image.resize((128, 128)),
+    destination='s3://my-bucket/thumbnails/'
+)
 ```
 
 ---
@@ -641,6 +659,79 @@ t.group_by(t.category).select(
 
 ---
 
+## Query Functions & Retrieval
+
+### Query Decorator (@pxt.query)
+
+Create reusable, parameterized queries attached to tables.
+
+```python
+# Define a query function
+@pxt.query
+def top_k_similar(query_text: str, k: int = 5):
+    """Find top-k similar documents."""
+    sim = docs.content.similarity(string=query_text)
+    return (
+        docs.order_by(sim, asc=False)
+        .select(docs.content, score=sim)
+        .limit(k)
+    )
+
+# Use in computed columns
+queries.add_computed_column(
+    context=top_k_similar(queries.question)
+)
+
+# Or call directly
+results = top_k_similar('machine learning')
+results.collect()
+```
+
+### Retrieval UDF
+
+Convert tables into callable functions for LLM tool use.
+
+```python
+# Create table
+kb = pxt.create_table('project.knowledge_base', {
+    'topic': pxt.String,
+    'category': pxt.String,
+    'content': pxt.String,
+})
+
+# Create retrieval UDF from the table
+lookup_kb = pxt.retrieval_udf(
+    kb,
+    name='search_knowledge_base',
+    description='Search the knowledge base by topic and category',
+    parameters=['topic', 'category'],
+    limit=5
+)
+
+# Use as function
+results = lookup_kb(topic='python', category='programming')
+
+# Use as LLM tool
+tools = pxt.tools(lookup_kb)
+```
+
+### MCP UDFs
+
+Connect to MCP (Model Context Protocol) servers.
+
+```python
+# Connect to MCP server and get UDFs
+udfs = pxt.mcp_udfs('http://localhost:8000/mcp')
+
+# Use the UDFs
+pixelmultiple = udfs[0]
+t.add_computed_column(
+    result=pixelmultiple(a=t.col1, b=t.col2)
+)
+```
+
+---
+
 ## Embedding Indexes (Vector Search)
 
 ### Create Embedding Index
@@ -685,15 +776,17 @@ t.add_embedding_index(
 ### Similarity Search
 
 ```python
-# Basic search
+# Using .similarity() method
+sim = t.content.similarity(string='machine learning')
+results = t.order_by(sim, asc=False).select(t.content, score=sim).limit(10)
+results.collect()
+
+# Using named index
 results = t.content_idx.similarity_search('What is machine learning?', k=10)
 results.select(t.content, results.similarity).collect()
 
 # With filters
-results = t.content_idx.similarity_search(
-    'machine learning',
-    k=10
-)
+results = t.content_idx.similarity_search('machine learning', k=10)
 results.where(t.category == 'tech').select(t.content, results.similarity).collect()
 
 # Get similarity score
@@ -701,6 +794,22 @@ results.select(
     t.title,
     t.content,
     score=results.similarity
+).collect()
+```
+
+### Get Raw Embeddings
+
+```python
+# Access embedding vectors
+results = t.select(
+    t.content,
+    embedding=t.content.embedding()
+).limit(5)
+
+# Works with any indexed column
+results = t.select(
+    t.image,
+    img_embedding=t.image.embedding()
 ).collect()
 ```
 
@@ -828,7 +937,7 @@ tiles = pxt.create_view(
 
 ---
 
-## Views
+## Views & Snapshots
 
 Views are virtual tables based on queries or iterators.
 
@@ -868,7 +977,8 @@ frames.add_computed_column(
 # Create snapshot of current state
 snapshot = pxt.create_snapshot('project.users_backup', users)
 
-# Snapshot is read-only
+# Snapshot is read-only - cannot insert, update, or delete
+snapshot.select(snapshot.name).collect()
 ```
 
 ---
@@ -899,12 +1009,54 @@ t.revert()
 
 ---
 
+## Data Sharing
+
+### Publish Tables
+
+Share tables to Pixeltable Cloud for collaboration.
+
+```python
+# Publish a table (requires API key from pixeltable.com)
+pxt.publish(
+    source='my_project.my_table',
+    destination_uri='pxt://username/my-dataset'
+)
+
+# Make it public
+pxt.publish(
+    source='my_project.my_table',
+    destination_uri='pxt://username/my-dataset',
+    access='public'
+)
+
+# Update remote with local changes
+t.push()
+```
+
+### Replicate Shared Tables
+
+```python
+# Clone a shared table locally
+local_copy = pxt.replicate(
+    remote_uri='pxt://pixeltable:fiftyone/coco_mini_2017',
+    local_path='my-coco-copy'
+)
+
+# Replicas are read-only locally
+local_copy.collect()
+
+# Pull updates from remote
+local_copy.pull()
+```
+
+---
+
 ## AI Integrations
 
 ### OpenAI
 
 ```python
-from pixeltable.functions.openai import chat_completions, embeddings, image, audio
+from pixeltable.functions.openai import chat_completions, embeddings, image, audio, invoke_tools
 
 # Chat completions
 t.add_computed_column(
@@ -965,12 +1117,25 @@ t.add_computed_column(
         model='gpt-4o'
     ).choices[0].message.content
 )
+
+# Tool calling
+tools = pxt.tools(my_udf)
+t.add_computed_column(
+    llm_response=chat_completions(
+        messages=[{'role': 'user', 'content': t.query}],
+        model='gpt-4o',
+        tools=tools
+    )
+)
+t.add_computed_column(
+    tool_results=invoke_tools(tools, t.llm_response)
+)
 ```
 
 ### Anthropic
 
 ```python
-from pixeltable.functions.anthropic import messages
+from pixeltable.functions.anthropic import messages, invoke_tools
 
 t.add_computed_column(
     response=messages(
@@ -979,18 +1144,129 @@ t.add_computed_column(
         max_tokens=1000
     ).content[0].text
 )
+
+# Tool calling
+t.add_computed_column(
+    tool_results=invoke_tools(tools, t.claude_response)
+)
 ```
 
 ### Google Gemini
 
 ```python
-from pixeltable.functions.gemini import generate_content
+from pixeltable.functions.gemini import generate_content, invoke_tools
 
 t.add_computed_column(
     response=generate_content(
         contents=t.prompt,
         model='gemini-2.0-flash'
     ).text
+)
+
+# Multimodal (with images)
+t.add_computed_column(
+    description=generate_content(
+        contents=[t.prompt, t.image],
+        model='gemini-2.0-flash'
+    ).text
+)
+
+# Tool calling
+t.add_computed_column(
+    tool_results=invoke_tools(tools, t.gemini_response)
+)
+```
+
+### AWS Bedrock
+
+```python
+from pixeltable.functions.bedrock import converse, invoke_tools
+
+t.add_computed_column(
+    response=converse(
+        messages=[{'role': 'user', 'content': [{'text': t.prompt}]}],
+        model_id='anthropic.claude-3-5-sonnet-20241022-v2:0'
+    ).output.message.content[0].text
+)
+
+# Tool calling
+t.add_computed_column(
+    tool_results=invoke_tools(tools, t.bedrock_response)
+)
+```
+
+### Groq
+
+```python
+from pixeltable.functions.groq import chat_completions, invoke_tools
+
+t.add_computed_column(
+    response=chat_completions(
+        messages=[{'role': 'user', 'content': t.prompt}],
+        model='llama-3.3-70b-versatile'
+    ).choices[0].message.content
+)
+```
+
+### Fireworks
+
+```python
+from pixeltable.functions.fireworks import chat_completions
+
+t.add_computed_column(
+    response=chat_completions(
+        messages=[{'role': 'user', 'content': t.prompt}],
+        model='accounts/fireworks/models/llama-v3p3-70b-instruct'
+    ).choices[0].message.content
+)
+```
+
+### Mistral AI
+
+```python
+from pixeltable.functions.mistralai import chat
+
+t.add_computed_column(
+    response=chat(
+        messages=[{'role': 'user', 'content': t.prompt}],
+        model='mistral-large-latest'
+    ).choices[0].message.content
+)
+```
+
+### DeepSeek
+
+```python
+from pixeltable.functions.deepseek import chat_completions
+
+t.add_computed_column(
+    response=chat_completions(
+        messages=[{'role': 'user', 'content': t.prompt}],
+        model='deepseek-chat'
+    ).choices[0].message.content
+)
+```
+
+### OpenRouter
+
+```python
+from pixeltable.functions.openrouter import chat_completions
+
+t.add_computed_column(
+    response=chat_completions(
+        messages=[{'role': 'user', 'content': t.prompt}],
+        model='openai/gpt-4o'
+    ).choices[0].message.content
+)
+```
+
+### Reve
+
+```python
+from pixeltable.functions.reve import transcribe
+
+t.add_computed_column(
+    transcript=transcribe(audio=t.audio_file)
 )
 ```
 
@@ -1013,7 +1289,9 @@ from pixeltable.functions.huggingface import (
     automatic_speech_recognition,
     image_captioning,
     text_to_speech,
-    image_to_video
+    image_to_video,
+    speech2text_for_conditional_generation,
+    cross_encoder
 )
 
 # Sentence embeddings
@@ -1021,9 +1299,19 @@ t.add_computed_column(
     embedding=sentence_transformer(t.text, model_id='all-MiniLM-L6-v2')
 )
 
+# Cross-encoder (similarity scoring)
+t.add_computed_column(
+    similarity_score=cross_encoder(t.text1, t.text2, model_id='cross-encoder/ms-marco-MiniLM-L-6-v2')
+)
+
 # Image embeddings (CLIP)
 t.add_computed_column(
     embedding=clip(t.image, model_id='openai/clip-vit-base-patch32')
+)
+
+# Text embedding with CLIP
+t.add_computed_column(
+    text_embedding=clip(t.text, model_id='openai/clip-vit-base-patch32')
 )
 
 # Object detection
@@ -1061,6 +1349,16 @@ t.add_computed_column(
         t.prompt,
         model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
         model_kwargs={'strength': 0.7, 'num_inference_steps': 30}
+    )
+)
+
+# Image-to-video
+t.add_computed_column(
+    video=image_to_video(
+        t.image,
+        model_id='stabilityai/stable-video-diffusion-img2vid-xt',
+        num_frames=25,
+        fps=7
     )
 )
 
@@ -1122,11 +1420,28 @@ t.add_computed_column(
     )
 )
 
+# Speech to text with language
+t.add_computed_column(
+    transcript=speech2text_for_conditional_generation(
+        t.audio,
+        model_id='facebook/s2t-small-librispeech-asr'
+    )
+)
+
 # Image captioning
 t.add_computed_column(
     caption=image_captioning(
         t.image,
         model_id='Salesforce/blip-image-captioning-base'
+    )
+)
+
+# Text to speech
+t.add_computed_column(
+    audio=text_to_speech(
+        t.text,
+        model_id='microsoft/speecht5_tts',
+        speaker_id=0
     )
 )
 ```
@@ -1138,6 +1453,34 @@ from pixeltable.functions.whisper import transcribe
 
 t.add_computed_column(
     transcript=transcribe(t.audio, model='base')
+)
+```
+
+### WhisperX (Enhanced)
+
+```python
+from pixeltable.functions.whisperx import transcribe_audio
+
+t.add_computed_column(
+    transcript=transcribe_audio(
+        t.audio,
+        model='base',
+        compute_type='float16'
+    )
+)
+```
+
+### YOLOX (Object Detection)
+
+```python
+from pixeltable.functions.yolox import yolox
+
+t.add_computed_column(
+    detections=yolox(
+        t.image,
+        model_id='yolox_m',
+        threshold=0.5
+    )
 )
 ```
 
@@ -1167,6 +1510,19 @@ t.add_computed_column(
 )
 ```
 
+### Llama.cpp (Local)
+
+```python
+from pixeltable.functions.llama_cpp import chat_completions
+
+t.add_computed_column(
+    response=chat_completions(
+        messages=[{'role': 'user', 'content': t.prompt}],
+        model='/path/to/model.gguf'
+    ).choices[0].message.content
+)
+```
+
 ### Voyage AI
 
 ```python
@@ -1186,6 +1542,32 @@ t.add_computed_column(
     output=run(
         input={'prompt': t.prompt},
         ref='stability-ai/sdxl:latest'
+    )
+)
+```
+
+### fal
+
+```python
+from pixeltable.functions.fal import run
+
+t.add_computed_column(
+    output=run(
+        model_id='fal-ai/flux/dev',
+        arguments={'prompt': t.prompt}
+    )
+)
+```
+
+### TwelveLabs
+
+```python
+from pixeltable.functions.twelvelabs import generate_text
+
+t.add_computed_column(
+    analysis=generate_text(
+        video=t.video,
+        prompt='Describe this video'
     )
 )
 ```
@@ -1281,12 +1663,17 @@ t.video.extract_audio()
 
 # Edit
 t.video.clip(start=10.0, end=30.0)
-t.video.overlay_text(text='Hello', position='center')
+t.video.concat_videos([t.video1, t.video2])
+t.video.segment_video(timestamps=[10.0, 20.0, 30.0])
+t.video.overlay_text(text='Hello', position='center', fontsize=24)
+t.video.with_audio(audio=t.audio_file)
 
 # Scene detection
 t.video.scene_detect_content()
 t.video.scene_detect_adaptive()
 t.video.scene_detect_threshold()
+t.video.scene_detect_histogram()
+t.video.scene_detect_hash()
 ```
 
 ### Audio Functions
@@ -1296,6 +1683,18 @@ from pixeltable.functions import audio
 
 # Metadata
 t.audio.get_metadata()
+
+# Encode audio
+audio.encode_audio(t.audio, codec='aac', bitrate='128k')
+```
+
+### Document Functions
+
+```python
+from pixeltable.functions import document
+
+# Extract text
+t.document.extract_text()
 ```
 
 ### Timestamp Functions
@@ -1357,6 +1756,41 @@ t.items[0]
 t.items[-1]
 ```
 
+### UUID Functions
+
+```python
+from pixeltable.functions.uuid import uuid4
+
+# Generate UUID
+t.add_computed_column(id=uuid4())
+```
+
+### Net Functions
+
+```python
+from pixeltable.functions.net import presigned_url
+
+# Generate presigned URL for S3
+t.add_computed_column(
+    url=presigned_url(t.s3_path, expiration=3600)
+)
+```
+
+### Vision Functions
+
+```python
+from pixeltable.functions.vision import draw_bounding_boxes
+
+# Draw bounding boxes on images
+t.add_computed_column(
+    annotated=draw_bounding_boxes(
+        t.image,
+        boxes=t.detections['boxes'],
+        labels=t.detections['label_text']
+    )
+)
+```
+
 ---
 
 ## Data Import/Export
@@ -1388,12 +1822,14 @@ t.insert(rows)
 # Pandas DataFrame
 import pandas as pd
 df = pd.read_csv('data.csv')
-t.insert(df.to_dict('records'))
+rows = io.import_pandas(df)
+t.insert(rows)
 
 # Hugging Face datasets
 from datasets import load_dataset
 ds = load_dataset('squad', split='train[:100]')
-t.insert(ds.to_list())
+rows = io.import_huggingface_dataset(ds)
+t.insert(rows)
 ```
 
 ### Export
@@ -1407,6 +1843,9 @@ df = t.collect().to_pandas()
 # To Parquet
 io.export_parquet(t, 'output.parquet')
 
+# To LanceDB
+io.export_lancedb(t, 'lancedb_uri', 'table_name')
+
 # To PyTorch DataLoader
 from torch.utils.data import DataLoader
 dataset = t.to_pytorch_dataset()
@@ -1414,15 +1853,35 @@ loader = DataLoader(dataset, batch_size=32)
 
 # To COCO format (for object detection)
 coco_path = t.to_coco_dataset()
+
+# To Label Studio
+project = io.create_label_studio_project(
+    t,
+    media_column=t.image,
+    label_studio_url='http://localhost:8080'
+)
+
+# To FiftyOne
+io.export_images_as_fo_dataset(
+    t,
+    img_column=t.image,
+    dataset_name='my_dataset'
+)
 ```
 
 ### External Storage (S3, etc.)
 
 ```python
-# Configure global default in config.toml or env vars
-# PIXELTABLE_INPUT_MEDIA_DEST="s3://my-bucket/input/"
+# Configure global default in config.toml
+# [pixeltable]
+# input_media_dest = "s3://my-bucket/input/"
+# output_media_dest = "s3://my-bucket/output/"
 
-# Or specify destination for computed columns
+# Or via environment variables
+# PIXELTABLE_INPUT_MEDIA_DEST="s3://my-bucket/input/"
+# PIXELTABLE_OUTPUT_MEDIA_DEST="s3://my-bucket/output/"
+
+# Specify destination for computed columns
 t.add_computed_column(
     thumbnail=t.image.resize((128, 128)),
     destination='s3://my-bucket/thumbnails/'
@@ -1444,6 +1903,12 @@ os.environ['ANTHROPIC_API_KEY'] = 'sk-ant-...'
 os.environ['HF_TOKEN'] = 'hf_...'
 os.environ['TOGETHER_API_KEY'] = '...'
 os.environ['GOOGLE_API_KEY'] = '...'
+os.environ['GROQ_API_KEY'] = '...'
+os.environ['FIREWORKS_API_KEY'] = '...'
+os.environ['MISTRAL_API_KEY'] = '...'
+os.environ['REPLICATE_API_TOKEN'] = '...'
+os.environ['VOYAGE_API_KEY'] = '...'
+os.environ['FAL_KEY'] = '...'
 
 # Interactive input
 import getpass
@@ -1463,6 +1928,18 @@ api_key = "sk-..."
 api_key = "sk-ant-..."
 
 [together]
+api_key = "..."
+
+[google]
+api_key = "..."
+
+[groq]
+api_key = "..."
+
+[mistral]
+api_key = "..."
+
+[fireworks]
 api_key = "..."
 ```
 
@@ -1485,7 +1962,7 @@ pxt.init({'home': '/path/to/pixeltable/data'})
 
 ## Common Patterns
 
-### RAG Pipeline
+### RAG Pipeline with @pxt.query
 
 ```python
 from pixeltable.iterators import DocumentSplitter
@@ -1512,22 +1989,22 @@ chunks.add_embedding_index(
     embedding=embeddings(input=chunks.text, model='text-embedding-3-small')
 )
 
-# 4. Query function
-def ask(question: str, k: int = 5) -> str:
-    # Search for relevant chunks
-    results = chunks.chunk_idx.similarity_search(question, k=k)
-    context = results.select(chunks.text).collect()
-    context_text = '\n\n'.join([row['text'] for row in context])
-    
-    # Generate answer
-    response = chat_completions(
-        messages=[
-            {'role': 'system', 'content': f'Answer based on this context:\n{context_text}'},
-            {'role': 'user', 'content': question}
-        ],
-        model='gpt-4o-mini'
+# 4. Define query function
+@pxt.query
+def retrieve_context(query_text: str, top_k: int = 5):
+    """Retrieve most relevant chunks."""
+    sim = chunks.text.similarity(string=query_text)
+    return (
+        chunks.order_by(sim, asc=False)
+        .select(chunks.text, score=sim)
+        .limit(top_k)
     )
-    return response.choices[0].message.content
+
+# 5. Use in computed column
+questions = pxt.create_table('rag.questions', {'question': pxt.String})
+questions.add_computed_column(
+    context=retrieve_context(questions.question)
+)
 ```
 
 ### Iterate-then-Commit Workflow
@@ -1597,6 +2074,8 @@ t.add_computed_column(
 ### Tool Calling with LLMs
 
 ```python
+from pixeltable.functions.openai import chat_completions, invoke_tools
+
 # Define tools
 @pxt.udf
 def get_weather(location: str) -> str:
@@ -1615,14 +2094,64 @@ tools = pxt.tools(
 )
 
 # Use with chat
-from pixeltable.functions.openai import chat_completions
-
 t.add_computed_column(
-    response=chat_completions(
+    llm_response=chat_completions(
         messages=[{'role': 'user', 'content': t.question}],
         model='gpt-4o',
         tools=tools
     )
+)
+
+# Execute tool calls
+t.add_computed_column(
+    tool_results=invoke_tools(tools, t.llm_response)
+)
+```
+
+### Agent with Retrieval Tools
+
+```python
+# Create knowledge base
+kb = pxt.create_table('app.kb', {
+    'topic': pxt.String,
+    'content': pxt.String,
+})
+
+# Create retrieval UDF
+lookup_kb = pxt.retrieval_udf(
+    kb,
+    name='search_knowledge_base',
+    description='Search the knowledge base by topic',
+    parameters=['topic'],
+    limit=5
+)
+
+# Use as LLM tool
+tools = pxt.tools(lookup_kb)
+
+agent = pxt.create_table('app.agent', {'query': pxt.String})
+agent.add_computed_column(
+    response=chat_completions(
+        messages=[{'role': 'user', 'content': agent.query}],
+        model='gpt-4o-mini',
+        tools=tools,
+        tool_choice=tools.choice(required=True)
+    )
+)
+agent.add_computed_column(
+    results=invoke_tools(tools, agent.response)
+)
+```
+
+### MCP Integration
+
+```python
+# Connect to MCP server
+udfs = pxt.mcp_udfs('http://localhost:8000/mcp')
+
+# Use MCP tools in Pixeltable
+t.add_computed_column(
+    result=udfs[0](input=t.data)
 )
 ```
 
@@ -1644,6 +2173,16 @@ t.add_computed_column(
 | Add computed | `t.add_computed_column(new=expr)` |
 | Count rows | `t.count()` |
 | Drop table | `pxt.drop_table('dir.table')` |
+| List functions | `pxt.list_functions()` |
+
+### Decorators & Special Functions
+
+| Decorator | Purpose | Example |
+|-----------|---------|---------|
+| `@pxt.udf` | Basic UDF | `@pxt.udf def fn(x: int) -> int: ...` |
+| `@pxt.expr_udf` | SQL-optimized expression | `@pxt.expr_udf def fn(x: int) -> int: ...` |
+| `@pxt.uda` | User-defined aggregate | `@pxt.uda(value_type=...) class Agg: ...` |
+| `@pxt.query` | Reusable query function | `@pxt.query def search(q: str): ...` |
 
 ### Column Access
 
@@ -1665,6 +2204,42 @@ t.where((cond1) & (cond2))        # AND
 t.where((cond1) | (cond2))        # OR
 ```
 
+### Tool Calling Providers
+
+| Provider | invoke_tools Function |
+|----------|----------------------|
+| OpenAI | `openai.invoke_tools(tools, response)` |
+| Anthropic | `anthropic.invoke_tools(tools, response)` |
+| Gemini | `gemini.invoke_tools(tools, response)` |
+| Bedrock | `bedrock.invoke_tools(tools, response)` |
+| Groq | `groq.invoke_tools(tools, response)` |
+
+### All AI Providers
+
+| Provider | Module | Key Functions |
+|----------|--------|---------------|
+| OpenAI | `pixeltable.functions.openai` | `chat_completions`, `embeddings`, `image.generate`, `audio.transcriptions` |
+| Anthropic | `pixeltable.functions.anthropic` | `messages` |
+| Google Gemini | `pixeltable.functions.gemini` | `generate_content` |
+| AWS Bedrock | `pixeltable.functions.bedrock` | `converse` |
+| Together AI | `pixeltable.functions.together` | `chat_completions` |
+| Groq | `pixeltable.functions.groq` | `chat_completions` |
+| Fireworks | `pixeltable.functions.fireworks` | `chat_completions` |
+| Mistral AI | `pixeltable.functions.mistralai` | `chat` |
+| DeepSeek | `pixeltable.functions.deepseek` | `chat_completions` |
+| OpenRouter | `pixeltable.functions.openrouter` | `chat_completions` |
+| Ollama (local) | `pixeltable.functions.ollama` | `chat` |
+| Llama.cpp (local) | `pixeltable.functions.llama_cpp` | `chat_completions` |
+| Replicate | `pixeltable.functions.replicate` | `run` |
+| fal | `pixeltable.functions.fal` | `run` |
+| Voyage AI | `pixeltable.functions.voyageai` | `embed` |
+| Reve | `pixeltable.functions.reve` | `transcribe` |
+| TwelveLabs | `pixeltable.functions.twelvelabs` | `generate_text` |
+| Hugging Face | `pixeltable.functions.huggingface` | 20+ functions (see above) |
+| Whisper | `pixeltable.functions.whisper` | `transcribe` |
+| WhisperX | `pixeltable.functions.whisperx` | `transcribe_audio` |
+| YOLOX | `pixeltable.functions.yolox` | `yolox` |
+
 ---
 
 ## Resources
@@ -1674,6 +2249,7 @@ t.where((cond1) | (cond2))        # OR
 - **Discord**: [discord.com/invite/QPyqFYx2UN](https://discord.com/invite/QPyqFYx2UN)
 - **Cookbooks**: [docs.pixeltable.com/howto/cookbooks](https://docs.pixeltable.com/howto/cookbooks)
 - **API Reference**: [docs.pixeltable.com/sdk/latest](https://docs.pixeltable.com/sdk/latest)
+- **MCP Servers**: [github.com/pixeltable/pixeltable-mcp-server](https://github.com/pixeltable/pixeltable-mcp-server)
 
 ---
 
