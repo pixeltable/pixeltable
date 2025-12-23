@@ -7,7 +7,6 @@ import io
 import json
 import types
 import typing
-import urllib.parse
 import urllib.request
 import uuid
 from pathlib import Path
@@ -16,7 +15,6 @@ from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import av
-import jsonschema
 import jsonschema.protocols
 import jsonschema.validators
 import numpy as np
@@ -1348,6 +1346,9 @@ class DocumentType(ColumnType):
         PDF = 2
         XML = 3
         TXT = 4
+        PPTX = 5
+        DOCX = 6
+        XLSX = 7
 
         @classmethod
         def from_extension(cls, ext: str) -> 'DocumentType.DocumentFormat' | None:
@@ -1361,6 +1362,12 @@ class DocumentType(ColumnType):
                 return cls.XML
             if ext == '.txt':
                 return cls.TXT
+            if ext in ('.pptx', '.ppt'):
+                return cls.PPTX
+            if ext in ('.docx', '.doc'):
+                return cls.DOCX
+            if ext in ('.xlsx', '.xls'):
+                return cls.XLSX
             return None
 
     def __init__(self, nullable: bool = False, doc_formats: str | None = None):
