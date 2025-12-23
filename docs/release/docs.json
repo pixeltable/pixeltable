@@ -69,6 +69,7 @@
                   "howto/providers/working-with-ollama",
                   "howto/providers/working-with-openai",
                   "howto/providers/working-with-openrouter",
+                  "howto/providers/working-with-pydantic",
                   "howto/providers/working-with-replicate",
                   "howto/providers/working-with-reve",
                   "howto/providers/working-with-tigris",
