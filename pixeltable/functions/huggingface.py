@@ -1176,7 +1176,7 @@ def image_to_image(
         model_id,
         lambda x: AutoPipelineForImage2Image.from_pretrained(
             x,
-            torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+            dtype=torch.float16 if device == 'cuda' else torch.float32,
             device_map='auto' if device == 'cuda' else None,
             safety_checker=None,  # Disable safety checker for performance
             requires_safety_checker=False,
