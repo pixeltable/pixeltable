@@ -231,6 +231,9 @@ jobs:
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
         run: ruff check pixeltable tests tool
+      - name: Notebook lint
+        if: ${{ matrix.test-category == 'lint' }}
+        run: find . -type f -name "*.ipynb" | xargs nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells --nbqa-diff | tee /dev/tty | awk 'END {exit (NR > 3 ? 1 : 0)}'
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |

@@ -170,6 +170,8 @@ formatcheck: install
 	@ruff format --check pixeltable tests tool
 	@echo 'Running `ruff check --select I` ...'
 	@ruff check --select I pixeltable tests tool
+	@echo 'Checking notebooks...'
+	@find . -type f -name "*.ipynb" | xargs nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells --nbqa-diff | tee /dev/tty | awk 'END {exit (NR > 3 ? 1 : 0)}'
 
 .PHONY: format
 format: install
@@ -177,6 +179,8 @@ format: install
 	@ruff format pixeltable tests tool
 	@echo 'Running `ruff check --select I --fix` ...'
 	@ruff check --select I --fix pixeltable tests tool
+	@echo 'Formatting notebooks...'
+	@find . -type f -name "*.ipynb" | xargs nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells
 
 .PHONY: release
 release: install
