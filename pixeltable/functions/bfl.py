@@ -380,6 +380,8 @@ async def fill(
     image: PIL.Image.Image,
     mask: PIL.Image.Image,
     *,
+    steps: int | None = None,
+    guidance: float | None = None,
     seed: int | None = None,
     safety_tolerance: int | None = None,
     output_format: Literal['jpeg', 'png'] | None = None,
@@ -396,7 +398,9 @@ async def fill(
     Args:
         prompt: Text description of what to fill in the masked area.
         image: The base image to inpaint.
-        mask: Mask image where white areas indicate regions to fill.
+        mask: Mask image where white areas indicate regions to fill (black areas preserved).
+        steps: Number of inference steps (max 50). Default 50.
+        guidance: Guidance scale for generation. Default 30.
         seed: Random seed for reproducible results.
         safety_tolerance: Moderation level from 0 (strict) to 6 (permissive). Default 2.
         output_format: Image format, 'jpeg' or 'png'. Default 'jpeg'.
@@ -417,6 +421,10 @@ async def fill(
     """
     payload: dict = {'prompt': prompt, 'image': to_base64(image), 'mask': to_base64(mask)}
 
+    if steps is not None:
+        payload['steps'] = steps
+    if guidance is not None:
+        payload['guidance'] = guidance
     if seed is not None:
         payload['seed'] = seed
     if safety_tolerance is not None:
