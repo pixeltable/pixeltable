@@ -1,13 +1,12 @@
 """
 Pixeltable [UDFs](https://docs.pixeltable.com/platform/udfs-in-pixeltable) for [xAI](https://x.ai/) Grok models.
 
-Provides integration with xAI's Grok language and image generation models using the native xAI SDK.
+Provides integration with xAI's Grok language, vision, and image generation models using the native xAI SDK.
 
 In order to use these UDFs, you must configure your xAI API key either via the `XAI_API_KEY` environment
 variable, or as `api_key` in the `xai` section of the Pixeltable config file.
 """
 
-import json
 from io import BytesIO
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -16,8 +15,6 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable import env
-from pixeltable.config import Config
-from pixeltable.func import Tools
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -172,103 +169,6 @@ async def chat(
         result['reasoning_content'] = response.reasoning_content
 
     return result
-
-
-@pxt.udf(resource_pool='request-rate:xai')
-async def chat_completions(
-    messages: list,
-    *,
-    model: str = 'grok-3',
-    model_kwargs: dict[str, Any] | None = None,
-    tools: Tools | None = None,
-    tool_choice: dict[str, Any] | None = None,
-) -> dict:
-    """
-    Creates a model response using the OpenAI-compatible chat/completions endpoint.
-
-    This is the legacy endpoint that offers full compatibility with OpenAI SDK patterns.
-    For new features including reasoning models, consider using the `chat` UDF instead.
-
-    For additional details, see: <https://docs.x.ai/docs/api-reference#chat-completions>
-
-    Request throttling:
-    Applies the rate limit set in the config (section `xai`, key `rate_limit`). If no rate
-    limit is configured, uses a default of 60 RPM.
-
-    __Requirements:__
-
-    - `pip install openai`
-
-    Args:
-        messages: A list of messages comprising the conversation, following the OpenAI message format.
-            Each message should have a `role` (system, user, or assistant) and `content`.
-        model: The Grok model to use. Options include:
-            - `grok-4`: Latest Grok 4 model (most capable)
-            - `grok-4-fast`: Faster Grok 4 variant
-            - `grok-3`: Grok 3 model
-            - `grok-3-fast`: Faster Grok 3 variant
-            - `grok-2-1212`: Grok 2 model
-            - `grok-2-vision-1212`: Grok 2 with vision capabilities
-        model_kwargs: Additional keyword arguments for the xAI API.
-            See: <https://docs.x.ai/docs/api-reference#chat-completions>
-        tools: Optional Pixeltable tools for function calling.
-        tool_choice: Optional tool choice configuration.
-
-    Returns:
-        A dictionary containing the response and metadata, including:
-        - `choices`: List of completion choices
-        - `usage`: Token usage information
-        - `model`: The model used
-
-    Examples:
-        Add a computed column that uses Grok to respond to prompts:
-
-        >>> messages = [
-        ...     {'role': 'system', 'content': 'You are Grok, a helpful AI assistant.'},
-        ...     {'role': 'user', 'content': tbl.prompt}
-        ... ]
-        >>> tbl.add_computed_column(response=xai.chat_completions(messages, model='grok-3'))
-
-        Extract just the response text:
-
-        >>> tbl.add_computed_column(
-        ...     answer=xai.chat_completions(messages, model='grok-3')['choices'][0]['message']['content']
-        ... )
-    """
-    import openai
-
-    # Create OpenAI-compatible client for legacy endpoint
-    api_key = Config.get().get_string_value('api_key', section='xai')
-    client = openai.AsyncOpenAI(
-        api_key=api_key,
-        base_url='https://api.x.ai/v1',
-        timeout=httpx.Timeout(3600.0),
-        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
-    )
-
-    if model_kwargs is None:
-        model_kwargs = {}
-
-    if tools is not None:
-        model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
-
-    if tool_choice is not None:
-        if tool_choice['auto']:
-            model_kwargs['tool_choice'] = 'auto'
-        elif tool_choice['required']:
-            model_kwargs['tool_choice'] = 'required'
-        else:
-            assert tool_choice['tool'] is not None
-            model_kwargs['tool_choice'] = {'type': 'function', 'function': {'name': tool_choice['tool']}}
-
-    if tool_choice is not None and not tool_choice['parallel_tool_calls']:
-        if 'extra_body' not in model_kwargs:
-            model_kwargs['extra_body'] = {}
-        model_kwargs['extra_body']['parallel_tool_calls'] = False
-
-    result = await client.chat.completions.with_raw_response.create(messages=messages, model=model, **model_kwargs)
-
-    return json.loads(result.text)
 
 
 @pxt.udf(resource_pool='request-rate:xai')

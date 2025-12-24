@@ -45,45 +45,6 @@ class TestXai:
         if 'usage' in result['chat_output'][0]:
             assert result['chat_output'][0]['usage'].get('reasoning_tokens', 0) > 0
 
-    def test_chat_completions(self, reset_db: None) -> None:
-        """Test the OpenAI-compatible chat_completions UDF."""
-        skip_test_if_not_installed('openai')
-        skip_test_if_no_client('xai')
-        from pixeltable.functions.xai import chat_completions
-
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        msgs = [
-            {'role': 'system', 'content': 'You are Grok, a helpful AI assistant.'},
-            {'role': 'user', 'content': t.input},
-        ]
-        t.add_computed_column(input_msgs=msgs)
-        t.add_computed_column(chat_output=chat_completions(messages=t.input_msgs, model='grok-3'))
-
-        validate_update_status(t.insert(input='What is the capital of France?'), 1)
-        result = t.collect()
-        assert 'paris' in result['chat_output'][0]['choices'][0]['message']['content'].lower()
-
-    def test_chat_completions_with_kwargs(self, reset_db: None) -> None:
-        """Test chat_completions with model_kwargs."""
-        skip_test_if_not_installed('openai')
-        skip_test_if_no_client('xai')
-        from pixeltable.functions.xai import chat_completions
-
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        msgs = [
-            {'role': 'system', 'content': 'You are Grok, a helpful AI assistant.'},
-            {'role': 'user', 'content': t.input},
-        ]
-        t.add_computed_column(
-            chat_output=chat_completions(
-                messages=msgs, model='grok-3', model_kwargs={'max_tokens': 100, 'temperature': 0.7}
-            )
-        )
-
-        validate_update_status(t.insert(input='Say hello in one word.'), 1)
-        result = t.collect()
-        assert result['chat_output'][0]['choices'][0]['message']['content'] is not None
-
     def test_vision(self, reset_db: None) -> None:
         """Test vision/image understanding with Grok."""
         skip_test_if_not_installed('xai')
