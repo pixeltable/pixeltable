@@ -45,25 +45,14 @@ class TestXai:
         if 'usage' in result['chat_output'][0]:
             assert result['chat_output'][0]['usage'].get('reasoning_tokens', 0) > 0
 
-    def test_chat_with_vision(self, reset_db: None) -> None:
-        """Test vision/image understanding via chat with multimodal messages."""
+    def test_vision(self, reset_db: None) -> None:
+        """Test vision/image understanding with Grok."""
         skip_test_if_not_installed('xai')
         skip_test_if_no_client('xai')
-        from pixeltable.functions.xai import chat
+        from pixeltable.functions.xai import vision
 
         t = pxt.create_table('test_tbl', {'image_url': pxt.String, 'question': pxt.String})
-        # Build multimodal message with text and image
-        msgs = [
-            {
-                'role': 'user',
-                'content': [
-                    {'type': 'text', 'text': t.question},
-                    {'type': 'image_url', 'image_url': {'url': t.image_url, 'detail': 'high'}},
-                ],
-            }
-        ]
-        t.add_computed_column(input_msgs=msgs)
-        t.add_computed_column(analysis=chat(messages=t.input_msgs, model='grok-4'))
+        t.add_computed_column(analysis=vision(prompt=t.question, image_url=t.image_url, model='grok-4', detail='high'))
         t.add_computed_column(answer=t.analysis['content'])
 
         # Use a simple public image

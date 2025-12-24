@@ -49,8 +49,8 @@ async def chat(
     """
     Creates a model response for the given chat conversation using xAI's Grok models.
 
-    Uses the native xAI SDK which supports the latest features including the Responses API,
-    reasoning models, and vision/image understanding.
+    Uses the native xAI SDK which supports the latest features including the Responses API
+    and reasoning models.
 
     For additional details, see: <https://docs.x.ai/docs/guides/chat>
 
@@ -64,12 +64,9 @@ async def chat(
 
     Args:
         messages: A list of messages comprising the conversation. Each message should have
-            a `role` (system, user, or assistant) and `content`. Content can be:
-            - A string for text-only messages
-            - A list of content parts for multimodal messages (text + images), where each part
-              has a `type` ('text' or 'image_url') and corresponding data.
+            a `role` (system, user, or assistant) and `content` (string).
         model: The Grok model to use. Options include:
-            - `grok-4`: Latest Grok 4 model (most capable, supports vision)
+            - `grok-4`: Latest Grok 4 model (most capable)
             - `grok-4-fast`: Faster Grok 4 variant
             - `grok-3`: Grok 3 model
             - `grok-3-fast`: Faster Grok 3 variant
@@ -109,18 +106,8 @@ async def chat(
         ...         reasoning_effort='high'
         ...     )
         ... )
-
-        Image understanding (vision):
-
-        >>> messages = [
-        ...     {'role': 'user', 'content': [
-        ...         {'type': 'text', 'text': 'What is in this image?'},
-        ...         {'type': 'image_url', 'image_url': {'url': tbl.image_url, 'detail': 'high'}}
-        ...     ]}
-        ... ]
-        >>> tbl.add_computed_column(response=xai.chat(messages, model='grok-4'))
     """
-    from xai_sdk.chat import image, system, user as user_msg
+    from xai_sdk.chat import system, user as user_msg
 
     client = _xai_client()
 
@@ -137,39 +124,18 @@ async def chat(
     # Create chat instance
     chat_instance = client.chat.create(**chat_kwargs)
 
-    # Add messages
+    # Add messages (text-only)
     for msg in messages:
         role = msg.get('role', 'user')
         content = msg.get('content', '')
 
         if role == 'system':
-            # System messages are text-only
-            chat_instance.append(system(content if isinstance(content, str) else str(content)))
+            chat_instance.append(system(str(content)))
         elif role == 'user':
-            if isinstance(content, str):
-                # Simple text message
-                chat_instance.append(user_msg(content))
-            elif isinstance(content, list):
-                # Multimodal message with text and/or images
-                parts: list[Any] = []
-                for item in content:
-                    item_type = item.get('type', 'text')
-                    if item_type == 'text':
-                        parts.append(item.get('text', ''))
-                    elif item_type == 'image_url':
-                        img_data = item.get('image_url', {})
-                        img_url = img_data.get('url', '')
-                        detail = img_data.get('detail', 'auto')
-                        parts.append(image(image_url=img_url, detail=detail))
-                chat_instance.append(user_msg(*parts))
-            else:
-                chat_instance.append(user_msg(str(content)))
+            chat_instance.append(user_msg(str(content)))
         elif role == 'assistant':
             # For assistant messages in conversation history
-            if isinstance(content, str):
-                chat_instance.append(user_msg(content))
-            else:
-                chat_instance.append(user_msg(str(content)))
+            chat_instance.append(user_msg(str(content)))
 
     # Set sampling parameters
     sample_kwargs: dict[str, Any] = {}
@@ -178,7 +144,7 @@ async def chat(
     if top_p is not None:
         sample_kwargs['top_p'] = top_p
 
-    # Get response (await for async client)
+    # Get response
     response = await chat_instance.sample(**sample_kwargs) if sample_kwargs else await chat_instance.sample()
 
     # Build result dict
@@ -200,6 +166,92 @@ async def chat(
 
     if hasattr(response, 'reasoning_content') and response.reasoning_content:
         result['reasoning_content'] = response.reasoning_content
+
+    return result
+
+
+@pxt.udf(resource_pool='request-rate:xai')
+async def vision(
+    prompt: str, image_url: str, *, model: str = 'grok-4', detail: Literal['low', 'high', 'auto'] = 'high'
+) -> dict:
+    """
+    Analyzes an image and responds to a prompt about it using Grok's vision capabilities.
+
+    This is a convenience function for image understanding. For text-only chat, use `chat()`.
+
+    For additional details, see: <https://docs.x.ai/docs/guides/vision>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `xai`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 60 RPM.
+
+    __Requirements:__
+
+    - `pip install xai-sdk`
+
+    Args:
+        prompt: The question or instruction about the image.
+        image_url: URL of the image to analyze. Can be a public URL or a base64 data URL.
+        model: The Grok model to use. Vision-capable models include:
+            - `grok-4`: Latest Grok 4 with vision
+            - `grok-2-vision-1212`: Grok 2 vision model
+        detail: Level of detail for image analysis. Options:
+            - `high`: More detailed analysis (uses more tokens)
+            - `low`: Faster, less detailed analysis
+            - `auto`: Let the model decide
+
+    Returns:
+        A dictionary containing:
+        - `content`: The response text describing or answering about the image
+        - `model`: The model used
+        - `usage`: Token usage information
+
+    Examples:
+        Describe an image:
+
+        >>> tbl.add_computed_column(
+        ...     description=xai.vision(
+        ...         prompt='Describe this image in detail',
+        ...         image_url=tbl.image_url,
+        ...         model='grok-4'
+        ...     )
+        ... )
+
+        Answer questions about images:
+
+        >>> tbl.add_computed_column(
+        ...     analysis=xai.vision(
+        ...         prompt='What objects are visible in this image?',
+        ...         image_url=tbl.url
+        ...     )
+        ... )
+    """
+    from xai_sdk.chat import image, user as user_msg
+
+    client = _xai_client()
+
+    # Create chat instance for vision
+    chat_instance = client.chat.create(model=model)
+
+    # Add user message with text and image
+    chat_instance.append(user_msg(prompt, image(image_url=image_url, detail=detail)))
+
+    # Get response
+    response = await chat_instance.sample()
+
+    # Build result dict
+    result: dict[str, Any] = {'content': response.content, 'model': model}
+
+    if hasattr(response, 'id') and response.id:
+        result['id'] = response.id
+
+    if hasattr(response, 'usage') and response.usage:
+        usage_dict: dict[str, Any] = {
+            'completion_tokens': getattr(response.usage, 'completion_tokens', 0),
+            'prompt_tokens': getattr(response.usage, 'prompt_tokens', 0),
+            'total_tokens': getattr(response.usage, 'total_tokens', 0),
+        }
+        result['usage'] = usage_dict
 
     return result
 
