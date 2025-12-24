@@ -238,6 +238,7 @@
                       "sdk/latest/twelvelabs",
                       "sdk/latest/vision",
                       "sdk/latest/voyageai",
+                      "sdk/latest/xai",
                       "sdk/latest/whisper",
                       "sdk/latest/whisperx",
                       "sdk/latest/yolox"

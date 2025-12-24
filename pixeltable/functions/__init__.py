@@ -38,6 +38,7 @@ from . import (
     video,
     vision,
     voyageai,
+    xai,
     whisper,
     whisperx,
     yolox,

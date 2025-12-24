@@ -341,6 +341,10 @@
           <outline text="udf|pixeltable.functions.voyageai.rerank" />
           <outline text="udf|pixeltable.functions.voyageai.multimodal_embed" />
         </outline>
+        <outline text="module|pixeltable.functions.xai">
+          <outline text="udf|pixeltable.functions.xai.chat_completions" />
+          <outline text="udf|pixeltable.functions.xai.image_generations" />
+        </outline>
         <outline text="module|pixeltable.functions.whisper">
           <outline text="udf|pixeltable.functions.whisper.transcribe" />
         </outline>
