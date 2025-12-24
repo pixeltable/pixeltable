@@ -175,7 +175,7 @@ formatcheck: install
 	@echo 'Checking markdown files...'
 	@mdformat . --check
 	@echo 'Checking notebooks...'
-	@nbqa mdformat **/*.ipynb --nbqa-md --nbqa-dont-skip-bad-cells --check
+	@nbqa mdformat **/*.ipynb --nbqa-md --nbqa-dont-skip-bad-cells --nbqa-diff | tee /dev/tty | awk 'END {exit (NR > 1 ? 1 : 0)}'
 
 # TODO .mdx files
 .PHONY: format
@@ -187,7 +187,7 @@ format: install
 	@echo 'Formatting markdown files...'
 	@mdformat .
 	@echo 'Formatting notebooks...'
-	@nbqa mdformat **/*.ipynb
+	@nbqa mdformat **/*.ipynb --nbqa-md --nbqa-dont-skip-bad-cells
 
 .PHONY: release
 release: install
