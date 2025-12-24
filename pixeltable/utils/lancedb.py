@@ -45,7 +45,7 @@ def export_lancedb(
 
     import lancedb  # type: ignore[import-untyped]
 
-    from pixeltable.utils.arrow import to_arrow_schema, to_record_batches
+    from pixeltable.utils.arrow import to_record_batches
 
     if if_exists not in ('error', 'overwrite', 'append'):
         raise excs.Error("export_lancedb(): 'if_exists' must be one of: ['error', 'overwrite', 'append']")
@@ -76,10 +76,7 @@ def export_lancedb(
         with Catalog.get().begin_xact(for_write=False):
             if lance_tbl is None or if_exists == 'overwrite':
                 mode = 'overwrite' if lance_tbl is not None else 'create'
-                arrow_schema = to_arrow_schema(query.schema)
-                _ = db.create_table(
-                    table_name, to_record_batches(query, batch_size_bytes), schema=arrow_schema, mode=mode
-                )
+                _ = db.create_table(table_name, to_record_batches(query, batch_size_bytes), mode=mode)
             else:
                 lance_tbl.add(to_record_batches(query, batch_size_bytes))
 

@@ -1,6 +1,5 @@
 import datetime
 import io
-import json
 from pathlib import Path
 from typing import Any
 
@@ -72,7 +71,7 @@ class TestLanceDb:
             assert lance_df['c_string'].tolist() == [row['c_string'] for row in rows]
             assert lance_df['c_timestamp'].tolist() == [row['c_timestamp'] for row in rows]
             assert lance_df['c_date'].tolist() == [row['c_date'] for row in rows]
-            assert [json.loads(j) for j in lance_df['c_json'].tolist()] == [row['c_json'] for row in rows]
+            assert lance_df['c_json'].tolist() == [row['c_json'] for row in rows]
             all(np.array_equal(arr1, arr2) for arr1, arr2 in zip(lance_df['c_array'], [r['c_array'] for r in rows]))
             for lance_img_bytes, row in zip(lance_df['c_image'], rows):
                 lance_img = PIL.Image.open(io.BytesIO(lance_img_bytes))

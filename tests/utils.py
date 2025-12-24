@@ -76,11 +76,11 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
         col_names = []
     data: dict[str, Any] = {}
 
+    # avoid fields with empty dicts, they cannot be serialized as a struct in Parquet
     sample_dict = {
         'detections': [
             {
                 'id': '637e8e073b28441a453564cf',
-                'attributes': {},
                 'tags': [],
                 'label': 'potted plant',
                 'bounding_box': [0.37028125, 0.3345305164319249, 0.038593749999999996, 0.16314553990610328],
@@ -92,7 +92,6 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
             },
             {
                 'id': '637e8e073b28441a453564cf',
-                'attributes': {},
                 'tags': [],
                 'label': 'potted plant',
                 'bounding_box': [0.37028125, 0.3345305164319249, 0.038593749999999996, 0.16314553990610328],
