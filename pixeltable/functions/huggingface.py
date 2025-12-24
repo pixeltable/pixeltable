@@ -74,20 +74,6 @@ def _(model_id: str) -> ts.ArrayType:
     return ts.ArrayType((model.get_sentence_embedding_dimension(),), dtype=ts.FloatType(), nullable=False)
 
 
-@pxt.udf
-def sentence_transformer_list(sentences: list, *, model_id: str, normalize_embeddings: bool = False) -> list:
-    env.Env.get().require_package('sentence_transformers')
-    device = resolve_torch_device('auto')
-    from sentence_transformers import SentenceTransformer
-
-    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
-    model = _lookup_model(model_id, SentenceTransformer, device=device, pass_device_to_create=True)
-
-    # specifying the device, uses it for computation
-    array = model.encode(sentences, device=device, normalize_embeddings=normalize_embeddings)
-    return [array[i].tolist() for i in range(array.shape[0])]
-
-
 @pxt.udf(batch_size=32)
 def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: str) -> Batch[float]:
     """
@@ -125,20 +111,6 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
     model = _lookup_model(model_id, CrossEncoder, device=device, pass_device_to_create=True)
 
     array = model.predict([[s1, s2] for s1, s2 in zip(sentences1, sentences2)], convert_to_numpy=True)
-    return array.tolist()
-
-
-@pxt.udf
-def cross_encoder_list(sentence1: str, sentences2: list, *, model_id: str) -> list:
-    env.Env.get().require_package('sentence_transformers')
-    device = resolve_torch_device('auto')
-    from sentence_transformers import CrossEncoder
-
-    # specifying the device, moves the model to device (gpu:cuda/mps, cpu)
-    # and uses the device for predict computation
-    model = _lookup_model(model_id, CrossEncoder, device=device, pass_device_to_create=True)
-
-    array = model.predict([[sentence1, s2] for s2 in sentences2], convert_to_numpy=True)
     return array.tolist()
 
 
@@ -275,6 +247,85 @@ def detr_for_object_detection(
         }
         for result in results
     ]
+
+
+@pxt.udf(batch_size=4)
+def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]:
+    """
+    Computes DETR panoptic segmentation for the specified image. `model_id` should be a reference to a pretrained
+    [DETR Model](https://huggingface.co/docs/transformers/model_doc/detr) with a segmentation head.
+
+    __Requirements:__
+
+    - `pip install torch transformers`
+
+    Args:
+        image: The image to segment.
+        model_id: The pretrained model to use for segmentation (e.g., 'facebook/detr-resnet-50-panoptic').
+        threshold: Confidence threshold for filtering segments.
+
+    Returns:
+        A dictionary containing the output of the segmentation model, in the following format:
+
+            ```python
+            {
+                'segmentation': np.ndarray,  # (H, W) array where each pixel value is a segment ID
+                'segments_info': [
+                    {
+                        'id': 1,  # segment ID (matches pixel values in segmentation array)
+                        'label_id': 0,  # class label index
+                        'label_text': 'person',  # human-readable class name
+                        'score': 0.98,  # confidence score
+                        'was_fused': False  # whether segment was fused from multiple instances
+                    },
+                    ...
+                ]
+            }
+            ```
+
+    Examples:
+        Add a computed column that applies the model `facebook/detr-resnet-50-panoptic` to an existing
+        Pixeltable column `image` of the table `tbl`:
+
+        >>> tbl.add_computed_column(segmentation=detr_for_segmentation(
+        ...     tbl.image,
+        ...     model_id='facebook/detr-resnet-50-panoptic',
+        ...     threshold=0.5
+        ... ))
+    """
+    env.Env.get().require_package('transformers')
+    device = resolve_torch_device('auto')
+    import torch
+    from transformers import DetrForSegmentation, DetrImageProcessor
+
+    model = _lookup_model(model_id, DetrForSegmentation.from_pretrained, device=device)
+    processor = _lookup_processor(model_id, DetrImageProcessor.from_pretrained)
+    normalized_images = [normalize_image_mode(img) for img in image]
+
+    with torch.no_grad():
+        inputs = processor(images=normalized_images, return_tensors='pt')
+        outputs = model(**inputs.to(device))
+        results = processor.post_process_panoptic_segmentation(
+            outputs, threshold=threshold, target_sizes=[(img.height, img.width) for img in image]
+        )
+
+    output_list: list[dict] = []
+    for result in results:
+        seg_array = result['segmentation'].cpu().numpy()
+
+        segments_info = [
+            {
+                'id': seg['id'],
+                'label_id': seg['label_id'],
+                'label_text': model.config.id2label[seg['label_id']],
+                'score': seg['score'],
+                'was_fused': seg['was_fused'],
+            }
+            for seg in result['segments_info']
+        ]
+        output_list.append({'segmentation': seg_array, 'segments_info': segments_info})
+
+    return output_list
 
 
 @pxt.udf(batch_size=4)
@@ -960,7 +1011,7 @@ def text_to_image(
     """
     Generates images from text prompts using a pretrained text-to-image model. `model_id` should be a reference to a
     pretrained [text-to-image model](https://huggingface.co/models?pipeline_tag=text-to-image) such as
-    Stable Diffusion or FLUX.
+    Stable Diffusion.
 
     __Requirements:__
 
@@ -1010,7 +1061,7 @@ def text_to_image(
         model_id,
         lambda x: AutoPipelineForText2Image.from_pretrained(
             x,
-            torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
+            dtype=torch.float16 if device == 'cuda' else torch.float32,
             device_map='auto' if device == 'cuda' else None,
             safety_checker=None,  # Disable safety checker for performance
             requires_safety_checker=False,
@@ -1154,7 +1205,8 @@ def image_to_image(
     """
     Transforms input images based on text prompts using a pretrained image-to-image model.
     `model_id` should be a reference to a pretrained
-    [image-to-image model](https://huggingface.co/models?pipeline_tag=image-to-image).
+    [image-to-image model](https://huggingface.co/models?pipeline_tag=image-to-image) such as
+    Stable Diffusion.
 
     __Requirements:__
 
@@ -1177,35 +1229,45 @@ def image_to_image(
         >>> tbl.add_computed_column(transformed=image_to_image(
         ...     tbl.source_image,
         ...     tbl.transformation_prompt,
-        ...     model_id='runwayml/stable-diffusion-v1-5'
+        ...     model_id='stable-diffusion-v1-5/stable-diffusion-v1-5'
+        ... ))
+
+        With custom transformation strength:
+
+        >>> tbl.add_computed_column(transformed=image_to_image(
+        ...     tbl.source_image,
+        ...     tbl.transformation_prompt,
+        ...     model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
+        ...     model_kwargs={'strength': 0.75, 'num_inference_steps': 50}
         ... ))
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('diffusers')
     env.Env.get().require_package('accelerate')
-    device = resolve_torch_device('auto')
+    device = resolve_torch_device('auto', allow_mps=False)
     import torch
-    from diffusers import StableDiffusionImg2ImgPipeline
+    from diffusers import AutoPipelineForImage2Image
 
     if model_kwargs is None:
         model_kwargs = {}
 
-    pipe = _lookup_model(
+    pipeline = _lookup_model(
         model_id,
-        lambda x: StableDiffusionImg2ImgPipeline.from_pretrained(
+        lambda x: AutoPipelineForImage2Image.from_pretrained(
             x,
-            torch_dtype=torch.float16 if device == 'cuda' else torch.float32,
-            safety_checker=None,
+            dtype=torch.float16 if device == 'cuda' else torch.float32,
+            device_map='auto' if device == 'cuda' else None,
+            safety_checker=None,  # Disable safety checker for performance
             requires_safety_checker=False,
         ),
         device=device,
     )
 
     try:
-        if device == 'cuda' and hasattr(pipe, 'enable_model_cpu_offload'):
-            pipe.enable_model_cpu_offload()
-        if hasattr(pipe, 'enable_memory_efficient_attention'):
-            pipe.enable_memory_efficient_attention()
+        if device == 'cuda' and hasattr(pipeline, 'enable_model_cpu_offload'):
+            pipeline.enable_model_cpu_offload()
+        if hasattr(pipeline, 'enable_memory_efficient_attention'):
+            pipeline.enable_memory_efficient_attention()
     except Exception:
         pass  # Ignore optimization failures
 
@@ -1214,7 +1276,7 @@ def image_to_image(
     processed_image = image.convert('RGB')
 
     with torch.no_grad():
-        result = pipe(prompt=prompt, image=processed_image, generator=generator, **model_kwargs)
+        result = pipeline(prompt=prompt, image=processed_image, generator=generator, **model_kwargs)
         return result.images[0]
 
 

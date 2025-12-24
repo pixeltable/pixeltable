@@ -45,6 +45,7 @@ done
 rm "$TARGET_DIR/working-with-gemini.ipynb"  # Temporary
 rm "$TARGET_DIR/rag-operations.ipynb"  # Failing in CI for unknown reasons
 rm "$TARGET_DIR/video-generate-ai.ipynb"  # Expensive
+rm "$TARGET_DIR/img-image-to-image.ipynb"  # Expensive (downloads ~5GB model)
 
 # Get a list of all API keys referenced in the notebooks
 REF_API_KEYS=$(grep -hoE '[A-Z_]*_(API|ACCESS)_(KEY|TOKEN)' "$TARGET_DIR"/*.ipynb | sort | uniq)

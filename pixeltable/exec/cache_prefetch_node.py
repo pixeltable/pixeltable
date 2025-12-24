@@ -3,9 +3,6 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import logging
-import threading
-import urllib.parse
-import urllib.request
 from collections import deque
 from concurrent import futures
 from pathlib import Path
@@ -14,7 +11,8 @@ from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.object_stores import ObjectOps
+from pixeltable.utils.http import fetch_url
+from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -40,6 +38,7 @@ class CachePrefetchNode(ExecNode):
 
     # execution state
     num_returned_rows: int
+    progress_reporter: ProgressReporter | None
 
     # ready_rows: rows that are ready to be returned, ordered by row idx;
     # the implied row idx of ready_rows[0] is num_returned_rows
@@ -66,6 +65,7 @@ class CachePrefetchNode(ExecNode):
         self.file_col_info = file_col_info
 
         self.num_returned_rows = 0
+        self.progress_reporter = None
         self.ready_rows = deque()
         self.in_flight_rows = {}
         self.in_flight_requests = {}
@@ -77,6 +77,10 @@ class CachePrefetchNode(ExecNode):
     @property
     def queued_work(self) -> int:
         return len(self.in_flight_requests)
+
+    def _open(self) -> None:
+        if self.ctx.show_progress:
+            self.progress_reporter = self.ctx.add_progress_reporter('Downloads', 'objects', 'B')
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
         """Get the next batch of input rows, or None if there are no more rows"""
@@ -139,6 +143,9 @@ class CachePrefetchNode(ExecNode):
 
     def __process_completions(self, done: set[futures.Future], ignore_errors: bool) -> None:
         file_cache = FileCache.get()
+        num_objects = 0
+        num_bytes = 0
+
         for f in done:
             url = self.in_flight_requests.pop(f)
             tmp_path, exc = f.result()
@@ -146,6 +153,9 @@ class CachePrefetchNode(ExecNode):
                 raise exc
             local_path: Path | None = None
             if tmp_path is not None:
+                num_objects += 1
+                num_bytes += tmp_path.stat().st_size
+
                 # register the file with the cache for the first column in which it's missing
                 assert url in self.in_flight_urls
                 _, info = self.in_flight_urls[url][0]
@@ -164,6 +174,9 @@ class CachePrefetchNode(ExecNode):
                 if state.num_missing == 0:
                     del self.in_flight_rows[id(row)]
                     self.__add_ready_row(row, state.idx)
+
+        if self.ctx.show_progress:
+            self.progress_reporter.update(num_objects, num_bytes)
 
     def __process_input_batch(self, input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None:
         """Process a batch of input rows, submitting URLs for download and adding ready rows to ready_rows"""
@@ -214,25 +227,8 @@ class CachePrefetchNode(ExecNode):
             self.in_flight_requests[f] = url
 
     def __fetch_url(self, url: str) -> tuple[Path | None, Exception | None]:
-        """Fetches a remote URL into the TempStore and returns its path"""
-        from pixeltable.utils.local_store import TempStore
-
-        _logger.debug(f'fetching url={url} thread_name={threading.current_thread().name}')
-        parsed = urllib.parse.urlparse(url)
-        # Use len(parsed.scheme) > 1 here to ensure we're not being passed
-        # a Windows filename
-        assert len(parsed.scheme) > 1 and parsed.scheme != 'file'
-        # preserve the file extension, if there is one
-        extension = ''
-        if parsed.path:
-            p = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
-            extension = p.suffix
-        tmp_path = TempStore.create_path(extension=extension)
         try:
-            _logger.debug(f'Downloading {url} to {tmp_path}')
-            ObjectOps.copy_object_to_local_file(url, tmp_path)
-            _logger.debug(f'Downloaded {url} to {tmp_path}')
-            return tmp_path, None
+            return fetch_url(url), None
         except Exception as e:
             # we want to add the file url to the exception message
             exc = excs.Error(f'Failed to download {url}: {e}')

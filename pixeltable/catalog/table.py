@@ -992,32 +992,6 @@ class Table(SchemaObject):
         To add an embedding index, one must specify, at minimum, the column to be indexed and an embedding UDF.
         Only `String` and `Image` columns are currently supported.
 
-        Examples:
-            Here's an example that uses a
-            [CLIP embedding][pixeltable.functions.huggingface.clip] to index an image column:
-
-            >>> from pixeltable.functions.huggingface import clip
-            >>> embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
-            >>> tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
-
-            Once the index is created, similarity lookups can be performed using the `similarity` pseudo-function:
-
-            >>> reference_img = PIL.Image.open('my_image.jpg')
-            >>> sim = tbl.img.similarity(image=reference_img)
-            >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
-
-            If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
-            performed using any of its supported modalities. In our example, CLIP supports both text and images, so we
-            can also search for images using a text description:
-
-            >>> sim = tbl.img.similarity(string='a picture of a train')
-            >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
-
-            Audio and video lookups would look like this:
-
-            >>> sim = tbl.img.similarity(audio='/path/to/audio.flac')
-            >>> sim = tbl.img.similarity(video='/path/to/video.mp4')
-
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
             idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
@@ -1055,8 +1029,25 @@ class Table(SchemaObject):
 
             >>> tbl.add_embedding_index('img', embedding=embedding_fn)
 
-            Add a second index to the `img` column, using the inner product as the distance metric,
-            and with a specific name:
+            Once the index is created, similarity lookups can be performed using the `similarity` pseudo-function:
+
+            >>> sim = tbl.img.similarity(image='/path/to/my-image.jpg')  # can also be a URL or a PIL image
+            >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+
+            If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
+            performed using any of its supported modalities. In our example, CLIP supports both text and images, so we
+            can also search for images using a text description:
+
+            >>> sim = tbl.img.similarity(string='a picture of a train')
+            >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+
+            Audio and video lookups would look like this:
+
+            >>> sim = tbl.img.similarity(audio='/path/to/audio.flac')
+            >>> sim = tbl.img.similarity(video='/path/to/video.mp4')
+
+            Multiple indexes can be defined on each column. Add a second index to the `img` column, using the inner
+            product as the distance metric, and with a specific name:
 
             >>> tbl.add_embedding_index(
             ...     tbl.img,
@@ -1863,7 +1854,6 @@ class Table(SchemaObject):
                     updates=rcs.upd_rows,
                     deletes=rcs.del_rows,
                     errors=rcs.num_excs,
-                    computed=rcs.computed_values,
                     schema_change=schema_change,
                 )
             )

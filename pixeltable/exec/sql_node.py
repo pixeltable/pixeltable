@@ -9,6 +9,7 @@ import sqlalchemy as sql
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
+from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -89,6 +90,7 @@ class SqlNode(ExecNode):
     py_filter_eval_ctx: exprs.RowBuilder.EvalCtx | None
     cte: sql.CTE | None
     sql_elements: exprs.SqlElementCache
+    progress_reporter: ProgressReporter | None
 
     # execution state
     sql_select_list_exprs: exprs.ExprSet
@@ -117,6 +119,7 @@ class SqlNode(ExecNode):
         # create Select stmt
         self.sql_elements = sql_elements
         self.tbl = tbl
+        self.progress_reporter = None
         self.columns = columns
         if cell_md_col_refs is not None:
             assert all(ref.col.stores_cellmd for ref in cell_md_col_refs)
@@ -174,6 +177,13 @@ class SqlNode(ExecNode):
             tv = self.tbl.tbl_version._tbl_version
             if tv is not None:
                 assert tv.is_validated
+
+    def _open(self) -> None:
+        if self.ctx.show_progress:
+            desc = 'Rows read'
+            if self.tbl is not None:
+                desc += f' (table {self.tbl.tbl_name()!r})'
+            self.progress_reporter = self.ctx.add_progress_reporter(desc, 'rows')
 
     def _pk_col_items(self) -> list[sql.Column]:
         if self.set_pk:
@@ -427,11 +437,15 @@ class SqlNode(ExecNode):
 
             if self.ctx.batch_size > 0 and len(output_batch) == self.ctx.batch_size:
                 _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
+                if self.progress_reporter is not None:
+                    self.progress_reporter.update(len(output_batch))
                 yield output_batch
                 output_batch = DataRowBatch(self.row_builder)
 
         if len(output_batch) > 0:
             _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
+            if self.progress_reporter is not None:
+                self.progress_reporter.update(len(output_batch))
             yield output_batch
 
     def _close(self) -> None:

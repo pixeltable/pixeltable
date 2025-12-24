@@ -413,7 +413,9 @@ class TableVersion:
             self.delete_media()
             view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
-            _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
+            with Env.get().report_progress():
+                plan.ctx.title = self.display_str()
+                _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             status = UpdateStatus(row_count_stats=row_counts)
             Catalog.get().store_update_status(self.id, self.version, status)
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
@@ -798,6 +800,7 @@ class TableVersion:
             col.id = self.next_col_id()
 
         # we're creating a new schema version
+        start_ts = time.perf_counter()
         self.bump_version(bump_schema_version=True)
         index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
@@ -820,9 +823,12 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
 
+        duration = time.perf_counter() - start_ts
+        rate_str = f' ({status.num_rows / duration:.2f} rows/s)' if duration > 0 and status.num_rows > 0 else ''
         msg = (
             f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
-            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}.'
+            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"} '
+            f'in {duration:.2f} s{rate_str}'
         )
         Env.get().console_logger.info(msg)
         _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
@@ -845,7 +851,6 @@ class TableVersion:
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
                 )
 
-        computed_values = 0
         num_excs = 0
         cols_with_excs: list[Column] = []
         for col in cols_to_add:
@@ -874,10 +879,9 @@ class TableVersion:
 
             # populate the column
             plan = Planner.create_add_column_plan(self.path, col)
-            plan.ctx.num_rows = row_count
-            try:
-                plan.open()
+            with Env.get().report_progress():
                 try:
+                    plan.ctx.title = self.display_str()
                     excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
                 except sql_exc.DBAPIError as exc:
                     Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
@@ -886,12 +890,9 @@ class TableVersion:
                     raise excs.Error(
                         f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
                     ) from exc
-                if excs_per_col > 0:
-                    cols_with_excs.append(col)
-                    num_excs += excs_per_col
-                computed_values += plan.ctx.num_computed_exprs * row_count
-            finally:
-                plan.close()
+            if excs_per_col > 0:
+                cols_with_excs.append(col)
+                num_excs += excs_per_col
 
         Catalog.get().record_column_dependencies(self)
 
@@ -899,9 +900,7 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(
-            upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
-        )  # add_columns
+        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs, computed_values=0)  # add_columns
         return UpdateStatus(
             cols_with_excs=[f'{col.get_tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
@@ -1033,10 +1032,11 @@ class TableVersion:
                 self.next_row_id += 1
                 yield rowid
 
-        result = self._insert(
-            plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
-        )
-        return result
+        with Env.get().report_progress():
+            result = self._insert(
+                plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
+            )
+            return result
 
     def _insert(
         self,
@@ -1050,6 +1050,7 @@ class TableVersion:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.bump_version(timestamp, bump_schema_version=False)
+        exec_plan.ctx.title = self.display_str()
         cols_with_excs, row_counts = self.store_tbl.insert_rows(
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
@@ -1062,8 +1063,8 @@ class TableVersion:
         for view in self.mutable_views:
             from pixeltable.plan import Planner
 
-            plan2, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
-            status = view.get()._insert(plan2, timestamp, print_stats=print_stats)
+            view_plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
+            status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
         # Use the net status after all propagations
@@ -1105,7 +1106,6 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
-            show_progress=True,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1229,7 +1229,6 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
-            show_progress=True,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1242,7 +1241,6 @@ class TableVersion:
         base_versions: list[int | None],
         timestamp: float,
         cascade: bool,
-        show_progress: bool = True,
     ) -> UpdateStatus:
         from pixeltable.catalog import Catalog
         from pixeltable.plan import Planner
@@ -1252,9 +1250,7 @@ class TableVersion:
         create_new_table_version = plan is not None
         if create_new_table_version:
             self.bump_version(timestamp, bump_schema_version=False)
-            cols_with_excs, row_counts = self.store_tbl.insert_rows(
-                plan, v_min=self.version, show_progress=show_progress
-            )
+            cols_with_excs, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
                 cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
@@ -1646,6 +1642,9 @@ class TableVersion:
     def is_insertable(self) -> bool:
         """Returns True if this corresponds to an InsertableTable"""
         return self.is_mutable and not self.is_view
+
+    def display_str(self) -> str:
+        return f'{"Table" if self.is_insertable else "View"} {self.name!r}'
 
     def is_iterator_column(self, col: Column) -> bool:
         """Returns True if col is produced by an iterator"""
