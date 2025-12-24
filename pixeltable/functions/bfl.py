@@ -222,7 +222,7 @@ async def generate(
         width: Output width in pixels (multiple of 16). Default 1024.
         height: Output height in pixels (multiple of 16). Default 1024.
         seed: Random seed for reproducible results.
-        safety_tolerance: Moderation level from 0 (strict) to 5 (permissive). Default 2.
+        safety_tolerance: Moderation level from 0 (strict) to 6 (permissive). Default 2.
         output_format: Image format, 'jpeg' or 'png'. Default 'jpeg'.
         steps: Number of inference steps (flux-2-flex only, max 50).
         guidance: Guidance scale 1.5-10 (flux-2-flex only). Default 4.5.
@@ -309,7 +309,7 @@ async def edit(
         width: Output width in pixels (multiple of 16). Matches input if not specified.
         height: Output height in pixels (multiple of 16). Matches input if not specified.
         seed: Random seed for reproducible results.
-        safety_tolerance: Moderation level from 0 (strict) to 5 (permissive). Default 2.
+        safety_tolerance: Moderation level from 0 (strict) to 6 (permissive). Default 2.
         output_format: Image format, 'jpeg' or 'png'. Default 'jpeg'.
         steps: Number of inference steps (flux-2-flex only, max 50).
         guidance: Guidance scale 1.5-10 (flux-2-flex only). Default 4.5.
@@ -398,7 +398,7 @@ async def fill(
         image: The base image to inpaint.
         mask: Mask image where white areas indicate regions to fill.
         seed: Random seed for reproducible results.
-        safety_tolerance: Moderation level from 0 (strict) to 5 (permissive). Default 2.
+        safety_tolerance: Moderation level from 0 (strict) to 6 (permissive). Default 2.
         output_format: Image format, 'jpeg' or 'png'. Default 'jpeg'.
 
     Returns:
@@ -457,7 +457,7 @@ async def expand(
         left: Pixels to add to the left edge.
         right: Pixels to add to the right edge.
         seed: Random seed for reproducible results.
-        safety_tolerance: Moderation level from 0 (strict) to 5 (permissive). Default 2.
+        safety_tolerance: Moderation level from 0 (strict) to 6 (permissive). Default 2.
         output_format: Image format, 'jpeg' or 'png'. Default 'jpeg'.
 
     Returns:
