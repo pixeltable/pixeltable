@@ -8,7 +8,45 @@ from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, v
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestXai:
+    def test_chat(self, reset_db: None) -> None:
+        """Test the native xai-sdk chat UDF."""
+        skip_test_if_not_installed('xai')
+        skip_test_if_no_client('xai')
+        from pixeltable.functions.xai import chat
+
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        msgs = [
+            {'role': 'system', 'content': 'You are Grok, a helpful AI assistant.'},
+            {'role': 'user', 'content': t.input},
+        ]
+        t.add_computed_column(input_msgs=msgs)
+        t.add_computed_column(chat_output=chat(messages=t.input_msgs, model='grok-3'))
+        t.add_computed_column(answer=t.chat_output['content'])
+
+        validate_update_status(t.insert(input='What is the capital of France?'), 1)
+        result = t.collect()
+        assert 'paris' in result['answer'][0].lower()
+
+    def test_chat_with_reasoning(self, reset_db: None) -> None:
+        """Test the chat UDF with reasoning model grok-3-mini."""
+        skip_test_if_not_installed('xai')
+        skip_test_if_no_client('xai')
+        from pixeltable.functions.xai import chat
+
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
+        msgs = [{'role': 'system', 'content': 'You are a math expert.'}, {'role': 'user', 'content': t.input}]
+        t.add_computed_column(input_msgs=msgs)
+        t.add_computed_column(chat_output=chat(messages=t.input_msgs, model='grok-3-mini', reasoning_effort='high'))
+
+        validate_update_status(t.insert(input='What is 101 * 3?'), 1)
+        result = t.collect()
+        assert '303' in result['chat_output'][0]['content']
+        # Check that reasoning tokens were used
+        if 'usage' in result['chat_output'][0]:
+            assert result['chat_output'][0]['usage'].get('reasoning_tokens', 0) > 0
+
     def test_chat_completions(self, reset_db: None) -> None:
+        """Test the OpenAI-compatible chat_completions UDF."""
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('xai')
         from pixeltable.functions.xai import chat_completions
@@ -26,6 +64,7 @@ class TestXai:
         assert 'paris' in result['chat_output'][0]['choices'][0]['message']['content'].lower()
 
     def test_chat_completions_with_kwargs(self, reset_db: None) -> None:
+        """Test chat_completions with model_kwargs."""
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('xai')
         from pixeltable.functions.xai import chat_completions
@@ -37,12 +76,7 @@ class TestXai:
         ]
         t.add_computed_column(
             chat_output=chat_completions(
-                messages=msgs,
-                model='grok-3',
-                model_kwargs={
-                    'max_tokens': 100,
-                    'temperature': 0.7,
-                },
+                messages=msgs, model='grok-3', model_kwargs={'max_tokens': 100, 'temperature': 0.7}
             )
         )
 
@@ -51,6 +85,7 @@ class TestXai:
         assert result['chat_output'][0]['choices'][0]['message']['content'] is not None
 
     def test_image_generations(self, reset_db: None) -> None:
+        """Test image generation with Grok."""
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('xai')
         from pixeltable.functions.xai import image_generations

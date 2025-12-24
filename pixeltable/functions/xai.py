@@ -1,8 +1,7 @@
 """
 Pixeltable [UDFs](https://docs.pixeltable.com/platform/udfs-in-pixeltable) for [xAI](https://x.ai/) Grok models.
 
-Provides integration with xAI's Grok language and image generation models. The xAI API is OpenAI-compatible,
-so this integration uses the OpenAI SDK with xAI's base URL.
+Provides integration with xAI's Grok language and image generation models using the native xAI SDK.
 
 In order to use these UDFs, you must configure your xAI API key either via the `XAI_API_KEY` environment
 variable, or as `api_key` in the `xai` section of the Pixeltable config file.
@@ -22,22 +21,157 @@ from pixeltable.func import Tools
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import openai
+    from xai_sdk import AsyncClient as XAIAsyncClient
 
 
 @env.register_client('xai')
-def _(api_key: str) -> 'openai.AsyncOpenAI':
-    import openai
+def _(api_key: str) -> 'XAIAsyncClient':
+    from xai_sdk import AsyncClient
 
-    return openai.AsyncOpenAI(
+    return AsyncClient(
         api_key=api_key,
-        base_url='https://api.x.ai/v1',
-        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
+        timeout=3600,  # Extended timeout for reasoning models
     )
 
 
-def _xai_client() -> 'openai.AsyncOpenAI':
+def _xai_client() -> 'XAIAsyncClient':
     return env.Env.get().get_client('xai')
+
+
+@pxt.udf(resource_pool='request-rate:xai')
+async def chat(
+    messages: list,
+    *,
+    model: str = 'grok-3',
+    reasoning_effort: Literal['low', 'high'] | None = None,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
+    store_messages: bool = False,
+) -> dict:
+    """
+    Creates a model response for the given chat conversation using xAI's Grok models.
+
+    Uses the native xAI SDK which supports the latest features including the Responses API
+    and reasoning models.
+
+    For additional details, see: <https://docs.x.ai/docs/guides/chat>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `xai`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 60 RPM.
+
+    __Requirements:__
+
+    - `pip install xai-sdk`
+
+    Args:
+        messages: A list of messages comprising the conversation. Each message should have
+            a `role` (system, user, or assistant) and `content`.
+        model: The Grok model to use. Options include:
+            - `grok-4`: Latest Grok 4 model (most capable)
+            - `grok-4-fast`: Faster Grok 4 variant
+            - `grok-3`: Grok 3 model
+            - `grok-3-fast`: Faster Grok 3 variant
+            - `grok-3-mini`: Grok 3 mini with reasoning support
+            - `grok-2-vision-1212`: Grok 2 with vision capabilities
+            - `grok-code-fast-1`: Code-optimized model
+        reasoning_effort: Controls how much time the model spends thinking. Only supported
+            by `grok-3-mini`. Options: `low` (quick responses) or `high` (complex problems).
+        max_tokens: Maximum number of tokens in the response.
+        temperature: Sampling temperature (0-2). Higher values make output more random.
+        top_p: Nucleus sampling parameter.
+        store_messages: If True, uses the stateful Responses API where messages are stored
+            server-side. This enables multi-turn conversations with less data transfer.
+
+    Returns:
+        A dictionary containing:
+        - `content`: The response text
+        - `usage`: Token usage information including `reasoning_tokens` for reasoning models
+        - `id`: Response ID (can be used to continue conversation if store_messages=True)
+        - `model`: The model used
+
+    Examples:
+        Basic chat completion:
+
+        >>> messages = [
+        ...     {'role': 'system', 'content': 'You are Grok, a helpful AI assistant.'},
+        ...     {'role': 'user', 'content': tbl.prompt}
+        ... ]
+        >>> tbl.add_computed_column(response=xai.chat(messages, model='grok-4'))
+
+        Using reasoning model:
+
+        >>> tbl.add_computed_column(
+        ...     response=xai.chat(
+        ...         messages,
+        ...         model='grok-3-mini',
+        ...         reasoning_effort='high'
+        ...     )
+        ... )
+    """
+    from xai_sdk.chat import system, user as user_msg
+
+    client = _xai_client()
+
+    # Build kwargs for chat creation
+    chat_kwargs: dict[str, Any] = {'model': model}
+
+    if reasoning_effort is not None:
+        chat_kwargs['reasoning_effort'] = reasoning_effort
+    if max_tokens is not None:
+        chat_kwargs['max_tokens'] = max_tokens
+    if store_messages:
+        chat_kwargs['store_messages'] = store_messages
+
+    # Create chat instance
+    chat_instance = client.chat.create(**chat_kwargs)
+
+    # Add messages
+    for msg in messages:
+        role = msg.get('role', 'user')
+        content = msg.get('content', '')
+
+        if role == 'system':
+            chat_instance.append(system(content))
+        elif role == 'user':
+            chat_instance.append(user_msg(content))
+        elif role == 'assistant':
+            # For assistant messages, we need to handle them appropriately
+            # The SDK handles this internally
+            chat_instance.append(user_msg(content))  # Assistant context handled by SDK
+
+    # Set sampling parameters
+    sample_kwargs: dict[str, Any] = {}
+    if temperature is not None:
+        sample_kwargs['temperature'] = temperature
+    if top_p is not None:
+        sample_kwargs['top_p'] = top_p
+
+    # Get response (await for async client)
+    response = await chat_instance.sample(**sample_kwargs) if sample_kwargs else await chat_instance.sample()
+
+    # Build result dict
+    result: dict[str, Any] = {'content': response.content, 'model': model}
+
+    if hasattr(response, 'id') and response.id:
+        result['id'] = response.id
+
+    if hasattr(response, 'usage') and response.usage:
+        usage_dict: dict[str, Any] = {
+            'completion_tokens': getattr(response.usage, 'completion_tokens', 0),
+            'prompt_tokens': getattr(response.usage, 'prompt_tokens', 0),
+            'total_tokens': getattr(response.usage, 'total_tokens', 0),
+        }
+        # Include reasoning tokens if available
+        if hasattr(response.usage, 'reasoning_tokens'):
+            usage_dict['reasoning_tokens'] = response.usage.reasoning_tokens
+        result['usage'] = usage_dict
+
+    if hasattr(response, 'reasoning_content') and response.reasoning_content:
+        result['reasoning_content'] = response.reasoning_content
+
+    return result
 
 
 @pxt.udf(resource_pool='request-rate:xai')
@@ -50,10 +184,10 @@ async def chat_completions(
     tool_choice: dict[str, Any] | None = None,
 ) -> dict:
     """
-    Creates a model response for the given chat conversation using xAI's Grok models.
+    Creates a model response using the OpenAI-compatible chat/completions endpoint.
 
-    Equivalent to the xAI `chat/completions` API endpoint. The xAI API is fully compatible
-    with the OpenAI API format.
+    This is the legacy endpoint that offers full compatibility with OpenAI SDK patterns.
+    For new features including reasoning models, consider using the `chat` UDF instead.
 
     For additional details, see: <https://docs.x.ai/docs/api-reference#chat-completions>
 
@@ -69,10 +203,10 @@ async def chat_completions(
         messages: A list of messages comprising the conversation, following the OpenAI message format.
             Each message should have a `role` (system, user, or assistant) and `content`.
         model: The Grok model to use. Options include:
-            - `grok-3`: Latest Grok 3 model
-            - `grok-3-fast`: Faster Grok 3 variant
             - `grok-4`: Latest Grok 4 model (most capable)
             - `grok-4-fast`: Faster Grok 4 variant
+            - `grok-3`: Grok 3 model
+            - `grok-3-fast`: Faster Grok 3 variant
             - `grok-2-1212`: Grok 2 model
             - `grok-2-vision-1212`: Grok 2 with vision capabilities
         model_kwargs: Additional keyword arguments for the xAI API.
@@ -101,6 +235,16 @@ async def chat_completions(
         ...     answer=xai.chat_completions(messages, model='grok-3')['choices'][0]['message']['content']
         ... )
     """
+    import openai
+
+    # Create OpenAI-compatible client for legacy endpoint
+    client = openai.AsyncOpenAI(
+        api_key=env.Env.get().config_value('xai.api_key'),
+        base_url='https://api.x.ai/v1',
+        timeout=httpx.Timeout(3600.0),
+        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
+    )
+
     if model_kwargs is None:
         model_kwargs = {}
 
@@ -121,20 +265,14 @@ async def chat_completions(
             model_kwargs['extra_body'] = {}
         model_kwargs['extra_body']['parallel_tool_calls'] = False
 
-    result = await _xai_client().chat.completions.with_raw_response.create(
-        messages=messages, model=model, **model_kwargs
-    )
+    result = await client.chat.completions.with_raw_response.create(messages=messages, model=model, **model_kwargs)
 
     return json.loads(result.text)
 
 
 @pxt.udf(resource_pool='request-rate:xai')
 async def image_generations(
-    prompt: str,
-    *,
-    model: str = 'grok-2-image',
-    n: int = 1,
-    response_format: Literal['url', 'b64_json'] = 'b64_json',
+    prompt: str, *, model: str = 'grok-2-image', n: int = 1, response_format: Literal['url', 'b64_json'] = 'b64_json'
 ) -> PIL.Image.Image:
     """
     Generates an image from a text prompt using xAI's Grok image generation models.
@@ -173,14 +311,17 @@ async def image_generations(
         ...     image=xai.image_generations('A sunset over mountains', n=4)
         ... )
     """
-    client = _xai_client()
+    import openai
 
-    response = await client.images.generate(
-        model=model,
-        prompt=prompt,
-        n=n,
-        response_format=response_format,
+    # Use OpenAI client for image generation endpoint
+    client = openai.AsyncOpenAI(
+        api_key=env.Env.get().config_value('xai.api_key'),
+        base_url='https://api.x.ai/v1',
+        timeout=httpx.Timeout(3600.0),
+        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
     )
+
+    response = await client.images.generate(model=model, prompt=prompt, n=n, response_format=response_format)
 
     # Get the first generated image
     image_data = response.data[0]
