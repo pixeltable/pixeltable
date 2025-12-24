@@ -270,7 +270,9 @@ async def rerank(
             'relevance_score': r.get('relevance_score'),
         }
         if return_documents and 'document' in r:
-            item['document'] = r['document'].get('text', r['document'])
+            doc = r['document']
+            # Handle both string and dict formats from the API
+            item['document'] = doc.get('text', doc) if isinstance(doc, dict) else doc
         formatted_results.append(item)
 
     return {
