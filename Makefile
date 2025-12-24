@@ -164,19 +164,34 @@ lint: install
 	@echo 'Running `ruff check` ...'
 	@ruff check pixeltable tests tool
 
+# TODO echo what is being run
+# TODO mdx
 .PHONY: formatcheck
 formatcheck: install
 	@echo 'Running `ruff format --check` ...'
 	@ruff format --check pixeltable tests tool
 	@echo 'Running `ruff check --select I` ...'
 	@ruff check --select I pixeltable tests tool
+	@echo 'Checking docstrings...'
+	@docformatter --check --recursive pixeltable/ tests/ tool/
+	@echo 'Checking markdown files...'
+	@mdformat . --check
+	@echo 'Checking notebooks...'
+	@nbqa mdformat **/*.ipynb --nbqa-md --nbqa-dont-skip-bad-cells --check
 
+# TODO .mdx files
 .PHONY: format
 format: install
+	@echo 'Formatting python docstrings...'
+	@docformatter --in-place --recursive pixeltable/ tests/ tool/
 	@echo 'Running `ruff format` ...'
 	@ruff format pixeltable tests tool
 	@echo 'Running `ruff check --select I --fix` ...'
 	@ruff check --select I --fix pixeltable tests tool
+	@echo 'Formatting markdown files...'
+	@mdformat .
+	@echo 'Formatting notebooks...'
+	@nbqa mdformat **/*.ipynb
 
 .PHONY: release
 release: install
