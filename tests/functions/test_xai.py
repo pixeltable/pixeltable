@@ -84,9 +84,30 @@ class TestXai:
         result = t.collect()
         assert result['chat_output'][0]['choices'][0]['message']['content'] is not None
 
+    def test_vision(self, reset_db: None) -> None:
+        """Test vision/image understanding with Grok."""
+        skip_test_if_not_installed('xai')
+        skip_test_if_no_client('xai')
+        from pixeltable.functions.xai import vision
+
+        t = pxt.create_table('test_tbl', {'image_url': pxt.String, 'question': pxt.String})
+        t.add_computed_column(analysis=vision(prompt=t.question, image_url=t.image_url, model='grok-4', detail='high'))
+        t.add_computed_column(answer=t.analysis['content'])
+
+        # Use a simple public image
+        validate_update_status(
+            t.insert(
+                image_url='https://upload.wikimedia.org/wikipedia/commons/thumb/1/15/Cat_August_2010-4.jpg/1200px-Cat_August_2010-4.jpg',
+                question='What animal is in this image?',
+            ),
+            1,
+        )
+        result = t.collect()
+        assert 'cat' in result['answer'][0].lower()
+
     def test_image_generations(self, reset_db: None) -> None:
         """Test image generation with Grok."""
-        skip_test_if_not_installed('openai')
+        skip_test_if_not_installed('xai')
         skip_test_if_no_client('xai')
         from pixeltable.functions.xai import image_generations
 

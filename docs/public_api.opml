@@ -344,6 +344,7 @@
         <outline text="module|pixeltable.functions.xai">
           <outline text="udf|pixeltable.functions.xai.chat" />
           <outline text="udf|pixeltable.functions.xai.chat_completions" />
+          <outline text="udf|pixeltable.functions.xai.vision" />
           <outline text="udf|pixeltable.functions.xai.image_generations" />
         </outline>
         <outline text="module|pixeltable.functions.whisper">

@@ -7,7 +7,6 @@ In order to use these UDFs, you must configure your xAI API key either via the `
 variable, or as `api_key` in the `xai` section of the Pixeltable config file.
 """
 
-import base64
 import json
 from io import BytesIO
 from typing import TYPE_CHECKING, Any, Literal
@@ -273,13 +272,100 @@ async def chat_completions(
 
 
 @pxt.udf(resource_pool='request-rate:xai')
+async def vision(
+    prompt: str, image_url: str, *, model: str = 'grok-4', detail: Literal['low', 'high', 'auto'] = 'high'
+) -> dict:
+    """
+    Analyzes an image and responds to a prompt about it using Grok's vision capabilities.
+
+    Uses the native xAI SDK to send images to vision-capable Grok models for analysis,
+    description, or answering questions about the image content.
+
+    For additional details, see: <https://docs.x.ai/docs/guides/vision>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `xai`, key `rate_limit`). If no rate
+    limit is configured, uses a default of 60 RPM.
+
+    __Requirements:__
+
+    - `pip install xai-sdk`
+
+    Args:
+        prompt: The question or instruction about the image.
+        image_url: URL of the image to analyze. Can be a public URL or a data URL.
+        model: The Grok model to use. Vision-capable models include:
+            - `grok-4`: Latest Grok 4 with vision
+            - `grok-2-vision-1212`: Grok 2 vision model
+        detail: Level of detail for image analysis. Options:
+            - `high`: More detailed analysis (uses more tokens)
+            - `low`: Faster, less detailed analysis
+            - `auto`: Let the model decide
+
+    Returns:
+        A dictionary containing:
+        - `content`: The response text describing or answering about the image
+        - `model`: The model used
+        - `usage`: Token usage information
+
+    Examples:
+        Describe an image:
+
+        >>> tbl.add_computed_column(
+        ...     description=xai.vision(
+        ...         prompt='Describe this image in detail',
+        ...         image_url=tbl.image_url,
+        ...         model='grok-4'
+        ...     )
+        ... )
+
+        Answer questions about images:
+
+        >>> tbl.add_computed_column(
+        ...     analysis=xai.vision(
+        ...         prompt='What objects are visible in this image?',
+        ...         image_url=tbl.url
+        ...     )
+        ... )
+    """
+    from xai_sdk.chat import image, user as user_msg
+
+    client = _xai_client()
+
+    # Create chat instance for vision
+    chat_instance = client.chat.create(model=model)
+
+    # Add user message with image
+    chat_instance.append(user_msg(prompt, image(image_url=image_url, detail=detail)))
+
+    # Get response
+    response = await chat_instance.sample()
+
+    # Build result dict
+    result: dict[str, Any] = {'content': response.content, 'model': model}
+
+    if hasattr(response, 'id') and response.id:
+        result['id'] = response.id
+
+    if hasattr(response, 'usage') and response.usage:
+        usage_dict: dict[str, Any] = {
+            'completion_tokens': getattr(response.usage, 'completion_tokens', 0),
+            'prompt_tokens': getattr(response.usage, 'prompt_tokens', 0),
+            'total_tokens': getattr(response.usage, 'total_tokens', 0),
+        }
+        result['usage'] = usage_dict
+
+    return result
+
+
+@pxt.udf(resource_pool='request-rate:xai')
 async def image_generations(
-    prompt: str, *, model: str = 'grok-2-image', n: int = 1, response_format: Literal['url', 'b64_json'] = 'b64_json'
+    prompt: str, *, model: str = 'grok-2-image', image_format: Literal['url', 'base64'] = 'base64'
 ) -> PIL.Image.Image:
     """
     Generates an image from a text prompt using xAI's Grok image generation models.
 
-    Equivalent to the xAI `images/generations` API endpoint.
+    Uses the native xAI SDK `client.image.sample()` method.
     For additional details, see: <https://docs.x.ai/docs/guides/image-generation>
 
     Request throttling:
@@ -288,14 +374,14 @@ async def image_generations(
 
     __Requirements:__
 
-    - `pip install openai`
+    - `pip install xai-sdk`
 
     Args:
         prompt: A text description of the desired image.
         model: The image generation model to use. Currently `grok-2-image` is available.
-        n: Number of images to generate (1-10). Only the first image is returned by this UDF.
-        response_format: The format of the response. Use `b64_json` for base64-encoded image data,
-            or `url` for a URL to the generated image.
+        image_format: The format of the response:
+            - `base64`: Returns base64-encoded image data (default, faster)
+            - `url`: Returns a URL to the generated image on xAI storage
 
     Returns:
         A PIL Image object containing the generated image.
@@ -306,39 +392,21 @@ async def image_generations(
         >>> tbl.add_computed_column(
         ...     generated_image=xai.image_generations(tbl.prompt, model='grok-2-image')
         ... )
-
-        Generate multiple variations (returns only the first):
-
-        >>> tbl.add_computed_column(
-        ...     image=xai.image_generations('A sunset over mountains', n=4)
-        ... )
     """
-    import openai
+    client = _xai_client()
 
-    # Use OpenAI client for image generation endpoint
-    api_key = Config.get().get_string_value('api_key', section='xai')
-    client = openai.AsyncOpenAI(
-        api_key=api_key,
-        base_url='https://api.x.ai/v1',
-        timeout=httpx.Timeout(3600.0),
-        http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
-    )
+    # Use native xai_sdk image generation
+    response = await client.image.sample(model=model, prompt=prompt, image_format=image_format)
 
-    response = await client.images.generate(model=model, prompt=prompt, n=n, response_format=response_format)
-
-    # Get the first generated image
-    image_data = response.data[0]
-
-    if response_format == 'b64_json':
-        # Decode base64 image data
-        img_bytes = base64.b64decode(image_data.b64_json)
-        img = PIL.Image.open(BytesIO(img_bytes))
+    if image_format == 'base64':
+        # response.image contains raw bytes
+        img = PIL.Image.open(BytesIO(response.image))
         img.load()
         return img
     else:
         # Download from URL
         async with httpx.AsyncClient() as http_client:
-            img_response = await http_client.get(image_data.url)
+            img_response = await http_client.get(response.url)
             img_response.raise_for_status()
             img = PIL.Image.open(BytesIO(img_response.content))
             img.load()
