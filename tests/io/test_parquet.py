@@ -5,7 +5,6 @@ import pandas as pd
 import pytest
 
 import pixeltable as pxt
-from pixeltable.env import Env
 
 from ..utils import get_image_files, make_test_arrow_table, skip_test_if_not_installed
 
@@ -113,58 +112,55 @@ class TestParquet:
         import pyarrow as pa
         from pyarrow import parquet
 
-        t = pxt.create_table('test1', {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp})
+        t = pxt.create_table('test1', {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp, 'c4': pxt.Json})
 
         tz = ZoneInfo('America/Anchorage')
+        ts1 = datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz)
+        ts2 = datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz)
+        json_val1 = {'int_val': 100, 'str_val': 'hello'}
+        json_val2 = {'int_val': 200, 'str_val': 'world'}
         t.insert(
-            [
-                {'c1': 1, 'c2': 'row1', 'c3': datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz)},
-                {'c1': 2, 'c2': 'row2', 'c3': datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz)},
-            ]
+            [{'c1': 1, 'c2': 'row1', 'c3': ts1, 'c4': json_val1}, {'c1': 2, 'c2': 'row2', 'c3': ts2, 'c4': json_val2}]
         )
-
-        tz_default = Env.get().default_time_zone
-
-        print('test_export_parquet_simple with tz: ', tz, 'and default tz: ', tz_default)
 
         export_file1 = tmp_path / 'test1.pq'
         pxt.io.export_parquet(t, export_file1)
         assert export_file1.exists()
-        ptest1 = parquet.read_table(str(export_file1))
-        assert ptest1.num_rows == 2
-        assert ptest1.column_names == ['c1', 'c2', 'c3']
-        assert ptest1.schema.types == [pa.int64(), pa.string(), pa.timestamp('us', tz='UTC')]
-        assert pa.array(ptest1.column('c1'), type='int64').equals(pa.array([1, 2]))
-        assert pa.array(ptest1.column('c2'), type='str').equals(pa.array(['row1', 'row2']))
-        assert pa.array(ptest1.column('c3')).equals(  # type: ignore[call-overload]
-            pa.array(
-                [
-                    datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc),
-                    datetime.datetime(2012, 2, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc),
-                ]
-            )
+        pq1 = parquet.read_table(str(export_file1))
+        assert pq1.num_rows == 2
+        assert pq1.column_names == ['c1', 'c2', 'c3', 'c4']
+        assert pq1.schema.types[:3] == [pa.int64(), pa.string(), pa.timestamp('us', tz='UTC')]
+        assert pa.types.is_struct(pq1.schema.types[3])
+        assert pa.array(pq1.column('c1'), type='int64').equals(pa.array([1, 2]))
+        assert pa.array(pq1.column('c2'), type='str').equals(pa.array(['row1', 'row2']))
+        assert pa.array(pq1.column('c3')).equals(  # type: ignore[call-overload]
+            pa.array([ts1.astimezone(datetime.timezone.utc), ts2.astimezone(datetime.timezone.utc)])
         )
+        c4_data = pq1.column('c4').to_pylist()
+        assert c4_data == [json_val1, json_val2]
 
         export_file2 = tmp_path / 'test2.pq'
         pxt.io.export_parquet(t.select(t.c1, t.c2), export_file2)
         assert export_file2.exists()
-        ptest2 = parquet.read_table(str(export_file2))
-        assert ptest2.num_rows == 2
-        assert ptest2.column_names == ['c1', 'c2']
-        assert pa.array(ptest2.column('c1'), type='int64').equals(pa.array([1, 2]))
-        assert pa.array(ptest2.column('c2'), type='str').equals(pa.array(['row1', 'row2']))
+        pq2 = parquet.read_table(str(export_file2))
+        assert pq2.num_rows == 2
+        assert pq2.column_names == ['c1', 'c2']
+        assert pa.array(pq2.column('c1'), type='int64').equals(pa.array([1, 2]))
+        assert pa.array(pq2.column('c2'), type='str').equals(pa.array(['row1', 'row2']))
 
         export_file3 = tmp_path / 'test3.pq'
         pxt.io.export_parquet(t.where(t.c1 == 1), export_file3)
         assert export_file3.exists()
-        ptest3 = parquet.read_table(str(export_file3))
-        assert ptest3.num_rows == 1
-        assert ptest3.column_names == ['c1', 'c2', 'c3']
-        assert pa.array(ptest3.column('c1'), type='int64').equals(pa.array([1]))
-        assert pa.array(ptest3.column('c2'), type='str').equals(pa.array(['row1']))
-        assert pa.array(ptest3.column('c3')).equals(  # type: ignore[call-overload]
-            pa.array([datetime.datetime(2012, 1, 1, 12, 0, 0, 25, tz).astimezone(datetime.timezone.utc)])
+        pq3 = parquet.read_table(str(export_file3))
+        assert pq3.num_rows == 1
+        assert pq3.column_names == ['c1', 'c2', 'c3', 'c4']
+        assert pa.array(pq3.column('c1'), type='int64').equals(pa.array([1]))
+        assert pa.array(pq3.column('c2'), type='str').equals(pa.array(['row1']))
+        assert pa.array(pq3.column('c3')).equals(  # type: ignore[call-overload]
+            pa.array([ts1.astimezone(datetime.timezone.utc)])
         )
+        c4_data = pq3.column('c4').to_pylist()
+        assert c4_data == [json_val1]
 
         it = pxt.io.import_parquet('imported_test1', parquet_path=str(export_file1))
         assert it.count() == t.count()
@@ -172,6 +168,7 @@ class TestParquet:
         assert it.select(it.c1).collect() == t.select(t.c1).collect()
         assert it.select(it.c2).collect() == t.select(t.c2).collect()
         assert it.select(it.c3).collect() == t.select(t.c3).collect(), it.select(it.c3).collect()
+        assert it.select(it.c4).collect() == t.select(t.c4).collect()
 
         it = pxt.io.import_parquet('imported_test2', parquet_path=str(export_file2))
         assert it.count() == t.count()
@@ -187,6 +184,7 @@ class TestParquet:
         assert it.select(it.c1).collect() == t.where(t.c1 == 1).select(t.c1).collect()
         assert it.select(it.c2).collect() == t.where(t.c1 == 1).select(t.c2).collect()
         assert it.select(it.c3).collect() == t.where(t.c1 == 1).select(t.c3).collect()
+        assert it.select(it.c4).collect() == t.where(t.c1 == 1).select(t.c4).collect()
 
     def test_export_parquet(self, reset_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
