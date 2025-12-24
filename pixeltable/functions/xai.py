@@ -297,14 +297,16 @@ async def image_generations(
     response = await client.image.sample(model=model, prompt=prompt, image_format=image_format)
 
     if image_format == 'base64':
-        # response.image contains raw bytes
-        img = PIL.Image.open(BytesIO(response.image))
+        # response.image is a coroutine with async client - await it
+        image_bytes = await response.image
+        img = PIL.Image.open(BytesIO(image_bytes))
         img.load()
         return img
     else:
-        # Download from URL
+        # Download from URL - response.url is also async
+        url = await response.url
         async with httpx.AsyncClient() as http_client:
-            img_response = await http_client.get(response.url)
+            img_response = await http_client.get(url)
             img_response.raise_for_status()
             img = PIL.Image.open(BytesIO(img_response.content))
             img.load()
