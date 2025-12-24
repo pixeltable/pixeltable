@@ -175,7 +175,6 @@ dev = [
     "scenedetect>=0.6.0.1",
     "opentelemetry-exporter-otlp>=1.38.0",
     "mdformat>=1.0.0",
-    "docformatter>=1.7.7",
     "nbqa>=1.9.1",
 ]
 test = [

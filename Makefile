@@ -172,8 +172,6 @@ formatcheck: install
 	@ruff format --check pixeltable tests tool
 	@echo 'Running `ruff check --select I` ...'
 	@ruff check --select I pixeltable tests tool
-	@echo 'Checking docstrings...'
-	@docformatter --check --recursive pixeltable/ tests/ tool/
 	@echo 'Checking markdown files...'
 	@mdformat . --check
 	@echo 'Checking notebooks...'
@@ -182,8 +180,6 @@ formatcheck: install
 # TODO .mdx files
 .PHONY: format
 format: install
-	@echo 'Formatting python docstrings...'
-	@docformatter --in-place --recursive pixeltable/ tests/ tool/ || [ $$? -eq 3 ]
 	@echo 'Running `ruff format` ...'
 	@ruff format pixeltable tests tool
 	@echo 'Running `ruff check --select I --fix` ...'
