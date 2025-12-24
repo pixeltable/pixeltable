@@ -17,6 +17,7 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable import env
+from pixeltable.config import Config
 from pixeltable.func import Tools
 from pixeltable.utils.code import local_public_names
 
@@ -238,8 +239,9 @@ async def chat_completions(
     import openai
 
     # Create OpenAI-compatible client for legacy endpoint
+    api_key = Config.get().get_string_value('api_key', section='xai')
     client = openai.AsyncOpenAI(
-        api_key=env.Env.get().config_value('xai.api_key'),
+        api_key=api_key,
         base_url='https://api.x.ai/v1',
         timeout=httpx.Timeout(3600.0),
         http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
@@ -314,8 +316,9 @@ async def image_generations(
     import openai
 
     # Use OpenAI client for image generation endpoint
+    api_key = Config.get().get_string_value('api_key', section='xai')
     client = openai.AsyncOpenAI(
-        api_key=env.Env.get().config_value('xai.api_key'),
+        api_key=api_key,
         base_url='https://api.x.ai/v1',
         timeout=httpx.Timeout(3600.0),
         http_client=httpx.AsyncClient(limits=httpx.Limits(max_keepalive_connections=100, max_connections=500)),
