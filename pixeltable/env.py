@@ -704,6 +704,7 @@ class Env:
         """Declare optional packages that are utilized by some parts of the code."""
         self.__register_package('accelerate')
         self.__register_package('anthropic')
+        self.__register_package('bfl')
         self.__register_package('azure.storage.blob', library_name='azure-storage-blob')
         self.__register_package('boto3')
         self.__register_package('datasets')
