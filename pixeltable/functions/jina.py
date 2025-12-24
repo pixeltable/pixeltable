@@ -156,10 +156,7 @@ async def embeddings(
     """
     cl = _client()
 
-    payload: dict[str, Any] = {
-        'model': model,
-        'input': list(input),
-    }
+    payload: dict[str, Any] = {'model': model, 'input': list(input)}
 
     if task is not None:
         payload['task'] = task
@@ -265,20 +262,14 @@ async def rerank(
     results_list = result.get('results', [])
     formatted_results = []
     for r in results_list:
-        item = {
-            'index': r.get('index'),
-            'relevance_score': r.get('relevance_score'),
-        }
+        item = {'index': r.get('index'), 'relevance_score': r.get('relevance_score')}
         if return_documents and 'document' in r:
             doc = r['document']
             # Handle both string and dict formats from the API
             item['document'] = doc.get('text', doc) if isinstance(doc, dict) else doc
         formatted_results.append(item)
 
-    return {
-        'results': formatted_results,
-        'usage': result.get('usage', {}),
-    }
+    return {'results': formatted_results, 'usage': result.get('usage', {})}
 
 
 __all__ = local_public_names(__name__)
