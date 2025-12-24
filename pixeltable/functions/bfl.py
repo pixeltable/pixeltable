@@ -50,13 +50,15 @@ class _BflClient:
         atexit.register(lambda: asyncio.run(self.session.close()))
 
     async def _start_session(self) -> aiohttp.ClientSession:
-        return aiohttp.ClientSession(base_url='https://api.bfl.ai')
+        # Don't set base_url because polling_url and image URLs are absolute
+        return aiohttp.ClientSession()
 
     async def _submit_task(self, endpoint: str, *, payload: dict) -> tuple[str, str]:
         """Submit a generation task and return (task_id, polling_url)."""
         request_headers = {'x-key': self.api_key, 'Content-Type': 'application/json', 'Accept': 'application/json'}
+        url = f'https://api.bfl.ai{endpoint}'
 
-        async with self.session.post(endpoint, json=payload, headers=request_headers) as resp:
+        async with self.session.post(url, json=payload, headers=request_headers) as resp:
             if resp.status == 429:
                 retry_after = resp.headers.get('Retry-After', '60')
                 raise BflRateLimitedError(f'BFL rate limit exceeded. retry-after:{retry_after}')
