@@ -836,6 +836,7 @@ class Env:
         self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
         self.__register_package('google.genai', library_name='google-genai')
         self.__register_package('groq')
+        self.__register_package('jina')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
         self.__register_package('lancedb')
