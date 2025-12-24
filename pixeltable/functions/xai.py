@@ -18,7 +18,7 @@ from pixeltable import env
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    from xai_sdk import AsyncClient as XAIAsyncClient
+    from xai_sdk import AsyncClient as XAIAsyncClient  # type: ignore[import-not-found]
 
 
 @env.register_client('xai')
@@ -107,7 +107,7 @@ async def chat(
         ...     )
         ... )
     """
-    from xai_sdk.chat import system, user as user_msg
+    from xai_sdk.chat import system, user as user_msg  # type: ignore[import-not-found]
 
     client = _xai_client()
 
