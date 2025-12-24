@@ -10,6 +10,7 @@ For more information on FLUX models, see the [BFL documentation](https://docs.bf
 import asyncio
 import atexit
 import logging
+import re
 from io import BytesIO
 from typing import Literal
 
@@ -59,23 +60,35 @@ class _BflClient:
         url = f'https://api.bfl.ai{endpoint}'
 
         async with self.session.post(url, json=payload, headers=request_headers) as resp:
-            if resp.status == 429:
-                retry_after = resp.headers.get('Retry-After', '60')
-                raise BflRateLimitedError(f'BFL rate limit exceeded. retry-after:{retry_after}')
-            elif resp.status == 402:
-                raise BflUnexpectedError('BFL API: insufficient credits. Please add credits to your account.')
-            elif resp.status != 200:
-                error_text = await resp.text()
-                raise BflUnexpectedError(f'BFL API error (status {resp.status}): {error_text}')
+            match resp.status:
+                case 200:
+                    data = await resp.json()
+                    task_id = data.get('id')
+                    polling_url = data.get('polling_url')
+                    if not task_id or not polling_url:
+                        raise BflUnexpectedError(f'BFL API: missing id or polling_url in response: {data}')
+                    return task_id, polling_url
+                case 402:
+                    raise BflUnexpectedError('BFL API: insufficient credits. Please add credits to your account.')
+                case 429:
+                    # Try to honor the server-provided Retry-After value if present
+                    retry_after_seconds = None
+                    retry_after_header = resp.headers.get('Retry-After')
+                    if retry_after_header is not None and re.fullmatch(r'\d{1,2}', retry_after_header):
+                        retry_after_seconds = int(retry_after_header)
+                    _logger.info(
+                        f'BFL request failed due to rate limiting, retry after header value: {retry_after_header}'
+                    )
+                    # Error message formatted for RequestRateScheduler to extract the retry delay
+                    raise BflRateLimitedError(
+                        f'BFL request failed due to rate limiting (429). retry-after:{retry_after_seconds}'
+                    )
+                case _:
+                    error_text = await resp.text()
+                    _logger.info(f'BFL request failed with status code {resp.status}: {error_text}')
+                    raise BflUnexpectedError(f'BFL API error (status {resp.status}): {error_text}')
 
-            data = await resp.json()
-            task_id = data.get('id')
-            polling_url = data.get('polling_url')
-            if not task_id or not polling_url:
-                raise BflUnexpectedError(f'BFL API: missing id or polling_url in response: {data}')
-            return task_id, polling_url
-
-    async def _poll_result(self, polling_url: str, max_wait: float = 300.0) -> PIL.Image.Image:
+    async def _poll_result(self, task_id: str, polling_url: str, max_wait: float = 300.0) -> PIL.Image.Image:
         """Poll for task completion and return the generated image."""
         request_headers = {'x-key': self.api_key, 'Accept': 'application/json'}
 
@@ -84,56 +97,70 @@ class _BflClient:
 
         while elapsed < max_wait:
             async with self.session.get(polling_url, headers=request_headers) as resp:
-                if resp.status == 429:
-                    retry_after = resp.headers.get('Retry-After', '60')
-                    raise BflRateLimitedError(f'BFL rate limit exceeded during polling. retry-after:{retry_after}')
-                elif resp.status != 200:
-                    error_text = await resp.text()
-                    raise BflUnexpectedError(f'BFL polling error (status {resp.status}): {error_text}')
+                match resp.status:
+                    case 200:
+                        data = await resp.json()
+                        status = data.get('status')
 
-                data = await resp.json()
-                status = data.get('status')
+                        match status:
+                            case 'Ready':
+                                sample_url = data.get('result', {}).get('sample')
+                                if not sample_url:
+                                    raise BflUnexpectedError(f'BFL task {task_id}: missing sample URL in result')
+                                return await self._download_image(task_id, sample_url)
+                            case 'Request Moderated' | 'Content Moderated':
+                                raise BflContentModerationError(
+                                    f'BFL task {task_id} resulted in content moderation: {status}'
+                                )
+                            case 'Error' | 'Failed':
+                                error_msg = data.get('error', 'Unknown error')
+                                raise BflUnexpectedError(f'BFL task {task_id} failed: {error_msg}')
+                            case 'Task not found':
+                                raise BflUnexpectedError(f'BFL task {task_id} not found (may have expired)')
+                            case 'Pending':
+                                await asyncio.sleep(poll_interval)
+                                elapsed += poll_interval
+                            case _:
+                                # Unknown status, wait and retry
+                                await asyncio.sleep(poll_interval)
+                                elapsed += poll_interval
+                    case 429:
+                        retry_after_seconds = None
+                        retry_after_header = resp.headers.get('Retry-After')
+                        if retry_after_header is not None and re.fullmatch(r'\d{1,2}', retry_after_header):
+                            retry_after_seconds = int(retry_after_header)
+                        _logger.info(f'BFL task {task_id} polling rate limited, retry after: {retry_after_header}')
+                        raise BflRateLimitedError(
+                            f'BFL task {task_id} polling rate limited (429). retry-after:{retry_after_seconds}'
+                        )
+                    case _:
+                        error_text = await resp.text()
+                        _logger.info(f'BFL task {task_id} polling failed with status {resp.status}: {error_text}')
+                        raise BflUnexpectedError(f'BFL polling error (status {resp.status}): {error_text}')
 
-                if status == 'Ready':
-                    sample_url = data.get('result', {}).get('sample')
-                    if not sample_url:
-                        raise BflUnexpectedError(f'BFL API: missing sample URL in result: {data}')
-                    return await self._download_image(sample_url)
-                elif status in ('Request Moderated', 'Content Moderated'):
-                    raise BflContentModerationError(f'BFL content moderation: {status}')
-                elif status in ('Error', 'Failed'):
-                    error_msg = data.get('error', 'Unknown error')
-                    raise BflUnexpectedError(f'BFL generation failed: {error_msg}')
-                elif status == 'Task not found':
-                    raise BflUnexpectedError('BFL API: task not found (may have expired)')
-                elif status == 'Pending':
-                    await asyncio.sleep(poll_interval)
-                    elapsed += poll_interval
-                else:
-                    # Unknown status, wait and retry
-                    await asyncio.sleep(poll_interval)
-                    elapsed += poll_interval
+        raise BflUnexpectedError(f'BFL task {task_id} timed out after {max_wait} seconds')
 
-        raise BflUnexpectedError(f'BFL generation timed out after {max_wait} seconds')
-
-    async def _download_image(self, url: str) -> PIL.Image.Image:
+    async def _download_image(self, task_id: str, url: str) -> PIL.Image.Image:
         """Download image from the result URL."""
         async with self.session.get(url) as resp:
             if resp.status != 200:
-                raise BflUnexpectedError(f'Failed to download image from {url}: status {resp.status}')
+                raise BflUnexpectedError(f'BFL task {task_id}: failed to download image, status {resp.status}')
             img_data = await resp.read()
             if len(img_data) == 0:
-                raise BflUnexpectedError('BFL API returned empty image data')
+                raise BflUnexpectedError(f'BFL task {task_id} resulted in an empty image')
             img = PIL.Image.open(BytesIO(img_data))
             img.load()
-            _logger.debug(f'BFL image downloaded: {len(img_data)} bytes, size: {img.size}')
+            _logger.debug(
+                f'BFL task {task_id} successful. Image bytes: {len(img_data)}, size: {img.size}'
+                f', format: {img.format}, mode: {img.mode}'
+            )
             return img
 
     async def generate(self, endpoint: str, payload: dict) -> PIL.Image.Image:
         """Submit a generation task and wait for the result."""
         task_id, polling_url = await self._submit_task(endpoint, payload=payload)
-        _logger.debug(f'BFL task submitted: {task_id}')
-        return await self._poll_result(polling_url)
+        _logger.debug(f'BFL task {task_id} submitted to {endpoint}')
+        return await self._poll_result(task_id, polling_url)
 
 
 @register_client('bfl')
