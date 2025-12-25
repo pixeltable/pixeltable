@@ -166,6 +166,7 @@ lint: install
 
 # TODO echo what is being run
 # TODO mdx
+# TODO consider if zsh usage is portable enough
 .PHONY: formatcheck
 formatcheck: install
 	@echo 'Running `ruff format --check` ...'
@@ -173,7 +174,7 @@ formatcheck: install
 	@echo 'Running `ruff check --select I` ...'
 	@ruff check --select I pixeltable tests tool
 	@echo 'Checking notebooks...'
-	@nbqa mdformat **/*.ipynb --nbqa-md --nbqa-dont-skip-bad-cells --nbqa-diff | tee /dev/tty | awk 'END {exit (NR > 1 ? 1 : 0)}'
+	@zsh -c 'nbqa mdformat **/*.ipynb --nbqa-md --nbqa-dont-skip-bad-cells --nbqa-diff' | tee /dev/tty | awk 'END {exit (NR > 1 ? 1 : 0)}'
 
 # TODO .mdx files
 .PHONY: format
@@ -183,7 +184,7 @@ format: install
 	@echo 'Running `ruff check --select I --fix` ...'
 	@ruff check --select I --fix pixeltable tests tool
 	@echo 'Formatting notebooks...'
-	@nbqa mdformat **/*.ipynb --nbqa-md --nbqa-dont-skip-bad-cells
+	@zsh -c 'nbqa mdformat **/*.ipynb --nbqa-md --nbqa-dont-skip-bad-cells'
 
 .PHONY: release
 release: install
