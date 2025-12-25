@@ -3,7 +3,7 @@ import random
 import string
 import sys
 from pathlib import Path
-from typing import Any, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Literal, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
 import PIL.Image
@@ -935,7 +935,13 @@ class TestIndex:
     @pytest.mark.parametrize('reload_cat', [True, False], ids=['reload_cat', 'no_reload_cat'])
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
     @pytest.mark.parametrize('precision', ['fp16', 'fp32'])
-    def test_embedding_index_precision(self, reset_db: None, reload_cat: bool, metric: str, precision: str) -> None:
+    def test_embedding_index_precision(
+        self,
+        reset_db: None,
+        reload_cat: bool,
+        metric: Literal['cosine', 'ip', 'l2'],
+        precision: Literal['fp16', 'fp32'],
+    ) -> None:
         # Note: dummy embeddings produced by our test UDF are not normalized, so, strictly speaking, it cannot be
         # used with IP metric, however it appears to work fine anyway, and that's good enough for our test purpose.
         t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String}, if_exists='replace')
@@ -943,8 +949,8 @@ class TestIndex:
         t.add_embedding_index(
             t.text,
             embedding=TestIndex.dummy_embedding.using(n=n),
-            metric=metric,  # type: ignore[arg-type]
-            precision=precision,  # type: ignore[arg-type]
+            metric=metric,
+            precision=precision,
             idx_name='test_idx',
         )
         t.insert(
