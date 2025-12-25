@@ -234,7 +234,6 @@ jobs:
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
-          # make formatcheck?
           ruff format --check
           ruff check --select I
       - name: Archive log files
