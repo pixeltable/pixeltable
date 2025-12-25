@@ -58,6 +58,7 @@
                 "pages": [
                   "howto/providers/working-with-anthropic",
                   "howto/providers/working-with-bedrock",
+                  "howto/providers/working-with-bfl",
                   "howto/providers/working-with-deepseek",
                   "howto/providers/working-with-fal",
                   "howto/providers/working-with-fireworks",
@@ -224,6 +225,7 @@
                     "pages": [
                       "sdk/latest/anthropic",
                       "sdk/latest/bedrock",
+                      "sdk/latest/bfl",
                       "sdk/latest/deepseek",
                       "sdk/latest/fal",
                       "sdk/latest/fireworks",
