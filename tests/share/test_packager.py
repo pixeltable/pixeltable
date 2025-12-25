@@ -7,7 +7,7 @@ import tarfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
@@ -821,26 +821,28 @@ class TestPackager:
             self.__restore_and_check_table(bundles[i], f'replica_view_{i}')
 
     @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
-    def test_embedding_index(self, reset_db: None, clip_embed: pxt.Function, embedding_precision: str) -> None:
+    def test_embedding_index(
+        self, reset_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
+    ) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP
 
         t = pxt.create_table('tbl', {'image': pxt.Image})
         images = get_image_files()[:10]
         t.insert({'image': image} for image in images)
-        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)  # type: ignore[arg-type]
+        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)
 
         self.__do_round_trip(t)
 
     @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
     def test_multi_version_embedding_index(
-        self, reset_db: None, clip_embed: pxt.Function, embedding_precision: str
+        self, reset_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
     ) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP
 
         t = pxt.create_table('tbl', {'id': pxt.Int, 'image': pxt.Image})
         images = get_image_files()
         t.insert({'id': i, 'image': image} for i, image in enumerate(images[:10]))
-        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)  # type: ignore[arg-type]
+        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)
         bundle1 = self.__package_table(t)
         sim_1 = t.image.similarity(string=images[25])
         sim_results_1 = t.select(t.id, sim_1).order_by(sim_1, asc=False).limit(5).collect()
