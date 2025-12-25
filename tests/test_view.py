@@ -217,7 +217,7 @@ class TestView:
     def test_add_column_to_view(self, reset_db: None, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         """Test add_column* methods for views"""
         t = test_tbl
-        t_c1_val0 = t.select(t.c1).order_by(t.c1).collect()[0]['c1']
+        t_c1_val0 = t.order_by(t.c1).collect()[0]['c1']
 
         # adding column with same name as a base table column at
         # the time of creating a view will raise an error now.
@@ -228,17 +228,17 @@ class TestView:
         v = pxt.create_view('test_view', t, additional_columns={'v1': pxt.Int})
         v.add_computed_column(vcol='xxx')
         assert 'vcol' in v.columns()
-        assert v.select(v.vcol).collect()[0]['vcol'] == 'xxx'
+        assert v.order_by(v.c1).collect()[0]['vcol'] == 'xxx'
 
         # add column with same name as an existing column.
         # the result will depend on the if_exists parameter.
         # test with the existing column specific to the view, or a base table column.
         self._test_add_column_if_exists(v, t, 'vcol', 'xxx', is_base_column=False)
-        _ = reload_tester.run_query(v.select())
+        _ = reload_tester.run_query(v.select().order_by(v.c1))
         reload_tester.run_reload_test()
 
         self._test_add_column_if_exists(v, t, 'c1', t_c1_val0, is_base_column=True)
-        _ = reload_tester.run_query(v.select())
+        _ = reload_tester.run_query(v.select().order_by(v.c1))
         reload_tester.run_reload_test()
 
     def _test_add_column_if_exists(
@@ -260,7 +260,7 @@ class TestView:
         with pytest.raises(pxt.Error, match=re.escape(expected_err)):
             v.add_columns({col_name: pxt.Int, non_existing_col1: pxt.String}, if_exists='invalid')  # type: ignore[arg-type]
         assert col_name in v.columns()
-        assert v.select().collect()[0][col_name] == orig_val
+        assert v.order_by(v.c1).collect()[0][col_name] == orig_val
 
         # by default, raises an error if the column already exists
         expected_err = f'Duplicate column name: {col_name}'
@@ -271,19 +271,19 @@ class TestView:
         with pytest.raises(pxt.Error, match=expected_err):
             v.add_columns({col_name: pxt.Int, non_existing_col2: pxt.String})
         assert col_name in v.columns()
-        assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
+        assert v.order_by(v.c1).collect()[0][col_name] == orig_val
         assert non_existing_col2 not in v.columns()
 
         # if_exists='ignore' will not add the column if it already exists
         v.add_column(**{col_name: pxt.Int}, if_exists='ignore')
         assert col_name in v.columns()
-        assert v.select().collect()[0][col_name] == orig_val
+        assert v.order_by(v.c1).collect()[0][col_name] == orig_val
         v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='ignore')
         assert col_name in v.columns()
-        assert v.select().collect()[0][col_name] == orig_val
+        assert v.order_by(v.c1).collect()[0][col_name] == orig_val
         v.add_columns({col_name: pxt.Int, non_existing_col2: pxt.String}, if_exists='ignore')
         assert col_name in v.columns()
-        assert v.select().collect()[0][col_name] == orig_val
+        assert v.order_by(v.c1).collect()[0][col_name] == orig_val
         assert non_existing_col2 in v.columns()
 
         # if_exists='replace' will replace the column if it already exists.
@@ -294,37 +294,37 @@ class TestView:
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns()
-            assert v.select().collect()[0][col_name] == orig_val
+            assert v.order_by(v.c1).collect()[0][col_name] == orig_val
             with pytest.raises(pxt.Error) as exc_info:
                 v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns()
-            assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
+            assert v.order_by(v.c1).collect()[0][col_name] == orig_val
             with pytest.raises(pxt.Error) as exc_info:
                 v.add_columns({col_name: pxt.String, non_existing_col3: pxt.String}, if_exists='replace')
             error_msg = str(exc_info.value).lower()
             assert 'is a base table column' in error_msg and 'cannot replace' in error_msg
             assert col_name in v.columns()
-            assert v.select(getattr(v, col_name)).collect()[0][col_name] == orig_val
+            assert v.order_by(v.c1).collect()[0][col_name] == orig_val
             assert non_existing_col3 not in v.columns()
         else:
             v.add_columns({col_name: pxt.Int, non_existing_col4: pxt.String}, if_exists='replace')
             assert col_name in v.columns()
-            assert v.select(getattr(v, col_name)).collect()[0][col_name] is None
+            assert v.order_by(v.c1).collect()[0][col_name] is None
             assert non_existing_col4 in v.columns()
             v.add_computed_column(**{col_name: 'aaa'}, if_exists='replace')
             assert col_name in v.columns()
-            assert v.select(getattr(v, col_name)).collect()[0][col_name] == 'aaa'
+            assert v.order_by(v.c1).collect()[0][col_name] == 'aaa'
             v.add_computed_column(**{col_name: t.c2 + t.c3}, if_exists='replace')
             assert col_name in v.columns()
-            row0 = v.select().collect()[0]
+            row0 = v.order_by(v.c1).collect()[0]
             assert row0[col_name] == row0['c2'] + row0['c3']
 
             # if_exists='replace' will raise an error and not replace if the column has a dependency.
             col_ref = getattr(v, col_name)
             v.add_computed_column(**{non_existing_col5: col_ref + 12.3})
-            assert v.select(getattr(v, non_existing_col5)).collect()[0][non_existing_col5] == row0[col_name] + 12.3
+            assert v.order_by(v.c1).collect()[0][non_existing_col5] == row0[col_name] + 12.3
             expected_err = f'Column {col_name!r} already exists and has dependents.'
             with pytest.raises(pxt.Error, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
