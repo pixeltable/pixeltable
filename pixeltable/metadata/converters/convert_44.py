@@ -26,4 +26,4 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
     if 'precision' in value['init_args']:
         return None
     value['init_args']['precision'] = 'fp32'
-    return (key, value)
+    return key, value
