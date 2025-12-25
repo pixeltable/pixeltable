@@ -1,3 +1,4 @@
+import importlib.util
 import logging
 import random
 
@@ -42,6 +43,10 @@ class ExecContext:
         else:
             self.show_progress = Env.get().verbosity >= 1 and Env.get().is_interactive()
 
+        # disable progress reporting in Jupyter if ipywidgets is not installed
+        if Env.get().is_notebook() and importlib.util.find_spec('ipywidgets') is None:
+            self.show_progress = False
+
         self.progress = None
         self.progress_reporters = {}
 
@@ -52,8 +57,10 @@ class ExecContext:
         self.ignore_errors = ignore_errors
         self.random_seed = random.randint(0, 1 << 63)
 
-    def add_progress_reporter(self, desc: str, unit_1: str, unit_2: str | None = None) -> ProgressReporter:
+    def add_progress_reporter(self, desc: str, unit_1: str, unit_2: str | None = None) -> ProgressReporter | None:
         """Records new ProgressReporter for the given desc/units, or returns the existing one."""
+        if not self.show_progress:
+            return None
         assert self.progress is not None
         if desc in self.progress_reporters:
             return self.progress_reporters[desc]

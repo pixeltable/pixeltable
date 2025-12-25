@@ -179,11 +179,10 @@ class SqlNode(ExecNode):
                 assert tv.is_validated
 
     def _open(self) -> None:
-        if self.ctx.show_progress:
-            desc = 'Rows read'
-            if self.tbl is not None:
-                desc += f' (table {self.tbl.tbl_name()!r})'
-            self.progress_reporter = self.ctx.add_progress_reporter(desc, 'rows')
+        desc = 'Rows read'
+        if self.tbl is not None:
+            desc += f' (table {self.tbl.tbl_name()!r})'
+        self.progress_reporter = self.ctx.add_progress_reporter(desc, 'rows')
 
     def _pk_col_items(self) -> list[sql.Column]:
         if self.set_pk:

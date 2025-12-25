@@ -347,12 +347,8 @@ class StoreBase:
         try:
             table_rows: list[tuple[Any]] = []
             with exec_plan:
-                progress_reporter = (
-                    exec_plan.ctx.add_progress_reporter(
-                        f'Column values written (table {self.tbl_version.get().name!r})', 'rows'
-                    )
-                    if exec_plan.ctx.show_progress
-                    else None
+                progress_reporter = exec_plan.ctx.add_progress_reporter(
+                    f'Column values written (table {self.tbl_version.get().name!r})', 'rows'
                 )
 
                 # insert rows from exec_plan into temp table
@@ -420,10 +416,8 @@ class StoreBase:
         table_rows: list[tuple[Any]] = []
 
         with exec_plan:
-            progress_reporter = (
-                exec_plan.ctx.add_progress_reporter(f'Rows written (table {self.tbl_version.get().name!r})', 'rows')
-                if exec_plan.ctx.show_progress
-                else None
+            progress_reporter = exec_plan.ctx.add_progress_reporter(
+                f'Rows written (table {self.tbl_version.get().name!r})', 'rows'
             )
 
             for row_batch in exec_plan:
