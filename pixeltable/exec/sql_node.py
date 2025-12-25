@@ -5,7 +5,9 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
+import numpy as np
 import sqlalchemy as sql
+from pgvector.sqlalchemy import HalfVector  # type: ignore[import-untyped]
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
@@ -417,6 +419,10 @@ class SqlNode(ExecNode):
                             output_row[slot_idx] = sql_row[i]
                     else:
                         raise RuntimeError(f'Unexpected datetime value for {e}')
+                elif isinstance(sql_row[i], HalfVector):
+                    # The type returned by selecting from an index should match the declared return type of the UDF
+                    # regardless of the underlying data type used to store the index.
+                    output_row[slot_idx] = sql_row[i].to_numpy().astype(np.float32)
                 else:
                     output_row[slot_idx] = sql_row[i]
 

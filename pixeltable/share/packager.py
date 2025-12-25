@@ -167,7 +167,7 @@ class TablePackager:
             return pa.binary()
         if isinstance(col_type, sql.UUID):
             return pa.uuid()
-        if isinstance(col_type, sql_vector.Vector):
+        if isinstance(col_type, (sql_vector.Vector, sql_vector.HALFVEC)):
             # Parquet/pyarrow do not handle null values properly for fixed_shape_tensor(), so we have to use list_()
             # here instead.
             return pa.list_(pa.float32())
@@ -216,6 +216,10 @@ class TablePackager:
             # Handle media files as described above
             assert isinstance(val, str)
             return self.__process_media_url(val)
+        if isinstance(sql_type, sql_vector.HALFVEC):
+            # Convert an array of float16s to float32s
+            assert isinstance(val, sql_vector.HalfVector)
+            return val.to_numpy().astype(np.float32)
         return val
 
     def __process_media_url(self, url: str) -> str:
@@ -753,7 +757,7 @@ class TableRestorer:
     ) -> Any:
         if val is None:
             return None
-        if isinstance(sql_type, sql_vector.Vector):
+        if isinstance(sql_type, (sql_vector.Vector, sql_vector.HALFVEC)):
             if isinstance(val, list):
                 val = np.array(val, dtype=np.float32)
             assert isinstance(val, np.ndarray) and val.dtype == np.float32 and val.ndim == 1
