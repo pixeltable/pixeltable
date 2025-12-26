@@ -1,9 +1,10 @@
-from typing import Literal
+from typing import Any, Literal
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+from pixeltable.catalog import Catalog
 
 
 def export_rdbms(
@@ -52,9 +53,27 @@ def export_rdbms(
         target = sql.Table(table_name, metadata, *columns, schema=schema_name)
         target.create(engine, checkfirst=True)
 
+    batch_size = 1024
     try:
-        for data_row in query._exec():
-            pass
+        batch: list[dict] = []
+        with Catalog.get().begin_xact(for_write=False):
+            for data_row in query._exec():
+                row_dict: dict[str, Any] = {}
+                for (col_name, _), e in zip(query.schema.items(), query._select_list_exprs):
+                    row_dict[col_name] = data_row[e.slot_idx]
+                batch.append(row_dict)
+
+                if len(batch) >= batch_size:
+                    with engine.connect() as target_conn:
+                        target_conn.execute(target.insert(), batch)
+                        target_conn.commit()
+                    batch = []
+
+            if len(batch) > 0:
+                with engine.connect() as target_conn:
+                    target_conn.execute(target.insert(), batch)
+                    target_conn.commit()
+
     except excs.ExprEvalError as e:
         query._raise_expr_eval_err(e)
 
@@ -84,4 +103,4 @@ def _check_schema_compatible(
         with engine.connect() as conn:
             conn.execute(query)
     except Exception as e:
-        return pxt.Error(f'Table {tbl.name!r} is not compatible with the source: {e}')
+        raise pxt.Error(f'Table {tbl.name!r} is not compatible with the source: {e}')
