@@ -419,8 +419,7 @@ class SqlNode(ExecNode):
                     else:
                         raise RuntimeError(f'Unexpected datetime value for {e}')
                 elif isinstance(sql_row[i], HalfVector):
-                    # The type returned by selecting from an index should match the declared return type of the UDF
-                    # regardless of the underlying data type used to store the index.
+                    # All array data needs to be materialized as ndarrays
                     output_row[slot_idx] = sql_row[i].to_numpy().astype(np.float32)
                 else:
                     output_row[slot_idx] = sql_row[i]
