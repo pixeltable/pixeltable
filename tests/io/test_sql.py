@@ -164,25 +164,25 @@ class TestSql:
     def test_errors(self, reset_db: None) -> None:
         connection_string = Env.get().db_url
 
-        # 1. Unsupported column type (Image)
+        # unsupported column type
         t_img = pxt.create_table('test_img', {'img': pxt.Image})
         with pytest.raises(pxt.Error, match='Cannot export column of type'):
             export_sql(t_img, 'error_table', connection_string=connection_string)
 
-        # 2. Table exists with if_exists='error'
+        # table exists with if_exists='error'
         t, _ = self.create_test_data(10)
         export_sql(t, 'existing_table', connection_string=connection_string)
         with pytest.raises(pxt.Error, match='already exists'):
             export_sql(t, 'existing_table', connection_string=connection_string, if_exists='error')
 
-        # 3. Missing column in target table
+        # missing column in target table
         t2 = pxt.create_table('test2', {'c_int': pxt.Int, 'c_string': pxt.String, 'extra': pxt.Int})
         t2.insert([{'c_int': 1, 'c_string': 'a', 'extra': 100}])
-        with pytest.raises(pxt.Error, match='not in table'):
-            export_sql(t2, 'existing_table', connection_string=connection_string, if_exists='append')
+        with pytest.raises(pxt.Error, match="Column 'extra' not in table"):
+            export_sql(t2, 'existing_table', connection_string=connection_string, if_exists='insert')
 
-        # 4. Incompatible schema (type mismatch: Json -> Integer)
+        # incompatible schema
         t3 = pxt.create_table('test3', {'c_int': pxt.Json})
         t3.insert([{'c_int': {'key': 'value'}}])
-        with pytest.raises(pxt.Error, match='not compatible'):
-            export_sql(t3, 'existing_table', connection_string=connection_string, if_exists='append')
+        with pytest.raises(pxt.Error, match=r"column 'c_int' \(INTEGER\) is not compatible"):
+            export_sql(t3, 'existing_table', connection_string=connection_string, if_exists='insert')

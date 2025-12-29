@@ -176,20 +176,21 @@ _SAMPLE_LITERALS: dict[ts.ColumnType.Type, Any] = {
 
 
 def _check_schema_compatible(tbl: sql.Table, source_schema: dict[str, ts.ColumnType], engine: sql.Engine) -> None:
-    cast_exprs: list[sql.sql.ColumnElement] = []
     for col_name, source_type in source_schema.items():
         if col_name not in tbl.c:
             raise pxt.Error(f'Column {col_name!r} not in table {tbl.name!r}')
 
         target_type = tbl.c[col_name].type
         # CAST(<literal> AS target_type)
-        expr = sql.cast(_SAMPLE_LITERALS[source_type._type], target_type).label(col_name)
-        cast_exprs.append(expr)
-    # 1 = 0: we only want to check whether the casts are legal, not run anything
-    query = sql.select(*cast_exprs).where(sql.literal(1) == sql.literal(0))
+        cast_expr = sql.cast(_SAMPLE_LITERALS[source_type._type], target_type).label(col_name)
+        # 1 = 0: we only want to check whether the casts are legal, not run anything
+        query = sql.select(cast_expr).where(sql.literal(1) == sql.literal(0))
 
-    with engine.connect() as conn:
-        try:
-            conn.execute(query)
-        except Exception as e:
-            raise pxt.Error(f'Table {tbl.name!r} is not compatible with the source: {e}') from None
+        with engine.connect() as conn:
+            try:
+                conn.execute(query)
+            except Exception:
+                raise pxt.Error(
+                    f'Table {tbl.name!r}: column {col_name!r} ({target_type!s}) is not compatible with the source type '
+                    f'({source_type!s})'
+                ) from None
