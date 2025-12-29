@@ -54,16 +54,13 @@ class TestSql:
             assert type(columns[col_name]) is col_type
 
     def test_export_sqlite(self, reset_db: None, tmp_path: pathlib.Path) -> None:
-        t, rows = self.create_test_data(10_000)
+        t, rows = self.create_test_data(100_000)
         db_path = tmp_path / 'test.db'
         connection_string = f'sqlite:///{db_path}'
+        engine = sql.create_engine(connection_string)
 
         # Export full table
         export_sql(t, 'test_table', connection_string=connection_string)
-
-        # Verify export
-        engine = sql.create_engine(connection_string)
-
         self.validate_schema(
             engine,
             'test_table',
@@ -74,9 +71,9 @@ class TestSql:
                 'c_bool': sql.BOOLEAN,
                 'c_timestamp': sql.TIMESTAMP,
                 'c_date': sql.DATE,
-                'c_uuid': sql.VARCHAR,
-                'c_binary': sql.LargeBinary,
-                'c_json': sql.JSON,
+                'c_uuid': sql.NUMERIC,  # sqlalchemy maps that back incorrectly when loading the metadata
+                'c_binary': sql.BLOB,
+                'c_json': sql.dialects.sqlite.JSON,
             },
         )
 
@@ -116,40 +113,52 @@ class TestSql:
         engine = sql.create_engine(connection_string)
 
         # Export full table
-        export_sql(t, 'test_export1', connection_string=connection_string)
+        export_sql(t, 'test_table', connection_string=connection_string)
+        self.validate_schema(
+            engine,
+            'test_table',
+            {
+                'c_int': sql.INTEGER,
+                'c_string': sql.VARCHAR,
+                'c_float': sql.dialects.postgresql.DOUBLE_PRECISION,
+                'c_bool': sql.BOOLEAN,
+                'c_timestamp': sql.dialects.postgresql.TIMESTAMP,
+                'c_date': sql.DATE,
+                'c_uuid': sql.UUID,
+                'c_binary': sql.dialects.postgresql.BYTEA,
+                'c_json': sql.dialects.postgresql.JSONB,
+            },
+        )
 
         with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_export1 ORDER BY c_int')).fetchall()
+            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == len(rows)
-            # PostgreSQL returns native types
-            for i, row in enumerate(result):
-                assert row[0] == rows[i]['c_int']
-                assert row[1] == rows[i]['c_string']
-                assert row[2] == rows[i]['c_float']
-                assert row[3] == rows[i]['c_bool']
-                assert row[4] == rows[i]['c_timestamp']
-                assert row[5] == rows[i]['c_date']
-                assert row[6] == rows[i]['c_uuid']
-                assert bytes(row[7]) == rows[i]['c_binary']
-                assert row[8] == rows[i]['c_json']
+            for col_idx, col_name in enumerate(
+                ['c_int', 'c_string', 'c_float', 'c_bool', 'c_timestamp', 'c_date', 'c_uuid', 'c_binary', 'c_json']
+            ):
+                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result)), col_name
+            # assert bytes(row[7]) == rows[i]['c_binary']
 
-        # append to the same table
-        export_sql(t, 'test_export1', connection_string=connection_string, if_exists='append')
+        # insert into the same table
+        export_sql(t, 'test_table', connection_string=connection_string, if_exists='insert')
         with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_export1 ORDER BY c_int')).fetchall()
+            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == 2 * len(rows)
 
         # Export subset of columns
-        export_sql(t.select(t.c_int, t.c_string), 'test_export2', connection_string=connection_string)
+        export_sql(
+            t.select(t.c_int, t.c_string), 'test_table', connection_string=connection_string, if_exists='replace'
+        )
         with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_export2 ORDER BY c_int')).fetchall()
+            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == len(rows)
-            assert all(row[0] == rows[i]['c_int'] and row[1] == rows[i]['c_string'] for i, row in enumerate(result))
+            for col_idx, col_name in enumerate(['c_int', 'c_string']):
+                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result)), col_name
 
         # Export subset of rows
-        export_sql(t.where(t.c_int < 10), 'test_export3', connection_string=connection_string)
+        export_sql(t.where(t.c_int < 10), 'test_table', connection_string=connection_string, if_exists='replace')
         with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_export3 ORDER BY c_int')).fetchall()
+            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == 10
 
     def test_errors(self, reset_db: None) -> None:

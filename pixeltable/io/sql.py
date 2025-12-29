@@ -80,10 +80,10 @@ def export_sql(
     *,
     connection_string: str | None,
     schema_name: str | None = None,
-    if_exists: Literal['error', 'replace', 'append'] = 'append',
+    if_exists: Literal['error', 'replace', 'insert'] = 'error',
 ) -> None:
     """
-    Exports a query result or table to a RDBMS table.
+    Exports a query result or table to an RDBMS table.
 
     Args:
         table_or_query : Table or Query to export.
@@ -91,6 +91,10 @@ def export_sql(
         connection_string : Connection string to the target database.
         schema_name : Optional name of the target schema.
         if_exists : What to do if the target table already exists.
+
+            - 'error': raise an error
+            - 'replace': drop the existing table and create a new one
+            - 'insert': insert new rows into the existing table
 
     TODO:
     - overrides for output schema
@@ -123,6 +127,7 @@ def export_sql(
         get_type = GET_DIALECT_TYPE.get(dialect, _get_sa_type)
         target_schema = {col_name: get_type(col_type) for col_name, col_type in query.schema.items()}
         columns = [sql.Column(col_name, col_type) for col_name, col_type in target_schema.items()]
+        metadata = sql.MetaData()
         target = sql.Table(table_name, metadata, *columns, schema=schema_name)
         target.create(engine, checkfirst=True)
 
