@@ -1,6 +1,7 @@
 import datetime
 import json
 import pathlib
+import uuid
 
 import pytest
 import sqlalchemy as sql
@@ -12,13 +13,33 @@ from pixeltable.io.sql import export_sql
 
 class TestSql:
     def create_test_data(self, num_rows: int = 10_000) -> tuple[pxt.Table, list[dict]]:
-        t = pxt.create_table('test1', {'c1': pxt.Int, 'c2': pxt.String, 'c3': pxt.Timestamp, 'c4': pxt.Json})
+        """Create test table with all exportable column types."""
+        t = pxt.create_table(
+            'test1',
+            {
+                'c_int': pxt.Int,
+                'c_string': pxt.String,
+                'c_float': pxt.Float,
+                'c_bool': pxt.Bool,
+                'c_timestamp': pxt.Timestamp,
+                'c_date': pxt.Date,
+                'c_uuid': pxt.UUID,
+                'c_binary': pxt.Binary,
+                'c_json': pxt.Json,
+            },
+        )
+        base_date = datetime.date(2024, 1, 1)
         rows = [
             {
-                'c1': i,
-                'c2': f'row_{i}',
-                'c3': datetime.datetime.now() - datetime.timedelta(seconds=i),
-                'c4': {'int_field': i, 'str_field': f'val_{i}', 'nested': {'data': i * 2}},
+                'c_int': i,
+                'c_string': f'row_{i}',
+                'c_float': i * 1.5,
+                'c_bool': i % 2 == 0,
+                'c_timestamp': datetime.datetime.now() - datetime.timedelta(seconds=i),
+                'c_date': base_date + datetime.timedelta(days=i),
+                'c_uuid': uuid.uuid5(uuid.NAMESPACE_DNS, f'row_{i}'),
+                'c_binary': f'binary_data_{i}'.encode(),
+                'c_json': {'int_field': i, 'str_field': f'val_{i}', 'nested': {'data': i * 2}},
             }
             for i in range(num_rows)
         ]
@@ -38,81 +59,100 @@ class TestSql:
         connection_string = f'sqlite:///{db_path}'
 
         # Export full table
-        export_sql(t, 'test_table1', connection_string=connection_string)
+        export_sql(t, 'test_table', connection_string=connection_string)
 
         # Verify export
         engine = sql.create_engine(connection_string)
 
         self.validate_schema(
             engine,
-            'test_table1',
-            {'c1': sql.INTEGER, 'c2': sql.VARCHAR, 'c3': sql.TIMESTAMP, 'c4': sql.dialects.sqlite.json.JSON},
-        )
-
-        with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_table1 ORDER BY c1')).fetchall()
-            assert len(result) == len(rows)
-            for col_idx, col_name in enumerate(['c1', 'c2']):
-                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result))
-            # timestamps and json are returned as strings
-            assert all(datetime.datetime.fromisoformat(row[2]) == rows[i]['c3'] for i, row in enumerate(result))
-            assert all(json.loads(row[3]) == rows[i]['c4'] for i, row in enumerate(result))
-
-        # Export subset of columns
-        export_sql(t.select(t.c1, t.c2), 'test_table2', connection_string=connection_string)
-        with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_table2 ORDER BY c1')).fetchall()
-            assert len(result) == len(rows)
-            for col_idx, col_name in enumerate(['c1', 'c2']):
-                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result))
-
-        # Export subset of rows
-        export_sql(t.where(t.c1 < 100), 'test_table3', connection_string=connection_string)
-        with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_table3 ORDER BY c1')).fetchall()
-            assert len(result) == 100
-
-    def test_export_postgresql(self, reset_db: None) -> None:
-        t, rows = self.create_test_data()
-        connection_string = Env.get().db_url
-
-        # Export full table
-        export_sql(t, 'test_export_table1', connection_string=connection_string)
-
-        engine = sql.create_engine(connection_string)
-
-        self.validate_schema(
-            engine,
-            'test_export_table1',
+            'test_table',
             {
-                'c1': sql.INTEGER,
-                'c2': sql.VARCHAR,
-                'c3': sql.dialects.postgresql.types.TIMESTAMP,
-                'c4': sql.dialects.postgresql.json.JSONB,
+                'c_int': sql.INTEGER,
+                'c_string': sql.VARCHAR,
+                'c_float': sql.FLOAT,
+                'c_bool': sql.BOOLEAN,
+                'c_timestamp': sql.TIMESTAMP,
+                'c_date': sql.DATE,
+                'c_uuid': sql.VARCHAR,
+                'c_binary': sql.LargeBinary,
+                'c_json': sql.JSON,
             },
         )
 
         with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_export_table1 ORDER BY c1')).fetchall()
+            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == len(rows)
-            for col_idx, col_name in enumerate(['c1', 'c2', 'c3', 'c4']):
-                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result))
+            for col_idx, col_name in [(0, 'c_int'), (1, 'c_string'), (2, 'c_float'), (3, 'c_bool'), (7, 'c_binary')]:
+                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result)), col_name
 
-        export_sql(t.select(t.c1, t.c2), 'test_export_table2', connection_string=connection_string)
+            assert all(
+                datetime.datetime.fromisoformat(row[4]) == rows[i]['c_timestamp'] for i, row in enumerate(result)
+            )
+            assert all(row[5] == rows[i]['c_date'].isoformat() for i, row in enumerate(result))
+            assert all(row[6] == rows[i]['c_uuid'].hex for i, row in enumerate(result))
+            assert all(json.loads(row[8]) == rows[i]['c_json'] for i, row in enumerate(result))
+
+        # Export subset of columns
+        export_sql(
+            t.select(t.c_int, t.c_string), 'test_table', connection_string=connection_string, if_exists='replace'
+        )
         with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_export_table2 ORDER BY c1')).fetchall()
+            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == len(rows)
-            for col_idx, col_name in enumerate(['c1', 'c2']):
-                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result))
+            assert all(row[0] == rows[i]['c_int'] and row[1] == rows[i]['c_string'] for i, row in enumerate(result))
+            for col_idx, col_name in enumerate(['c_int', 'c_string']):
+                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result)), col_name
 
-        export_sql(t.where(t.c1 < 100), 'test_export_table3', connection_string=connection_string)
+        # Export subset of rows
+        export_sql(t.where(t.c_int < 10), 'test_table', connection_string=connection_string, if_exists='replace')
         with engine.connect() as conn:
-            result = conn.execute(sql.text('SELECT * FROM test_export_table3 ORDER BY c1')).fetchall()
-            assert len(result) == 100
-            for col_idx, col_name in enumerate(['c1', 'c2', 'c3', 'c4']):
-                assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result))
+            result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
+            assert len(result) == 10
 
-   edef test_errors(self, reset_db: None) -> None:
+    def test_export_postgresql(self, reset_db: None) -> None:
+        t, rows = self.create_test_data(100_000)
+        connection_string = Env.get().db_url
+        engine = sql.create_engine(connection_string)
+
+        # Export full table
+        export_sql(t, 'test_export1', connection_string=connection_string)
+
+        with engine.connect() as conn:
+            result = conn.execute(sql.text('SELECT * FROM test_export1 ORDER BY c_int')).fetchall()
+            assert len(result) == len(rows)
+            # PostgreSQL returns native types
+            for i, row in enumerate(result):
+                assert row[0] == rows[i]['c_int']
+                assert row[1] == rows[i]['c_string']
+                assert row[2] == rows[i]['c_float']
+                assert row[3] == rows[i]['c_bool']
+                assert row[4] == rows[i]['c_timestamp']
+                assert row[5] == rows[i]['c_date']
+                assert row[6] == rows[i]['c_uuid']
+                assert bytes(row[7]) == rows[i]['c_binary']
+                assert row[8] == rows[i]['c_json']
+
+        # append to the same table
+        export_sql(t, 'test_export1', connection_string=connection_string, if_exists='append')
+        with engine.connect() as conn:
+            result = conn.execute(sql.text('SELECT * FROM test_export1 ORDER BY c_int')).fetchall()
+            assert len(result) == 2 * len(rows)
+
+        # Export subset of columns
+        export_sql(t.select(t.c_int, t.c_string), 'test_export2', connection_string=connection_string)
+        with engine.connect() as conn:
+            result = conn.execute(sql.text('SELECT * FROM test_export2 ORDER BY c_int')).fetchall()
+            assert len(result) == len(rows)
+            assert all(row[0] == rows[i]['c_int'] and row[1] == rows[i]['c_string'] for i, row in enumerate(result))
+
+        # Export subset of rows
+        export_sql(t.where(t.c_int < 10), 'test_export3', connection_string=connection_string)
+        with engine.connect() as conn:
+            result = conn.execute(sql.text('SELECT * FROM test_export3 ORDER BY c_int')).fetchall()
+            assert len(result) == 10
+
+    def test_errors(self, reset_db: None) -> None:
         connection_string = Env.get().db_url
 
         # 1. Unsupported column type (Image)
@@ -127,7 +167,13 @@ class TestSql:
             export_sql(t, 'existing_table', connection_string=connection_string, if_exists='error')
 
         # 3. Missing column in target table
-        t2 = pxt.create_table('test2', {'c1': pxt.Int, 'c2': pxt.String, 'extra': pxt.Int})
-        t2.insert([{'c1': 1, 'c2': 'a', 'extra': 100}])
+        t2 = pxt.create_table('test2', {'c_int': pxt.Int, 'c_string': pxt.String, 'extra': pxt.Int})
+        t2.insert([{'c_int': 1, 'c_string': 'a', 'extra': 100}])
         with pytest.raises(pxt.Error, match='not in table'):
             export_sql(t2, 'existing_table', connection_string=connection_string, if_exists='append')
+
+        # 4. Incompatible schema (type mismatch: Json -> Integer)
+        t3 = pxt.create_table('test3', {'c_int': pxt.Json})
+        t3.insert([{'c_int': {'key': 'value'}}])
+        with pytest.raises(pxt.Error, match='not compatible'):
+            export_sql(t3, 'existing_table', connection_string=connection_string, if_exists='append')

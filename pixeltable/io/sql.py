@@ -4,6 +4,9 @@ To add support for a new target database:
 - if so, add a new function _get_{dialect}_type()
 - add an entry to GET_DIALECT_TYPE
 """
+
+import datetime
+import uuid
 from typing import Any, Callable, Literal
 
 import sqlalchemy as sql
@@ -100,9 +103,6 @@ def export_sql(
         query = table_or_query
 
     engine = sql.create_engine(connection_string)
-    dialect = engine.dialect.name
-    get_type = GET_DIALECT_TYPE.get(dialect, _get_sa_type)
-    source_schema = {col_name: get_type(col_type) for col_name, col_type in query.schema.items()}
 
     metadata = sql.MetaData()
     target: sql.Table | None = None
@@ -115,11 +115,14 @@ def export_sql(
             target.drop(engine)
             target = None
         else:
-            _check_schema_compatible(target, source_schema, engine)
+            _check_schema_compatible(target, query.schema, engine)
 
     if target is None:
         # create table
-        columns = [sql.Column(col_name, col_type) for col_name, col_type in source_schema.items()]
+        dialect = engine.dialect.name
+        get_type = GET_DIALECT_TYPE.get(dialect, _get_sa_type)
+        target_schema = {col_name: get_type(col_type) for col_name, col_type in query.schema.items()}
+        columns = [sql.Column(col_name, col_type) for col_name, col_type in target_schema.items()]
         target = sql.Table(table_name, metadata, *columns, schema=schema_name)
         target.create(engine, checkfirst=True)
 
@@ -154,23 +157,34 @@ def _table_exists(engine: sql.Engine, table_name: str, schema_name: str | None =
     return table_name in inspector.get_table_names(schema=schema_name)
 
 
-def _check_schema_compatible(
-    tbl: sql.Table, source_schema: dict[str, sql.types.TypeEngine], engine: sql.Engine
-) -> None:
-    try:
-        cast_exprs: list[sql.sql.ColumnElement] = []
-        for col_name, source_type in source_schema.items():
-            if col_name not in tbl.c:
-                raise pxt.Error(f'Column {col_name!r} not in table {tbl.name!r}')
+_SAMPLE_LITERALS: dict[ts.ColumnType.Type, Any] = {
+    ts.ColumnType.Type.STRING: 'test',
+    ts.ColumnType.Type.INT: 1,
+    ts.ColumnType.Type.FLOAT: 1.0,
+    ts.ColumnType.Type.BOOL: True,
+    ts.ColumnType.Type.TIMESTAMP: datetime.datetime.now(),
+    ts.ColumnType.Type.DATE: datetime.date.today(),
+    ts.ColumnType.Type.UUID: uuid.uuid4(),
+    ts.ColumnType.Type.BINARY: b'test',
+    ts.ColumnType.Type.JSON: {'a': 1, 'b': [2, 3], 'c': {'d': 4}},
+}
 
-            target_type = tbl.c[col_name].type
-            # CAST(CAST(NULL AS source_type) AS target_type)
-            expr = sql.cast(sql.cast(sql.literal(None), source_type), target_type).label(col_name)
-            cast_exprs.append(expr)
-        # 1 = 0: we only want to check whether the casts are legal, not run anything
-        query = sql.select(*cast_exprs).where(sql.literal(1) == sql.literal(0))
 
-        with engine.connect() as conn:
+def _check_schema_compatible(tbl: sql.Table, source_schema: dict[str, ts.ColumnType], engine: sql.Engine) -> None:
+    cast_exprs: list[sql.sql.ColumnElement] = []
+    for col_name, source_type in source_schema.items():
+        if col_name not in tbl.c:
+            raise pxt.Error(f'Column {col_name!r} not in table {tbl.name!r}')
+
+        target_type = tbl.c[col_name].type
+        # CAST(<literal> AS target_type)
+        expr = sql.cast(_SAMPLE_LITERALS[source_type._type], target_type).label(col_name)
+        cast_exprs.append(expr)
+    # 1 = 0: we only want to check whether the casts are legal, not run anything
+    query = sql.select(*cast_exprs).where(sql.literal(1) == sql.literal(0))
+
+    with engine.connect() as conn:
+        try:
             conn.execute(query)
-    except Exception as e:
-        raise pxt.Error(f'Table {tbl.name!r} is not compatible with the source: {e}') from None
+        except Exception as e:
+            raise pxt.Error(f'Table {tbl.name!r} is not compatible with the source: {e}') from None
