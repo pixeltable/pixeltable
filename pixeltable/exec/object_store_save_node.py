@@ -106,8 +106,7 @@ class ObjectStoreSaveNode(ExecNode):
         return len(self.in_flight_requests)
 
     def _open(self) -> None:
-        if self.ctx.show_progress:
-            self.progress_reporter = self.ctx.add_progress_reporter('Uploads', 'objects', 'B')
+        self.progress_reporter = self.ctx.add_progress_reporter('Uploads', 'objects', 'B')
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
         """Get the next batch of input rows, or None if there are no more rows"""
