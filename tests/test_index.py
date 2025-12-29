@@ -2,6 +2,7 @@ import datetime
 import random
 import string
 import sys
+from pathlib import Path
 from typing import Any, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
@@ -83,8 +84,13 @@ class TestIndex:
     ) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
-        sample_img = t.select(t.img).head(1)[0, 'img']
-        _ = t.select(t.img.localpath).collect()
+        res = t.select(t.img, t.img.localpath, t.img.fileurl).head(1)
+        sample_img = res[0, 'img']
+        sample_img_localpath = res[0, 'img_localpath']
+        sample_img_file_url = res[0, 'img_fileurl']
+        assert 'file://' in sample_img_file_url
+        sample_img_filename = Path(sample_img_localpath).name
+        sample_img_http_url = f'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/imagenette2-160/{sample_img_filename}'
 
         for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:
             iname = f'idx_{metric}_{is_asc}' if use_index_name else None
@@ -95,14 +101,16 @@ class TestIndex:
             t.add_embedding_index('img', idx_name=iname, metric=metric, **embed_args)  # type: ignore[arg-type]
 
             # Similarity search on the image itself should reliably retrieve it as the top choice.
-            query = (
-                t.select(img=t.img, sim=t.img.similarity(image=sample_img, idx=iname))
-                .order_by(t.img.similarity(image=sample_img, idx=iname), asc=is_asc)
-                .limit(1)
-            )
-            res = reload_tester.run_query(query)
-            out_img = res[0, 'img']
-            assert sample_img == out_img, f'{metric} failed when using index {iname}'
+            # Make sure it works to give it the image, local path, file:// URL, or http:// URL.
+            for img_input in [sample_img, sample_img_localpath, sample_img_file_url, sample_img_http_url]:
+                query = (
+                    t.select(img=t.img, sim=t.img.similarity(image=img_input, idx=iname))
+                    .order_by(t.img.similarity(image=sample_img, idx=iname), asc=is_asc)
+                    .limit(1)
+                )
+                res = reload_tester.run_query(query)
+                out_img = res[0, 'img']
+                assert sample_img == out_img, f'{metric} failed when using index {iname}'
 
             # There are only three images of parachutes in small_img_tbl; `clip` is good enough to reliably retrieve
             # the test image from a top-k query (with any metric).
@@ -250,7 +258,7 @@ class TestIndex:
         type_failures = (
             ('item', '`str` or `PIL.Image.Image`'),
             ('string', '`str`'),
-            ('image', '`PIL.Image.Image`'),
+            ('image', '`str` or `PIL.Image.Image`'),
             ('audio', r'`str` \(path to audio file\)'),
             ('video', r'`str` \(path to video file\)'),
         )
