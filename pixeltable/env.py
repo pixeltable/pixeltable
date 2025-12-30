@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import builtins
-import contextlib
 import datetime
 import glob
 import http.server
 import importlib
 import importlib.util
 import inspect
-import io
 import logging
 import math
 import os
@@ -25,7 +23,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
+from typing import Any, Callable, Iterator, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nest_asyncio  # type: ignore[import-untyped]

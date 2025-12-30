@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, Any, Iterator
 from deprecated import deprecated
 
 from pixeltable import exceptions as excs, type_system as ts
-from pixeltable.env import Env
 from pixeltable.iterators.base import ComponentIterator
 from pixeltable.utils.spacy import get_spacy_model
 
