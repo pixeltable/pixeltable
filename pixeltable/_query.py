@@ -531,6 +531,11 @@ class Query:
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
+        """Return all rows selected by this query.
+
+        Returns:
+            A ResultSet containing all rows selected by this query.
+        """
         return ResultSet(list(self._output_row_iterator()), self.schema)
 
     async def _acollect(self) -> ResultSet:
@@ -865,6 +870,10 @@ class Query:
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
+        # TODO: we shouldn't be requiring a LocalTable here; we need to refactor the join() implementation to support
+        #     remote tables (abstract Table objects without a TableVersionPath)
+        assert isinstance(other, catalog.table.LocalTable)
+
         if self.sample_clause is not None:
             raise excs.Error('join() cannot be used with sample()')
         join_pred: exprs.Expr | None
@@ -895,6 +904,7 @@ class Query:
         """Add a group-by clause to this Query.
 
         Variants:
+
         - group_by(base_tbl): group a component view by their respective base table rows
         - group_by(expr1, expr2, expr3): group by the given expressions
 
