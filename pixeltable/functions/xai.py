@@ -65,16 +65,10 @@ async def chat(
     Args:
         messages: A list of messages comprising the conversation. Each message should have
             a `role` (system, user, or assistant) and `content` (string).
-        model: The Grok model to use. Options include:
-            - `grok-4`: Latest Grok 4 model (most capable)
-            - `grok-4-fast`: Faster Grok 4 variant
-            - `grok-3`: Grok 3 model
-            - `grok-3-fast`: Faster Grok 3 variant
-            - `grok-3-mini`: Grok 3 mini with reasoning support
-            - `grok-2-vision-1212`: Grok 2 with vision capabilities
-            - `grok-code-fast-1`: Code-optimized model
+        model: The Grok model to use. See available models at
+            <https://docs.x.ai/docs/models>.
         reasoning_effort: Controls how much time the model spends thinking. Only supported
-            by `grok-3-mini`. Options: `low` (quick responses) or `high` (complex problems).
+            by reasoning models like `grok-3-mini`. Options: `low` or `high`.
         max_tokens: Maximum number of tokens in the response.
         temperature: Sampling temperature (0-2). Higher values make output more random.
         top_p: Nucleus sampling parameter.
@@ -192,9 +186,8 @@ async def vision(
     Args:
         prompt: The question or instruction about the image.
         image_url: URL of the image to analyze. Can be a public URL or a base64 data URL.
-        model: The Grok model to use. Vision-capable models include:
-            - `grok-4`: Latest Grok 4 with vision
-            - `grok-2-vision-1212`: Grok 2 vision model
+        model: The Grok model to use (must support vision). See available models at
+            <https://docs.x.ai/docs/models>.
         detail: Level of detail for image analysis. Options:
             - `high`: More detailed analysis (uses more tokens)
             - `low`: Faster, less detailed analysis
@@ -276,7 +269,8 @@ async def image_generations(
 
     Args:
         prompt: A text description of the desired image.
-        model: The image generation model to use. Currently `grok-2-image` is available.
+        model: The image generation model to use. See available models at
+            <https://docs.x.ai/docs/models>.
         image_format: The format of the response:
             - `base64`: Returns base64-encoded image data (default, faster)
             - `url`: Returns a URL to the generated image on xAI storage
