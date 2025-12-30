@@ -346,21 +346,19 @@ class Analyzer:
 
 
 class Planner:
-    # TODO: create an exec.CountNode and change this to create_count_plan()
     @classmethod
-    def create_count_stmt(cls, tbl: catalog.TableVersionPath, where_clause: exprs.Expr | None = None) -> sql.Select:
-        stmt = sql.select(sql.func.count().label('all_count'))
-        refd_tbl_ids: set[UUID] = set()
-        if where_clause is not None:
-            analyzer = cls.analyze(tbl, where_clause)
-            if analyzer.filter is not None:
-                raise excs.Error(f'Filter {analyzer.filter} not expressible in SQL')
-            clause_element = analyzer.sql_where_clause.sql_expr(analyzer.sql_elements)
-            assert clause_element is not None
-            stmt = stmt.where(clause_element)
-            refd_tbl_ids = where_clause.tbl_ids()
-        stmt = exec.SqlScanNode.create_from_clause(tbl, stmt, refd_tbl_ids)
-        return stmt
+    def create_count_stmt(cls, query: 'pxt.Query') -> sql.Select:
+        """Creates a SQL SELECT COUNT(*) statement for counting rows in a Query."""
+        # Create the query plan
+        plan = query._create_query_plan()
+        sql_node = plan.get_node(exec.SqlNode)
+        assert sql_node is not None
+        if sql_node.py_filter is not None:
+            raise excs.Error('count() cannot be used with Python-only filters. Use collect() instead.')
+        # Get the SQL statement from the SqlNode as a CTE
+        cte, _ = sql_node.to_cte(keep_pk=True)
+        count_stmt = sql.select(sql.func.count().label('all_count')).select_from(cte)
+        return count_stmt
 
     @classmethod
     def create_insert_plan(
@@ -387,18 +385,10 @@ class Planner:
             plan = exec.ExprEvalNode(
                 row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
             )
-        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
+        if any(c.col_type.supports_file_offloading() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(
-            exec.ExecContext(
-                row_builder,
-                batch_size=0,
-                show_pbar=True,
-                num_computed_exprs=len(computed_exprs),
-                ignore_errors=ignore_errors,
-            )
-        )
+        plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
 
         return plan
@@ -423,19 +413,12 @@ class Planner:
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
-            needs_cell_materialization = (
-                needs_cell_materialization or col.col_type.is_json_type() or col.col_type.is_array_type()
-            )
+            needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
 
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(
-            exec.ExecContext(
-                plan.row_builder, batch_size=0, show_pbar=True, num_computed_exprs=0, ignore_errors=ignore_errors
-            )
-        )
-        plan.ctx.num_rows = 0  # Unknown
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
 
         return plan
 
@@ -515,7 +498,6 @@ class Planner:
         plan.row_builder.add_table_columns(copied_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        plan.ctx.num_computed_exprs = len(recomputed_exprs)
 
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
@@ -564,13 +546,22 @@ class Planner:
             )
         )
 
-        return json_col_refs + array_col_refs
+        binary_col_refs = list(
+            exprs.Expr.list_subexprs(
+                expr_list,
+                expr_class=exprs.ColumnRef,
+                filter=lambda e: cast(exprs.ColumnRef, e).col.col_type.is_binary_type(),
+                traverse_matches=False,
+            )
+        )
+
+        return json_col_refs + array_col_refs + binary_col_refs
 
     @classmethod
     def _add_cell_materialization_node(cls, input: exec.ExecNode) -> exec.ExecNode:
         # we need a CellMaterializationNode if any of the evaluated output columns are json or array-typed
         has_target_cols = any(
-            col.col_type.is_json_type() or col.col_type.is_array_type()
+            col.col_type.supports_file_offloading()
             for col, slot_idx in input.row_builder.table_columns.items()
             if slot_idx is not None
         )
@@ -605,12 +596,18 @@ class Planner:
             # Vector-typed array columns are used for vector indexes, and are stored in the db
             return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
 
+        def binary_filter(e: exprs.Expr) -> bool:
+            return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_binary_type()
+
         json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
         json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
         array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
         array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
-        if len(json_refs) > 0 or len(array_refs) > 0:
-            return exec.CellReconstructionNode(json_refs, array_refs, input.row_builder, input=input)
+        binary_refs = list(
+            exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
+        )
+        if len(json_refs) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
+            return exec.CellReconstructionNode(json_refs, array_refs, binary_refs, input.row_builder, input=input)
         else:
             return input
 
@@ -699,7 +696,7 @@ class Planner:
         plan.row_builder.add_table_columns(copied_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        ctx = exec.ExecContext(row_builder, num_computed_exprs=len(recomputed_exprs))
+        ctx = exec.ExecContext(row_builder)
         # TODO: correct batch size?
         ctx.batch_size = 0
         plan.set_ctx(ctx)
@@ -755,7 +752,6 @@ class Planner:
             ignore_errors=True,
             exact_version_only=view.get_bases(),
         )
-        plan.ctx.num_computed_exprs = len(recomputed_exprs)
         materialized_cols = copied_cols + list(recomputed_cols)  # same order as select_list
         for i, col in enumerate(materialized_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
@@ -794,7 +790,7 @@ class Planner:
         base_analyzer = Analyzer(
             from_clause, iterator_args, where_clause=target.predicate, sample_clause=target.sample_clause
         )
-        row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [], target)
+        row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [], target, for_view_load=True)
 
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
         # execution plan:
@@ -830,7 +826,7 @@ class Planner:
 
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
-        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
+        if any(c.col_type.supports_file_offloading() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
         plan = cls._add_save_node(plan)
 
@@ -1184,10 +1180,7 @@ class Planner:
         )
 
         plan.ctx.batch_size = 16
-        plan.ctx.show_pbar = True
         plan.ctx.ignore_errors = True
-        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
-        plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
         plan = cls._add_save_node(plan)
 
         return plan

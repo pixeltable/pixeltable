@@ -12,7 +12,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.iterators import FrameIterator
+from pixeltable.functions.video import frame_iterator
 
 from .utils import (
     ReloadTester,
@@ -427,10 +427,25 @@ class TestQuery:
         cnt = t.where(t.c2 < 10).count()
         assert cnt == 10
 
-        # for now, count() doesn't work with non-SQL Where clauses
+        # count() does not support Python-only filters
         t = small_img_tbl
-        with pytest.raises(pxt.Error):
+        with pytest.raises(pxt.Error, match=re.escape('count() cannot be used with Python-only filters')):
             _ = t.where(t.img.width > 100).count()
+
+    def test_count_with_group_by(self, test_tbl: pxt.Table) -> None:
+        """Test that count() works with group_by()."""
+        t = test_tbl
+        # Count with group_by should return the number of groups
+        cnt = t.group_by(t.c1).count()
+        # Should return the number of distinct c1 values
+        distinct_c1 = len(t.select(t.c1).distinct().collect())
+        assert cnt == distinct_c1
+
+        # Count with group_by and where clause
+        cnt = t.where(t.c2 < 10).group_by(t.c1).count()
+        # Should return the number of distinct c1 values in filtered rows
+        distinct_c1_filtered = len(t.where(t.c2 < 10).select(t.c1).distinct().collect())
+        assert cnt == distinct_c1_filtered
 
     def test_select_literal(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -539,7 +554,7 @@ class TestQuery:
         # grouping_tbl
 
         t2 = pxt.create_table('test_tbl_2', {'name': ts.StringType(), 'video': ts.VideoType()})
-        v2 = pxt.create_view('test_view_2', t2, iterator=FrameIterator.create(video=t2.video, fps=1))
+        v2 = pxt.create_view('test_view_2', t2, iterator=frame_iterator(t2.video, fps=1))
         with pytest.raises(pxt.Error) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
         assert 'Cannot use `update` after `group_by`' in str(exc_info.value)
@@ -592,7 +607,7 @@ class TestQuery:
             assert isinstance(arrval, np.ndarray)
             col_type = query.schema['c_array']
             assert isinstance(col_type, ts.ArrayType)
-            assert arrval.dtype == col_type.numpy_dtype()
+            assert arrval.dtype == col_type.dtype
             assert arrval.shape == col_type.shape
             assert arrval.dtype == np.float32
             assert arrval.flags['WRITEABLE'], 'required by pytorch collate function'
@@ -708,7 +723,7 @@ class TestQuery:
         from pixeltable.functions.yolox import yolo_to_coco, yolox
 
         base_t = pxt.create_table('videos', {'video': ts.VideoType()})
-        view_t = pxt.create_view('frames', base_t, iterator=FrameIterator.create(video=base_t.video, fps=1))
+        view_t = pxt.create_view('frames', base_t, iterator=frame_iterator(base_t.video, fps=1))
         view_t.add_computed_column(detections=yolox(view_t.frame, model_id='yolox_m'))
         base_t.insert(video=get_video_files()[0])
 
@@ -800,7 +815,7 @@ class TestQuery:
         results = t.select(t.c4).distinct().show()
         assert len(results) == 5
 
-        # Test head, tail, group by, count - which will not work
+        # Test head, tail, group by - which will not work
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.select(t.c1, t.c3).distinct().head(2)
         assert 'head() cannot be used with group_by' in str(exc_info.value)
@@ -810,9 +825,10 @@ class TestQuery:
         with pytest.raises(pxt.Error) as exc_info:
             t.select(t.c1, t.c3).group_by(t.c2).distinct()
         assert 'group_by() already specified' in str(exc_info.value)
-        with pytest.raises(pxt.Error) as exc_info:
-            t.select(t.c1, t.c3).distinct().count()
-        assert 'count() cannot be used with group_by' in str(exc_info.value)
+
+        # count() with distinct()
+        cnt = t.select(t.c1, t.c3).distinct().count()
+        assert cnt == len(t.select(t.c1, t.c3).distinct().collect())
 
         with pytest.raises(pxt.Error) as exc_info:
             t.distinct().distinct()

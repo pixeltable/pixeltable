@@ -818,6 +818,29 @@ def zfill(self: str, width: int) -> str:
     return self.zfill(width)
 
 
+def string_splitter(text: Any, separators: str) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
+    """Iterator over chunks of a string. The string is chunked according to the specified `separators`.
+
+    The iterator yields a `text` field containing the text of the chunk.
+    Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
+
+    Args:
+        separators: separators to use to chunk the document. Currently the only supported option is `'sentence'`.
+
+    Examples:
+        This example assumes an existing table `tbl` with a column `text` of type `pxt.String`.
+
+        Create a view that splits all strings on sentence boundaries:
+
+        >>> pxt.create_view(
+        ...     'sentence_chunks',
+        ...     tbl,
+        ...     iterator=string_splitter(tbl.text, separators='sentence')
+        ... )
+    """
+    return pxt.iterators.string.StringSplitter._create(text=text, separators=separators)
+
+
 __all__ = local_public_names(__name__)
 
 

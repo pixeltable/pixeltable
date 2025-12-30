@@ -10,7 +10,7 @@ t.select(t.img_col.convert('L')).collect()
 ```
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 import PIL.Image
 
@@ -400,6 +400,31 @@ def reduce(self: PIL.Image.Image, factor: int, box: tuple[int, int, int, int] | 
     return self.reduce(factor, box)
 
 
+@pxt.udf(is_method=True)
+def thumbnail(
+    self: PIL.Image.Image,
+    size: tuple[int, int],
+    resample: int = PIL.Image.Resampling.LANCZOS,
+    reducing_gap: float | None = 2.0,
+) -> PIL.Image.Image:
+    """
+    Create a thumbnail of the image.
+
+    Equivalent to
+    [`PIL.Image.Image.thumbnail()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.thumbnail)
+
+    Args:
+        size: The size of the thumbnail, as a tuple of (width, height).
+        resample: The resampling filter to use. See the
+            [Pillow documentation](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.thumbnail)
+            for a list of supported filters.
+        reducing_gap: The reducing gap to use.
+    """
+    result = self.copy()
+    result.thumbnail(size, PIL.Image.Resampling(resample), reducing_gap)
+    return result
+
+
 @pxt.udf(is_property=True)
 def width(self: PIL.Image.Image) -> int:
     """
@@ -422,6 +447,37 @@ def mode(self: PIL.Image.Image) -> str:
     Return the image mode.
     """
     return self.mode
+
+
+def tile_iterator(
+    image: Any, tile_size: tuple[int, int], *, overlap: tuple[int, int] = (0, 0)
+) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
+    """
+    Iterator over tiles of an image. Each image will be divided into tiles of size `tile_size`, and the tiles will be
+    iterated over in row-major order (left-to-right, then top-to-bottom). An optional `overlap` parameter may be
+    specified. If the tiles do not exactly cover the image, then the rightmost and bottommost tiles will be padded with
+    blackspace, so that the output images all have the exact size `tile_size`.
+
+    Args:
+        image: Image to split into tiles.
+        tile_size: Size of each tile, as a pair of integers `[width, height]`.
+        overlap: Amount of overlap between adjacent tiles, as a pair of integers `[width, height]`.
+
+    Examples:
+        This example assumes an existing table `tbl` with a column `img` of type `pxt.Image`.
+
+        Create a view that splits all images into 256x256 tiles with 32 pixels of overlap:
+
+        >>> pxt.create_view(
+        ...     'image_tiles',
+        ...     tbl,
+        ...     iterator=image_tile_iterator(tbl.img, tile_size=(256, 256), overlap=(32, 32))
+        ... )
+    """
+    kwargs: dict[str, Any] = {}
+    if overlap != (0, 0):
+        kwargs['overlap'] = overlap
+    return pxt.iterators.image.TileIterator._create(image=image, tile_size=tile_size, **kwargs)
 
 
 __all__ = local_public_names(__name__)

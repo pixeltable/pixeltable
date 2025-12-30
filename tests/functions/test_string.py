@@ -34,6 +34,7 @@ from pixeltable.functions.string import (
     rjust,
     rstrip,
     startswith,
+    string_splitter,
     strip,
     swapcase,
     title,
@@ -41,7 +42,7 @@ from pixeltable.functions.string import (
     zfill,
 )
 
-from ..utils import reload_catalog, validate_update_status
+from ..utils import reload_catalog, skip_test_if_not_installed, validate_update_status
 
 
 class TestString:
@@ -326,3 +327,16 @@ class TestString:
         assert status.num_excs == 0
         row = t.head()[1]
         assert row == {'input': 'PQR', 's1': 'ABC PQR', 's2': 'DEF PQR', 's3': 'GHI PQR JKL PQR'}
+
+    def test_string_splitter(self, reset_db: None) -> None:
+        skip_test_if_not_installed('spacy')
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        validate_update_status(t.insert([{'s': self.TEST_STR}]), expected_rows=1)
+        v = pxt.create_view('test_view', t, iterator=string_splitter(t.s, 'sentence'))
+        results = v.select(v.text).collect()
+        # Verify we got multiple sentences from the TEST_STR
+        assert len(results) > 1
+        # Verify each result has a 'text' field that is a non-empty string
+        for row in results:
+            assert isinstance(row['text'], str)
+            assert len(row['text']) > 0

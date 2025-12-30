@@ -4,11 +4,13 @@ import io
 import json
 import logging
 import mimetypes
+import uuid
 from typing import Any, Callable
 
 import av
 import numpy as np
 from PIL import Image
+from pypdfium2 import PdfDocument  # type: ignore[import-untyped]
 
 import pixeltable.type_system as ts
 from pixeltable.utils.http_server import get_file_uri
@@ -42,6 +44,10 @@ class Formatter:
     def get_pandas_formatter(self, col_type: ts.ColumnType) -> Callable | None:
         if col_type.is_string_type():
             return self.format_string
+        if col_type.is_uuid_type():
+            return self.format_uuid
+        if col_type.is_binary_type():
+            return self.format_binary
         if col_type.is_float_type():
             return self.format_float
         if col_type.is_json_type():
@@ -64,6 +70,20 @@ class Formatter:
         Escapes special characters in `val`, and abbreviates `val` if its length exceeds `_STRING_MAX_LEN`.
         """
         return cls.__escape(cls.abbreviate(val))
+
+    @classmethod
+    def format_uuid(cls, val: uuid.UUID | None) -> str:
+        """
+        Formats a UUID by converting it to a string and applying string formatting.
+        """
+        return '' if val is None else cls.format_string(str(val))
+
+    @classmethod
+    def format_binary(cls, val: bytes) -> str:
+        """
+        Formats binary data by converting it to an encoded string and applying string formatting.
+        """
+        return cls.format_string(str(val))
 
     @classmethod
     def abbreviate(cls, val: str, max_len: int = __STRING_MAX_LEN) -> str:
@@ -230,16 +250,14 @@ class Formatter:
         """
         if file_path.lower().endswith('.pdf'):
             try:
-                import fitz  # type: ignore[import-untyped]
-
-                doc = fitz.open(file_path)
-                pixmap = doc.get_page_pixmap(0)
-                while pixmap.width > max_width or pixmap.height > max_height:
-                    # shrink(1) will halve each dimension
-                    pixmap.shrink(1)
-                return pixmap.pil_image()
+                doc = PdfDocument(file_path)
+                if len(doc) == 0:
+                    return None
+                img = doc[0].render().to_pil()
+                img.thumbnail((max_width, max_height), Image.LANCZOS)
+                return img
             except Exception:
-                logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have PyMuPDF installed.')
+                logging.warning(f'Failed to produce PDF thumbnail {file_path}. Make sure you have pypdfium2 installed.')
 
         return None
 

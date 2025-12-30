@@ -925,8 +925,10 @@ class Catalog:
                 # Dir does not exist; raise an appropriate error.
                 if add_dir_path is not None or add_name is not None:
                     raise excs.Error(f'Directory {p!r} does not exist. Create it first with:\npxt.create_dir({p!r})')
-                else:
+                elif raise_if_not_exists:
                     raise excs.Error(f'Directory {p!r} does not exist.')
+                else:
+                    return None, None, None  # parent dir does not exist; nothing to do
             if p == add_dir_path:
                 add_dir = dir
             if p == drop_dir_path:
@@ -1017,7 +1019,10 @@ class Catalog:
         parent_path = path.parent
         parent_dir = self._get_dir(parent_path, lock_dir=lock_parent)
         if parent_dir is None:
-            raise excs.Error(f'Directory {parent_path!r} does not exist.')
+            if raise_if_not_exists:
+                raise excs.Error(f'Directory {parent_path!r} does not exist.')
+            else:
+                return None
         obj = self._get_dir_entry(parent_dir.id, path.name, path.version, lock_entry=lock_obj)
 
         if obj is None and raise_if_not_exists:

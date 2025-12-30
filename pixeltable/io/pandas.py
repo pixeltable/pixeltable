@@ -1,4 +1,5 @@
 import os
+import uuid
 from typing import Any
 
 import numpy as np
@@ -160,7 +161,7 @@ def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> ts.ColumnType 
         return None
     # Most other pandas dtypes are directly NumPy compatible
     assert isinstance(pd_dtype, np.dtype)
-    return ts.ArrayType.from_np_dtype(pd_dtype, nullable)
+    return ts.ColumnType.from_np_dtype(pd_dtype, nullable)
 
 
 def __pd_coltype_to_pxt_type(pd_dtype: DtypeObj, data_col: pd.Series, nullable: bool) -> ts.ColumnType:
@@ -230,6 +231,13 @@ def _df_row_to_pxt_row(
                     nval = pd.Timestamp(tval).tz_localize(tz=Env.get().default_time_zone)
                 else:
                     nval = tval.astimezone(Env.get().default_time_zone)
+        elif pxt_type.is_uuid_type():
+            if pd.isnull(val):
+                nval = None
+            elif isinstance(val, uuid.UUID):
+                nval = val
+            else:
+                nval = uuid.UUID(val)
         else:
             nval = val
         pxt_row[pxt_name] = nval

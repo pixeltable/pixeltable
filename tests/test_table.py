@@ -4,6 +4,7 @@ import math
 import os
 import random
 import re
+import uuid
 from pathlib import Path
 from typing import Any, Literal, _GenericAlias, cast  # type: ignore[attr-defined]
 
@@ -22,8 +23,8 @@ import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
+from pixeltable.functions.video import frame_iterator
 from pixeltable.io.external_store import MockProject
-from pixeltable.iterators import FrameIterator
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -863,6 +864,10 @@ class TestTable:
             'req_ts_col': pxt.Required[pxt.Timestamp],
             'date_col': pxt.Date,
             'req_date_col': pxt.Required[pxt.Date],
+            'uuid_col': pxt.UUID,
+            'req_uuid_col': pxt.Required[pxt.UUID],
+            'binary_col': pxt.Binary,
+            'req_binary_col': pxt.Required[pxt.Binary],
             'json_col': pxt.Json,
             'req_json_col': pxt.Required[pxt.Json],
             'array_col': pxt.Array[(5, None, 3), pxt.Int],  # type: ignore[misc]
@@ -902,6 +907,10 @@ class TestTable:
             'req_ts_col': ts.TimestampType(nullable=False),
             'date_col': ts.DateType(nullable=True),
             'req_date_col': ts.DateType(nullable=False),
+            'uuid_col': ts.UUIDType(nullable=True),
+            'req_uuid_col': ts.UUIDType(nullable=False),
+            'binary_col': ts.BinaryType(nullable=True),
+            'req_binary_col': ts.BinaryType(nullable=False),
             'json_col': ts.JsonType(nullable=True),
             'req_json_col': ts.JsonType(nullable=False),
             'array_col': ts.ArrayType((5, None, 3), dtype=ts.IntType(), nullable=True),
@@ -938,12 +947,16 @@ class TestTable:
             'Required[Timestamp]',
             'Date',
             'Required[Date]',
+            'UUID',
+            'Required[UUID]',
+            'Binary',
+            'Required[Binary]',
             'Json',
             'Required[Json]',
-            'Array[(5, None, 3), Int]',
-            'Required[Array[(5, None, 3), Int]]',
-            'Array[Float]',
-            'Required[Array[Float]]',
+            'Array[(5, None, 3), int64]',
+            'Required[Array[(5, None, 3), int64]]',
+            'Array[float32]',
+            'Required[Array[float32]]',
             'Array',
             'Required[Array]',
             'Image',
@@ -1083,6 +1096,9 @@ class TestTable:
         pxt.drop_table(non_existing_t, if_not_exists='ignore')
         # force=True should not raise an error, irrespective of if_not_exists value
         pxt.drop_table(non_existing_t, force=True)
+        # same if the parent dir does not exist
+        pxt.drop_table('not_a_parent_dir.non_existing_table', if_not_exists='ignore')
+        pxt.drop_table('not_a_parent_dir.non_existing_table', force=True)
         assert table_list == pxt.list_tables()
 
     def test_image_table(self, reset_db: None) -> None:
@@ -1179,9 +1195,10 @@ class TestTable:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=0)  # type: ignore[arg-type]
         assert 'primary_key must be a' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error, match=r'cannot be nullable. Declare it as `Required` instead: `pxt.Required\[pxt.String\]`'
+        ) as exc_info:
             pxt.create_table('test', {'c1': pxt.String}, primary_key='c1')
-        assert 'cannot be nullable' in str(exc_info.value).lower()
 
         for badtype, name, suggestion in [
             (str, 'str', 'pxt.String'),
@@ -1189,6 +1206,9 @@ class TestTable:
             (float, 'float', 'pxt.Float'),
             (bool, 'bool', 'pxt.Bool'),
             (datetime.datetime, 'datetime.datetime', 'pxt.Timestamp'),
+            (datetime.date, 'datetime.date', 'pxt.Date'),
+            (uuid.UUID, 'uuid.UUID', 'pxt.UUID'),
+            (bytes, 'bytes', 'pxt.Binary'),
             (list, 'list', 'pxt.Json'),
             (dict, 'dict', 'pxt.Json'),
             (PIL.Image.Image, 'PIL.Image.Image', 'pxt.Image'),
@@ -1410,9 +1430,15 @@ class TestTable:
             assert container.streams.video[0].codec_context.name == 'h264'
 
     def test_create_video_table(self, reset_db: None) -> None:
+        if Env.get().is_using_cockroachdb:
+            # TODO(PXT-921): fix this on CockroachDB
+            pytest.skip(
+                'Skipped on CockroachDB due to: RETRY_SERIALIZABLE - failed preemptive refresh due to'
+                ' encountered recently written committed value...'
+            )
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
-        view = pxt.create_view('test_view', tbl, iterator=FrameIterator.create(video=tbl.video, fps=0))
+        view = pxt.create_view('test_view', tbl, iterator=frame_iterator(tbl.video, fps=0))
         view.add_computed_column(c1=view.frame.rotate(30), stored=True)
         view.add_computed_column(c2=view.c1.rotate(40), stored=False)
         view.add_computed_column(c3=view.c2.rotate(50), stored=True)
@@ -1574,11 +1600,11 @@ class TestTable:
             t.insert(c1=None)
         assert 'expected non-None' in str(exc_info.value)
 
-        # bad array literal
+        # wrong array shape
         pxt.drop_table(tbl_name, if_not_exists='ignore')
-        t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), pxt.Int]})  # type: ignore[misc]
+        t = pxt.create_table(tbl_name, {'c5': pxt.Array[(2, 3), np.float32]})  # type: ignore[misc]
         with pytest.raises(pxt.Error, match=r'expected numpy.ndarray\(\(2, 3\)'):
-            t.insert(c5=np.ndarray((3, 2)))
+            t.insert(c5=np.ndarray((3, 2), dtype=np.float32))
 
         # bad array literal
         pxt.drop_table(tbl_name, if_not_exists='ignore')
@@ -2752,17 +2778,17 @@ class TestTable:
             """view 'test_subview' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
-            Column Name                          Type           Computed With
-              computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
+            Column Name                            Type           Computed With
+              computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]
 
             Index Name Column  Metric                                          Embedding
                   idx0     c1  cosine  sentence_transformer(c1, model_id='all-mpnet-b...
@@ -2781,17 +2807,17 @@ class TestTable:
             """snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
-            Column Name                          Type           Computed With
-              computed1  Required[Array[(3, 4), Int]]            <lambda>(c2)
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]
+            Column Name                            Type           Computed With
+              computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]
 
             External Store         Type
                    project  MockProject
@@ -2805,16 +2831,16 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap2' (of 'test_tbl:2')
 
-            Column Name                          Type           Computed With
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]"""
+            Column Name                            Type           Computed With
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]"""
         )
 
         # test case: snapshot with additional columns
@@ -2823,17 +2849,17 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap3' (of 'test_tbl:2')
 
-            Column Name                          Type           Computed With
-              computed1               Required[Float]                 c2 + c3
-                     c1              Required[String]
-                    c1n                        String
-                     c2                 Required[Int]
-                     c3               Required[Float]
-                     c4                Required[Bool]
-                     c5           Required[Timestamp]
-                     c6                Required[Json]
-                     c7                Required[Json]
-                     c8  Required[Array[(2, 3), Int]]  [[1, 2, 3], [4, 5, 6]]"""
+            Column Name                            Type           Computed With
+              computed1                 Required[Float]                 c2 + c3
+                     c1                Required[String]
+                    c1n                          String
+                     c2                   Required[Int]
+                     c3                 Required[Float]
+                     c4                  Required[Bool]
+                     c5             Required[Timestamp]
+                     c6                  Required[Json]
+                     c7                  Required[Json]
+                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]"""
         )
 
         c = repr(v2.c1)
@@ -2938,37 +2964,6 @@ class TestTable:
 
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.revert()
-
-    def test_array_columns(self, reset_db: None, reload_tester: ReloadTester) -> None:
-        schema = {
-            'fixed_shape': pxt.Array[(3, None, 5), pxt.Int],  # type: ignore[misc]
-            'gen_shape': pxt.Array[pxt.Float],  # type: ignore[misc]
-            'gen': pxt.Array,
-        }
-        t = pxt.create_table('array_tbl', schema)
-        rows = [
-            {
-                'fixed_shape': np.ones((3, 2, 5), dtype=np.int64),
-                'gen_shape': np.ones((1, 2, 3, 4), dtype=np.float32),
-                'gen': np.array(['a', 'b', 'c']),
-            },
-            {
-                'fixed_shape': np.zeros((3, 7, 5), dtype=np.int64),
-                'gen_shape': np.zeros((2, 6), dtype=np.float32),
-                'gen': np.array([[1, 7, 3], [2, 4, 5]], dtype=np.int64),
-            },
-        ]
-        t.insert(rows)
-        results = reload_tester.run_query(t.select())
-        for row, result in zip(rows, results):
-            for key in row:
-                a1 = row[key]
-                a2 = result[key]
-                assert isinstance(a1, np.ndarray)
-                assert isinstance(a2, np.ndarray)
-                assert np.array_equal(a1, a2)
-
-        reload_tester.run_reload_test()
 
     def test_drop_column_in_view_predicate(self, reset_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})

@@ -42,7 +42,23 @@ from .globals import (
     tool,
     tools,
 )
-from .type_system import Array, Audio, Bool, Date, Document, Float, Image, Int, Json, Required, String, Timestamp, Video
+from .type_system import (
+    UUID,
+    Array,
+    Audio,
+    Binary,
+    Bool,
+    Date,
+    Document,
+    Float,
+    Image,
+    Int,
+    Json,
+    Required,
+    String,
+    Timestamp,
+    Video,
+)
 
 # This import must go last to avoid circular imports.
 from . import functions, io, iterators  # isort: skip

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import datetime
+import uuid
 from typing import Any
 
 import numpy as np
@@ -55,6 +57,9 @@ class Literal(Expr):
         if self.col_type.is_date_type():
             assert isinstance(self.val, datetime.date)
             return f"'{self.val.isoformat()}'"
+        if self.col_type.is_uuid_type():
+            assert isinstance(self.val, uuid.UUID)
+            return f"'{self.val}'"
         if self.col_type.is_array_type():
             assert isinstance(self.val, np.ndarray)
             return str(self.val.tolist())
@@ -91,6 +96,14 @@ class Literal(Expr):
             assert isinstance(self.val, datetime.date)
             encoded_val = self.val.isoformat()
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
+        elif self.col_type.is_uuid_type():
+            assert isinstance(self.val, uuid.UUID)
+            encoded_val = str(self.val)
+            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
+        elif self.col_type.is_binary_type():
+            assert isinstance(self.val, bytes)
+            encoded_val = base64.b64encode(self.val).decode('utf-8')
+            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         elif self.col_type.is_array_type():
             assert isinstance(self.val, np.ndarray)
             return {'val': self.val.tolist(), 'val_t': self.col_type._type.name, **super()._as_dict()}
@@ -112,6 +125,13 @@ class Literal(Expr):
                 dt = datetime.datetime.fromisoformat(d['val'])
                 assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
                 return cls(dt)
+            elif val_t == ts.ColumnType.Type.UUID.name:
+                uuid_val = uuid.UUID(d['val'])
+                return cls(uuid_val)
+            elif val_t == ts.ColumnType.Type.BINARY.name:
+                assert isinstance(d['val'], str)
+                bytes_val = base64.b64decode(d['val'].encode('utf-8'))
+                return cls(bytes_val)
             elif val_t == ts.ColumnType.Type.ARRAY.name:
                 arrays = np.array(d['val'])
                 return cls(arrays)

@@ -1,4 +1,5 @@
 import datetime
+import uuid
 from zoneinfo import ZoneInfo
 
 import numpy as np
@@ -26,6 +27,7 @@ class TestPandas:
                 datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=datetime.timezone.utc),
             ],
             'date_col': [datetime.date(2024, 1, 1), datetime.date(2024, 1, 2)],
+            'uuid_col': [uuid.uuid4(), uuid.uuid4()],
             'json_col_1': [[1, 2], [3, 4]],
             'json_col_2': [{'a': 1}, {'b': 2}],
             'array_col_1': [np.ndarray((1, 2), dtype=np.int64), np.ndarray((3, 2), dtype=np.int64)],
@@ -50,11 +52,12 @@ class TestPandas:
             'dt_col': ts.TimestampType(nullable=True),
             'aware_dt_col': ts.TimestampType(nullable=True),
             'date_col': ts.DateType(nullable=True),
+            'uuid_col': ts.UUIDType(nullable=True),
             'json_col_1': ts.JsonType(nullable=True),
             'json_col_2': ts.JsonType(nullable=True),
-            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True),
-            'array_col_2': ts.ArrayType(shape=(None, None), dtype=ts.IntType(), nullable=True),
-            'array_col_3': ts.ArrayType(shape=(None, None), dtype=ts.FloatType(), nullable=True),
+            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=np.dtype('int64'), nullable=True),
+            'array_col_2': ts.ArrayType(shape=(None, None), dtype=np.dtype('int64'), nullable=True),
+            'array_col_3': ts.ArrayType(shape=(None, None), dtype=np.dtype('float32'), nullable=True),
             'image_col': ts.ImageType(width=100, nullable=True),
         }
         res = t.select().order_by(t.int_col).collect()
@@ -71,6 +74,7 @@ class TestPandas:
             datetime.datetime(2024, 1, 1, 1, 1, 1, tzinfo=datetime.timezone.utc),
         ]
         assert res['date_col'] == src_data['date_col']
+        assert res['uuid_col'] == src_data['uuid_col']
         assert res['json_col_1'] == src_data['json_col_1']
         assert res['json_col_2'] == src_data['json_col_2']
         assert t.count() == len(df)
@@ -87,11 +91,12 @@ class TestPandas:
             'dt_col': ts.TimestampType(nullable=True),
             'aware_dt_col': ts.TimestampType(nullable=True),
             'date_col': ts.DateType(nullable=True),
+            'uuid_col': ts.UUIDType(nullable=True),
             'json_col_1': ts.JsonType(nullable=True),
             'json_col_2': ts.JsonType(nullable=True),
-            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=ts.IntType(), nullable=True),
-            'array_col_2': ts.ArrayType(shape=(None, None), dtype=ts.IntType(), nullable=True),
-            'array_col_3': ts.ArrayType(shape=(None, None), dtype=ts.FloatType(), nullable=True),
+            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=np.dtype('int64'), nullable=True),
+            'array_col_2': ts.ArrayType(shape=(None, None), dtype=np.dtype('int64'), nullable=True),
+            'array_col_3': ts.ArrayType(shape=(None, None), dtype=np.dtype('float32'), nullable=True),
             'image_col': ts.ImageType(width=100, nullable=True),
         }
         assert t.count() == len(df)

@@ -52,11 +52,11 @@ class TestHuggingface:
 
     def test_sentence_transformer(self, reset_db: None, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        from pixeltable.functions.huggingface import sentence_transformer, sentence_transformer_list
+        from pixeltable.functions.huggingface import sentence_transformer
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         sents = get_sentences(10)
-        status = t.insert({'input': s, 'input_list': sents} for s in sents)
+        status = t.insert({'input': s} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -69,17 +69,10 @@ class TestHuggingface:
                 **{col_name: sentence_transformer(t.input, model_id=model_id, normalize_embeddings=True)}
             )
             assert t._get_schema()[col_name].is_array_type()
-            list_col_name = f'embed_list{idx}'
-            t.add_computed_column(
-                **{list_col_name: sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)}
-            )
-            assert t._get_schema()[list_col_name] == ts.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for idx, (_, d) in enumerate(zip(model_ids, num_dims)):
                 assert row[f'embed{idx}'].shape == (d,)
-                assert len(row[f'embed_list{idx}']) == len(sents)
-                assert all(len(v) == d for v in row[f'embed_list{idx}'])
 
         verify_row(t.tail(1)[0])
 
@@ -88,18 +81,18 @@ class TestHuggingface:
         reload_tester.run_reload_test()
 
         t = pxt.get_table('test_tbl')
-        status = t.insert({'input': s, 'input_list': sents} for s in sents)
+        status = t.insert({'input': s} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
     def test_cross_encoder(self, reset_db: None) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        from pixeltable.functions.huggingface import cross_encoder, cross_encoder_list
+        from pixeltable.functions.huggingface import cross_encoder
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         sents = get_sentences(10)
-        status = t.insert({'input': s, 'input_list': sents} for s in sents)
+        status = t.insert({'input': s} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -109,21 +102,17 @@ class TestHuggingface:
             col_name = f'embed{idx}'
             t.add_computed_column(**{col_name: cross_encoder(t.input, t.input, model_id=model_id)})
             assert t._get_schema()[col_name] == ts.FloatType(nullable=True)
-            list_col_name = f'embed_list{idx}'
-            t.add_computed_column(**{list_col_name: cross_encoder_list(t.input, t.input_list, model_id=model_id)})
-            assert t._get_schema()[list_col_name] == ts.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for idx in range(len(model_ids)):
-                assert len(row[f'embed_list{idx}']) == len(sents)
-                assert all(isinstance(v, float) for v in row[f'embed_list{idx}'])
+                assert isinstance(row[f'embed{idx}'], float)
 
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
         reload_catalog()
         t = pxt.get_table('test_tbl')
-        status = t.insert({'input': s, 'input_list': sents} for s in sents)
+        status = t.insert({'input': s} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
@@ -185,6 +174,30 @@ class TestHuggingface:
         assert 'orange' in label_text
         assert 'bowl' in label_text
         assert 'broccoli' in label_text
+
+    def test_detr_for_segmentation(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        import numpy as np
+
+        from pixeltable.functions.huggingface import detr_for_segmentation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(
+            seg=detr_for_segmentation(t.img, model_id='facebook/detr-resnet-50-panoptic', threshold=0.5)
+        )
+        status = t.insert(img=SAMPLE_IMAGE_URL)
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+        res = t.select(height=t.img.height, width=t.img.width).collect()[0]
+        height, width = res['height'], res['width']
+        result = t.select(t.seg).collect()[0]['seg']
+        assert 'segmentation' in result
+        assert 'segments_info' in result
+        assert isinstance(result['segmentation'], np.ndarray)
+        assert result['segmentation'].shape == (height, width)
+        assert isinstance(result['segments_info'], list)
+        assert len(result['segments_info']) > 0
+        assert 'label_text' in result['segments_info'][0]
 
     def test_vit_for_image_classification(self, reset_db: None) -> None:
         skip_test_if_not_installed('transformers')

@@ -168,6 +168,8 @@ class TablePackager:
             return pa.string()  # JSON will be exported as strings
         if isinstance(col_type, sql.LargeBinary):
             return pa.binary()
+        if isinstance(col_type, sql.UUID):
+            return pa.uuid()
         if isinstance(col_type, sql_vector.Vector):
             # Parquet/pyarrow do not handle null values properly for fixed_shape_tensor(), so we have to use list_()
             # here instead.
@@ -209,6 +211,10 @@ class TablePackager:
         if isinstance(sql_type, sql.JSON):
             # Export JSON as strings
             return json.dumps(val)
+        if isinstance(sql_type, sql.UUID):
+            # PyArrow's pa.uuid() expects bytes
+            assert isinstance(val, uuid.UUID)
+            return val.bytes
         if is_media_col:
             # Handle media files as described above
             assert isinstance(val, str)
@@ -306,6 +312,14 @@ class TablePackager:
 
             case ts.ColumnType.Type.TIMESTAMP | ts.ColumnType.Type.DATE:
                 return str(val)
+
+            case ts.ColumnType.Type.UUID:
+                assert isinstance(val, uuid.UUID)
+                return str(val)
+
+            case ts.ColumnType.Type.BINARY:
+                assert isinstance(val, bytes)
+                return Formatter.format_binary(val)
 
             case ts.ColumnType.Type.ARRAY:
                 assert isinstance(val, np.ndarray)

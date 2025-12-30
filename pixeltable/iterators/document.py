@@ -1,13 +1,13 @@
 import dataclasses
 import enum
-import io
 import logging
 from typing import Any, ClassVar, Iterable, Iterator, Literal
 
-import fitz  # type: ignore[import-untyped]
 import ftfy
 import PIL.Image
 from bs4.element import NavigableString, Tag
+from deprecated import deprecated
+from pypdfium2 import PdfDocument  # type: ignore[import-untyped]
 
 from pixeltable.env import Env
 from pixeltable.exceptions import Error
@@ -110,31 +110,6 @@ _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 
 
 class DocumentSplitter(ComponentIterator):
-    """Iterator over chunks of a document. The document is chunked according to the specified `separators`.
-
-    The iterator yields a `text` field containing the text of the chunk, and it may also
-    include additional metadata fields if specified in the `metadata` parameter, as explained below.
-
-    Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
-
-    How to init the `DocumentSplitter` class?
-
-    Args:
-        separators: separators to use to chunk the document. Options are:
-             `'heading'`, `'paragraph'`, `'sentence'`, `'token_limit'`, `'char_limit'`, `'page'`.
-             This may be a comma-separated string, e.g., `'heading,token_limit'`.
-        elements: list of elements to extract from the document. Options are:
-            `'text'`, `'image'`. Defaults to `['text']` if not specified. The `'image'` element is only supported
-            for the `'page'` separator on PDF documents.
-        limit: the maximum number of tokens or characters in each chunk, if `'token_limit'`
-             or `'char_limit'` is specified.
-        metadata: additional metadata fields to include in the output. Options are:
-             `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
-             (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
-        image_dpi: DPI to use when extracting images from PDFs. Defaults to 300.
-        image_format: format to use when extracting images from PDFs. Defaults to 'png'.
-    """
-
     METADATA_COLUMN_TYPES: ClassVar[dict[ChunkMetadata, ColumnType]] = {
         ChunkMetadata.TITLE: StringType(nullable=True),
         ChunkMetadata.HEADING: JsonType(nullable=True),
@@ -167,14 +142,14 @@ class DocumentSplitter(ComponentIterator):
         limit: int | None = None,
         overlap: int | None = None,
         metadata: str = '',
-        html_skip_tags: list[str] | None = None,
+        skip_tags: list[str] | None = None,
         tiktoken_encoding: str | None = 'cl100k_base',
         tiktoken_target_model: str | None = None,
         image_dpi: int = 300,
         image_format: str = 'png',
     ):
-        if html_skip_tags is None:
-            html_skip_tags = ['nav']
+        if skip_tags is None:
+            skip_tags = ['nav']
         self._doc_handle = get_document_handle(document)
         self._elements = _parse_elements(elements.copy()) if elements is not None else [Element.TEXT]
         assert self._doc_handle is not None
@@ -189,7 +164,7 @@ class DocumentSplitter(ComponentIterator):
         else:
             self._doc_title = ''
         self._limit = 0 if limit is None else limit
-        self._skip_tags = html_skip_tags
+        self._skip_tags = skip_tags
         self._overlap = 0 if overlap is None else overlap
         self._tiktoken_encoding = tiktoken_encoding
         self._tiktoken_target_model = tiktoken_target_model
@@ -202,13 +177,20 @@ class DocumentSplitter(ComponentIterator):
             self._sections = self._html_sections()
         elif self._doc_handle.format == DocumentType.DocumentFormat.MD:
             assert self._doc_handle.md_ast is not None
-            self._sections = self._markdown_sections()
+            self._sections = self._markdown_sections(self._doc_handle.md_ast)
         elif self._doc_handle.format == DocumentType.DocumentFormat.PDF:
             assert self._doc_handle.pdf_doc is not None
             self._sections = self._pdf_sections()
         elif self._doc_handle.format == DocumentType.DocumentFormat.TXT:
             assert self._doc_handle.txt_doc is not None
             self._sections = self._txt_sections()
+        elif self._doc_handle.format in (
+            DocumentType.DocumentFormat.PPTX,
+            DocumentType.DocumentFormat.DOCX,
+            DocumentType.DocumentFormat.XLSX,
+        ):
+            assert self._doc_handle.md_ast is not None
+            self._sections = self._markdown_sections(self._doc_handle.md_ast)
         else:
             raise AssertionError(f'Unsupported document format: {self._doc_handle.format}')
 
@@ -365,9 +347,8 @@ class DocumentSplitter(ComponentIterator):
         yield from process_element(self._doc_handle.bs_doc)
         yield from emit()
 
-    def _markdown_sections(self) -> Iterator[DocumentSection]:
-        """Create DocumentSections reflecting the html-specific separators"""
-        assert self._doc_handle.md_ast is not None
+    def _markdown_sections(self, md_ast: list[dict]) -> Iterator[DocumentSection]:
+        """Create DocumentSections from a markdown AST."""
         emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
         emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
         # current state
@@ -419,17 +400,21 @@ class DocumentSplitter(ComponentIterator):
             for child in el['children']:
                 yield from process_element(child)
 
-        for el in self._doc_handle.md_ast:
+        for el in md_ast:
             yield from process_element(el)
         yield from emit()
 
     def _pdf_sections(self) -> Iterator[DocumentSection]:
-        doc: fitz.Document = self._doc_handle.pdf_doc
-        assert doc is not None
+        if Separator.PARAGRAPH in self._separators:
+            raise Error(
+                'Paragraph splitting is not currently supported for PDF documents. Please contact'
+                ' us at https://github.com/pixeltable/pixeltable/issues if you need this feature.'
+            )
 
-        emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
-        emit_on_page = Separator.PAGE in self._separators or emit_on_paragraph
+        doc: PdfDocument = self._doc_handle.pdf_doc
+        assert isinstance(doc, PdfDocument)
 
+        emit_on_page = Separator.PAGE in self._separators
         accumulated_text: list[str] = []
 
         def _add_cleaned(raw: str) -> None:
@@ -442,21 +427,11 @@ class DocumentSplitter(ComponentIterator):
             accumulated_text.clear()
             return txt
 
-        for page_idx, page in enumerate(doc.pages()):
-            img: PIL.Image.Image | None = None
-            if Element.IMAGE in self._elements:
-                pix = page.get_pixmap(dpi=self._image_dpi)
-                img = PIL.Image.open(io.BytesIO(pix.tobytes(self._image_format)))
-
-            for block in page.get_text('blocks'):
-                x1, y1, x2, y2, text, *_ = block
-                _add_cleaned(text)
-                if accumulated_text and emit_on_paragraph:
-                    bbox = {'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2}
-                    md = DocumentSectionMetadata(page=page_idx, bounding_box=bbox)
-                    yield DocumentSection(text=_emit_text(), metadata=md)
-
-            if accumulated_text and emit_on_page and not emit_on_paragraph:
+        for page_idx, page in enumerate(doc):
+            img = page.render().to_pil() if Element.IMAGE in self._elements else None
+            text = page.get_textpage().get_text_bounded()
+            _add_cleaned(text)
+            if accumulated_text and emit_on_page:
                 md = DocumentSectionMetadata(page=page_idx)
                 yield DocumentSection(text=_emit_text(), image=img, metadata=md)
 
@@ -507,8 +482,14 @@ class DocumentSplitter(ComponentIterator):
                         # we split the token array at a point where the utf8 encoding is broken
                         end_idx -= 1
 
+                # If we couldn't find a valid decode point, force progress by moving forward
+                if end_idx <= start_idx:
+                    # Try to decode with replacement errors to make progress
+                    end_idx = min(start_idx + self._limit, len(tokens))
+                    text = encoding.decode(tokens[start_idx:end_idx], errors='replace')
+
                 assert end_idx > start_idx
-                assert text
+                assert text is not None
                 yield DocumentSection(text=text, metadata=section.metadata)
                 start_idx = max(start_idx + 1, end_idx - self._overlap)  # ensure we make progress
 
@@ -526,5 +507,9 @@ class DocumentSplitter(ComponentIterator):
     def close(self) -> None:
         pass
 
-    def set_pos(self, pos: int) -> None:
-        pass
+    @classmethod
+    @deprecated(
+        'create() is deprecated; use `pixeltable.functions.document.document_splitter` instead', version='0.5.6'
+    )
+    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+        return super()._create(**kwargs)

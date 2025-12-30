@@ -329,12 +329,11 @@ class Query:
         plan = self._create_query_plan()
 
         def exec_plan() -> Iterator[exprs.DataRow]:
-            plan.open()
-            try:
+            with plan:
                 for row_batch in plan:
+                    # stop progress output before we display anything, otherwise it'll mess up the output
+                    Env.get().stop_progress()
                     yield from row_batch
-            finally:
-                plan.close()
 
         yield from exec_plan()
 
@@ -343,13 +342,10 @@ class Query:
         This function must not modify the state of the Query, otherwise it breaks dataset caching.
         """
         plan = self._create_query_plan()
-        plan.open()
-        try:
+        with plan:
             async for row_batch in plan:
                 for row in row_batch:
                     yield row
-        finally:
-            plan.close()
 
     def _create_query_plan(self) -> exec.ExecNode:
         # construct a group-by clause if we're grouping by a table
@@ -366,7 +362,7 @@ class Query:
         for item in self._select_list_exprs:
             item.bind_rel_paths()
 
-        return plan.Planner.create_query_plan(
+        return Planner.create_query_plan(
             self._from_clause,
             self._select_list_exprs,
             where_clause=self.where_clause,
@@ -559,14 +555,9 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        if self.group_by_clause is not None:
-            raise excs.Error('count() cannot be used with group_by()')
-
-        from pixeltable.plan import Planner
-
         with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
-            stmt = Planner.create_count_stmt(self._first_tbl, self.where_clause)
-            result: int = conn.execute(stmt).scalar_one()
+            count_stmt = Planner.create_count_stmt(self)
+            result: int = conn.execute(count_stmt).scalar_one()
             assert isinstance(result, int)
             return result
 

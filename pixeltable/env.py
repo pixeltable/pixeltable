@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
+import contextlib
 import datetime
 import glob
 import http.server
 import importlib
 import importlib.util
 import inspect
+import io
 import logging
 import math
 import os
@@ -30,9 +33,9 @@ import pixeltable_pgserver
 import sqlalchemy as sql
 import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from rich.progress import Progress
 from sqlalchemy import orm
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
-from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
@@ -40,6 +43,7 @@ from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter,
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
 from pixeltable.utils.object_stores import ObjectPath
+from pixeltable.utils.sql import add_option_to_db_url
 
 if TYPE_CHECKING:
     import spacy
@@ -94,6 +98,7 @@ class Env:
     _stdout_handler: logging.StreamHandler
     _default_video_encoder: str | None
     _initialized: bool
+    _progress: Progress | None
 
     _resource_pool_info: dict[str, Any]
     _current_conn: sql.Connection | None
@@ -159,6 +164,7 @@ class Env:
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
         self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
         self._initialized = False
+        self._progress = None
 
         self._resource_pool_info = {}
         self._current_conn = None
@@ -263,6 +269,55 @@ class Env:
     def is_local(self) -> bool:
         assert self._db_url is not None  # is_local should be called only after db initialization
         return self._db_server is not None
+
+    def is_interactive(self) -> bool:
+        """Return True if running in an interactive environment."""
+        if getattr(builtins, '__IPYTHON__', False):
+            return True
+        # Python interactive shell
+        if hasattr(sys, 'ps1'):
+            return True
+        # for script execution, __main__ has __file__
+        import __main__
+
+        return not hasattr(__main__, '__file__')
+
+    def is_notebook(self) -> bool:
+        """Return True if running in a Jupyter notebook."""
+        try:
+            shell = get_ipython()  # type: ignore[name-defined]
+            return 'ZMQInteractiveShell' in str(shell)
+        except NameError:
+            return False
+
+    def start_progress(self, create_fn: Callable[[], Progress]) -> Progress:
+        if self._progress is None:
+            self._progress = create_fn()
+            self._progress.start()
+        return self._progress
+
+    def stop_progress(self) -> None:
+        if self._progress is None:
+            return
+        self._progress.stop()
+        self._progress = None
+
+        # if we're running in a notebook, we need to clear the Progress output manually
+        if self.is_notebook():
+            try:
+                from IPython.display import clear_output
+
+                clear_output(wait=False)
+            except ImportError:
+                pass
+
+    @contextmanager
+    def report_progress(self) -> Iterator[None]:
+        """Context manager for the Progress instance."""
+        try:
+            yield
+        finally:
+            self.stop_progress()
 
     @contextmanager
     def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
@@ -431,12 +486,23 @@ class Env:
 
         self._pxt_api_key = config.get_string_value('api_key')
 
-        # Disable spurious warnings
-        warnings.simplefilter('ignore', category=TqdmWarning)
+        # Disable spurious warnings:
+        # Suppress tqdm's ipywidgets warning in Jupyter environments
+        warnings.filterwarnings('ignore', message='IProgress not found')
+        # suppress Rich's ipywidgets warning in Jupyter environments
+        warnings.filterwarnings('ignore', message='install "ipywidgets" for Jupyter support')
         if config.get_bool_value('hide_warnings'):
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
+
+        # if we're running in a Jupyter notebook, warn about missing ipywidgets
+        if self.is_notebook() and importlib.util.find_spec('ipywidgets') is None:
+            warnings.warn(
+                'Progress reporting is disabled because ipywidgets is not installed. '
+                'To fix this, run: `pip install ipywidgets`',
+                stacklevel=1,
+            )
 
         # Set verbosity level for user visible console messages
         self._verbosity = config.get_int_value('verbosity')
@@ -571,10 +637,11 @@ class Env:
         metadata.create_system_info(self._sa_engine)
 
     def _create_engine(self, time_zone_name: str, echo: bool = False) -> None:
-        connect_args = {'options': f'-c timezone={time_zone_name}'}
-        self._logger.info(f'Creating SQLAlchemy engine with connection arguments: {connect_args}')
+        # Add timezone option to connection string
+        updated_url = add_option_to_db_url(self.db_url, f'-c timezone={time_zone_name}')
+
         self._sa_engine = sql.create_engine(
-            self.db_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level, connect_args=connect_args
+            updated_url, echo=echo, isolation_level=self._dbms.transaction_isolation_level
         )
 
         self._logger.info(f'Created SQLAlchemy engine at: {self.db_url}')
@@ -776,6 +843,7 @@ class Env:
         self.__register_package('diffusers')
         self.__register_package('fiftyone')
         self.__register_package('twelvelabs')
+        self.__register_package('fal_client', library_name='fal-client')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
         self.__register_package('google.genai', library_name='google-genai')
@@ -784,6 +852,7 @@ class Env:
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
         self.__register_package('librosa')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
+        self.__register_package('markitdown')
         self.__register_package('mcp')
         self.__register_package('mistralai')
         self.__register_package('mistune')
@@ -804,6 +873,7 @@ class Env:
         self.__register_package('torchaudio')
         self.__register_package('torchvision')
         self.__register_package('transformers')
+        self.__register_package('voyageai')
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='pixeltable-yolox')
@@ -926,12 +996,18 @@ class Env:
         dependency, we install it programmatically here. This should cause no problems, since the model packages
         have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
         """
+
         import spacy
         from spacy.cli.download import download
 
         spacy_model = 'en_core_web_sm'
         self._logger.info(f'Ensuring spaCy model is installed: {spacy_model}')
-        download(spacy_model)
+
+        # prevent download() from hanging due to its progress bar, which conflicts with our use of Rich Progress
+        # TODO: get rid of spacy auto-download
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            download(spacy_model)
+
         self._logger.info(f'Loading spaCy model: {spacy_model}')
         try:
             self._spacy_nlp = spacy.load(spacy_model)

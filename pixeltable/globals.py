@@ -142,6 +142,14 @@ def create_table(
         Create a table from a CSV file:
 
         >>> tbl = pxt.create_table('my_table', source='data.csv')
+
+        Create a table with an auto-generated UUID primary key:
+
+        >>> tbl = pxt.create_table(
+        ...     'my_table',
+        ...     schema={'id': pxt.functions.uuid.uuid4(), 'data': pxt.String},
+        ...     primary_key=['id']
+        ... )
     """
     from pixeltable.io.table_data_conduit import UnkTableDataConduit
     from pixeltable.io.utils import normalize_primary_key_parameter

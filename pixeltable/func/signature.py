@@ -177,7 +177,7 @@ class Signature:
             context = f' ({context})'
 
         for param_name, arg in bound_args.items():
-            assert param_name in self.parameters
+            assert param_name in self.parameters, f'{param_name!r} not in {list(self.parameters.keys())}'
             param = self.parameters[param_name]
             is_var_param = param.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}
             if is_var_param:
@@ -227,8 +227,8 @@ class Signature:
             elif p.kind == inspect.Parameter.VAR_KEYWORD:
                 param_strs.append(f'**{p.name}')
             else:
-                param_strs.append(f'{p.name}: {p.col_type}')
-        return f'({", ".join(param_strs)}) -> {self.get_return_type()}'
+                param_strs.append(f'{p.name}: pxt.{p.col_type}')
+        return f'({", ".join(param_strs)}) -> pxt.{self.get_return_type()}'
 
     @classmethod
     def _infer_type(cls, annotation: type | None) -> tuple[ts.ColumnType | None, bool | None]:

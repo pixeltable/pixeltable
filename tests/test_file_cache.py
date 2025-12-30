@@ -26,7 +26,7 @@ class TestFileCache:
 
         # Construct image URLs
         image_files = get_image_files()[:50]
-        base_url = 'https://github.com/pixeltable/pixeltable/raw/main/tests/data/imagenette2-160/'
+        base_url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/imagenette2-160/'
         image_urls = [base_url + Path(file).name for file in image_files]
 
         # Initialize a table and a dict to separately track the LRU order

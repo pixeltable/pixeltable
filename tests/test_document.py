@@ -10,20 +10,23 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.iterators.document import DocumentSplitter
+from pixeltable.functions.document import document_splitter
 from pixeltable.utils.documents import get_document_handle
 
-from .utils import get_audio_files, get_documents, get_image_files, get_video_files, skip_test_if_not_installed
+from .utils import (
+    get_audio_files,
+    get_documents,
+    get_image_files,
+    get_video_files,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 def _check_pdf_metadata(rec: dict, sep1: str, metadata: list[str]) -> None:
-    if 'page' in metadata and sep1 in ['page', 'paragraph', 'sentence']:
+    assert sep1 != 'paragraph'  # not currently supported for PDF
+    if 'page' in metadata and sep1 in ['page']:
         assert rec.get('page') is not None
-    if 'bounding_box' in metadata and sep1 in ['paragraph', 'sentence']:
-        box = rec.get('bounding_box')
-        assert box is not None
-        assert box.get('x1') is not None
-        assert box.get('y1') is not None
 
 
 def normalize(text: str) -> str:
@@ -86,6 +89,8 @@ class TestDocument:
             elif extension == '.txt':
                 assert handle.format == ts.DocumentType.DocumentFormat.TXT, path
                 assert handle.txt_doc is not None, path
+            elif extension in ('.pptx', '.docx', '.xlsx'):
+                assert handle.md_ast is not None, path
             else:
                 raise AssertionError(f'Unexpected extension {extension}, add corresponding check')
 
@@ -100,21 +105,19 @@ class TestDocument:
         ]
         for sep in invalid_separators:
             with pytest.raises(pxt.Error, match='Invalid separator'):
-                _ = pxt.create_view('chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators=sep))
+                _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators=sep))
 
         with pytest.raises(pxt.Error, match='both'):
             _ = pxt.create_view(
-                'chunks',
-                t,
-                iterator=DocumentSplitter.create(document=t.doc, separators='char_limit, token_limit', limit=10),
+                'chunks', t, iterator=document_splitter(document=t.doc, separators='char_limit, token_limit', limit=10)
             )
 
         # test that limit is required for char_limit and token_limit
         with pytest.raises(pxt.Error, match='limit'):
-            _ = pxt.create_view('chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators='char_limit'))
+            _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='char_limit'))
 
         with pytest.raises(pxt.Error, match='limit'):
-            _ = pxt.create_view('chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators='token_limit'))
+            _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='token_limit'))
 
         # test invalid metadata
         invalid_metadata = [
@@ -124,26 +127,39 @@ class TestDocument:
         ]
         for md in invalid_metadata:
             with pytest.raises(pxt.Error, match='Invalid metadata'):
-                _ = pxt.create_view(
-                    'chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators='', metadata=md)
-                )
+                _ = pxt.create_view('chunks', t, iterator=document_splitter(document=t.doc, separators='', metadata=md))
 
         invalid_separators = ['page, sentence', 'paragraph, sentence', 'char_limit, sentence', 'token_limit, sentence']
         for sep in invalid_separators:
             with pytest.raises(pxt.Error, match='Image elements are only supported for the "page" separator'):
                 _ = pxt.create_view(
-                    'chunks', t, iterator=DocumentSplitter.create(document=t.doc, separators=sep, elements=['image'])
+                    'chunks', t, iterator=document_splitter(document=t.doc, separators=sep, elements=['image'])
                 )
 
-    def test_doc_splitter(self, reset_db: None) -> None:
+        pdf_file = next(f for f in self.valid_doc_paths() if f.endswith('.pdf'))
+        t = pxt.create_table('docs', {'doc': pxt.Document}, if_exists='replace')
+        _ = pxt.create_view('paragraphs', t, iterator=document_splitter(t.doc, separators='paragraph'))
+        with pytest.raises(pxt.Error, match=r'not currently supported.+contact us'):
+            t.insert(doc=pdf_file)
+
+    @pytest.mark.parametrize('pdf', [True, False], ids=['pdf_docs', 'non_pdf_docs'])
+    def test_doc_splitter(self, pdf: bool, reset_db: None) -> None:
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('spacy')
+        skip_test_if_not_installed('markitdown')
 
         # DocumentSplitter does not support XML
         file_paths = [path for path in self.valid_doc_paths() if not path.endswith('.xml')]
+        file_paths = [p for p in file_paths if pdf == p.endswith('.pdf')]
+        extensions = {os.path.splitext(p)[1] for p in file_paths}
+        if pdf:
+            assert extensions == {'.pdf'}
+        else:
+            assert extensions == {'.md', '.html', '.txt', '.pptx', '.docx', '.xlsx'}
+
         doc_t = pxt.create_table('docs', {'doc': pxt.Document})
-        status = doc_t.insert({'doc': p} for p in file_paths)
-        assert status.num_excs == 0
+        validate_update_status(doc_t.insert({'doc': p} for p in file_paths), expected_rows=len(file_paths))
+
         import tiktoken
 
         encoding = tiktoken.get_encoding('cl100k_base')
@@ -152,17 +168,15 @@ class TestDocument:
         # and make sure they extract the same text in aggregate
         all_metadata = ['title', 'heading', 'sourceline', 'page', 'bounding_box']
         # combinations are given as (sep1, sep2, limit, metadata)
+        sep1_values = ['', 'heading', 'page', 'sentence']
+        if not pdf:
+            sep1_values += ['paragraph']
         combinations: list[tuple[str, str, int, list[str]]] = [
-            (sep1, None, None, metadata)
-            for sep1, metadata in itertools.product(
-                ['', 'heading', 'page', 'paragraph', 'sentence'], [[], all_metadata]
-            )
+            (sep1, None, None, metadata) for sep1, metadata in itertools.product(sep1_values, [[], all_metadata])
         ]
         combinations += [
             (sep1, sep2, limit, all_metadata)
-            for sep1, sep2, limit in itertools.product(
-                ['', 'heading', 'page', 'paragraph', 'sentence'], ['token_limit', 'char_limit'], [10, 20, 100]
-            )
+            for sep1, sep2, limit in itertools.product(sep1_values, ['token_limit', 'char_limit'], [10, 20, 100])
         ]
 
         all_text_reference: str | None = None  # all text as a single string; normalized
@@ -181,7 +195,7 @@ class TestDocument:
                 args['overlap'] = 0
             print(f'Testing with args: {args}')
 
-            chunks_t = pxt.create_view('chunks', doc_t, iterator=DocumentSplitter.create(**args))
+            chunks_t = pxt.create_view('chunks', doc_t, iterator=document_splitter(**args))
             res: list[dict] = list(chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect())
 
             if all_text_reference is None:
@@ -250,9 +264,7 @@ class TestDocument:
         for md_str in [','.join(t) for t in md_tuples]:
             print(f'{md_str=}')
             chunks_t = pxt.create_view(
-                'chunks',
-                doc_t,
-                iterator=DocumentSplitter.create(document=doc_t.doc, separators='sentence', metadata=md_str),
+                'chunks', doc_t, iterator=document_splitter(document=doc_t.doc, separators='sentence', metadata=md_str)
             )
             res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
             requested_md_elements = set(md_str.split(','))
@@ -265,7 +277,7 @@ class TestDocument:
             pxt.drop_table('chunks')
 
     def test_doc_splitter_txt(self, reset_db: None) -> None:
-        """Test the DocumentSplitter with a .txt file
+        """Test the document_splitter with a .txt file
 
         test_doc_splitter above already tests the behaviour
         common for all document types. This test adds specific
@@ -280,7 +292,7 @@ class TestDocument:
         assert status.num_excs == 0
 
         chunks_t = pxt.create_view(
-            'chunks', doc_t, iterator=DocumentSplitter.create(document=doc_t.doc, separators='', metadata='page')
+            'chunks', doc_t, iterator=document_splitter(document=doc_t.doc, separators='', metadata='page')
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 1
@@ -295,9 +307,7 @@ class TestDocument:
         # the 'paragraph' separator is ignored and has no effect.
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
-            'chunks',
-            doc_t,
-            iterator=DocumentSplitter.create(document=doc_t.doc, separators='paragraph', metadata='page'),
+            'chunks', doc_t, iterator=document_splitter(document=doc_t.doc, separators='paragraph', metadata='page')
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 1
@@ -310,9 +320,7 @@ class TestDocument:
         # The text is split into 22 sentences.
         pxt.drop_table('chunks')
         chunks_t = pxt.create_view(
-            'chunks',
-            doc_t,
-            iterator=DocumentSplitter.create(document=doc_t.doc, separators='sentence', metadata='page'),
+            'chunks', doc_t, iterator=document_splitter(document=doc_t.doc, separators='sentence', metadata='page')
         )
         res = chunks_t.order_by(chunks_t.doc, chunks_t.pos).collect()
         assert len(res) == 22
@@ -334,7 +342,7 @@ class TestDocument:
         chunks_t = pxt.create_view(
             'chunks',
             doc_t,
-            iterator=DocumentSplitter.create(
+            iterator=document_splitter(
                 document=doc_t.doc,
                 separators='sentence, char_limit',
                 limit=50,
@@ -363,9 +371,7 @@ class TestDocument:
         chunks = pxt.create_view(
             'chunks',
             t,
-            iterator=DocumentSplitter.create(
-                document=t.doc, separators='page', elements=['image'], metadata='title,page'
-            ),
+            iterator=document_splitter(document=t.doc, separators='page', elements=['image'], metadata='title,page'),
         )
         status = t.insert({'doc': p} for p in file_paths)
         assert status.num_excs == 0

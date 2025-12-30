@@ -1,9 +1,10 @@
+import numpy as np
 import pytest
 
 import pixeltable as pxt
-from pixeltable.iterators import FrameIterator
+from pixeltable.functions.video import frame_iterator
 
-from ..utils import get_video_files, skip_test_if_not_installed
+from ..utils import get_image_files, get_video_files, skip_test_if_not_installed
 
 
 class TestVision:
@@ -13,7 +14,7 @@ class TestVision:
 
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view
-        v = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
+        v = pxt.create_view('test_view', video_t, iterator=frame_iterator(video_t.video, fps=1))
 
         files = get_video_files()
         video_t.insert(video=files[-1])
@@ -56,7 +57,7 @@ class TestVision:
 
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view
-        v = pxt.create_view('test_view', video_t, iterator=FrameIterator.create(video=video_t.video, fps=1))
+        v = pxt.create_view('test_view', video_t, iterator=frame_iterator(video_t.video, fps=1))
 
         files = get_video_files()
         video_t.insert(video=files[-1])
@@ -115,3 +116,28 @@ class TestVision:
         assert 'number of boxes and box colors must match' in str(exc_info.value).lower()
 
         # TODO: test font and font_size parameters in a system-independent way
+
+    def test_overlay_segmentation(self, reset_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+
+        from pixeltable.functions.huggingface import detr_for_segmentation
+        from pixeltable.functions.vision import overlay_segmentation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(
+            segmentation=detr_for_segmentation(t.img, model_id='facebook/detr-resnet-50-panoptic', threshold=0.5)
+        )
+        image_files = get_image_files()[:3]
+        t.insert({'img': f} for f in image_files)
+
+        segmentation_map = t.segmentation.segmentation.astype(pxt.Array[(None, None), np.int32])  # type: ignore[misc]
+        _ = t.select(overlay_segmentation(t.img, segmentation_map)).collect()
+
+        # test non-defaults
+        label_colors = ['red', '#00FF00']
+        _ = t.select(
+            overlay_segmentation(t.img, segmentation_map, alpha=0.3, background=1, segment_colors=label_colors)
+        ).collect()
+
+        # test draw_contours
+        _ = t.select(overlay_segmentation(t.img, segmentation_map, draw_contours=True, contour_thickness=2)).collect()
