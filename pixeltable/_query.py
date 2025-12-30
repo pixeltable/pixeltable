@@ -870,7 +870,9 @@ class Query:
 
             >>> query = t.join(d, on=(t.d1 == d.pk1) & (t.d2 == d.pk2), how='left')
         """
-        assert isinstance(other, catalog.table.LocalTable)  # TODO Print a real error message when we have RemoteTables
+        # TODO: we shouldn't be requiring a LocalTable here; we need to refactor the join() implementation to support
+        #     remote tables (abstract Table objects without a TableVersionPath)
+        assert isinstance(other, catalog.table.LocalTable)
 
         if self.sample_clause is not None:
             raise excs.Error('join() cannot be used with sample()')
@@ -902,6 +904,7 @@ class Query:
         """Add a group-by clause to this Query.
 
         Variants:
+
         - group_by(base_tbl): group a component view by their respective base table rows
         - group_by(expr1, expr2, expr3): group by the given expressions
 
