@@ -122,6 +122,7 @@
                     "group": "Images",
                     "pages": [
                       "howto/cookbooks/images/img-detect-objects",
+                      "howto/cookbooks/images/img-detection-vs-segmentation",
                       "howto/cookbooks/images/img-visualize-detections",
                       "howto/cookbooks/images/img-generate-captions",
                       "howto/cookbooks/images/img-image-to-image",
