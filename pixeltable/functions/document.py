@@ -73,6 +73,8 @@ def document_splitter(
         kwargs['metadata'] = metadata
     if skip_tags is not None:
         kwargs['skip_tags'] = skip_tags
+    if spacy_model != 'en_core_web_sm':
+        kwargs['spacy_model'] = spacy_model
     if tiktoken_encoding != 'cl100k_base':
         kwargs['tiktoken_encoding'] = tiktoken_encoding
     if tiktoken_target_model is not None:
