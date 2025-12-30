@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 import pixeltable as pxt
@@ -5,8 +7,8 @@ import pixeltable as pxt
 from ..utils import skip_test_if_no_client, validate_update_status
 
 
+@pytest.mark.remote_api
 class TestBfl:
-    @pytest.mark.remote_api
     def test_generate(self, reset_db: None) -> None:
         skip_test_if_no_client('bfl')
         from pixeltable.functions.bfl import generate
@@ -23,7 +25,6 @@ class TestBfl:
         assert img.width == 512
         assert img.height == 512
 
-    @pytest.mark.remote_api
     def test_generate_flux2(self, reset_db: None) -> None:
         skip_test_if_no_client('bfl')
         from pixeltable.functions.bfl import generate
@@ -39,11 +40,8 @@ class TestBfl:
         assert img.width == 1024
         assert img.height == 1024
 
-    @pytest.mark.remote_api
     def test_edit(self, reset_db: None) -> None:
         skip_test_if_no_client('bfl')
-        from pathlib import Path
-
         from pixeltable.functions.bfl import edit
 
         # Use a test image
@@ -64,7 +62,6 @@ class TestBfl:
         result = t.select(t.edited).collect()
         assert result['edited'][0] is not None
 
-    @pytest.mark.remote_api
     def test_generate_with_seed_reproducibility(self, reset_db: None) -> None:
         """Test that using the same seed produces consistent results."""
         skip_test_if_no_client('bfl')
