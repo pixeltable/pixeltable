@@ -122,13 +122,8 @@ async def embeddings(
 
     Args:
         input: The text to embed.
-        model: The model to use for embedding. Options include:
-            - `jina-embeddings-v3`: Frontier multilingual (default)
-            - `jina-embeddings-v4`: Universal multimodal multilingual
-            - `jina-clip-v2`: Multilingual multimodal for texts and images
-            - `jina-embeddings-v2-base-en`: English embeddings
-            - `jina-embeddings-v2-base-code`: Code and docstring search
-            - `jina-code-embeddings-1.5b`: Efficient code embeddings
+        model: The Jina embedding model to use. See available models at
+            <https://jina.ai/embeddings/>.
         task: Task-specific embedding optimization. Options:
             - `retrieval.query`: For search queries
             - `retrieval.passage`: For documents/passages to be searched
@@ -217,12 +212,8 @@ async def rerank(
     Args:
         query: The query string to rank documents against.
         documents: The list of documents to rerank.
-        model: The reranker model to use. Options include:
-            - `jina-reranker-v2-base-multilingual`: Cross-encoder with multilingual support (default)
-            - `jina-reranker-v1-base-en`: English reranker
-            - `jina-reranker-v1-tiny-en`: Fast English reranker
-            - `jina-reranker-v1-turbo-en`: Fast and accurate English reranker
-            - `jina-colbert-v2`: ColBERT-based reranker
+        model: The Jina reranker model to use. See available models at
+            <https://jina.ai/reranker/>.
         top_n: Number of top results to return. If not specified, returns all documents.
         return_documents: Whether to include the original document text in results.
 
