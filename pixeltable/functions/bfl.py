@@ -172,30 +172,11 @@ def _client() -> _BflClient:
     return Env.get().get_client('bfl')
 
 
-# Model endpoint mapping
-_MODEL_ENDPOINTS = {
-    # FLUX.2 models
-    'flux-2-pro': '/v1/flux-2-pro',
-    'flux-2-flex': '/v1/flux-2-flex',
-    'flux-2-max': '/v1/flux-2-max',
-    # FLUX 1.1 models
-    'flux-pro-1.1': '/v1/flux-pro-1.1',
-    'flux-pro-1.1-ultra': '/v1/flux-pro-1.1-ultra',
-    # FLUX.1 dev
-    'flux-dev': '/v1/flux-dev',
-    # Kontext models (for editing)
-    'flux-kontext-pro': '/v1/flux-kontext-pro',
-    'flux-kontext-max': '/v1/flux-kontext-max',
-}
-
-
 @pxt.udf(resource_pool='request-rate:bfl')
 async def generate(
     prompt: str,
     *,
-    model: Literal[
-        'flux-2-pro', 'flux-2-flex', 'flux-2-max', 'flux-pro-1.1', 'flux-pro-1.1-ultra', 'flux-dev'
-    ] = 'flux-2-pro',
+    model: str,
     width: int | None = None,
     height: int | None = None,
     seed: int | None = None,
@@ -212,13 +193,8 @@ async def generate(
 
     Args:
         prompt: Text description of the image to generate.
-        model: FLUX model to use. Options:
-            - 'flux-2-pro': Best balance of speed and quality (default)
-            - 'flux-2-flex': Adjustable steps and guidance for fine control
-            - 'flux-2-max': Highest quality with grounding search
-            - 'flux-pro-1.1': Fast and reliable baseline
-            - 'flux-pro-1.1-ultra': High resolution variant
-            - 'flux-dev': Free development model (non-commercial)
+        model: The FLUX model to use. See available models at
+            <https://docs.bfl.ai/>.
         width: Output width in pixels (multiple of 16). Default 1024.
         height: Output height in pixels (multiple of 16). Default 1024.
         seed: Random seed for reproducible results.
@@ -240,17 +216,10 @@ async def generate(
         Generate a square image with specific seed for reproducibility:
 
         >>> t.add_computed_column(
-        ...     image=bfl.generate(t.prompt, seed=42, width=1024, height=1024)
+        ...     image=bfl.generate(t.prompt, model='flux-2-pro', seed=42, width=1024, height=1024)
         ... )
     """
-    if model not in _MODEL_ENDPOINTS:
-        raise pxt.Error(f'Unknown model: {model}. Available: {list(_MODEL_ENDPOINTS.keys())}')
-
-    # Only text-to-image models
-    if model in ('flux-kontext-pro', 'flux-kontext-max'):
-        raise pxt.Error(f'Model {model} is for image editing. Use bfl.edit() instead.')
-
-    endpoint = _MODEL_ENDPOINTS[model]
+    endpoint = f'/v1/{model}'
     payload: dict = {'prompt': prompt}
 
     if width is not None:
@@ -281,7 +250,7 @@ async def edit(
     prompt: str,
     image: PIL.Image.Image,
     *,
-    model: Literal['flux-2-pro', 'flux-2-flex', 'flux-kontext-pro', 'flux-kontext-max'] = 'flux-2-pro',
+    model: str,
     reference_images: list[PIL.Image.Image] | None = None,
     width: int | None = None,
     height: int | None = None,
@@ -300,11 +269,8 @@ async def edit(
     Args:
         prompt: Text description of the edit to apply.
         image: The base image to edit.
-        model: FLUX model to use for editing. Options:
-            - 'flux-2-pro': Best balance of speed and quality (default)
-            - 'flux-2-flex': Adjustable steps and guidance
-            - 'flux-kontext-pro': Specialized for context-aware editing
-            - 'flux-kontext-max': Highest quality context-aware editing
+        model: The FLUX model to use for editing. See available models at
+            <https://docs.bfl.ai/>.
         reference_images: Additional reference images (up to 7) for multi-reference editing.
         width: Output width in pixels (multiple of 16). Matches input if not specified.
         height: Output height in pixels (multiple of 16). Matches input if not specified.
@@ -323,7 +289,8 @@ async def edit(
         >>> t.add_computed_column(
         ...     edited=bfl.edit(
         ...         'Change the background to a sunset beach',
-        ...         t.original_image
+        ...         t.original_image,
+        ...         model='flux-2-pro'
         ...     )
         ... )
 
@@ -333,15 +300,12 @@ async def edit(
         ...     edited=bfl.edit(
         ...         'Combine the person from the first image with the background from the second',
         ...         t.person_image,
+        ...         model='flux-kontext-pro',
         ...         reference_images=[t.background_image]
         ...     )
         ... )
     """
-    valid_edit_models = ('flux-2-pro', 'flux-2-flex', 'flux-kontext-pro', 'flux-kontext-max')
-    if model not in valid_edit_models:
-        raise pxt.Error(f'Model {model} not supported for editing. Use one of: {valid_edit_models}')
-
-    endpoint = _MODEL_ENDPOINTS[model]
+    endpoint = f'/v1/{model}'
     payload: dict = {'prompt': prompt, 'input_image': to_base64(image)}
 
     # Add reference images if provided
@@ -380,6 +344,7 @@ async def fill(
     image: PIL.Image.Image,
     mask: PIL.Image.Image,
     *,
+    model: str,
     steps: int | None = None,
     guidance: float | None = None,
     seed: int | None = None,
@@ -387,7 +352,7 @@ async def fill(
     output_format: Literal['jpeg', 'png'] | None = None,
 ) -> PIL.Image.Image:
     """
-    Inpaint an image using FLUX.1 Fill [pro].
+    Inpaint an image using FLUX Fill models.
 
     Fill specified areas of an image based on a mask and text prompt. The mask can be
     a separate image or applied to the alpha channel of the input image.
@@ -399,6 +364,8 @@ async def fill(
         prompt: Text description of what to fill in the masked area.
         image: The base image to inpaint.
         mask: Mask image where white areas indicate regions to fill (black areas preserved).
+        model: The FLUX Fill model to use. See available models at
+            <https://docs.bfl.ai/>.
         steps: Number of inference steps (max 50). Default 50.
         guidance: Guidance scale for generation. Default 30.
         seed: Random seed for reproducible results.
@@ -415,10 +382,12 @@ async def fill(
         ...     filled=bfl.fill(
         ...         'A beautiful garden with flowers',
         ...         t.original_image,
-        ...         t.mask_image
+        ...         t.mask_image,
+        ...         model='flux-pro-1.0-fill'
         ...     )
         ... )
     """
+    endpoint = f'/v1/{model}'
     payload: dict = {'prompt': prompt, 'image': to_base64(image), 'mask': to_base64(mask)}
 
     if steps is not None:
@@ -432,7 +401,7 @@ async def fill(
     if output_format is not None:
         payload['output_format'] = output_format
 
-    return await _client().generate('/v1/flux-pro-1.0-fill', payload)
+    return await _client().generate(endpoint, payload)
 
 
 @pxt.udf(resource_pool='request-rate:bfl')
@@ -440,6 +409,7 @@ async def expand(
     prompt: str,
     image: PIL.Image.Image,
     *,
+    model: str,
     top: int = 0,
     bottom: int = 0,
     left: int = 0,
@@ -449,7 +419,7 @@ async def expand(
     output_format: Literal['jpeg', 'png'] | None = None,
 ) -> PIL.Image.Image:
     """
-    Expand an image by adding pixels on any side using FLUX.1 Expand [pro].
+    Expand an image by adding pixels on any side using FLUX Expand models.
 
     Outpaint an image by specifying how many pixels to add to each edge.
     The expansion maintains context from the original image.
@@ -460,6 +430,8 @@ async def expand(
     Args:
         prompt: Text description to guide the expansion.
         image: The base image to expand.
+        model: The FLUX Expand model to use. See available models at
+            <https://docs.bfl.ai/>.
         top: Pixels to add to the top edge.
         bottom: Pixels to add to the bottom edge.
         left: Pixels to add to the left edge.
@@ -478,6 +450,7 @@ async def expand(
         ...     wide=bfl.expand(
         ...         'Continue the landscape scenery',
         ...         t.original_image,
+        ...         model='flux-pro-1.0-expand',
         ...         left=256,
         ...         right=256
         ...     )
@@ -486,6 +459,7 @@ async def expand(
     if top == 0 and bottom == 0 and left == 0 and right == 0:
         raise pxt.Error('At least one expansion direction (top, bottom, left, right) must be > 0')
 
+    endpoint = f'/v1/{model}'
     payload: dict = {
         'prompt': prompt,
         'image': to_base64(image),
@@ -502,7 +476,7 @@ async def expand(
     if output_format is not None:
         payload['output_format'] = output_format
 
-    return await _client().generate('/v1/flux-pro-1.0-expand', payload)
+    return await _client().generate(endpoint, payload)
 
 
 __all__ = local_public_names(__name__)
