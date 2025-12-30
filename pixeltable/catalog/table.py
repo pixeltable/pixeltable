@@ -1033,8 +1033,7 @@ class Table(SchemaObject):
 
             Once the index is created, similarity lookups can be performed using the `similarity` pseudo-function:
 
-            >>> reference_img = PIL.Image.open('my_image.jpg')
-            >>> sim = tbl.img.similarity(image=reference_img)
+            >>> sim = tbl.img.similarity(image='/path/to/my-image.jpg')  # can also be a URL or a PIL image
             >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
 
             If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
