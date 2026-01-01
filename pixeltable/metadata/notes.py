@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    45: 'Adds a new parameter "precision" to EmbeddingIndex',
     44: 'ArrayType dtype migration from pxt types to numpy dtypes',
     43: 'Changing tables.dir_id to nullable',
     42: 'Add additional_md columns to metadata tables',
