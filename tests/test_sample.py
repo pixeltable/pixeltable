@@ -156,7 +156,7 @@ class TestSample:
         query = t.select().sample(fraction=0.123, seed=42)
         self._check_sample(query, t_rows * 0.123)
 
-        query = t.select().where(t.id < 200).sample(fraction=0.5)
+        query = t.select().where(t.id < 200).sample(fraction=0.5, seed=876)
         self._check_sample(query, 200 * 0.5)
 
     def test_sample_snapshot_reload(self, reset_db: None, reload_tester: ReloadTester) -> None:
