@@ -1,7 +1,7 @@
 import dataclasses
 import enum
 import logging
-from typing import Any, ClassVar, Iterable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Iterator, Literal
 
 import ftfy
 import PIL.Image
@@ -13,8 +13,12 @@ from pixeltable.env import Env
 from pixeltable.exceptions import Error
 from pixeltable.type_system import ColumnType, DocumentType, ImageType, IntType, JsonType, StringType
 from pixeltable.utils.documents import get_document_handle
+from pixeltable.utils.spacy import get_spacy_model
 
 from .base import ComponentIterator
+
+if TYPE_CHECKING:
+    import spacy
 
 _logger = logging.getLogger('pixeltable')
 
@@ -126,6 +130,7 @@ class DocumentSplitter(ComponentIterator):
     _limit: int
     _skip_tags: list[str]
     _overlap: int
+    _spacy_model: 'spacy.Language'
     _tiktoken_encoding: str | None
     _tiktoken_target_model: str | None
     _image_dpi: int
@@ -143,6 +148,7 @@ class DocumentSplitter(ComponentIterator):
         overlap: int | None = None,
         metadata: str = '',
         skip_tags: list[str] | None = None,
+        spacy_model: str = 'en_core_web_sm',
         tiktoken_encoding: str | None = 'cl100k_base',
         tiktoken_target_model: str | None = None,
         image_dpi: int = 300,
@@ -196,6 +202,7 @@ class DocumentSplitter(ComponentIterator):
 
         if Separator.SENTENCE in self._separators:
             self._sections = self._sentence_sections(self._sections)
+            self._spacy_model = get_spacy_model(spacy_model)
         if Separator.TOKEN_LIMIT in self._separators:
             self._sections = self._token_chunks(self._sections)
         if Separator.CHAR_LIMIT in self._separators:
@@ -211,6 +218,7 @@ class DocumentSplitter(ComponentIterator):
             'limit': IntType(nullable=True),
             'overlap': IntType(nullable=True),
             'skip_tags': StringType(nullable=True),
+            'spacy_model': StringType(nullable=True),
             'tiktoken_encoding': StringType(nullable=True),
             'tiktoken_target_model': StringType(nullable=True),
             'image_dpi': IntType(nullable=True),
@@ -253,7 +261,9 @@ class DocumentSplitter(ComponentIterator):
                 raise Error('limit is required with "token_limit"/"char_limit" separators')
 
         if Separator.SENTENCE in separators:
-            _ = Env.get().spacy_nlp
+            # Validate spaCy model
+            _ = get_spacy_model(kwargs.get('spacy_model', 'en_core_web_sm'))
+
         if Separator.TOKEN_LIMIT in separators:
             Env.get().require_package('tiktoken')
 
@@ -451,7 +461,7 @@ class DocumentSplitter(ComponentIterator):
         """Split the input sections into sentences"""
         for section in input_sections:
             if section.text is not None:
-                doc = Env.get().spacy_nlp(section.text)
+                doc = self._spacy_model(section.text)
                 for sent in doc.sents:
                     yield DocumentSection(text=sent.text, metadata=section.metadata)
 

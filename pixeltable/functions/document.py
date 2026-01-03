@@ -16,6 +16,7 @@ def document_splitter(
     overlap: int | None = None,
     metadata: str = '',
     skip_tags: list[str] | None = None,
+    spacy_model: str = 'en_core_web_sm',
     tiktoken_encoding: str | None = 'cl100k_base',
     tiktoken_target_model: str | None = None,
     image_dpi: int = 300,
@@ -40,6 +41,8 @@ def document_splitter(
         metadata: additional metadata fields to include in the output. Options are:
              `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
              (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
+        spacy_model: Name of the spaCy model to use for sentence segmentation. This parameter is ignored unless
+            the `'sentence'` separator is specified.
         image_dpi: DPI to use when extracting images from PDFs. Defaults to 300.
         image_format: format to use when extracting images from PDFs. Defaults to 'png'.
 
@@ -70,6 +73,8 @@ def document_splitter(
         kwargs['metadata'] = metadata
     if skip_tags is not None:
         kwargs['skip_tags'] = skip_tags
+    if spacy_model != 'en_core_web_sm':
+        kwargs['spacy_model'] = spacy_model
     if tiktoken_encoding != 'cl100k_base':
         kwargs['tiktoken_encoding'] = tiktoken_encoding
     if tiktoken_target_model is not None:

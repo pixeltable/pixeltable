@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import builtins
-import contextlib
 import datetime
 import glob
 import http.server
 import importlib
 import importlib.util
 import inspect
-import io
 import logging
 import math
 import os
@@ -25,7 +23,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
+from typing import Any, Callable, Iterator, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nest_asyncio  # type: ignore[import-untyped]
@@ -44,10 +42,6 @@ from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
 from pixeltable.utils.object_stores import ObjectPath
 from pixeltable.utils.sql import add_option_to_db_url
-
-if TYPE_CHECKING:
-    import spacy
-
 
 _logger = logging.getLogger('pixeltable')
 
@@ -83,7 +77,6 @@ class Env:
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
 
-    _spacy_nlp: spacy.Language | None
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
     _logger: logging.Logger
@@ -145,7 +138,6 @@ class Env:
         self._db_url = None
         self._default_time_zone = None
         self.__optional_packages = {}
-        self._spacy_nlp = None
         self._httpd = None
         self._http_address = None
         self._default_video_encoder = None
@@ -981,38 +973,6 @@ class Env:
     def engine(self) -> sql.engine.base.Engine:
         assert self._sa_engine is not None
         return self._sa_engine
-
-    @property
-    def spacy_nlp(self) -> spacy.Language:
-        Env.get().require_package('spacy')
-        if self._spacy_nlp is None:
-            self.__init_spacy()
-        assert self._spacy_nlp is not None
-        return self._spacy_nlp
-
-    def __init_spacy(self) -> None:
-        """
-        spaCy relies on a pip-installed model to operate. In order to avoid requiring the model as a separate
-        dependency, we install it programmatically here. This should cause no problems, since the model packages
-        have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
-        """
-
-        import spacy
-        from spacy.cli.download import download
-
-        spacy_model = 'en_core_web_sm'
-        self._logger.info(f'Ensuring spaCy model is installed: {spacy_model}')
-
-        # prevent download() from hanging due to its progress bar, which conflicts with our use of Rich Progress
-        # TODO: get rid of spacy auto-download
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            download(spacy_model)
-
-        self._logger.info(f'Loading spaCy model: {spacy_model}')
-        try:
-            self._spacy_nlp = spacy.load(spacy_model)
-        except Exception as exc:
-            raise excs.Error(f'Failed to load spaCy model: {spacy_model}') from exc
 
     def _clean_up(self) -> None:
         """

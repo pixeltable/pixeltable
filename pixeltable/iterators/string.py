@@ -1,22 +1,27 @@
-from typing import Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterator
 
 from deprecated import deprecated
 
 from pixeltable import exceptions as excs, type_system as ts
-from pixeltable.env import Env
 from pixeltable.iterators.base import ComponentIterator
+from pixeltable.utils.spacy import get_spacy_model
+
+if TYPE_CHECKING:
+    import spacy
 
 
 class StringSplitter(ComponentIterator):
     _text: str
+    _spacy_model: 'spacy.Language'
     doc: Any  # spacy doc
     iter: Iterator[dict[str, Any]]
 
-    def __init__(self, text: str, *, separators: str):
+    def __init__(self, text: str, *, separators: str, spacy_model: str = 'en_core_web_sm') -> None:
         if separators != 'sentence':
             raise excs.Error('Only `sentence` separators are currently supported.')
         self._text = text
-        self.doc = Env.get().spacy_nlp(self._text)
+        self._spacy_model = get_spacy_model(spacy_model)
+        self.doc = self._spacy_model(self._text)
         self.iter = self._iter()
 
     def _iter(self) -> Iterator[dict[str, Any]]:
@@ -35,6 +40,12 @@ class StringSplitter(ComponentIterator):
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        if kwargs.get('separators') != 'sentence':
+            raise excs.Error('Only `sentence` separators are currently supported.')
+
+        # Validate spaCy model
+        _ = get_spacy_model(kwargs.get('spacy_model', 'en_core_web_sm'))
+
         return {'text': ts.StringType()}, []
 
     @classmethod
