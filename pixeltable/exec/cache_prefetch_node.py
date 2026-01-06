@@ -3,9 +3,6 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import logging
-import threading
-import urllib.parse
-import urllib.request
 from collections import deque
 from concurrent import futures
 from pathlib import Path
@@ -14,7 +11,7 @@ from uuid import UUID
 
 from pixeltable import exceptions as excs, exprs
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.object_stores import ObjectOps
+from pixeltable.utils.http import fetch_url
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
@@ -82,8 +79,7 @@ class CachePrefetchNode(ExecNode):
         return len(self.in_flight_requests)
 
     def _open(self) -> None:
-        if self.ctx.show_progress:
-            self.progress_reporter = self.ctx.add_progress_reporter('Downloads', 'objects', 'B')
+        self.progress_reporter = self.ctx.add_progress_reporter('Downloads', 'objects', 'B')
 
     async def get_input_batch(self, input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None:
         """Get the next batch of input rows, or None if there are no more rows"""
@@ -230,25 +226,8 @@ class CachePrefetchNode(ExecNode):
             self.in_flight_requests[f] = url
 
     def __fetch_url(self, url: str) -> tuple[Path | None, Exception | None]:
-        """Fetches a remote URL into the TempStore and returns its path"""
-        from pixeltable.utils.local_store import TempStore
-
-        _logger.debug(f'fetching url={url} thread_name={threading.current_thread().name}')
-        parsed = urllib.parse.urlparse(url)
-        # Use len(parsed.scheme) > 1 here to ensure we're not being passed
-        # a Windows filename
-        assert len(parsed.scheme) > 1 and parsed.scheme != 'file'
-        # preserve the file extension, if there is one
-        extension = ''
-        if parsed.path:
-            p = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
-            extension = p.suffix
-        tmp_path = TempStore.create_path(extension=extension)
         try:
-            _logger.debug(f'Downloading {url} to {tmp_path}')
-            ObjectOps.copy_object_to_local_file(url, tmp_path)
-            _logger.debug(f'Downloaded {url} to {tmp_path}')
-            return tmp_path, None
+            return fetch_url(url), None
         except Exception as e:
             # we want to add the file url to the exception message
             exc = excs.Error(f'Failed to download {url}: {e}')

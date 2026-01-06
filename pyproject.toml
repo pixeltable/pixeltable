@@ -50,7 +50,6 @@ dependencies = [
     "more-itertools>=10.2",
     "cloudpickle>=2.2.1",
     "psycopg[binary]>=3.1.18",
-    "psutil>=5.9.5",
     "sqlalchemy>=2.0.23",
     "pgvector>=0.4.0",
     "av>=10.0.0",
@@ -175,6 +174,7 @@ dev = [
     "voyageai>=0.3.5",
     "scenedetect>=0.6.0.1",
     "opentelemetry-exporter-otlp>=1.38.0",
+    "ipywidgets>=8.0.0",
 ]
 test = [
     "pytest>=8.4",
