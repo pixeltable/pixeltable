@@ -828,8 +828,7 @@ def string_splitter(
 
     Args:
         separators: separators to use to chunk the document. Currently the only supported option is `'sentence'`.
-        spacy_model: Name of the spaCy model to use for sentence segmentation. This parameter is ignored unless
-            the `'sentence'` separator is specified.
+        spacy_model: Name of the spaCy model to use for sentence segmentation.
 
     Examples:
         This example assumes an existing table `tbl` with a column `text` of type `pxt.String`.
