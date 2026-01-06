@@ -41,6 +41,20 @@ description: 'Pixeltable unifies storage and orchestration for multimodal AI app
 Many documentation pages are interactive notebooks (marked with <Icon icon="notebook" /> in the sidebar). Open them in Colab, Kaggle, or locally to follow along.
 </Tip>
 
+## Core Primitives
+
+Pixeltable provides a small set of primitives that compose into any multimodal AI workflow:
+
+| Primitive | What It Enables |
+|-----------|-----------------|
+| `pxt.create_table()` with `pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document` | Store any multimodal data natively |
+| `pxt.create_view()` with iterators | Extract frames from video, chunk documents, split audio |
+| `add_computed_column()` | Run any AI model or transformation—incrementally |
+| `add_embedding_index()` | Semantic search on any column |
+| `@pxt.udf` / `@pxt.query` | Extend with your own Python code |
+
+These primitives are use-case agnostic by design. We don't build vertical solutions—we build the infrastructure that makes vertical solutions trivial to build.
+
 ## What can you build?
 
 <CardGroup cols={2}>
