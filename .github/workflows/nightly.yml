@@ -113,6 +113,9 @@ jobs:
           python -m pip install pixeltable ${{ matrix.package-configs }}
           python -m pip install beautifulsoup4==4.14.2  # Workaround for Actions installing broken 4.14.0
           python -m pip install filelock pytest pytest-xdist pytest-rerunfailures
+      - name: Install spaCy model
+        if: ${{ contains(matrix.package-configs, 'spacy') }}
+        run: python -m spacy download en_core_web_sm
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}

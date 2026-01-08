@@ -142,6 +142,15 @@ class TestDocument:
         with pytest.raises(pxt.Error, match=r'not currently supported.+contact us'):
             t.insert(doc=pdf_file)
 
+        # Error message will depend on which dependencies are installed.
+        with pytest.raises(
+            pxt.Error,
+            match=r"This feature requires the `spacy` package|Failed to locate spaCy model 'not_a_spacy_model'",
+        ):
+            _ = pxt.create_view(
+                'chunks', t, iterator=document_splitter(t.doc, separators='sentence', spacy_model='not_a_spacy_model')
+            )
+
     @pytest.mark.parametrize('pdf', [True, False], ids=['pdf_docs', 'non_pdf_docs'])
     def test_doc_splitter(self, pdf: bool, reset_db: None) -> None:
         skip_test_if_not_installed('tiktoken')
