@@ -6,6 +6,7 @@ from typing import Any, ClassVar, Literal
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import sqlalchemy as sql
+from sqlalchemy import cast
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -143,6 +144,11 @@ class EmbeddingIndex(IndexBase):
         assert vector_length is not None
         assert vector_length > 0
 
+        # TODO(PXT-941): Revisit embedding index precision behavior for cloud launch
+        # CockroachDB doesn't have HALFVEC. For now, always use Vector type.
+        if Env.get().is_using_cockroachdb:
+            return pgvector.sqlalchemy.Vector(vector_length)
+
         match self.precision:
             case self.Precision.FP32:
                 if vector_length > MAX_EMBEDDING_VECTOR_LENGTH:
@@ -183,10 +189,15 @@ class EmbeddingIndex(IndexBase):
         embedding = self.embeddings[item.col_type._type].exec([item.val], {})
         assert isinstance(embedding, np.ndarray)
 
+        # In arithmetic operations between floats and ints (or between vector and int), CockroachDB requires an explicit
+        # cast. Otherwise the query fails.
+        cast_ints = Env.get().is_using_cockroachdb
+        one = cast(1, sql.types.Float) if cast_ints else 1
+        neg_one = cast(-1, sql.types.Float) if cast_ints else -1
         if self.metric == self.Metric.COSINE:
-            return val_column.sa_col.cosine_distance(embedding) * -1 + 1
+            return val_column.sa_col.cosine_distance(embedding) * neg_one + one
         elif self.metric == self.Metric.IP:
-            return val_column.sa_col.max_inner_product(embedding) * -1
+            return val_column.sa_col.max_inner_product(embedding) * neg_one
         else:
             assert self.metric == self.Metric.L2
             return val_column.sa_col.l2_distance(embedding)

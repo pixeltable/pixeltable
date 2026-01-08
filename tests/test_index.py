@@ -11,6 +11,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip
 
 from .utils import (
@@ -809,18 +810,24 @@ class TestIndex:
             sim = img_t.img.similarity(string='red truck')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
 
-        with pytest.raises(
-            pxt.Error, match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for fp16 precision"
-        ):
-            test_tbl.add_embedding_index(
-                test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=4001), precision='fp16'
-            )
-        with pytest.raises(
-            pxt.Error, match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for fp32 precision"
-        ):
-            test_tbl.add_embedding_index(
-                test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=2001), precision='fp32'
-            )
+        if not Env.get().is_using_cockroachdb:
+            # TODO(PXT-941): Revisit embedding index precision behavior for cloud launch
+            # In CockroachDB we use VECTOR type that doesn't have the same limitation as pgvector's VECTOR and HALFVEC
+            with pytest.raises(
+                pxt.Error,
+                match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for fp16 precision",
+            ):
+                test_tbl.add_embedding_index(
+                    test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=4001), precision='fp16'
+                )
+            with pytest.raises(
+                pxt.Error,
+                match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for fp32 precision",
+            ):
+                test_tbl.add_embedding_index(
+                    test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=2001), precision='fp32'
+                )
+
         with pytest.raises(pxt.Error, match=r"Invalid precision.+Must be one of: \['fp16', 'fp32'\]"):
             test_tbl.add_embedding_index(
                 test_tbl.c1,
