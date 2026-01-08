@@ -264,6 +264,12 @@
           <outline text="udf|pixeltable.functions.bedrock.converse" />
           <outline text="func|pixeltable.functions.bedrock.invoke_tools" />
         </outline>
+        <outline text="module|pixeltable.functions.bfl">
+          <outline text="udf|pixeltable.functions.bfl.generate" />
+          <outline text="udf|pixeltable.functions.bfl.edit" />
+          <outline text="udf|pixeltable.functions.bfl.fill" />
+          <outline text="udf|pixeltable.functions.bfl.expand" />
+        </outline>
         <outline text="module|pixeltable.functions.deepseek">
           <outline text="udf|pixeltable.functions.deepseek.chat_completions" />
         </outline>
