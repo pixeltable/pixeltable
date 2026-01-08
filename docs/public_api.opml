@@ -285,6 +285,10 @@
         </outline>
         <outline text="module|pixeltable.functions.huggingface">
         </outline>
+        <outline text="module|pixeltable.functions.jina">
+          <outline text="udf|pixeltable.functions.jina.embeddings" />
+          <outline text="udf|pixeltable.functions.jina.rerank" />
+        </outline>
         <outline text="module|pixeltable.functions.llama_cpp">
           <outline text="udf|pixeltable.functions.llama_cpp.create_chat_completion" />
         </outline>
