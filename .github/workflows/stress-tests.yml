@@ -18,8 +18,9 @@ env:
 
 jobs:
   random-ops:
-    matrix:
-      options: [ '', '--read-only' ]
+    strategy:
+      matrix:
+        options: [ '', '--read-only' ]
     runs-on: ubuntu-latest
     defaults:
       run:
