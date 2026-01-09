@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the RunwayML API. In order to use them, you must
 first `pip install runwayml` and configure your RunwayML credentials, as described in
-the [Working with RunwayML](https://docs.pixeltable.com/docs/working-with-runwayml) guide.
+the [Working with RunwayML] guide.
 """
 
 import datetime
@@ -16,12 +16,12 @@ from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
 if TYPE_CHECKING:
-    from runwayml import AsyncRunwayML  # type: ignore[import-untyped,import-not-found,unused-ignore]
+    from runwayml import AsyncRunwayML
 
 
 @register_client('runwayml')
 def _(api_key: str) -> 'AsyncRunwayML':
-    from runwayml import AsyncRunwayML  # type: ignore[import-untyped,import-not-found,unused-ignore]
+    from runwayml import AsyncRunwayML
 
     return AsyncRunwayML(api_key=api_key)
 
@@ -32,7 +32,7 @@ def _runwayml_client() -> 'AsyncRunwayML':
 
 def _image_to_data_uri(image: PIL.Image.Image) -> str:
     """Convert a PIL Image to a data URI suitable for RunwayML API."""
-    fmt = 'png' if image.has_transparency_data else 'jpeg'
+    fmt = 'png' if image.has_transparency_data else 'webp'
     b64 = to_base64(image, format=fmt)
     return f'data:image/{fmt};base64,{b64}'
 
@@ -55,9 +55,9 @@ def _serialize_result(obj: Any) -> Any:
 async def text_to_image(
     prompt_text: str,
     reference_images: list[PIL.Image.Image],
+    model: str,
+    ratio: str,
     *,
-    model: str = 'gen4_image',
-    ratio: str = '1920:1080',
     seed: int | None = None,
     model_kwargs: dict[str, Any] | None = None,
 ) -> pxt.Json:
@@ -109,15 +109,17 @@ async def text_to_image(
 
     task = await client.text_to_image.create(**kwargs)
     result = await task.wait_for_task_output()
+    if result.status != 'SUCCEEDED':
+        raise RuntimeError(f'RunwayML task failed with status: {result.status}')
     return _serialize_result(result.to_dict())
 
 
 @pxt.udf(resource_pool='request-rate:runwayml')
 async def text_to_video(
     prompt_text: str,
+    model: str,
+    ratio: str,
     *,
-    model: str = 'veo3.1',
-    ratio: str = '1280:720',
     duration: int | None = None,
     audio: bool | None = None,
     model_kwargs: dict[str, Any] | None = None,
@@ -162,15 +164,17 @@ async def text_to_video(
 
     task = await client.text_to_video.create(**kwargs)
     result = await task.wait_for_task_output()
+    if result.status != 'SUCCEEDED':
+        raise RuntimeError(f'RunwayML task failed with status: {result.status}')
     return _serialize_result(result.to_dict())
 
 
 @pxt.udf(resource_pool='request-rate:runwayml')
 async def image_to_video(
     prompt_image: PIL.Image.Image,
+    model: str,
+    ratio: str,
     *,
-    model: str = 'gen4_turbo',
-    ratio: str = '1280:720',
     prompt_text: str | None = None,
     duration: int | None = None,
     seed: int | None = None,
@@ -226,6 +230,8 @@ async def image_to_video(
 
     task = await client.image_to_video.create(**kwargs)
     result = await task.wait_for_task_output()
+    if result.status != 'SUCCEEDED':
+        raise RuntimeError(f'RunwayML task failed with status: {result.status}')
     return _serialize_result(result.to_dict())
 
 
@@ -233,9 +239,9 @@ async def image_to_video(
 async def video_to_video(
     video_uri: str,
     prompt_text: str,
+    model: str,
+    ratio: str,
     *,
-    model: str = 'gen4_aleph',
-    ratio: str = '1280:720',
     seed: int | None = None,
     model_kwargs: dict[str, Any] | None = None,
 ) -> pxt.Json:
@@ -279,6 +285,8 @@ async def video_to_video(
 
     task = await client.video_to_video.create(**kwargs)
     result = await task.wait_for_task_output()
+    if result.status != 'SUCCEEDED':
+        raise RuntimeError(f'RunwayML task failed with status: {result.status}')
     return _serialize_result(result.to_dict())
 
 
