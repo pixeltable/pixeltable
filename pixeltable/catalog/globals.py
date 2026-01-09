@@ -80,7 +80,16 @@ def is_valid_identifier(name: str, *, allow_system_identifiers: bool = False, al
 def is_valid_path(path: str, empty_is_valid: bool, allow_system_paths: bool = False) -> bool:
     if path == '':
         return empty_is_valid
-    return all(is_valid_identifier(part, allow_system_identifiers=allow_system_paths) for part in path.split('.'))
+    # Accept both '.' and '/' for backward compatibility
+    # Check '.' first as most backward compatible paths will be dotted
+    if '.' in path:
+        parts = path.split('.')
+    elif '/' in path:
+        parts = path.split('/')
+    else:
+        # Single component
+        return is_valid_identifier(path, allow_system_identifiers=allow_system_paths)
+    return all(is_valid_identifier(part, allow_system_identifiers=allow_system_paths) for part in parts)
 
 
 def is_system_column_name(name: str) -> bool:

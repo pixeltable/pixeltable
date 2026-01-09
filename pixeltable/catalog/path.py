@@ -22,20 +22,39 @@ class Path(NamedTuple):
         allow_system_path: bool = False,
         allow_versioned_path: bool = False,
     ) -> Path:
+        """
+        Parse a path string into a Path object.
+
+        Accepts both '.' and '/' delimiters for backward compatibility.
+        All paths are always represented with '/' delimiter.
+        """
         components: list[str]
         version: int | None
+
+        # Extract version if present
         if ':' in path:
             parts = path.split(':')
             if len(parts) != 2:
                 raise excs.Error(f'Invalid path: {path}')
             try:
-                components = parts[0].split('.')
+                path_part = parts[0]
                 version = int(parts[1])
             except ValueError:
                 raise excs.Error(f'Invalid path: {path}') from None
         else:
-            components = path.split('.')
+            path_part = path
             version = None
+
+        # Accept both '.' and '/' delimiters for backward compatibility
+        # Check '.' first as most backward compatible paths will be dotted
+        # All paths are always represented with '/' delimiter
+        if '.' in path_part:
+            components = path_part.split('.')
+        elif '/' in path_part:
+            components = path_part.split('/')
+        else:
+            # Single component
+            components = [path_part] if path_part else ['']
 
         if components == [''] and not allow_empty_path:
             raise excs.Error(f'Invalid path: {path}')
@@ -70,15 +89,15 @@ class Path(NamedTuple):
     @property
     def parent(self) -> Path:
         if len(self.components) == 1:
-            return ROOT_PATH  # Includes the case of the root path, which is its own parent.
+            return Path([''], None)
         else:
-            return Path(self.components[:-1])
+            return Path(self.components[:-1], None)
 
     def append(self, name: str) -> Path:
         if self.is_root:
-            return Path([name])
+            return Path([name], None)
         else:
-            return Path([*self.components, name])
+            return Path([*self.components, name], None)
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
@@ -99,23 +118,26 @@ class Path(NamedTuple):
         if self.is_root:
             return []
         else:
-            return [Path(self.components[:i]) if i > 0 else ROOT_PATH for i in range(len(self.components))]
+            return [Path(self.components[:i] if i > 0 else [''], None) for i in range(len(self.components))]
 
     def __repr__(self) -> str:
         return repr(str(self))
 
     def __str__(self) -> str:
-        base = '.'.join(self.components)
+        base = '/'.join(self.components)
         if self.version is not None:
             return f'{base}:{self.version}'
         else:
             return base
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, Path) and str(self) == str(other)
+        if not isinstance(other, Path):
+            return False
+        return self.components == other.components and self.version == other.version
 
     def __hash__(self) -> int:
-        return hash(str(self))
+        # Hash based on components and version, not string representation
+        return hash((tuple(self.components), self.version))
 
 
-ROOT_PATH = Path([''])
+ROOT_PATH = Path([''], None)
