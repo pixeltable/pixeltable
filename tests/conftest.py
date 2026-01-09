@@ -155,20 +155,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
 
 
 @pytest.fixture(scope='function')
-def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
-    """Marker for tests that interact with the database (PosgreSQL or CockroachDB)."""
-    yield from uses_db_impl(init_env, request)
-
-
-@pytest.fixture(scope='function')
 def reset_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
-    """Marker for tests that interact with the database (PosgreSQL or CockroachDB).
-    Prefer `uses_db` for a better name. This exists for backward compatibility only.
+    """Fixture for tests that interact with the database (PosgreSQL or CockroachDB).
+    Cleans up the database before the test, and validates it after the test.
     """
-    yield from uses_db_impl(init_env, request)
-
-
-def uses_db_impl(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
