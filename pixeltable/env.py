@@ -858,7 +858,7 @@ class Env:
         self.__register_package('scenedetect')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
-        self.__register_package('snowflake-sqlalchemy')
+        self.__register_package('snowflake.sqlalchemy', library_name='snowflake-sqlalchemy')
         self.__register_package('soundfile')
         self.__register_package('spacy')
         self.__register_package('tiktoken')
@@ -909,7 +909,7 @@ class Env:
             if not package_info.is_installed:
                 # Still not found.
                 if not_installed_msg is None:
-                    not_installed_msg = f'This feature requires the `{package_name}` package.'
+                    not_installed_msg = f'This feature requires the `{package_name}` package'
                 raise excs.Error(
                     f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`'
                 )

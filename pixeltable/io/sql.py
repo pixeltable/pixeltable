@@ -58,7 +58,7 @@ def _snowflake_type(col_type: ts.ColumnType) -> sql.types.TypeEngine:
     """Type mapping for dialect 'snowflake'"""
     if col_type.is_json_type():
         Env.get().require_package(
-            'snowflake-sqlalchemy',
+            'snowflake.sqlalchemy',
             not_installed_msg='Exporting json data to Snowflake requires the snowflake-sqlalchemy package',
         )
         from snowflake.sqlalchemy import VARIANT  # type: ignore[import-untyped]
