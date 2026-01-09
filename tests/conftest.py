@@ -403,23 +403,18 @@ def validate_db_state_after_test(request: pytest.FixtureRequest) -> Iterator[Non
 
     yield
 
-    # Collect tables and views that need to be validated
-    tables_to_check = set()
-    for tbl_path in set(pxt.list_tables('', recursive=True)) - pre_existing_tables:
-        tables_to_check.add(tbl_path)
-        tbl = pxt.get_table(tbl_path)
-        if tbl._tbl_version is None:
-            continue
-        tables_to_check.update(tbl.list_views(recursive=True))
-
     # Run the validation
     with Env.get().engine.connect() as conn:
-        for tbl_path in tables_to_check:
-            _validate_table_or_view(tbl_path, conn)
+        for tbl_path in pxt.list_tables('', recursive=True):
+            if tbl_path in pre_existing_tables:
+                continue
+            tbl = pxt.get_table(tbl_path)
+            if tbl._tbl_version is None:
+                continue
+            _validate_table_or_view(tbl, conn)
 
 
-def _validate_table_or_view(tbl_path: str, conn: sql.Connection) -> None:
-    tbl = pxt.get_table(tbl_path)
+def _validate_table_or_view(tbl: pxt.Table, conn: sql.Connection) -> None:
     if tbl._tbl_version is None:
         return
     tv = tbl._tbl_version.get()
@@ -438,12 +433,12 @@ def _validate_table_or_view(tbl_path: str, conn: sql.Connection) -> None:
                 conditions.append(col != index_val_col)
     if len(conditions) > 0:
         stmt = stmt.where(or_(*conditions)).limit(1)
-        _logger.info(f'Running index value column validation query on table {tbl_path}: {stmt}')
+        _logger.info(f'Running index value column validation query on table {tbl._display_str()}: {stmt}')
         for row in conn.execute(stmt).all():
             raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
 {row._asdict()}.
-This means that one of the indexes in table {tbl_path} is corrupted, i.e. the index value out of sync with the actual
-value for a current row. The query was:
+This means that one of the indexes in table {tbl._display_str()} is corrupted, i.e. the index value out of sync with
+the actual value for a current row. The query was:
 {stmt}""")
 
     # Validate that the index values are NULL for non-latest version rows
@@ -454,10 +449,10 @@ value for a current row. The query was:
         conditions.append(index_val_col != None)
     if len(conditions) > 0:
         stmt = stmt.where(or_(*conditions)).limit(1)
-        _logger.info(f'Running index value column validation query on table {tbl_path}: {stmt}')
+        _logger.info(f'Running index value column validation query on table {tbl._display_str()}: {stmt}')
         for row in conn.execute(stmt).all():
             raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
 {row._asdict()}.
-This means that one of the indexes in table {tbl_path} is corrupted, i.e. the index value is not NULL for a non-latest
-version row. The query was:
+This means that one of the indexes in table {tbl._display_str()} is corrupted, i.e. the index value is not NULL for
+a non-latest version row. The query was:
 {stmt}""")
