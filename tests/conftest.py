@@ -214,11 +214,11 @@ def _validate_table(tbl: pxt.Table, conn: sql.Connection) -> None:
         stmt = stmt.where(sql.or_(*conditions)).limit(1)
         _logger.info(f'Running index value column validation query on table {tbl._display_str()}: {stmt}')
         for row in conn.execute(stmt).all():
-            raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
-{row._asdict()}.
-This means that one of the indexes in table {tbl._display_str()} is corrupted, i.e. the index value out of sync with
-the actual value for a current row. The query was:
-{stmt}""")
+            raise AssertionError(
+                f'The table validation query should have returned nothing, but it returned row: {row._asdict()}.'
+                f' This means that one of the indexes in table {tbl._display_str()} is corrupted, i.e. the index value'
+                f' out of sync with the actual value for a current row. The query was: {stmt}'
+            )
 
     # Validate that the index values are NULL for non-latest version rows
     stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max < Table.MAX_VERSION)
@@ -230,11 +230,11 @@ the actual value for a current row. The query was:
         stmt = stmt.where(sql.or_(*conditions)).limit(1)
         _logger.info(f'Running index value column validation query on table {tbl._display_str()}: {stmt}')
         for row in conn.execute(stmt).all():
-            raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
-{row._asdict()}.
-This means that one of the indexes in table {tbl._display_str()} is corrupted, i.e. the index value is not NULL for
-a non-latest version row. The query was:
-{stmt}""")
+            raise AssertionError(
+                'The table validation query should have returned nothing, but it returned row:'
+                f' {row._asdict()}. This means that one of the indexes in table {tbl._display_str()} is corrupted, i.e.'
+                f' the index value is not NULL for a non-latest version row. The query was: {stmt}'
+            )
 
 
 def _free_disk_space() -> None:
