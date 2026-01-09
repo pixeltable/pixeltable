@@ -179,7 +179,7 @@ format: install
 	@ruff format pixeltable tests tool
 	@echo 'Running `ruff check --select I --fix` ...'
 	@ruff check --select I --fix pixeltable tests tool
-	@echo 'Formatting notebooks... '
+	@echo 'Formatting notebooks...'
 	@find . -type f -name "*.ipynb" | xargs nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells
 
 .PHONY: release
