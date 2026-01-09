@@ -12,7 +12,7 @@ import sqlalchemy as sql
 import tenacity
 from _pytest.config import Config as PytestConfig, argparsing
 from filelock import FileLock
-from sqlalchemy import func, or_, orm, text
+from sqlalchemy import orm, text
 
 import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
@@ -207,11 +207,11 @@ def _validate_table(tbl: pxt.Table, conn: sql.Connection) -> None:
             col = getattr(sa_tbl.c, f'col_{idx.col.id}')
             index_val_col = getattr(sa_tbl.c, f'col_{idx.val_col.id}')
             if idx.val_col.col_type.is_string_type():
-                conditions.append(func.left(col, btree.BtreeIndex.MAX_STRING_LEN) != index_val_col)
+                conditions.append(sql.func.left(col, btree.BtreeIndex.MAX_STRING_LEN) != index_val_col)
             else:
                 conditions.append(col != index_val_col)
     if len(conditions) > 0:
-        stmt = stmt.where(or_(*conditions)).limit(1)
+        stmt = stmt.where(sql.or_(*conditions)).limit(1)
         _logger.info(f'Running index value column validation query on table {tbl._display_str()}: {stmt}')
         for row in conn.execute(stmt).all():
             raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
@@ -227,7 +227,7 @@ the actual value for a current row. The query was:
         index_val_col = getattr(sa_tbl.c, f'col_{idx.val_col.id}')
         conditions.append(index_val_col != None)
     if len(conditions) > 0:
-        stmt = stmt.where(or_(*conditions)).limit(1)
+        stmt = stmt.where(sql.or_(*conditions)).limit(1)
         _logger.info(f'Running index value column validation query on table {tbl._display_str()}: {stmt}')
         for row in conn.execute(stmt).all():
             raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
