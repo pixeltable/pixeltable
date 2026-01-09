@@ -1,4 +1,5 @@
 import datetime
+import platform
 import random
 import string
 import sys
@@ -667,6 +668,9 @@ class TestIndex:
 
         _ = reload_tester.run_query(img_t.select())
 
+    @pytest.mark.xfail(
+        platform.system() == 'Windows', reason='Known issue -- fails with segfault on Windows', run=True, strict=False
+    )
     def test_view_indices(
         self, reset_db: None, e5_embed: pxt.Function, all_mpnet_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
