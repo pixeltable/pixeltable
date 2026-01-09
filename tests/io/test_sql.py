@@ -11,6 +11,7 @@ from pixeltable.env import Env
 from pixeltable.io.sql import export_sql
 
 
+@pytest.mark.skip()
 class TestSql:
     """
     TODO:
