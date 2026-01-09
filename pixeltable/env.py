@@ -858,6 +858,7 @@ class Env:
         self.__register_package('scenedetect')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
+        self.__register_package('snowflake-sqlalchemy')
         self.__register_package('soundfile')
         self.__register_package('spacy')
         self.__register_package('tiktoken')
@@ -889,7 +890,9 @@ class Env:
         if not shutil.which(binary_name):
             raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
 
-    def require_package(self, package_name: str, min_version: list[int] | None = None) -> None:
+    def require_package(
+        self, package_name: str, min_version: list[int] | None = None, not_installed_msg: str | None = None
+    ) -> None:
         """
         Checks whether the specified optional package is available. If not, raises an exception
         with an error message informing the user how to install it.
@@ -905,9 +908,10 @@ class Env:
             package_info.is_installed = importlib.util.find_spec(package_name) is not None
             if not package_info.is_installed:
                 # Still not found.
+                if not_installed_msg is None:
+                    not_installed_msg = f'This feature requires the `{package_name}` package.'
                 raise excs.Error(
-                    f'This feature requires the `{package_name}` package. To install it, run: '
-                    f'`pip install -U {package_info.library_name}`'
+                    f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`'
                 )
 
         if min_version is None:

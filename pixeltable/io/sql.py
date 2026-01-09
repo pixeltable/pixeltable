@@ -15,6 +15,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.catalog import Catalog
+from pixeltable.env import Env
 
 
 def _get_sa_type(col_type: ts.ColumnType) -> sql.types.TypeEngine:
@@ -56,19 +57,18 @@ def _get_postgresql_type(col_type: ts.ColumnType) -> sql.types.TypeEngine:
 def _get_snowflake_type(col_type: ts.ColumnType) -> sql.types.TypeEngine:
     """Type mapping for dialect 'snowflake'"""
     if col_type.is_json_type():
-        try:
-            from snowflake.sqlalchemy import VARIANT  # type: ignore[import-not-found]
+        Env.get().require_package(
+            'snowflake-sqlalchemy',
+            not_installed_msg='Exporting json data to Snowflake requires the snowflake-sqlalchemy package',
+        )
+        from snowflake.sqlalchemy import VARIANT  # type: ignore[import-not-found]
 
-            return VARIANT()
-        except ImportError:
-            raise pxt.Error(
-                'In order to export json data to Snowflake, please install the snowflake-sqlalchemy package:\n'
-                'pip install snowflake-sqlalchemy'
-            ) from None
-    return _get_sa_type(col_type)
+        return VARIANT()
+    else:
+        return _get_sa_type(col_type)
 
 
-GET_DIALECT_TYPE: dict[str, Callable[[ts.ColumnType], sql.types.TypeEngine]] = {
+DIALECT_TYPE: dict[str, Callable[[ts.ColumnType], sql.types.TypeEngine]] = {
     'postgresql': _get_postgresql_type,
     'snowflake': _get_snowflake_type,
 }
@@ -124,7 +124,7 @@ def export_sql(
     if target is None:
         # create table
         dialect = engine.dialect.name
-        get_type = GET_DIALECT_TYPE.get(dialect, _get_sa_type)
+        get_type = DIALECT_TYPE.get(dialect, _get_sa_type)
         target_schema = {col_name: get_type(col_type) for col_name, col_type in query.schema.items()}
         columns = [sql.Column(col_name, col_type) for col_name, col_type in target_schema.items()]
         metadata = sql.MetaData()
