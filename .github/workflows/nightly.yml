@@ -42,13 +42,13 @@ jobs:
         python-version: ["3.10", "3.12"]
         package-configs:
           - ""
-          - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.9' 'torchaudio<2.9' 'torchvision<0.24' transformers"
+          - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.9' 'torchaudio<2.9' 'torchvision<0.24' transformers timm"
           - "anthropic fireworks-ai google-genai groq mistralai openai replicate together"
           - "huggingface-hub llama-cpp-python openai-whisper"
-          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy"
+          - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "label_studio_sdk"
           - "pixeltable-yolox"
-          - "'whisperx>=3.7.4'"
+          - "'whisperx>=3.7.4' timm"
         os: [ubuntu-24.04]
         include:
           # Test the basic pixeltable installation on other platforms.
@@ -113,6 +113,9 @@ jobs:
           python -m pip install pixeltable ${{ matrix.package-configs }}
           python -m pip install beautifulsoup4==4.14.2  # Workaround for Actions installing broken 4.14.0
           python -m pip install filelock pytest pytest-xdist pytest-rerunfailures
+      - name: Install spaCy model
+        if: ${{ contains(matrix.package-configs, 'spacy') }}
+        run: python -m spacy download en_core_web_sm
       - name: Run the unit tests
         env:
           PXTTEST_CI_OS: ${{ matrix.os }}
