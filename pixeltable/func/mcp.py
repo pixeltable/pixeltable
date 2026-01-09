@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
+from pixeltable.env import Env
 from pixeltable.func.signature import Parameter
 
 if TYPE_CHECKING:
@@ -15,6 +16,7 @@ def mcp_udfs(url: str) -> list['pxt.func.Function']:
 
 
 async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
+    Env.get().require_package('mcp')
     import mcp
     from mcp.client.streamable_http import streamablehttp_client
 
@@ -31,6 +33,7 @@ async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
 
 
 def mcp_tool_to_udf(url: str, mcp_tool: 'mcp.types.Tool') -> 'pxt.func.Function':
+    Env.get().require_package('mcp')
     import mcp
     from mcp.client.streamable_http import streamablehttp_client
 
