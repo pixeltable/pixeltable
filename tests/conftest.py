@@ -155,8 +155,20 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
 
 
 @pytest.fixture(scope='function')
-def reset_db(init_env: None) -> None:
-    """Reset database state between tests."""
+def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
+    """Marker for tests that interact with the database (PosgreSQL or CockroachDB)."""
+    yield from uses_db_impl(init_env, request)
+
+
+@pytest.fixture(scope='function')
+def reset_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
+    """Marker for tests that interact with the database (PosgreSQL or CockroachDB).
+    Prefer `uses_db` for a better name. This exists for backward compatibility only.
+    """
+    yield from uses_db_impl(init_env, request)
+
+
+def uses_db_impl(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
@@ -165,6 +177,63 @@ def reset_db(init_env: None) -> None:
     Env.get().user = None
     reload_catalog()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
+
+    yield
+
+    if 'corrupts_db' in request.keywords:
+        return
+
+    # Run the validation
+    with Env.get().engine.connect() as conn:
+        for tbl_path in pxt.list_tables('', recursive=True):
+            tbl = pxt.get_table(tbl_path)
+            if tbl._tbl_version is None:
+                continue
+            _validate_table(tbl, conn)
+
+
+def _validate_table(tbl: pxt.Table, conn: sql.Connection) -> None:
+    if tbl._tbl_version is None:
+        return
+    tv = tbl._tbl_version.get()
+    sa_tbl = tv.store_tbl.sa_tbl
+
+    # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
+    stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max == Table.MAX_VERSION)
+    conditions = []
+    for idx in tv.idxs.values():
+        if isinstance(idx.idx, btree.BtreeIndex):
+            col = getattr(sa_tbl.c, f'col_{idx.col.id}')
+            index_val_col = getattr(sa_tbl.c, f'col_{idx.val_col.id}')
+            if idx.val_col.col_type.is_string_type():
+                conditions.append(func.left(col, btree.BtreeIndex.MAX_STRING_LEN) != index_val_col)
+            else:
+                conditions.append(col != index_val_col)
+    if len(conditions) > 0:
+        stmt = stmt.where(or_(*conditions)).limit(1)
+        _logger.info(f'Running index value column validation query on table {tbl._display_str()}: {stmt}')
+        for row in conn.execute(stmt).all():
+            raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
+{row._asdict()}.
+This means that one of the indexes in table {tbl._display_str()} is corrupted, i.e. the index value out of sync with
+the actual value for a current row. The query was:
+{stmt}""")
+
+    # Validate that the index values are NULL for non-latest version rows
+    stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max < Table.MAX_VERSION)
+    conditions = []
+    for idx in tv.idxs.values():
+        index_val_col = getattr(sa_tbl.c, f'col_{idx.val_col.id}')
+        conditions.append(index_val_col != None)
+    if len(conditions) > 0:
+        stmt = stmt.where(or_(*conditions)).limit(1)
+        _logger.info(f'Running index value column validation query on table {tbl._display_str()}: {stmt}')
+        for row in conn.execute(stmt).all():
+            raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
+{row._asdict()}.
+This means that one of the indexes in table {tbl._display_str()} is corrupted, i.e. the index value is not NULL for
+a non-latest version row. The query was:
+{stmt}""")
 
 
 def _free_disk_space() -> None:
@@ -388,71 +457,3 @@ def all_mpnet_embed() -> pxt.Function:
         return sentence_transformer.using(model_id='all-mpnet-base-v2')
     except ImportError:
         return None
-
-
-@pytest.fixture(autouse=True)
-def validate_db_state_after_test(request: pytest.FixtureRequest) -> Iterator[None]:
-    """Lists all tables and views created during the test, and runs validation queries on them."""
-    if 'corrupts_db' in request.keywords:
-        yield
-        return
-
-    # Not all tests reset DB in the beginning. Ignore the tables that existed before the test started.
-    # TODO find a better way of handling this.
-    pre_existing_tables = set(pxt.list_tables('', recursive=True))
-
-    yield
-
-    # Run the validation
-    with Env.get().engine.connect() as conn:
-        for tbl_path in pxt.list_tables('', recursive=True):
-            if tbl_path in pre_existing_tables:
-                continue
-            tbl = pxt.get_table(tbl_path)
-            if tbl._tbl_version is None:
-                continue
-            _validate_table_or_view(tbl, conn)
-
-
-def _validate_table_or_view(tbl: pxt.Table, conn: sql.Connection) -> None:
-    if tbl._tbl_version is None:
-        return
-    tv = tbl._tbl_version.get()
-    sa_tbl = tv.store_tbl.sa_tbl
-
-    # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
-    stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max == Table.MAX_VERSION)
-    conditions = []
-    for idx in tv.idxs.values():
-        if isinstance(idx.idx, btree.BtreeIndex):
-            col = getattr(sa_tbl.c, f'col_{idx.col.id}')
-            index_val_col = getattr(sa_tbl.c, f'col_{idx.val_col.id}')
-            if idx.val_col.col_type.is_string_type():
-                conditions.append(func.left(col, btree.BtreeIndex.MAX_STRING_LEN) != index_val_col)
-            else:
-                conditions.append(col != index_val_col)
-    if len(conditions) > 0:
-        stmt = stmt.where(or_(*conditions)).limit(1)
-        _logger.info(f'Running index value column validation query on table {tbl._display_str()}: {stmt}')
-        for row in conn.execute(stmt).all():
-            raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
-{row._asdict()}.
-This means that one of the indexes in table {tbl._display_str()} is corrupted, i.e. the index value out of sync with
-the actual value for a current row. The query was:
-{stmt}""")
-
-    # Validate that the index values are NULL for non-latest version rows
-    stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max < Table.MAX_VERSION)
-    conditions = []
-    for idx in tv.idxs.values():
-        index_val_col = getattr(sa_tbl.c, f'col_{idx.val_col.id}')
-        conditions.append(index_val_col != None)
-    if len(conditions) > 0:
-        stmt = stmt.where(or_(*conditions)).limit(1)
-        _logger.info(f'Running index value column validation query on table {tbl._display_str()}: {stmt}')
-        for row in conn.execute(stmt).all():
-            raise AssertionError(f"""The table validation query should have returned nothing, but it returned row:
-{row._asdict()}.
-This means that one of the indexes in table {tbl._display_str()} is corrupted, i.e. the index value is not NULL for
-a non-latest version row. The query was:
-{stmt}""")
