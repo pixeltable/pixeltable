@@ -204,8 +204,8 @@ def _validate_table(tbl: pxt.Table, conn: sql.Connection) -> None:
     conditions = []
     for idx in tv.idxs.values():
         if isinstance(idx.idx, btree.BtreeIndex):
-            col = getattr(sa_tbl.c, f'col_{idx.col.id}')
-            index_val_col = getattr(sa_tbl.c, f'col_{idx.val_col.id}')
+            col = sa_tbl.c[idx.col.store_name()]
+            index_val_col = sa_tbl.c[idx.val_col.store_name()]
             if idx.val_col.col_type.is_string_type():
                 conditions.append(sql.func.left(col, btree.BtreeIndex.MAX_STRING_LEN) != index_val_col)
             else:
@@ -224,7 +224,7 @@ the actual value for a current row. The query was:
     stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max < Table.MAX_VERSION)
     conditions = []
     for idx in tv.idxs.values():
-        index_val_col = getattr(sa_tbl.c, f'col_{idx.val_col.id}')
+        index_val_col = sa_tbl.c[idx.val_col.store_name()]
         conditions.append(index_val_col != None)
     if len(conditions) > 0:
         stmt = stmt.where(sql.or_(*conditions)).limit(1)
