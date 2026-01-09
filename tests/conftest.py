@@ -4,7 +4,7 @@ import os
 import pathlib
 import shutil
 import uuid
-from typing import Any, Callable, Generator
+from typing import Callable, Iterator
 
 import pytest
 import requests
@@ -391,7 +391,7 @@ def all_mpnet_embed() -> pxt.Function:
 
 
 @pytest.fixture(autouse=True)
-def validate_db_state_after_test(request: pytest.FixtureRequest) -> Generator[Any, Any, Any]:
+def validate_db_state_after_test(request: pytest.FixtureRequest) -> Iterator[None]:
     """Lists all tables and views created during the test, and runs validation queries on them."""
     if 'corrupts_db' in request.keywords:
         yield
