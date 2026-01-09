@@ -396,7 +396,7 @@ def vit_for_image_classification(
         {
             'scores': [top_k_probs[n, k].item() for k in range(top_k_probs.shape[1])],
             'labels': [top_k_indices[n, k].item() for k in range(top_k_probs.shape[1])],
-            'label_text': [model.config.id2label[top_k_indices[n, k].item()] for k in range(top_k_probs.shape[1])],
+            'label_text': [model.config.id2label[int(top_k_indices[n, k].item())] for k in range(top_k_probs.shape[1])],
         }
         for n in range(top_k_probs.shape[0])
     ]
@@ -450,7 +450,7 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
 
     model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
     processor = _lookup_processor(model_id, Speech2TextProcessor.from_pretrained)
-    tokenizer = processor.tokenizer
+    tokenizer = processor.tokenizer  # type: ignore[attr-defined]
     assert isinstance(processor, Speech2TextProcessor)
     assert isinstance(tokenizer, Speech2TextTokenizer)
 
@@ -1343,6 +1343,7 @@ def automatic_speech_recognition(
 
     # Try to load model and processor using direct model loading - following speech2text pattern
     # Handle different ASR model types
+    processor: Any
     if 'whisper' in model_id.lower():
         from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
