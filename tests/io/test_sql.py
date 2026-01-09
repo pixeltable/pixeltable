@@ -12,6 +12,11 @@ from pixeltable.io.sql import export_sql
 
 
 class TestSql:
+    """
+    TODO:
+    - test_export_snowflake(), analogous to test_export_sqlite()
+    """
+
     def create_test_data(self, num_rows: int = 10_000) -> tuple[pxt.Table, list[dict]]:
         """Create test table with all exportable column types."""
         t = pxt.create_table(
@@ -60,7 +65,7 @@ class TestSql:
         engine = sql.create_engine(connection_string)
 
         # Export full table
-        export_sql(t, 'test_table', connection_string=connection_string)
+        export_sql(t, 'test_table', db_connect_str=connection_string)
         self.validate_schema(
             engine,
             'test_table',
@@ -91,9 +96,7 @@ class TestSql:
             assert all(json.loads(row[8]) == rows[i]['c_json'] for i, row in enumerate(result))
 
         # Export subset of columns
-        export_sql(
-            t.select(t.c_int, t.c_string), 'test_table', connection_string=connection_string, if_exists='replace'
-        )
+        export_sql(t.select(t.c_int, t.c_string), 'test_table', db_connect_str=connection_string, if_exists='replace')
         with engine.connect() as conn:
             result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == len(rows)
@@ -102,7 +105,7 @@ class TestSql:
                 assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result)), col_name
 
         # Export subset of rows
-        export_sql(t.where(t.c_int < 10), 'test_table', connection_string=connection_string, if_exists='replace')
+        export_sql(t.where(t.c_int < 10), 'test_table', db_connect_str=connection_string, if_exists='replace')
         with engine.connect() as conn:
             result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == 10
@@ -113,7 +116,7 @@ class TestSql:
         engine = sql.create_engine(connection_string)
 
         # Export full table
-        export_sql(t, 'test_table', connection_string=connection_string)
+        export_sql(t, 'test_table', db_connect_str=connection_string)
         self.validate_schema(
             engine,
             'test_table',
@@ -140,15 +143,13 @@ class TestSql:
             # assert bytes(row[7]) == rows[i]['c_binary']
 
         # insert into the same table
-        export_sql(t, 'test_table', connection_string=connection_string, if_exists='insert')
+        export_sql(t, 'test_table', db_connect_str=connection_string, if_exists='insert')
         with engine.connect() as conn:
             result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == 2 * len(rows)
 
         # Export subset of columns
-        export_sql(
-            t.select(t.c_int, t.c_string), 'test_table', connection_string=connection_string, if_exists='replace'
-        )
+        export_sql(t.select(t.c_int, t.c_string), 'test_table', db_connect_str=connection_string, if_exists='replace')
         with engine.connect() as conn:
             result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == len(rows)
@@ -156,7 +157,7 @@ class TestSql:
                 assert all(row[col_idx] == rows[i][col_name] for i, row in enumerate(result)), col_name
 
         # Export subset of rows
-        export_sql(t.where(t.c_int < 10), 'test_table', connection_string=connection_string, if_exists='replace')
+        export_sql(t.where(t.c_int < 10), 'test_table', db_connect_str=connection_string, if_exists='replace')
         with engine.connect() as conn:
             result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == 10
@@ -167,22 +168,22 @@ class TestSql:
         # unsupported column type
         t_img = pxt.create_table('test_img', {'img': pxt.Image})
         with pytest.raises(pxt.Error, match='Cannot export column of type'):
-            export_sql(t_img, 'error_table', connection_string=connection_string)
+            export_sql(t_img, 'error_table', db_connect_str=connection_string)
 
         # table exists with if_exists='error'
         t, _ = self.create_test_data(10)
-        export_sql(t, 'existing_table', connection_string=connection_string)
+        export_sql(t, 'existing_table', db_connect_str=connection_string)
         with pytest.raises(pxt.Error, match='already exists'):
-            export_sql(t, 'existing_table', connection_string=connection_string, if_exists='error')
+            export_sql(t, 'existing_table', db_connect_str=connection_string, if_exists='error')
 
         # missing column in target table
         t2 = pxt.create_table('test2', {'c_int': pxt.Int, 'c_string': pxt.String, 'extra': pxt.Int})
         t2.insert([{'c_int': 1, 'c_string': 'a', 'extra': 100}])
         with pytest.raises(pxt.Error, match="Column 'extra' not in table"):
-            export_sql(t2, 'existing_table', connection_string=connection_string, if_exists='insert')
+            export_sql(t2, 'existing_table', db_connect_str=connection_string, if_exists='insert')
 
         # incompatible schema
         t3 = pxt.create_table('test3', {'c_int': pxt.Json})
         t3.insert([{'c_int': {'key': 'value'}}])
-        with pytest.raises(pxt.Error, match=r"column 'c_int' \(INTEGER\) is not compatible"):
-            export_sql(t3, 'existing_table', connection_string=connection_string, if_exists='insert')
+        with pytest.raises(pxt.Error, match=r"column 'c_int' of type INTEGER is not compatible"):
+            export_sql(t3, 'existing_table', db_connect_str=connection_string, if_exists='insert')
