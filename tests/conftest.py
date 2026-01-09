@@ -181,6 +181,7 @@ def uses_db_impl(init_env: None, request: pytest.FixtureRequest) -> Iterator[Non
     yield
 
     if 'corrupts_db' in request.keywords:
+        _logger.info('Skipping DB validation due to corrupts_db marker.')
         return
 
     # Run the validation
