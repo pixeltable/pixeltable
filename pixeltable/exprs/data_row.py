@@ -286,7 +286,9 @@ class DataRow:
         if self.vals[index] is not None and index in self.array_slot_idxs:
             assert isinstance(self.vals[index], np.ndarray)
             np_array = self.vals[index]
-            if sa_col_type is not None and isinstance(sa_col_type, pgvector.sqlalchemy.Vector):
+            if sa_col_type is not None and isinstance(
+                sa_col_type, (pgvector.sqlalchemy.Vector, pgvector.sqlalchemy.HALFVEC)
+            ):
                 return np_array
             buffer = io.BytesIO()
             np.save(buffer, np_array)
