@@ -68,7 +68,7 @@ jobs:
           path: ~/.pixeltable/random-ops.log
 
   performance-tests:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-perftest
     defaults:
       run:
         shell: bash -el {0}  # Needed for conda to work
