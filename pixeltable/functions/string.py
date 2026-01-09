@@ -818,7 +818,9 @@ def zfill(self: str, width: int) -> str:
     return self.zfill(width)
 
 
-def string_splitter(text: Any, separators: str) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
+def string_splitter(
+    text: Any, separators: str, *, spacy_model: str = 'en_core_web_sm'
+) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
     """Iterator over chunks of a string. The string is chunked according to the specified `separators`.
 
     The iterator yields a `text` field containing the text of the chunk.
@@ -826,6 +828,7 @@ def string_splitter(text: Any, separators: str) -> tuple[type[pxt.iterators.Comp
 
     Args:
         separators: separators to use to chunk the document. Currently the only supported option is `'sentence'`.
+        spacy_model: Name of the spaCy model to use for sentence segmentation.
 
     Examples:
         This example assumes an existing table `tbl` with a column `text` of type `pxt.String`.

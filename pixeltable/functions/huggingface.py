@@ -257,7 +257,7 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
 
     __Requirements:__
 
-    - `pip install torch transformers`
+    - `pip install torch transformers timm`
 
     Args:
         image: The image to segment.
@@ -294,6 +294,7 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
         ... ))
     """
     env.Env.get().require_package('transformers')
+    env.Env.get().require_package('timm')
     device = resolve_torch_device('auto')
     import torch
     from transformers import DetrForSegmentation, DetrImageProcessor
