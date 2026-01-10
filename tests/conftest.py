@@ -16,10 +16,10 @@ from sqlalchemy import orm, text
 
 import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
+from pixeltable.catalog import Catalog
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
-from pixeltable.index import btree
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
@@ -175,56 +175,7 @@ def reset_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
         return
 
     Env.get().user = None
-
-    # Run the validation
-    with Env.get().engine.connect() as conn:
-        for tbl_path in pxt.list_tables('', recursive=True):
-            tbl = pxt.get_table(tbl_path)
-            _validate_table(tbl, conn)
-
-
-def _validate_table(tbl: pxt.Table, conn: sql.Connection) -> None:
-    if tbl._tbl_version is None:
-        return
-    tv = tbl._tbl_version.get()
-    sa_tbl = tv.store_tbl.sa_tbl
-
-    # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
-    stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max == Table.MAX_VERSION)
-    conditions = []
-    for idx in tv.idxs.values():
-        if isinstance(idx.idx, btree.BtreeIndex):
-            col = sa_tbl.c[idx.col.store_name()]
-            index_val_col = sa_tbl.c[idx.val_col.store_name()]
-            if idx.val_col.col_type.is_string_type():
-                conditions.append(sql.func.left(col, btree.BtreeIndex.MAX_STRING_LEN) != index_val_col)
-            else:
-                conditions.append(col != index_val_col)
-    if len(conditions) > 0:
-        stmt = stmt.where(sql.or_(*conditions)).limit(1)
-        _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
-        for row in conn.execute(stmt).all():
-            raise AssertionError(
-                f'The table validation query should have returned nothing, but it returned row: {row._asdict()}.'
-                f' This means that one of the indexes in {tbl._display_str()} is corrupted, i.e. the index value'
-                f' out of sync with the actual value for a current row. The query was: {stmt}'
-            )
-
-    # Validate that the index values are NULL for non-latest version rows
-    stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max < Table.MAX_VERSION)
-    conditions = []
-    for idx in tv.idxs.values():
-        index_val_col = sa_tbl.c[idx.val_col.store_name()]
-        conditions.append(index_val_col != None)
-    if len(conditions) > 0:
-        stmt = stmt.where(sql.or_(*conditions)).limit(1)
-        _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
-        for row in conn.execute(stmt).all():
-            raise AssertionError(
-                'The table validation query should have returned nothing, but it returned row:'
-                f' {row._asdict()}. This means that one of the indexes in {tbl._display_str()} is corrupted, i.e.'
-                f' the index value is not NULL for a non-latest version row. The query was: {stmt}'
-            )
+    Catalog.validate_store()
 
 
 def _free_disk_space() -> None:
