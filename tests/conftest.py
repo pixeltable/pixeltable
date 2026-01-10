@@ -174,6 +174,8 @@ def reset_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
         _logger.info('Skipping DB validation due to corrupts_db marker.')
         return
 
+    Env.get().user = None
+
     # Run the validation
     with Env.get().engine.connect() as conn:
         for tbl_path in pxt.list_tables('', recursive=True):
