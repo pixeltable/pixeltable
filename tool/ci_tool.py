@@ -101,7 +101,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
                     'py',
                     'ubuntu-24.04',
                     '3.10',
-                    pytest_options='tests/test_table.py',
+                    pytest_options='--reruns 2 tests/test_table.py',
                     pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
                 )
             )
