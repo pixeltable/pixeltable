@@ -96,7 +96,7 @@ class TestVideo:
         res = view_t.where(view_t.video == url).collect()
         assert len(res) == len(all_rows[all_rows.url == url])
 
-    # Bug: pxt.create_view('invalid_args'..., actually creates a corrupted view in the catalog (despite raising
+    # Bug(PXT-842): pxt.create_view('invalid_args'..., actually creates a corrupted view in the catalog (despite raising
     # an error). That view causes a failure during the database validation.
     @pytest.mark.corrupts_db
     def test_fps(self, reset_db: None) -> None:
@@ -162,7 +162,7 @@ class TestVideo:
                         # Ensure we get the bitmap-identical frame
                         assert selected_frame == frames[pos]
 
-    # Bug: pxt.create_view('invalid'..., actually creates a corrupted view in the catalog (despite raising
+    # Bug(PXT-842): pxt.create_view('invalid'..., actually creates a corrupted view in the catalog (despite raising
     # an error). That view causes a failure during the database validation.
     @pytest.mark.corrupts_db
     def test_keyframes_only(self, reset_db: None) -> None:

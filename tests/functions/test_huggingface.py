@@ -213,7 +213,7 @@ class TestHuggingface:
         assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
 
     @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
-    # Bug: speech2text_for_conditional_generation declares a return type of str, but actually returns a list.
+    # Bug(PXT-944): speech2text_for_conditional_generation declares a return type of str, but actually returns a list.
     # That list is then inserted in a string column of the table. Btree index inserts the same value to the index value
     # column without truncating it to 256 characters because in s[: BtreeIndex.MAX_STRING_LEN], s is a list with
     # 1 element and not a string.
