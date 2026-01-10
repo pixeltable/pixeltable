@@ -1,5 +1,3 @@
-import pytest
-
 import pixeltable as pxt
 from pixeltable.catalog import Catalog
 from pixeltable.catalog.path import Path
