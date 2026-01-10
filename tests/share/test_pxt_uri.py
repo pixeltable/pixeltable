@@ -127,3 +127,21 @@ class TestPxtUri:
         uri_str = 'pxt://org_name/table:5'
         uri = PxtUri(uri_str)
         assert str(uri) == uri_str
+
+    def test_version(self) -> None:
+        """Test that negative version numbers in URI raise ValueError."""
+        with pytest.raises(ValueError, match='Version must be a non-negative integer'):
+            PxtUri('pxt://org_name/table:-1')
+        uri = PxtUri('pxt://org_name/table:0')
+        assert uri.version == 0
+        uri = PxtUri('pxt://org_name/table:42')
+        assert uri.version == 42
+
+    def test_version_in_from_components(self) -> None:
+        """Test that negative version numbers in from_components raise ValueError."""
+        with pytest.raises(ValueError, match='Version must be a non-negative integer'):
+            PxtUri.from_components('org_name', path='table', version=-12)
+        uri = PxtUri.from_components('org_name', path='table', version=0)
+        assert uri.version == 0
+        uri = PxtUri.from_components('org_name', path='table', version=10)
+        assert uri.version == 10
