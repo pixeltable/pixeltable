@@ -180,8 +180,6 @@ def reset_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
     with Env.get().engine.connect() as conn:
         for tbl_path in pxt.list_tables('', recursive=True):
             tbl = pxt.get_table(tbl_path)
-            if tbl._tbl_version is None:
-                continue
             _validate_table(tbl, conn)
 
 
