@@ -52,10 +52,10 @@ class TestPackager:
 
     def test_packager_with_views(self, test_tbl: pxt.Table) -> None:
         pxt.create_dir('test_dir')
-        pxt.create_dir('test_dir.subdir')
-        view = pxt.create_view('test_dir.subdir.test_view', test_tbl)
+        pxt.create_dir('test_dir/subdir')
+        view = pxt.create_view('test_dir/subdir/test_view', test_tbl)
         view.add_computed_column(vc2=(view.c2 + 1))
-        subview = pxt.create_view('test_dir.subdir.test_subview', view.where(view.c2 % 5 == 0))
+        subview = pxt.create_view('test_dir/subdir/test_subview', view.where(view.c2 % 5 == 0))
         subview.add_computed_column(vvc2=(subview.vc2 + 1))
         packager = TablePackager(subview)
         bundle_path = packager.package()
@@ -619,7 +619,7 @@ class TestPackager:
         # Check that test_tbl was instantiated as a system table
         assert pxt.list_tables() == ['view_replica']
         system_contents = pxt.globals._list_tables('_system', allow_system_paths=True)
-        assert len(system_contents) == 1 and system_contents[0].startswith('_system.replica_')
+        assert len(system_contents) == 1 and system_contents[0].startswith('_system/replica_')
 
         self.__restore_and_check_table(t_bundle, 'tbl_replica')
         # Check that test_tbl has been renamed to a user table
@@ -791,7 +791,7 @@ class TestPackager:
 
     def test_view_over_snapshot_round_trip(self, reset_db: None) -> None:
         pxt.create_dir('dir')
-        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+        t = pxt.create_table('dir/test_tbl', {'c1': pxt.Int})
 
         views: list[pxt.Table] = []
         bundles: list[TestPackager.BundleInfo] = []
@@ -800,8 +800,8 @@ class TestPackager:
         for i in range(5):
             t.insert(c1=i)
             t.add_computed_column(**{f'x{i}': t.c1 + i * 10})
-            snap = pxt.create_snapshot(f'dir.test_snap_{i}', t)
-            view = pxt.create_view(f'dir.test_view_{i}', snap)
+            snap = pxt.create_snapshot(f'dir/test_snap_{i}', t)
+            view = pxt.create_view(f'dir/test_view_{i}', snap)
             views.append(view)
 
         # Now modify each of the views.
