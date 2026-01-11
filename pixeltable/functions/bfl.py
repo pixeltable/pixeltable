@@ -12,6 +12,7 @@ import atexit
 import logging
 import re
 from io import BytesIO
+from collections.abc import Mapping
 from typing import Literal
 
 import aiohttp
@@ -55,7 +56,7 @@ class _BflClient:
         return aiohttp.ClientSession()
 
     @staticmethod
-    def _handle_rate_limit(headers: dict, context: str) -> BflRateLimitedError:
+    def _handle_rate_limit(headers: Mapping[str, str], context: str) -> BflRateLimitedError:
         """Handle 429 rate limit response and return appropriate error."""
         retry_after_seconds = None
         retry_after_header = headers.get('Retry-After')
