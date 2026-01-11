@@ -22,7 +22,7 @@ The following functions apply to tables, views, and snapshots.
 |----------------------------------|-----------------------------------------------------------------------|
 | Use an existing table            | t = [`pxt.get_table`][pixeltable.get_table]('video_data')             |
 | Rename a table                   | [`pxt.move`][pixeltable.move]('video_data', 'vd')                     |
-| Move a table                     | [`pxt.move`][pixeltable.move]('video_data', 'experiments.video_data') |
+| Move a table                     | [`pxt.move`][pixeltable.move]('video_data', 'experiments/video_data') |
 | Delete a table                   | [`pxt.drop_table`][pixeltable.drop_table]('video_data')               |
 | Delete a table and all its views | [`pxt.drop_table`][pixeltable.drop_table]('video_data', force=True)   |
 
@@ -31,7 +31,7 @@ The following functions apply to tables, views, and snapshots.
 | Task                                    | Code                                                                  |
 |-----------------------------------------|-----------------------------------------------------------------------|
 | Create a directory                      | [`pxt.create_dir`][pixeltable.create_dir]('experiments')              |
-| Rename or move a directory              | [`pxt.move`][pixeltable.move]('experiments', 'project_x.experiments') |
+| Rename or move a directory              | [`pxt.move`][pixeltable.move]('experiments', 'project_x/experiments') |
 | Delete a directory                      | [`pxt.drop_dir`][pixeltable.drop_dir]('experiments')                  |
 | Delete a directory and all its contents | [`pxt.drop_dir`][pixeltable.drop_dir]('experiments', force=True)      |
 | Get the contents of a directory         | [`pxt.get_dir_contents`][pixeltable.get_dir_contents]('experiments')  |
