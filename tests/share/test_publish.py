@@ -13,6 +13,8 @@ from tests.utils import (
 )
 
 
+# Bug(PXT-943): non-latest row versions have non-NULL index column values
+@pytest.mark.corrupts_db
 class TestPublish:
     @pytest.mark.parametrize('org_slug', ['pxt-test', 'pxt-test:main', 'pxt-test:my-db'])
     def test_publish_round_trip(self, reset_db: None, org_slug: str) -> None:
