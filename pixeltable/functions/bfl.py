@@ -54,6 +54,17 @@ class _BflClient:
         # Don't set base_url because polling_url and image URLs are absolute
         return aiohttp.ClientSession()
 
+    @staticmethod
+    def _handle_rate_limit(headers: dict, context: str) -> BflRateLimitedError:
+        """Handle 429 rate limit response and return appropriate error."""
+        retry_after_seconds = None
+        retry_after_header = headers.get('Retry-After')
+        if retry_after_header is not None and re.fullmatch(r'\d{1,2}', retry_after_header):
+            retry_after_seconds = int(retry_after_header)
+        _logger.info(f'{context} rate limited, retry after: {retry_after_header}')
+        # Error message formatted for RequestRateScheduler to extract the retry delay
+        return BflRateLimitedError(f'{context} rate limited (429). retry-after:{retry_after_seconds}')
+
     async def _submit_task(self, endpoint: str, *, payload: dict) -> tuple[str, str]:
         """Submit a generation task and return (task_id, polling_url)."""
         request_headers = {'x-key': self.api_key, 'Content-Type': 'application/json', 'Accept': 'application/json'}
@@ -71,18 +82,7 @@ class _BflClient:
                 case 402:
                     raise BflUnexpectedError('BFL API: insufficient credits. Please add credits to your account.')
                 case 429:
-                    # Try to honor the server-provided Retry-After value if present
-                    retry_after_seconds = None
-                    retry_after_header = resp.headers.get('Retry-After')
-                    if retry_after_header is not None and re.fullmatch(r'\d{1,2}', retry_after_header):
-                        retry_after_seconds = int(retry_after_header)
-                    _logger.info(
-                        f'BFL request failed due to rate limiting, retry after header value: {retry_after_header}'
-                    )
-                    # Error message formatted for RequestRateScheduler to extract the retry delay
-                    raise BflRateLimitedError(
-                        f'BFL request failed due to rate limiting (429). retry-after:{retry_after_seconds}'
-                    )
+                    raise self._handle_rate_limit(resp.headers, 'BFL request')
                 case _:
                     error_text = await resp.text()
                     _logger.info(f'BFL request failed with status code {resp.status}: {error_text}')
@@ -125,14 +125,7 @@ class _BflClient:
                                 await asyncio.sleep(poll_interval)
                                 elapsed += poll_interval
                     case 429:
-                        retry_after_seconds = None
-                        retry_after_header = resp.headers.get('Retry-After')
-                        if retry_after_header is not None and re.fullmatch(r'\d{1,2}', retry_after_header):
-                            retry_after_seconds = int(retry_after_header)
-                        _logger.info(f'BFL task {task_id} polling rate limited, retry after: {retry_after_header}')
-                        raise BflRateLimitedError(
-                            f'BFL task {task_id} polling rate limited (429). retry-after:{retry_after_seconds}'
-                        )
+                        raise self._handle_rate_limit(resp.headers, f'BFL task {task_id} polling')
                     case _:
                         error_text = await resp.text()
                         _logger.info(f'BFL task {task_id} polling failed with status {resp.status}: {error_text}')
@@ -207,16 +200,20 @@ async def generate(
         A generated PIL Image.
 
     Examples:
-        Add a computed column to generate images from prompts:
+        Generate images using default dimensions:
+
+        >>> t.add_computed_column(image=bfl.generate(t.prompt, model='flux-2-pro'))
+
+        Generate with custom dimensions:
 
         >>> t.add_computed_column(
         ...     image=bfl.generate(t.prompt, model='flux-2-pro', width=1920, height=1080)
         ... )
 
-        Generate a square image with specific seed for reproducibility:
+        Generate with specific seed for reproducibility:
 
         >>> t.add_computed_column(
-        ...     image=bfl.generate(t.prompt, model='flux-2-pro', seed=42, width=1024, height=1024)
+        ...     image=bfl.generate(t.prompt, model='flux-2-pro', seed=42)
         ... )
     """
     endpoint = f'/v1/{model}'
@@ -232,15 +229,10 @@ async def generate(
         payload['safety_tolerance'] = safety_tolerance
     if output_format is not None:
         payload['output_format'] = output_format
-
-    # flux-2-flex specific parameters
-    if model == 'flux-2-flex':
-        if steps is not None:
-            payload['steps'] = steps
-        if guidance is not None:
-            payload['guidance'] = guidance
-    elif steps is not None or guidance is not None:
-        _logger.warning(f'Parameters steps/guidance are only supported for flux-2-flex, ignoring for {model}')
+    if steps is not None:
+        payload['steps'] = steps
+    if guidance is not None:
+        payload['guidance'] = guidance
 
     return await _client().generate(endpoint, payload)
 
@@ -325,15 +317,10 @@ async def edit(
         payload['safety_tolerance'] = safety_tolerance
     if output_format is not None:
         payload['output_format'] = output_format
-
-    # flux-2-flex specific parameters
-    if model == 'flux-2-flex':
-        if steps is not None:
-            payload['steps'] = steps
-        if guidance is not None:
-            payload['guidance'] = guidance
-    elif steps is not None or guidance is not None:
-        _logger.warning(f'Parameters steps/guidance are only supported for flux-2-flex, ignoring for {model}')
+    if steps is not None:
+        payload['steps'] = steps
+    if guidance is not None:
+        payload['guidance'] = guidance
 
     return await _client().generate(endpoint, payload)
 
