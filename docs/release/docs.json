@@ -123,6 +123,7 @@
                     "group": "Images",
                     "pages": [
                       "howto/cookbooks/images/img-detect-objects",
+                      "howto/cookbooks/images/img-detection-vs-segmentation",
                       "howto/cookbooks/images/img-visualize-detections",
                       "howto/cookbooks/images/img-generate-captions",
                       "howto/cookbooks/images/img-image-to-image",
@@ -175,6 +176,7 @@
                       "howto/cookbooks/data/data-import-huggingface",
                       "howto/cookbooks/data/data-import-s3",
                       "howto/cookbooks/data/data-export-pytorch",
+                      "howto/cookbooks/data/data-export-sql",
                       "howto/cookbooks/data/data-sampling"
                     ]
                   }
