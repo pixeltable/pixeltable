@@ -165,7 +165,8 @@ _SAMPLE_LITERALS: dict[ts.ColumnType.Type, Any] = {
     ts.ColumnType.Type.INT: 1,
     ts.ColumnType.Type.FLOAT: 1.0,
     ts.ColumnType.Type.BOOL: True,
-    ts.ColumnType.Type.TIMESTAMP: datetime.datetime.now(tz=Env.get().default_time_zone),
+    # don't reference Env.default_time_zone here, Env may not be initialized yet
+    ts.ColumnType.Type.TIMESTAMP: datetime.datetime.now(tz=datetime.timezone.utc),
     ts.ColumnType.Type.DATE: datetime.date.today(),
     ts.ColumnType.Type.UUID: uuid.uuid4(),
     ts.ColumnType.Type.BINARY: b'test',
