@@ -18,6 +18,9 @@ env:
 
 jobs:
   random-ops:
+    strategy:
+      matrix:
+        options: [ '', '--read-only' ]
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -59,16 +62,16 @@ jobs:
           export VIRTUAL_ENV="$CONDA_PREFIX"
           ./scripts/retry.sh 3 60 uv sync --active --no-dev
       - name: Run stress tests
-        run: ./scripts/stress-tests.sh 12 18000
+        run: ./scripts/stress-tests.sh ${{ matrix.options }} 12 18000
       - name: Archive log files
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: random-ops-log
+          name: random-ops-log${{ matrix.options }}
           path: ~/.pixeltable/random-ops.log
 
   performance-tests:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-24.04-perftest
     defaults:
       run:
         shell: bash -el {0}  # Needed for conda to work

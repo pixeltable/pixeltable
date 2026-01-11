@@ -2,14 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import builtins
-import contextlib
 import datetime
 import glob
 import http.server
 import importlib
 import importlib.util
 import inspect
-import io
 import logging
 import math
 import os
@@ -25,7 +23,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
+from typing import Any, Callable, Iterator, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nest_asyncio  # type: ignore[import-untyped]
@@ -44,10 +42,6 @@ from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
 from pixeltable.utils.object_stores import ObjectPath
 from pixeltable.utils.sql import add_option_to_db_url
-
-if TYPE_CHECKING:
-    import spacy
-
 
 _logger = logging.getLogger('pixeltable')
 
@@ -83,7 +77,6 @@ class Env:
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
 
-    _spacy_nlp: spacy.Language | None
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
     _logger: logging.Logger
@@ -145,7 +138,6 @@ class Env:
         self._db_url = None
         self._default_time_zone = None
         self.__optional_packages = {}
-        self._spacy_nlp = None
         self._httpd = None
         self._http_address = None
         self._default_video_encoder = None
@@ -841,15 +833,15 @@ class Env:
         self.__register_package('boto3')
         self.__register_package('datasets')
         self.__register_package('diffusers')
-        self.__register_package('fiftyone')
-        self.__register_package('twelvelabs')
         self.__register_package('fal_client', library_name='fal-client')
+        self.__register_package('fiftyone')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
         self.__register_package('google.genai', library_name='google-genai')
         self.__register_package('groq')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
+        self.__register_package('lancedb')
         self.__register_package('librosa')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
         self.__register_package('markitdown')
@@ -863,22 +855,24 @@ class Env:
         self.__register_package('pydantic')
         self.__register_package('replicate')
         self.__register_package('reve')
+        self.__register_package('scenedetect')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
+        self.__register_package('snowflake.sqlalchemy', library_name='snowflake-sqlalchemy')
         self.__register_package('soundfile')
         self.__register_package('spacy')
         self.__register_package('tiktoken')
+        self.__register_package('timm')
         self.__register_package('together')
         self.__register_package('torch')
         self.__register_package('torchaudio')
         self.__register_package('torchvision')
         self.__register_package('transformers')
+        self.__register_package('twelvelabs')
         self.__register_package('voyageai')
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='pixeltable-yolox')
-        self.__register_package('lancedb')
-        self.__register_package('scenedetect')
 
     def __register_package(self, package_name: str, library_name: str | None = None) -> None:
         is_installed: bool
@@ -896,7 +890,9 @@ class Env:
         if not shutil.which(binary_name):
             raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
 
-    def require_package(self, package_name: str, min_version: list[int] | None = None) -> None:
+    def require_package(
+        self, package_name: str, min_version: list[int] | None = None, not_installed_msg: str | None = None
+    ) -> None:
         """
         Checks whether the specified optional package is available. If not, raises an exception
         with an error message informing the user how to install it.
@@ -912,9 +908,10 @@ class Env:
             package_info.is_installed = importlib.util.find_spec(package_name) is not None
             if not package_info.is_installed:
                 # Still not found.
+                if not_installed_msg is None:
+                    not_installed_msg = f'This feature requires the `{package_name}` package'
                 raise excs.Error(
-                    f'This feature requires the `{package_name}` package. To install it, run: '
-                    f'`pip install -U {package_info.library_name}`'
+                    f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`'
                 )
 
         if min_version is None:
@@ -981,38 +978,6 @@ class Env:
     def engine(self) -> sql.engine.base.Engine:
         assert self._sa_engine is not None
         return self._sa_engine
-
-    @property
-    def spacy_nlp(self) -> spacy.Language:
-        Env.get().require_package('spacy')
-        if self._spacy_nlp is None:
-            self.__init_spacy()
-        assert self._spacy_nlp is not None
-        return self._spacy_nlp
-
-    def __init_spacy(self) -> None:
-        """
-        spaCy relies on a pip-installed model to operate. In order to avoid requiring the model as a separate
-        dependency, we install it programmatically here. This should cause no problems, since the model packages
-        have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
-        """
-
-        import spacy
-        from spacy.cli.download import download
-
-        spacy_model = 'en_core_web_sm'
-        self._logger.info(f'Ensuring spaCy model is installed: {spacy_model}')
-
-        # prevent download() from hanging due to its progress bar, which conflicts with our use of Rich Progress
-        # TODO: get rid of spacy auto-download
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            download(spacy_model)
-
-        self._logger.info(f'Loading spaCy model: {spacy_model}')
-        try:
-            self._spacy_nlp = spacy.load(spacy_model)
-        except Exception as exc:
-            raise excs.Error(f'Failed to load spaCy model: {spacy_model}') from exc
 
     def _clean_up(self) -> None:
         """

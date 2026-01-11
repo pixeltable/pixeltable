@@ -146,7 +146,8 @@ dev = [
     "groq>=0.26.0",
     "boto3==1.36.23",
     "botocore==1.36.23",
-    "spacy>=3.8.7",
+    "spacy>=3.8.7,<3.9",
+    "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl",
     "sentencepiece>=0.2.0",
     "tiktoken>=0.9",
     "sentence-transformers~=4.0",
@@ -174,6 +175,8 @@ dev = [
     "voyageai>=0.3.5",
     "scenedetect>=0.6.0.1",
     "opentelemetry-exporter-otlp>=1.38.0",
+    "ipywidgets>=8.0.0",
+    "snowflake-sqlalchemy>=1.7.0",
 ]
 test = [
     "pytest>=8.4",
