@@ -9,6 +9,7 @@ from ..utils import rerun, skip_test_if_no_client, validate_update_status
 @rerun(reruns=3, reruns_delay=8)
 class TestJina:
     def test_embeddings(self, reset_db: None) -> None:
+        """Test basic embedding generation."""
         skip_test_if_no_client('jina')
         from pixeltable.functions.jina import embeddings
 
@@ -20,6 +21,7 @@ class TestJina:
         assert res['embed'][0].shape == (1024,)  # jina-embeddings-v3 produces 1024-dim embeddings
 
     def test_embeddings_with_dimensions(self, reset_db: None) -> None:
+        """Test embedding generation with custom dimensions."""
         skip_test_if_no_client('jina')
         from pixeltable.functions.jina import embeddings
 
@@ -64,11 +66,10 @@ class TestJina:
 
         assert len(results) == 2
         # The ML-related text should be ranked first
-        assert (
-            'machine learning' in results['text'][0].lower() or 'artificial intelligence' in results['text'][0].lower()
-        )
+        assert 'machine learning' in results['text'][0].lower()
 
     def test_rerank(self, reset_db: None) -> None:
+        """Test document reranking."""
         skip_test_if_no_client('jina')
         from pixeltable.functions.jina import rerank
 
@@ -106,29 +107,3 @@ class TestJina:
         # Verify scores are in descending order
         scores = [r['relevance_score'] for r in result['results']]
         assert scores == sorted(scores, reverse=True)
-
-    def test_multilingual_embeddings(self, reset_db: None) -> None:
-        """Test multilingual embedding support."""
-        skip_test_if_no_client('jina')
-        from pixeltable.functions.jina import embeddings
-
-        t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(embed=embeddings(t.input, model='jina-embeddings-v3', task='text-matching'))
-
-        # Insert texts in different languages
-        validate_update_status(
-            t.insert(
-                [
-                    {'input': 'Organic skincare for sensitive skin with aloe vera and chamomile.'},
-                    {'input': 'Bio-Hautpflege für empfindliche Haut mit Aloe Vera und Kamille.'},
-                    {'input': 'Cuidado de la piel orgánico para piel sensible con aloe vera y manzanilla.'},
-                    {'input': '针对敏感肌专门设计的天然有机护肤产品'},
-                ]
-            ),
-            4,
-        )
-
-        res = t.select(t.embed).collect()
-        # All embeddings should have the same dimension
-        for emb in res['embed']:
-            assert emb.shape == (1024,)

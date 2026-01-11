@@ -26,9 +26,7 @@ _embedding_dimensions_cache: dict[str, int] = {
     'jina-embeddings-v4': 2048,
     'jina-clip-v2': 1024,
     'jina-embeddings-v3': 1024,
-    'jina-colbert-v2': 128,  # ColBERT models return multi-vector, dimension per token
     'jina-clip-v1': 768,
-    'jina-colbert-v1-en': 128,
     'jina-embeddings-v2-base-es': 768,
     'jina-embeddings-v2-base-code': 768,
     'jina-embeddings-v2-base-de': 768,
@@ -103,13 +101,12 @@ def _client() -> _JinaClient:
 async def embeddings(
     input: Batch[str],
     *,
-    model: str = 'jina-embeddings-v3',
+    model: str,
     task: Literal['retrieval.query', 'retrieval.passage', 'separation', 'classification', 'text-matching']
     | None = None,
     dimensions: int | None = None,
     late_chunking: bool | None = None,
-    embedding_type: Literal['float', 'base64', 'binary', 'ubinary'] | None = None,
-) -> Batch[pxt.Array[(None,), pxt.Float]]:
+) -> Batch[pxt.Array[(None,), np.float32]]:
     """
     Creates embedding vectors for the input text using Jina AI embedding models.
 
@@ -125,15 +122,16 @@ async def embeddings(
         model: The Jina embedding model to use. See available models at
             <https://jina.ai/embeddings/>.
         task: Task-specific embedding optimization. Options:
+
             - `retrieval.query`: For search queries
             - `retrieval.passage`: For documents/passages to be searched
             - `separation`: For clustering/separation tasks
             - `classification`: For classification tasks
             - `text-matching`: For semantic similarity
-        dimensions: Output embedding dimensions. Model-dependent; check docs for valid values.
+
+        dimensions: Output embedding dimensions (optional). If not specified, uses
+            the model's default dimension.
         late_chunking: Enable late chunking for long documents.
-        embedding_type: Output format. Options: `float` (default), `base64`, `binary`, `ubinary`.
-            Only `float` is currently supported in Pixeltable.
 
     Returns:
         An array representing the embedding of `input`.
@@ -151,7 +149,7 @@ async def embeddings(
     """
     cl = _client()
 
-    payload: dict[str, Any] = {'model': model, 'input': list(input)}
+    payload: dict[str, Any] = {'model': model, 'input': input}
 
     if task is not None:
         payload['task'] = task
@@ -159,8 +157,6 @@ async def embeddings(
         payload['dimensions'] = dimensions
     if late_chunking is not None:
         payload['late_chunking'] = late_chunking
-    if embedding_type is not None:
-        payload['embedding_type'] = embedding_type
 
     result = await cl._post('/v1/embeddings', payload=payload)
 
@@ -168,18 +164,11 @@ async def embeddings(
     embeddings_list = result.get('data', [])
     # Sort by index to ensure correct order
     embeddings_list.sort(key=lambda x: x.get('index', 0))
-    return [np.array(item['embedding'], dtype=np.float64) for item in embeddings_list]
+    return [np.array(item['embedding'], dtype=np.float32) for item in embeddings_list]
 
 
 @embeddings.conditional_return_type
-def _(
-    model: str = 'jina-embeddings-v3',
-    task: Literal['retrieval.query', 'retrieval.passage', 'separation', 'classification', 'text-matching']
-    | None = None,
-    dimensions: int | None = None,
-    late_chunking: bool | None = None,
-    embedding_type: Literal['float', 'base64', 'binary', 'ubinary'] | None = None,
-) -> ts.ArrayType:
+def _(model: str, dimensions: int | None) -> ts.ArrayType:
     # If dimensions is explicitly specified, use it
     if dimensions is not None:
         return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
@@ -192,12 +181,7 @@ def _(
 
 @pxt.udf(resource_pool='request-rate:jina')
 async def rerank(
-    query: str,
-    documents: list[str],
-    *,
-    model: str = 'jina-reranker-v2-base-multilingual',
-    top_n: int | None = None,
-    return_documents: bool = False,
+    query: str, documents: list[str], *, model: str, top_n: int | None = None, return_documents: bool | None = None
 ) -> dict:
     """
     Reranks documents based on their relevance to a query using Jina AI reranker models.
@@ -237,15 +221,12 @@ async def rerank(
     """
     cl = _client()
 
-    payload: dict[str, Any] = {
-        'model': model,
-        'query': query,
-        'documents': documents,
-        'return_documents': return_documents,
-    }
+    payload: dict[str, Any] = {'model': model, 'query': query, 'documents': documents}
 
     if top_n is not None:
         payload['top_n'] = top_n
+    if return_documents is not None:
+        payload['return_documents'] = return_documents
 
     result = await cl._post('/v1/rerank', payload=payload)
 
@@ -254,7 +235,7 @@ async def rerank(
     formatted_results = []
     for r in results_list:
         item = {'index': r.get('index'), 'relevance_score': r.get('relevance_score')}
-        if return_documents and 'document' in r:
+        if return_documents is True and 'document' in r:
             doc = r['document']
             # Handle both string and dict formats from the API
             item['document'] = doc.get('text', doc) if isinstance(doc, dict) else doc
