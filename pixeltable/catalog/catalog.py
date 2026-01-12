@@ -2463,7 +2463,7 @@ class Catalog:
         sa_tbl = tv.store_tbl.sa_tbl
 
         # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
-        select_elements: list[sql_elements.SQLCoreOperations[Any] | Literal['*']] = ['*']
+        select_list: list[sql_elements.SQLCoreOperations[Any] | Literal['*']] = ['*']
         conditions: list[sql.ColumnExpressionArgument] = []
         for idx_info in tv.idxs.values():
             if isinstance(idx_info.idx, index.BtreeIndex):
@@ -2477,10 +2477,10 @@ class Catalog:
                     condition = idx_info.col.sa_col != idx_info.val_col.sa_col
                 conditions.append(condition)
                 select_label = f'idx_mismatch_{idx_info.name}'
-                select_elements.append(condition.label(select_label))
+                select_list.append(condition.label(select_label))
         if len(conditions) > 0:
             stmt = (
-                sql.select(*select_elements)
+                sql.select(*select_list)
                 .select_from(sa_tbl)
                 .where(sa_tbl.c.v_max == schema.Table.MAX_VERSION)
                 .where(sql.or_(*conditions))
@@ -2496,17 +2496,19 @@ class Catalog:
                 )
 
         # Validate that the index values are NULL for non-latest version rows
-        select_elements, conditions = [], []
+        select_list.clear()
+        select_list.append('*')
+        conditions.clear()
         for idx_info in tv.idxs.values():
             # condition is the invariant violation that we are checking for
             # add it to where clause, and also to select clause for easier debugging
             condition = idx_info.val_col.sa_col != None
             conditions.append(condition)
             select_label = f'idx_mismatch_{idx_info.name}'
-            select_elements.append(condition.label(select_label))
+            select_list.append(condition.label(select_label))
         if len(conditions) > 0:
             stmt = (
-                sql.select(*select_elements)
+                sql.select(*select_list)
                 .select_from(sa_tbl)
                 .where(sa_tbl.c.v_max < schema.Table.MAX_VERSION)
                 .where(sql.or_(*conditions))
