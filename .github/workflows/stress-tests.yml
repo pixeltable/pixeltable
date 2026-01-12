@@ -67,7 +67,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: random-ops-log
+          name: random-ops-log${{ matrix.options }}
           path: ~/.pixeltable/random-ops.log
 
   performance-tests:
