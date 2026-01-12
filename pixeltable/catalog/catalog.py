@@ -8,12 +8,13 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypeVar
 from uuid import UUID
 
 import psycopg
 import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
+from sqlalchemy.sql import elements as sql_elements
 
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
@@ -2462,37 +2463,58 @@ class Catalog:
         sa_tbl = tv.store_tbl.sa_tbl
 
         # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
-        stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max == schema.Table.MAX_VERSION)
+        select_elements: list[sql_elements.SQLCoreOperations[Any] | Literal['*']] = ['*']
         conditions: list[sql.ColumnExpressionArgument] = []
         for idx_info in tv.idxs.values():
             if isinstance(idx_info.idx, BtreeIndex):
+                # condition is the invariant violation that we are checking for
+                # add it to where clause, and also to select clause for easier debugging
                 if idx_info.val_col.col_type.is_string_type():
-                    conditions.append(
-                        sql.func.left(idx_info.col.sa_col, BtreeIndex.MAX_STRING_LEN) != idx_info.val_col.sa_col
-                    )
+                    condition = sql.func.left(idx_info.col.sa_col, BtreeIndex.MAX_STRING_LEN) != idx_info.val_col.sa_col
                 else:
-                    conditions.append(idx_info.col.sa_col != idx_info.val_col.sa_col)
+                    condition = idx_info.col.sa_col != idx_info.val_col.sa_col
+                conditions.append(condition)
+                select_label = f'idx_mismatch_{idx_info.name}'
+                select_elements.append(condition.label(select_label))
         if len(conditions) > 0:
-            stmt = stmt.where(sql.or_(*conditions)).limit(1)
+            stmt = (
+                sql.select(*select_elements)
+                .select_from(sa_tbl)
+                .where(sa_tbl.c.v_max == schema.Table.MAX_VERSION)
+                .where(sql.or_(*conditions))
+                .limit(1)
+            )
             _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
             for row in Env.get().conn.execute(stmt).all():
                 raise AssertionError(
-                    f'The table validation query should have returned nothing, but it returned row: {row._asdict()}.'
-                    f' This means that one of the indexes in {tbl._display_str()} is corrupted, i.e. the index value'
-                    f' out of sync with the actual value for a current row. The query was: {stmt}'
+                    f'The table validation query should have returned nothing, but it returned row: {row._asdict()}.\n'
+                    f'This means that one of the indexes in {tbl._display_str()} is corrupted, i.e. the index value '
+                    'is out of sync with the actual value for a current row. Look for idx_mismatch_*. The query was:\n'
+                    f'{stmt}'
                 )
 
         # Validate that the index values are NULL for non-latest version rows
-        stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max < schema.Table.MAX_VERSION)
-        conditions = []
+        select_elements, conditions = [], []
         for idx_info in tv.idxs.values():
-            conditions.append(idx_info.val_col.sa_col != None)
+            # condition is the invariant violation that we are checking for
+            # add it to where clause, and also to select clause for easier debugging
+            condition = idx_info.val_col.sa_col != None
+            conditions.append(condition)
+            select_label = f'idx_mismatch_{idx_info.name}'
+            select_elements.append(condition.label(select_label))
         if len(conditions) > 0:
-            stmt = stmt.where(sql.or_(*conditions)).limit(1)
+            stmt = (
+                sql.select(*select_elements)
+                .select_from(sa_tbl)
+                .where(sa_tbl.c.v_max < schema.Table.MAX_VERSION)
+                .where(sql.or_(*conditions))
+                .limit(1)
+            )
             _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
             for row in Env.get().conn.execute(stmt).all():
                 raise AssertionError(
-                    'The table validation query should have returned nothing, but it returned row:'
-                    f' {row._asdict()}. This means that one of the indexes in {tbl._display_str()} is corrupted, i.e.'
-                    f' the index value is not NULL for a non-latest version row. The query was: {stmt}'
+                    'The table validation query should have returned nothing, but it returned row: '
+                    f'{row._asdict()}.\nThis means that one of the indexes in {tbl._display_str()} is corrupted, i.e. '
+                    'the index value is not NULL for a non-latest version row. Look for idx_mismatch_*. '
+                    f'The query was:\n{stmt}'
                 )
