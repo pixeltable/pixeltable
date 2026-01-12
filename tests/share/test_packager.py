@@ -7,9 +7,10 @@ import tarfile
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import numpy as np
+import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import pyarrow.parquet as pq
 import pytest
 import sqlalchemy as sql
@@ -298,11 +299,11 @@ class TestPackager:
                     for result in Env.get().conn.execute(q).fetchall():
                         v_min, v_max, val, undo = result
                         if v_min <= head_version and v_max > head_version:
-                            assert val is None or isinstance(val, np.ndarray)
+                            assert val is None or isinstance(val, (np.ndarray, pgvector.sqlalchemy.HalfVector))
                             assert undo is None
                         else:
                             assert val is None
-                            assert undo is None or isinstance(undo, np.ndarray)
+                            assert undo is None or isinstance(undo, (np.ndarray, pgvector.sqlalchemy.HalfVector))
                         if val is not None:
                             val_count += 1
                         if undo is not None:
@@ -819,23 +820,29 @@ class TestPackager:
         for i in (3, 0, 1, 4, 2):
             self.__restore_and_check_table(bundles[i], f'replica_view_{i}')
 
-    def test_embedding_index(self, reset_db: None, clip_embed: pxt.Function) -> None:
+    @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
+    def test_embedding_index(
+        self, reset_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
+    ) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP
 
         t = pxt.create_table('tbl', {'image': pxt.Image})
         images = get_image_files()[:10]
         t.insert({'image': image} for image in images)
-        t.add_embedding_index('image', embedding=clip_embed)
+        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)
 
         self.__do_round_trip(t)
 
-    def test_multi_version_embedding_index(self, reset_db: None, clip_embed: pxt.Function) -> None:
+    @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
+    def test_multi_version_embedding_index(
+        self, reset_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
+    ) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP
 
         t = pxt.create_table('tbl', {'id': pxt.Int, 'image': pxt.Image})
         images = get_image_files()
         t.insert({'id': i, 'image': image} for i, image in enumerate(images[:10]))
-        t.add_embedding_index('image', embedding=clip_embed)
+        t.add_embedding_index('image', embedding=clip_embed, precision=embedding_precision)
         bundle1 = self.__package_table(t)
         sim_1 = t.image.similarity(string=images[25])
         sim_results_1 = t.select(t.id, sim_1).order_by(sim_1, asc=False).limit(5).collect()
