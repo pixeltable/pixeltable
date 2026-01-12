@@ -259,11 +259,14 @@ class Column:
         )
         return len(window_fn_calls) > 0
 
+    def has_sa_vector_type(self) -> bool:
+        """Returns True if this column is a pgvector Vector or Halfvec."""
+        return isinstance(self.sa_col_type, (pgvector.sqlalchemy.Vector, pgvector.sqlalchemy.HALFVEC))
+
     def stores_external_array(self) -> bool:
         """Returns True if this is an Array column that might store its values externally."""
-        assert self.sa_col_type is not None
         # Vector: if this is a vector column (ie, used for a vector index), it stores the array itself
-        return self.col_type.is_array_type() and not isinstance(self.sa_col_type, pgvector.sqlalchemy.Vector)
+        return self.col_type.is_array_type() and not self.has_sa_vector_type()
 
     @property
     def is_computed(self) -> bool:

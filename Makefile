@@ -80,9 +80,10 @@ endif
 	@python -m pip install -qU pip
 	@python -m pip install -q uv==0.9.3
 	@echo 'Installing conda packages ...'
-	@conda install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' quarto nodejs lychee
+	@if ! which mamba >/dev/null 2>&1; then conda install -q -y -c conda-forge mamba; fi
+	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' quarto nodejs lychee
 	@echo 'Installing mintlify ...'
-	@npm install --silent -g @mintlify/cli
+	@if ! which mint >/dev/null 2>&1; then npm install --silent -g @mintlify/cli; fi
 	@echo 'Fixing quarto conda packaging bugs ...'
 	@mkdir -p $(CONDA_PREFIX)/bin/tools/aarch64 2>/dev/null || true
 	@ln -sf $(CONDA_PREFIX)/bin/deno $(CONDA_PREFIX)/bin/tools/aarch64/deno 2>/dev/null || true
