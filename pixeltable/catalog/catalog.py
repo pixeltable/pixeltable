@@ -2463,7 +2463,7 @@ class Catalog:
 
         # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
         stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max == schema.Table.MAX_VERSION)
-        conditions = []
+        conditions: list[sql.ColumnExpressionArgument] = []
         for idx in tv.idxs.values():
             if isinstance(idx.idx, BtreeIndex):
                 col = sa_tbl.c[idx.col.store_name()]
