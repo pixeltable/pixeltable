@@ -2464,11 +2464,11 @@ class Catalog:
         # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
         stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max == schema.Table.MAX_VERSION)
         conditions: list[sql.ColumnExpressionArgument] = []
-        for idx in tv.idxs.values():
-            if isinstance(idx.idx, BtreeIndex):
-                col = sa_tbl.c[idx.col.store_name()]
-                index_val_col = sa_tbl.c[idx.val_col.store_name()]
-                if idx.val_col.col_type.is_string_type():
+        for idx_info in tv.idxs.values():
+            if isinstance(idx_info.idx, BtreeIndex):
+                col = sa_tbl.c[idx_info.col.store_name()]
+                index_val_col = sa_tbl.c[idx_info.val_col.store_name()]
+                if idx_info.val_col.col_type.is_string_type():
                     conditions.append(sql.func.left(col, BtreeIndex.MAX_STRING_LEN) != index_val_col)
                 else:
                     conditions.append(col != index_val_col)
@@ -2485,8 +2485,8 @@ class Catalog:
         # Validate that the index values are NULL for non-latest version rows
         stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max < schema.Table.MAX_VERSION)
         conditions = []
-        for idx in tv.idxs.values():
-            index_val_col = sa_tbl.c[idx.val_col.store_name()]
+        for idx_info in tv.idxs.values():
+            index_val_col = sa_tbl.c[idx_info.val_col.store_name()]
             conditions.append(index_val_col != None)
         if len(conditions) > 0:
             stmt = stmt.where(sql.or_(*conditions)).limit(1)
