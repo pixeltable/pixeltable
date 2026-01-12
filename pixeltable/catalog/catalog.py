@@ -21,7 +21,6 @@ from pixeltable.env import Env
 from pixeltable.index import btree
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
-from pixeltable.metadata.schema import Table as SchemaTable
 from pixeltable.utils.exception_handler import run_cleanup
 
 from .column import Column
@@ -2463,7 +2462,7 @@ class Catalog:
         sa_tbl = tv.store_tbl.sa_tbl
 
         # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
-        stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max == SchemaTable.MAX_VERSION)
+        stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max == schema.Table.MAX_VERSION)
         conditions = []
         for idx in tv.idxs.values():
             if isinstance(idx.idx, btree.BtreeIndex):
@@ -2484,7 +2483,7 @@ class Catalog:
                 )
 
         # Validate that the index values are NULL for non-latest version rows
-        stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max < SchemaTable.MAX_VERSION)
+        stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max < schema.Table.MAX_VERSION)
         conditions = []
         for idx in tv.idxs.values():
             index_val_col = sa_tbl.c[idx.val_col.store_name()]
