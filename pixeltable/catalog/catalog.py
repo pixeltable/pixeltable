@@ -28,7 +28,7 @@ from .column import Column
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
-from .path import Path
+from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
@@ -2442,18 +2442,21 @@ class Catalog:
             self._drop_tbl(obj, force=if_exists == IfExistsParam.REPLACE_FORCE, is_replace=True)
         return None
 
-    @classmethod
-    def validate_store(cls) -> None:
+    def validate_store(self) -> None:
         """Validate the underlying store for testing purposes.
         This function can and should be extended to perform more checks.
         """
-        with Env.get().engine.connect() as conn:
-            for tbl_path in pxt.list_tables('', recursive=True):
-                tbl = pxt.get_table(tbl_path)
-                cls._validate_table(tbl, conn)
+        with Env.get().begin_xact(for_write=False):
+            all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
+            for entry in all_contents.values():
+                if entry.table is None:
+                    continue
+                id = entry.table.id
+                tbl = self.get_table_by_id(id)
+                assert tbl is not None, id
+                self._validate_table(tbl)
 
-    @classmethod
-    def _validate_table(cls, tbl: pxt.Table, conn: sql.Connection) -> None:
+    def _validate_table(self, tbl: pxt.Table) -> None:
         if tbl._tbl_version is None:
             return
         tv = tbl._tbl_version.get()
@@ -2473,7 +2476,7 @@ class Catalog:
         if len(conditions) > 0:
             stmt = stmt.where(sql.or_(*conditions)).limit(1)
             _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
-            for row in conn.execute(stmt).all():
+            for row in Env.get().conn.execute(stmt).all():
                 raise AssertionError(
                     f'The table validation query should have returned nothing, but it returned row: {row._asdict()}.'
                     f' This means that one of the indexes in {tbl._display_str()} is corrupted, i.e. the index value'
@@ -2489,7 +2492,7 @@ class Catalog:
         if len(conditions) > 0:
             stmt = stmt.where(sql.or_(*conditions)).limit(1)
             _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
-            for row in conn.execute(stmt).all():
+            for row in Env.get().conn.execute(stmt).all():
                 raise AssertionError(
                     'The table validation query should have returned nothing, but it returned row:'
                     f' {row._asdict()}. This means that one of the indexes in {tbl._display_str()} is corrupted, i.e.'

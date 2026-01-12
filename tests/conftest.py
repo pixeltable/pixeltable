@@ -177,7 +177,7 @@ def reset_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
         return
 
     Env.get().user = None
-    Catalog.validate_store()
+    Catalog.get().validate_store()
 
 
 def _free_disk_space() -> None:
