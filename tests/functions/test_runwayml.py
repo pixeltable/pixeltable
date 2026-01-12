@@ -69,9 +69,7 @@ class TestRunwayML:
         # Required parameters only
         t.add_computed_column(output_required=text_to_video(t.prompt, 'veo3.1', '1280:720'))
         # Required + optional parameters
-        t.add_computed_column(
-            output_optional=text_to_video(t.prompt, 'veo3.1', '1280:720', duration=5, audio=True)
-        )
+        t.add_computed_column(output_optional=text_to_video(t.prompt, 'veo3.1', '1280:720', duration=5, audio=True))
 
     def test_video_to_video_signatures(self, reset_db: None) -> None:
         """Test video_to_video with required-only and required+optional parameters."""
@@ -81,9 +79,7 @@ class TestRunwayML:
         # Required parameters only
         t.add_computed_column(output_required=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720'))
         # Required + optional parameters
-        t.add_computed_column(
-            output_optional=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720', seed=42)
-        )
+        t.add_computed_column(output_optional=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720', seed=42))
 
     def test_image_to_video(self, reset_db: None) -> None:
         skip_test_if_not_installed('runwayml')
