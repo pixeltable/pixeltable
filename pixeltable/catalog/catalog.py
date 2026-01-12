@@ -15,10 +15,9 @@ import psycopg
 import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
 
-import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
-from pixeltable.index import btree
+from pixeltable.index.btree import BtreeIndex
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup
@@ -38,6 +37,7 @@ from .update_status import UpdateStatus
 from .view import View
 
 if TYPE_CHECKING:
+    import pixeltable as pxt
     from pixeltable.plan import SampleClause
 
     from .. import exprs
@@ -2465,11 +2465,11 @@ class Catalog:
         stmt = sql.select('*').select_from(sa_tbl).where(sa_tbl.c.v_max == schema.Table.MAX_VERSION)
         conditions = []
         for idx in tv.idxs.values():
-            if isinstance(idx.idx, btree.BtreeIndex):
+            if isinstance(idx.idx, BtreeIndex):
                 col = sa_tbl.c[idx.col.store_name()]
                 index_val_col = sa_tbl.c[idx.val_col.store_name()]
                 if idx.val_col.col_type.is_string_type():
-                    conditions.append(sql.func.left(col, btree.BtreeIndex.MAX_STRING_LEN) != index_val_col)
+                    conditions.append(sql.func.left(col, BtreeIndex.MAX_STRING_LEN) != index_val_col)
                 else:
                     conditions.append(col != index_val_col)
         if len(conditions) > 0:
