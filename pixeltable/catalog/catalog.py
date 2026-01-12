@@ -16,9 +16,9 @@ import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
 from sqlalchemy.sql import elements as sql_elements
 
+import pixeltable.index as index
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
-from pixeltable.index.btree import BtreeIndex
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup
@@ -2466,11 +2466,13 @@ class Catalog:
         select_elements: list[sql_elements.SQLCoreOperations[Any] | Literal['*']] = ['*']
         conditions: list[sql.ColumnExpressionArgument] = []
         for idx_info in tv.idxs.values():
-            if isinstance(idx_info.idx, BtreeIndex):
+            if isinstance(idx_info.idx, index.BtreeIndex):
                 # condition is the invariant violation that we are checking for
                 # add it to where clause, and also to select clause for easier debugging
                 if idx_info.val_col.col_type.is_string_type():
-                    condition = sql.func.left(idx_info.col.sa_col, BtreeIndex.MAX_STRING_LEN) != idx_info.val_col.sa_col
+                    condition = (
+                        sql.func.left(idx_info.col.sa_col, index.BtreeIndex.MAX_STRING_LEN) != idx_info.val_col.sa_col
+                    )
                 else:
                     condition = idx_info.col.sa_col != idx_info.val_col.sa_col
                 conditions.append(condition)
