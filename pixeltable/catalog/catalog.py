@@ -2445,8 +2445,8 @@ class Catalog:
         """Validate the underlying store for testing purposes.
         This function can and should be extended to perform more checks.
         """
+        all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
         with Env.get().begin_xact(for_write=False):
-            all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
             for entry in all_contents.values():
                 if entry.table is None:
                     continue
