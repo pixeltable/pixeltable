@@ -11,17 +11,17 @@ if [ "$1" = "check" ]; then
     # Find all notebooks, send them to nbqa mdformat to make a diff. Fail if the output has more than 3 lines
     # (otherwise that's just some nice message that nbqa prints when the diff is empty)
     echo "find..."
-    find . -type f -name "*.ipynb"
+    find . -type f -name "*.ipynb" | grep -v .ipynb_checkpoints
     echo "nbqa..."
-    nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells --nbqa-diff ./docs/notebooks/.ipynb_checkpoints/pixeltable-basics-checkpoint.ipynb
+    nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells --nbqa-diff ./docs/release/howto/cookbooks/data/data-sampling.ipynb
     echo "awk..."
     echo 'hello' | awk 'END {exit 0}'
     echo "putting it all together..."
-    find . -type f -name "*.ipynb" | xargs nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells --nbqa-diff | awk 'END {exit (NR > 3 ? 1 : 0)}'
+    find . -type f -name "*.ipynb" | grep -v .ipynb_checkpoints | xargs nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells --nbqa-diff | awk 'END {exit (NR > 3 ? 1 : 0)}'
 
 elif [ "$1" = "format" ]; then
     echo "Running format..."
-    find . -type f -name "*.ipynb" | xargs nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells
+    find . -type f -name "*.ipynb" | grep -v .ipynb_checkpoints | xargs nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells
 
 else
     echo "Error: Invalid command '$1'"
