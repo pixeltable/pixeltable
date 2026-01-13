@@ -64,6 +64,53 @@ already have standard developer tools such as `git` and `make` installed on your
 
 We recommend VSCode for development: <https://code.visualstudio.com/>
 
+## Building and Serving Documentation Locally
+
+Pixeltable uses [Mintlify](https://mintlify.com) for documentation. If you're contributing to the docs, you may want to build and preview them locally before submitting a PR.
+
+### Prerequisites and Installation
+
+#### 1. Install Node.js
+
+You'll need Node.js version 19 or higher. If you don't already have it installed:
+
+* **macOS/Linux**: We recommend using [nvm (Node Version Manager)](https://github.com/nvm-sh/nvm):
+
+    ```bash
+    # Install nvm
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+    
+    # Install Node.js (version 20 or later)
+    nvm install 20
+    nvm use 20
+    ```
+
+* **Windows**: Download and install from [nodejs.org](https://nodejs.org/)
+
+* Verify your installation:
+
+    ```bash
+    node --version  # Should show v19.0.0 or higher
+    ```
+
+#### 2. Install Mintlify CLI
+
+Once Node.js is installed, install the Mintlify CLI globally using npm (you only need to do this once):
+
+```bash
+npm install -g mintlify
+```
+
+### Working with the Docs
+
+Once you have Mintlify installed, use these Makefile commands to work with the documentation:
+
+* `make` - Print Makefile help with all available commands
+* `make docs` - Build the docs locally
+* `make docs-serve` - Build the docs locally, start a local Mintlify server, and open a browser tab
+
+The `make docs-serve` command will automatically open your browser to `http://localhost:3000` where you can preview your changes. Any changes you make to your documentation files will be reflected in real-time in your browser.
+
 ## Crafting a pull request
 
 Once you've set up your dev environment, you're ready to start contributing PRs.
@@ -85,6 +132,9 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
         eventually gets merged to `main`.
     * Use `make format` to format your Python code, and `make check` for static checks. These checks are
         enforced by CI during pull request.
+    * If you're updating documentation, use `make docs-serve` to preview your changes locally before submitting
+        your PR (requires Node.js and Mintlify CLI installation - see "Building and Serving Documentation Locally"
+        section above).
 
 3. Create a pull request
 
