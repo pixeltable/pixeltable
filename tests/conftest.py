@@ -4,7 +4,7 @@ import os
 import pathlib
 import shutil
 import uuid
-from typing import Callable
+from typing import Callable, Iterator
 
 import pytest
 import requests
@@ -16,6 +16,7 @@ from sqlalchemy import orm, text
 
 import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
+from pixeltable.catalog import Catalog
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
@@ -155,8 +156,10 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
 
 
 @pytest.fixture(scope='function')
-def reset_db(init_env: None) -> None:
-    """Reset database state between tests."""
+def reset_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
+    """Fixture for tests that interact with the database (PosgreSQL or CockroachDB).
+    Cleans up the database before the test, and validates it after the test.
+    """
     # Clean the DB *before* reloading. This is because some tests
     # (such as test_migration.py) may leave the DB in a broken state.
     clean_db()
@@ -166,6 +169,15 @@ def reset_db(init_env: None) -> None:
     reload_catalog()
     FileCache.get().validate()
     FileCache.get().set_capacity(10 << 30)  # 10 GiB
+
+    yield
+
+    if 'corrupts_db' in request.keywords:
+        _logger.info('Skipping DB validation due to corrupts_db marker.')
+        return
+
+    Env.get().user = None
+    Catalog.get().validate_store()
 
 
 def _free_disk_space() -> None:
