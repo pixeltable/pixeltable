@@ -2463,6 +2463,23 @@ class Catalog:
         sa_tbl = tv.store_tbl.sa_tbl
 
         # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
+        # Example query:
+        # SELECT *,
+        #        tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_0 !=
+        #        tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_3 AS idx_mismatch_idx0,
+        #        LEFT(tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_1, 256) !=
+        #        tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_5 AS idx_mismatch_idx1,
+        #        LEFT(tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_2, 256) !=
+        #        tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_7 AS idx_mismatch_idx2
+        # FROM   tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2
+        # WHERE  tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.v_max = 9223372036854775807
+        #        AND ( tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_0 !=
+        #                    tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_3
+        #               OR LEFT(tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_1, 256) !=
+        #                  tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_5
+        #               OR LEFT(tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_2, 256) !=
+        #                  tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_7 )
+        # LIMIT 1;
         select_list: list[sql_elements.SQLCoreOperations[Any] | Literal['*']] = ['*']
         conditions: list[sql.ColumnExpressionArgument] = []
         for idx_info in tv.idxs.values():
@@ -2496,6 +2513,26 @@ class Catalog:
                 )
 
         # Validate that the index values are NULL for non-latest version rows
+        # Example query:
+        # SELECT *,
+        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_3 IS NOT NULL  AS
+        #        idx_not_null_idx0,
+        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_5 IS NOT NULL  AS
+        #        idx_not_null_idx1,
+        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_7 IS NOT NULL  AS
+        #        idx_not_null_idx2,
+        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_11 IS NOT NULL AS
+        #        idx_not_null_img_idx2,
+        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_13 IS NOT NULL AS
+        #        idx_not_null_img_idx1
+        # FROM   tbl_1d7bb633b5be4c57bd9070707ca4c552
+        # WHERE  tbl_1d7bb633b5be4c57bd9070707ca4c552.v_max < 9223372036854775807
+        #        AND ( tbl_1d7bb633b5be4c57bd9070707ca4c552.col_3 IS NOT NULL
+        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_5 IS NOT NULL
+        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_7 IS NOT NULL
+        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_11 IS NOT NULL
+        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_13 IS NOT NULL )
+        # LIMIT 1;
         select_list.clear()
         select_list.append('*')
         conditions.clear()
@@ -2504,7 +2541,7 @@ class Catalog:
             # add it to where clause, and also to select clause for easier debugging
             condition = idx_info.val_col.sa_col != None
             conditions.append(condition)
-            select_label = f'idx_mismatch_{idx_info.name}'
+            select_label = f'idx_not_null_{idx_info.name}'
             select_list.append(condition.label(select_label))
         if len(conditions) > 0:
             stmt = (
@@ -2519,6 +2556,6 @@ class Catalog:
                 raise AssertionError(
                     'The table validation query should have returned nothing, but it returned row: '
                     f'{row._asdict()}.\nThis means that one of the indexes in {tbl._display_str()} is corrupted, i.e. '
-                    'the index value is not NULL for a non-latest version row. Look for idx_mismatch_*. '
+                    'the index value is not NULL for a non-latest version row. Look for idx_not_null_*. '
                     f'The query was:\n{stmt}'
                 )
