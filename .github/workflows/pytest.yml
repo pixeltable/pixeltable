@@ -234,7 +234,6 @@ jobs:
       - name: Notebook lint
         if: ${{ matrix.test-category == 'lint' }}
         run: |
-          python -m pip install nbqa mdformat
           ./scripts/notebooks-markdown.sh check
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
