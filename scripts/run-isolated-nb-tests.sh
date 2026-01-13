@@ -20,7 +20,7 @@ eval "$(conda shell.bash hook)"
 export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
 
-"$SCRIPT_DIR/prepare-nb-tests.sh" "$TEST_PATH" docs/notebooks
+"$SCRIPT_DIR/prepare-nb-tests.sh" "$TEST_PATH" docs/release
 rm -f "$TEST_PATH"/audio-transcriptions.ipynb  # temporary workaround
 
 NB_CONDA_ENV=nb-test-env
@@ -35,6 +35,9 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Activating conda environment ..."
     conda activate "$NB_CONDA_ENV"
     conda info
+
+    echo "Installing ffmpeg ..."
+    conda install -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
 
     echo "Installing pytest ..."
     pip install -qU pip

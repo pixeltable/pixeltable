@@ -89,6 +89,8 @@ class TestDocument:
             elif extension == '.txt':
                 assert handle.format == ts.DocumentType.DocumentFormat.TXT, path
                 assert handle.txt_doc is not None, path
+            elif extension in ('.pptx', '.docx', '.xlsx'):
+                assert handle.md_ast is not None, path
             else:
                 raise AssertionError(f'Unexpected extension {extension}, add corresponding check')
 
@@ -140,10 +142,20 @@ class TestDocument:
         with pytest.raises(pxt.Error, match=r'not currently supported.+contact us'):
             t.insert(doc=pdf_file)
 
+        # Error message will depend on which dependencies are installed.
+        with pytest.raises(
+            pxt.Error,
+            match=r"This feature requires the `spacy` package|Failed to locate spaCy model 'not_a_spacy_model'",
+        ):
+            _ = pxt.create_view(
+                'chunks', t, iterator=document_splitter(t.doc, separators='sentence', spacy_model='not_a_spacy_model')
+            )
+
     @pytest.mark.parametrize('pdf', [True, False], ids=['pdf_docs', 'non_pdf_docs'])
     def test_doc_splitter(self, pdf: bool, reset_db: None) -> None:
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('spacy')
+        skip_test_if_not_installed('markitdown')
 
         # DocumentSplitter does not support XML
         file_paths = [path for path in self.valid_doc_paths() if not path.endswith('.xml')]
@@ -152,7 +164,7 @@ class TestDocument:
         if pdf:
             assert extensions == {'.pdf'}
         else:
-            assert extensions == {'.md', '.html', '.txt'}
+            assert extensions == {'.md', '.html', '.txt', '.pptx', '.docx', '.xlsx'}
 
         doc_t = pxt.create_table('docs', {'doc': pxt.Document})
         validate_update_status(doc_t.insert({'doc': p} for p in file_paths), expected_rows=len(file_paths))

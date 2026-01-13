@@ -6,7 +6,6 @@ from textwrap import dedent
 from typing import Any, Iterable, Literal, Sequence, cast
 from uuid import UUID
 
-import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 import pixeltable as pxt
@@ -385,18 +384,10 @@ class Planner:
             plan = exec.ExprEvalNode(
                 row_builder, computed_exprs, plan.output_exprs, input=plan, maintain_input_order=False
             )
-        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
+        if any(c.col_type.supports_file_offloading() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(
-            exec.ExecContext(
-                row_builder,
-                batch_size=0,
-                show_pbar=True,
-                num_computed_exprs=len(computed_exprs),
-                ignore_errors=ignore_errors,
-            )
-        )
+        plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
 
         return plan
@@ -421,19 +412,12 @@ class Planner:
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
-            needs_cell_materialization = (
-                needs_cell_materialization or col.col_type.is_json_type() or col.col_type.is_array_type()
-            )
+            needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
 
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
 
-        plan.set_ctx(
-            exec.ExecContext(
-                plan.row_builder, batch_size=0, show_pbar=True, num_computed_exprs=0, ignore_errors=ignore_errors
-            )
-        )
-        plan.ctx.num_rows = 0  # Unknown
+        plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
 
         return plan
 
@@ -513,7 +497,6 @@ class Planner:
         plan.row_builder.add_table_columns(copied_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        plan.ctx.num_computed_exprs = len(recomputed_exprs)
 
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
@@ -554,7 +537,7 @@ class Planner:
         def needs_reconstruction(e: exprs.Expr) -> bool:
             assert isinstance(e, exprs.ColumnRef)
             # Vector-typed array columns are used for vector indexes, and are stored in the db
-            return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
+            return e.col.col_type.is_array_type() and not e.col.has_sa_vector_type()
 
         array_col_refs = list(
             exprs.Expr.list_subexprs(
@@ -562,13 +545,22 @@ class Planner:
             )
         )
 
-        return json_col_refs + array_col_refs
+        binary_col_refs = list(
+            exprs.Expr.list_subexprs(
+                expr_list,
+                expr_class=exprs.ColumnRef,
+                filter=lambda e: cast(exprs.ColumnRef, e).col.col_type.is_binary_type(),
+                traverse_matches=False,
+            )
+        )
+
+        return json_col_refs + array_col_refs + binary_col_refs
 
     @classmethod
     def _add_cell_materialization_node(cls, input: exec.ExecNode) -> exec.ExecNode:
         # we need a CellMaterializationNode if any of the evaluated output columns are json or array-typed
         has_target_cols = any(
-            col.col_type.is_json_type() or col.col_type.is_array_type()
+            col.col_type.supports_file_offloading()
             for col, slot_idx in input.row_builder.table_columns.items()
             if slot_idx is not None
         )
@@ -601,14 +593,20 @@ class Planner:
             if not isinstance(e, exprs.ColumnRef):
                 return False
             # Vector-typed array columns are used for vector indexes, and are stored in the db
-            return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
+            return e.col.col_type.is_array_type() and not e.col.has_sa_vector_type()
+
+        def binary_filter(e: exprs.Expr) -> bool:
+            return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_binary_type()
 
         json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
         json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
         array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
         array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
-        if len(json_refs) > 0 or len(array_refs) > 0:
-            return exec.CellReconstructionNode(json_refs, array_refs, input.row_builder, input=input)
+        binary_refs = list(
+            exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
+        )
+        if len(json_refs) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
+            return exec.CellReconstructionNode(json_refs, array_refs, binary_refs, input.row_builder, input=input)
         else:
             return input
 
@@ -697,7 +695,7 @@ class Planner:
         plan.row_builder.add_table_columns(copied_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
-        ctx = exec.ExecContext(row_builder, num_computed_exprs=len(recomputed_exprs))
+        ctx = exec.ExecContext(row_builder)
         # TODO: correct batch size?
         ctx.batch_size = 0
         plan.set_ctx(ctx)
@@ -721,9 +719,6 @@ class Planner:
         The plan:
         - retrieves rows that are visible at the current version of the table and satisfy the view predicate
         - materializes all stored columns and the update targets
-        - if cascade is True, recomputes all computed columns that transitively depend on the updated columns
-          and copies the values of all other stored columns
-        - if cascade is False, copies all columns that aren't update targets from the original rows
 
         TODO: unify with create_view_load_plan()
 
@@ -734,10 +729,15 @@ class Planner:
         """
         assert isinstance(view, catalog.TableVersionPath)
         assert view.is_view
-        target = view.tbl_version.get()  # the one we need to update
-        # retrieve all stored cols and all target exprs
-        recomputed_cols = set(recompute_targets.copy())
+        target = view.tbl_version.get()
+
+        # Columns to recompute are recompute targets plus their index value columns
+        recomputed_cols = target.get_idx_val_columns(recompute_targets)
+        recomputed_cols.update(recompute_targets)
+
+        # Copied columns are all other stored columns
         copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in recomputed_cols]
+
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         # resolve recomputed exprs to stored columns in the base
         recomputed_exprs = [
@@ -753,7 +753,6 @@ class Planner:
             ignore_errors=True,
             exact_version_only=view.get_bases(),
         )
-        plan.ctx.num_computed_exprs = len(recomputed_exprs)
         materialized_cols = copied_cols + list(recomputed_cols)  # same order as select_list
         for i, col in enumerate(materialized_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
@@ -828,7 +827,7 @@ class Planner:
 
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
-        if any(c.col_type.is_json_type() or c.col_type.is_array_type() for c in stored_cols):
+        if any(c.col_type.supports_file_offloading() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
         plan = cls._add_save_node(plan)
 
@@ -1182,10 +1181,7 @@ class Planner:
         )
 
         plan.ctx.batch_size = 16
-        plan.ctx.show_pbar = True
         plan.ctx.ignore_errors = True
-        computed_exprs = row_builder.output_exprs - row_builder.input_exprs
-        plan.ctx.num_computed_exprs = len(computed_exprs)  # we are adding a computed column, so we need to evaluate it
         plan = cls._add_save_node(plan)
 
         return plan

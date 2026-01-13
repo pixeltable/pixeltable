@@ -1,7 +1,7 @@
 import dataclasses
 import enum
 import logging
-from typing import Any, ClassVar, Iterable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Iterator, Literal
 
 import ftfy
 import PIL.Image
@@ -13,8 +13,12 @@ from pixeltable.env import Env
 from pixeltable.exceptions import Error
 from pixeltable.type_system import ColumnType, DocumentType, ImageType, IntType, JsonType, StringType
 from pixeltable.utils.documents import get_document_handle
+from pixeltable.utils.spacy import get_spacy_model
 
 from .base import ComponentIterator
+
+if TYPE_CHECKING:
+    import spacy
 
 _logger = logging.getLogger('pixeltable')
 
@@ -126,6 +130,7 @@ class DocumentSplitter(ComponentIterator):
     _limit: int
     _skip_tags: list[str]
     _overlap: int
+    _spacy_model: 'spacy.Language'
     _tiktoken_encoding: str | None
     _tiktoken_target_model: str | None
     _image_dpi: int
@@ -143,6 +148,7 @@ class DocumentSplitter(ComponentIterator):
         overlap: int | None = None,
         metadata: str = '',
         skip_tags: list[str] | None = None,
+        spacy_model: str = 'en_core_web_sm',
         tiktoken_encoding: str | None = 'cl100k_base',
         tiktoken_target_model: str | None = None,
         image_dpi: int = 300,
@@ -177,18 +183,26 @@ class DocumentSplitter(ComponentIterator):
             self._sections = self._html_sections()
         elif self._doc_handle.format == DocumentType.DocumentFormat.MD:
             assert self._doc_handle.md_ast is not None
-            self._sections = self._markdown_sections()
+            self._sections = self._markdown_sections(self._doc_handle.md_ast)
         elif self._doc_handle.format == DocumentType.DocumentFormat.PDF:
             assert self._doc_handle.pdf_doc is not None
             self._sections = self._pdf_sections()
         elif self._doc_handle.format == DocumentType.DocumentFormat.TXT:
             assert self._doc_handle.txt_doc is not None
             self._sections = self._txt_sections()
+        elif self._doc_handle.format in (
+            DocumentType.DocumentFormat.PPTX,
+            DocumentType.DocumentFormat.DOCX,
+            DocumentType.DocumentFormat.XLSX,
+        ):
+            assert self._doc_handle.md_ast is not None
+            self._sections = self._markdown_sections(self._doc_handle.md_ast)
         else:
             raise AssertionError(f'Unsupported document format: {self._doc_handle.format}')
 
         if Separator.SENTENCE in self._separators:
             self._sections = self._sentence_sections(self._sections)
+            self._spacy_model = get_spacy_model(spacy_model)
         if Separator.TOKEN_LIMIT in self._separators:
             self._sections = self._token_chunks(self._sections)
         if Separator.CHAR_LIMIT in self._separators:
@@ -204,6 +218,7 @@ class DocumentSplitter(ComponentIterator):
             'limit': IntType(nullable=True),
             'overlap': IntType(nullable=True),
             'skip_tags': StringType(nullable=True),
+            'spacy_model': StringType(nullable=True),
             'tiktoken_encoding': StringType(nullable=True),
             'tiktoken_target_model': StringType(nullable=True),
             'image_dpi': IntType(nullable=True),
@@ -246,7 +261,9 @@ class DocumentSplitter(ComponentIterator):
                 raise Error('limit is required with "token_limit"/"char_limit" separators')
 
         if Separator.SENTENCE in separators:
-            _ = Env.get().spacy_nlp
+            # Validate spaCy model
+            _ = get_spacy_model(kwargs.get('spacy_model', 'en_core_web_sm'))
+
         if Separator.TOKEN_LIMIT in separators:
             Env.get().require_package('tiktoken')
 
@@ -340,9 +357,8 @@ class DocumentSplitter(ComponentIterator):
         yield from process_element(self._doc_handle.bs_doc)
         yield from emit()
 
-    def _markdown_sections(self) -> Iterator[DocumentSection]:
-        """Create DocumentSections reflecting the html-specific separators"""
-        assert self._doc_handle.md_ast is not None
+    def _markdown_sections(self, md_ast: list[dict]) -> Iterator[DocumentSection]:
+        """Create DocumentSections from a markdown AST."""
         emit_on_paragraph = Separator.PARAGRAPH in self._separators or Separator.SENTENCE in self._separators
         emit_on_heading = Separator.HEADING in self._separators or emit_on_paragraph
         # current state
@@ -394,7 +410,7 @@ class DocumentSplitter(ComponentIterator):
             for child in el['children']:
                 yield from process_element(child)
 
-        for el in self._doc_handle.md_ast:
+        for el in md_ast:
             yield from process_element(el)
         yield from emit()
 
@@ -423,7 +439,7 @@ class DocumentSplitter(ComponentIterator):
 
         for page_idx, page in enumerate(doc):
             img = page.render().to_pil() if Element.IMAGE in self._elements else None
-            text = page.get_textpage().get_text_range()
+            text = page.get_textpage().get_text_bounded()
             _add_cleaned(text)
             if accumulated_text and emit_on_page:
                 md = DocumentSectionMetadata(page=page_idx)
@@ -445,7 +461,7 @@ class DocumentSplitter(ComponentIterator):
         """Split the input sections into sentences"""
         for section in input_sections:
             if section.text is not None:
-                doc = Env.get().spacy_nlp(section.text)
+                doc = self._spacy_model(section.text)
                 for sent in doc.sents:
                     yield DocumentSection(text=sent.text, metadata=section.metadata)
 
@@ -476,8 +492,14 @@ class DocumentSplitter(ComponentIterator):
                         # we split the token array at a point where the utf8 encoding is broken
                         end_idx -= 1
 
+                # If we couldn't find a valid decode point, force progress by moving forward
+                if end_idx <= start_idx:
+                    # Try to decode with replacement errors to make progress
+                    end_idx = min(start_idx + self._limit, len(tokens))
+                    text = encoding.decode(tokens[start_idx:end_idx], errors='replace')
+
                 assert end_idx > start_idx
-                assert text
+                assert text is not None
                 yield DocumentSection(text=text, metadata=section.metadata)
                 start_idx = max(start_idx + 1, end_idx - self._overlap)  # ensure we make progress
 

@@ -2,8 +2,9 @@
   "$schema": "https://mintlify.com/docs.json",
   "theme": "mint",
   "name": "Pixeltable Documentation",
+  "description": "The only open source Python library providing declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.",
   "colors": {
-    "primary": "#1E5AA8",
+    "primary": "#022A59",
     "light": "#F1AE03",
     "dark": "#020704"
   },
@@ -68,9 +69,12 @@
                   "howto/providers/working-with-ollama",
                   "howto/providers/working-with-openai",
                   "howto/providers/working-with-openrouter",
+                  "howto/providers/working-with-pydantic",
                   "howto/providers/working-with-replicate",
                   "howto/providers/working-with-reve",
+                  "howto/providers/working-with-tigris",
                   "howto/providers/working-with-together",
+                  "howto/providers/working-with-twelvelabs",
                   "howto/providers/working-with-voyageai",
                   "howto/using-label-studio-with-pixeltable",
                   "howto/working-with-fiftyone"
@@ -89,7 +93,7 @@
                       "howto/cookbooks/core/query-join-tables",
                       "howto/cookbooks/core/version-control-history",
                       "howto/cookbooks/core/custom-aggregates-uda",
-                      "howto/cookbooks/core/custom-iterators",
+                      "howto/cookbooks/core/data-split-rows",
                       "howto/cookbooks/core/time-zones"
                     ]
                   },
@@ -111,15 +115,18 @@
                       "howto/cookbooks/text/text-summarize",
                       "howto/cookbooks/text/text-translate",
                       "howto/cookbooks/text/text-extract-entities",
-                      "howto/cookbooks/text/doc-chunk-for-rag"
+                      "howto/cookbooks/text/doc-chunk-for-rag",
+                      "howto/cookbooks/text/doc-extract-text-from-office-files"
                     ]
                   },
                   {
                     "group": "Images",
                     "pages": [
                       "howto/cookbooks/images/img-detect-objects",
+                      "howto/cookbooks/images/img-detection-vs-segmentation",
                       "howto/cookbooks/images/img-visualize-detections",
                       "howto/cookbooks/images/img-generate-captions",
+                      "howto/cookbooks/images/img-image-to-image",
                       "howto/cookbooks/images/vision-batch-analysis",
                       "howto/cookbooks/images/vision-structured-output",
                       "howto/cookbooks/images/img-add-watermarks",
@@ -136,7 +143,6 @@
                       "howto/cookbooks/audio/audio-transcribe",
                       "howto/use-cases/audio-transcriptions",
                       "howto/cookbooks/audio/audio-summarize-podcast",
-                      "howto/cookbooks/audio/audio-speaker-diarization",
                       "howto/cookbooks/audio/audio-text-to-speech",
                       "howto/cookbooks/audio/audio-extract-from-video"
                     ]
@@ -170,6 +176,7 @@
                       "howto/cookbooks/data/data-import-huggingface",
                       "howto/cookbooks/data/data-import-s3",
                       "howto/cookbooks/data/data-export-pytorch",
+                      "howto/cookbooks/data/data-export-sql",
                       "howto/cookbooks/data/data-sampling"
                     ]
                   }
@@ -273,8 +280,7 @@
           {
             "group": "Cloud",
             "pages": [
-              "cloud/get-started",
-              "cloud/faq"
+              "cloud/get-started"
             ]
           }
         ]
@@ -322,9 +328,19 @@
   },
   "background": {
     "color": {
-      "light": "#FAF6F0",
+      "light": "#fafaf9",
       "dark": "#020704"
     }
+  },
+  "styling": {
+    "eyebrows": "breadcrumbs"
+  },
+  "appearance": {
+    "default": "system",
+    "strict": false
+  },
+  "metadata": {
+    "timestamp": true
   },
   "navbar": {
     "links": [
@@ -358,10 +374,33 @@
   },
   "fonts": {
     "heading": {
-      "family": "Inter"
+      "family": "DM Sans",
+      "weight": 600
     },
     "body": {
-      "family": "Inter"
+      "family": "Inter",
+      "weight": 400
+    }
+  },
+  "contextual": {
+    "options": [
+      "copy",
+      "view",
+      "chatgpt",
+      "claude",
+      "cursor"
+    ]
+  },
+  "integrations": {
+    "telemetry": {
+      "enabled": false
+    }
+  },
+  "errors": {
+    "404": {
+      "redirect": false,
+      "title": "Page Not Found",
+      "description": "The page you're looking for doesn't exist. Check the URL or [return to the docs home](/overview/pixeltable)."
     }
   },
   "redirects": [

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import enum
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Literal
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
-import PIL.Image
 import sqlalchemy as sql
+from sqlalchemy import cast
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -17,8 +17,8 @@ from pixeltable.env import Env
 
 from .base import IndexBase
 
-# The embedding vector length limit imposed by pgvector (note: Pixeltable does not use halfvec yet)
 MAX_EMBEDDING_VECTOR_LENGTH = 2000
+MAX_EMBEDDING_HALFVEC_LENGTH = 4000
 
 
 class EmbeddingIndex(IndexBase):
@@ -37,24 +37,34 @@ class EmbeddingIndex(IndexBase):
         IP = 2
         L2 = 3
 
+    class Precision(enum.Enum):
+        FP16 = 'fp16'
+        FP32 = 'fp32'
+
     PGVECTOR_OPS: ClassVar[dict[Metric, str]] = {
         Metric.COSINE: 'vector_cosine_ops',
         Metric.IP: 'vector_ip_ops',
         Metric.L2: 'vector_l2_ops',
     }
+    HALFVEC_OPS: ClassVar[dict[Metric, str]] = {
+        Metric.COSINE: 'halfvec_cosine_ops',
+        Metric.IP: 'halfvec_ip_ops',
+        Metric.L2: 'halfvec_l2_ops',
+    }
 
     metric: Metric
-    string_embed: func.Function | None
-    image_embed: func.Function | None
-    string_embed_signature_idx: int
-    image_embed_signature_idx: int
+    embeddings: dict[ts.ColumnType.Type, func.Function]
+    precision: Precision
 
     def __init__(
         self,
         metric: str,
+        precision: Literal['fp16', 'fp32'],
         embed: func.Function | None = None,
         string_embed: func.Function | None = None,
         image_embed: func.Function | None = None,
+        audio_embed: func.Function | None = None,
+        video_embed: func.Function | None = None,
     ):
         if embed is None and string_embed is None and image_embed is None:
             raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified')
@@ -62,127 +72,141 @@ class EmbeddingIndex(IndexBase):
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
 
-        self.string_embed = None
-        self.image_embed = None
+        self.embeddings = {}
 
-        # Resolve the specific embedding functions corresponding to the user-provided `string_embed`, `image_embed`,
-        # and/or `embed`. For string embeddings, `string_embed` will be used if specified; otherwise, `embed` will
-        # be used as a fallback, if it has a matching signature. Likewise for image embeddings.
+        # Resolve the specific embedding functions corresponding to the user-provided embedding functions.
+        # For string embeddings, for example, `string_embed` will be used if specified; otherwise, `embed` will
+        # be used as a fallback, if it has a matching signature.
 
-        if string_embed is not None:
-            # `string_embed` is specified; it MUST be valid.
-            self.string_embed = self._resolve_embedding_fn(string_embed, ts.ColumnType.Type.STRING)
-            if self.string_embed is None:
-                raise excs.Error(
-                    f'The function `{string_embed.name}` is not a valid string embedding: '
-                    'it must take a single string parameter'
-                )
-        elif embed is not None:
-            # `embed` is specified; see if it has a string signature.
-            self.string_embed = self._resolve_embedding_fn(embed, ts.ColumnType.Type.STRING)
+        for embed_type, embed_fn in (
+            (ts.ColumnType.Type.STRING, string_embed),
+            (ts.ColumnType.Type.IMAGE, image_embed),
+            (ts.ColumnType.Type.AUDIO, audio_embed),
+            (ts.ColumnType.Type.VIDEO, video_embed),
+        ):
+            if embed_fn is not None:
+                # Embedding function for the requisite type is specified directly; it MUST be valid.
+                resolved_fn = self._resolve_embedding_fn(embed_fn, embed_type)
+                if resolved_fn is None:
+                    raise excs.Error(
+                        f'The function `{embed_fn.name}` is not a valid {embed_type.name.lower()} '
+                        f'embedding: it must take a single {embed_type.name.lower()} parameter'
+                    )
+                self.embeddings[embed_type] = resolved_fn
+            elif embed is not None:
+                # General `embed` is specified; see if it has a matching signature.
+                resolved_fn = self._resolve_embedding_fn(embed, embed_type)
+                if resolved_fn is not None:
+                    self.embeddings[embed_type] = resolved_fn
 
-        if image_embed is not None:
-            # `image_embed` is specified; it MUST be valid.
-            self.image_embed = self._resolve_embedding_fn(image_embed, ts.ColumnType.Type.IMAGE)
-            if self.image_embed is None:
-                raise excs.Error(
-                    f'The function `{image_embed.name}` is not a valid image embedding: '
-                    'it must take a single image parameter'
-                )
-        elif embed is not None:
-            # `embed` is specified; see if it has an image signature.
-            self.image_embed = self._resolve_embedding_fn(embed, ts.ColumnType.Type.IMAGE)
-
-        if self.string_embed is None and self.image_embed is None:
-            # No string OR image signature was found. This can only happen if `embed` was specified and
-            # contains no matching signatures.
+        if len(self.embeddings) == 0:
+            # `embed` was specified and contains no matching signatures.
             assert embed is not None
             raise excs.Error(
-                f'The function `{embed.name}` is not a valid embedding: it must take a single string or image parameter'
+                f'The function `{embed.name}` is not a valid embedding: '
+                'it must take a single string, image, audio, or video parameter'
             )
 
         # Now validate the return types of the embedding functions.
-        if self.string_embed is not None:
-            self._validate_embedding_fn(self.string_embed)
-        if self.image_embed is not None:
-            self._validate_embedding_fn(self.image_embed)
+        for _, embed_fn in self.embeddings.items():
+            self._validate_embedding_fn(embed_fn)
 
         self.metric = self.Metric[metric.upper()]
+        try:
+            self.precision = self.Precision(precision)
+        except ValueError:
+            valid_values = [p.value for p in self.Precision]
+            raise excs.Error(f"Invalid precision '{precision}'. Must be one of: {valid_values}") from None
 
     def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
-        if not c.col_type.is_string_type() and not c.col_type.is_image_type():
+        if c.col_type._type not in (
+            ts.ColumnType.Type.STRING,
+            ts.ColumnType.Type.IMAGE,
+            ts.ColumnType.Type.AUDIO,
+            ts.ColumnType.Type.VIDEO,
+        ):
+            raise excs.Error(f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.')
+        if c.col_type._type not in self.embeddings:
             raise excs.Error(
-                f'Embedding index requires string or image column, column {c.name!r} has type {c.col_type}'
+                f'The specified embedding function does not support the type `{c.col_type}` of column {c.name!r}.'
             )
-        if c.col_type.is_string_type() and self.string_embed is None:
-            raise excs.Error(f"Text embedding function is required for column {c.name} (parameter 'string_embed')")
-        if c.col_type.is_image_type() and self.image_embed is None:
-            raise excs.Error(f"Image embedding function is required for column {c.name} (parameter 'image_embed')")
 
-        return (
-            self.string_embed(exprs.ColumnRef(c))
-            if c.col_type.is_string_type()
-            else self.image_embed(exprs.ColumnRef(c))
-        )
+        embed_fn = self.embeddings[c.col_type._type]
+        return embed_fn(exprs.ColumnRef(c))
 
     def records_value_errors(self) -> bool:
         return True
 
     def get_index_sa_type(self, val_col_type: ts.ColumnType) -> sql.types.TypeEngine:
         assert isinstance(val_col_type, ts.ArrayType) and val_col_type.shape is not None
-        if len(val_col_type.shape) != 1:
-            raise excs.Error(f'Expected a 1-dimensional array, got {len(val_col_type.shape)}: {val_col_type}')
-        vector_size = val_col_type.shape[0]
-        assert vector_size is not None
-        # TODO(PXT-916): support halfvec embedding indexes
-        if vector_size > MAX_EMBEDDING_VECTOR_LENGTH:
-            raise excs.Error(
-                f'Embedding vector size exceeds the maximum allowed size of {MAX_EMBEDDING_VECTOR_LENGTH}:'
-                f' {val_col_type}'
-            )
-        return pgvector.sqlalchemy.Vector(vector_size)
+        assert len(val_col_type.shape) == 1
+        vector_length = val_col_type.shape[0]
+        assert vector_length is not None
+        assert vector_length > 0
+
+        # TODO(PXT-941): Revisit embedding index precision behavior for cloud launch
+        # CockroachDB doesn't have HALFVEC. For now, always use Vector type.
+        if Env.get().is_using_cockroachdb:
+            return pgvector.sqlalchemy.Vector(vector_length)
+
+        match self.precision:
+            case self.Precision.FP32:
+                if vector_length > MAX_EMBEDDING_VECTOR_LENGTH:
+                    raise excs.Error(
+                        f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
+                        f' {MAX_EMBEDDING_VECTOR_LENGTH} for {self.precision.value} precision'
+                    )
+                return pgvector.sqlalchemy.Vector(vector_length)
+            case self.Precision.FP16:
+                if vector_length > MAX_EMBEDDING_HALFVEC_LENGTH:
+                    raise excs.Error(
+                        f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
+                        f' {MAX_EMBEDDING_HALFVEC_LENGTH} for {self.precision.value} precision'
+                    )
+                return pgvector.sqlalchemy.HALFVEC(vector_length)
+            case _:
+                raise AssertionError(self.precision)
 
     def sa_create_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
         """Return a sqlalchemy statement for creating the index"""
-        return Env.get().dbms.create_vector_index_stmt(
-            store_index_name, sa_value_col, metric=self.PGVECTOR_OPS[self.metric]
-        )
+        if isinstance(sa_value_col.type, pgvector.sqlalchemy.Vector):
+            metric = self.PGVECTOR_OPS[self.metric]
+        elif isinstance(sa_value_col.type, pgvector.sqlalchemy.HALFVEC):
+            metric = self.HALFVEC_OPS[self.metric]
+        else:
+            raise AssertionError(f'Unsupported index column type: {sa_value_col.type}')
+        stmt = Env.get().dbms.create_vector_index_stmt(store_index_name, sa_value_col, metric=metric)
+        return stmt
 
     def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
         """Drop the index on the index value column"""
         # TODO: implement
         raise NotImplementedError()
 
-    def similarity_clause(self, val_column: catalog.Column, item: Any) -> sql.ColumnElement:
+    def similarity_clause(self, val_column: catalog.Column, item: exprs.Literal) -> sql.ColumnElement:
         """Create a ColumnElement that represents '<val_column> <op> <item>'"""
-        assert isinstance(item, (str, PIL.Image.Image))
-        embedding: np.ndarray
-        if isinstance(item, str):
-            assert self.string_embed is not None
-            embedding = self.string_embed.exec([item], {})
-        if isinstance(item, PIL.Image.Image):
-            assert self.image_embed is not None
-            embedding = self.image_embed.exec([item], {})
+        assert item.col_type._type in self.embeddings
+        embedding = self.embeddings[item.col_type._type].exec([item.val], {})
+        assert isinstance(embedding, np.ndarray)
 
+        # In arithmetic operations between floats and ints (or between vector and int), CockroachDB requires an explicit
+        # cast. Otherwise the query fails.
+        cast_ints = Env.get().is_using_cockroachdb
+        one = cast(1, sql.types.Float) if cast_ints else 1
+        neg_one = cast(-1, sql.types.Float) if cast_ints else -1
         if self.metric == self.Metric.COSINE:
-            return val_column.sa_col.cosine_distance(embedding) * -1 + 1
+            return val_column.sa_col.cosine_distance(embedding) * neg_one + one
         elif self.metric == self.Metric.IP:
-            return val_column.sa_col.max_inner_product(embedding) * -1
+            return val_column.sa_col.max_inner_product(embedding) * neg_one
         else:
             assert self.metric == self.Metric.L2
             return val_column.sa_col.l2_distance(embedding)
 
-    def order_by_clause(self, val_column: catalog.Column, item: Any, is_asc: bool) -> sql.ColumnElement:
+    def order_by_clause(self, val_column: catalog.Column, item: exprs.Literal, is_asc: bool) -> sql.ColumnElement:
         """Create a ColumnElement that is used in an ORDER BY clause"""
-        assert isinstance(item, (str, PIL.Image.Image))
-        embedding: np.ndarray | None = None
-        if isinstance(item, str):
-            assert self.string_embed is not None
-            embedding = self.string_embed.exec([item], {})
-        if isinstance(item, PIL.Image.Image):
-            assert self.image_embed is not None
-            embedding = self.image_embed.exec([item], {})
-        assert embedding is not None
+        assert item.col_type._type in self.embeddings
+        embedding = self.embeddings[item.col_type._type].exec([item.val], {})
+        assert isinstance(embedding, np.ndarray)
 
         if self.metric == self.Metric.COSINE:
             result = val_column.sa_col.cosine_distance(embedding)
@@ -245,16 +269,30 @@ class EmbeddingIndex(IndexBase):
                 f'The function `{embed_fn.name}` is not a valid embedding: '
                 f'it must return a 1-dimensional array of a specific length, but returns {return_type}'
             )
+        if shape[0] <= 0:
+            raise excs.Error(
+                f'The function `{embed_fn.name}` is not a valid embedding: '
+                f'it returns an array of invalid length {shape[0]}'
+            )
 
     def as_dict(self) -> dict:
-        return {
-            'metric': self.metric.name.lower(),
-            'string_embed': None if self.string_embed is None else self.string_embed.as_dict(),
-            'image_embed': None if self.image_embed is None else self.image_embed.as_dict(),
-        }
+        d: dict[str, Any] = {'metric': self.metric.name.lower(), 'precision': self.precision.value}
+        for embed_type, embed_fn in self.embeddings.items():
+            key = f'{embed_type.name.lower()}_embed'
+            d[key] = embed_fn.as_dict()
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> EmbeddingIndex:
-        string_embed = func.Function.from_dict(d['string_embed']) if d['string_embed'] is not None else None
-        image_embed = func.Function.from_dict(d['image_embed']) if d['image_embed'] is not None else None
-        return cls(metric=d['metric'], string_embed=string_embed, image_embed=image_embed)
+        string_embed = func.Function.from_dict(d['string_embed']) if d.get('string_embed') is not None else None
+        image_embed = func.Function.from_dict(d['image_embed']) if d.get('image_embed') is not None else None
+        audio_embed = func.Function.from_dict(d['audio_embed']) if d.get('audio_embed') is not None else None
+        video_embed = func.Function.from_dict(d['video_embed']) if d.get('video_embed') is not None else None
+        return cls(
+            metric=d['metric'],
+            string_embed=string_embed,
+            image_embed=image_embed,
+            audio_embed=audio_embed,
+            video_embed=video_embed,
+            precision=d['precision'],
+        )

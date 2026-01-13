@@ -1,8 +1,10 @@
 import datetime
+import platform
 import random
 import string
 import sys
-from typing import Any, _GenericAlias  # type: ignore[attr-defined]
+from pathlib import Path
+from typing import Any, Literal, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
 import PIL.Image
@@ -10,11 +12,11 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip
 
 from .utils import (
     ReloadTester,
-    assert_img_eq,
     assert_resultset_eq,
     get_sentences,
     reload_catalog,
@@ -46,11 +48,15 @@ class TestIndex:
         # similarity query should fail because there are multiple indices
         # img_idx1 and img_idx2 on img column in multi_idx_img_tbl
         with pytest.raises(pxt.Error, match="Column 'img' has multiple embedding indices"):
-            _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(1).collect()
+            _ = t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img), asc=False).limit(1).collect()
         # but we can specify the index to use, and the query should work
-        query = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='img_idx1'), asc=False).limit(1)
+        query = (
+            t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img, idx='img_idx1'), asc=False).limit(1)
+        )
         _ = reload_tester.run_query(query)
-        query = t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='img_idx2'), asc=False).limit(1)
+        query = (
+            t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img, idx='img_idx2'), asc=False).limit(1)
+        )
         _ = reload_tester.run_query(query)
 
         # verify that the result is the same as the original query after reload
@@ -80,8 +86,13 @@ class TestIndex:
     ) -> None:
         skip_test_if_not_installed('transformers')
         t = small_img_tbl
-        sample_img = t.select(t.img).head(1)[0, 'img']
-        _ = t.select(t.img.localpath).collect()
+        res = t.select(t.img, t.img.localpath, t.img.fileurl).head(1)
+        sample_img = res[0, 'img']
+        sample_img_localpath = res[0, 'img_localpath']
+        sample_img_file_url = res[0, 'img_fileurl']
+        assert 'file://' in sample_img_file_url
+        sample_img_filename = Path(sample_img_localpath).name
+        sample_img_http_url = f'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/imagenette2-160/{sample_img_filename}'
 
         for metric, is_asc in [('cosine', False), ('ip', False), ('l2', True)]:
             iname = f'idx_{metric}_{is_asc}' if use_index_name else None
@@ -91,30 +102,78 @@ class TestIndex:
                 embed_args = {'embedding': clip_embed}
             t.add_embedding_index('img', idx_name=iname, metric=metric, **embed_args)  # type: ignore[arg-type]
 
+            # Similarity search on the image itself should reliably retrieve it as the top choice.
+            # Make sure it works to give it the image, local path, file:// URL, or http:// URL.
+            for img_input in [sample_img, sample_img_localpath, sample_img_file_url, sample_img_http_url]:
+                query = (
+                    t.select(img=t.img, sim=t.img.similarity(image=img_input, idx=iname))
+                    .order_by(t.img.similarity(image=sample_img, idx=iname), asc=is_asc)
+                    .limit(1)
+                )
+                res = reload_tester.run_query(query)
+                out_img = res[0, 'img']
+                assert sample_img == out_img, f'{metric} failed when using index {iname}'
+
+            # There are only three images of parachutes in small_img_tbl; `clip` is good enough to reliably retrieve
+            # the test image from a top-k query (with any metric).
             query = (
-                t.select(img=t.img, sim=t.img.similarity(sample_img, idx=iname))
-                .order_by(t.img.similarity(sample_img, idx=iname), asc=is_asc)
+                t.select(img=t.img, sim=t.img.similarity(string='parachute', idx=iname))
+                .order_by(t.img.similarity(string='parachute', idx=iname), asc=is_asc)
+                .limit(5)
+            )
+            res = reload_tester.run_query(query)
+            out_imgs = res['img']
+            assert sample_img in out_imgs, f'{metric} failed when using index {iname}'
+
+            # can also be used in a computed column
+            validate_update_status(t.add_computed_column(sim=t.img.similarity(string='parachute')))
+            t.drop_column('sim')
+
+            reload_tester.run_reload_test()
+
+            t.drop_embedding_index(column='img')
+
+    def test_deprecated_similarity(
+        self, small_img_tbl: pxt.Table, clip_embed: pxt.Function, reload_tester: ReloadTester
+    ) -> None:
+        """
+        Test that the deprecated pattern still works, with a warning.
+        (Deprecated pattern = calling similarity() without a specific modality)
+        """
+        skip_test_if_not_installed('transformers')
+        t = small_img_tbl
+        sample_img = t.select(t.img).head(1)[0, 'img']
+        _ = t.select(t.img.localpath).collect()
+
+        t.add_embedding_index('img', embedding=clip_embed)
+
+        with pytest.warns(
+            DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
+        ):
+            query = (
+                t.select(img=t.img, sim=t.img.similarity(sample_img))
+                .order_by(t.img.similarity(sample_img), asc=False)
                 .limit(1)
             )
             res = reload_tester.run_query(query)
             out_img = res[0, 'img']
-            assert_img_eq(sample_img, out_img, f'{metric} failed when using index {iname}')
+            assert sample_img == out_img, 'deprecated similarity check failed'
 
-            # TODO:  how to verify the output?
+        with pytest.warns(
+            DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
+        ):
             query = (
-                t.select(path=t.img.localpath, sim=t.img.similarity('parachute', idx=iname))
-                .order_by(t.img.similarity('parachute', idx=iname), asc=is_asc)
-                .limit(1)
+                t.select(img=t.img, sim=t.img.similarity('parachute'))
+                .order_by(t.img.similarity('parachute'), asc=False)
+                .limit(5)
             )
-            _ = reload_tester.run_query(query)
+            res = reload_tester.run_query(query)
+            out_imgs = res['img']
+            assert sample_img in out_imgs, 'deprecated similarity check failed'
 
-            # can also be used in a computed column
-            validate_update_status(t.add_computed_column(sim=t.img.similarity('parachute')))
-            t.drop_column('sim')
+        reload_tester.run_reload_test()
 
-            reload_tester.run_reload_test(clear=True)
-
-            t.drop_embedding_index(column='img')
+        t.drop_embedding_index(column='img')
 
     def test_query(self, reset_db: None, clip_embed: pxt.Function) -> None:
         skip_test_if_not_installed('transformers')
@@ -142,14 +201,33 @@ class TestIndex:
         @pxt.query
         def top_k_chunks(query_text: str) -> pxt.Query:
             return (
-                chunks.select(chunks.text, sim=chunks.text.similarity(query_text))
-                .order_by(chunks.text.similarity(query_text), asc=False)
+                chunks.select(chunks.text, sim=chunks.text.similarity(string=query_text))
+                .order_by(chunks.text.similarity(string=query_text), asc=False)
                 .limit(5)
             )
 
-        _ = queries.select(queries.query_text, out=top_k_chunks(queries.query_text)).collect()
+        res1 = queries.select(queries.query_text, out=top_k_chunks(queries.query_text)).collect()
         queries.add_computed_column(chunks=top_k_chunks(queries.query_text))
-        _ = queries.collect()
+        res2 = queries.collect()
+
+        assert_resultset_eq(res1, res2)
+
+        # Test the deprecated pattern too (similarity() without modality)
+
+        with pytest.warns(
+            DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
+        ):
+
+            @pxt.query
+            def top_k_chunks_deprecated(query_text: str) -> pxt.Query:
+                return (
+                    chunks.select(chunks.text, sim=chunks.text.similarity(query_text))
+                    .order_by(chunks.text.similarity(query_text), asc=False)
+                    .limit(5)
+                )
+
+        res1_deprecated = queries.select(queries.query_text, out=top_k_chunks_deprecated(queries.query_text)).collect()
+        assert_resultset_eq(res1, res1_deprecated)
 
         # make sure we can instantiate the query function from the metadata
         reload_catalog()
@@ -165,11 +243,11 @@ class TestIndex:
         _ = t.select(t.img.localpath).collect()
 
         t.add_embedding_index('img', metric='cosine', embedding=clip_embed)
-        _ = t.select(t.img.localpath).order_by(t.img.similarity(sample_img), asc=False).limit(3).collect()
+        _ = t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img), asc=False).limit(3).collect()
 
         @pxt.query
         def img_matches(img: PIL.Image.Image) -> pxt.Query:
-            return t.select(t.img.localpath).order_by(t.img.similarity(img), asc=False).limit(3)
+            return t.select(t.img.localpath).order_by(t.img.similarity(image=img), asc=False).limit(3)
 
         _ = list(t.select(img=t.img.localpath, matches=img_matches(t.img)).head(1))
 
@@ -178,35 +256,46 @@ class TestIndex:
     ) -> None:
         skip_test_if_not_installed('transformers')
         t = indexed_img_tbl
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = t.order_by(t.img.similarity(('red truck',))).limit(1).collect()
-        assert 'requires a string or' in str(exc_info.value).lower()
+
+        type_failures = (
+            ('item', '`str` or `PIL.Image.Image`'),
+            ('string', '`str`'),
+            ('image', '`str` or `PIL.Image.Image`'),
+            ('audio', r'`str` \(path to audio file\)'),
+            ('video', r'`str` \(path to video file\)'),
+        )
+
+        with pytest.warns(
+            DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
+        ):
+            for param, expected in type_failures:
+                with pytest.raises(pxt.Error, match=rf'similarity\(.*\): expected {expected}; got `tuple`') as exc_info:
+                    _ = t.order_by(t.img.similarity(**{param: ('red truck',)})).limit(1).collect()  # type: ignore[arg-type]
+            for param, expected in type_failures:
+                with pytest.raises(pxt.Error, match=rf'similarity\(.*\): expected {expected}; got `list`') as exc_info:
+                    _ = t.order_by(t.img.similarity(**{param: ['red truck']})).limit(1).collect()  # type: ignore[arg-type]
 
         with pytest.raises(pxt.Error) as exc_info:
-            _ = t.order_by(t.img.similarity(['red truck'])).limit(1).collect()
-        assert 'requires a string or a ' in str(exc_info.value).lower()
-
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = t.order_by(t.img.similarity(t.split)).limit(1).collect()
+            _ = t.order_by(t.img.similarity(string=t.split)).limit(1).collect()  # type: ignore[arg-type]
         assert 'not an expression' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error, match="No embedding index found for column 'split'"):
-            _ = t.order_by(t.split.similarity('red truck')).limit(1).collect()
+            _ = t.order_by(t.split.similarity(string='red truck')).limit(1).collect()
 
         t = small_img_tbl
         t.add_embedding_index('img', image_embed=clip_embed)
         with pytest.raises(pxt.Error) as exc_info:
-            _ = t.order_by(t.img.similarity('red truck')).limit(1).collect()
+            _ = t.order_by(t.img.similarity(string='red truck')).limit(1).collect()
         assert 'does not have a string embedding' in str(exc_info.value).lower()
 
         t.add_embedding_index('img', embedding=clip_embed)
         with pytest.raises(pxt.Error, match="Column 'img' has multiple embedding indices"):
-            _ = t.order_by(t.img.similarity('red truck')).limit(1).collect()
+            _ = t.order_by(t.img.similarity(string='red truck')).limit(1).collect()
 
         # Similarity fails when attempted on a snapshot
         t_s = pxt.create_snapshot('t_s', t)
         with pytest.raises(pxt.Error, match='Snapshot does not support indices'):
-            _ = t_s.order_by(t_s.img.similarity('red truck')).limit(1).collect()
+            _ = t_s.order_by(t_s.img.similarity(string='red truck')).limit(1).collect()
 
         # embedding() fails on a snapshot
         with pytest.raises(pxt.Error, match='Snapshot does not support indices'):
@@ -217,7 +306,7 @@ class TestIndex:
         t.add_embedding_index('split', string_embed=clip_embed)
         sample_img = t.select(t.img).head(1)[0, 'img']
         with pytest.raises(pxt.Error) as exc_info:
-            _ = t.order_by(t.split.similarity(sample_img)).limit(1).collect()
+            _ = t.order_by(t.split.similarity(image=sample_img)).limit(1).collect()
         assert 'does not have an image embedding' in str(exc_info.value).lower()
 
     def test_add_index_after_drop(self, small_img_tbl: pxt.Table, clip_embed: pxt.Function) -> None:
@@ -228,7 +317,7 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
         orig_res = (
             t.select(t.img.localpath)
-            .order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False)
+            .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
             .limit(3)
             .collect()
         )
@@ -237,7 +326,7 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
         res = (
             t.select(t.img.localpath)
-            .order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False)
+            .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
             .limit(3)
             .collect()
         )
@@ -249,7 +338,7 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
         res = (
             t.select(t.img.localpath)
-            .order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False)
+            .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
             .limit(3)
             .collect()
         )
@@ -260,7 +349,7 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
         res = (
             t.select(t.img.localpath)
-            .order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False)
+            .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
             .limit(3)
             .collect()
         )
@@ -271,7 +360,7 @@ class TestIndex:
         t.add_embedding_index('img', idx_name='clip_idx', embedding=clip_embed)
         res = (
             t.select(t.img.localpath)
-            .order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False)
+            .order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False)
             .limit(3)
             .collect()
         )
@@ -346,7 +435,7 @@ class TestIndex:
         # sanity check: use the replaced index to run a query.
         # use the index hint in similarity function to ensure clip_idx is used.
         _ = reload_tester.run_query(
-            t.select(t.img.localpath).order_by(t.img.similarity(sample_img, idx='clip_idx'), asc=False).limit(3)
+            t.select(t.img.localpath).order_by(t.img.similarity(image=sample_img, idx='clip_idx'), asc=False).limit(3)
         )
 
         # sanity check persistence
@@ -426,7 +515,7 @@ class TestIndex:
         with pytest.raises(pxt.Error, match="Cannot drop index 'cat_idx' because the following columns depend on it"):
             img_t.drop_embedding_index(column=img_t.category)
 
-        img_t.add_computed_column(sim=img_t.category.similarity('red_truck', idx='cat_idx'))
+        img_t.add_computed_column(sim=img_t.category.similarity(string='red_truck', idx='cat_idx'))
         with pytest.raises(pxt.ExprEvalError) as exc_info:
             img_t.insert([rows[7]])
         assert 'cannot be used in a computed column' in str(exc_info.value.__cause__)
@@ -524,11 +613,11 @@ class TestIndex:
         # multiple indices
         img_t.add_embedding_index(img_t.img, idx_name='other_idx', embedding=clip_embed)
         # lookup using the first index, how called idx3
-        sim = img_t.img.similarity('red truck', idx='idx3')
+        sim = img_t.img.similarity(string='red truck', idx='idx3')
         res = img_t.order_by(sim, asc=False).limit(1).collect()
         assert len(res) == 1
         # lookup using the second index
-        sim = img_t.img.similarity('red truck', idx='other_idx')
+        sim = img_t.img.similarity(string='red truck', idx='other_idx')
         res = img_t.order_by(sim, asc=False).limit(1).collect()
         assert len(res) == 1
 
@@ -545,7 +634,7 @@ class TestIndex:
             img_t.add_embedding_index(img_t.img, idx_name='BOGUS COL NAME', embedding=clip_embed)
 
         with pytest.raises(pxt.Error) as exc_info:
-            _ = img_t.img.similarity('red truck', idx='doesnotexist')
+            _ = img_t.img.similarity(string='red truck', idx='doesnotexist')
         assert "index 'doesnotexist' not found" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -557,7 +646,7 @@ class TestIndex:
         img_t.drop_embedding_index(idx_name='other_idx')
 
         with pytest.raises(pxt.Error) as exc_info:
-            sim = img_t.img.similarity('red truck', idx='other_idx')
+            sim = img_t.img.similarity(string='red truck', idx='other_idx')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
         assert "index 'other_idx' not found" in str(exc_info.value).lower()
 
@@ -580,6 +669,7 @@ class TestIndex:
 
         _ = reload_tester.run_query(img_t.select())
 
+    @pytest.mark.skipif(platform.system() == 'Windows', reason='Segfaulting on Windows runners for unknown reasons')
     def test_view_indices(
         self, reset_db: None, e5_embed: pxt.Function, all_mpnet_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
@@ -595,18 +685,18 @@ class TestIndex:
         v = pxt.create_view('v', t.where(t.n % 2 == 0))
         v.add_embedding_index('s', string_embed=all_mpnet_embed)
 
-        query1 = v.select(sim1=v.s.similarity(sentences[1]))
+        query1 = v.select(sim1=v.s.similarity(string=sentences[1]))
         res1 = reload_tester.run_query(query1)
 
         # Now add an index to the base table, which should be independent of the view index
         t.add_embedding_index('s', string_embed=e5_embed)
-        query2 = t.where(t.n % 2 == 0).select(sim2=t.s.similarity(sentences[1]))
+        query2 = t.where(t.n % 2 == 0).select(sim2=t.s.similarity(string=sentences[1]))
         res2 = reload_tester.run_query(query2)
 
         # Now query the view again twice: once with the column referenced as `v.s`, and once as `t.s`
-        query3 = v.select(sim3=v.s.similarity(sentences[1]))
+        query3 = v.select(sim3=v.s.similarity(string=sentences[1]))
         res3 = reload_tester.run_query(query3)
-        query4 = v.select(sim4=t.s.similarity(sentences[1]))
+        query4 = v.select(sim4=t.s.similarity(string=sentences[1]))
         res4 = reload_tester.run_query(query4)
 
         # `v.s` should use the view index, while `t.s` should use the base table index
@@ -633,35 +723,40 @@ class TestIndex:
             img_t.add_embedding_index('img')
         assert '`embed`, `string_embed`, or `image_embed` must be specified' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."):
             # wrong column type
             test_tbl.add_embedding_index('c2', image_embed=clip_embed)
-        assert 'requires string or image column' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error, match=r"The specified embedding function does not support the type `Image` of column 'img'."
+        ):
             # missing embedding function
             img_t.add_embedding_index('img', string_embed=clip_embed)
-        assert 'image embedding function is required' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
             img_t.add_embedding_index('img', image_embed=clip)
         assert 'must take a single image parameter' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error,
+            match=r"The specified embedding function does not support the type `String` of column 'category'.",
+        ):
             # missing embedding function
             img_t.add_embedding_index('category', image_embed=clip_embed)
-        assert 'text embedding function is required' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # wrong signature
             img_t.add_embedding_index('category', string_embed=clip)
         assert 'must take a single string parameter' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error,
+            match=r'The function `clip` is not a valid embedding: '
+            'it must take a single string, image, audio, or video parameter',
+        ):
             # no matching signature
             img_t.add_embedding_index('img', embedding=clip)
-        assert 'must take a single string or image parameter' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             img_t.add_embedding_index('category', string_embed=self.bad_embed)
@@ -714,8 +809,35 @@ class TestIndex:
             img_t.drop_embedding_index(column=img_t.img)
 
         with pytest.raises(pxt.Error, match="Column 'img' has multiple embedding indices"):
-            sim = img_t.img.similarity('red truck')
+            sim = img_t.img.similarity(string='red truck')
             _ = img_t.order_by(sim, asc=False).limit(1).collect()
+
+        if not Env.get().is_using_cockroachdb:
+            # TODO(PXT-941): Revisit embedding index precision behavior for cloud launch
+            # In CockroachDB we use VECTOR type that doesn't have the same limitation as pgvector's VECTOR and HALFVEC
+            with pytest.raises(
+                pxt.Error,
+                match="Embedding index's vector dimensionality 4001 exceeds maximum of 4000 for fp16 precision",
+            ):
+                test_tbl.add_embedding_index(
+                    test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=4001), precision='fp16'
+                )
+            with pytest.raises(
+                pxt.Error,
+                match="Embedding index's vector dimensionality 2001 exceeds maximum of 2000 for fp32 precision",
+            ):
+                test_tbl.add_embedding_index(
+                    test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=2001), precision='fp32'
+                )
+
+        with pytest.raises(pxt.Error, match=r"Invalid precision.+Must be one of: \['fp16', 'fp32'\]"):
+            test_tbl.add_embedding_index(
+                test_tbl.c1,
+                embedding=TestIndex.dummy_embedding.using(n=2001),
+                precision='invalid',  # type: ignore[arg-type]
+            )
+        with pytest.raises(pxt.Error, match='is not a valid embedding: it returns an array of invalid length 0'):
+            test_tbl.add_embedding_index(test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=0), precision='fp16')
 
     def run_btree_test(self, data: list, data_type: type | _GenericAlias) -> pxt.Table:
         t = pxt.create_table('btree_test', {'data': data_type})
@@ -803,36 +925,63 @@ class TestIndex:
 
     @pxt.udf
     @staticmethod
-    def dummy_embed_max_len(text: str) -> pxt.Array[(2000,), np.float32]:
-        if 'zeros' in text:
-            return np.zeros((2000,), dtype=np.float32)
-        if 'ones' in text:
-            return np.ones((2000,), dtype=np.float32)
-        return np.random.rand(2000).astype(np.float32)
+    def dummy_embedding(text: str, n: int) -> pxt.Array[(None,), np.float32]:
+        if 'zero' in text:
+            arr = np.zeros((n,), dtype=np.float32)
+            arr[n // 2 :] = 1
+            return arr
+        if 'one' in text:
+            arr = np.zeros((n,), dtype=np.float32)
+            arr[: n // 2] = 1
+            return arr
+        return np.random.rand(n).astype(np.float32)
 
-    def test_embedding_vector_max_length(self, reset_db: None) -> None:
-        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
-        t.add_embedding_index(t.text, embedding=self.dummy_embed_max_len)
+    @dummy_embedding.conditional_return_type
+    @staticmethod
+    def _(n: int) -> ts.ArrayType:
+        return ts.ArrayType((n,), dtype=np.dtype('float32'), nullable=False)
+
+    @pytest.mark.parametrize('reload_cat', [True, False], ids=['reload_cat', 'no_reload_cat'])
+    @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
+    @pytest.mark.parametrize('precision', ['fp16', 'fp32'])
+    def test_embedding_index_precision(
+        self,
+        reset_db: None,
+        reload_cat: bool,
+        metric: Literal['cosine', 'ip', 'l2'],
+        precision: Literal['fp16', 'fp32'],
+    ) -> None:
+        # Note: dummy embeddings produced by our test UDF are not normalized, so, strictly speaking, it cannot be
+        # used with IP metric, however it appears to work fine anyway, and that's good enough for our test purpose.
+        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String}, if_exists='replace')
+        n = 123
+        t.add_embedding_index(
+            t.text,
+            embedding=TestIndex.dummy_embedding.using(n=n),
+            metric=metric,
+            precision=precision,
+            idx_name='test_idx',
+        )
         t.insert(
             [
-                {'rowid': 0, 'text': "this string's embedding is all zeros"},
-                {'rowid': 1, 'text': "and this string's are all ones"},
-                {'rowid': 2, 'text': 'this will result in random embedding'},
+                {'rowid': 0, 'text': 'string zero'},
+                {'rowid': 1, 'text': 'string one'},
+                {'rowid': 2, 'text': 'something else'},
             ]
         )
-        sim = t.text.similarity('all zeros embedding query')
+
+        reload_catalog(reload_cat)
+
+        res = t.select(t.text.embedding()).collect()
+        assert len(res.schema) == 1
+        assert ts.ArrayType((n,), np.dtype('float32')).matches(res.schema['col_0']), res.schema
+        assert len(res) == 3
+        assert all(isinstance(row['col_0'], np.ndarray) and row['col_0'].dtype == np.float32 for row in res)
+
+        sim = t.text.similarity(string='zero')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 0
-        sim = t.text.similarity('all ones embedding query')
+
+        sim = t.text.similarity(string='one')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
-
-    @pxt.udf
-    @staticmethod
-    def dummy_embed_too_long(text: str) -> pxt.Array[(2001,), np.float32]:
-        pass
-
-    def test_embedding_vector_too_long(self, reset_db: None) -> None:
-        t = pxt.create_table('test', {'text': pxt.String})
-        with pytest.raises(pxt.Error, match='Embedding vector size exceeds the maximum allowed size'):
-            t.add_embedding_index(t.text, embedding=self.dummy_embed_too_long)

@@ -152,6 +152,23 @@ class FileCache:
             del self.cache[entry.key]
             self.total_size -= entry.size
 
+    def validate(self) -> None:
+        """
+        Validation:
+        - all files in the cache directory are in self.cache
+        - all files in self.cache are in the cache directory
+        """
+        # validate directory contents
+        dir_contents = set(Env.get().file_cache_dir.glob('*'))
+        for entry in self.cache.values():
+            assert entry.path in dir_contents, f'{entry.path} not found in {dir_contents}'
+            dir_contents.remove(entry.path)
+        assert len(dir_contents) == 0, f'Found {len(dir_contents)} unexpected files in file cache: {dir_contents}'
+
+        # validate cache contents
+        for entry in self.cache.values():
+            assert entry.path.exists(), f'{entry.path} does not exist'
+
     def emit_eviction_warnings(self) -> None:
         if self.new_redownload_witnessed:
             # Compute the additional capacity that would be needed in order to retain all the re-downloaded files

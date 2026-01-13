@@ -24,7 +24,7 @@ Pixeltable lets you build audio search workflows in two phases:
     import pixeltable as pxt
     from pixeltable.functions import whisper
     from pixeltable.functions.huggingface import sentence_transformer
-    from pixeltable.iterators.string import StringSplitter
+    from pixeltable.functions.string import string_splitter
     import spacy
 
     # Initialize spaCy
@@ -52,7 +52,7 @@ Pixeltable lets you build audio search workflows in two phases:
     sentences_view = pxt.create_view(
         "audio_search.audio_sentence_chunks",
         audio_t,
-        iterator=StringSplitter.create(
+        iterator=string_splitter(
             text=audio_t.transcription.text, 
             separators="sentence"
         )
@@ -88,7 +88,7 @@ Pixeltable lets you build audio search workflows in two phases:
     # Perform search
     query_text = "What are the key features of Pixeltable?"
     min_similarity = 0.8
-    sim = sentences_view.text.similarity(query_text)
+    sim = sentences_view.text.similarity(string=query_text)
     result = (
         sentences_view.where(sim >= min_similarity)
         .order_by(sim, asc=False)
@@ -121,7 +121,7 @@ Pixeltable lets you build audio search workflows in two phases:
   <Card title="Smart Chunking" icon="scissors">
     Intelligent sentence splitting using spaCy:
     ```python
-    iterator=StringSplitter.create(
+    iterator=string_splitter(
         text=audio_t.transcription.text,
         separators="sentence"
     )
@@ -133,7 +133,7 @@ Pixeltable lets you build audio search workflows in two phases:
     ```python
     query_text = "What are the key features of Pixeltable?"
     min_similarity = 0.8
-    sim = sentences_view.text.similarity(query_text)
+    sim = sentences_view.text.similarity(string=query_text)
     result = (
         sentences_view.where(sim >= min_similarity)
         .order_by(sim, asc=False)
@@ -181,7 +181,7 @@ You can create custom search functions with different parameters:
 ```python
 @pxt.query
 def search_with_threshold(query_text: str, min_similarity: float):
-    sim = sentences_view.text.similarity(query_text)
+    sim = sentences_view.text.similarity(string=query_text)
     return (
         sentences_view.where(sim >= min_similarity)
         .order_by(sim, asc=False)

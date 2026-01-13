@@ -18,6 +18,7 @@ from typing import Any
 
 import numpy as np
 import PIL.Image
+import PIL.ImageColor
 
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
@@ -389,6 +390,106 @@ def draw_bounding_boxes(
             draw.text((x, y), label_str, fill='white', font=txt_font)
 
     return img_to_draw
+
+
+def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
+    """Get contour mask with specified thickness."""
+    assert mask.dtype == bool
+    # find interior pixels: those with all 8 neighbors in the mask (8: include diagonals)
+    padded = np.pad(mask, 1, mode='constant', constant_values=False)
+    interior = (
+        padded[1:-1, 1:-1]
+        & padded[:-2, 1:-1]
+        & padded[2:, 1:-1]
+        & padded[1:-1, :-2]
+        & padded[1:-1, 2:]
+        & padded[:-2, :-2]
+        & padded[:-2, 2:]
+        & padded[2:, :-2]
+        & padded[2:, 2:]
+    )
+    boundaries = mask & ~interior
+
+    for _ in range(thickness - 1):
+        # binary dilation to all 8 neighbors
+        padded = np.pad(boundaries, 1, mode='constant', constant_values=False)
+        boundaries = (
+            padded[1:-1, 1:-1]
+            | padded[:-2, 1:-1]
+            | padded[2:, 1:-1]
+            | padded[1:-1, :-2]
+            | padded[1:-1, 2:]
+            | padded[:-2, :-2]
+            | padded[:-2, 2:]
+            | padded[2:, :-2]
+            | padded[2:, 2:]
+        )
+
+    return boundaries
+
+
+@pxt.udf
+def overlay_segmentation(
+    img: PIL.Image.Image,
+    segmentation: pxt.Array[(None, None), np.int32],
+    *,
+    alpha: float = 0.5,
+    background: int = 0,
+    segment_colors: list[str] | None = None,
+    draw_contours: bool = True,
+    contour_thickness: int = 1,
+) -> PIL.Image.Image:
+    """
+    Overlays a colored segmentation map on an image.
+
+    Colors can be specified as common HTML color names (e.g., 'red') supported by PIL's
+    [`ImageColor`](https://pillow.readthedocs.io/en/stable/reference/ImageColor.html#imagecolor-module) module or as
+    RGB hex codes (e.g., '#FF0000').
+
+    If no colors are specified, this function randomly assigns each segment a specific color based on a hash of its id.
+
+    Args:
+        img: Input image.
+        segmentation: 2D array of the same shape as `img` where each pixel value is a segment id.
+        alpha: Blend factor for the overlay (0.0 = only original image, 1.0 = only segmentation colors).
+        background: Segment id to treat as background (not overlaid with color, showing the original
+            image through).
+        segment_colors: List of colors, one per segment id. If the list is shorter than the number of segments, the
+            remaining segments will be assigned colors automatically.
+        draw_contours: If True, draw contours around each segment with full opacity.
+        contour_thickness: Thickness of the contour lines in pixels.
+
+    Returns:
+        The image with the colored segmentation overlay.
+    """
+
+    if segmentation.shape != (img.height, img.width):
+        raise ValueError(
+            f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})'
+        )
+    segment_ids = sorted(int(sid) for sid in np.unique(segmentation) if sid != background)
+    if segment_colors is None:
+        segment_colors = []
+    missing_ids = segment_ids[len(segment_colors) :]
+    auto_colors = __create_label_colors(missing_ids)
+    color_map = {**auto_colors, **dict(zip(segment_ids, segment_colors))}
+
+    segment_alpha = int(alpha * 255)
+
+    overlay_array = np.zeros((img.height, img.width, 4), dtype=np.uint8)
+    segment_colors = {id: PIL.ImageColor.getrgb(color_map[id]) for id in segment_ids}
+    for segment_id in segment_ids:
+        rgb = segment_colors[segment_id]
+        mask = segmentation == segment_id
+        overlay_array[mask] = (*rgb, segment_alpha)
+        if draw_contours:
+            contour_mask = _get_contours(mask, contour_thickness)
+            overlay_array[contour_mask] = (*rgb, 255)
+
+    overlay = PIL.Image.fromarray(overlay_array, mode='RGBA')
+    img_rgba = img.convert('RGBA')
+    result = PIL.Image.alpha_composite(img_rgba, overlay)
+    return result.convert('RGB')
 
 
 __all__ = local_public_names(__name__)

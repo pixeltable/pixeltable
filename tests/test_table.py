@@ -866,6 +866,8 @@ class TestTable:
             'req_date_col': pxt.Required[pxt.Date],
             'uuid_col': pxt.UUID,
             'req_uuid_col': pxt.Required[pxt.UUID],
+            'binary_col': pxt.Binary,
+            'req_binary_col': pxt.Required[pxt.Binary],
             'json_col': pxt.Json,
             'req_json_col': pxt.Required[pxt.Json],
             'array_col': pxt.Array[(5, None, 3), pxt.Int],  # type: ignore[misc]
@@ -907,6 +909,8 @@ class TestTable:
             'req_date_col': ts.DateType(nullable=False),
             'uuid_col': ts.UUIDType(nullable=True),
             'req_uuid_col': ts.UUIDType(nullable=False),
+            'binary_col': ts.BinaryType(nullable=True),
+            'req_binary_col': ts.BinaryType(nullable=False),
             'json_col': ts.JsonType(nullable=True),
             'req_json_col': ts.JsonType(nullable=False),
             'array_col': ts.ArrayType((5, None, 3), dtype=ts.IntType(), nullable=True),
@@ -945,6 +949,8 @@ class TestTable:
             'Required[Date]',
             'UUID',
             'Required[UUID]',
+            'Binary',
+            'Required[Binary]',
             'Json',
             'Required[Json]',
             'Array[(5, None, 3), int64]',
@@ -1090,6 +1096,9 @@ class TestTable:
         pxt.drop_table(non_existing_t, if_not_exists='ignore')
         # force=True should not raise an error, irrespective of if_not_exists value
         pxt.drop_table(non_existing_t, force=True)
+        # same if the parent dir does not exist
+        pxt.drop_table('not_a_parent_dir.non_existing_table', if_not_exists='ignore')
+        pxt.drop_table('not_a_parent_dir.non_existing_table', force=True)
         assert table_list == pxt.list_tables()
 
     def test_image_table(self, reset_db: None) -> None:
@@ -1186,9 +1195,10 @@ class TestTable:
             pxt.create_table('test', {'c1': pxt.Required[pxt.String]}, primary_key=0)  # type: ignore[arg-type]
         assert 'primary_key must be a' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error, match=r'cannot be nullable. Declare it as `Required` instead: `pxt.Required\[pxt.String\]`'
+        ) as exc_info:
             pxt.create_table('test', {'c1': pxt.String}, primary_key='c1')
-        assert 'cannot be nullable' in str(exc_info.value).lower()
 
         for badtype, name, suggestion in [
             (str, 'str', 'pxt.String'),
@@ -1198,6 +1208,7 @@ class TestTable:
             (datetime.datetime, 'datetime.datetime', 'pxt.Timestamp'),
             (datetime.date, 'datetime.date', 'pxt.Date'),
             (uuid.UUID, 'uuid.UUID', 'pxt.UUID'),
+            (bytes, 'bytes', 'pxt.Binary'),
             (list, 'list', 'pxt.Json'),
             (dict, 'dict', 'pxt.Json'),
             (PIL.Image.Image, 'PIL.Image.Image', 'pxt.Image'),
@@ -1419,6 +1430,12 @@ class TestTable:
             assert container.streams.video[0].codec_context.name == 'h264'
 
     def test_create_video_table(self, reset_db: None) -> None:
+        if Env.get().is_using_cockroachdb:
+            # TODO(PXT-921): fix this on CockroachDB
+            pytest.skip(
+                'Skipped on CockroachDB due to: RETRY_SERIALIZABLE - failed preemptive refresh due to'
+                ' encountered recently written committed value...'
+            )
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
         view = pxt.create_view('test_view', tbl, iterator=frame_iterator(tbl.video, fps=0))
