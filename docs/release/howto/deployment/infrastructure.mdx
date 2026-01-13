@@ -241,9 +241,9 @@ Pixeltable integrates with existing data pipelines via import/export capabilitie
 **Export:**
 - Parquet: [`pxt.io.export_parquet(table, path)`](/sdk/latest/io#func-export-parquet) for data warehousing
 - LanceDB: [`pxt.io.export_lancedb(table, db_uri, table_name)`](/sdk/latest/io#func-export-lancedb) for vector databases
-- PyTorch: [`query.to_pytorch_dataset()`](/sdk/latest/query#method-to-pytorch-dataset) for ML training pipelines
-- COCO: [`query.to_coco_dataset()`](/sdk/latest/query#method-to-coco-dataset) for computer vision
-- Pandas: [`query.collect().to_pandas()`](/sdk/latest/query#method-collect) for analysis
+- PyTorch: [`table.to_pytorch_dataset()`](/sdk/latest/query#method-to-pytorch-dataset) for ML training pipelines
+- COCO: [`table.to_coco_dataset()`](/sdk/latest/query#method-to-coco-dataset) for computer vision
+- Pandas: [`table.collect().to_pandas()`](/sdk/latest/query#method-collect) for analysis
 
 ```python
 # Export query results to Parquet
