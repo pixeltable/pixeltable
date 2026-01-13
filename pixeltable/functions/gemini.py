@@ -286,7 +286,10 @@ async def generate_embedding(
         Add an embedding index on `text` column:
 
         >>> t.add_embedding_index(
-        ...    t.text, embedding=generate_embedding.using(model='gemini-embedding-001')
+        ...    t.text,
+        ...    embedding=generate_embedding.using(
+        ...        model='gemini-embedding-001', config={'output_dimensionality': 3072}
+        ...    ),
         ...)
     """
     env.Env.get().require_package('google.genai')
