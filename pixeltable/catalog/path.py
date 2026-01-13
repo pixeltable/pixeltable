@@ -22,12 +22,6 @@ class Path(NamedTuple):
         allow_system_path: bool = False,
         allow_versioned_path: bool = False,
     ) -> Path:
-        """
-        Parse a path string into a Path object.
-
-        Accepts both '.' and '/' delimiters for backward compatibility.
-        All paths are always represented with '/' delimiter.
-        """
         components: list[str]
         version: int | None
 
@@ -45,9 +39,7 @@ class Path(NamedTuple):
             path_part = path
             version = None
 
-        # Accept both '.' and '/' delimiters for backward compatibility
-        # Check '.' first as most backward compatible paths will be dotted
-        # All paths are always represented with '/' delimiter
+        # Parse a path string into a Path object.
         if '.' in path_part:
             components = path_part.split('.')
         elif '/' in path_part:
@@ -89,15 +81,15 @@ class Path(NamedTuple):
     @property
     def parent(self) -> Path:
         if len(self.components) == 1:
-            return Path([''], None)
+            return ROOT_PATH # Includes the case of the root path, which is its own parent.
         else:
-            return Path(self.components[:-1], None)
+            return Path(self.components[:-1])
 
     def append(self, name: str) -> Path:
         if self.is_root:
-            return Path([name], None)
+            return Path([name])
         else:
-            return Path([*self.components, name], None)
+            return Path([*self.components, name])
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
@@ -118,7 +110,7 @@ class Path(NamedTuple):
         if self.is_root:
             return []
         else:
-            return [Path(self.components[:i] if i > 0 else [''], None) for i in range(len(self.components))]
+            return [Path(self.components[:i]) if i > 0 else ROOT_PATH for i in range(len(self.components))]
 
     def __repr__(self) -> str:
         return repr(str(self))
@@ -139,5 +131,4 @@ class Path(NamedTuple):
         # Hash based on components and version, not string representation
         return hash((tuple(self.components), self.version))
 
-
-ROOT_PATH = Path([''], None)
+ROOT_PATH = Path([''])
