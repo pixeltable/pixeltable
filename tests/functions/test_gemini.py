@@ -150,10 +150,10 @@ class TestGemini:
         # Test embeddings as computed columns
         t.add_computed_column(embed0=generate_embedding(t.text, model='gemini-embedding-001'))
         t.add_computed_column(
-            embed1=generate_embedding(t.text, model='gemini-embedding-001', config={'output_dimensionality': 3072})
+            embed1=generate_embedding(t.text, model='gemini-embedding-001', config={'output_dimensionality': 1536})
         )
-        assert t.embed0.col.col_type.matches(ts.ArrayType((1536,), np.dtype('float32'))), t.embed0.col.col_type
-        assert t.embed1.col.col_type.matches(ts.ArrayType((3072,), np.dtype('float32'))), t.embed1.col.col_type
+        assert t.embed0.col.col_type.matches(ts.ArrayType((3072,), np.dtype('float32'))), t.embed0.col.col_type
+        assert t.embed1.col.col_type.matches(ts.ArrayType((1536,), np.dtype('float32'))), t.embed1.col.col_type
         validate_update_status(
             t.insert(
                 [
@@ -168,11 +168,11 @@ class TestGemini:
             embedding = row['embed0']
             assert isinstance(embedding, np.ndarray)
             assert embedding.dtype == np.float32
-            assert embedding.shape == (1536,)
+            assert embedding.shape == (3072,)
             embedding = row['embed1']
             assert isinstance(embedding, np.ndarray)
             assert embedding.dtype == np.float32
-            assert embedding.shape == (3072,)
+            assert embedding.shape == (1536,)
 
         # Test embeddings as embedding indexes
         t.add_embedding_index(

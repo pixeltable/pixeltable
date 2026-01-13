@@ -247,10 +247,9 @@ def _(model: str) -> str:
     return f'request-rate:veo:{model}'
 
 
-# The default dimensionality for Gemini embeddings that works with embedding indexes.
-# Google recommends using 768, 1536, or 3072 output dimensions, but 3072 exceeds the max vector length for embedding
-# indexes (2000). It's possible to exceed 2000 as long as the output vector is not stored in an embedding index.
-_DEFAULT_EMBEDDING_DIMENSIONALITY = 1536
+# We have to have some explicit default dimensionality for embedding index declaration. 3072 is the current default
+# that Google uses.
+_DEFAULT_EMBEDDING_DIMENSIONALITY = 3072
 
 
 @pxt.udf(resource_pool='request-rate:gemini', batch_size=32)
