@@ -338,7 +338,7 @@ import pixeltable as pxt
 from pixeltable.functions import openai
 
 # Create a table — input media automatically goes to input_media_dest
-t = pxt.create_table('production.photos', {'photo': pxt.Image})
+t = pxt.create_table('production/photos', {'photo': pxt.Image})
 
 # Add a computed column for thumbnails
 # Uses output_media_dest by default, or specify a custom destination
