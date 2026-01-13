@@ -69,14 +69,12 @@ class TestPxtUri:
         assert uri.path == 'dir/subdir/table'
         assert uri.id is None
 
-    @pytest.mark.parametrize(
-        'path_part,expected_path', [('path:with:colons', 'path:with:colons'), ('table:', 'table:')]
-    )
-    def test_parse_path_with_colons_not_version(self, path_part: str, expected_path: str) -> None:
+    def test_parse_path_with_invalid_version(self) -> None:
         """Test parsing paths with colons that should not be treated as version."""
-        uri = PxtUri(f'pxt://org_name/{path_part}')
-        assert uri.path == expected_path
-        assert uri.version is None
+        with pytest.raises(ValueError, match='Invalid table version'):
+            PxtUri(f'pxt://org_name/table:')
+        with pytest.raises(ValueError, match='Invalid table version'):
+            PxtUri(f'pxt://org_name/table:version')
 
     def test_parse_from_dict_input(self) -> None:
         """Test parsing from dict input."""

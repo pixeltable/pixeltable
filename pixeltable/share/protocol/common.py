@@ -111,10 +111,10 @@ class PxtUri(BaseModel):
                 try:
                     version_int = int(parts[1])
                 except ValueError:
-                    pass  # Not a valid number
+                    raise ValueError(f'Invalid table version {parts[1]!r} in uri: {uri}') from None
                 else:
                     if version_int < 0:
-                        raise ValueError('Version must be a non-negative integer.')
+                        raise ValueError('Version must be a non-negative integer.') from None
                     identifier, version = parts[0], version_int
 
         # Parse identifier into either a path string or UUID
