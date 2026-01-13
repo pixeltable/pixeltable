@@ -186,11 +186,11 @@ class TestGemini:
             ),
         )
 
-        sim = t.text.similarity('Coordinating AI tasks can be achieved with Pixeltable.', idx='embed_idx0')
+        sim = t.text.similarity(string='Coordinating AI tasks can be achieved with Pixeltable.', idx='embed_idx0')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
 
-        sim = t.text.similarity('The five dueling sorcerers leap rapidly.', idx='embed_idx1')
+        sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.', idx='embed_idx1')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
 
