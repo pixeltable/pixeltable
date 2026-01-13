@@ -8,13 +8,15 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypeVar
 from uuid import UUID
 
 import psycopg
 import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
+from sqlalchemy.sql import elements as sql_elements
 
+import pixeltable.index as index
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
@@ -25,7 +27,7 @@ from .column import Column
 from .dir import Dir
 from .globals import IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId
 from .insertable_table import InsertableTable
-from .path import Path
+from .path import ROOT_PATH, Path
 from .schema_object import SchemaObject
 from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
@@ -36,6 +38,7 @@ from .update_status import UpdateStatus
 from .view import View
 
 if TYPE_CHECKING:
+    import pixeltable as pxt
     from pixeltable.plan import SampleClause
 
     from .. import exprs
@@ -2438,3 +2441,121 @@ class Catalog:
             assert isinstance(obj, Table)
             self._drop_tbl(obj, force=if_exists == IfExistsParam.REPLACE_FORCE, is_replace=True)
         return None
+
+    def validate_store(self) -> None:
+        """Validate the underlying store for testing purposes.
+        This function can and should be extended to perform more checks.
+        """
+        all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
+        with Env.get().begin_xact(for_write=False):
+            for entry in all_contents.values():
+                if entry.table is None:
+                    continue
+                id = entry.table.id
+                tbl = self.get_table_by_id(id)
+                assert tbl is not None, id
+                self._validate_table(tbl)
+
+    def _validate_table(self, tbl: pxt.Table) -> None:
+        if tbl._tbl_version is None:
+            return
+        tv = tbl._tbl_version.get()
+        sa_tbl = tv.store_tbl.sa_tbl
+
+        # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
+        # Example query:
+        # SELECT *,
+        #        tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_0 !=
+        #        tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_3 AS idx_mismatch_idx0,
+        #        LEFT(tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_1, 256) !=
+        #        tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_5 AS idx_mismatch_idx1,
+        #        LEFT(tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_2, 256) !=
+        #        tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_7 AS idx_mismatch_idx2
+        # FROM   tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2
+        # WHERE  tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.v_max = 9223372036854775807
+        #        AND ( tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_0 !=
+        #                    tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_3
+        #               OR LEFT(tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_1, 256) !=
+        #                  tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_5
+        #               OR LEFT(tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_2, 256) !=
+        #                  tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_7 )
+        # LIMIT 1;
+        select_list: list[sql_elements.SQLCoreOperations[Any] | Literal['*']] = ['*']
+        conditions: list[sql.ColumnExpressionArgument] = []
+        for idx_info in tv.idxs.values():
+            if isinstance(idx_info.idx, index.BtreeIndex):
+                # condition is the invariant violation that we are checking for
+                # add it to where clause, and also to select clause for easier debugging
+                if idx_info.val_col.col_type.is_string_type():
+                    condition = (
+                        sql.func.left(idx_info.col.sa_col, index.BtreeIndex.MAX_STRING_LEN) != idx_info.val_col.sa_col
+                    )
+                else:
+                    condition = idx_info.col.sa_col != idx_info.val_col.sa_col
+                conditions.append(condition)
+                select_label = f'idx_mismatch_{idx_info.name}'
+                select_list.append(condition.label(select_label))
+        if len(conditions) > 0:
+            stmt = (
+                sql.select(*select_list)
+                .select_from(sa_tbl)
+                .where(sa_tbl.c.v_max == schema.Table.MAX_VERSION)
+                .where(sql.or_(*conditions))
+                .limit(1)
+            )
+            _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
+            for row in Env.get().conn.execute(stmt).all():
+                raise AssertionError(
+                    f'The table validation query should have returned nothing, but it returned row: {row._asdict()}.\n'
+                    f'This means that one of the indexes in {tbl._display_str()} is corrupted, i.e. the index value '
+                    'is out of sync with the actual value for a current row. Look for idx_mismatch_*. The query was:\n'
+                    f'{stmt}'
+                )
+
+        # Validate that the index values are NULL for non-latest version rows
+        # Example query:
+        # SELECT *,
+        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_3 IS NOT NULL  AS
+        #        idx_not_null_idx0,
+        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_5 IS NOT NULL  AS
+        #        idx_not_null_idx1,
+        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_7 IS NOT NULL  AS
+        #        idx_not_null_idx2,
+        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_11 IS NOT NULL AS
+        #        idx_not_null_img_idx2,
+        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_13 IS NOT NULL AS
+        #        idx_not_null_img_idx1
+        # FROM   tbl_1d7bb633b5be4c57bd9070707ca4c552
+        # WHERE  tbl_1d7bb633b5be4c57bd9070707ca4c552.v_max < 9223372036854775807
+        #        AND ( tbl_1d7bb633b5be4c57bd9070707ca4c552.col_3 IS NOT NULL
+        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_5 IS NOT NULL
+        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_7 IS NOT NULL
+        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_11 IS NOT NULL
+        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_13 IS NOT NULL )
+        # LIMIT 1;
+        select_list.clear()
+        select_list.append('*')
+        conditions.clear()
+        for idx_info in tv.idxs.values():
+            # condition is the invariant violation that we are checking for
+            # add it to where clause, and also to select clause for easier debugging
+            condition = idx_info.val_col.sa_col != None
+            conditions.append(condition)
+            select_label = f'idx_not_null_{idx_info.name}'
+            select_list.append(condition.label(select_label))
+        if len(conditions) > 0:
+            stmt = (
+                sql.select(*select_list)
+                .select_from(sa_tbl)
+                .where(sa_tbl.c.v_max < schema.Table.MAX_VERSION)
+                .where(sql.or_(*conditions))
+                .limit(1)
+            )
+            _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
+            for row in Env.get().conn.execute(stmt).all():
+                raise AssertionError(
+                    'The table validation query should have returned nothing, but it returned row: '
+                    f'{row._asdict()}.\nThis means that one of the indexes in {tbl._display_str()} is corrupted, i.e. '
+                    'the index value is not NULL for a non-latest version row. Look for idx_not_null_*. '
+                    f'The query was:\n{stmt}'
+                )
