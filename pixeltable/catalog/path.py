@@ -24,7 +24,6 @@ class Path(NamedTuple):
     ) -> Path:
         components: list[str]
         version: int | None
-
         # Extract version if present
         if ':' in path:
             parts = path.split(':')
@@ -81,7 +80,7 @@ class Path(NamedTuple):
     @property
     def parent(self) -> Path:
         if len(self.components) == 1:
-            return ROOT_PATH # Includes the case of the root path, which is its own parent.
+            return ROOT_PATH  # Includes the case of the root path, which is its own parent.
         else:
             return Path(self.components[:-1])
 
@@ -128,7 +127,8 @@ class Path(NamedTuple):
         return self.components == other.components and self.version == other.version
 
     def __hash__(self) -> int:
-        # Hash based on components and version, not string representation
+        # Hash based on components and version
         return hash((tuple(self.components), self.version))
+
 
 ROOT_PATH = Path([''])
