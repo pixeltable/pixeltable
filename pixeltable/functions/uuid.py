@@ -23,7 +23,7 @@ _RFC_4122_VERSION_7_FLAGS = 0x7000_8000_0000_0000_0000
 
 def _uuid7_get_counter_and_tail() -> tuple[int, int]:
     """Generate a random 42-bit counter (with MSB=0) and 32-bit tail."""
-    rnd = int.from_bytes(os.urandom(10))
+    rnd = int.from_bytes(os.urandom(10), 'big')
     counter = (rnd >> 32) & 0x1ff_ffff_ffff  # 41 bits (MSB is 0)
     tail = rnd & 0xffff_ffff  # 32 bits
     return counter, tail
@@ -54,7 +54,7 @@ def _uuid7() -> uuid.UUID:
                 counter, tail = _uuid7_get_counter_and_tail()
             else:
                 # 32-bit random data
-                tail = int.from_bytes(os.urandom(4))
+                tail = int.from_bytes(os.urandom(4), 'big')
 
         unix_ts_ms = timestamp_ms & 0xffff_ffff_ffff
         counter_msbs = counter >> 30
