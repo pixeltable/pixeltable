@@ -172,4 +172,4 @@ jobs:
         with:
           miniconda-version: latest
       - name: Run isolated notebook tests
-        run: ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }}
+        run: ./scripts/run-isolated-nb-tests.sh --clean-caches ${{ matrix.python-version }} docs/release
