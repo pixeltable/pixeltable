@@ -216,10 +216,10 @@ class TestGemini:
             t.text, embedding=generate_embedding.using(model='gemini-embedding-001', use_batch_api=True)
         )
 
-        sim = t.text.similarity('Coordinating AI tasks can be achieved with Pixeltable.')
+        sim = t.text.similarity(string='Coordinating AI tasks can be achieved with Pixeltable.')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
 
-        sim = t.text.similarity('The five dueling sorcerers leap rapidly.')
+        sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
