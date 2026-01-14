@@ -69,14 +69,12 @@ class TestPxtUri:
         assert uri.path == 'dir/subdir/table'
         assert uri.id is None
 
-    @pytest.mark.parametrize(
-        'path_part,expected_path', [('path:with:colons', 'path:with:colons'), ('table:', 'table:')]
-    )
-    def test_parse_path_with_colons_not_version(self, path_part: str, expected_path: str) -> None:
+    def test_parse_path_with_invalid_version(self) -> None:
         """Test parsing paths with colons that should not be treated as version."""
-        uri = PxtUri(f'pxt://org_name/{path_part}')
-        assert uri.path == expected_path
-        assert uri.version is None
+        with pytest.raises(ValueError, match='Invalid table version'):
+            PxtUri('pxt://org_name/table:')
+        with pytest.raises(ValueError, match='Invalid table version'):
+            PxtUri('pxt://org_name/table:version')
 
     def test_parse_from_dict_input(self) -> None:
         """Test parsing from dict input."""
@@ -127,3 +125,21 @@ class TestPxtUri:
         uri_str = 'pxt://org_name/table:5'
         uri = PxtUri(uri_str)
         assert str(uri) == uri_str
+
+    def test_version(self) -> None:
+        """Test that negative version numbers in URI raise ValueError."""
+        with pytest.raises(ValueError, match='Version must be a non-negative integer'):
+            PxtUri('pxt://org_name/table:-1')
+        uri = PxtUri('pxt://org_name/table:0')
+        assert uri.version == 0
+        uri = PxtUri('pxt://org_name/table:42')
+        assert uri.version == 42
+
+    def test_version_in_from_components(self) -> None:
+        """Test that negative version numbers in from_components raise ValueError."""
+        with pytest.raises(ValueError, match='Version must be a non-negative integer'):
+            PxtUri.from_components('org_name', path='table', version=-12)
+        uri = PxtUri.from_components('org_name', path='table', version=0)
+        assert uri.version == 0
+        uri = PxtUri.from_components('org_name', path='table', version=10)
+        assert uri.version == 10
