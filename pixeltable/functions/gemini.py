@@ -9,7 +9,7 @@ import asyncio
 import io
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import PIL.Image
@@ -291,8 +291,7 @@ async def generate_embedding(
     config_ = _embedding_config(config)
 
     if not use_batch_api:
-        requests: list[Any] = input  # makes mypy happy
-        result = await client.aio.models.embed_content(model=model, contents=requests, config=config_)
+        result = await client.aio.models.embed_content(model=model, contents=cast(list[Any], input), config=config_)
         assert len(result.embeddings) == len(input)
         return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
