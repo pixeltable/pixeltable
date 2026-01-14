@@ -37,24 +37,31 @@ _logger = logging.getLogger('pixeltable')
 def _(api_key: str, base_url: str | None = None, api_version: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 
-    max_connections = Config.get().get_int_value('openai.max_connections') or 1000
-    max_keepalive_connections = Config.get().get_int_value('openai.max_keepalive_connections') or 100
+    max_connections = Config.get().get_int_value('openai.max_connections') or 2000
+    max_keepalive_connections = Config.get().get_int_value('openai.max_keepalive_connections') or None
+    read_timeout = Config.get().get_float_value('openai.read_timeout') or 120.0
+    write_timeout = Config.get().get_float_value('openai.write_timeout') or 5.0
     set_file_descriptor_limit(max_connections * 2)
     default_query = None if api_version is None else {'api-version': api_version}
 
     # Pixeltable scheduler's retry logic takes into account the rate limit-related response headers, so in theory we can
     # benefit from disabling retries in the OpenAI client (max_retries=0). However to do that, we need to get smarter
     # about idempotency keys and possibly more.
+    http_limits = httpx.Limits(max_keepalive_connections=max_keepalive_connections, max_connections=max_connections)
+    # Connect and pool timeouts should be unlimited because requests can spend an arbitrary time waiting in the queue.
+    # Note: the clock start ticking for connect timeout when the request enters the queue, not when it starts being sent
+    http_timeouts = httpx.Timeout(connect=None, read=read_timeout, write=write_timeout, pool=None)
+    _logger.debug(f'Initializing AsyncOpenAI client with httpx limits: {http_limits} and timeouts: {http_timeouts}')
     return openai.AsyncOpenAI(
         api_key=api_key,
         base_url=base_url,
         default_query=default_query,
-        # recommended to increase limits for async client to avoid connection errors
         http_client=httpx.AsyncClient(
-            limits=httpx.Limits(max_keepalive_connections=max_keepalive_connections, max_connections=max_connections),
+            limits=http_limits,
             # HTTP1 tends to perform better on this kind of workloads
             http2=False,
             http1=True,
+            timeout=http_timeouts,
         ),
     )
 
