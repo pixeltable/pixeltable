@@ -231,6 +231,10 @@ jobs:
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
         run: ruff check pixeltable tests tool
+      - name: Notebook lint
+        if: ${{ matrix.test-category == 'lint' }}
+        run: |
+          ./scripts/notebooks-markdown.sh check
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
