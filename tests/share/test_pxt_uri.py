@@ -72,9 +72,9 @@ class TestPxtUri:
     def test_parse_path_with_invalid_version(self) -> None:
         """Test parsing paths with colons that should not be treated as version."""
         with pytest.raises(ValueError, match='Invalid table version'):
-            PxtUri(f'pxt://org_name/table:')
+            PxtUri('pxt://org_name/table:')
         with pytest.raises(ValueError, match='Invalid table version'):
-            PxtUri(f'pxt://org_name/table:version')
+            PxtUri('pxt://org_name/table:version')
 
     def test_parse_from_dict_input(self) -> None:
         """Test parsing from dict input."""
