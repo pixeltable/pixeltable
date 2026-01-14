@@ -345,6 +345,13 @@ def list_table_versions(table_uri: str) -> list[dict[str, Any]]:
 def _api_headers() -> dict[str, str]:
     headers = {'Content-Type': 'application/json'}
     api_key = Env.get().pxt_api_key
-    if api_key is not None:
-        headers['X-api-key'] = api_key
+    if api_key is None:
+        from pixeltable.config import Config
+
+        raise excs.Error(
+            'Pixeltable API key not found. Set it via: `import os; os.environ["PIXELTABLE_API_KEY"] = "your-key"` '
+            f'Alternatively, add `api_key = "your-key"` to the `[pixeltable]` section of '
+            f'{Config.get().config_file} and restart.'
+        )
+    headers['X-api-key'] = api_key
     return headers
