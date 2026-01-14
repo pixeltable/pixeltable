@@ -44,6 +44,7 @@ def _(api_key: str, base_url: str | None = None, api_version: str | None = None)
     set_file_descriptor_limit(max_connections * 2)
     default_query = None if api_version is None else {'api-version': api_version}
 
+    # TODO: once there's enough confidence in this HTTP client configuration, we should apply it to other clients.
     # Pixeltable scheduler's retry logic takes into account the rate limit-related response headers, so in theory we can
     # benefit from disabling retries in the OpenAI client (max_retries=0). However to do that, we need to get smarter
     # about idempotency keys and possibly more.
