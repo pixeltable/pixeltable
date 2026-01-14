@@ -48,8 +48,9 @@ def _(api_key: str, base_url: str | None = None, api_version: str | None = None)
     # benefit from disabling retries in the OpenAI client (max_retries=0). However to do that, we need to get smarter
     # about idempotency keys and possibly more.
     http_limits = httpx.Limits(max_keepalive_connections=max_keepalive_connections, max_connections=max_connections)
-    # Connect and pool timeouts should be unlimited because requests can spend an arbitrary time waiting in the queue.
-    # Note: the clock start ticking for connect timeout when the request enters the queue, not when it starts being sent
+    # Connect and pool timeouts should be unset because requests can spend an unbounded time waiting in the queue.
+    # Note: the clock start ticking for the connect timeout when the request enters the queue, not when it is put on
+    # the wire.
     http_timeouts = httpx.Timeout(connect=None, read=read_timeout, write=write_timeout, pool=None)
     _logger.debug(f'Initializing AsyncOpenAI client with httpx limits: {http_limits} and timeouts: {http_timeouts}')
     return openai.AsyncOpenAI(
