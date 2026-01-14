@@ -176,6 +176,8 @@ dev = [
     "scenedetect>=0.6.0.1",
     "opentelemetry-exporter-otlp>=1.38.0",
     "ipywidgets>=8.0.0",
+    "mdformat>=1.0.0",
+    "nbqa>=1.9.1",
     "snowflake-sqlalchemy>=1.7.0",
 ]
 test = [
