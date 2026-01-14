@@ -100,6 +100,8 @@ def uuid7() -> uuid.UUID:
     UUIDv7 objects feature monotonicity within a millisecond, making them suitable
     for use as database keys where ordering by creation time is desired.
     """
+    if hasattr(uuid, 'uuid7'):
+        return uuid.uuid7()
     return _uuid7()
 
 
