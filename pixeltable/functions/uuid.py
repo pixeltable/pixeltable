@@ -1,5 +1,5 @@
 """
-Pixeltable UDFs for `UUIDType`.
+Pixeltable UDFs for `UUID`.
 """
 
 import os
@@ -83,6 +83,8 @@ def _uuid7() -> uuid.UUID:
 def uuid4() -> uuid.UUID:
     """
     Generate a random UUID (version 4).
+
+    Equivalent to [`uuid.uuid4()`](https://docs.python.org/3/library/uuid.html#uuid.uuid4).
     """
     return uuid.uuid4()
 
@@ -95,10 +97,9 @@ def _() -> sql.ColumnElement:
 @pxt.udf
 def uuid7() -> uuid.UUID:
     """
-    Generate a UUID from a Unix timestamp in milliseconds and random bits (version 7).
+    Generate a time-based UUID.
 
-    UUIDv7 objects feature monotonicity within a millisecond, making them suitable
-    for use as database keys where ordering by creation time is desired.
+    Equivalent to [`uuid.uuid7()`](https://docs.python.org/3/library/uuid.html#uuid.uuid7).
     """
     if hasattr(uuid, 'uuid7'):
         return uuid.uuid7()
