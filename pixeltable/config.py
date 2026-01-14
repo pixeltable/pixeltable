@@ -189,6 +189,8 @@ KNOWN_CONFIG_OPTIONS = {
         'max_connections': 'Maximum number of concurrent OpenAI API connections that can be established',
         'max_keepalive_connections': 'Maximum number of keep-alive connections in the pool.'
         ' Must not exceed max_connections.',
+        'read_timeout': 'HTTP read timeout',
+        'write_timeout': 'HTTP write timeout',
     },
     'openrouter': {
         'api_key': 'OpenRouter API key',
