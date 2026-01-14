@@ -337,12 +337,9 @@ _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL: dict[str, int] = {'gemini-embedding-
 @generate_embedding.conditional_return_type
 def _(model: str, config: dict | None) -> ts.ArrayType:
     config_ = _embedding_config(config)
-    if config_.output_dimensionality is not None:
-        dim = config_.output_dimensionality
-    elif model in _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL:
+    dim = config_.output_dimensionality
+    if dim is None and model in _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL:
         dim = _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL.get(model)
-    else:
-        dim = None
     return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
 
 
