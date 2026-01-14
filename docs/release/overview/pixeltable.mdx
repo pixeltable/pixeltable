@@ -41,6 +41,23 @@ description: 'Pixeltable unifies storage and orchestration for multimodal AI app
 Many documentation pages are interactive notebooks (marked with <Icon icon="notebook" /> in the sidebar). Open them in Colab, Kaggle, or locally to follow along.
 </Tip>
 
+## Core Primitives
+
+Pixeltable provides a small set of primitives that compose into any multimodal AI workflow, including but not limited to:
+
+| Primitive | What It Enables |
+|-----------|-----------------|
+| [`pxt.create_table()`](/tutorials/tables-and-data-operations) with [`pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`](/platform/type-system) | Store any multimodal data natively |
+| [`pxt.create_view()`](/platform/views) with [iterators](/platform/iterators) | Extract frames from video, chunk documents, split audio |
+| [`add_computed_column()`](/tutorials/computed-columns) | Run any AI model or transformation—incrementally |
+| [`add_embedding_index()`](/platform/embedding-indexes) | Semantic search on any column |
+| [`@pxt.udf` / `@pxt.query`](/platform/udfs-in-pixeltable) | Extend with your own Python code |
+| [`select()`, `where()`, `order_by()`](/tutorials/queries-and-expressions) | SQL-like querying with Python syntax |
+| [`history()`, `revert()`](/platform/version-control) | Time travel and version control |
+| [`pxt.replicate()`, `pxt.publish()`](/platform/data-sharing) | Share and replicate datasets via Pixeltable Cloud |
+
+These primitives are use-case agnostic by design. We don't build vertical solutions—we build the infrastructure that makes vertical solutions trivial to build.
+
 ## What can you build?
 
 <CardGroup cols={2}>

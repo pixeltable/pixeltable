@@ -5,7 +5,9 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, AsyncIterator, Iterable, NamedTuple, Sequence
 from uuid import UUID
 
+import numpy as np
 import sqlalchemy as sql
+from pgvector.sqlalchemy import HalfVector  # type: ignore[import-untyped]
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
@@ -179,11 +181,10 @@ class SqlNode(ExecNode):
                 assert tv.is_validated
 
     def _open(self) -> None:
-        if self.ctx.show_progress:
-            desc = 'Rows read'
-            if self.tbl is not None:
-                desc += f' (table {self.tbl.tbl_name()!r})'
-            self.progress_reporter = self.ctx.add_progress_reporter(desc, 'rows')
+        desc = 'Rows read'
+        if self.tbl is not None:
+            desc += f' (table {self.tbl.tbl_name()!r})'
+        self.progress_reporter = self.ctx.add_progress_reporter(desc, 'rows')
 
     def _pk_col_items(self) -> list[sql.Column]:
         if self.set_pk:
@@ -417,6 +418,9 @@ class SqlNode(ExecNode):
                             output_row[slot_idx] = sql_row[i]
                     else:
                         raise RuntimeError(f'Unexpected datetime value for {e}')
+                elif isinstance(sql_row[i], HalfVector):
+                    # All array data needs to be materialized as ndarrays
+                    output_row[slot_idx] = sql_row[i].to_numpy().astype(np.float32)
                 else:
                     output_row[slot_idx] = sql_row[i]
 

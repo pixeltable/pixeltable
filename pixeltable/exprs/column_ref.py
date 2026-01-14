@@ -255,7 +255,8 @@ class ColumnRef(Expr):
                     raise excs.Error(
                         f'similarity(audio=...): expected `str` (path to audio file); got `{type(audio).__name__}`'
                     )
-                expr = Literal(audio, ts.AudioType())
+                audio_path = fetch_url(audio, allow_local_file=True)
+                expr = Literal(str(audio_path), ts.AudioType())
 
         if video is not None:
             if isinstance(video, Expr):
@@ -267,7 +268,8 @@ class ColumnRef(Expr):
                     raise excs.Error(
                         f'similarity(video=...): expected `str` (path to video file); got `{type(video).__name__}`'
                     )
-                expr = Literal(video, ts.VideoType())
+                video_path = fetch_url(video, allow_local_file=True)
+                expr = Literal(str(video_path), ts.VideoType())
 
         return SimilarityExpr(self, expr, idx_name=idx)
 
