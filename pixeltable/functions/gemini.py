@@ -254,9 +254,6 @@ async def generate_embedding(
     """Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
     <https://ai.google.dev/gemini-api/docs/embeddings>
 
-    If the output of this UDF is used for an embedding index, the 'output_dimensionality' parameter in `config` must
-    not exceed 2000, if set.
-
     __Requirements:__
 
     - `pip install google-genai`
