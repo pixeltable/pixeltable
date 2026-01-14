@@ -247,11 +247,6 @@ def _(model: str) -> str:
     return f'request-rate:veo:{model}'
 
 
-# We have to have some explicit default dimensionality for embedding index declaration. 3072 is the current default
-# that Google uses.
-_DEFAULT_EMBEDDING_DIMENSIONALITY = 3072
-
-
 @pxt.udf(resource_pool='request-rate:gemini', batch_size=32)
 async def generate_embedding(
     input: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
@@ -340,11 +335,19 @@ async def generate_embedding(
     return results
 
 
+_DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL: dict[str, int] = {'gemini-embedding-001': 3072}
+
+
 @generate_embedding.conditional_return_type
 def _(model: str, config: dict | None) -> ts.ArrayType:
     config_ = _embedding_config(config)
-    assert config_.output_dimensionality is not None
-    return ts.ArrayType((config_.output_dimensionality,), dtype=np.dtype('float32'), nullable=False)
+    if config_.output_dimensionality is not None:
+        dim = config_.output_dimensionality
+    elif model in _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL:
+        dim = _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL.get(model)
+    else:
+        dim = None
+    return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
 
 
 @generate_embedding.resource_pool
@@ -355,10 +358,7 @@ def _(model: str) -> str:
 def _embedding_config(config: dict | None) -> 'genai.types.EmbedContentConfig':
     from google.genai import types
 
-    config_ = types.EmbedContentConfig(**config) if config else types.EmbedContentConfig()
-    if config_.output_dimensionality is None:
-        config_.output_dimensionality = _DEFAULT_EMBEDDING_DIMENSIONALITY
-    return config_
+    return types.EmbedContentConfig(**config) if config else types.EmbedContentConfig()
 
 
 __all__ = local_public_names(__name__)
