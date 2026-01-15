@@ -50,6 +50,36 @@ table.add_computed_column(
 errors = table.where(table.analysis.errortype != None).collect()
 ```
 
+## Testing Transformations Before Deployment
+
+When you add a computed column, Pixeltable executes it immediately for all existing rows. For expensive operations (LLM calls, model inference), validate your logic on a sample first using `SELECT`—nothing is stored until you commit with `add_computed_column()`.
+
+```python
+# 1. Test transformation on sample rows (nothing stored)
+table.select(
+    table.text,
+    summary=summarize_with_llm(table.text)
+).head(3)  # Only processes 3 rows
+
+# 2. Once satisfied, persist to table (processes all rows)
+table.add_computed_column(summary=summarize_with_llm(table.text))
+```
+
+This "iterate-then-add" workflow lets you catch errors early without wasting API calls or compute on your full dataset.
+
+<Tip>
+**Pro tip:** Save expressions as variables to guarantee identical logic in both steps:
+```python
+summary_expr = summarize_with_llm(table.text)
+table.select(table.text, summary=summary_expr).head(3)  # Test
+table.add_computed_column(summary=summary_expr)          # Commit
+```
+</Tip>
+
+<Card title="Full Tutorial" icon="flask" href="/howto/cookbooks/core/dev-iterative-workflow">
+  Step-by-step guide with examples for built-in functions, expressions, and custom UDFs
+</Card>
+
 ## Schema Evolution
 
 | Operation Type | Examples | Impact |
