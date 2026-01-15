@@ -413,3 +413,90 @@ class TestSnapshot:
 
         # should work
         v1.rename_column('v1', 'new_v1')
+
+    def test_additional_columns_with_defaults(self, reset_db: None) -> None:
+        """Test that snapshots with additional_columns that have default values work correctly."""
+        # Create base table with columns that have default values
+        t = pxt.create_table('base_tbl', {'c1': pxt.Int})
+        # Add columns with defaults to base table (table is empty, so this is allowed)
+        t.add_column(base_int={'type': pxt.Int, 'default': 10})
+        t.add_column(base_str={'type': pxt.String, 'default': 'base_default'})
+        t.add_column(base_json={'type': pxt.Json, 'default': {'base': 'data'}})
+        # Insert rows - they should get default values from base table columns
+        t.insert([{'c1': 1}, {'c1': 2}])
+
+        # Verify base table rows have default values
+        result = t.select().collect()
+        assert len(result) == 2
+        for row in result:
+            assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
+            assert row['base_str'] == 'base_default', f"Expected 'base_default', got {row['base_str']}"
+            assert row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {row['base_json']}"
+
+        # Create snapshot with additional_columns that have default values
+        s1 = pxt.create_snapshot(
+            'snap1',
+            t,
+            additional_columns={
+                's1_int': {'type': pxt.Int, 'default': 100},
+                's1_str': {'type': pxt.String, 'default': 'snapshot_default'},
+                's1_json': {'type': pxt.Json, 'default': {'snapshot': 'data'}},
+            },
+        )
+
+        # Verify snapshot rows have default values from both base table and additional_columns
+        result = s1.select().collect()
+        assert len(result) == 2
+        for row in result:
+            # Base table defaults
+            assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
+            assert row['base_str'] == 'base_default', f"Expected 'base_default', got {row['base_str']}"
+            assert row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {row['base_json']}"
+            # Snapshot additional_columns defaults
+            assert row['s1_int'] == 100, f'Expected 100, got {row["s1_int"]}'
+            assert row['s1_str'] == 'snapshot_default', f"Expected 'snapshot_default', got {row['s1_str']}"
+            assert row['s1_json'] == {'snapshot': 'data'}, f"Expected {{'snapshot': 'data'}}, got {row['s1_json']}"
+
+        # Test snapshot of view with additional_columns that have defaults
+        v = pxt.create_view('view1', t, additional_columns={'v1_int': {'type': pxt.Int, 'default': 200}})
+
+        s2 = pxt.create_snapshot(
+            'snap2',
+            v,
+            additional_columns={
+                's2_int': {'type': pxt.Int, 'default': 300},
+                's2_str': {'type': pxt.String, 'default': 'snap2_default'},
+            },
+        )
+
+        # Verify snapshot of view has defaults from base table, view, and snapshot additional_columns
+        result = s2.select().collect()
+        assert len(result) == 2
+        for row in result:
+            # Base table defaults
+            assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
+            assert row['base_str'] == 'base_default', f"Expected 'base_default', got {row['base_str']}"
+            assert row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {row['base_json']}"
+            # View additional_columns defaults
+            assert row['v1_int'] == 200, f'Expected 200, got {row["v1_int"]}'
+            # Snapshot additional_columns defaults
+            assert row['s2_int'] == 300, f'Expected 300, got {row["s2_int"]}'
+            assert row['s2_str'] == 'snap2_default', f"Expected 'snap2_default', got {row['s2_str']}"
+
+        # Test snapshot of snapshot
+        s3 = pxt.create_snapshot('snap3', s1, additional_columns={'s3_int': {'type': pxt.Int, 'default': 400}})
+
+        # Verify snapshot of snapshot has defaults from base table, parent snapshot, and its own additional_columns
+        result = s3.select().collect()
+        assert len(result) == 2
+        for row in result:
+            # Base table defaults
+            assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
+            assert row['base_str'] == 'base_default', f"Expected 'base_default', got {row['base_str']}"
+            assert row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {row['base_json']}"
+            # Parent snapshot additional_columns defaults
+            assert row['s1_int'] == 100, f'Expected 100, got {row["s1_int"]}'
+            assert row['s1_str'] == 'snapshot_default', f"Expected 'snapshot_default', got {row['s1_str']}"
+            assert row['s1_json'] == {'snapshot': 'data'}, f"Expected {{'snapshot': 'data'}}, got {row['s1_json']}"
+            # This snapshot's additional_columns defaults
+            assert row['s3_int'] == 400, f'Expected 400, got {row["s3_int"]}'

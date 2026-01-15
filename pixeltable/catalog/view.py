@@ -234,8 +234,13 @@ class View(Table):
     @classmethod
     def _verify_column(cls, col: Column) -> None:
         # make sure that columns are nullable or have a default
-        if not col.col_type.nullable and not col.is_computed:
-            raise excs.Error(f'Column {col.name!r}: Non-computed columns in views must be nullable')
+        # Columns with defaults are non-nullable, which is allowed
+        if (
+            not col.col_type.nullable
+            and not col.is_computed
+            and (col.default_expr is None and col._default_expr_dict is None)
+        ):
+            raise excs.Error(f'Column {col.name!r}: Non-computed columns in views must be nullable or have a default')
         super()._verify_column(col)
 
     @classmethod

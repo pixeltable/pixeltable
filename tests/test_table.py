@@ -3005,3 +3005,106 @@ class TestTable:
             pxt.Error, match="Cannot drop column 'c2' because it is the last remaining column in this table"
         ):
             t.drop_column('c2')
+
+    def test_column_defaults(self, reset_db: None) -> None:
+        """Test adding columns with default values."""
+        # Test 1: Add column with literal default value to empty table
+        t = pxt.create_table('test_defaults', {'c1': pxt.Int})
+        # Table is empty, so we can add columns with defaults
+        t.add_column(c2={'type': pxt.String, 'default': 'empty'})
+
+        # Test 1b: Test literal defaults for different types (on empty table)
+        t.add_column(c_int={'type': pxt.Int, 'default': -1})
+        t.add_column(c_float={'type': pxt.Float, 'default': 3.14})
+        t.add_column(c_bool={'type': pxt.Bool, 'default': True})
+        # Test dict/JSON default
+        t.add_column(c_dict={'type': pxt.Json, 'default': {'a': 10}})
+        # Test list default (also uses Json type)
+        t.add_column(c_list={'type': pxt.Json, 'default': ['a']})
+        # Test array default - arrays are converted to bytes for storage
+        t.add_column(c_array={'type': pxt.Array[(3,), pxt.Int], 'default': np.array([1, 2, 3])})  # type: ignore[misc]
+        # Test timestamp, date, UUID, and binary defaults
+        default_timestamp = datetime.datetime(2024, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
+        default_date = datetime.date(2024, 1, 1)
+        default_uuid = uuid.UUID('12345678-1234-5678-1234-567812345678')
+        default_binary = b'default binary data'
+        t.add_column(c_timestamp={'type': pxt.Timestamp, 'default': default_timestamp})
+        t.add_column(c_date={'type': pxt.Date, 'default': default_date})
+        t.add_column(c_uuid={'type': pxt.UUID, 'default': default_uuid})
+        t.add_column(c_binary={'type': pxt.Binary, 'default': default_binary})
+
+        # Test 1c: Test media type defaults (Image, Audio, Video) - stored as URLs/paths
+        # Use actual test files for defaults (must exist for validation)
+        default_image_path = str(TESTS_DIR / 'data/images/#_strange_file name!@$.jpg')
+        default_audio_path = str(TESTS_DIR / 'data/audio/sample.mp3')
+        default_video_path = str(TESTS_DIR / 'data/videos/bangkok_half_res.mp4')
+        t.add_column(c_image={'type': pxt.Image, 'default': default_image_path})
+        t.add_column(c_audio={'type': pxt.Audio, 'default': default_audio_path})
+        t.add_column(c_video={'type': pxt.Video, 'default': default_video_path})
+
+        # Test 2: Expression defaults are not supported - only literals allowed
+        with pytest.raises(pxt.Error, match='Only literal defaults are supported'):
+            t.add_column(c3={'type': pxt.Int, 'default': t.c1 + 10})
+
+        # Test 3: Add multiple columns with defaults using add_columns (on empty table)
+        schema: dict[str, dict[str, Any]] = {
+            'c4': {'type': pxt.String, 'default': 'default_str'},
+            'c5': {'type': pxt.Int, 'default': 42},
+        }
+        t.add_columns(schema)  # type: ignore[arg-type]
+
+        # Test 4: Cannot add non-nullable column with default to non-empty table
+        # Insert rows first
+        t.insert([{'c1': 1}, {'c1': 2}])
+        # Now try to add a column with default - should fail because table is not empty
+        with pytest.raises(pxt.Error, match='Cannot add non-nullable column'):
+            t.add_column(c6={'type': pxt.Int, 'default': 0})
+
+        # Test 5: Computed columns cannot have defaults
+        with pytest.raises(pxt.Error, match="'default' cannot be specified for computed columns"):
+            t.add_column(c7={'value': t.c1 * 2, 'default': 0})
+
+        # Test 6: New rows inserted - defaults are applied when column is omitted
+        # Insert additional rows without specifying columns with defaults - they should get default values
+        t.insert([{'c1': 3}, {'c1': 4}])  # Only specify c1, other columns should get default values
+        result = t.select().collect()
+        assert len(result) == 4  # 2 rows from Test 4 + 2 rows from Test 6
+        # All rows should get default values since table was empty when columns were added
+        for row in result:
+            assert row['c2'] == 'empty', f"Expected 'empty', got {row['c2']}"
+            assert row['c4'] == 'default_str', f"Expected 'default_str', got {row['c4']}"
+            assert row['c5'] == 42, f'Expected 42, got {row["c5"]}'
+            assert row['c_int'] == -1, f'Expected -1, got {row["c_int"]}'
+            assert row['c_float'] == 3.14, f'Expected 3.14, got {row["c_float"]}'
+            assert row['c_bool'] is True, f'Expected True, got {row["c_bool"]}'
+            assert row['c_dict'] == {'a': 10}, f"Expected {{'a': 10}}, got {row['c_dict']}"
+            assert row['c_list'] == ['a'], f"Expected ['a'], got {row['c_list']}"
+            assert np.array_equal(row['c_array'], np.array([1, 2, 3])), f'Expected [1, 2, 3], got {row["c_array"]}'
+            assert row['c_timestamp'] == default_timestamp or row['c_timestamp'].replace(
+                tzinfo=None
+            ) == default_timestamp.replace(tzinfo=None), f'Expected {default_timestamp}, got {row["c_timestamp"]}'
+            assert row['c_date'] == default_date, f'Expected {default_date}, got {row["c_date"]}'
+            assert row['c_uuid'] == default_uuid, f'Expected {default_uuid}, got {row["c_uuid"]}'
+            assert row['c_binary'] == default_binary, f'Expected {default_binary!r}, got {row["c_binary"]!r}'
+            # Media columns should get defaults
+            assert isinstance(row['c_image'], PIL.Image.Image), f'Expected PIL Image, got {type(row["c_image"])}'
+            assert row['c_image'].size == (640, 480), f'Expected size (640, 480), got {row["c_image"].size}'
+            assert row['c_audio'] == default_audio_path, f'Expected {default_audio_path}, got {row["c_audio"]}'
+            assert row['c_video'] == default_video_path or str(row['c_video']) == default_video_path, (
+                f'Expected {default_video_path}, got {row["c_video"]}'
+            )
+
+        # Test 7: Expression defaults are not supported - only literals allowed
+        with pytest.raises(pxt.Error, match='Only literal defaults are supported'):
+            t.add_column(c8={'type': pxt.Int, 'default': t.c1 * 2})
+
+        # Test 8: Verify defaults work after reloading the catalog
+        reload_catalog()
+        t = pxt.get_table('test_defaults')
+        result = t.select().collect()
+        assert len(result) == 4  # All 4 rows should still be there
+        # All rows should still have defaults
+        for row in result:
+            assert row['c2'] == 'empty', f"Expected 'empty', got {row['c2']}"
+            assert row['c4'] == 'default_str', f"Expected 'default_str', got {row['c4']}"
+            assert row['c5'] == 42, f'Expected 42, got {row["c5"]}'

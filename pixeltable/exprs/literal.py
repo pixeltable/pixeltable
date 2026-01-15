@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import datetime
+import io
 import uuid
 from typing import Any
 
@@ -112,6 +113,18 @@ class Literal(Expr):
 
     def as_literal(self) -> Literal | None:
         return self
+
+    def to_stored_value(self) -> Any:
+        """
+        Convert the literal value to the format that should be stored in the database.
+        For arrays, converts to bytes. For other types, returns the value as-is.
+        """
+        if self.col_type.is_array_type():
+            assert isinstance(self.val, np.ndarray)
+            buffer = io.BytesIO()
+            np.save(buffer, self.val, allow_pickle=False)
+            return buffer.getvalue()
+        return self.val
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:

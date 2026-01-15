@@ -502,7 +502,19 @@ class RowBuilder:
         # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
         for col, slot_idx in self.table_columns.items():
             if col.id in data_row.cell_vals:
-                table_row.append(data_row.cell_vals[col.id])
+                val = data_row.cell_vals[col.id]
+                # Apply default if value is None or sql.sql.null() and column has a default
+                # Note: CellMaterializationNode sets JSON columns to sql.sql.null() when val is None
+                is_null = val is None or (isinstance(val, sql.sql.elements.Null) or val is sql.sql.null())
+                if is_null:
+                    # Get cached default value in stored format (computed once per column)
+                    default_stored_val = col.get_default_stored_value()
+                    if default_stored_val is not None:
+                        val = default_stored_val
+                # Convert to stored format - use get_stored_val for proper conversion (arrays, JSON, etc.)
+                # But we need to temporarily set the value in data_row for get_stored_val to work
+                # Actually, for cell_vals, the value is already in the right format, just append it
+                table_row.append(val)
                 if col.stores_cellmd:
                     if data_row.cell_md[col.id] is None:
                         table_row.append(sql.sql.null())
@@ -528,6 +540,15 @@ class RowBuilder:
                     table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
                 val = data_row.get_stored_val(slot_idx, col.sa_col_type)
+                # Apply default if value is None and column has a default
+                if val is None and col.has_default_value:
+                    # Get cached default value in stored format (computed once per column)
+                    default_stored_val = col.get_default_stored_value()
+                    if default_stored_val is not None:
+                        val = default_stored_val
+                    # For JSON columns, None needs to be sql.sql.null()
+                    elif col.col_type.is_json_type():
+                        val = sql.sql.null()
                 table_row.append(val)
                 if col.stores_cellmd:
                     table_row.append(sql.sql.null())  # placeholder for cellmd column

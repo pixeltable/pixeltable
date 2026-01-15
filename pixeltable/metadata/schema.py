@@ -127,6 +127,9 @@ class ColumnMd:
     # if True, the column is present in the stored table
     stored: bool | None
 
+    # if set, this is a default expression for the column
+    default_expr: dict | None = None
+
     # If present, the URI for the destination for column values
     destination: str | None = None
 

@@ -491,17 +491,25 @@ class Table(SchemaObject):
 
     def add_columns(
         self,
-        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias],
+        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias | dict[str, Any]],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
         columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
 
-        The format of the `schema` argument is a dict mapping column names to their types.
+        The format of the `schema` argument is a dict mapping column names to their types or column specifications.
 
         Args:
-            schema: A dictionary mapping column names to types.
+            schema: A dictionary mapping column names to types or column specifications.
+                Column specifications can include a `'default'` key for default values.
+
+                Default values:
+                - Only literal values are supported (expressions are not allowed).
+                - Columns with default values are treated as non-nullable.
+                - Columns with default values can only be added to empty tables.
+                - Default values apply to new rows inserted after the columns are added.
+                - Existing rows will have `None` for newly added columns with defaults.
             if_exists: Determines the behavior if a column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -518,7 +526,8 @@ class Table(SchemaObject):
 
         Raises:
             Error: If any column name is invalid, or already exists and `if_exists='error'`,
-                or `if_exists='replace*'` but the column has dependents or is a basetable column.
+                or `if_exists='replace*'` but the column has dependents or is a basetable column,
+                or if attempting to add columns with default values to a non-empty table.
 
         Examples:
             Add multiple columns to the table `my_table`:
@@ -529,16 +538,28 @@ class Table(SchemaObject):
             ...     'new_col_2': pxt.String,
             ... }
             ... tbl.add_columns(schema)
+
+            Add columns with default values:
+
+            >>> schema = {
+            ...     'c1': {'type': pxt.String, 'default': 'empty'},
+            ...     'c2': {'type': pxt.Int, 'default': 0}
+            ... }
+            ... tbl.add_columns(schema)
         """
         from pixeltable.catalog import Catalog
 
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('add columns to')
-            col_schema = {
-                col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)}
-                for col_name, spec in schema.items()
-            }
+            # Normalize schema: convert simple types to dict format
+            col_schema: dict[str, dict[str, Any]] = {}
+            for col_name, spec in schema.items():
+                if isinstance(spec, dict):
+                    col_schema[col_name] = spec.copy()
+                else:
+                    # Simple type format: convert to dict
+                    col_schema[col_name] = {'type': spec}
 
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
@@ -564,13 +585,20 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: ts.ColumnType | builtins.type | _GenericAlias | exprs.Expr,
+        **kwargs: ts.ColumnType | builtins.type | _GenericAlias | dict[str, Any],
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
 
         Args:
-            kwargs: Exactly one keyword argument of the form `col_name=col_type`.
+            kwargs: Exactly one keyword argument of the form `col_name=col_type` or
+                `col_name={'type': col_type, 'default': default_value}`.
+
+                Default values:
+                - Only literal values are supported (expressions are not allowed).
+                - Columns with default values are treated as non-nullable.
+                - Columns with default values can only be added to empty tables.
+                - Default values apply to new rows inserted after the column is added.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -583,12 +611,17 @@ class Table(SchemaObject):
 
         Raises:
             Error: If the column name is invalid, or already exists and `if_exists='erorr'`,
-                or `if_exists='replace*'` but the column has dependents or is a basetable column.
+                or `if_exists='replace*'` but the column has dependents or is a basetable column,
+                or if attempting to add a column with a default value to a non-empty table.
 
         Examples:
             Add an int column:
 
             >>> tbl.add_column(new_col=pxt.Int)
+
+            Add a column with a default value:
+
+            >>> tbl.add_column(new_col={'type': pxt.Int, 'default': 0})
 
             Alternatively, this can also be expressed as:
 
@@ -597,15 +630,23 @@ class Table(SchemaObject):
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:
             raise excs.Error(
-                f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
+                f'add_column() requires exactly one keyword argument of the form '
+                f'`col_name=col_type` or `col_name={{dict}}`; '
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
             )
-        col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
+        col_spec = next(iter(kwargs.values()))
+        # If it's a dict, pass it through; otherwise wrap in dict format
+        if isinstance(col_spec, dict):
+            col_name = next(iter(kwargs.keys()))
+            schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias | dict[str, Any]] = {col_name: col_spec}
+        elif isinstance(col_spec, (ts.ColumnType, type, _GenericAlias)):
+            schema = kwargs
+        else:
             raise excs.Error(
-                'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
+                'The argument to add_column() must be a type or a dict with "type" and optional "default" value; '
+                'did you intend to use add_computed_column() instead?'
             )
-        return self.add_columns(kwargs, if_exists=if_exists)
+        return self.add_columns(schema, if_exists=if_exists)
 
     def add_computed_column(
         self,
@@ -712,7 +753,7 @@ class Table(SchemaObject):
         (on account of containing Python Callables or Exprs).
         """
         assert isinstance(spec, dict)
-        valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
+        valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination', 'default'}
         for k in spec:
             if k not in valid_keys:
                 raise excs.Error(f'Column {name!r}: invalid key {k!r}')
@@ -729,6 +770,18 @@ class Table(SchemaObject):
                 raise excs.Error(f"Column {name!r}: 'value' must be a Pixeltable expression.")
             if 'type' in spec:
                 raise excs.Error(f"Column {name!r}: 'type' is redundant if 'value' is specified")
+
+        if 'default' in spec:
+            default_expr = exprs.Expr.from_object(spec['default'])
+            if default_expr is None:
+                raise excs.Error(f"Column {name!r}: 'default' must be a Pixeltable expression or a constant value.")
+            # Only literal defaults are supported
+            if not isinstance(default_expr, exprs.Literal):
+                raise excs.Error(f'Column {name!r}: Only literal defaults are supported.')
+            if 'value' in spec:
+                raise excs.Error(
+                    f"Column {name!r}: 'default' cannot be specified for computed columns (columns with 'value')"
+                )
 
         if 'media_validation' in spec:
             _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name!r}: media_validation')
@@ -747,6 +800,7 @@ class Table(SchemaObject):
         for name, spec in schema.items():
             col_type: ts.ColumnType | None = None
             value_expr: exprs.Expr | None = None
+            default_expr: exprs.Expr | None = None
             primary_key: bool = False
             media_validation: catalog.MediaValidation | None = None
             stored = True
@@ -769,6 +823,32 @@ class Table(SchemaObject):
                     # create copy so we can modify it
                     value_expr = value_expr.copy()
                     value_expr.bind_rel_paths()
+                default_expr_obj = spec.get('default')
+                if default_expr_obj is not None:
+                    # Computed columns cannot have defaults
+                    if value_expr is not None:
+                        raise excs.Error(
+                            f'Column {name!r}: `default` cannot be specified for computed columns '
+                            f'(columns with `value`)'
+                        )
+
+                    default_expr = exprs.Expr.from_object(default_expr_obj)
+                    if default_expr is None:
+                        raise excs.Error(
+                            f'Column {name!r}: `default` must be a Pixeltable expression or literal value.'
+                        )
+
+                    default_expr = default_expr.copy()
+                    default_expr.bind_rel_paths()
+
+                    # Only literal defaults are supported - expressions are not allowed
+                    if not isinstance(default_expr, exprs.Literal):
+                        raise excs.Error(f'Column {name!r}: Only literal defaults are supported.')
+
+                    # Columns with defaults should be non-nullable
+                    # Make a copy of col_type with nullable=False
+                    if col_type is not None:
+                        col_type = col_type.copy(nullable=False)
                 stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key', False)
                 media_validation_str = spec.get('media_validation')
@@ -787,6 +867,7 @@ class Table(SchemaObject):
                 is_pk=primary_key,
                 media_validation=media_validation,
                 destination=destination,
+                default_expr=default_expr,
             )
             # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
             # media destination, it gets validated at this time.

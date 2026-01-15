@@ -1179,6 +1179,90 @@ class TestView:
         # computed view column for new row is null
         assert v.where(v.computed_1 == None).count() == 1
 
+    def test_additional_columns_with_defaults(self, reset_db: None) -> None:
+        """Test that views with additional_columns that have default values work correctly."""
+        # Create base table with columns that have default values
+        t = pxt.create_table('base_tbl', {'c1': pxt.Int})
+        # Add columns with defaults to base table (table is empty, so this is allowed)
+        t.add_column(base_int={'type': pxt.Int, 'default': 10})
+        t.add_column(base_str={'type': pxt.String, 'default': 'base_default'})
+        t.add_column(base_json={'type': pxt.Json, 'default': {'base': 'data'}})
+        # Insert rows - they should get default values from base table columns
+        t.insert([{'c1': 1}, {'c1': 2}])
+
+        # Verify base table rows have default values
+        result = t.select().collect()
+        assert len(result) == 2
+        for row in result:
+            assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
+            assert row['base_str'] == 'base_default', f"Expected 'base_default', got {row['base_str']}"
+            assert row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {row['base_json']}"
+
+        # Create view with additional_columns that have default values
+        v1 = pxt.create_view(
+            'view1',
+            t,
+            additional_columns={
+                'v1_int': {'type': pxt.Int, 'default': 100},
+                'v1_str': {'type': pxt.String, 'default': 'view_default'},
+                'v1_json': {'type': pxt.Json, 'default': {'view': 'data'}},
+            },
+        )
+
+        # Verify view rows have default values from both base table and additional_columns
+        result = v1.select().collect()
+        assert len(result) == 2
+        for row in result:
+            # Base table defaults
+            assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
+            assert row['base_str'] == 'base_default', f"Expected 'base_default', got {row['base_str']}"
+            assert row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {row['base_json']}"
+            # View additional_columns defaults
+            assert row['v1_int'] == 100, f'Expected 100, got {row["v1_int"]}'
+            assert row['v1_str'] == 'view_default', f"Expected 'view_default', got {row['v1_str']}"
+            assert row['v1_json'] == {'view': 'data'}, f"Expected {{'view': 'data'}}, got {row['v1_json']}"
+
+        # Test view of view with additional_columns that have defaults
+        v2 = pxt.create_view(
+            'view2',
+            v1,
+            additional_columns={
+                'v2_int': {'type': pxt.Int, 'default': 200},
+                'v2_str': {'type': pxt.String, 'default': 'view2_default'},
+            },
+        )
+
+        # Verify view of view has defaults from base table, parent view, and its own additional_columns
+        result = v2.select().collect()
+        assert len(result) == 2
+        for row in result:
+            # Base table defaults
+            assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
+            assert row['base_str'] == 'base_default', f"Expected 'base_default', got {row['base_str']}"
+            assert row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {row['base_json']}"
+            # Parent view additional_columns defaults
+            assert row['v1_int'] == 100, f'Expected 100, got {row["v1_int"]}'
+            assert row['v1_str'] == 'view_default', f"Expected 'view_default', got {row['v1_str']}"
+            assert row['v1_json'] == {'view': 'data'}, f"Expected {{'view': 'data'}}, got {row['v1_json']}"
+            # This view's additional_columns defaults
+            assert row['v2_int'] == 200, f'Expected 200, got {row["v2_int"]}'
+            assert row['v2_str'] == 'view2_default', f"Expected 'view2_default', got {row['v2_str']}"
+
+        # Test inserting new rows into base table - view should get defaults for additional_columns
+        t.insert([{'c1': 3}])
+        result = v1.select().collect()
+        assert len(result) == 3
+        # Find the new row
+        new_row = next(r for r in result if r['c1'] == 3)
+        # Base table defaults
+        assert new_row['base_int'] == 10, f'Expected 10, got {new_row["base_int"]}'
+        assert new_row['base_str'] == 'base_default', f"Expected 'base_default', got {new_row['base_str']}"
+        assert new_row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {new_row['base_json']}"
+        # View additional_columns defaults
+        assert new_row['v1_int'] == 100, f'Expected 100, got {new_row["v1_int"]}'
+        assert new_row['v1_str'] == 'view_default', f"Expected 'view_default', got {new_row['v1_str']}"
+        assert new_row['v1_json'] == {'view': 'data'}, f"Expected {{'view': 'data'}}, got {new_row['v1_json']}"
+
     def test_drop_base_column(self, reset_db: None) -> None:
         t = self.create_tbl()
         # create view with computed columns
