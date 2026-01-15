@@ -1278,7 +1278,7 @@ class TableVersion:
 
     def _validate_where_clause(self, pred: exprs.Expr, error_prefix: str) -> None:
         """Validates that pred can be expressed as a SQL Where clause"""
-        assert self.is_insertable
+        assert self.is_mutable
         from pixeltable.exprs import Expr
         from pixeltable.plan import Planner
 
