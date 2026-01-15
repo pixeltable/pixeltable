@@ -1179,7 +1179,7 @@ class TestView:
         # computed view column for new row is null
         assert v.where(v.computed_1 == None).count() == 1
 
-    def test_additional_columns_with_defaults(self, reset_db: None) -> None:
+    def test_additional_columns_with_defaults(self, reset_db: None, reload_tester: ReloadTester) -> None:
         """Test that views with additional_columns that have default values work correctly."""
         # Create base table with columns that have default values
         t = pxt.create_table('base_tbl', {'c1': pxt.Int})
@@ -1262,6 +1262,11 @@ class TestView:
         assert new_row['v1_int'] == 100, f'Expected 100, got {new_row["v1_int"]}'
         assert new_row['v1_str'] == 'view_default', f"Expected 'view_default', got {new_row['v1_str']}"
         assert new_row['v1_json'] == {'view': 'data'}, f"Expected {{'view': 'data'}}, got {new_row['v1_json']}"
+
+        # Register stable queries for reload test (after all data modifications)
+        reload_tester.run_query(v1.select())
+        reload_tester.run_query(v2.select())
+        reload_tester.run_reload_test()
 
     def test_drop_base_column(self, reset_db: None) -> None:
         t = self.create_tbl()

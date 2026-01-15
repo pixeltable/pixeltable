@@ -414,7 +414,7 @@ class TestSnapshot:
         # should work
         v1.rename_column('v1', 'new_v1')
 
-    def test_additional_columns_with_defaults(self, reset_db: None) -> None:
+    def test_additional_columns_with_defaults(self, reset_db: None, reload_tester: ReloadTester) -> None:
         """Test that snapshots with additional_columns that have default values work correctly."""
         # Create base table with columns that have default values
         t = pxt.create_table('base_tbl', {'c1': pxt.Int})
@@ -445,7 +445,7 @@ class TestSnapshot:
         )
 
         # Verify snapshot rows have default values from both base table and additional_columns
-        result = s1.select().collect()
+        result = reload_tester.run_query(s1.select())
         assert len(result) == 2
         for row in result:
             # Base table defaults
@@ -470,7 +470,7 @@ class TestSnapshot:
         )
 
         # Verify snapshot of view has defaults from base table, view, and snapshot additional_columns
-        result = s2.select().collect()
+        result = reload_tester.run_query(s2.select())
         assert len(result) == 2
         for row in result:
             # Base table defaults
@@ -487,7 +487,7 @@ class TestSnapshot:
         s3 = pxt.create_snapshot('snap3', s1, additional_columns={'s3_int': {'type': pxt.Int, 'default': 400}})
 
         # Verify snapshot of snapshot has defaults from base table, parent snapshot, and its own additional_columns
-        result = s3.select().collect()
+        result = reload_tester.run_query(s3.select())
         assert len(result) == 2
         for row in result:
             # Base table defaults
@@ -500,3 +500,5 @@ class TestSnapshot:
             assert row['s1_json'] == {'snapshot': 'data'}, f"Expected {{'snapshot': 'data'}}, got {row['s1_json']}"
             # This snapshot's additional_columns defaults
             assert row['s3_int'] == 400, f'Expected 400, got {row["s3_int"]}'
+
+        reload_tester.run_reload_test()

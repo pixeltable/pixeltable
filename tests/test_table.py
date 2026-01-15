@@ -3006,7 +3006,7 @@ class TestTable:
         ):
             t.drop_column('c2')
 
-    def test_column_defaults(self, reset_db: None) -> None:
+    def test_column_defaults(self, reset_db: None, reload_tester: ReloadTester) -> None:
         """Test adding columns with default values."""
         # Test 1: Add column with literal default value to empty table
         t = pxt.create_table('test_defaults', {'c1': pxt.Int})
@@ -3067,7 +3067,7 @@ class TestTable:
         # Test 6: New rows inserted - defaults are applied when column is omitted
         # Insert additional rows without specifying columns with defaults - they should get default values
         t.insert([{'c1': 3}, {'c1': 4}])  # Only specify c1, other columns should get default values
-        result = t.select().collect()
+        result = reload_tester.run_query(t.select())
         assert len(result) == 4  # 2 rows from Test 4 + 2 rows from Test 6
         # All rows should get default values since table was empty when columns were added
         for row in result:
@@ -3099,12 +3099,4 @@ class TestTable:
             t.add_column(c8={'type': pxt.Int, 'default': t.c1 * 2})
 
         # Test 8: Verify defaults work after reloading the catalog
-        reload_catalog()
-        t = pxt.get_table('test_defaults')
-        result = t.select().collect()
-        assert len(result) == 4  # All 4 rows should still be there
-        # All rows should still have defaults
-        for row in result:
-            assert row['c2'] == 'empty', f"Expected 'empty', got {row['c2']}"
-            assert row['c4'] == 'default_str', f"Expected 'default_str', got {row['c4']}"
-            assert row['c5'] == 42, f'Expected 42, got {row["c5"]}'
+        reload_tester.run_reload_test()
