@@ -40,8 +40,6 @@ from ..utils import (
 )
 
 
-# Bug(PXT-943): non-latest row versions have non-NULL index column values
-@pytest.mark.corrupts_db
 class TestPackager:
     def test_packager(self, test_tbl: pxt.Table) -> None:
         packager = TablePackager(test_tbl)
@@ -245,6 +243,10 @@ class TestPackager:
 
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
+
+        # Run the database consistency checks; this will ensure we check for consistency after every __check_table(),
+        # not just at the end of the test.
+        Catalog.get().validate_store()
 
     def __extract_store_col_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
         with Env.get().begin_xact():

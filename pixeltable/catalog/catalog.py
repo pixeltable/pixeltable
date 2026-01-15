@@ -2462,7 +2462,7 @@ class Catalog:
         tv = tbl._tbl_version.get()
         sa_tbl = tv.store_tbl.sa_tbl
 
-        # Validate that the Btree index value columns are in sync with the actual colums for latest version rows
+        # Validate that the Btree index value columns are in sync with the actual columns for latest version rows
         # Example query:
         # SELECT *,
         #        tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_0 !=
@@ -2496,10 +2496,14 @@ class Catalog:
                 select_label = f'idx_mismatch_{idx_info.name}'
                 select_list.append(condition.label(select_label))
         if len(conditions) > 0:
+            # The v_max check:
+            # sa_tbl.c.v_max > tv.version
+            # handles both ordinary tables and replica tables correctly. For ordinary tables, the v_max of "active"
+            # rows will be schema.Table.MAX_VERSION, and for replica tables, it will be tv.version + 1.
             stmt = (
                 sql.select(*select_list)
                 .select_from(sa_tbl)
-                .where(sa_tbl.c.v_max == schema.Table.MAX_VERSION)
+                .where(sa_tbl.c.v_max > tv.version)
                 .where(sql.or_(*conditions))
                 .limit(1)
             )
@@ -2547,7 +2551,7 @@ class Catalog:
             stmt = (
                 sql.select(*select_list)
                 .select_from(sa_tbl)
-                .where(sa_tbl.c.v_max < schema.Table.MAX_VERSION)
+                .where(sa_tbl.c.v_max <= tv.version)
                 .where(sql.or_(*conditions))
                 .limit(1)
             )
