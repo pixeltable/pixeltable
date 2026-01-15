@@ -11,7 +11,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 class Path(NamedTuple):
-    components: list[str]
+    components: tuple[str, ...]
     version: int | None = None
 
     @classmethod
@@ -22,7 +22,7 @@ class Path(NamedTuple):
         allow_system_path: bool = False,
         allow_versioned_path: bool = False,
     ) -> Path:
-        components: list[str]
+        components: tuple[str, ...]
         version: int | None
         # Extract version if present
         if ':' in path:
@@ -40,17 +40,17 @@ class Path(NamedTuple):
 
         # Parse a path string into a Path object.
         if '.' in path_part:
-            components = path_part.split('.')
+            components = tuple(path_part.split('.'))
         elif '/' in path_part:
-            components = path_part.split('/')
+            components = tuple(path_part.split('/'))
         else:
             # Single component
-            components = [path_part] if path_part else ['']
+            components = (path_part,) if path_part else ('',)
 
-        if components == [''] and not allow_empty_path:
+        if components == ('',) and not allow_empty_path:
             raise excs.Error(f'Invalid path: {path}')
 
-        if components != [''] and not all(
+        if components != ('',) and not all(
             is_valid_identifier(c, allow_system_identifiers=allow_system_path, allow_hyphens=True) for c in components
         ):
             raise excs.Error(f'Invalid path: {path}')
@@ -86,9 +86,9 @@ class Path(NamedTuple):
 
     def append(self, name: str) -> Path:
         if self.is_root:
-            return Path([name])
+            return Path((name,))
         else:
-            return Path([*self.components, name])
+            return Path((*self.components, name))
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
@@ -128,7 +128,7 @@ class Path(NamedTuple):
 
     def __hash__(self) -> int:
         # Hash based on components and version
-        return hash((tuple(self.components), self.version))
+        return hash((self.components, self.version))
 
 
-ROOT_PATH = Path([''])
+ROOT_PATH = Path(('',))
