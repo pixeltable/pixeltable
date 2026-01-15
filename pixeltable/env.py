@@ -476,9 +476,6 @@ class Env:
                 except Exception as e:
                     raise excs.Error(f'Invalid {mode} media destination URI: {uri}') from e
 
-        # Don't load API key during initialization - load it lazily when needed
-        self._pxt_api_key = None
-
         # Disable spurious warnings:
         # Suppress tqdm's ipywidgets warning in Jupyter environments
         warnings.filterwarnings('ignore', message='IProgress not found')
@@ -716,22 +713,8 @@ class Env:
 
     @property
     def pxt_api_key(self) -> str | None:
-        """Get the Pixeltable API key, loading it from config if not already loaded."""
-        # Check environment variable first, this allows changing key in the current session
-        env_key = os.environ.get('PIXELTABLE_API_KEY')
-        if env_key:
-            self._pxt_api_key = env_key
-            return env_key
-
-        # Check if we have a cached value from config file
-        if self._pxt_api_key is not None:
-            return self._pxt_api_key
-
-        # Load from config file if not cached
-        api_key = Config.get().get_string_value('api_key')
-        if api_key is not None:
-            self._pxt_api_key = api_key
-        return self._pxt_api_key
+        """Get the Pixeltable API key from config"""
+        return Config.get().get_string_value('api_key')
 
     def get_client(self, name: str) -> Any:
         """

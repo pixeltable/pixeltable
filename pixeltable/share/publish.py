@@ -17,6 +17,7 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Catalog
 from pixeltable.catalog.table_version import TableVersionMd
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 from pixeltable.utils.local_store import TempStore
@@ -346,12 +347,11 @@ def _api_headers() -> dict[str, str]:
     headers = {'Content-Type': 'application/json'}
     api_key = Env.get().pxt_api_key
     if api_key is None:
-        from pixeltable.config import Config
-
         raise excs.Error(
-            'Pixeltable API key not found. Set it via: `import os; os.environ["PIXELTABLE_API_KEY"] = "your-key"` '
-            f'Alternatively, add `api_key = "your-key"` to the `[pixeltable]` section of '
-            f'{Config.get().config_file} and restart.'
+            'Pixeltable API key not found. '
+            'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
+            f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}. '
+            'For details, see https://docs.pixeltable.com/platform/configuration'
         )
     headers['X-api-key'] = api_key
     return headers
