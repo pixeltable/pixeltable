@@ -1230,9 +1230,7 @@ class TestView:
     def test_recompute_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         v = pxt.create_view('test_view', t, additional_columns={'v1': t.c2 + 1})
-        status = v.recompute_columns(v.v1, cascade=True, where=v.c2 < 10)
-        assert status.num_excs == 0
-        assert status.num_rows == 10
+        validate_update_status(v.recompute_columns(v.v1, cascade=True, where=v.c2 < 10), expected_rows=10)
 
     def test_circular_view_def(self, reset_db: None) -> None:
         # tests for a specific scenario in which:
