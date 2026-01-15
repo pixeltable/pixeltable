@@ -3,7 +3,8 @@ from textwrap import dedent
 import pytest
 
 import pixeltable as pxt
-from pixeltable.catalog import Path, is_valid_identifier, is_valid_path
+import pixeltable.exceptions as excs
+from pixeltable.catalog import Path, is_valid_identifier
 from pixeltable.share.packager import TablePackager, TableRestorer
 from tests.conftest import clean_db
 from tests.utils import reload_catalog
@@ -22,19 +23,26 @@ class TestCatalog:
             assert not is_valid_identifier(invalid_id), invalid_ids
 
     def test_valid_path(self) -> None:
-        assert is_valid_path('', empty_is_valid=True)
-        assert not is_valid_path('', empty_is_valid=False)
+        """Test path validation using Path.parse()."""
+        # Test empty path
+        Path.parse('', allow_empty_path=True)  # Should succeed
+        with pytest.raises(excs.Error):
+            Path.parse('', allow_empty_path=False)  # Should fail
 
         valid_paths = ['a', 'a_.b_', 'a.b.c', 'a.b.c.d']
         invalid_paths = ['.', '..', 'a.', '.a', 'a..b']
 
         for valid_path in valid_paths:
-            assert is_valid_path(valid_path, empty_is_valid=False), valid_path
-            assert is_valid_path(valid_path, empty_is_valid=True), valid_path
+            # Should succeed with both empty_is_valid settings
+            Path.parse(valid_path, allow_empty_path=False)
+            Path.parse(valid_path, allow_empty_path=True)
 
         for invalid_path in invalid_paths:
-            assert not is_valid_path(invalid_path, empty_is_valid=False), invalid_path
-            assert not is_valid_path(invalid_path, empty_is_valid=True), invalid_path
+            # Should fail regardless of empty_is_valid setting
+            with pytest.raises(excs.Error):
+                Path.parse(invalid_path, allow_empty_path=False)
+            with pytest.raises(excs.Error):
+                Path.parse(invalid_path, allow_empty_path=True)
 
     def test_path_parse(self) -> None:
         """Test Path.parse() with '/' delimiter and backward compatibility with '.'."""
@@ -42,31 +50,31 @@ class TestCatalog:
         valid_slash_paths = ['a', 'a_', 'a/b', 'a/b/c', 'a_/b_']
         for valid_path in valid_slash_paths:
             parsed = Path.parse(valid_path)
-            assert parsed.components == valid_path.split('/')
+            assert parsed.components == tuple(valid_path.split('/'))
             assert str(parsed) == valid_path
 
         # Test backward compatibility with DOT delimiter
         valid_dot_paths = ['a', 'a_', 'a.b', 'a.b.c', 'a_.b_']
         for valid_path in valid_dot_paths:
             parsed = Path.parse(valid_path)
-            assert parsed.components == valid_path.split('.')
+            assert parsed.components == tuple(valid_path.split('.'))
             # String representation always uses SLASH
             assert str(parsed) == valid_path.replace('.', '/')
 
         # Test empty path
         empty_parsed = Path.parse('', allow_empty_path=True)
-        assert empty_parsed.components == ['']
+        assert empty_parsed.components == ('',)
         assert str(empty_parsed) == ''
 
         # Test versioned paths with SLASH
         versioned = Path.parse('a/b/c:5', allow_versioned_path=True)
-        assert versioned.components == ['a', 'b', 'c']
+        assert versioned.components == ('a', 'b', 'c')
         assert versioned.version == 5
         assert str(versioned) == 'a/b/c:5'
 
         # Test versioned paths with DOT (backward compatibility)
         versioned_dot = Path.parse('a.b.c:5', allow_versioned_path=True)
-        assert versioned_dot.components == ['a', 'b', 'c']
+        assert versioned_dot.components == ('a', 'b', 'c')
         assert versioned_dot.version == 5
         assert str(versioned_dot) == 'a/b/c:5'
 
@@ -75,12 +83,12 @@ class TestCatalog:
         # Test with both dot and slash paths (both result in '/' representation)
         # multiple ancestors in path
         path = Path.parse(path_str)
-        expected_ancestors = [Path([''], None), Path(['a'], None), Path(['a', 'b'], None)]
+        expected_ancestors = [Path(('',), None), Path(('a',), None), Path(('a', 'b'), None)]
         assert path.ancestors() == expected_ancestors
 
         # single element in path
         path = Path.parse('a')
-        assert path.ancestors() == [Path([''], None)]
+        assert path.ancestors() == [Path(('',), None)]
 
         # root
         path = Path.parse('', allow_empty_path=True)
@@ -94,7 +102,7 @@ class TestCatalog:
         # Parse with SLASH delimiter
         unix_path = Path.parse('a/b/c')
 
-        assert dotted_path.components == unix_path.components == ['a', 'b', 'c']
+        assert dotted_path.components == unix_path.components == ('a', 'b', 'c')
 
         # String representation always uses SLASH
         assert str(dotted_path) == 'a/b/c'
@@ -110,7 +118,7 @@ class TestCatalog:
         dotted_versioned = Path.parse('a.b.c:5', allow_versioned_path=True)
         unix_versioned = Path.parse('a/b/c:5', allow_versioned_path=True)
 
-        assert dotted_versioned.components == unix_versioned.components == ['a', 'b', 'c']
+        assert dotted_versioned.components == unix_versioned.components == ('a', 'b', 'c')
         assert dotted_versioned.version == unix_versioned.version == 5
         assert str(dotted_versioned) == 'a/b/c:5'
         assert str(unix_versioned) == 'a/b/c:5'
@@ -129,7 +137,7 @@ class TestCatalog:
         unix_appended = unix_path.append('d')
         assert str(dotted_appended) == 'a/b/c/d'
         assert str(unix_appended) == 'a/b/c/d'
-        assert dotted_appended.components == unix_appended.components == ['a', 'b', 'c', 'd']
+        assert dotted_appended.components == unix_appended.components == ('a', 'b', 'c', 'd')
 
     def test_ls(self, reset_db: None) -> None:
         t = pxt.create_table('tbl_for_replica', {'a': pxt.Int})
