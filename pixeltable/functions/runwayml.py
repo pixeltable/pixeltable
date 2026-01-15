@@ -1,8 +1,8 @@
 """
 Pixeltable UDFs
 that wrap various endpoints from the RunwayML API. In order to use them, you must
-first `pip install runwayml` and configure your RunwayML credentials, as described in
-the [Working with RunwayML] guide.
+first `pip install runwayml` and configure your RunwayML credentials by setting the `RUNWAYML_API_SECRET` environment
+variable.
 """
 
 import datetime
@@ -64,7 +64,7 @@ async def text_to_image(
     """
     Generate images from text prompts and reference images.
 
-    For additional details, see: <https://docs.dev.runwayml.com/api#tag/Start-generating/paths/~1v1~1text_to_image/post>
+    For additional details, see: [Text/Image to Image](https://docs.dev.runwayml.com/api/#tag/Start-generating/paths/~1v1~1text_to_image/post)
 
     __Requirements:__
 
@@ -127,7 +127,7 @@ async def text_to_video(
     """
     Generate videos from text prompts.
 
-    For additional details, see: <https://docs.dev.runwayml.com/api#tag/Start-generating/paths/~1v1~1text_to_video/post>
+    For additional details, see: [Text to video](https://docs.dev.runwayml.com/api/#tag/Start-generating/paths/~1v1~1text_to_video/post)
 
     __Requirements:__
 
@@ -184,7 +184,7 @@ async def image_to_video(
     """
     Generate videos from images.
 
-    For additional details, see: <https://docs.dev.runwayml.com/api#tag/Start-generating/paths/~1v1~1image_to_video/post>
+    For additional details, see: [Image to video](https://docs.dev.runwayml.com/api/#tag/Start-generating/paths/~1v1~1image_to_video/post)
 
     __Requirements:__
 
@@ -248,7 +248,7 @@ async def video_to_video(
     """
     Transform videos with text guidance.
 
-    For additional details, see: <https://docs.dev.runwayml.com/api#tag/Start-generating/paths/~1v1~1video_to_video/post>
+    For additional details, see: [Video to video](https://docs.dev.runwayml.com/api/#tag/Start-generating/paths/~1v1~1video_to_video/post)
 
     __Requirements:__
 
