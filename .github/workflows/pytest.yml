@@ -103,6 +103,7 @@ jobs:
           python-version: '3.12'
       - name: Analyze commit
         run: |
+          git fetch origin main --depth=1
           CHANGED_NOTEBOOKS=$(git diff --name-only origin/main...HEAD | grep '\.ipynb$')
           if [ -z "$CHANGED_NOTEBOOKS" ]; then
             echo "No changed notebooks."
@@ -291,10 +292,6 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-          ref: release
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
@@ -319,6 +316,7 @@ jobs:
           miniconda-version: latest
       - name: Run isolated notebook tests
         run: |
+          git fetch origin main --depth=1
           CHANGED_NOTEBOOKS=$(git diff --name-only origin/main...HEAD | grep '\.ipynb$')
           # There must be at least one, or this job would not have run.
           ./scripts/run-isolated-nb-tests.sh --clean-caches 3.10 $CHANGED_NOTEBOOKS
