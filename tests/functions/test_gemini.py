@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 import pixeltable as pxt
+import pixeltable.type_system as ts
 
 from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test
@@ -137,3 +139,87 @@ class TestGemini:
             assert video_stream['height'] == 720, metadata
             assert video_stream['duration_seconds'] == duration, metadata
             assert audio_stream['duration_seconds'] == duration, metadata
+
+    def test_generate_embeddings(self, reset_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_embedding
+
+        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
+
+        # Test embeddings as computed columns
+        t.add_computed_column(embed0=generate_embedding(t.text, model='gemini-embedding-001'))
+        t.add_computed_column(
+            embed1=generate_embedding(t.text, model='gemini-embedding-001', config={'output_dimensionality': 1536})
+        )
+        assert t.embed0.col.col_type.matches(ts.ArrayType((3072,), np.dtype('float32'))), t.embed0.col.col_type
+        assert t.embed1.col.col_type.matches(ts.ArrayType((1536,), np.dtype('float32'))), t.embed1.col.col_type
+        validate_update_status(
+            t.insert(
+                [
+                    {'rowid': 1, 'text': 'Pixeltable is a great tool for AI workload orchestration and storage'},
+                    {'rowid': 2, 'text': 'The quick brown fox jumps over the lazy dog.'},
+                    {'rowid': 3, 'text': 'The five boxing wizards jump quickly.'},
+                ]
+            ),
+            expected_rows=3,
+        )
+        for row in t.collect():
+            embedding = row['embed0']
+            assert isinstance(embedding, np.ndarray)
+            assert embedding.dtype == np.float32
+            assert embedding.shape == (3072,)
+            embedding = row['embed1']
+            assert isinstance(embedding, np.ndarray)
+            assert embedding.dtype == np.float32
+            assert embedding.shape == (1536,)
+
+        # Test embeddings as embedding indexes
+        t.add_embedding_index(
+            t.text, idx_name='embed_idx0', embedding=generate_embedding.using(model='gemini-embedding-001')
+        )
+        t.add_embedding_index(
+            t.text,
+            idx_name='embed_idx1',
+            embedding=generate_embedding.using(
+                model='gemini-embedding-001', config={'output_dimensionality': 768}, use_batch_api=False
+            ),
+        )
+
+        sim = t.text.similarity(string='Coordinating AI tasks can be achieved with Pixeltable.', idx='embed_idx0')
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        assert res[0]['rowid'] == 1
+
+        sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.', idx='embed_idx1')
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        assert res[0]['rowid'] == 3
+
+    @pytest.mark.skip('Very slow')
+    def test_generate_embeddings_batch_api(self, reset_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_embedding
+
+        t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
+        validate_update_status(
+            t.insert(
+                [
+                    {'rowid': 1, 'text': 'Pixeltable is a great tool for AI workload orchestration and storage'},
+                    {'rowid': 2, 'text': 'The quick brown fox jumps over the lazy dog.'},
+                    {'rowid': 3, 'text': 'The five boxing wizards jump quickly.'},
+                ]
+            ),
+            expected_rows=3,
+        )
+
+        t.add_embedding_index(
+            t.text, embedding=generate_embedding.using(model='gemini-embedding-001', use_batch_api=True)
+        )
+
+        sim = t.text.similarity(string='Coordinating AI tasks can be achieved with Pixeltable.')
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        assert res[0]['rowid'] == 1
+
+        sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.')
+        res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
+        assert res[0]['rowid'] == 3

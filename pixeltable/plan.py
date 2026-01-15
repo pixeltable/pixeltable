@@ -6,7 +6,6 @@ from textwrap import dedent
 from typing import Any, Iterable, Literal, Sequence, cast
 from uuid import UUID
 
-import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 import pixeltable as pxt
@@ -538,7 +537,7 @@ class Planner:
         def needs_reconstruction(e: exprs.Expr) -> bool:
             assert isinstance(e, exprs.ColumnRef)
             # Vector-typed array columns are used for vector indexes, and are stored in the db
-            return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
+            return e.col.col_type.is_array_type() and not e.col.has_sa_vector_type()
 
         array_col_refs = list(
             exprs.Expr.list_subexprs(
@@ -594,7 +593,7 @@ class Planner:
             if not isinstance(e, exprs.ColumnRef):
                 return False
             # Vector-typed array columns are used for vector indexes, and are stored in the db
-            return e.col.col_type.is_array_type() and not isinstance(e.col.sa_col_type, pgvector.sqlalchemy.Vector)
+            return e.col.col_type.is_array_type() and not e.col.has_sa_vector_type()
 
         def binary_filter(e: exprs.Expr) -> bool:
             return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_binary_type()
@@ -720,9 +719,6 @@ class Planner:
         The plan:
         - retrieves rows that are visible at the current version of the table and satisfy the view predicate
         - materializes all stored columns and the update targets
-        - if cascade is True, recomputes all computed columns that transitively depend on the updated columns
-          and copies the values of all other stored columns
-        - if cascade is False, copies all columns that aren't update targets from the original rows
 
         TODO: unify with create_view_load_plan()
 
@@ -733,10 +729,15 @@ class Planner:
         """
         assert isinstance(view, catalog.TableVersionPath)
         assert view.is_view
-        target = view.tbl_version.get()  # the one we need to update
-        # retrieve all stored cols and all target exprs
-        recomputed_cols = set(recompute_targets.copy())
+        target = view.tbl_version.get()
+
+        # Columns to recompute are recompute targets plus their index value columns
+        recomputed_cols = target.get_idx_val_columns(recompute_targets)
+        recomputed_cols.update(recompute_targets)
+
+        # Copied columns are all other stored columns
         copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in recomputed_cols]
+
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         # resolve recomputed exprs to stored columns in the base
         recomputed_exprs = [

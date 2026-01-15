@@ -11,7 +11,6 @@ import inspect
 import logging
 import math
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -595,12 +594,7 @@ class Env:
         else:
             self._db_name = config.get_string_value('db') or 'pixeltable'
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
-            # cleanup_mode=None will leave the postgres process running after Python exits
-            # cleanup_mode='stop' will terminate the postgres process when Python exits
-            # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
-            # process (such as Terminal or VSCode) exits, potentially leaving it in an unusable state.
-            cleanup_mode = 'stop' if platform.system() == 'Windows' else None
-            self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
+            self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
             self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
             self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
         assert self._dbms is not None
@@ -859,6 +853,7 @@ class Env:
         self.__register_package('scenedetect')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
+        self.__register_package('snowflake.sqlalchemy', library_name='snowflake-sqlalchemy')
         self.__register_package('soundfile')
         self.__register_package('spacy')
         self.__register_package('tiktoken')
@@ -890,7 +885,9 @@ class Env:
         if not shutil.which(binary_name):
             raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
 
-    def require_package(self, package_name: str, min_version: list[int] | None = None) -> None:
+    def require_package(
+        self, package_name: str, min_version: list[int] | None = None, not_installed_msg: str | None = None
+    ) -> None:
         """
         Checks whether the specified optional package is available. If not, raises an exception
         with an error message informing the user how to install it.
@@ -906,9 +903,10 @@ class Env:
             package_info.is_installed = importlib.util.find_spec(package_name) is not None
             if not package_info.is_installed:
                 # Still not found.
+                if not_installed_msg is None:
+                    not_installed_msg = f'This feature requires the `{package_name}` package'
                 raise excs.Error(
-                    f'This feature requires the `{package_name}` package. To install it, run: '
-                    f'`pip install -U {package_info.library_name}`'
+                    f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`'
                 )
 
         if min_version is None:
