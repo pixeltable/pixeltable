@@ -238,6 +238,7 @@
                       "sdk/latest/openrouter",
                       "sdk/latest/replicate",
                       "sdk/latest/reve",
+                      "sdk/latest/runwayml",
                       "sdk/latest/together",
                       "sdk/latest/twelvelabs",
                       "sdk/latest/vision",

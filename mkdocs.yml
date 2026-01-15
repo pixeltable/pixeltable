@@ -65,7 +65,6 @@ nav:
     - openrouter: pixeltable/functions/openrouter.md
     - replicate: pixeltable/functions/replicate.md
     - reve: pixeltable/functions/reve.md
-    - runwayml: pixeltable/functions/runwayml.md
     - together: pixeltable/functions/together.md
     - twelvelabs: pixeltable/functions/twelvelabs.md
     - voyageai: pixeltable/functions/voyageai.md
