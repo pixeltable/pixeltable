@@ -1290,7 +1290,7 @@ class TestFunction:
         assert res[0]['sum_col_0'] == 4
 
         res = t.select(plus_one=self.func(t.col_1)).collect()
-        assert {res[i]['plus_one'] for i in range(len(res))} == {2, 3, None}
+        assert set(res['plus_one']) == {2, 3, None}
 
         assert len(t.where(t.col_2.match('def')).collect()) == 1
 
