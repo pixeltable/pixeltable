@@ -104,6 +104,12 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install "uv==$UV_VERSION"
 
+      - name: Install the project dependencies
+        # Retry 3 times to be resilient against transient connectivity issues.
+        run: |
+          export VIRTUAL_ENV="$CONDA_PREFIX"
+          ./scripts/retry.sh 3 60 uv sync --active --no-dev
+
       - name: Run performance tests
         run: python tool/perftest_runner.py
         timeout-minutes: 10
