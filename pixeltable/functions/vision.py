@@ -376,7 +376,8 @@ def draw_bounding_boxes(
             int_fill_alpha = int(fill_alpha * 255)
             rgba_fill_colors = [(c[0], c[1], c[2], int_fill_alpha) for c in rgb_box_colors]
         else:
-            rgba_fill_colors = [(c[0], c[1], c[2], 127) for c in rgb_box_colors]
+            # default to semi-transparent if alpha is missing
+            rgba_fill_colors = [(*c, 127) if len(c) == 3 else c for c in rgb_box_colors]
 
     # set default font if not provided
     txt_font: PIL.ImageFont.ImageFont | PIL.ImageFont.FreeTypeFont = (
