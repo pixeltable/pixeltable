@@ -2472,7 +2472,7 @@ class Catalog:
         #        LEFT(tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_2, 256) !=
         #        tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_7 AS idx_mismatch_idx2
         # FROM   tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2
-        # WHERE  tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.v_max = 9223372036854775807
+        # WHERE  tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.v_max > 22
         #        AND ( tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_0 !=
         #                    tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_3
         #               OR LEFT(tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_1, 256) !=
@@ -2530,7 +2530,7 @@ class Catalog:
         #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_13 IS NOT NULL AS
         #        idx_not_null_img_idx1
         # FROM   tbl_1d7bb633b5be4c57bd9070707ca4c552
-        # WHERE  tbl_1d7bb633b5be4c57bd9070707ca4c552.v_max < 9223372036854775807
+        # WHERE  tbl_1d7bb633b5be4c57bd9070707ca4c552.v_max <= 22
         #        AND ( tbl_1d7bb633b5be4c57bd9070707ca4c552.col_3 IS NOT NULL
         #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_5 IS NOT NULL
         #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_7 IS NOT NULL
