@@ -30,18 +30,18 @@ already have standard developer tools such as `git` and `make` installed on your
 
 1. Set up your Python environment for Pixeltable
 
-    * Install Miniconda:
+    * Install Miniforge:
 
-        * <https://docs.anaconda.com/free/miniconda/index.html>
+        * <https://github.com/conda-forge/miniforge>
 
     * Create your conda environment:
 
-        * `conda create --name pxt python=3.10`
+        * `mamba create --name pxt python=3.10`
         * For development, we use Python 3.10 (the minimum supported version) to ensure compatibility.
 
     * Activate the conda environment:
 
-        * `conda activate pxt`
+        * `mamba activate pxt`
 
 2. Install Pixeltable
 
