@@ -62,7 +62,7 @@ class TestDestination:
                 pytest.skip(f'Destination {str(dest_id)!r} not reachable or not configured properly: {exc}')
             return None
 
-    def test_dest_errors(self, reset_db: None) -> None:
+    def test_dest_errors(self, uses_store: None) -> None:
         t = pxt.create_table('test_dest_errors', schema={'img': pxt.Image})
         valid_dest = 'tests/data/'
 
@@ -90,7 +90,7 @@ class TestDestination:
         with pytest.raises(pxt.Error, match='must be a valid reference to a supported'):
             t.add_computed_column(img_rot=t.img.rotate(90), destination='https://anything/')
 
-    def test_invalid_bucket(self, reset_db: None) -> None:
+    def test_invalid_bucket(self, uses_store: None) -> None:
         skip_test_if_not_installed('boto3')
         t = pxt.create_table('test_invalid_dest', schema={'img': pxt.Image})
 
@@ -117,7 +117,7 @@ class TestDestination:
                 destination='https://a711169187abcf395c01dca4390ee0ea.r2.cloudflarestorage.com/pxt-test/pytest',
             )
 
-    def test_dest_parser(self, reset_db: None) -> None:
+    def test_dest_parser(self, uses_store: None) -> None:
         a_name = 'acct-name'
         o_name = 'obj-name'
         p_name1 = 'path-name'
@@ -153,7 +153,7 @@ class TestDestination:
         ObjectPath.parse_object_storage_addr(f'dir2/dir3/{o_name}', allow_obj_name=True)
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
-    def test_destination(self, reset_db: None, dest_id: StorageTarget) -> None:
+    def test_destination(self, uses_store: None, dest_id: StorageTarget) -> None:
         """Test various media destinations."""
         skip_test_if_not_installed('boto3')
         from pixeltable.utils.s3_store import S3Store
@@ -219,7 +219,7 @@ class TestDestination:
         assert ObjectOps.count(save_id, dest=dest2_uri) == 0
 
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
-    def test_dest_two_copies(self, reset_db: None, dest_id: StorageTarget) -> None:
+    def test_dest_two_copies(self, uses_store: None, dest_id: StorageTarget) -> None:
         """Test destination with two Stores receiving copies of the same computed image"""
         dest_uri = self.resolve_destination_uri(dest_id)
 
@@ -251,7 +251,7 @@ class TestDestination:
         # as duplicates, so they are not double copied to the destination.
         assert len(r) + 1 == ObjectOps.count(t._id, dest=dest2_uri)
 
-    def test_dest_local_copy(self, reset_db: None) -> None:
+    def test_dest_local_copy(self, uses_store: None) -> None:
         """Test destination attempting to copy a local file to another destination"""
 
         # Create valid local file Paths and URIs for images
@@ -282,7 +282,7 @@ class TestDestination:
         # Ensure that local file is copied to a specified destination
         assert ObjectOps.count(t._id, dest=dest1_uri) == len(r)
 
-    def test_dest_all(self, reset_db: None) -> None:
+    def test_dest_all(self, uses_store: None) -> None:
         """Test destination with all available storage targets"""
         dest_uris = tuple(self.resolve_destination_uri(dest_id) + '/bucket1' for dest_id in self.TESTED_DESTINATIONS)
 
@@ -354,7 +354,7 @@ class TestDestination:
             assert ObjectOps.count(t._id, dest=uri) == 0
 
     @rerun(reruns=3, reruns_delay=5)
-    def test_presigned_url_all_destinations(self, reset_db: None) -> None:
+    def test_presigned_url_all_destinations(self, uses_store: None) -> None:
         """Test presigned_url UDF for all cloud storage destinations"""
         # Exclude LOCAL_STORE as it doesn't support presigned URLs
         cloud_destinations = [d for d in self.TESTED_DESTINATIONS if d != StorageTarget.LOCAL_STORE]
@@ -476,7 +476,7 @@ class TestDestination:
     }
 
     @pytest.mark.parametrize('dest_id', PUBLIC_TEST_OBJECTS.keys())
-    def test_public_download(self, reset_db: None, dest_id: StorageTarget) -> None:
+    def test_public_download(self, uses_store: None, dest_id: StorageTarget) -> None:
         """Test downloading a media object from a public Store"""
         module_name, src_base, src_obj = self.PUBLIC_TEST_OBJECTS[dest_id]
         skip_test_if_not_installed(module_name)

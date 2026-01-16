@@ -9,7 +9,7 @@ from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, v
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestReplicate:
-    def test_chat_completions(self, reset_db: None) -> None:
+    def test_chat_completions(self, uses_store: None) -> None:
         skip_test_if_not_installed('replicate')
         skip_test_if_no_client('replicate')
         from pixeltable.functions.replicate import run
@@ -26,7 +26,7 @@ class TestReplicate:
         print(results['output'][0])
         assert len(results['output'][0]) > 0
 
-    def test_image_generations(self, reset_db: None) -> None:
+    def test_image_generations(self, uses_store: None) -> None:
         skip_test_if_not_installed('replicate')
         skip_test_if_no_client('replicate')
         from pixeltable.functions.replicate import run

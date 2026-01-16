@@ -156,8 +156,8 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
 
 
 @pytest.fixture(scope='function')
-def reset_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
-    """Fixture for tests that interact with the database (PosgreSQL or CockroachDB).
+def uses_store(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
+    """Fixture for tests that interact with the underlying store (PosgreSQL or CockroachDB).
     Cleans up the database before the test, and validates it after the test.
     """
     # Clean the DB *before* reloading. This is because some tests
@@ -268,7 +268,7 @@ def clean_db(restore_md_tables: bool = True) -> None:
 
 
 @pytest.fixture(scope='function')
-def test_tbl(reset_db: None) -> pxt.Table:
+def test_tbl(uses_store: None) -> pxt.Table:
     return create_test_tbl()
 
 
@@ -313,12 +313,12 @@ def test_tbl_exprs(test_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def all_datatypes_tbl(reset_db: None) -> pxt.Table:
+def all_datatypes_tbl(uses_store: None) -> pxt.Table:
     return create_all_datatypes_tbl()
 
 
 @pytest.fixture(scope='function')
-def img_tbl(reset_db: None) -> pxt.Table:
+def img_tbl(uses_store: None) -> pxt.Table:
     return create_img_tbl('test_img_tbl')
 
 
@@ -343,12 +343,12 @@ def multi_img_tbl_exprs(multi_idx_img_tbl: pxt.Table) -> list[exprs.Expr]:
 
 
 @pytest.fixture(scope='function')
-def small_img_tbl(reset_db: None) -> pxt.Table:
+def small_img_tbl(uses_store: None) -> pxt.Table:
     return create_img_tbl('small_img_tbl', num_rows=40)
 
 
 @pytest.fixture(scope='function')
-def indexed_img_tbl(reset_db: None, clip_embed: pxt.Function) -> pxt.Table:
+def indexed_img_tbl(uses_store: None, clip_embed: pxt.Function) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('indexed_img_tbl', num_rows=40)
     t.add_embedding_index('img', idx_name='img_idx0', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)
@@ -356,7 +356,7 @@ def indexed_img_tbl(reset_db: None, clip_embed: pxt.Function) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
-def multi_idx_img_tbl(reset_db: None, clip_embed: pxt.Function) -> pxt.Table:
+def multi_idx_img_tbl(uses_store: None, clip_embed: pxt.Function) -> pxt.Table:
     skip_test_if_not_installed('transformers')
     t = create_img_tbl('multi_idx_img_tbl', num_rows=4)
     t.add_embedding_index('img', idx_name='img_idx1', metric='cosine', image_embed=clip_embed, string_embed=clip_embed)

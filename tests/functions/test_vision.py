@@ -8,7 +8,7 @@ from ..utils import get_image_files, get_video_files, skip_test_if_not_installed
 
 
 class TestVision:
-    def test_eval(self, reset_db: None) -> None:
+    def test_eval(self, uses_store: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
 
@@ -51,7 +51,7 @@ class TestVision:
             draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
         ).collect()
 
-    def test_draw_bounding_boxes(self, reset_db: None) -> None:
+    def test_draw_bounding_boxes(self, uses_store: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
 
@@ -117,7 +117,7 @@ class TestVision:
 
         # TODO: test font and font_size parameters in a system-independent way
 
-    def test_overlay_segmentation(self, reset_db: None) -> None:
+    def test_overlay_segmentation(self, uses_store: None) -> None:
         skip_test_if_not_installed('transformers')
 
         from pixeltable.functions.huggingface import detr_for_segmentation

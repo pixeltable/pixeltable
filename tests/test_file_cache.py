@@ -17,7 +17,7 @@ class TestFileCache:
     #     related to the Windows filesystem.)
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Test is flaky on Windows')
     @rerun(reruns=3)  # Occasional download timeouts
-    def test_eviction(self, reset_db: None) -> None:
+    def test_eviction(self, uses_store: None) -> None:
         # Set a very small cache size of 200 kiB for this test (the imagenette images are ~5-10 kiB each)
         fc = FileCache.get()
         test_capacity = 200 << 10

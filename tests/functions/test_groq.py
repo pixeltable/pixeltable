@@ -9,7 +9,7 @@ from .tool_utils import run_tool_invocations_test
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestGroq:
-    def test_chat_completions(self, reset_db: None) -> None:
+    def test_chat_completions(self, uses_store: None) -> None:
         skip_test_if_not_installed('groq')
         skip_test_if_no_client('groq')
         from pixeltable.functions.groq import chat_completions
@@ -37,7 +37,7 @@ class TestGroq:
 
     @pytest.mark.skip(reason='Temporarily disabled')
     @rerun(reruns=20, reruns_delay=8)
-    def test_tool_invocations(self, reset_db: None) -> None:
+    def test_tool_invocations(self, uses_store: None) -> None:
         skip_test_if_not_installed('groq')
         skip_test_if_no_client('groq')
         from pixeltable.functions import groq

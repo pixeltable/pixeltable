@@ -52,7 +52,7 @@ class TestFunction:
         # TODO: add Function.exec() and then use that
         assert deserialized.py_fn(1) == 2
 
-    def test_list(self, reset_db: None) -> None:
+    def test_list(self, uses_store: None) -> None:
         _ = FunctionRegistry.get().list_functions()
         print(_)
 
@@ -60,7 +60,7 @@ class TestFunction:
         _ = pxt.list_functions()
         print(_)
 
-    def test_stored_udf(self, reset_db: None) -> None:
+    def test_stored_udf(self, uses_store: None) -> None:
         t = pxt.create_table('test', {'c1': ts.IntType(), 'c2': ts.FloatType()})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         status = t.insert(rows)
@@ -188,7 +188,7 @@ class TestFunction:
     def append(s: str, suffix: str) -> str:
         return s + suffix
 
-    def test_member_access_udf(self, reset_db: None) -> None:
+    def test_member_access_udf(self, uses_store: None) -> None:
         t = pxt.create_table('test', {'c1': pxt.String, 'c2': pxt.Int})
         rows = [{'c1': 'a', 'c2': 1}, {'c1': 'b', 'c2': 2}]
         validate_update_status(t.insert(rows))
@@ -229,7 +229,7 @@ class TestFunction:
 
         assert 'Stored functions cannot be declared using `is_method` or `is_property`' in str(exc_info.value)
 
-    def test_query(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_query(self, uses_store: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         name = t._name
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
@@ -271,7 +271,7 @@ class TestFunction:
         t = pxt.get_table(name)
         validate_update_status(t.insert(rows))
 
-    def test_query2(self, reset_db: None) -> None:
+    def test_query2(self, uses_store: None) -> None:
         schema = {'query_text': pxt.String, 'i': pxt.Int}
         queries = pxt.create_table('queries', schema)
         query_rows = [
@@ -314,7 +314,7 @@ class TestFunction:
         res = queries.select(queries.chunks).collect()
         assert all(len(c) == 2 for c in res['chunks'])
 
-    def test_query_over_view(self, reset_db: None) -> None:
+    def test_query_over_view(self, uses_store: None) -> None:
         pxt.create_dir('test')
         t = pxt.create_table('test.tbl', {'a': pxt.String})
         v = pxt.create_view('test.view', t, additional_columns={'text': pxt.String})
@@ -337,7 +337,7 @@ class TestFunction:
         # reload_catalog()
         pxt.drop_dir('test', force=True)
 
-    def test_query_json_mapper(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_query_json_mapper(self, uses_store: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         t_rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         validate_update_status(t.insert(t_rows), 100)
@@ -352,7 +352,7 @@ class TestFunction:
         validate_update_status(u.insert(u_rows), len(u_rows))
         _ = u.select(u.out).collect()
 
-    def test_query_errors(self, reset_db: None) -> None:
+    def test_query_errors(self, uses_store: None) -> None:
         schema = {'a': pxt.Int, 'b': pxt.Int}
         t = pxt.create_table('test', schema)
         rows = [{'a': i, 'b': i + 1} for i in range(100)]
@@ -367,7 +367,7 @@ class TestFunction:
     def binding_test_udf(p1: str, p2: str, p3: str, p4: str = 'default') -> str:
         return f'{p1} {p2} {p3} {p4}'
 
-    def test_partial_binding(self, reset_db: None) -> None:
+    def test_partial_binding(self, uses_store: None) -> None:
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = self.binding_test_udf.using(p1='x', p3='z')
         pb3 = self.binding_test_udf.using(p1='x', p2='y', p3='z')
@@ -403,7 +403,7 @@ class TestFunction:
             _ = pb1(p1='a')
         assert 'missing a required argument' in str(exc_info.value).lower()
 
-    def test_nested_partial_binding(self, reset_db: None) -> None:
+    def test_nested_partial_binding(self, uses_store: None) -> None:
         pb1 = self.binding_test_udf.using(p2='y')
         pb2 = pb1.using(p1='x')
         pb3 = pb2.using(p3='z')
@@ -428,7 +428,7 @@ class TestFunction:
     def crt_test_udf(a: int, b: int, c: int = 5) -> pxt.Array[pxt.Int]:
         return np.ones((b, c)) * a
 
-    def test_conditional_return_type(self, reset_db: None) -> None:
+    def test_conditional_return_type(self, uses_store: None) -> None:
         f = self.crt_test_udf
 
         @f.conditional_return_type
@@ -757,7 +757,7 @@ class TestFunction:
         assert len(res) == 1
         assert res[0] == {'c1': max(res_direct['c1']), 'c2': max(res_direct['c2']), 'c3': max(res_direct['c3'])}
 
-    def test_constants(self, reset_db: None) -> None:
+    def test_constants(self, uses_store: None) -> None:
         """
         Test UDFs with default values and/or constant arguments that are not JSON serializable.
         """
@@ -787,7 +787,7 @@ class TestFunction:
         reload_catalog()
 
     @pytest.mark.parametrize('as_kwarg', [False, True])
-    def test_udf_evolution(self, as_kwarg: bool, reset_db: None) -> None:
+    def test_udf_evolution(self, as_kwarg: bool, uses_store: None) -> None:
         """
         Tests that code changes to UDFs that are backward-compatible with the code pattern in a stored computed
         column are accepted by Pixeltable.
@@ -1013,7 +1013,7 @@ class TestFunction:
         t.drop_column('result')
         reload_and_validate_table(has_result_column=False)
 
-    def test_udf_import_error(self, reset_db: None) -> None:
+    def test_udf_import_error(self, uses_store: None) -> None:
         """
         Tests that the Pixeltable catalog loads successfully when a function's conditional_return_type() method
         raises an ImportError. (The affected UDF will be unusable for new inserts, but the table will be loadable
@@ -1075,7 +1075,7 @@ class TestFunction:
             pxt.tools(pxt.functions.sum)  # type: ignore[arg-type]
         assert 'Aggregator UDFs cannot be used as tools' in str(exc_info.value)
 
-    def test_retrieval_tool(self, reset_db: None) -> None:
+    def test_retrieval_tool(self, uses_store: None) -> None:
         t = pxt.create_table(
             'customers', {'customer_id': pxt.Required[pxt.String], 'name': pxt.Required[pxt.String], 'sales': pxt.Int}
         )
@@ -1133,7 +1133,7 @@ class TestFunction:
         assert [p.col_type for p in fn3.signature.parameters.values()] == [ts.StringType()]
         assert fn3.comment() == "I'm a tool that LLMs can use to do stuff."
 
-    def test_from_table(self, reset_db: None) -> None:
+    def test_from_table(self, uses_store: None) -> None:
         schema = {'in1': pxt.Required[pxt.Int], 'in2': pxt.Required[pxt.String], 'in3': pxt.Float, 'in4': pxt.Image}
         t = pxt.create_table('test', schema)
         t.add_computed_column(out1=(t.in1 + 5))

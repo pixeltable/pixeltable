@@ -13,7 +13,7 @@ from .utils import reload_catalog, validate_update_status
 
 class TestArrayType:
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_array_dtypes(self, do_reload_catalog: bool, init_env: None, reset_db: None) -> None:
+    def test_array_dtypes(self, do_reload_catalog: bool, init_env: None, uses_store: None) -> None:
         test_cases: list = [
             (np.bool, [np.bool, pxt.Bool]),
             (np.str_, [np.str_, pxt.String]),
@@ -101,7 +101,7 @@ class TestArrayType:
             case _:
                 raise ValueError(f'Unsupported dtype: {literal_dtype}')
 
-    def test_non_parameterized_array_accepts_all_dtypes(self, init_env: None, reset_db: None) -> None:
+    def test_non_parameterized_array_accepts_all_dtypes(self, init_env: None, uses_store: None) -> None:
         t = pxt.create_table('test_numpy_dtypes', {'array': pxt.Array})
         validate_update_status(t.insert(array=(1, 1)), 1)
         validate_update_status(t.insert(array=[1.0, 2.0]), 1)
@@ -111,7 +111,7 @@ class TestArrayType:
         )
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
-    def test_array_shape_validation(self, do_reload_catalog: bool, init_env: None, reset_db: None) -> None:
+    def test_array_shape_validation(self, do_reload_catalog: bool, init_env: None, uses_store: None) -> None:
         schema = {
             'arr_1': pxt.Array[(1,), np.uint8],  # type: ignore[misc]
             'arr_2': pxt.Array[(2, 2), pxt.Float],  # type: ignore[misc]

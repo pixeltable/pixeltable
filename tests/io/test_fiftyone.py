@@ -13,7 +13,7 @@ from ..utils import get_image_files, rerun, skip_test_if_not_installed
 @rerun(reruns=3, reruns_delay=8)
 class TestFiftyone:
     @pytest.mark.xdist_group('fiftyone')
-    def test_export_images(self, reset_db: None) -> None:
+    def test_export_images(self, uses_store: None) -> None:
         skip_test_if_not_installed('fiftyone')
 
         schema = {
@@ -82,7 +82,7 @@ class TestFiftyone:
         assert all(sample.filepath.endswith(('.jpeg', '.JPEG')) for sample in ds)
 
     @pytest.mark.xdist_group('fiftyone')
-    def test_export_images_errors(self, reset_db: None) -> None:
+    def test_export_images_errors(self, uses_store: None) -> None:
         skip_test_if_not_installed('fiftyone')
 
         schema = {

@@ -9,7 +9,7 @@ from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, v
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestMistral:
-    def test_chat_completions(self, reset_db: None) -> None:
+    def test_chat_completions(self, uses_store: None) -> None:
         skip_test_if_not_installed('mistralai')
         skip_test_if_no_client('mistral')
         from pixeltable.functions.mistralai import chat_completions
@@ -37,7 +37,7 @@ class TestMistral:
         assert len(results['output'][0]['choices'][0]['message']['content']) > 0
         assert len(results['output2'][0]['choices'][0]['message']['content']) > 0
 
-    def test_fim_completions(self, reset_db: None) -> None:
+    def test_fim_completions(self, uses_store: None) -> None:
         skip_test_if_not_installed('mistralai')
         skip_test_if_no_client('mistral')
         from pixeltable.functions.mistralai import fim_completions
@@ -73,7 +73,7 @@ class TestMistral:
             for i in range(2):
                 assert len(results[out_col][i]['choices'][0]['message']['content']) > 0
 
-    def test_embeddings(self, reset_db: None) -> None:
+    def test_embeddings(self, uses_store: None) -> None:
         skip_test_if_not_installed('mistralai')
         skip_test_if_no_client('mistral')
         from pixeltable.functions.mistralai import embeddings

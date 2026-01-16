@@ -15,7 +15,7 @@ from .tool_utils import run_tool_invocations_test, server_state, stock_price, we
 @rerun(reruns=3, reruns_delay=8)
 class TestOpenai:
     @pytest.mark.expensive
-    def test_audio(self, reset_db: None) -> None:
+    def test_audio(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import speech, transcriptions, translations
@@ -55,7 +55,7 @@ class TestOpenai:
         assert results[1]['transcription']['text'] in ['I am a banana.', "I'm a banana."]
         assert results[1]['transcription_2']['text'] in ['I am a banana.', "I'm a banana."]
 
-    def test_chat_completions(self, reset_db: None) -> None:
+    def test_chat_completions(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions
@@ -108,7 +108,7 @@ class TestOpenai:
         assert "'messages' must contain the word 'json'" in str(exc_info.value.__cause__)
 
     @pytest.mark.expensive
-    def test_reasoning_models(self, reset_db: None) -> None:
+    def test_reasoning_models(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions
@@ -131,7 +131,7 @@ class TestOpenai:
         result = t.collect()
         assert '#!/bin/bash' in result['chat_output'][0]['choices'][0]['message']['content']
 
-    def test_reuse_client(self, reset_db: None) -> None:
+    def test_reuse_client(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions import openai
@@ -154,7 +154,7 @@ class TestOpenai:
         t.add_computed_column(output2=openai.chat_completions(model='gpt-4o-mini', messages=messages))
 
     @rerun(reruns=6, reruns_delay=8)
-    def test_tool_invocations(self, reset_db: None) -> None:
+    def test_tool_invocations(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions import openai
@@ -172,7 +172,7 @@ class TestOpenai:
 
         run_tool_invocations_test(make_table, test_tool_choice=True, test_individual_tool_choice=True)
 
-    def test_custom_tool_invocations(self, reset_db: None) -> None:
+    def test_custom_tool_invocations(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
@@ -193,7 +193,7 @@ class TestOpenai:
         assert res[0]['output'] is None
         assert res[0]['tool_calls'] == {'banana_quantity': [131.17]}
 
-    def test_nullary_tool_invocations(self, reset_db: None) -> None:
+    def test_nullary_tool_invocations(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
@@ -212,7 +212,7 @@ class TestOpenai:
         assert res[0]['tool_calls'] == {'server_state': ['Running (0x4171780)']}
 
     @pytest.mark.parametrize('as_retrieval_udf', [False, True])
-    def test_query_as_tool(self, as_retrieval_udf: bool, reset_db: None) -> None:
+    def test_query_as_tool(self, as_retrieval_udf: bool, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
@@ -253,7 +253,7 @@ class TestOpenai:
         assert res[0]['tool_calls'] == {'get_customer_info': [[{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}]]}
 
     @pytest.mark.expensive
-    def test_gpt_4_vision(self, reset_db: None) -> None:
+    def test_gpt_4_vision(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, vision
@@ -283,7 +283,7 @@ class TestOpenai:
         result = t.collect()['response_2'][0]
         assert len(result) > 0
 
-    def test_embeddings(self, reset_db: None) -> None:
+    def test_embeddings(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import embeddings
@@ -319,7 +319,7 @@ class TestOpenai:
         assert res[1]['input'] == 'Say something interesting.'
         assert res[1]['sim'] < 0.5
 
-    def test_moderations(self, reset_db: None) -> None:
+    def test_moderations(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import moderations
@@ -331,7 +331,7 @@ class TestOpenai:
         _ = t.head()
 
     @pytest.mark.expensive
-    def test_image_generations(self, reset_db: None) -> None:
+    def test_image_generations(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import image_generations
@@ -352,7 +352,7 @@ class TestOpenai:
         assert t.collect()['img_2'][0].size == (512, 512)
 
     @pytest.mark.expensive
-    def test_table_udf_tools(self, reset_db: None) -> None:
+    def test_table_udf_tools(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
@@ -474,7 +474,7 @@ class TestOpenai:
         assert len(r2) == 2
         assert any('Apple' in answer for answer in r2['answer'])
 
-    def test_azure_openai(self, reset_db: None) -> None:
+    def test_azure_openai(self, uses_store: None) -> None:
         skip_test_if_not_installed('openai')
         if not os.environ.get('AZURE_OPENAI_API_KEY'):
             pytest.skip('`AZURE_OPENAI_API_KEY` is not set.')

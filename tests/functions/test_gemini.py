@@ -14,7 +14,7 @@ from .tool_utils import run_tool_invocations_test
 @rerun(reruns=3, reruns_delay=8)
 class TestGemini:
     @pytest.mark.parametrize('model', ['gemini-2.5-flash', 'gemini-3-pro-preview'])
-    def test_generate_content(self, model: str, reset_db: None) -> None:
+    def test_generate_content(self, model: str, uses_store: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from google.genai.types import GenerateContentConfigDict
@@ -49,7 +49,7 @@ class TestGemini:
             print(text2)
             assert 'backpack' in text2
 
-    def test_generate_content_multimodal(self, reset_db: None) -> None:
+    def test_generate_content_multimodal(self, uses_store: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_content
@@ -65,7 +65,7 @@ class TestGemini:
         assert 'French horn' in results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         assert 'truck' in results['output'][1]['candidates'][0]['content']['parts'][0]['text']
 
-    def test_tool_invocations(self, reset_db: None) -> None:
+    def test_tool_invocations(self, uses_store: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from pixeltable.functions import gemini
@@ -78,7 +78,7 @@ class TestGemini:
 
         run_tool_invocations_test(make_table)
 
-    def test_generate_images(self, reset_db: None) -> None:
+    def test_generate_images(self, uses_store: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from google.genai.types import GenerateImagesConfigDict
@@ -100,7 +100,7 @@ class TestGemini:
     @pytest.mark.skip('Very expensive')
     @pytest.mark.expensive
     @rerun(reruns=3, reruns_delay=30)  # longer delay between reruns
-    def test_generate_videos(self, reset_db: None) -> None:
+    def test_generate_videos(self, uses_store: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_videos
@@ -140,7 +140,7 @@ class TestGemini:
             assert video_stream['duration_seconds'] == duration, metadata
             assert audio_stream['duration_seconds'] == duration, metadata
 
-    def test_generate_embeddings(self, reset_db: None) -> None:
+    def test_generate_embeddings(self, uses_store: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_embedding
@@ -195,7 +195,7 @@ class TestGemini:
         assert res[0]['rowid'] == 3
 
     @pytest.mark.skip('Very slow')
-    def test_generate_embeddings_batch_api(self, reset_db: None) -> None:
+    def test_generate_embeddings_batch_api(self, uses_store: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
         from pixeltable.functions.gemini import generate_embedding
