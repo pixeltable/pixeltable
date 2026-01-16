@@ -68,48 +68,27 @@ We recommend VSCode for development: <https://code.visualstudio.com/>
 
 Pixeltable uses [Mintlify](https://mintlify.com) for documentation. If you're contributing to the docs, you may want to build and preview them locally before submitting a PR.
 
-### Prerequisites and Installation
-
-#### 1. Install Node.js
-
-You'll need Node.js version 19 or higher. If you don't already have it installed:
-
-* **macOS/Linux**: We recommend using [nvm (Node Version Manager)](https://github.com/nvm-sh/nvm):
-
-    ```bash
-    # Install nvm
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-    
-    # Install Node.js (version 20 or later)
-    nvm install 20
-    nvm use 20
-    ```
-
-* **Windows**: Download and install from [nodejs.org](https://nodejs.org/)
-
-* Verify your installation:
-
-    ```bash
-    node --version  # Should show v19.0.0 or higher
-    ```
-
-#### 2. Install Mintlify CLI
-
-Once Node.js is installed, install the Mintlify CLI globally using npm (you only need to do this once):
-
-```bash
-npm install -g mintlify
-```
-
 ### Working with the Docs
 
-Once you have Mintlify installed, use these Makefile commands to work with the documentation:
+If you've followed the installation instructions above (`make install`), you already have everything you need to build and serve the documentation locally. Node.js and the Mintlify CLI are automatically installed into your conda environment.
+
+Use these Makefile commands to work with the documentation:
 
 * `make` - Print Makefile help with all available commands
 * `make docs` - Build the docs locally
 * `make docs-serve` - Build the docs locally, start a local Mintlify server, and open a browser tab
 
 The `make docs-serve` command will automatically open your browser to `http://localhost:3000` where you can preview your changes. Any changes you make to your documentation files will be reflected in real-time in your browser.
+
+### Adding New SDK Features to Documentation
+
+If you're adding new functions, classes, or other SDK features, you'll need to update two configuration files to ensure they appear in the documentation:
+
+1. **Update `docs/public_api.opml`**: Add entries for your new SDK features in this file. This file controls which API elements are documented.
+
+2. **Update `docs/release/docs.json`**: Add entries for your new SDK pages in this file. This file controls the documentation site's navigation structure and determines which pages appear in the SDK reference section.
+
+After updating these files, rebuild the docs with `make docs` to verify that your new SDK features appear correctly in the documentation.
 
 ## Crafting a pull request
 
