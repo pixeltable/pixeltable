@@ -855,7 +855,6 @@ class TableVersion:
         cols_with_excs: list[Column] = []
         for col in cols_to_add:
             assert col.id is not None
-            excs_per_col = 0
             col.schema_version_add = self.schema_version
             # add the column to the lookup structures now, rather than after the store changes executed successfully,
             # because it might be referenced by the next column's value_expr
@@ -879,10 +878,11 @@ class TableVersion:
 
             # populate the column
             plan = Planner.create_add_column_plan(self.path, col)
+            excs_per_col = 0
             with Env.get().report_progress():
                 try:
                     plan.ctx.title = self.display_str()
-                    excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
+                    excs_per_col = self.store_tbl.populate_new_column(col, plan, on_error == 'abort')
                 except sql_exc.DBAPIError as exc:
                     Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
                     # If it wasn't converted, re-raise as a generic Pixeltable error
