@@ -271,9 +271,9 @@
           {
             "group": "Use Cases",
             "pages": [
-              "cloud/ml-data-wrangling",
-              "cloud/ai-applications",
-              "cloud/agents-mcp"
+              "use-cases/ml-data-wrangling",
+              "use-cases/ai-applications",
+              "use-cases/agents-mcp"
             ]
           },
           {
@@ -289,8 +289,8 @@
           {
             "group": "Pixeltable Cloud",
             "pages": [
-              "cloud/services",
-              "cloud/get-started"
+              "use-cases/services",
+              "use-cases/get-started"
             ]
           }
         ]
@@ -600,7 +600,27 @@
     },
     {
       "source": "/cloud/use-cases",
-      "destination": "/cloud/ml-data-wrangling"
+      "destination": "/use-cases/ml-data-wrangling"
+    },
+    {
+      "source": "/cloud/ml-data-wrangling",
+      "destination": "/use-cases/ml-data-wrangling"
+    },
+    {
+      "source": "/cloud/ai-applications",
+      "destination": "/use-cases/ai-applications"
+    },
+    {
+      "source": "/cloud/agents-mcp",
+      "destination": "/use-cases/agents-mcp"
+    },
+    {
+      "source": "/cloud/services",
+      "destination": "/use-cases/services"
+    },
+    {
+      "source": "/cloud/get-started",
+      "destination": "/use-cases/get-started"
     }
   ]
 }
