@@ -9,7 +9,7 @@ fi
 if [ "$1" == "check" ]; then
     echo "Running check..."
     # Find all notebooks and diff using `nbqa mdformat`.
-    find ./docs/ -type f -name "*.ipynb" | grep -v .ipynb_checkpoints | xargs nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells --nbqa-diff >> /dev/null
+    nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells --nbqa-diff docs/release >> /dev/null
     if [ $? == 0 ]; then
         echo "Notebooks are properly formatted."
     else
@@ -18,11 +18,11 @@ if [ "$1" == "check" ]; then
     fi
 
 elif [ "$1" == "format" ]; then
-    find ./docs/ -type f -name "*.ipynb" | grep -v .ipynb_checkpoints | xargs nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells
+    nbqa mdformat --nbqa-md --nbqa-dont-skip-bad-cells docs/release
 
 else
-    echo "Error: Invalid command '$1'"
-    echo "Usage: $0 {check|format}"
+    echo "Error: Invalid command: $1"
+    echo "Usage: $(basename "$0") {check|format}"
     exit 1
 
 fi
