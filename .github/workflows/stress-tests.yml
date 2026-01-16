@@ -108,7 +108,7 @@ jobs:
         # Retry 3 times to be resilient against transient connectivity issues.
         run: |
           export VIRTUAL_ENV="$CONDA_PREFIX"
-          ./scripts/retry.sh 3 60 uv sync --active --no-dev
+          ./scripts/retry.sh 3 60 uv sync --active --group dev
 
       - name: Run performance tests
         run: python tool/perftest_runner.py
