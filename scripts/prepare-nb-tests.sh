@@ -48,7 +48,7 @@ rm "$TARGET_DIR/video-generate-ai.ipynb"  # Expensive
 rm "$TARGET_DIR/img-image-to-image.ipynb"  # Expensive (downloads ~5GB model)
 
 # Get a list of all API keys referenced in the notebooks
-REF_API_KEYS=$(grep -hoE '[A-Z_]*_(API|ACCESS)_(KEY|TOKEN)' "$TARGET_DIR"/*.ipynb | sort | uniq)
+REF_API_KEYS=$(grep -hoE '[A-Z_]*_(API|ACCESS)_(KEY|TOKEN)(_[A-Z_]*)?' "$TARGET_DIR"/*.ipynb | sort | uniq)
 echo
 echo "Checking for API keys: $(echo "$REF_API_KEYS" | tr '\n' ' ')"
 for env in $REF_API_KEYS; do
