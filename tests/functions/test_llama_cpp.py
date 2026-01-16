@@ -5,7 +5,7 @@ from ..utils import rerun, skip_test_if_not_installed, validate_update_status
 
 @rerun(reruns=3, reruns_delay=15)  # Since it involes a HF model download
 class TestLlamaCpp:
-    def test_create_chat_completions(self, uses_store: None) -> None:
+    def test_create_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('llama_cpp')
         from pixeltable.functions import llama_cpp
 

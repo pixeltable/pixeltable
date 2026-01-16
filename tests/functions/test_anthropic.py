@@ -9,7 +9,7 @@ from .tool_utils import run_tool_invocations_test
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestAnthropic:
-    def test_messages(self, uses_store: None) -> None:
+    def test_messages(self, uses_db: None) -> None:
         skip_test_if_not_installed('anthropic')
         skip_test_if_no_client('anthropic')
         from pixeltable.functions import anthropic
@@ -37,7 +37,7 @@ class TestAnthropic:
         assert len(results['output2'][0]['content'][0]['text']) > 0
 
     @rerun(reruns=6, reruns_delay=8)
-    def test_tool_invocations(self, uses_store: None) -> None:
+    def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('anthropic')
         skip_test_if_no_client('anthropic')
         from pixeltable.functions import anthropic

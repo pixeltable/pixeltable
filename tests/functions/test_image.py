@@ -38,7 +38,7 @@ class TestImage:
         _ = t.select(t.img.thumbnail([100, 100])).show()
         _ = t.select(t.img.transpose(Transpose.FLIP_LEFT_RIGHT)).show()
 
-    def test_return_types(self, uses_store: None) -> None:
+    def test_return_types(self, uses_db: None) -> None:
         for nullable in (True, False):
             type_hint = pxt.Image[(200, 300), 'RGB']  # type: ignore
             type_hint = type_hint if nullable else pxt.Required[type_hint]  # type: ignore
@@ -62,7 +62,7 @@ class TestImage:
                 size=(200, 300), mode='RGB', nullable=nullable
             )
 
-    def test_tile_iterator(self, uses_store: None) -> None:
+    def test_tile_iterator(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
         t.insert(image=SAMPLE_IMAGE_URL)
         v = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, (100, 100), overlap=(10, 10)))
@@ -80,7 +80,7 @@ class TestImage:
                 tile = image.crop(box)
                 assert list(result['tile'].getdata()) == list(tile.getdata())
 
-    def test_tile_iterator_errors(self, uses_store: None) -> None:
+    def test_tile_iterator_errors(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
         t.insert(image=SAMPLE_IMAGE_URL)
         for overlap in ((0, 100), (100, 0)):

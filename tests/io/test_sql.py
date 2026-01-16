@@ -58,7 +58,7 @@ class TestSql:
         for col_name, col_type in expected_columns.items():
             assert type(columns[col_name]) is col_type
 
-    def test_export_sqlite(self, uses_store: None, tmp_path: pathlib.Path) -> None:
+    def test_export_sqlite(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         t, rows = self.create_test_data(100_000)
         db_path = tmp_path / 'test.db'
         connection_string = f'sqlite:///{db_path}'
@@ -110,7 +110,7 @@ class TestSql:
             result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == 10
 
-    def test_export_postgresql(self, uses_store: None) -> None:
+    def test_export_postgresql(self, uses_db: None) -> None:
         t, rows = self.create_test_data(100_000)
         connection_string = Env.get().db_url
         engine = sql.create_engine(connection_string)
@@ -162,7 +162,7 @@ class TestSql:
             result = conn.execute(sql.text('SELECT * FROM test_table ORDER BY c_int')).fetchall()
             assert len(result) == 10
 
-    def test_errors(self, uses_store: None) -> None:
+    def test_errors(self, uses_db: None) -> None:
         connection_string = Env.get().db_url
 
         # unsupported column type

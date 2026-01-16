@@ -36,7 +36,7 @@ class TestDate:
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
         return test_dts, t
 
-    def test_date_methods(self, uses_store: None) -> None:
+    def test_date_methods(self, uses_db: None) -> None:
         # Set a default time zone that's likely to be different from the system time zone of most test environments
         default_tz = ZoneInfo('America/Anchorage')
         Env.get().default_time_zone = default_tz
@@ -93,7 +93,7 @@ class TestDate:
             else:
                 raise AssertionError()
 
-    def test_date_make(self, uses_store: None) -> None:
+    def test_date_make(self, uses_db: None) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
         test_dts, t = self.make_test_table()
 
@@ -105,7 +105,7 @@ class TestDate:
 
         assert res['out'] == test_dts
 
-    def test_date_arith(self, uses_store: None) -> None:
+    def test_date_arith(self, uses_db: None) -> None:
         _, t = self.make_test_table()
 
         with pytest.raises(pxt.Error, match='requires numeric types'):

@@ -17,7 +17,7 @@ from tests.utils import (
 @pytest.mark.corrupts_db
 class TestPublish:
     @pytest.mark.parametrize('org_slug', ['pxt-test', 'pxt-test:main', 'pxt-test:my-db'])
-    def test_publish_round_trip(self, uses_store: None, org_slug: str) -> None:
+    def test_publish_round_trip(self, uses_db: None, org_slug: str) -> None:
         """
         Test a publish/replicate/drop round trip, with three different organization slug configurations:
         - Default main ('pxt-test')
@@ -70,7 +70,7 @@ class TestPublish:
         assert_resultset_eq(snap_data, snap_replica_data, compare_col_names=True)
         assert_resultset_eq(tbl_data, tbl_replica_data, compare_col_names=True)
 
-    def test_push_pull(self, uses_store: None) -> None:
+    def test_push_pull(self, uses_db: None) -> None:
         skip_test_if_no_pxt_credentials()
 
         tbl = pxt.create_table('tbl', {'icol': pxt.Int, 'scol': pxt.String})
@@ -115,7 +115,7 @@ class TestPublish:
 
         pxt.drop_table(remote_uri)
 
-    def test_push_pull_errors(self, uses_store: None) -> None:
+    def test_push_pull_errors(self, uses_db: None) -> None:
         skip_test_if_no_pxt_credentials()
 
         tbl = pxt.create_table('tbl', {'icol': pxt.Int, 'scol': pxt.String})
@@ -173,7 +173,7 @@ class TestPublish:
 
         pxt.drop_table(remote_uri)
 
-    def test_remote_tbl_ops_errors(self, uses_store: None) -> None:
+    def test_remote_tbl_ops_errors(self, uses_db: None) -> None:
         with pytest.raises(pxt.Error, match=r'Cannot use `force=True` with a cloud replica URI.'):
             pxt.drop_table('pxt://pxt-test/test', force=True)
         with pytest.raises(

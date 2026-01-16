@@ -10,7 +10,7 @@ from .tool_utils import run_tool_invocations_test
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestBedrock:
-    def test_converse(self, uses_store: None) -> None:
+    def test_converse(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import converse
@@ -42,7 +42,7 @@ class TestBedrock:
         assert 'Katy Perry' in results['response']
         assert 'Katy Perry' in results['response2']
 
-    def test_invoke_model(self, uses_store: None) -> None:
+    def test_invoke_model(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import invoke_model
@@ -57,7 +57,7 @@ class TestBedrock:
         assert 'embedding' in results['response']
         assert len(results['response']['embedding']) == 256
 
-    def test_tool_invocations(self, uses_store: None) -> None:
+    def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_aws_credentials()
         from pixeltable.functions import bedrock
@@ -84,7 +84,7 @@ class TestBedrock:
             ),
         ],
     )
-    def test_embed_string(self, model_id: str, uses_store: None) -> None:
+    def test_embed_string(self, model_id: str, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed
@@ -118,7 +118,7 @@ class TestBedrock:
             ),
         ],
     )
-    def test_embed_image(self, model_id: str, uses_store: None) -> None:
+    def test_embed_image(self, model_id: str, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
         skip_test_if_no_aws_credentials()
         from pixeltable.functions.bedrock import embed

@@ -8,7 +8,7 @@ from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, v
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestDeepseek:
-    def test_chat_completions(self, uses_store: None) -> None:
+    def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('deepseek')
         from pixeltable.functions.deepseek import chat_completions
