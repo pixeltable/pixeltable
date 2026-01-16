@@ -101,11 +101,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Analyze commit
+        run: |
+          git fetch origin main --depth=1
+          CHANGED_NOTEBOOKS=$(git diff --name-only origin/main...HEAD | grep '\.ipynb$')
+          if [ -z "$CHANGED_NOTEBOOKS" ]; then
+            echo "No changed notebooks."
+            echo "changed-notebooks=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Changed notebooks detected."
+            echo "changed-notebooks=true" >> "$GITHUB_OUTPUT"
+          fi
       - name: Generate test matrix
         id: set-matrix
         run: |
           ARGS=${{ github.event_name == 'workflow_dispatch' && inputs.run_on_all_platforms && '--force-all' || '' }}
           python tool/ci_tool.py generate-matrix "$GITHUB_OUTPUT" ${{ github.event_name }} $ARGS
+
 
   tests:
     name: ${{ matrix.display-name }}
@@ -264,3 +276,47 @@ jobs:
     steps:
       - name: Fail on error
         run: exit 1
+
+  isolated-nb-tests:
+    # Runs a script that tests each notebook in a fresh conda environment with a clean Pixeltable DB,
+    # to ensure the notebook is capturing dependencies correctly and that the dependencies still work.
+    name: isolated-nb-tests
+    needs: generate-matrix
+    if: ${{ needs.generate-matrix.outputs.changed-notebooks == 'true' }}
+    strategy:
+      fail-fast: false
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}  # Needed for conda to work
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Set up tmate session
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
+      - name: Delete unnecessary files
+        run: |
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /opt/hostedtoolcache /opt/az /opt/microsoft
+          df -h
+      - name: Install ollama
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          sleep 10  # Wait for the ollama server to start
+          # Pull the model used for testing now, with retries, to safeguard against connection issues
+          ./scripts/retry.sh 3 30 ollama pull 'qwen2.5:0.5b'
+      - name: Install conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: latest
+      - name: Run isolated notebook tests
+        run: |
+          git fetch origin main --depth=1
+          CHANGED_NOTEBOOKS=$(git diff --name-only origin/main...HEAD | grep '\.ipynb$')
+          # There must be at least one, or this job would not have run.
+          ./scripts/run-isolated-nb-tests.sh --clean-caches 3.10 $CHANGED_NOTEBOOKS
