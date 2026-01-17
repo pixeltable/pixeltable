@@ -1,21 +1,42 @@
 ---
 title: 'Building with LLMs'
-description: 'Use LLMs in your Pixeltable workloads'
+description: 'Use LLMs to build Pixeltable applications'
 icon: 'robot'
 ---
 
-## Working with LLMs
+## Vibe Coding with Pixeltable
 
-You can use large language models (LLMs) to assist in building Pixeltable integrations. We provide a set of tools and best practices if you use LLMs during development.
+Pixeltable's declarative primitives make it ideal for LLM-assisted development. Instead of writing complex orchestration code, you describe *what* you want—and LLMs can generate correct Pixeltable code on the first try.
+
+**Why Pixeltable is LLM-friendly:**
+- **Simple primitives:** Tables, computed columns, views, and indexes compose predictably
+- **Declarative:** No control flow to debug—just define schemas and transformations
+- **Idempotent:** `if_exists='ignore'` makes generated code safe to re-run
+- **Self-documenting:** Table schemas and column dependencies are explicit
+
+```python
+# LLMs can easily generate this pattern
+t = pxt.create_table('myapp.docs', {'text': pxt.String}, if_exists='ignore')
+t.add_computed_column(embedding=embed(t.text), if_exists='ignore')
+t.add_embedding_index('embedding', if_not_exists=True)
+```
+
+---
+
+## Agent Instructions Files
+
+We provide instruction files for AI coding agents (Cursor, Claude Code, Windsurf, etc.) to understand the Pixeltable codebase:
 
 <CardGroup cols={2}>
-  <Card title="Agents & MCP" icon="robot" href="/use-cases/agents-mcp">
-    Build AI agents with tool calling, persistent memory, and MCP integration
+  <Card title="AGENTS.md" icon="file-code" href="https://github.com/pixeltable/pixeltable/blob/main/AGENTS.md">
+    Instructions for AI agents: project structure, conventions, and patterns
   </Card>
-  <Card title="Pixelagent" icon="github" href="https://github.com/pixeltable/pixelagent">
-    Agent engineering blueprint powered on Pixeltable
+  <Card title="CLAUDE.md" icon="file-code" href="https://github.com/pixeltable/pixeltable/blob/main/CLAUDE.md">
+    Claude-specific agent instructions (same content as AGENTS.md)
   </Card>
 </CardGroup>
+
+Add these to your project or point your AI assistant to them for better Pixeltable code generation.
 
 ---
 
@@ -90,52 +111,11 @@ Learn more in our [Pixelagent documentation](/libraries/pixelagent).
 
 ---
 
-## Building Agents with Pixeltable
-
-<Tip>
-**Declarative Agents:** Instead of imperative control flow, define your agent as a table with computed columns. Each row is a user query; computed columns define the reasoning chain (tool selection → execution → context retrieval → response). Pixeltable handles orchestration, caching, and persistence automatically.
-</Tip>
-
-```python
-import pixeltable as pxt
-from pixeltable.functions.openai import chat_completions
-
-# Define tools
-@pxt.udf
-def search_docs(query: str) -> str:
-    """Search internal documentation."""
-    results = docs.text.similarity(query).order_by(asc=False).limit(5).collect()
-    return "\n".join(r['text'] for r in results)
-
-# Create agent table
-agent = pxt.create_table('myapp.agent', {'user_query': pxt.String})
-
-# Define reasoning chain as computed columns
-agent.add_computed_column(
-    context=search_docs(agent.user_query)
-)
-agent.add_computed_column(
-    response=chat_completions(
-        messages=[
-            {'role': 'system', 'content': 'Answer using the context provided.'},
-            {'role': 'user', 'content': agent.user_query + '\n\nContext: ' + agent.context}
-        ],
-        model='gpt-4o-mini'
-    )
-)
-```
-
-<Card title="Full Agents Guide" icon="robot" href="/use-cases/agents-mcp">
-  Tool calling, MCP integration, memory patterns, and deployment
-</Card>
-
----
-
 ## See also
 
-- [Agents & MCP Use Case](/use-cases/agents-mcp) — Complete guide to building agents
-- [Model Context Protocol](/libraries/mcp) — MCP server documentation
-- [Pixelagent](/libraries/pixelagent) — Agent engineering SDK
 - [UDFs in Pixeltable](/platform/udfs-in-pixeltable) — Custom functions
+- [Computed Columns](/tutorials/computed-columns) — Declarative transformations
+- [Embedding Indexes](/platform/embedding-indexes) — Semantic search
+- [Agents & MCP](/use-cases/agents-mcp) — Build AI agents with Pixeltable
+- [Model Context Protocol](/libraries/mcp) — MCP server documentation
 - [Tool Calling Cookbook](/howto/cookbooks/agents/llm-tool-calling) — Hands-on examples
-- [MCP Specification](https://spec.modelcontextprotocol.io/) — Protocol details
