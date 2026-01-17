@@ -6,17 +6,19 @@ description: 'Pixeltable unifies storage and orchestration for multimodal AI app
 **Store multimodal data in tables, define transformations as computed columns, and query everything together.** Pixeltable handles orchestration, caching, incremental updates, and model execution automatically.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  STORE              ORCHESTRATE              INDEX                QUERY                 DELIVER         │
-│                                                                                                         │
-│  ┌─────────────┐    ┌─────────────────┐    ┌──────────────┐    ┌────────────┐    ┌─────────────────┐   │
-│  │ Video/Image │───▶│ Computed Columns│───▶│  Embeddings  │───▶│  SQL-like  │───▶│ Export (ML)     │   │
-│  │ Audio/Doc   │    │ API calls (LLM) │    │  Similarity  │    │  Filter    │    │ Serve (Apps)    │   │
-│  │ JSON/Text   │    │ Local inference │    │  Auto-sync   │    │  Aggregate │    │ Tools (Agents)  │   │
-│  └─────────────┘    └─────────────────┘    └──────────────┘    └────────────┘    └─────────────────┘   │
-│       Tables          Incremental           Vector search       Experiment       PyTorch / FastAPI /   │
-│                       Dependencies          RAG retrieval       Iterate          MCP / Pre-signed URLs │
-└─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌───────────────────┐     ┌───────────────────────────────────────────────────────┐     ┌───────────────────┐
+│      STORAGE      │     │                    ORCHESTRATION                      │     │     RETRIEVAL     │
+│                   │     │                                                       │     │                   │
+│  Structured Data  │     │  Pre-process      Generate           Post-process    │     │  Query & Serve    │
+│  ───────────────  │     │  ────────────     ────────           ────────────    │     │  ─────────────    │
+│  • Tables         │     │  • Extract        • LLM calls        • Aggregate     │     │  • SQL-like       │
+│  • Video/Image    │────▶│  • Chunk/Split    • Local inference  • Format        │────▶│  • Similarity     │
+│  • Audio/Doc      │     │  • Validate       • Embeddings       • Index         │     │  • Export (ML)    │
+│  • JSON/Text      │     │                                                       │     │  • Share/Publish  │
+│                   │     │  ┌─────────────────────────────────────────────────┐ │     │  • Tools/MCP      │
+│  Versioned        │     │  │ Computed Columns: incremental, dependency-aware │ │     │  • FastAPI        │
+│  Persistent       │     │  └─────────────────────────────────────────────────┘ │     │                   │
+└───────────────────┘     └───────────────────────────────────────────────────────┘     └───────────────────┘
 ```
 
 ## Key Capabilities
