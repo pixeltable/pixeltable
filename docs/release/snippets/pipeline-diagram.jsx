@@ -3,7 +3,7 @@ export const PipelineDiagram = () => {
     <div className="w-full not-prose overflow-x-auto">
       <div className="flex items-stretch gap-2 min-w-[640px]">
         {/* STORAGE */}
-        <div className="w-[120px] flex-shrink-0 rounded-lg border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/60 p-3">
+        <div className="w-[120px] flex-shrink-0 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-3">
           <div className="flex items-center gap-1.5 mb-2">
             <div className="w-5 h-5 rounded bg-[#022A59] dark:bg-[#F1AE03] flex items-center justify-center">
               <svg className="w-3 h-3 text-white dark:text-stone-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -29,7 +29,7 @@ export const PipelineDiagram = () => {
         </div>
 
         {/* ORCHESTRATION */}
-        <div className="flex-1 min-w-[280px] rounded-lg border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/60 p-3">
+        <div className="flex-1 min-w-[280px] rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-3">
           <div className="flex items-center gap-1.5 mb-2">
             <div className="w-5 h-5 rounded bg-[#022A59] dark:bg-[#F1AE03] flex items-center justify-center">
               <svg className="w-3 h-3 text-white dark:text-stone-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -74,7 +74,7 @@ export const PipelineDiagram = () => {
         </div>
 
         {/* RETRIEVAL */}
-        <div className="w-[120px] flex-shrink-0 rounded-lg border border-stone-200 dark:border-stone-700 bg-stone-50 dark:bg-stone-800/60 p-3">
+        <div className="w-[120px] flex-shrink-0 rounded-lg border border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-900 p-3">
           <div className="flex items-center gap-1.5 mb-2">
             <div className="w-5 h-5 rounded bg-[#022A59] dark:bg-[#F1AE03] flex items-center justify-center">
               <svg className="w-3 h-3 text-white dark:text-stone-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
