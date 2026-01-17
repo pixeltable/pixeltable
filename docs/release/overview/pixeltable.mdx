@@ -5,20 +5,30 @@ description: 'Pixeltable unifies storage and orchestration for multimodal AI app
 
 **Store multimodal data in tables, define transformations as computed columns, and query everything together.** Pixeltable handles orchestration, caching, incremental updates, and model execution automatically.
 
-```
-┌───────────────────┐     ┌───────────────────────────────────────────────────────┐     ┌───────────────────┐
-│      STORAGE      │     │                    ORCHESTRATION                      │     │     RETRIEVAL     │
-│                   │     │                                                       │     │                   │
-│  Structured Data  │     │  Pre-process      Generate           Post-process    │     │  Query & Serve    │
-│  ───────────────  │     │  ────────────     ────────           ────────────    │     │  ─────────────    │
-│  • Tables         │     │  • Extract        • LLM calls        • Aggregate     │     │  • SQL-like       │
-│  • Video/Image    │────▶│  • Chunk/Split    • Local inference  • Format        │────▶│  • Similarity     │
-│  • Audio/Doc      │     │  • Validate       • Embeddings       • Index         │     │  • Export (ML)    │
-│  • JSON/Text      │     │                                                       │     │  • Share/Publish  │
-│                   │     │  ┌─────────────────────────────────────────────────┐ │     │  • Tools/MCP      │
-│  Versioned        │     │  │ Computed Columns: incremental, dependency-aware │ │     │  • FastAPI        │
-│  Persistent       │     │  └─────────────────────────────────────────────────┘ │     │                   │
-└───────────────────┘     └───────────────────────────────────────────────────────┘     └───────────────────┘
+```mermaid
+flowchart LR
+    subgraph STORAGE[" STORAGE "]
+        direction TB
+        S1["<b>Data Tables</b><br/>─────────────<br/>• Structured<br/>• Video/Image<br/>• Audio/Doc<br/>• JSON/Text<br/><br/><i>Versioned</i><br/><i>Cached</i>"]
+    end
+
+    subgraph ORCHESTRATION[" ORCHESTRATION "]
+        direction TB
+        subgraph ORC_FLOW[" "]
+            direction LR
+            O1["<b>Pre-process</b><br/>────────<br/>• Transform<br/>• Chunk/Split<br/>• Validate"]
+            O2["<b>Generate</b><br/>────────<br/>• LLM calls<br/>• Local inference<br/>• Embeddings"]
+            O3["<b>Post-process</b><br/>────────<br/>• Aggregate<br/>• Extract<br/>• Index"]
+        end
+        CC["Computed Columns: incremental, with lineage"]
+    end
+
+    subgraph RETRIEVAL[" RETRIEVAL "]
+        direction TB
+        R1["<b>Query & Serve</b><br/>─────────────<br/>• SQL-like<br/>• Similarity<br/>• Export (ML)<br/>• Share/Publish<br/>• Tools/MCP<br/>• FastAPI"]
+    end
+
+    STORAGE --> ORCHESTRATION --> RETRIEVAL
 ```
 
 ## Key Capabilities
