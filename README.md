@@ -122,29 +122,49 @@ See [Working with External Files](https://docs.pixeltable.com/platform/external-
 <details>
 <summary><b>🗄️ Store:</b> Unified Multimodal Interface</summary>
 
-[`pxt.Image`](https://docs.pixeltable.com/platform/type-system), `pxt.Video`, `pxt.Audio`, `pxt.Document`, etc. – manage diverse data consistently.
+[`pxt.Image`](https://docs.pixeltable.com/platform/type-system), `pxt.Video`, `pxt.Audio`, `pxt.Document`, `pxt.Json` – manage diverse data consistently.
 
 ```python
 t = pxt.create_table(
    'media',
    {
        'img': pxt.Image,
-       'video': pxt.Video
+       'video': pxt.Video,
+       'audio': pxt.Audio,
+       'document': pxt.Document,
+       'metadata': pxt.Json
    }
 )
 ```
+
+→ [Type System](https://docs.pixeltable.com/platform/type-system) · [Tables & Data](https://docs.pixeltable.com/tutorials/tables-and-data-operations)
 </details>
 
 <details>
-<summary><b>⚡ Transform:</b> Declarative Computed Columns</summary>
+<summary><b>⚡ Orchestrate:</b> Declarative Computed Columns</summary>
 
-[Define processing steps once](https://docs.pixeltable.com/tutorials/computed-columns); they run automatically on new/updated data.
+[Define processing steps once](https://docs.pixeltable.com/tutorials/computed-columns); they run automatically on new/updated data. Supports **API calls** (OpenAI, Anthropic, Gemini), **local inference** (Hugging Face, YOLOX, Whisper), **vision models**, and any Python logic.
 
 ```python
+# LLM API call
+t.add_computed_column(
+   summary=openai.chat_completions(
+       messages=[{"role": "user", "content": t.text}], model='gpt-4o-mini'
+   )
+)
+
+# Local model inference
 t.add_computed_column(
    classification=huggingface.vit_for_image_classification(t.image)
 )
+
+# Vision analysis
+t.add_computed_column(
+   description=openai.vision(prompt="Describe this image", image=t.image)
+)
 ```
+
+→ [Computed Columns](https://docs.pixeltable.com/tutorials/computed-columns) · [AI Integrations](https://docs.pixeltable.com/integrations/frameworks) · [Sample App: Prompt Studio](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/prompt-engineering-studio-gradio-application)
 </details>
 
 <details>
@@ -165,6 +185,8 @@ chunks = pxt.create_view('chunks', docs,
 frames = pxt.create_view('frames', videos,
    iterator=FrameIterator.create(video=videos.video, fps=0.5))
 ```
+
+→ [Views](https://docs.pixeltable.com/platform/views) · [Iterators](https://docs.pixeltable.com/platform/iterators) · [RAG Pipeline](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline)
 </details>
 
 <details>
@@ -179,29 +201,38 @@ t.add_embedding_index(
 )
 
 sim = t.img.similarity(string="cat playing with yarn")
+results = t.order_by(sim, asc=False).limit(10).collect()
 ```
+
+→ [Embedding Indexes](https://docs.pixeltable.com/platform/embedding-indexes) · [Semantic Search](https://docs.pixeltable.com/howto/cookbooks/search/search-semantic-text) · [Image Search App](https://github.com/pixeltable/pixeltable/tree/release/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi)
 </details>
 
 <details>
 <summary><b>🧩 Extend:</b> Bring Your Own Code</summary>
 
-[Extend Pixeltable](https://docs.pixeltable.com/platform/udfs-in-pixeltable) with UDFs, batch processing, and custom aggregators.
+[Extend Pixeltable](https://docs.pixeltable.com/platform/udfs-in-pixeltable) with UDFs, reusable queries, batch processing, and custom aggregators.
 
 ```python
 @pxt.udf
 def format_prompt(context: list, question: str) -> str:
    return f"Context: {context}\nQuestion: {question}"
+
+@pxt.query
+def search_by_topic(topic: str):
+   return t.where(t.category == topic).select(t.title, t.summary)
 ```
+
+→ [UDFs Guide](https://docs.pixeltable.com/platform/udfs-in-pixeltable) · [Custom Aggregates](https://docs.pixeltable.com/howto/cookbooks/core/custom-aggregates-uda)
 </details>
 
 <details>
-<summary><b>🤖 Orchestrate:</b> Agentic Workflows & Tool Calling</summary>
+<summary><b>🤖 Agents & Tools:</b> Tool Calling & MCP Integration</summary>
 
-Register [`@pxt.udf`](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling), `@pxt.query` functions, or **MCP tools** as tools.
+Register [`@pxt.udf`](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling), `@pxt.query` functions, or **MCP servers** as callable tools. LLMs decide which tool to invoke; Pixeltable executes and stores results.
 
 ```python
-# Example tools: UDFs, Query functions, and MCP tools
-mcp_tools = pxt.mcp_udfs('http://localhost:8000/mcp')  # Load from MCP server
+# Load tools from MCP server, UDFs, and query functions
+mcp_tools = pxt.mcp_udfs('http://localhost:8000/mcp')
 tools = pxt.tools(get_weather_udf, search_context_query, *mcp_tools)
 
 # LLM decides which tool to call; Pixeltable executes it
@@ -209,6 +240,8 @@ t.add_computed_column(
    tool_output=invoke_tools(tools, t.llm_tool_choice)
 )
 ```
+
+→ [Tool Calling Cookbook](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling) · [Agents & MCP](https://docs.pixeltable.com/use-cases/agents-mcp) · [Pixelbot](https://github.com/pixeltable/pixelbot) · [Pixelagent](https://github.com/pixeltable/pixelagent)
 </details>
 
 <details>
@@ -230,6 +263,8 @@ results = (
 t.select(t.text, summary=summarize(t.text)).head(3)  # Nothing stored
 t.add_computed_column(summary=summarize(t.text))      # Now commit
 ```
+
+→ [Queries & Expressions](https://docs.pixeltable.com/tutorials/queries-and-expressions) · [Iterative Development](https://docs.pixeltable.com/howto/deployment/operations)
 </details>
 
 <details>
@@ -244,12 +279,14 @@ t.revert()  # Undo the last modification
 t.history()  # Display all prior versions
 old_version = pxt.get_table('my_table:472')  # Query a specific version
 ```
+
+→ [Version Control](https://docs.pixeltable.com/platform/version-control) · [Data Sharing](https://docs.pixeltable.com/platform/data-sharing)
 </details>
 
 <details>
 <summary><b>📥 Import/Export:</b> I/O & Integration</summary>
 
-[Export to multiple formats](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch) and integrate with ML/AI tools ecosystem.
+[Import from any source](https://docs.pixeltable.com/howto/cookbooks/data/data-import-csv) and [export to ML formats](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch).
 
 ```python
 # Import from files, URLs, S3, Hugging Face
@@ -265,31 +302,8 @@ coco_path = table.to_coco_dataset()          # → COCO annotations
 pxt.create_label_studio_project(table, label_config)  # Annotation
 pxt.export_images_as_fo_dataset(table, table.image)   # FiftyOne
 ```
-</details>
 
-<details>
-<summary><b>🤝 Integrate:</b> Seamless AI Providers</summary>
-
-[Built-in functions](https://docs.pixeltable.com/integrations/frameworks) for OpenAI, Anthropic, Hugging Face, CLIP, YOLOX, and more.
-
-```python
-# LLM integration (OpenAI, Anthropic, etc.)
-t.add_computed_column(
-   response=openai.chat_completions(
-       messages=[{"role": "user", "content": t.prompt}], model='gpt-4o-mini'
-   )
-)
-
-# Computer vision (YOLOX object detection)
-t.add_computed_column(
-   detections=yolox(t.image, model_id='yolox_s', threshold=0.5)
-)
-
-# Embedding models (Hugging Face, CLIP)
-t.add_computed_column(
-   embeddings=huggingface.sentence_transformer(t.text, model_id='all-MiniLM-L6-v2')
-)
-```
+→ [Data Import](https://docs.pixeltable.com/howto/cookbooks/data/data-import-csv) · [PyTorch Export](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch) · [Label Studio](https://docs.pixeltable.com/howto/using-label-studio-with-pixeltable) · [Data Wrangling for ML](https://docs.pixeltable.com/use-cases/ml-data-wrangling)
 </details>
 
 ## Tutorials & Cookbooks
