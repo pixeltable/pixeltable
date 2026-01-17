@@ -75,22 +75,39 @@ class TestVision:
                 v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=False, width=3
             )
         ).collect()
-        _ = v.select(
-            draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, color='red')
-        ).collect()
+        for color in ['red', '#FF0000FF']:
+            for alpha in [None, 0.5]:
+                for fill_alpha in [None, 0.3]:
+                    _ = v.select(
+                        draw_bounding_boxes(
+                            v.frame_s,
+                            boxes=v.detections_a.bboxes,
+                            labels=v.detections_a.labels,
+                            color=color,
+                            alpha=alpha,
+                            fill=fill_alpha is not None,
+                            fill_alpha=fill_alpha,
+                        )
+                    ).collect()
 
-        # explicit box colors
-        num_boxes = len(v.where(v.pos == 0).select(v.detections_a.bboxes).collect()[0, 0])
-        box_colors = ['red'] * num_boxes
-        _ = (
-            v.where(v.pos == 0)
-            .select(
-                draw_bounding_boxes(
-                    v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, box_colors=box_colors
+                # explicit box colors
+                num_boxes = len(v.where(v.pos == 0).select(v.detections_a.bboxes).collect()[0, 0])
+                box_colors = [color] * num_boxes
+                _ = (
+                    v.where(v.pos == 0)
+                    .select(
+                        draw_bounding_boxes(
+                            v.frame_s,
+                            boxes=v.detections_a.bboxes,
+                            labels=v.detections_a.labels,
+                            box_colors=box_colors,
+                            alpha=alpha,
+                            fill=fill_alpha is not None,
+                            fill_alpha=fill_alpha,
+                        )
+                    )
+                    .collect()
                 )
-            )
-            .collect()
-        )
 
         with pytest.raises(pxt.Error) as exc_info:
             # multiple color specifications

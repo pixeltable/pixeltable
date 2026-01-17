@@ -28,6 +28,7 @@ class TestFunction:
     @pxt.udf
     def func(x: int) -> int:
         """A UDF."""
+        assert x is not None
         return x + 1
 
     @pxt.uda
@@ -38,8 +39,8 @@ class TestFunction:
             self.sum = 0
 
         def update(self, val: int) -> None:
-            if val is not None:
-                self.sum += val
+            assert val is not None
+            self.sum += val
 
         def value(self) -> int:
             return self.sum
@@ -1273,6 +1274,25 @@ class TestFunction:
 
         fn6 = pxt.udf(t, return_value=t.in4.rotate(t.in1))
         u.select(fn6(22, 'starfruit', in4=u.b)).collect()
+
+    def test_required_parameter_missing(self, reset_db: None) -> None:
+        """Tests scenarios in which a required input parameter for a UDF or UDA is missing."""
+        t = pxt.create_table('test', {'col_0': pxt.Int, 'col_1': pxt.Int, 'col_2': pxt.String})
+        t.insert(
+            [
+                {'col_0': 1, 'col_1': 1, 'col_2': 'abc'},
+                {'col_0': None, 'col_1': 2, 'col_2': 'def'},
+                {'col_0': 3, 'col_1': None, 'col_2': None},
+            ]
+        )
+
+        res = t.select(sum_col_0=self.agg(t.col_0)).collect()
+        assert res[0]['sum_col_0'] == 4
+
+        res = t.select(plus_one=self.func(t.col_1)).collect()
+        assert set(res['plus_one']) == {2, 3, None}
+
+        assert len(t.where(t.col_2.match('def')).collect()) == 1
 
 
 @pxt.udf
