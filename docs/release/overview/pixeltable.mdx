@@ -3,6 +3,22 @@ title: 'What is Pixeltable?'
 description: 'Pixeltable unifies storage and orchestration for multimodal AI applications, providing a declarative interface for incremental transforms, indexing, and orchestration.'
 ---
 
+**Store multimodal data in tables, define transformations as computed columns, and query everything together.** Pixeltable handles orchestration, caching, incremental updates, and model execution automatically.
+
+```
+┌─────────┐    ┌─────────────┐    ┌───────┐    ┌───────┐    ┌────────┐
+│  Store  │ →  │ Orchestrate │ →  │ Index │ →  │ Query │ →  │ Export │
+└─────────┘    └─────────────┘    └───────┘    └───────┘    └────────┘
+  Tables        Computed cols     Embeddings   SQL-like      PyTorch
+  Video/Image   API calls         Similarity   Filter        Parquet
+  Audio/Doc     Local inference   Auto-sync    Aggregate     COCO
+```
+
+- **Zero duplication**: Connect to S3/GCS/local—Pixeltable references your files, doesn't copy them
+- **Incremental by default**: Only new/changed data is processed; no full recomputes
+- **Automatic dependency tracking**: Add a row → all computed columns execute in order
+- **Built-in versioning**: Every change is tracked; revert or query any prior state
+
 ## Key Capabilities
 
 <CardGroup cols={2}>
