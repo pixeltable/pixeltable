@@ -273,8 +273,7 @@
             "pages": [
               "use-cases/ml-data-wrangling",
               "use-cases/ai-applications",
-              "use-cases/agents-mcp",
-              "howto/deployment/cheatsheet"
+              "use-cases/agents-mcp"
             ]
           },
           {
