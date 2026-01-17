@@ -13,11 +13,11 @@ export const PipelineDiagram = () => {
             <a href="/platform/type-system" className={linkClass}>Data Tables</a>
           </h3>
           <div className="border-b border-neutral-200 dark:border-neutral-600 mb-1.5" />
-          <ul className="space-y-0 text-[11px] font-mono text-neutral-900 dark:text-neutral-100">
-            <li>• <a href="/platform/type-system" className={linkClass}>Structured</a></li>
-            <li>• <a href="/platform/type-system" className={linkClass}>Video/Image</a></li>
-            <li>• <a href="/platform/type-system" className={linkClass}>Audio/Doc</a></li>
-            <li>• <a href="/platform/type-system" className={linkClass}>JSON/Text</a></li>
+          <ul className="space-y-0.5 text-[12px] font-mono text-neutral-900 dark:text-neutral-100">
+            <li><a href="/platform/type-system" className={linkClass}>Structured</a></li>
+            <li><a href="/platform/type-system" className={linkClass}>Video/Image</a></li>
+            <li><a href="/platform/type-system" className={linkClass}>Audio/Doc</a></li>
+            <li><a href="/platform/type-system" className={linkClass}>JSON/Text</a></li>
           </ul>
         </div>
 
@@ -41,10 +41,10 @@ export const PipelineDiagram = () => {
                 Pre-process
               </h3>
               <div className="border-b border-neutral-200 dark:border-neutral-600 mb-1" />
-              <ul className="space-y-0 text-[11px] font-mono text-neutral-900 dark:text-neutral-100">
-                <li>• <a href="/tutorials/computed-columns" className={linkClass}>Transform</a></li>
-                <li>• <a href="/platform/iterators" className={linkClass}>Chunk/Split</a></li>
-                <li>• <a href="/platform/udfs-in-pixeltable" className={linkClass}>Validate</a></li>
+              <ul className="space-y-0.5 text-[12px] font-mono text-neutral-900 dark:text-neutral-100">
+                <li><a href="/tutorials/computed-columns" className={linkClass}>Transform</a></li>
+                <li><a href="/platform/iterators" className={linkClass}>Chunk/Split</a></li>
+                <li><a href="/platform/udfs-in-pixeltable" className={linkClass}>Validate</a></li>
               </ul>
             </div>
 
@@ -54,10 +54,10 @@ export const PipelineDiagram = () => {
                 Generate
               </h3>
               <div className="border-b border-neutral-200 dark:border-neutral-600 mb-1" />
-              <ul className="space-y-0 text-[11px] font-mono text-neutral-900 dark:text-neutral-100 whitespace-nowrap">
-                <li>• <a href="/integrations/frameworks" className={linkClass}>LLM calls</a></li>
-                <li>• <a href="/integrations/frameworks" className={linkClass}>Local inference</a></li>
-                <li>• <a href="/platform/embedding-indexes" className={linkClass}>Embeddings</a></li>
+              <ul className="space-y-0.5 text-[12px] font-mono text-neutral-900 dark:text-neutral-100 whitespace-nowrap">
+                <li><a href="/integrations/frameworks" className={linkClass}>LLM calls</a></li>
+                <li><a href="/integrations/frameworks" className={linkClass}>Local inference</a></li>
+                <li><a href="/platform/embedding-indexes" className={linkClass}>Embeddings</a></li>
               </ul>
             </div>
 
@@ -67,10 +67,10 @@ export const PipelineDiagram = () => {
                 Post-process
               </h3>
               <div className="border-b border-neutral-200 dark:border-neutral-600 mb-1" />
-              <ul className="space-y-0 text-[11px] font-mono text-neutral-900 dark:text-neutral-100">
-                <li>• <a href="/tutorials/queries-and-expressions" className={linkClass}>Aggregate</a></li>
-                <li>• <a href="/tutorials/computed-columns" className={linkClass}>Extract</a></li>
-                <li>• <a href="/platform/embedding-indexes" className={linkClass}>Index</a></li>
+              <ul className="space-y-0.5 text-[12px] font-mono text-neutral-900 dark:text-neutral-100">
+                <li><a href="/tutorials/queries-and-expressions" className={linkClass}>Aggregate</a></li>
+                <li><a href="/tutorials/computed-columns" className={linkClass}>Extract</a></li>
+                <li><a href="/platform/embedding-indexes" className={linkClass}>Index</a></li>
               </ul>
             </div>
           </div>
@@ -92,13 +92,13 @@ export const PipelineDiagram = () => {
             Query & Serve
           </h3>
           <div className="border-b border-neutral-200 dark:border-neutral-600 mb-1.5" />
-          <ul className="space-y-0 text-[11px] font-mono text-neutral-900 dark:text-neutral-100">
-            <li>• <a href="/tutorials/queries-and-expressions" className={linkClass}>SQL-like</a></li>
-            <li>• <a href="/platform/embedding-indexes" className={linkClass}>Similarity</a></li>
-            <li>• <a href="/use-cases/ml-data-wrangling" className={linkClass}>Export (ML)</a></li>
-            <li>• <a href="/platform/data-sharing" className={linkClass}>Share/Publish</a></li>
-            <li>• <a href="/use-cases/agents-mcp" className={linkClass}>Tools/MCP</a></li>
-            <li>• <a href="/use-cases/ai-applications" className={linkClass}>FastAPI</a></li>
+          <ul className="space-y-0.5 text-[12px] font-mono text-neutral-900 dark:text-neutral-100">
+            <li><a href="/tutorials/queries-and-expressions" className={linkClass}>SQL-like</a></li>
+            <li><a href="/platform/embedding-indexes" className={linkClass}>Similarity</a></li>
+            <li><a href="/use-cases/ml-data-wrangling" className={linkClass}>Export (ML)</a></li>
+            <li><a href="/platform/data-sharing" className={linkClass}>Share/Publish</a></li>
+            <li><a href="/use-cases/agents-mcp" className={linkClass}>Tools/MCP</a></li>
+            <li><a href="/use-cases/ai-applications" className={linkClass}>FastAPI</a></li>
           </ul>
         </div>
       </div>
