@@ -555,6 +555,7 @@ class TableVersion:
                 schema_version_drop=col_md.schema_version_drop,
                 stores_cellmd=stores_cellmd,
                 value_expr_dict=col_md.value_expr,
+                default_expr_dict=col_md.default_expr,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
             )
@@ -608,6 +609,7 @@ class TableVersion:
             tvp = self.path
         for col in self.cols_by_id.values():
             col.init_value_expr(tvp)
+            col.init_default_expr(tvp)
 
         # create the sqlalchemy schema, after instantiating all Columns
         if self.is_component_view:

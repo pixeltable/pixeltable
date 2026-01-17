@@ -72,7 +72,13 @@ def create_table(
 
     Args:
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir.my_subdir.my_table'`.
-        schema: Schema for the new table, mapping column names to Pixeltable types.
+        schema: Schema for the new table, mapping column names to Pixeltable types or column specifications.
+            Column specifications can be dictionaries with `'type'` and optionally `'default'` keys.
+
+            Default values:
+            - Only literal values are supported (expressions are not allowed).
+            - Columns with default values are treated as non-nullable.
+            - Default values apply to new rows when the column value is not specified during insertion.
         source: A data source (file, URL, Table, Query, or list of rows) to import from.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
@@ -124,6 +130,17 @@ def create_table(
         Create a table with an int and a string column:
 
         >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String})
+
+        Create a table with columns that have default values:
+
+        >>> tbl = pxt.create_table(
+        ...     'my_table',
+        ...     schema={
+        ...         'id': pxt.Int,
+        ...         'status': {'type': pxt.String, 'default': 'pending'},
+        ...         'count': {'type': pxt.Int, 'default': 0}
+        ...     }
+        ... )
 
         Create a table from a select statement over an existing table `orig_table` (this will create a new table
         containing the exact contents of the query):
@@ -243,7 +260,8 @@ def create_view(
             base the view on.
         additional_columns: If specified, will add these columns to the view once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema` parameter in
-            [`create_table`][pixeltable.create_table].
+            [`create_table`][pixeltable.create_table]. Column specifications can include a `'default'` key
+            for default values. Default values are applied when rows are inserted into the view's store table.
         is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
             [`create_snapshot`][pixeltable.create_snapshot].
         create_default_idxs: Whether to create default indexes on the view's columns (the base's columns are excluded).
@@ -370,7 +388,8 @@ def create_snapshot(
             base the snapshot on.
         additional_columns: If specified, will add these columns to the snapshot once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema` parameter in
-            [`create_table`][pixeltable.create_table].
+            [`create_table`][pixeltable.create_table]. Column specifications can include a `'default'` key
+            for default values. Default values are applied when rows are copied from the base table to the snapshot.
         iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
             the base table.
         num_retained_versions: Number of versions of the view to retain.
