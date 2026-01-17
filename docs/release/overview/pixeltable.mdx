@@ -193,46 +193,25 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
 These primitives are **use-case agnostic by design**. We don't build vertical solutions—we build the infrastructure that makes vertical solutions trivial to build.
 </Note>
 
-## What can you build?
+## Use Cases
 
-<CardGroup cols={2}>
-  <Card title="Declarative Pipelines" icon="code" iconType="duotone">
-    Replace complex orchestration with simple computed columns. Define transformations once—they run automatically on all data.
+Pixeltable's primitives compose into any multimodal AI workflow:
+
+<CardGroup cols={3}>
+  <Card title="Data Wrangling for ML" icon="flask" href="/use-cases/ml-data-wrangling">
+    Curate, augment, and export training datasets. Pre-annotate with models, integrate with Label Studio, export to PyTorch.
   </Card>
-  <Card title="Multimodal Workloads" icon="photo-film" iconType="duotone">
-    Production RAG with automatic embedding indexing. Find relevant scenes in video. Semantic search across text, images, and audio.
+  <Card title="Backend for AI Apps" icon="microchip-ai" href="/use-cases/ai-applications">
+    Build RAG systems, semantic search, and multimodal APIs. Pixeltable handles storage, retrieval, and orchestration.
   </Card>
-  <Card title="Version Control and Lineage" icon="code-branch" iconType="duotone">
-    Automatic versioning on every change. Time travel queries to any point. Full data lineage for reproducibility.
-  </Card>
-  <Card title="AI Agents & MCP" icon="robot" iconType="duotone">
-    Build tool-calling agents with persistent memory, MCP server integration, and automatic conversation history.
-  </Card>
-  <Card title="ML Feature Engineering" icon="download" iconType="duotone">
-    Curate, augment, and export data to PyTorch, Parquet, COCO format, LanceDB, and pandas for training and analytics.
+  <Card title="Agents & MCP" icon="robot" href="/use-cases/agents-mcp">
+    Tool-calling agents with persistent memory, MCP server integration, and automatic conversation history.
   </Card>
 </CardGroup>
 
-### Explore by use case
-
-<Tabs>
-  <Tab title="AI & LLMs">
-    - [RAG Pipeline](/howto/cookbooks/agents/pattern-rag-pipeline) — Document retrieval & generation
-    - [Vision Analysis](/howto/cookbooks/images/vision-batch-analysis) — GPT-4 Vision on images
-    - [Audio Transcription](/howto/cookbooks/audio/audio-transcribe) — Speech-to-text with Whisper
-    - [Document Chunking](/howto/cookbooks/text/doc-chunk-for-rag) — Split docs for RAG
-  </Tab>
-  <Tab title="Media Processing">
-    - [Video Analysis](/howto/use-cases/object-detection-in-videos) — Object detection in video
-    - [Semantic Search](/howto/cookbooks/search/search-similar-images) — Find similar images/text
-    - [Image Processing](/howto/cookbooks/images/img-detect-objects) — Object detection
-  </Tab>
-  <Tab title="Data Management">
-    - [Data Import](/howto/cookbooks/data/data-import-csv) — CSV, JSON, Parquet, S3
-    - [PyTorch Export](/howto/cookbooks/data/data-export-pytorch) — DataLoader integration
-    - [Version Control](/platform/version-control) — Time travel & lineage
-  </Tab>
-</Tabs>
+<Tip>
+Explore the **[Cookbooks](/howto/cookbooks/core/dev-iterative-workflow)** for hands-on tutorials: RAG pipelines, video analysis, audio transcription, image processing, and more.
+</Tip>
 
 ## Next steps
 
