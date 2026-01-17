@@ -168,21 +168,26 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
     </CardGroup>
   </Accordion>
   
-  <Accordion title="Query" icon="filter">
-    **SQL-like queries with Python syntax**
+  <Accordion title="Query & Experiment" icon="flask">
+    **SQL-like queries + test transformations before committing**
     
     ```python
-    results = (t
-        .where(t.timestamp > '2024-01-01')
-        .order_by(t.score, asc=False)
-        .select(t.title, t.summary, t.score)
-        .limit(100)
-        .collect())
+    # Query data with familiar syntax
+    results = t.where(t.score > 0.8).order_by(t.timestamp).limit(10).collect()
+    
+    # Test transformations on sample rows BEFORE adding to table
+    t.select(t.text, summary=summarize(t.text)).head(3)  # Nothing stored yet
+    t.add_computed_column(summary=summarize(t.text))      # Now commit to all rows
     ```
     
-    <Card title="Queries & Expressions" icon="terminal" href="/tutorials/queries-and-expressions">
-      Select, filter, aggregate
-    </Card>
+    <CardGroup cols={2}>
+      <Card title="Queries & Expressions" icon="terminal" href="/tutorials/queries-and-expressions">
+        Select, filter, aggregate
+      </Card>
+      <Card title="Iterative Development" icon="rotate" href="/howto/deployment/operations#testing-transformations-before-deployment">
+        Test before commit
+      </Card>
+    </CardGroup>
   </Accordion>
   
   <Accordion title="Version" icon="clock-rotate-left">
@@ -197,6 +202,30 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
     <Card title="Version Control" icon="code-branch" href="/platform/version-control">
       History, snapshots, lineage
     </Card>
+  </Accordion>
+  
+  <Accordion title="Import/Export" icon="arrow-right-arrow-left">
+    **Load from any source, export to ML formats**
+    
+    ```python
+    # Import from files, URLs, S3, Hugging Face
+    t.insert(pxt.io.import_csv('data.csv'))
+    t.insert(pxt.io.import_huggingface_dataset(dataset))
+    
+    # Export to ML/analytics formats
+    pxt.io.export_parquet(t, 'output.parquet')
+    loader = DataLoader(t.to_pytorch_dataset(), batch_size=32)
+    coco_path = t.to_coco_dataset()
+    ```
+    
+    <CardGroup cols={2}>
+      <Card title="Data Import" icon="download" href="/howto/cookbooks/data/data-import-csv">
+        CSV, JSON, Parquet, S3, HF
+      </Card>
+      <Card title="Data Export" icon="upload" href="/howto/cookbooks/data/data-export-pytorch">
+        PyTorch, Parquet, COCO, LanceDB
+      </Card>
+    </CardGroup>
   </Accordion>
   
   <Accordion title="Share" icon="cloud-arrow-up">
