@@ -197,6 +197,15 @@ flowchart LR
 - Generated media (computed columns): saved to Media Store (default: local, configurable to S3/GCS/Azure per-column).
 - File Cache size: configure via `file_cache_size_g` in `~/.pixeltable/config.toml`. [See configuration guide](/platform/configuration)
 
+<Tip>
+**Pro tip:** For large datasets with remote media, set a generous file cache size to avoid repeated downloads:
+
+```toml
+# ~/.pixeltable/config.toml
+file_cache_size_g = 50  # 50 GB cache
+```
+</Tip>
+
 **Deployment-Specific Storage Patterns:**
 
 *Approach 1 (Orchestration Layer):*

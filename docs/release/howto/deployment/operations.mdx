@@ -163,6 +163,50 @@ user_table = pxt.create_table(f"user_{user_id}.chat_history", schema={...})
 **Single-Writer Limitation:** Pixeltable's storage layer uses an embedded PostgreSQL instance. **Only one process can write to `~/.pixeltable/pgdata` at a time**.
 </Warning>
 
+## Troubleshooting
+
+### Reset Database (Development Only)
+
+To completely reset Pixeltable's local state during development:
+
+```bash
+# Stop all Pixeltable processes first, then:
+rm -rf ~/.pixeltable/pgdata ~/.pixeltable/media ~/.pixeltable/file_cache
+```
+
+<Warning>
+**This deletes all data.** Only use in development. For production, use backups and `table.revert()` or snapshots instead.
+</Warning>
+
+### Handling Nullable Columns in UDFs
+
+When processing data that may contain `None` values, guard against nulls:
+
+```python
+from typing import Optional
+import pixeltable as pxt
+
+@pxt.udf
+def safe_process(value: Optional[str]) -> str:
+    """Handle nullable input gracefully."""
+    if value is None:
+        return ''
+    return value.upper()  # Your actual processing
+```
+
+<Tip>
+Pixeltable computed columns can produce `None` on errors (when `on_error='ignore'`). Always check `table.column.errortype` to distinguish between legitimate nulls and processing failures.
+</Tip>
+
+### Common Issues
+
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| "Cannot connect to database" | Stale lock file | Remove `~/.pixeltable/pgdata/postmaster.pid` if no process is running |
+| Slow first query | File cache miss | Files download on first access; subsequent queries are fast |
+| "Table not found" | Wrong namespace | Check `pxt.list_tables()` and verify `config.APP_NAMESPACE` |
+| OOM on large media | Full file loaded to memory | Use iterators (`FrameIterator`, `DocumentSplitter`) to process incrementally |
+
 ### Environment Separation
 
 Use environment-specific namespaces to manage dev/staging/prod configurations:
