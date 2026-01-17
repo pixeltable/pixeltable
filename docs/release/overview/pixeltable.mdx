@@ -3,11 +3,11 @@ title: 'What is Pixeltable?'
 description: 'Pixeltable unifies storage and orchestration for multimodal AI applications, providing a declarative interface for incremental transforms, indexing, and orchestration.'
 ---
 
+import { PipelineDiagram } from '/snippets/pipeline-diagram.jsx'
+
 **Store multimodal data in tables, define transformations as computed columns, and query everything together.** Pixeltable handles orchestration, caching, incremental updates, and model execution automatically.
 
-<Frame>
-  <img src="/overview/pipeline-diagram.svg" alt="Pixeltable Pipeline: Storage → Orchestration → Retrieval" />
-</Frame>
+<PipelineDiagram />
 
 ## Key Capabilities
 
@@ -231,14 +231,14 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
     loader = DataLoader(t.to_pytorch_dataset(), batch_size=32)
     coco_path = t.to_coco_dataset()
     ```
-    
-    <CardGroup cols={2}>
+
+<CardGroup cols={2}>
       <Card title="Data Import" icon="download" href="/howto/cookbooks/data/data-import-csv">
         CSV, JSON, Parquet, S3, HF
       </Card>
       <Card title="Data Export" icon="upload" href="/howto/cookbooks/data/data-export-pytorch">
         PyTorch, Parquet, COCO, LanceDB
-      </Card>
+  </Card>
     </CardGroup>
   </Accordion>
   
@@ -252,7 +252,7 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
     
     <Card title="Data Sharing" icon="share-nodes" href="/platform/data-sharing">
       Publish, replicate, collaborate
-    </Card>
+  </Card>
   </Accordion>
 </AccordionGroup>
 
