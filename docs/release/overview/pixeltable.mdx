@@ -5,39 +5,17 @@ description: 'Pixeltable unifies storage and orchestration for multimodal AI app
 
 **Store multimodal data in tables, define transformations as computed columns, and query everything together.** Pixeltable handles orchestration, caching, incremental updates, and model execution automatically.
 
-```mermaid
-flowchart LR
-    subgraph Store
-        S1[Tables]
-        S2[Video/Image]
-        S3[Audio/Doc]
-    end
-    
-    subgraph Orchestrate
-        O1[Computed cols]
-        O2[API calls]
-        O3[Local inference]
-    end
-    
-    subgraph Index
-        I1[Embeddings]
-        I2[Similarity]
-        I3[Auto-sync]
-    end
-    
-    subgraph Query
-        Q1[SQL-like]
-        Q2[Filter]
-        Q3[Aggregate]
-    end
-    
-    subgraph Export
-        E1[PyTorch]
-        E2[Parquet]
-        E3[COCO]
-    end
-    
-    Store --> Orchestrate --> Index --> Query --> Export
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  STORE              ORCHESTRATE              INDEX                QUERY            EXPORT      │
+│                                                                                                │
+│  ┌─────────────┐    ┌─────────────────┐    ┌──────────────┐    ┌────────────┐    ┌──────────┐ │
+│  │ Video/Image │───▶│ Computed Columns│───▶│  Embeddings  │───▶│  SQL-like  │───▶│ PyTorch  │ │
+│  │ Audio/Doc   │    │ API calls (LLM) │    │  Similarity  │    │  Filter    │    │ Parquet  │ │
+│  │ JSON/Text   │    │ Local inference │    │  Auto-sync   │    │  Aggregate │    │ COCO     │ │
+│  └─────────────┘    └─────────────────┘    └──────────────┘    └────────────┘    └──────────┘ │
+│       Tables         Incremental updates    Vector search       Experiment        ML-ready    │
+└────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Key Capabilities
