@@ -121,6 +121,7 @@ See [Working with External Files](https://docs.pixeltable.com/platform/external-
 
 <details>
 <summary><b>🗄️ Store:</b> Unified Multimodal Interface</summary>
+<br>
 
 [`pxt.Image`](https://docs.pixeltable.com/platform/type-system), `pxt.Video`, `pxt.Audio`, `pxt.Document`, `pxt.Json` – manage diverse data consistently.
 
@@ -142,6 +143,7 @@ t = pxt.create_table(
 
 <details>
 <summary><b>⚡ Orchestrate:</b> Declarative Computed Columns</summary>
+<br>
 
 [Define processing steps once](https://docs.pixeltable.com/tutorials/computed-columns); they run automatically on new/updated data. Supports **API calls** (OpenAI, Anthropic, Gemini), **local inference** (Hugging Face, YOLOX, Whisper), **vision models**, and any Python logic.
 
@@ -169,6 +171,7 @@ t.add_computed_column(
 
 <details>
 <summary><b>✂️ Iterate:</b> Explode & Process Media</summary>
+<br>
 
 [Create views with iterators](https://docs.pixeltable.com/platform/views) to explode one row into many (video→frames, doc→chunks, audio→segments).
 
@@ -191,6 +194,7 @@ frames = pxt.create_view('frames', videos,
 
 <details>
 <summary><b>🔍 Index:</b> Built-in Vector Search</summary>
+<br>
 
 [Add embedding indexes](https://docs.pixeltable.com/platform/embedding-indexes) and perform similarity searches directly on tables/views.
 
@@ -209,6 +213,7 @@ results = t.order_by(sim, asc=False).limit(10).collect()
 
 <details>
 <summary><b>🧩 Extend:</b> Bring Your Own Code</summary>
+<br>
 
 [Extend Pixeltable](https://docs.pixeltable.com/platform/udfs-in-pixeltable) with UDFs, reusable queries, batch processing, and custom aggregators.
 
@@ -227,6 +232,7 @@ def search_by_topic(topic: str):
 
 <details>
 <summary><b>🤖 Agents & Tools:</b> Tool Calling & MCP Integration</summary>
+<br>
 
 Register [`@pxt.udf`](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling), `@pxt.query` functions, or **MCP servers** as callable tools. LLMs decide which tool to invoke; Pixeltable executes and stores results.
 
@@ -246,6 +252,7 @@ t.add_computed_column(
 
 <details>
 <summary><b>🧪 Query & Experiment:</b> SQL-like Python Querying</summary>
+<br>
 
 [Familiar syntax](https://docs.pixeltable.com/tutorials/queries-and-expressions) combined with powerful AI capabilities. **Test transformations before committing:**
 
@@ -269,6 +276,7 @@ t.add_computed_column(summary=summarize(t.text))      # Now commit
 
 <details>
 <summary><b>⏪ Version:</b> Data Persistence & Time Travel</summary>
+<br>
 
 [All data is automatically stored and versioned](https://docs.pixeltable.com/platform/version-control). Query any prior version.
 
@@ -285,6 +293,7 @@ old_version = pxt.get_table('my_table:472')  # Query a specific version
 
 <details>
 <summary><b>📥 Import/Export:</b> I/O & Integration</summary>
+<br>
 
 [Import from any source](https://docs.pixeltable.com/howto/cookbooks/data/data-import-csv) and [export to ML formats](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch).
 
