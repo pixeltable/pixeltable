@@ -144,6 +144,30 @@ Pixeltable provides a small set of primitives that compose into any multimodal A
     </Card>
   </Accordion>
   
+  <Accordion title="Orchestrate" icon="robot">
+    **Tool calling for AI agents and MCP integration**
+    
+    ```python
+    # Expose functions as LLM tools
+    tools = pxt.tools(search_by_topic, extract_entities)
+    
+    t.add_computed_column(response=openai.chat_completions(
+        messages=[{'role': 'user', 'content': t.question}],
+        tools=tools
+    ))
+    t.add_computed_column(result=openai.invoke_tools(tools, t.response))
+    ```
+    
+    <CardGroup cols={2}>
+      <Card title="Tool Calling" icon="wrench" href="/howto/cookbooks/agents/llm-tool-calling">
+        Build agents with tools
+      </Card>
+      <Card title="Agents & MCP" icon="plug" href="/use-cases/agents-mcp">
+        MCP servers, memory
+      </Card>
+    </CardGroup>
+  </Accordion>
+  
   <Accordion title="Query" icon="filter">
     **SQL-like queries with Python syntax**
     
