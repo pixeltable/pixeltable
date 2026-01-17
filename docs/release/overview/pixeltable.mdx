@@ -13,33 +13,31 @@ import { PipelineDiagram } from '/snippets/pipeline-diagram.jsx'
 
 Today's AI workflows cobble together disconnected tools—and pay the price.
 
-<CardGroup cols={2}>
-  <Card title="Fragmented Storage" icon="layer-group" iconType="duotone">
-    Videos in S3, embeddings in Pinecone, metadata in Postgres. Manual tracking of what lives where.
-    
-    <AccordionGroup>
-      <Accordion title="What you miss" icon="circle-xmark">
-        - **Transactions:** Models fail halfway → inconsistent data
-        - **Concurrency:** Multiple users can't work simultaneously
-        - **Persistence:** In-memory work doesn't map to schemas
-        - **OLTP:** Batch-only → can't serve live requests
-      </Accordion>
-    </AccordionGroup>
-  </Card>
+<Card title="Fragmented Storage" icon="layer-group" iconType="duotone">
+  Videos in S3, embeddings in Pinecone, metadata in Postgres. Manual tracking of what lives where.
   
-  <Card title="DIY Orchestration" icon="screwdriver-wrench" iconType="duotone">
-    Custom code wiring tools. Cron jobs for every step. Manual retries and error chasing.
-    
-    <AccordionGroup>
-      <Accordion title="What you miss" icon="circle-xmark">
-        - **Dependencies:** Hard to trace what depends on what
-        - **Performance:** Can't parallelize → low throughput
-        - **Failures:** Something breaks → rerun everything
-        - **Consistency:** Index/query mismatch → bad results
-      </Accordion>
-    </AccordionGroup>
-  </Card>
-</CardGroup>
+  <AccordionGroup>
+    <Accordion title="What you miss" icon="circle-xmark">
+      - **Transactions:** Models fail halfway → inconsistent data
+      - **Concurrency:** Multiple users can't work simultaneously
+      - **Persistence:** In-memory work doesn't map to schemas
+      - **OLTP:** Batch-only → can't serve live requests
+    </Accordion>
+  </AccordionGroup>
+</Card>
+
+<Card title="DIY Orchestration" icon="screwdriver-wrench" iconType="duotone">
+  Custom code wiring tools. Cron jobs for every step. Manual retries and error chasing.
+  
+  <AccordionGroup>
+    <Accordion title="What you miss" icon="circle-xmark">
+      - **Dependencies:** Hard to trace what depends on what
+      - **Performance:** Can't parallelize → low throughput
+      - **Failures:** Something breaks → rerun everything
+      - **Consistency:** Index/query mismatch → bad results
+    </Accordion>
+  </AccordionGroup>
+</Card>
 
 <Tip>
 **Pixeltable solves both.** One system for storage, orchestration, and retrieval—with transactions, incremental updates, and automatic dependency tracking built in.
