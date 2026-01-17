@@ -5,31 +5,9 @@ description: 'Pixeltable unifies storage and orchestration for multimodal AI app
 
 **Store multimodal data in tables, define transformations as computed columns, and query everything together.** Pixeltable handles orchestration, caching, incremental updates, and model execution automatically.
 
-```mermaid
-flowchart LR
-    subgraph STORAGE[" STORAGE "]
-        direction TB
-        S1["<b>Data Tables</b><br/>─────────────<br/>• Structured<br/>• Video/Image<br/>• Audio/Doc<br/>• JSON/Text<br/><br/><i>Versioned</i><br/><i>Cached</i>"]
-    end
-
-    subgraph ORCHESTRATION[" ORCHESTRATION "]
-        direction TB
-        subgraph ORC_FLOW[" "]
-            direction LR
-            O1["<b>Pre-process</b><br/>────────<br/>• Transform<br/>• Chunk/Split<br/>• Validate"]
-            O2["<b>Generate</b><br/>────────<br/>• LLM calls<br/>• Local inference<br/>• Embeddings"]
-            O3["<b>Post-process</b><br/>────────<br/>• Aggregate<br/>• Extract<br/>• Index"]
-        end
-        CC["Computed Columns: incremental, with lineage"]
-    end
-
-    subgraph RETRIEVAL[" RETRIEVAL "]
-        direction TB
-        R1["<b>Query & Serve</b><br/>─────────────<br/>• SQL-like<br/>• Similarity<br/>• Export (ML)<br/>• Share/Publish<br/>• Tools/MCP<br/>• FastAPI"]
-    end
-
-    STORAGE --> ORCHESTRATION --> RETRIEVAL
-```
+<Frame>
+  <img src="/overview/pipeline-diagram.svg" alt="Pixeltable Pipeline: Storage → Orchestration → Retrieval" />
+</Frame>
 
 ## Key Capabilities
 
