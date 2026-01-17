@@ -37,7 +37,7 @@ _logger = logging.getLogger('pixeltable')
 def _(api_key: str, base_url: str | None = None, api_version: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 
-    max_connections = Config.get().get_int_value('openai.max_connections') or 2000
+    max_connections = Config.get().get_int_value('openai.max_connections') or 1000
     max_keepalive_connections = Config.get().get_int_value('openai.max_keepalive_connections') or 100
     set_file_descriptor_limit(max_connections * 2)
     default_query = None if api_version is None else {'api-version': api_version}
