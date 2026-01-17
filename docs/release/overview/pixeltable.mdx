@@ -6,16 +6,17 @@ description: 'Pixeltable unifies storage and orchestration for multimodal AI app
 **Store multimodal data in tables, define transformations as computed columns, and query everything together.** Pixeltable handles orchestration, caching, incremental updates, and model execution automatically.
 
 ```
-┌────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  STORE              ORCHESTRATE              INDEX                QUERY            EXPORT      │
-│                                                                                                │
-│  ┌─────────────┐    ┌─────────────────┐    ┌──────────────┐    ┌────────────┐    ┌──────────┐ │
-│  │ Video/Image │───▶│ Computed Columns│───▶│  Embeddings  │───▶│  SQL-like  │───▶│ PyTorch  │ │
-│  │ Audio/Doc   │    │ API calls (LLM) │    │  Similarity  │    │  Filter    │    │ Parquet  │ │
-│  │ JSON/Text   │    │ Local inference │    │  Auto-sync   │    │  Aggregate │    │ COCO     │ │
-│  └─────────────┘    └─────────────────┘    └──────────────┘    └────────────┘    └──────────┘ │
-│       Tables         Incremental updates    Vector search       Experiment        ML-ready    │
-└────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│  STORE              ORCHESTRATE              INDEX                QUERY                 DELIVER         │
+│                                                                                                         │
+│  ┌─────────────┐    ┌─────────────────┐    ┌──────────────┐    ┌────────────┐    ┌─────────────────┐   │
+│  │ Video/Image │───▶│ Computed Columns│───▶│  Embeddings  │───▶│  SQL-like  │───▶│ Export (ML)     │   │
+│  │ Audio/Doc   │    │ API calls (LLM) │    │  Similarity  │    │  Filter    │    │ Serve (Apps)    │   │
+│  │ JSON/Text   │    │ Local inference │    │  Auto-sync   │    │  Aggregate │    │ Tools (Agents)  │   │
+│  └─────────────┘    └─────────────────┘    └──────────────┘    └────────────┘    └─────────────────┘   │
+│       Tables          Incremental           Vector search       Experiment       PyTorch / FastAPI /   │
+│                       Dependencies          RAG retrieval       Iterate          MCP / Pre-signed URLs │
+└─────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Key Capabilities
