@@ -43,20 +43,155 @@ Many documentation pages are interactive notebooks (marked with <Icon icon="note
 
 ## Core Primitives
 
-Pixeltable provides a small set of primitives that compose into any multimodal AI workflow, including but not limited to:
+Pixeltable provides a small set of primitives that compose into any multimodal AI workflow:
 
-| Primitive | What It Enables |
-|-----------|-----------------|
-| [`pxt.create_table()`](/tutorials/tables-and-data-operations) with [`pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`](/platform/type-system) | Store any multimodal data natively |
-| [`pxt.create_view()`](/platform/views) with [iterators](/platform/iterators) | Extract frames from video, chunk documents, split audio |
-| [`add_computed_column()`](/tutorials/computed-columns) | Run any AI model or transformation—incrementally |
-| [`add_embedding_index()`](/platform/embedding-indexes) | Semantic search on any column |
-| [`@pxt.udf` / `@pxt.query`](/platform/udfs-in-pixeltable) | Extend with your own Python code |
-| [`select()`, `where()`, `order_by()`](/tutorials/queries-and-expressions) | SQL-like querying with Python syntax |
-| [`history()`, `revert()`](/platform/version-control) | Time travel and version control |
-| [`pxt.replicate()`, `pxt.publish()`](/platform/data-sharing) | Share and replicate datasets via Pixeltable Cloud |
+<AccordionGroup>
+  <Accordion title="Store" icon="database">
+    **Create tables with native multimodal types**
+    
+    ```python
+    t = pxt.create_table('myapp.media', {
+        'video': pxt.Video,
+        'image': pxt.Image,
+        'audio': pxt.Audio,
+        'document': pxt.Document,
+        'metadata': pxt.Json
+    })
+    ```
+    
+    <CardGroup cols={2}>
+      <Card title="Tables & Data" icon="table" href="/tutorials/tables-and-data-operations">
+        Create, insert, update, delete
+      </Card>
+      <Card title="Type System" icon="shapes" href="/platform/type-system">
+        All supported types
+      </Card>
+    </CardGroup>
+  </Accordion>
+  
+  <Accordion title="Transform" icon="wand-magic-sparkles">
+    **Define computed columns that run automatically on all data**
+    
+    ```python
+    t.add_computed_column(transcript=openai.transcriptions(t.audio))
+    t.add_computed_column(summary=openai.chat_completions(
+        messages=[{'role': 'user', 'content': 'Summarize: ' + t.transcript}]
+    ))
+    ```
+    
+    <CardGroup cols={2}>
+      <Card title="Computed Columns" icon="bolt" href="/tutorials/computed-columns">
+        Incremental transforms
+      </Card>
+      <Card title="AI Integrations" icon="microchip-ai" href="/integrations/frameworks">
+        OpenAI, Anthropic, Gemini...
+      </Card>
+    </CardGroup>
+  </Accordion>
+  
+  <Accordion title="Split" icon="scissors">
+    **Create views with iterators to expand rows**
+    
+    ```python
+    # Extract frames from video at 1 fps
+    frames = pxt.create_view('myapp.frames', t, iterator=FrameIterator(t.video, fps=1))
+    
+    # Chunk documents for RAG
+    chunks = pxt.create_view('myapp.chunks', t, iterator=DocumentSplitter(t.document))
+    ```
+    
+    <CardGroup cols={2}>
+      <Card title="Views" icon="layer-group" href="/platform/views">
+        Virtual tables
+      </Card>
+      <Card title="Iterators" icon="arrows-split-up-and-left" href="/platform/iterators">
+        Frame, Document, Audio splitters
+      </Card>
+    </CardGroup>
+  </Accordion>
+  
+  <Accordion title="Index" icon="magnifying-glass">
+    **Add embedding indexes for semantic search**
+    
+    ```python
+    t.add_embedding_index('text', embedding=openai.embeddings())
+    
+    # Search by similarity
+    results = t.order_by(t.text.similarity('find relevant docs'), asc=False).limit(10)
+    ```
+    
+    <Card title="Embedding Indexes" icon="vector-square" href="/platform/embedding-indexes">
+      Vector search with automatic maintenance
+    </Card>
+  </Accordion>
+  
+  <Accordion title="Extend" icon="puzzle-piece">
+    **Write custom functions with `@pxt.udf` and `@pxt.query`**
+    
+    ```python
+    @pxt.udf
+    def extract_entities(text: str) -> list[str]:
+        # Your custom logic
+        return entities
+    
+    @pxt.query
+    def search_by_topic(topic: str):
+        return t.where(t.category == topic).select(t.title, t.summary)
+    ```
+    
+    <Card title="UDFs & Queries" icon="code" href="/platform/udfs-in-pixeltable">
+      Custom Python functions
+    </Card>
+  </Accordion>
+  
+  <Accordion title="Query" icon="filter">
+    **SQL-like queries with Python syntax**
+    
+    ```python
+    results = (t
+        .where(t.timestamp > '2024-01-01')
+        .order_by(t.score, asc=False)
+        .select(t.title, t.summary, t.score)
+        .limit(100)
+        .collect())
+    ```
+    
+    <Card title="Queries & Expressions" icon="terminal" href="/tutorials/queries-and-expressions">
+      Select, filter, aggregate
+    </Card>
+  </Accordion>
+  
+  <Accordion title="Version" icon="clock-rotate-left">
+    **Time travel and automatic versioning**
+    
+    ```python
+    t.history()                    # View all versions
+    t.revert(version=5)            # Rollback changes
+    old_data = pxt.get_table('myapp.media:3')  # Query past version
+    ```
+    
+    <Card title="Version Control" icon="code-branch" href="/platform/version-control">
+      History, snapshots, lineage
+    </Card>
+  </Accordion>
+  
+  <Accordion title="Share" icon="cloud-arrow-up">
+    **Publish and replicate datasets via Pixeltable Cloud**
+    
+    ```python
+    pxt.publish(t, 'my-dataset')              # Share publicly
+    pxt.replicate('user/dataset', 'local')   # Pull to local
+    ```
+    
+    <Card title="Data Sharing" icon="share-nodes" href="/platform/data-sharing">
+      Publish, replicate, collaborate
+    </Card>
+  </Accordion>
+</AccordionGroup>
 
-These primitives are use-case agnostic by design. We don't build vertical solutions—we build the infrastructure that makes vertical solutions trivial to build.
+<Note>
+These primitives are **use-case agnostic by design**. We don't build vertical solutions—we build the infrastructure that makes vertical solutions trivial to build.
+</Note>
 
 ## What can you build?
 
