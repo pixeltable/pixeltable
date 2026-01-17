@@ -13,28 +13,37 @@ import { PipelineDiagram } from '/snippets/pipeline-diagram.jsx'
 
 Today's AI workflows cobble together disconnected tools—and pay the price.
 
-<Tabs>
-  <Tab title="Fragmented Storage">
-    **What you get:** Videos in S3, embeddings in Pinecone, metadata in Postgres. Data loaded into memory, exported to file formats that don't support media. Manual tracking of what lives where.
+<CardGroup cols={2}>
+  <Card title="Fragmented Storage" icon="layer-group" iconType="duotone">
+    Videos in S3, embeddings in Pinecone, metadata in Postgres. Manual tracking of what lives where.
     
-    **What you miss:**
-    - **Transactions:** Models fail halfway → data stays inconsistent
-    - **Concurrency:** Multiple users → can't work on same data simultaneously  
-    - **Persistence:** Work happens in memory → doesn't map to database schemas
-    - **OLTP:** Built for batch → can't serve user-facing requests
-  </Tab>
-  <Tab title="DIY Orchestration">
-    **What you get:** Custom code wiring tools together. Cron jobs and Python scripts for every step. Manually handling rate limits, retries, chasing API errors. Wild goose chase when requirements change.
+    <AccordionGroup>
+      <Accordion title="What you miss" icon="circle-xmark">
+        - **Transactions:** Models fail halfway → inconsistent data
+        - **Concurrency:** Multiple users can't work simultaneously
+        - **Persistence:** In-memory work doesn't map to schemas
+        - **OLTP:** Batch-only → can't serve live requests
+      </Accordion>
+    </AccordionGroup>
+  </Card>
+  
+  <Card title="DIY Orchestration" icon="screwdriver-wrench" iconType="duotone">
+    Custom code wiring tools. Cron jobs for every step. Manual retries and error chasing.
     
-    **What you miss:**
-    - **Dependency tracking:** Transforms in scripts → hard to trace what depends on what
-    - **Performance:** Hard to parallelize API calls → low throughput
-    - **Failure handling:** Something fails → rerun everything
-    - **Consistency:** Different models for indexing vs querying → contaminated index
-  </Tab>
-</Tabs>
+    <AccordionGroup>
+      <Accordion title="What you miss" icon="circle-xmark">
+        - **Dependencies:** Hard to trace what depends on what
+        - **Performance:** Can't parallelize → low throughput
+        - **Failures:** Something breaks → rerun everything
+        - **Consistency:** Index/query mismatch → bad results
+      </Accordion>
+    </AccordionGroup>
+  </Card>
+</CardGroup>
 
+<Tip>
 **Pixeltable solves both.** One system for storage, orchestration, and retrieval—with transactions, incremental updates, and automatic dependency tracking built in.
+</Tip>
 
 ## Key Capabilities
 
