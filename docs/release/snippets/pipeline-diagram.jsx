@@ -1,104 +1,102 @@
 export const PipelineDiagram = () => {
-  const linkClass = "hover:text-blue-600 dark:hover:text-blue-400 hover:underline transition-colors"
-  
   return (
-    <div className="w-full bg-white dark:bg-neutral-900 p-3 rounded-lg border border-neutral-200 dark:border-neutral-700 not-prose overflow-x-auto">
-      <div className="flex items-stretch gap-1.5 min-w-[680px]">
+    <div className="w-full not-prose overflow-x-auto my-4">
+      <div className="flex items-stretch gap-3 min-w-[720px]">
         {/* STORAGE Section */}
-        <div className="w-[130px] flex-shrink-0 border border-neutral-300 dark:border-neutral-600 p-2.5 bg-white dark:bg-neutral-800 rounded">
-          <h2 className="font-mono text-[11px] tracking-widest mb-1.5 uppercase text-neutral-900 dark:text-neutral-100 font-semibold">
-            <a href="/tutorials/tables-and-data-operations" className={linkClass}>STORAGE</a>
-          </h2>
-          <h3 className="font-mono text-[9px] mb-0.5 uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-            <a href="/platform/type-system" className={linkClass}>Data Tables</a>
-          </h3>
-          <div className="border-b border-neutral-200 dark:border-neutral-600 mb-1.5" />
-          <ul className="space-y-0.5 text-[12px] font-mono text-neutral-900 dark:text-neutral-100">
-            <li><a href="/platform/type-system" className={linkClass}>Structured</a></li>
-            <li><a href="/platform/type-system" className={linkClass}>Video/Image</a></li>
-            <li><a href="/platform/type-system" className={linkClass}>Audio/Doc</a></li>
-            <li><a href="/platform/type-system" className={linkClass}>JSON/Text</a></li>
+        <div className="w-[150px] flex-shrink-0 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-lg bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center">
+              <svg className="w-4 h-4 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+              </svg>
+            </div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Storage</h3>
+          </div>
+          <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2 font-medium">Data Tables</p>
+          <ul className="space-y-1.5 text-[13px] text-gray-700 dark:text-gray-300">
+            <li><a href="/platform/type-system" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Structured</a></li>
+            <li><a href="/platform/type-system" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Video / Image</a></li>
+            <li><a href="/platform/type-system" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">Audio / Doc</a></li>
+            <li><a href="/platform/type-system" className="hover:text-blue-600 dark:hover:text-blue-400 transition-colors">JSON / Text</a></li>
           </ul>
         </div>
 
         {/* Arrow 1 */}
-        <div className="flex items-center flex-shrink-0 text-neutral-400 dark:text-neutral-500 px-0.5">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <div className="flex items-center flex-shrink-0 text-gray-300 dark:text-gray-600">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M5 12h14M13 5l7 7-7 7" />
           </svg>
         </div>
 
         {/* ORCHESTRATION Section */}
-        <div className="flex-1 min-w-[320px] border border-neutral-300 dark:border-neutral-600 p-2.5 bg-white dark:bg-neutral-800 rounded">
-          <h2 className="font-mono text-[11px] tracking-widest mb-1.5 uppercase text-neutral-900 dark:text-neutral-100 font-semibold">
-            <a href="/tutorials/computed-columns" className={linkClass}>ORCHESTRATION</a>
-          </h2>
+        <div className="flex-1 min-w-[340px] rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center">
+              <svg className="w-4 h-4 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Orchestration</h3>
+          </div>
 
-          <div className="flex gap-3">
+          <div className="grid grid-cols-3 gap-4">
             {/* Pre-process */}
-            <div className="flex-1">
-              <h3 className="font-mono text-[9px] mb-0.5 uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                Pre-process
-              </h3>
-              <div className="border-b border-neutral-200 dark:border-neutral-600 mb-1" />
-              <ul className="space-y-0.5 text-[12px] font-mono text-neutral-900 dark:text-neutral-100">
-                <li><a href="/tutorials/computed-columns" className={linkClass}>Transform</a></li>
-                <li><a href="/platform/iterators" className={linkClass}>Chunk/Split</a></li>
-                <li><a href="/platform/udfs-in-pixeltable" className={linkClass}>Validate</a></li>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2 font-medium">Pre-process</p>
+              <ul className="space-y-1.5 text-[13px] text-gray-700 dark:text-gray-300">
+                <li><a href="/tutorials/computed-columns" className="hover:text-purple-600 dark:hover:text-purple-400 transition-colors">Transform</a></li>
+                <li><a href="/platform/iterators" className="hover:text-purple-600 dark:hover:text-purple-400 transition-colors">Chunk / Split</a></li>
+                <li><a href="/platform/udfs-in-pixeltable" className="hover:text-purple-600 dark:hover:text-purple-400 transition-colors">Validate</a></li>
               </ul>
             </div>
 
             {/* Generate */}
-            <div className="flex-1">
-              <h3 className="font-mono text-[9px] mb-0.5 uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                Generate
-              </h3>
-              <div className="border-b border-neutral-200 dark:border-neutral-600 mb-1" />
-              <ul className="space-y-0.5 text-[12px] font-mono text-neutral-900 dark:text-neutral-100 whitespace-nowrap">
-                <li><a href="/integrations/frameworks" className={linkClass}>LLM calls</a></li>
-                <li><a href="/integrations/frameworks" className={linkClass}>Local inference</a></li>
-                <li><a href="/platform/embedding-indexes" className={linkClass}>Embeddings</a></li>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2 font-medium">Generate</p>
+              <ul className="space-y-1.5 text-[13px] text-gray-700 dark:text-gray-300">
+                <li><a href="/integrations/frameworks" className="hover:text-purple-600 dark:hover:text-purple-400 transition-colors">LLM calls</a></li>
+                <li><a href="/integrations/frameworks" className="hover:text-purple-600 dark:hover:text-purple-400 transition-colors">Local inference</a></li>
+                <li><a href="/platform/embedding-indexes" className="hover:text-purple-600 dark:hover:text-purple-400 transition-colors">Embeddings</a></li>
               </ul>
             </div>
 
             {/* Post-process */}
-            <div className="flex-1">
-              <h3 className="font-mono text-[9px] mb-0.5 uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-                Post-process
-              </h3>
-              <div className="border-b border-neutral-200 dark:border-neutral-600 mb-1" />
-              <ul className="space-y-0.5 text-[12px] font-mono text-neutral-900 dark:text-neutral-100">
-                <li><a href="/tutorials/queries-and-expressions" className={linkClass}>Aggregate</a></li>
-                <li><a href="/tutorials/computed-columns" className={linkClass}>Extract</a></li>
-                <li><a href="/platform/embedding-indexes" className={linkClass}>Index</a></li>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2 font-medium">Post-process</p>
+              <ul className="space-y-1.5 text-[13px] text-gray-700 dark:text-gray-300">
+                <li><a href="/tutorials/queries-and-expressions" className="hover:text-purple-600 dark:hover:text-purple-400 transition-colors">Aggregate</a></li>
+                <li><a href="/tutorials/computed-columns" className="hover:text-purple-600 dark:hover:text-purple-400 transition-colors">Extract</a></li>
+                <li><a href="/platform/embedding-indexes" className="hover:text-purple-600 dark:hover:text-purple-400 transition-colors">Index</a></li>
               </ul>
             </div>
           </div>
         </div>
 
         {/* Arrow 2 */}
-        <div className="flex items-center flex-shrink-0 text-neutral-400 dark:text-neutral-500 px-0.5">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+        <div className="flex items-center flex-shrink-0 text-gray-300 dark:text-gray-600">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M5 12h14M13 5l7 7-7 7" />
           </svg>
         </div>
 
         {/* RETRIEVAL Section */}
-        <div className="w-[130px] flex-shrink-0 border border-neutral-300 dark:border-neutral-600 p-2.5 bg-white dark:bg-neutral-800 rounded">
-          <h2 className="font-mono text-[11px] tracking-widest mb-1.5 uppercase text-neutral-900 dark:text-neutral-100 font-semibold">
-            <a href="/tutorials/queries-and-expressions" className={linkClass}>RETRIEVAL</a>
-          </h2>
-          <h3 className="font-mono text-[9px] mb-0.5 uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
-            Query & Serve
-          </h3>
-          <div className="border-b border-neutral-200 dark:border-neutral-600 mb-1.5" />
-          <ul className="space-y-0.5 text-[12px] font-mono text-neutral-900 dark:text-neutral-100">
-            <li><a href="/tutorials/queries-and-expressions" className={linkClass}>SQL-like</a></li>
-            <li><a href="/platform/embedding-indexes" className={linkClass}>Similarity</a></li>
-            <li><a href="/use-cases/ml-data-wrangling" className={linkClass}>Export (ML)</a></li>
-            <li><a href="/platform/data-sharing" className={linkClass}>Share/Publish</a></li>
-            <li><a href="/use-cases/agents-mcp" className={linkClass}>Tools/MCP</a></li>
-            <li><a href="/use-cases/ai-applications" className={linkClass}>FastAPI</a></li>
+        <div className="w-[150px] flex-shrink-0 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-4">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-900/50 flex items-center justify-center">
+              <svg className="w-4 h-4 text-emerald-600 dark:text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Retrieval</h3>
+          </div>
+          <p className="text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2 font-medium">Query & Serve</p>
+          <ul className="space-y-1.5 text-[13px] text-gray-700 dark:text-gray-300">
+            <li><a href="/tutorials/queries-and-expressions" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">SQL-like</a></li>
+            <li><a href="/platform/embedding-indexes" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Similarity</a></li>
+            <li><a href="/use-cases/ml-data-wrangling" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Export (ML)</a></li>
+            <li><a href="/platform/data-sharing" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Share / Publish</a></li>
+            <li><a href="/use-cases/agents-mcp" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">Tools / MCP</a></li>
+            <li><a href="/use-cases/ai-applications" className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors">FastAPI</a></li>
           </ul>
         </div>
       </div>
