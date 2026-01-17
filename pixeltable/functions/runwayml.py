@@ -85,7 +85,7 @@ async def text_to_image(
         Add a computed column that generates images from prompts:
 
         >>> tbl.add_computed_column(
-        ...     response=text_to_image(tbl.prompt, [tbl.ref_image], model='gen4_image')
+        ...     response=text_to_image(tbl.prompt, [tbl.ref_image], model='gen4_image', ratio='16:9')
         ... )
         >>> tbl.add_computed_column(image=tbl.response['output'][0].astype(pxt.Image))
     """
@@ -110,7 +110,7 @@ async def text_to_image(
     task = await client.text_to_image.create(**kwargs)
     result = await task.wait_for_task_output()
     if result.status != 'SUCCEEDED':
-        raise RuntimeError(f'RunwayML task failed with status: {result.status}')
+        raise pxt.Error(f'RunwayML task failed with status: {result.status}')
     return _serialize_result(result.to_dict())
 
 
@@ -147,7 +147,7 @@ async def text_to_video(
     Examples:
         Add a computed column that generates videos from prompts:
 
-        >>> tbl.add_computed_column(response=text_to_video(tbl.prompt, model='veo3.1', duration=4))
+        >>> tbl.add_computed_column(response=text_to_video(tbl.prompt, model='veo3.1', ratio='16:9', duration=4))
         >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
     Env.get().require_package('runwayml')
@@ -165,7 +165,7 @@ async def text_to_video(
     task = await client.text_to_video.create(**kwargs)
     result = await task.wait_for_task_output()
     if result.status != 'SUCCEEDED':
-        raise RuntimeError(f'RunwayML task failed with status: {result.status}')
+        raise pxt.Error(f'RunwayML task failed with status: {result.status}')
     return _serialize_result(result.to_dict())
 
 
@@ -207,7 +207,7 @@ async def image_to_video(
         Add a computed column that generates videos from images:
 
         >>> tbl.add_computed_column(
-        ...     response=image_to_video(tbl.image, prompt_text='Slow motion', duration=5)
+        ...     response=image_to_video(tbl.image, model='gen4', ratio='16:9', prompt_text='Slow motion', duration=5)
         ... )
         >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
@@ -231,7 +231,7 @@ async def image_to_video(
     task = await client.image_to_video.create(**kwargs)
     result = await task.wait_for_task_output()
     if result.status != 'SUCCEEDED':
-        raise RuntimeError(f'RunwayML task failed with status: {result.status}')
+        raise pxt.Error(f'RunwayML task failed with status: {result.status}')
     return _serialize_result(result.to_dict())
 
 
@@ -269,7 +269,7 @@ async def video_to_video(
         Add a computed column that transforms videos:
 
         >>> tbl.add_computed_column(
-        ...     response=video_to_video(tbl.video_url, 'Anime style', model='gen4_aleph')
+        ...     response=video_to_video(tbl.video_url, 'Anime style', model='gen4_aleph', ratio='16:9')
         ... )
         >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
@@ -286,7 +286,7 @@ async def video_to_video(
     task = await client.video_to_video.create(**kwargs)
     result = await task.wait_for_task_output()
     if result.status != 'SUCCEEDED':
-        raise RuntimeError(f'RunwayML task failed with status: {result.status}')
+        raise pxt.Error(f'RunwayML task failed with status: {result.status}')
     return _serialize_result(result.to_dict())
 
 
