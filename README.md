@@ -168,9 +168,9 @@ t.add_computed_column(
 </details>
 
 <details>
-<summary><b>✂️ Split:</b> Incremental View Maintenance</summary>
+<summary><b>✂️ Iterate:</b> Explode & Process Media</summary>
 
-[Create virtual tables](https://docs.pixeltable.com/platform/views) using iterators for efficient processing without data duplication.
+[Create views with iterators](https://docs.pixeltable.com/platform/views) to explode one row into many (video→frames, doc→chunks, audio→segments).
 
 ```python
 # Document chunking with overlap & metadata
