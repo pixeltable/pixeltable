@@ -119,8 +119,10 @@ See [Working with External Files](https://docs.pixeltable.com/platform/external-
 
 ## Key Principles
 
-**[Unified Multimodal Interface:](https://docs.pixeltable.com/platform/type-system)** `pxt.Image`,
-`pxt.Video`, `pxt.Audio`, `pxt.Document`, etc. – manage diverse data consistently.
+<details>
+<summary><b>🗄️ Store:</b> Unified Multimodal Interface</summary>
+
+[`pxt.Image`](https://docs.pixeltable.com/platform/type-system), `pxt.Video`, `pxt.Audio`, `pxt.Document`, etc. – manage diverse data consistently.
 
 ```python
 t = pxt.create_table(
@@ -131,37 +133,27 @@ t = pxt.create_table(
    }
 )
 ```
+</details>
 
-**[Declarative Computed Columns:](https://docs.pixeltable.com/tutorials/computed-columns)** Define processing
-steps once; they run automatically on new/updated data.
+<details>
+<summary><b>⚡ Transform:</b> Declarative Computed Columns</summary>
+
+[Define processing steps once](https://docs.pixeltable.com/tutorials/computed-columns); they run automatically on new/updated data.
 
 ```python
 t.add_computed_column(
-   classification=huggingface.vit_for_image_classification(
-       t.image
-   )
+   classification=huggingface.vit_for_image_classification(t.image)
 )
 ```
+</details>
 
-**[Built-in Vector Search:](https://docs.pixeltable.com/platform/embedding-indexes)** Add embedding indexes and
-perform similarity searches directly on tables/views.
+<details>
+<summary><b>✂️ Split:</b> Incremental View Maintenance</summary>
 
-```python
-t.add_embedding_index(
-   'img',
-   embedding=clip.using(
-       model_id='openai/clip-vit-base-patch32'
-   )
-)
-
-sim = t.img.similarity(string="cat playing with yarn")
-```
-
-**[Incremental View Maintenance:](https://docs.pixeltable.com/platform/views)** Create virtual tables using iterators
-for efficient processing without data duplication.
+[Create virtual tables](https://docs.pixeltable.com/platform/views) using iterators for efficient processing without data duplication.
 
 ```python
-# Document chunking with overlap & metadata and many more options to build your own iterator
+# Document chunking with overlap & metadata
 chunks = pxt.create_view('chunks', docs,
    iterator=DocumentSplitter.create(
        document=docs.doc,
@@ -173,9 +165,112 @@ chunks = pxt.create_view('chunks', docs,
 frames = pxt.create_view('frames', videos,
    iterator=FrameIterator.create(video=videos.video, fps=0.5))
 ```
+</details>
 
-**[Seamless AI Integration:](https://docs.pixeltable.com/integrations/frameworks)** Built-in functions for
-OpenAI, Anthropic, Hugging Face, CLIP, YOLOX, and more.
+<details>
+<summary><b>🔍 Index:</b> Built-in Vector Search</summary>
+
+[Add embedding indexes](https://docs.pixeltable.com/platform/embedding-indexes) and perform similarity searches directly on tables/views.
+
+```python
+t.add_embedding_index(
+   'img',
+   embedding=clip.using(model_id='openai/clip-vit-base-patch32')
+)
+
+sim = t.img.similarity(string="cat playing with yarn")
+```
+</details>
+
+<details>
+<summary><b>🧩 Extend:</b> Bring Your Own Code</summary>
+
+[Extend Pixeltable](https://docs.pixeltable.com/platform/udfs-in-pixeltable) with UDFs, batch processing, and custom aggregators.
+
+```python
+@pxt.udf
+def format_prompt(context: list, question: str) -> str:
+   return f"Context: {context}\nQuestion: {question}"
+```
+</details>
+
+<details>
+<summary><b>🤖 Orchestrate:</b> Agentic Workflows & Tool Calling</summary>
+
+Register [`@pxt.udf`](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling), `@pxt.query` functions, or **MCP tools** as tools.
+
+```python
+# Example tools: UDFs, Query functions, and MCP tools
+mcp_tools = pxt.mcp_udfs('http://localhost:8000/mcp')  # Load from MCP server
+tools = pxt.tools(get_weather_udf, search_context_query, *mcp_tools)
+
+# LLM decides which tool to call; Pixeltable executes it
+t.add_computed_column(
+   tool_output=invoke_tools(tools, t.llm_tool_choice)
+)
+```
+</details>
+
+<details>
+<summary><b>🧪 Query & Experiment:</b> SQL-like Python Querying</summary>
+
+[Familiar syntax](https://docs.pixeltable.com/tutorials/queries-and-expressions) combined with powerful AI capabilities. **Test transformations before committing:**
+
+```python
+# Query data
+results = (
+   t.where(t.score > 0.8)
+   .order_by(t.timestamp)
+   .select(t.image, score=t.score)
+   .limit(10)
+   .collect()
+)
+
+# Test transformation on sample BEFORE adding column
+t.select(t.text, summary=summarize(t.text)).head(3)  # Nothing stored
+t.add_computed_column(summary=summarize(t.text))      # Now commit
+```
+</details>
+
+<details>
+<summary><b>⏪ Version:</b> Data Persistence & Time Travel</summary>
+
+[All data is automatically stored and versioned](https://docs.pixeltable.com/platform/version-control). Query any prior version.
+
+```python
+t = pxt.get_table('my_table')  # Get a handle to an existing table
+t.revert()  # Undo the last modification
+
+t.history()  # Display all prior versions
+old_version = pxt.get_table('my_table:472')  # Query a specific version
+```
+</details>
+
+<details>
+<summary><b>📥 Import/Export:</b> I/O & Integration</summary>
+
+[Export to multiple formats](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch) and integrate with ML/AI tools ecosystem.
+
+```python
+# Import from files, URLs, S3, Hugging Face
+t.insert(pxt.io.import_csv('data.csv'))
+t.insert(pxt.io.import_huggingface_dataset(dataset))
+
+# Export to analytics/ML formats
+pxt.io.export_parquet(table, 'data.parquet')
+pytorch_ds = table.to_pytorch_dataset('pt')  # → PyTorch DataLoader ready
+coco_path = table.to_coco_dataset()          # → COCO annotations
+
+# ML tool integrations
+pxt.create_label_studio_project(table, label_config)  # Annotation
+pxt.export_images_as_fo_dataset(table, table.image)   # FiftyOne
+```
+</details>
+
+<details>
+<summary><b>🤝 Integrate:</b> Seamless AI Providers</summary>
+
+[Built-in functions](https://docs.pixeltable.com/integrations/frameworks) for OpenAI, Anthropic, Hugging Face, CLIP, YOLOX, and more.
 
 ```python
 # LLM integration (OpenAI, Anthropic, etc.)
@@ -192,86 +287,10 @@ t.add_computed_column(
 
 # Embedding models (Hugging Face, CLIP)
 t.add_computed_column(
-   embeddings=huggingface.sentence_transformer(
-       t.text, model_id='all-MiniLM-L6-v2'
-   )
+   embeddings=huggingface.sentence_transformer(t.text, model_id='all-MiniLM-L6-v2')
 )
 ```
-
-**[Bring Your Own Code:](https://docs.pixeltable.com/platform/udfs-in-pixeltable)** Extend Pixeltable with UDFs, batch processing, and custom aggregators.
-
-```python
-@pxt.udf
-def format_prompt(context: list, question: str) -> str:
-   return f"Context: {context}\nQuestion: {question}"
-```
-
-**[Agentic Workflows / Tool Calling:](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling)** Register `@pxt.udf`,
-`@pxt.query` functions, or **MCP tools** as tools.
-
-```python
-# Example tools: UDFs, Query functions, and MCP tools
-mcp_tools = pxt.mcp_udfs('http://localhost:8000/mcp')  # Load from MCP server
-tools = pxt.tools(get_weather_udf, search_context_query, *mcp_tools)
-
-# LLM decides which tool to call; Pixeltable executes it
-t.add_computed_column(
-   tool_output=invoke_tools(tools, t.llm_tool_choice)
-)
-```
-
-**[Data Persistence:](https://docs.pixeltable.com/tutorials/tables-and-data-operations)** All data,
-metadata, and computed results are automatically stored and versioned.
-
-```python
-t = pxt.get_table('my_table')  # Get a handle to an existing table
-t.select(t.account, t.balance).collect()  # Query its contents
-t.revert()  # Undo the last modification to the table and restore its previous state
-```
-
-**[Time Travel:](https://docs.pixeltable.com/platform/version-control)** By default,
-Pixeltable preserves the full change history of each table, and any prior version can be selected and queried.
-
-```python
-t.history()  # Display a human-readable list of all prior versions of the table
-old_version = pxt.get_table('my_table:472')  # Get a handle to a specific table version
-old_version.select(t.account, t.balance).collect()  # Query the older version
-```
-
-**[SQL-like Python Querying:](https://docs.pixeltable.com/tutorials/queries-and-expressions)** Familiar syntax
-combined with powerful AI capabilities.
-
-```python
-results = (
-   t.where(t.score > 0.8)
-   .order_by(t.timestamp)
-   .select(t.image, score=t.score)
-   .limit(10)
-   .collect()
-)
-```
-
-**[I/O & Integration:](https://pixeltable.github.io/pixeltable/pixeltable/io/)** Export to multiple
-formats and integrate with ML/AI tools ecosystem.
-
-```python
-# Export to analytics/ML formats
-pxt.export_parquet(table, 'data.parquet', partition_size_bytes=100_000_000)
-pxt.export_lancedb(table, 'vector_db')
-
-# DataFrame conversions
-results = table.select(table.image, table.labels).collect()
-df = results.to_pandas()                           # → pandas DataFrame
-models = results.to_pydantic(MyModel)              # → Pydantic models
-
-# Specialized ML dataset formats
-coco_path = table.to_coco_dataset()                # → COCO annotations
-pytorch_ds = table.to_pytorch_dataset('pt')        # → PyTorch DataLoader ready
-
-# ML tool integrations
-pxt.create_label_studio_project(table, label_config)  # Annotation
-pxt.export_images_as_fo_dataset(table, table.image)   # FiftyOne
-```
+</details>
 
 ## Tutorials & Cookbooks
 
