@@ -50,7 +50,7 @@ class TestDocument:
     def invalid_doc_paths(self) -> list[str]:
         return [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
 
-    def test_insert(self, reset_db: None) -> None:
+    def test_insert(self, uses_db: None) -> None:
         skip_test_if_not_installed('mistune')
 
         file_paths = self.valid_doc_paths()
@@ -94,7 +94,7 @@ class TestDocument:
             else:
                 raise AssertionError(f'Unexpected extension {extension}, add corresponding check')
 
-    def test_doc_splitter_errors(self, reset_db: None) -> None:
+    def test_doc_splitter_errors(self, uses_db: None) -> None:
         t = pxt.create_table('docs', {'doc': pxt.Document})
 
         # test invalid separators, or combinations of separators
@@ -152,7 +152,7 @@ class TestDocument:
             )
 
     @pytest.mark.parametrize('pdf', [True, False], ids=['pdf_docs', 'non_pdf_docs'])
-    def test_doc_splitter(self, pdf: bool, reset_db: None) -> None:
+    def test_doc_splitter(self, pdf: bool, uses_db: None) -> None:
         skip_test_if_not_installed('tiktoken')
         skip_test_if_not_installed('spacy')
         skip_test_if_not_installed('markitdown')
@@ -255,7 +255,7 @@ class TestDocument:
 
             pxt.drop_table('chunks')
 
-    def test_doc_splitter_headings(self, reset_db: None) -> None:
+    def test_doc_splitter_headings(self, uses_db: None) -> None:
         skip_test_if_not_installed('spacy')
         file_paths = [
             p for p in self.valid_doc_paths() if not (p.endswith('.pdf') or p.endswith('.xml') or p.endswith('.txt'))
@@ -285,7 +285,7 @@ class TestDocument:
                         _ = res[md_element]
             pxt.drop_table('chunks')
 
-    def test_doc_splitter_txt(self, reset_db: None) -> None:
+    def test_doc_splitter_txt(self, uses_db: None) -> None:
         """Test the document_splitter with a .txt file
 
         test_doc_splitter above already tests the behaviour
@@ -373,7 +373,7 @@ class TestDocument:
 
         pxt.drop_table('chunks')
 
-    def test_doc_splitter_images(self, reset_db: None) -> None:
+    def test_doc_splitter_images(self, uses_db: None) -> None:
         file_paths = [p for p in get_documents() if p.endswith('.pdf')]
         t = pxt.create_table('docs', {'doc': pxt.Document})
 
