@@ -90,18 +90,18 @@ class TestEnvReset:
 
         # Create directory structure
         pxt.create_dir('analytics')
-        pxt.create_dir('analytics.reports')
+        pxt.create_dir('analytics/reports')
 
         # Create tables with different features
         t1 = pxt.create_table('users', {'user_id': pxt.Int, 'username': pxt.String, 'active': pxt.Bool})
 
-        t2 = pxt.create_table('analytics.reports.sales', {'sale_id': pxt.Int, 'amount': pxt.Float})
+        t2 = pxt.create_table('analytics/reports/sales', {'sale_id': pxt.Int, 'amount': pxt.Float})
 
         # Add computed column
         t2.add_computed_column(amount_doubled=t2.amount * 2)
 
         # Create view
-        v1 = pxt.create_view('analytics.high_sales', t2.where(t2.amount > 100.0))
+        v1 = pxt.create_view('analytics/high_sales', t2.where(t2.amount > 100.0))
 
         # Insert data
         t1.insert(
@@ -127,10 +127,10 @@ class TestEnvReset:
         t1_new = pxt.get_table('users')
         assert t1_new.count() == user_count
 
-        v1_new = pxt.get_table('analytics.high_sales')
+        v1_new = pxt.get_table('analytics/high_sales')
         assert v1_new.count() == high_sales_count
 
         # Verify computed column still works
-        t2_new = pxt.get_table('analytics.reports.sales')
+        t2_new = pxt.get_table('analytics/reports/sales')
         result = t2_new.where(t2_new.sale_id == 1).select(t2_new.amount_doubled).collect()
         assert result[0]['amount_doubled'] == 300.0

@@ -32,7 +32,7 @@ Pixeltable provides a rich type system designed for multimodal AI applications. 
 ```python
 import pixeltable as pxt
 
-table = pxt.create_table('example.basic_types', {
+table = pxt.create_table('example/basic_types', {
     'text': pxt.String,        # Text data
     'count': pxt.Int,          # Integer numbers
     'score': pxt.Float,        # Decimal numbers
@@ -49,7 +49,7 @@ Use `uuid4()` to create columns that auto-generate unique identifiers:
 from pixeltable.functions.uuid import uuid4
 
 # UUID as primary key - auto-generated for each row
-products = pxt.create_table('example.products', {
+products = pxt.create_table('example/products', {
     'id': uuid4(),           # Auto-generates UUID
     'name': pxt.String,
     'price': pxt.Float
@@ -75,7 +75,7 @@ See the [UUID cookbook](/howto/cookbooks/core/workflow-uuid-identity) for more e
 Pixeltable natively supports images, video, audio, and documents as first-class column types.
 
 ```python
-media = pxt.create_table('example.media', {
+media = pxt.create_table('example/media', {
     'image': pxt.Image,      # Any image
     'video': pxt.Video,      # Video reference
     'audio': pxt.Audio,      # Audio file
@@ -89,17 +89,17 @@ Images can be constrained by resolution and/or color mode:
 
 ```python
 # Constrain by resolution
-thumbnails = pxt.create_table('example.thumbnails', {
+thumbnails = pxt.create_table('example/thumbnails', {
     'thumb': pxt.Image[(224, 224)]  # Width 224, height 224
 })
 
 # Constrain by color mode
-grayscale = pxt.create_table('example.grayscale', {
+grayscale = pxt.create_table('example/grayscale', {
     'img': pxt.Image['L']  # Grayscale (1-channel)
 })
 
 # Constrain both
-rgb_fixed = pxt.create_table('example.rgb_fixed', {
+rgb_fixed = pxt.create_table('example/rgb_fixed', {
     'img': pxt.Image[(300, 200), 'RGB']  # 300x200 RGB images
 })
 ```
@@ -113,7 +113,7 @@ See the [PIL Documentation](https://pillow.readthedocs.io/en/stable/handbook/con
 Arrays are used for embeddings, feature vectors, and tensor data. They must always specify a shape and dtype.
 
 ```python
-ml_data = pxt.create_table('example.ml_features', {
+ml_data = pxt.create_table('example/ml_features', {
     # Fixed-size embedding (e.g., from CLIP or OpenAI)
     'embedding': pxt.Array[(768,), pxt.Float],
 
@@ -148,7 +148,7 @@ t.select(
 The `Json` type stores flexible structured data—dictionaries, lists, or primitives.
 
 ```python
-logs = pxt.create_table('example.logs', {
+logs = pxt.create_table('example/logs', {
     'event': pxt.Json
 })
 
@@ -198,7 +198,7 @@ movie_schema = {
 }
 
 # Create table with validated JSON column
-movies = pxt.create_table('example.validated_movies', {
+movies = pxt.create_table('example/validated_movies', {
     'data': pxt.Json[movie_schema]
 })
 
@@ -220,7 +220,7 @@ class Movie(BaseModel):
     rating: float | None = None
 
 # Use the model's JSON schema for validation
-movies = pxt.create_table('example.pydantic_movies', {
+movies = pxt.create_table('example/pydantic_movies', {
     'data': pxt.Json[Movie.model_json_schema()]
 })
 ```
