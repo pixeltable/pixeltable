@@ -1275,7 +1275,7 @@ class TestFunction:
         fn6 = pxt.udf(t, return_value=t.in4.rotate(t.in1))
         u.select(fn6(22, 'starfruit', in4=u.b)).collect()
 
-    def test_required_parameter_missing(self, reset_db: None) -> None:
+    def test_required_parameter_missing(self, uses_db: None) -> None:
         """Tests scenarios in which a required input parameter for a UDF or UDA is missing."""
         t = pxt.create_table('test', {'col_0': pxt.Int, 'col_1': pxt.Int, 'col_2': pxt.String})
         t.insert(

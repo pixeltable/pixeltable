@@ -945,11 +945,7 @@ class TestIndex:
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
     @pytest.mark.parametrize('precision', ['fp16', 'fp32'])
     def test_embedding_index_precision(
-        self,
-        uses_db: None,
-        reload_cat: bool,
-        metric: Literal['cosine', 'ip', 'l2'],
-        precision: Literal['fp16', 'fp32'],
+        self, uses_db: None, reload_cat: bool, metric: Literal['cosine', 'ip', 'l2'], precision: Literal['fp16', 'fp32']
     ) -> None:
         # Note: dummy embeddings produced by our test UDF are not normalized, so, strictly speaking, it cannot be
         # used with IP metric, however it appears to work fine anyway, and that's good enough for our test purpose.
