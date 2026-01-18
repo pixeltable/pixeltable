@@ -179,6 +179,7 @@ KNOWN_CONFIG_OPTIONS = {
     'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},
     'reve': {'api_key': 'Reve API key', 'rate_limit': 'Rate limit for Reve API requests (requests per minute)'},
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
+    'jina': {'api_key': 'Jina AI API key', 'rate_limit': 'Rate limit for Jina AI API requests'},
     'label_studio': {'api_key': 'Label Studio API key', 'url': 'Label Studio server URL'},
     'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},
     'openai': {
