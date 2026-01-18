@@ -12,6 +12,7 @@ from . import (
     anthropic,
     audio,
     bedrock,
+    bfl,
     date,
     deepseek,
     fal,
