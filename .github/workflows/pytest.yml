@@ -234,7 +234,7 @@ jobs:
       - name: Notebook lint
         if: ${{ matrix.test-category == 'lint' }}
         run: |
-          ./scripts/notebooks-markdown.sh check
+          ./scripts/check-notebooks.sh
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
