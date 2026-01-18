@@ -169,6 +169,12 @@ class FrameIterator(ComponentIterator):
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        fps = kwargs.get('fps')
+        num_frames = kwargs.get('num_frames')
+        keyframes_only = kwargs.get('keyframes_only')
+        if int(fps is not None) + int(num_frames is not None) + int(keyframes_only is not None) > 1:
+            raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
+
         attrs: dict[str, ts.ColumnType]
         fps = kwargs.get('fps')
         if fps is not None and (not isinstance(fps, (int, float)) or fps < 0.0):
