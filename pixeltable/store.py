@@ -315,7 +315,7 @@ class StoreBase:
         log_stmt(_logger, stmt)
         Env.get().conn.execute(stmt)
 
-    def load_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
+    def populate_new_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
         """Update store column of a computed column with values produced by an execution plan
 
         Returns:
