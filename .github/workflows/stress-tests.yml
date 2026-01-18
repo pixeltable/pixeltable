@@ -71,6 +71,7 @@ jobs:
           path: ~/.pixeltable/random-ops.log
 
   performance-tests:
+    if: false # Disable until it can reliably pass on a GitHub runner
     runs-on: ubuntu-24.04-perftest
     defaults:
       run:

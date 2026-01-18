@@ -66,7 +66,7 @@ dependencies = [
     "ftfy>=6.2.0",
     "pydantic>=2.7.4",
     "pyarrow>=19",
-    "pixeltable-pgserver==0.4.0",
+    "pixeltable-pgserver==0.5.0",
     "tzlocal>=5.0",
     "aiohttp>=3.10",
     "deprecated>=1.2.15",
@@ -176,6 +176,8 @@ dev = [
     "scenedetect>=0.6.0.1",
     "opentelemetry-exporter-otlp>=1.38.0",
     "ipywidgets>=8.0.0",
+    "mdformat>=1.0.0",
+    "nbqa>=1.9.1",
     "snowflake-sqlalchemy>=1.7.0",
 ]
 test = [
@@ -245,6 +247,7 @@ addopts = '-v -m "not remote_api and not expensive" --strict-markers'
 markers = [
     "expensive: marks tests as expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
+    "corrupts_db: marks tests as corrupting the database and disables the database validation after the test",
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)

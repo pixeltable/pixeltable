@@ -89,7 +89,7 @@ class ErrorIterator(ComponentIterator):
 
 
 class TestComponentView:
-    def test_basic(self, reset_db: None) -> None:
+    def test_basic(self, uses_db: None) -> None:
         # create video table
         schema = {'video': pxt.Video, 'angle': pxt.Int, 'other_angle': pxt.Int}
         video_t = pxt.create_table('video_tbl', schema)
@@ -138,7 +138,7 @@ class TestComponentView:
         assert len(result) > 0
         assert np.all(result['frame_idx'] == pd.Series(range(len(result))))
 
-    def test_add_column(self, reset_db: None) -> None:
+    def test_add_column(self, uses_db: None) -> None:
         # create video table
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         video_filepaths = get_test_video_files()
@@ -157,7 +157,7 @@ class TestComponentView:
         with pytest.raises(pxt.Error, match='Duplicate column name: annotation'):
             view_t.add_column(annotation=pxt.Required[pxt.Json])
 
-    def test_update(self, reset_db: None) -> None:
+    def test_update(self, uses_db: None) -> None:
         # create video table
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view with manually updated column
@@ -202,7 +202,7 @@ class TestComponentView:
         assert 'must be nullable' in str(excinfo.value)
 
     @pytest.mark.parametrize('has_column,has_filter', [(False, False), (True, False), (False, True), (True, True)])
-    def test_snapshot(self, has_column: bool, has_filter: bool, reset_db: None) -> None:
+    def test_snapshot(self, has_column: bool, has_filter: bool, uses_db: None) -> None:
         for reload_md in [False, True]:
             reload_catalog()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
@@ -287,7 +287,7 @@ class TestComponentView:
         pxt.drop_table(view_path)
         pxt.drop_table(base_path)
 
-    def test_chained_views(self, reset_db: None) -> None:
+    def test_chained_views(self, uses_db: None) -> None:
         """Component view followed by a standard view"""
         # create video table
         schema = {'video': pxt.Video, 'int1': pxt.Int, 'int2': pxt.Int}
