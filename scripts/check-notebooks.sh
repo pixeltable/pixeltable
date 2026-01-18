@@ -1,7 +1,6 @@
 #!/bin/bash +e
 
 SCRIPT_DIR="$(dirname "$0")"
-
 cd "$SCRIPT_DIR/.."
 
 echo "Running notebook checks ..."
