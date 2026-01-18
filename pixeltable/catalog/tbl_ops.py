@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import dataclasses
+import sys
 from enum import Enum
 from typing import Any
 
@@ -34,10 +35,8 @@ class TableOp:
 
     @classmethod
     def from_dict(cls, data: dict) -> TableOp:
-        import pixeltable.catalog.tbl_ops as tbl_ops
-
         classname = data.pop('_classname')
-        op_class = getattr(tbl_ops, classname)
+        op_class = getattr(sys.modules[__name__], classname)
         return schema.md_from_dict(op_class, data)
 
 
@@ -72,8 +71,7 @@ class DeleteTableMdOp(TableOp):
 class CreateTableVersionOp(TableOp):
     """Undo-only log record"""
 
-    preceding_version: int
-    preceding_schema_version: int | None  # only set for schema changes
+    pass
 
 
 @dataclasses.dataclass

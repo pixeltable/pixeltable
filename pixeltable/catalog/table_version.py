@@ -479,10 +479,7 @@ class TableVersion:
             Catalog.get().delete_tbl_md(self.id)
 
         elif isinstance(op, CreateTableVersionOp):
-            schema_version = self.schema_version if op.preceding_schema_version is not None else None
-            Catalog.get().delete_tbl_version_md(
-                self.id, self.version, schema_version, op.preceding_version, op.preceding_schema_version
-            )
+            Catalog.get().delete_current_tbl_version_md(self.id)
 
         elif isinstance(op, CreateColumnMdOp):
             for col_id in op.column_ids:
@@ -495,6 +492,7 @@ class TableVersion:
                     self.store_tbl.drop_column(self.cols_by_id[col_id])
 
         elif isinstance(op, (DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp)):
+            # physical deletion cannot be rolled back
             raise AssertionError()
 
     @classmethod
@@ -814,6 +812,7 @@ class TableVersion:
     ) -> None:
         """Create the given index along with index md"""
         idx_id = self._create_index_md(col, val_col, undo_col, idx_name, idx)
+        idx_name = self.tbl_md.index_md[idx_id].name
         idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
         self.idxs[idx_id] = idx_info
         self.idxs_by_name[idx_name] = idx_info
@@ -886,7 +885,6 @@ class TableVersion:
                 all_cols.append(undo_col)
 
         # we're creating a new schema version
-        preceding_version, preceding_schema_version = self.version, self.schema_version
         self.bump_version(bump_schema_version=True)
 
         # create column md
@@ -920,15 +918,7 @@ class TableVersion:
 
         id_str = str(self.id)
         tbl_ops = [
-            CreateTableVersionOp(
-                tbl_id=id_str,
-                op_sn=0,
-                num_ops=4,
-                needs_xact=True,
-                status=OpStatus.PENDING,
-                preceding_version=preceding_version,
-                preceding_schema_version=preceding_schema_version,
-            ),
+            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=4, needs_xact=True, status=OpStatus.PENDING),
             CreateColumnMdOp(
                 tbl_id=id_str,
                 op_sn=1,

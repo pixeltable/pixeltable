@@ -560,7 +560,8 @@ class Table(SchemaObject):
         assert self._tbl_version is not None
         Catalog.get().add_columns(self._tbl_version_path, new_cols)
         FileCache.get().emit_eviction_warnings()
-        return None
+        # TODO: return the row count here?
+        return UpdateStatus()
 
     def add_column(
         self,

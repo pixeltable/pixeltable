@@ -60,9 +60,6 @@ class BtreeIndex(IndexBase):
         sa_idx = sql.Index(store_index_name, sa_value_col, postgresql_using='btree')
         return sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(dialect=postgresql.dialect())
 
-    # def sa_drop_stmt(self, store_index_name: str) -> sql.Compiled:
-    #     return sql.text(f'DROP INDEX IF EXISTS {store_index_name}')
-
     def drop_index(self, index_name: str, index_value_col: 'catalog.Column') -> None:
         """Drop the index on the index value column"""
         # TODO: implement

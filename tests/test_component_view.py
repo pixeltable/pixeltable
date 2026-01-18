@@ -84,7 +84,7 @@ class ErrorIterator(ComponentIterator):
     def close(self) -> None:
         pass
 
-    def set_pos(self, pos: int) -> None:
+    def set_pos(self, pos: int, **kwargs: Any) -> None:
         pass
 
 
@@ -397,7 +397,7 @@ class TestComponentView:
         assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
         check_view()
 
-    def test_create_view_error(self, reset_db: None) -> None:
+    def test_create_view_error(self, uses_db: None) -> None:
         t = pxt.create_table('test', {'i': pxt.Int})
         status = t.insert({'i': i} for i in range(100))
         assert status.num_excs == 0

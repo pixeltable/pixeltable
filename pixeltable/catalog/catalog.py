@@ -7,13 +7,12 @@ import random
 import time
 from collections import defaultdict
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypeVar
 from uuid import UUID
 
 import psycopg
 import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
-from sqlalchemy.sql import elements as sql_elements
 
 import pixeltable.index as index
 from pixeltable import exceptions as excs
@@ -153,6 +152,12 @@ class Catalog:
     pending ops against those tables. To that end,
     - use begin_xact(tbl) or begin_xact(tbl_id) if only accessing a single table
     - use retry_loop() when accessing multiple tables (eg, pxt.ls())
+
+    Metadata changes: all Table operations that change metadata need follow this protocol:
+    - write the metadata changes to the store in a single transaction, including the op log that implements the updates
+    - roll_forward()
+    - invalidate any cached TableVersion instances for the affected table and call TVP.clear_cached_md()
+    TODO: this is currently only implemented for Table.add_columns()
 
     Caching and invalidation of metadata:
     - Catalog caches TableVersion instances in order to avoid excessive metadata loading
@@ -646,7 +651,6 @@ class Catalog:
         tbl_md: schema.TableMd | None = None
         tbl_version: int | None = None
         op: TableOp | None = None
-        is_final_op = False
         exc: Exception | None = None
         update_op_stmt: sql.Update
         delete_ops_stmt: sql.Delete
@@ -1275,6 +1279,7 @@ class Catalog:
         # force a reload in order to see the new columns/idxs
         self._clear_tv_cache(TableVersionKey(tbl.tbl_id, None, None))
         self._roll_forward()
+        tbl.clear_cached_md()  # force reload of metadata
 
     def _clear_tv_cache(self, key: TableVersionKey) -> None:
         if key in self._tbl_versions:
@@ -2326,33 +2331,45 @@ class Catalog:
 
         session.flush()  # Inform SQLAlchemy that we want to write these changes to the DB.
 
-    def delete_tbl_version_md(
-        self,
-        tbl_id: UUID,
-        version: int,
-        schema_version: int | None,
-        preceding_version: int,
-        preceding_schema_version: int | None,
-    ) -> None:
-        """Removes 'version' from stored metadata for table"""
+    def delete_current_tbl_version_md(self, tbl_id: UUID) -> None:
+        """Removes 'current_version' from stored metadata for table and resets the table to current_version - 1"""
         conn = Env.get().conn
-        if schema_version is not None:
-            assert preceding_schema_version is not None
+        q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
+        tbl_md = conn.execute(q).one()[0]
+        current_version, current_schema_version = tbl_md['current_version'], tbl_md['current_schema_version']
+
+        # determine preceding schema version
+        q = sql.select(schema.TableSchemaVersion.md).where(
+            schema.TableSchemaVersion.tbl_id == tbl_id,
+            schema.TableSchemaVersion.schema_version == current_schema_version,
+        )
+        row = conn.execute(q).one_or_none()
+        preceding_schema_version: int
+        if row is not None:
+            schema_version_md = row[0]
+            preceding_schema_version = schema_version_md['preceding_schema_version']
+        else:
+            preceding_schema_version = current_schema_version
+
+        # delete the TableSchemaVersion record, if one was created for this version
+        if preceding_schema_version != current_schema_version:
+            assert current_version == current_schema_version
             delete_stmt = sql.delete(schema.TableSchemaVersion).where(
-                schema.TableSchemaVersion.tbl_id == tbl_id, schema.TableSchemaVersion.schema_version == schema_version
+                schema.TableSchemaVersion.tbl_id == tbl_id,
+                schema.TableSchemaVersion.schema_version == current_schema_version,
             )
             status = conn.execute(delete_stmt)
             assert status.rowcount == 1, status.rowcount
 
         delete_stmt = sql.delete(schema.TableVersion).where(
-            schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == version
+            schema.TableVersion.tbl_id == tbl_id, schema.TableVersion.version == current_version
         )
         status = conn.execute(delete_stmt)
         assert status.rowcount == 1, status.rowcount
 
         # we also need to reset TableMd.current_version/current_schema_version
-        version_updates = {'current_version': preceding_version}
-        if preceding_schema_version is not None:
+        version_updates = {'current_version': current_version - 1}
+        if preceding_schema_version != current_schema_version:
             version_updates['current_schema_version'] = preceding_schema_version
         update_stmt = (
             sql.update(schema.Table)
@@ -2619,8 +2636,8 @@ class Catalog:
         #               OR LEFT(tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_2, 256) !=
         #                  tbl_b58cafd251c84eb4ab5a13ff6c0f9bd2.col_7 )
         # LIMIT 1;
-        select_list: list[sql_elements.SQLCoreOperations[Any] | Literal['*']] = ['*']
-        conditions: list[sql.ColumnExpressionArgument] = []
+        select_list: list[sql.ColumnElement | Literal['*']] = ['*']
+        conditions: list[sql.ColumnElement] = []
         for idx_info in tv.idxs.values():
             if isinstance(idx_info.idx, index.BtreeIndex):
                 # condition is the invariant violation that we are checking for
@@ -2634,6 +2651,7 @@ class Catalog:
                 conditions.append(condition)
                 select_label = f'idx_mismatch_{idx_info.name}'
                 select_list.append(condition.label(select_label))
+
         if len(conditions) > 0:
             # The v_max check:
             # sa_tbl.c.v_max > tv.version
