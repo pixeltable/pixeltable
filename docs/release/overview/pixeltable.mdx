@@ -1,29 +1,33 @@
 ---
 title: 'What is Pixeltable?'
-description: 'Pixeltable unifies storage and orchestration for multimodal AI applications, providing a declarative interface for incremental transforms, indexing, and orchestration.'
+description: 'Declarative data infrastructure that makes multimodal AI systems reliable, scalable, and easy to iterate on.'
 ---
 
 {/* import { PipelineDiagram } from '/snippets/pipeline-diagram.jsx' */}
 
-**Store multimodal data in tables, define transformations as computed columns, and query everything together.** Pixeltable handles orchestration, caching, incremental updates, and model execution automatically.
+**Declarative data infrastructure that makes multimodal AI systems reliable, scalable, and easy to iterate on.**
+
+Pixeltable treats multimodal data and model outputs as first-class, queryable objects with automatic recomputation when anything changes.
 
 {/* <PipelineDiagram /> */}
 
 ## Before Pixeltable
 
-Today's AI workflows cobble together disconnected tools.
+AI teams are building on images, video, audio, and text, but the infrastructure is broken:
 
 <CardGroup cols={2}>
-  <Card title="Fragmented Storage" icon="layer-group" iconType="duotone">
-    Videos in S3, embeddings in Pinecone, metadata in Postgres. No transactions, no concurrency, batch-only.
+  <Card title="Fragmented Data" icon="layer-group" iconType="duotone">
+    Data lives across object stores, vector DBs, SQL, and ad-hoc pipelines. No single source of truth.
   </Card>
-  <Card title="DIY Orchestration" icon="screwdriver-wrench" iconType="duotone">
-    Custom code wiring tools. Cron jobs for every step. No dependency tracking, manual error handling.
+  <Card title="Costly Iteration" icon="screwdriver-wrench" iconType="duotone">
+    Every model change requires reprocessing. Pipelines are brittle and hard to reproduce.
   </Card>
 </CardGroup>
 
+This creates high engineering cost, slow iteration, and production risk.
+
 <Tip>
-**Pixeltable solves both.** One system for storage, orchestration, and retrieval. Transactions, incremental updates, and automatic dependency tracking built in.
+**Pixeltable solves this.** One system for storage, orchestration, and retrieval. Transactions, incremental updates, and automatic dependency tracking built in.
 </Tip>
 
 ## With Pixeltable

@@ -8,7 +8,7 @@
 <br>
 </div>
 
-The only open source Python library providing declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.
+**Declarative data infrastructure that makes multimodal AI systems reliable, scalable, and easy to iterate on.**
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
@@ -31,7 +31,9 @@ The only open source Python library providing declarative data infrastructure fo
 pip install pixeltable
 ```
 
-Pixeltable replaces the complex data plumbing typically needed for multimodal AI—ETL pipelines, vector databases, orchestration, feature stores—with a single declarative table interface that handles images, videos, audio, and documents natively.
+AI teams are building on images, video, audio, and text, but the infrastructure is broken: data lives across object stores, vector DBs, and ad-hoc pipelines; every model change requires costly reprocessing; pipelines are brittle and hard to reproduce.
+
+Pixeltable treats multimodal data and model outputs as first-class, queryable objects with automatic recomputation when anything changes.
 
 ## Demo
 
