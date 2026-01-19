@@ -20,7 +20,7 @@ import httpx
 import numpy as np
 
 import pixeltable as pxt
-from pixeltable import env
+from pixeltable import env, type_system as ts
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
 
@@ -456,6 +456,28 @@ async def embeddings(
 
     # Return embeddings as numpy arrays (same format as OpenAI)
     return [np.array(item["embedding"], dtype=np.float64) for item in data["data"]]
+
+
+@embeddings.conditional_return_type
+def _(model: str = "text-embedding-ada-002", model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
+    """Determine the return type based on the model."""
+    # Known embedding dimensions for common models
+    embedding_dimensions = {
+        'text-embedding-ada-002': 1536,
+        'text-embedding-3-small': 1536,
+        'text-embedding-3-large': 3072,
+    }
+
+    # Check if dimensions are specified in model_kwargs
+    dimensions = None
+    if model_kwargs is not None:
+        dimensions = model_kwargs.get('dimensions')
+
+    # If not specified, use known dimensions for the model
+    if dimensions is None:
+        dimensions = embedding_dimensions.get(model, 1536)  # Default to 1536
+
+    return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
 
 
 __all__ = local_public_names(__name__)
