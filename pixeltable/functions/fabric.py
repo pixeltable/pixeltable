@@ -252,14 +252,13 @@ def _embeddings_get_request_resources(
     }
 
 
-@pxt.udf(resource_pool='rate-limits:fabric')
+@pxt.udf
 async def chat_completions(
     messages: list[dict],
     *,
     model: str,
     api_version: str | None = None,
     model_kwargs: dict[str, Any] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> dict:
     """
     Creates a model response for the given chat conversation using Azure OpenAI in Fabric.
@@ -361,13 +360,7 @@ async def chat_completions(
         payload.setdefault('max_tokens', 4000)
         payload.setdefault('temperature', 0.0)
 
-    # Set up rate limiting
-    rate_limits_info = env.Env.get().get_resource_pool_info(
-        'rate-limits:fabric', lambda: FabricRateLimitsInfo(_chat_completions_get_request_resources)
-    )
-
     # Make request
-    request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     headers = {
         "Authorization": auth_header,
         "Content-Type": "application/json"
@@ -375,26 +368,17 @@ async def chat_completions(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(url, headers=headers, json=payload, timeout=60.0)
-
-        # Record rate limits
-        requests_info, tokens_info = _get_header_info(response.headers)
-        is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
-        rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
-
-        # Raise for HTTP errors (will be caught by rate limit handler)
         response.raise_for_status()
-
         return response.json()
 
 
-@pxt.udf(resource_pool='rate-limits:fabric', batch_size=32)
+@pxt.udf(batch_size=32)
 async def embeddings(
     input: Batch[str],
     *,
     model: str = "text-embedding-ada-002",
     api_version: str = "2024-02-15-preview",
     model_kwargs: dict[str, Any] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
     Creates an embedding vector representing the input text using Azure OpenAI in Fabric.
@@ -459,13 +443,7 @@ async def embeddings(
     payload = {"input": list(input)}
     payload.update(model_kwargs)
 
-    # Set up rate limiting
-    rate_limits_info = env.Env.get().get_resource_pool_info(
-        'rate-limits:fabric', lambda: FabricRateLimitsInfo(_embeddings_get_request_resources)
-    )
-
     # Make request
-    request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     headers = {
         "Authorization": auth_header,
         "Content-Type": "application/json"
@@ -473,15 +451,7 @@ async def embeddings(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(url, headers=headers, json=payload, timeout=60.0)
-
-        # Record rate limits
-        requests_info, tokens_info = _get_header_info(response.headers)
-        is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
-        rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
-
-        # Raise for HTTP errors
         response.raise_for_status()
-
         data = response.json()
 
     # Return embeddings as numpy arrays (same format as OpenAI)
