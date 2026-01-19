@@ -321,8 +321,6 @@ async def chat_completions(
         ...     )
         ... )
     """
-    env.Env.get().require_package('synapse.ml.fabric')
-
     if model_kwargs is None:
         model_kwargs = {}
 
@@ -443,8 +441,6 @@ async def embeddings(
 
         >>> tbl.add_embedding_index('text', embedding=fabric.embeddings.using(model='text-embedding-ada-002'))
     """
-    env.Env.get().require_package('synapse.ml.fabric')
-
     if model_kwargs is None:
         model_kwargs = {}
 

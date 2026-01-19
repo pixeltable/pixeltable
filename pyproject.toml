@@ -65,7 +65,7 @@ dependencies = [
     "puremagic>=1.20",
     "ftfy>=6.2.0",
     "pydantic>=2.7.4",
-    "pyarrow>=19",
+    "pyarrow>=17",
     "pixeltable-pgserver==0.5.0",
     "tzlocal>=5.0",
     "aiohttp>=3.10",
