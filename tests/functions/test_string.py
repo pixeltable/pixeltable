@@ -75,7 +75,7 @@ class TestString:
         '',
     )
 
-    def test_all(self, reset_db: None) -> None:
+    def test_all(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -141,7 +141,7 @@ class TestString:
             assert isinstance(mref, exprs.MethodRef)
             assert mref.method_name == pxt_fn.name, pxt_fn
 
-    def test_removeprefix(self, reset_db: None) -> None:
+    def test_removeprefix(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -153,7 +153,7 @@ class TestString:
             else:
                 assert row['out'] == row['s']
 
-    def test_removesuffix(self, reset_db: None) -> None:
+    def test_removesuffix(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -165,7 +165,7 @@ class TestString:
             else:
                 assert row['out'] == row['s']
 
-    def test_replace(self, reset_db: None) -> None:
+    def test_replace(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -179,7 +179,7 @@ class TestString:
         o = len(t.where(t.s3.contains('Mohan')).collect())
         assert n == o
 
-    def test_slice_replace(self, reset_db: None) -> None:
+    def test_slice_replace(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -188,7 +188,7 @@ class TestString:
         for row in res:
             assert row['out'] == row['s'][:50] + 'abc' + row['s'][51:]
 
-    def test_partition(self, reset_db: None) -> None:
+    def test_partition(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -201,7 +201,7 @@ class TestString:
             assert len(row['parts'][0]) == row['s'].find('IBM')
             assert row['parts'][1] == 'IBM'
 
-    def test_rpartition(self, reset_db: None) -> None:
+    def test_rpartition(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -214,7 +214,7 @@ class TestString:
             assert len(row['parts'][0]) == row['s'].rfind('IBM')
             assert row['parts'][1] == 'IBM'
 
-    def test_wrap(self, reset_db: None) -> None:
+    def test_wrap(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -225,14 +225,14 @@ class TestString:
         for row in res:
             assert row['out'] == textwrap.wrap(row['s'], 5)
 
-    def test_slice(self, reset_db: None) -> None:
+    def test_slice(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
         res = t.select(t.s, out=t.s.slice(0, 4)).collect()
         for row in res:
             assert row['out'] == row['s'][0:4]
 
-    def test_match(self, reset_db: None) -> None:
+    def test_match(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -240,7 +240,7 @@ class TestString:
         assert len(t.where(t.s.match('Codd')).collect()) == 2
         assert len(t.where(t.s.match('codd', case=False)).collect()) == 2
 
-    def test_fullmatch(self, reset_db: None) -> None:
+    def test_fullmatch(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -248,14 +248,14 @@ class TestString:
         assert len(t.where(t.s.fullmatch('F')).collect()) == 1
         assert len(t.where(t.s.fullmatch('f', case=False)).collect()) == 1
 
-    def test_pad(self, reset_db: None) -> None:
+    def test_pad(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
         res = t.select(t.s, out=t.s.pad(width=100, side='both')).collect()
         for row in res:
             assert row['out'] == row['s'].center(100)
 
-    def test_normalize(self, reset_db: None) -> None:
+    def test_normalize(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -263,7 +263,7 @@ class TestString:
         for row in res:
             assert row['out'] == unicodedata.normalize('NFC', row['s'])
 
-    def test_repeat(self, reset_db: None) -> None:
+    def test_repeat(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String, 'n': pxt.Int})
         strs = ['a', 'b', 'c', 'd', 'e']
         validate_update_status(t.insert({'s': s, 'n': n} for n, s in enumerate(strs)), expected_rows=len(strs))
@@ -271,7 +271,7 @@ class TestString:
         for row in res:
             assert row['out'] == row['s'] * row['n']
 
-    def test_contains(self, reset_db: None) -> None:
+    def test_contains(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -288,7 +288,7 @@ class TestString:
             'ibm' in s.lower() for s in self.TEST_STRS
         ]
 
-    def test_index(self, reset_db: None) -> None:
+    def test_index(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in self.TEST_STRS), expected_rows=len(self.TEST_STRS))
 
@@ -308,7 +308,7 @@ class TestString:
         for s, idx in zip(res['s'], res['idx']):
             assert s[idx : idx + 3] == 'IBM'
 
-    def test_format(self, reset_db: None) -> None:
+    def test_format(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
 
         t.add_computed_column(s1=format('ABC {0}', t.input, t.input))
@@ -328,7 +328,7 @@ class TestString:
         row = t.head()[1]
         assert row == {'input': 'PQR', 's1': 'ABC PQR', 's2': 'DEF PQR', 's3': 'GHI PQR JKL PQR'}
 
-    def test_string_splitter(self, reset_db: None) -> None:
+    def test_string_splitter(self, uses_db: None) -> None:
         skip_test_if_not_installed('spacy')
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert([{'s': self.TEST_STR}]), expected_rows=1)
