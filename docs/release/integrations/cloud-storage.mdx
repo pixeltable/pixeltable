@@ -75,7 +75,7 @@ import pixeltable as pxt
 
 # Create a table with input media column
 # (uses global input_media_dest if configured)
-t = pxt.create_table('my_app.images', {'image': pxt.Image})
+t = pxt.create_table('my_app/images', {'image': pxt.Image})
 
 # Add computed column with explicit destination
 t.add_computed_column(
@@ -122,7 +122,7 @@ Destinations are resolved in this order:
     import pixeltable as pxt
 
     # With global config: output_media_dest = "s3://my-bucket/output/"
-    t = pxt.create_table('app.images', {'photo': pxt.Image})
+    t = pxt.create_table('app/images', {'photo': pxt.Image})
 
     # Or set destination per computed column
     t.add_computed_column(
@@ -155,7 +155,7 @@ Destinations are resolved in this order:
   <Tab title="Example">
     ```python
     # With global config: output_media_dest = "gs://my-gcs-bucket/output/"
-    t = pxt.create_table('app.videos', {'video': pxt.Video})
+    t = pxt.create_table('app/videos', {'video': pxt.Video})
 
     # Or set destination per computed column
     t.add_computed_column(
@@ -198,7 +198,7 @@ Destinations are resolved in this order:
   <Tab title="Example">
     ```python
     # With global config: output_media_dest = "wasbs://mycontainer@myaccount.blob.core.windows.net/output/"
-    t = pxt.create_table('app.docs', {'document': pxt.Document})
+    t = pxt.create_table('app/docs', {'document': pxt.Document})
 
     # Or set destination per computed column
     t.add_computed_column(
@@ -235,7 +235,7 @@ Destinations are resolved in this order:
   </Tab>
   <Tab title="Example">
     ```python
-    t = pxt.create_table('app.images', {'image': pxt.Image})
+    t = pxt.create_table('app/images', {'image': pxt.Image})
 
     t.add_computed_column(
         rotated=t.image.rotate(90),
@@ -271,7 +271,7 @@ Destinations are resolved in this order:
   </Tab>
   <Tab title="Example">
     ```python
-    t = pxt.create_table('app.audio', {'audio': pxt.Audio})
+    t = pxt.create_table('app/audio', {'audio': pxt.Audio})
 
     t.add_computed_column(
         segments=pxt.functions.video.audio_splitter(t.audio, chunk_duration_sec=30),
@@ -307,7 +307,7 @@ Destinations are resolved in this order:
   </Tab>
   <Tab title="Example">
     ```python
-    t = pxt.create_table('app.media', {'file': pxt.Image})
+    t = pxt.create_table('app/media', {'file': pxt.Image})
 
     t.add_computed_column(
         thumbnail=t.file.resize((128, 128)),
@@ -338,7 +338,7 @@ import pixeltable as pxt
 from pixeltable.functions import openai
 
 # Create a table — input media automatically goes to input_media_dest
-t = pxt.create_table('production.photos', {'photo': pxt.Image})
+t = pxt.create_table('production/photos', {'photo': pxt.Image})
 
 # Add a computed column for thumbnails
 # Uses output_media_dest by default, or specify a custom destination

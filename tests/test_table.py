@@ -98,7 +98,7 @@ class TestTable:
         pxt.create_dir('dir1')
         schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp}
         tbl = pxt.create_table('test', schema)
-        _ = pxt.create_table('dir1.test', schema)
+        _ = pxt.create_table('dir1/test', schema)
 
         with pytest.raises(pxt.Error, match='Invalid path: 1test'):
             pxt.create_table('1test', schema)
@@ -109,7 +109,7 @@ class TestTable:
         with pytest.raises(pxt.Error, match='is an existing table'):
             pxt.create_table('test', schema)
         with pytest.raises(pxt.Error, match='does not exist'):
-            pxt.create_table('dir2.test2', schema)
+            pxt.create_table('dir2/test2', schema)
         with pytest.raises(pxt.Error, match='Creating a table directly from a cloud URI is not supported'):
             pxt.create_table('test', source='pxt://some/remote/table')
 
@@ -135,16 +135,16 @@ class TestTable:
         pxt.move('test', 'test2')
 
         pxt.drop_table('test2')
-        pxt.drop_table('dir1.test')
+        pxt.drop_table('dir1/test')
 
         # test create with hyphens
         pxt.create_dir('hyphenated-dir')
-        _ = pxt.create_table('hyphenated-dir.hyphenated-table', schema)
+        _ = pxt.create_table('hyphenated-dir/hyphenated-table', schema)
 
         with pytest.raises(pxt.Error, match="Path 'test' does not exist"):
             pxt.drop_table('test')
-        with pytest.raises(pxt.Error, match=r"Path 'dir1.test2' does not exist"):
-            pxt.drop_table('dir1.test2')
+        with pytest.raises(pxt.Error, match=r"Path 'dir1/test2' does not exist"):
+            pxt.drop_table('dir1/test2')
         with pytest.raises(pxt.Error, match=r'Invalid path: .test2'):
             pxt.drop_table('.test2')
         with pytest.raises(pxt.Error, match='Versioned path not allowed here: test2:120'):
@@ -285,8 +285,8 @@ class TestTable:
         skip_test_if_not_installed('transformers')  # we need a `clip_embed` instance to test index metadata
 
         pxt.create_dir('dir')
-        pxt.create_dir('dir.subdir')
-        for tbl_path, media_val in (('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')):
+        pxt.create_dir('dir/subdir')
+        for tbl_path, media_val in (('test', 'on_read'), ('dir/test', 'on_write'), ('dir/subdir/test', 'on_read')):
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
@@ -301,8 +301,8 @@ class TestTable:
                 additional_columns={'col2': tbl.col + 'x'},
             )
             assert tbl._path() == tbl_path
-            assert tbl._name == tbl_path.split('.')[-1]
-            assert tbl._parent()._path() == '.'.join(tbl_path.split('.')[:-1])
+            assert tbl._name == tbl_path.split('/')[-1]
+            assert tbl._parent()._path() == '/'.join(tbl_path.split('/')[:-1])
 
             assert_table_metadata_eq(
                 {
@@ -1097,8 +1097,8 @@ class TestTable:
         # force=True should not raise an error, irrespective of if_not_exists value
         pxt.drop_table(non_existing_t, force=True)
         # same if the parent dir does not exist
-        pxt.drop_table('not_a_parent_dir.non_existing_table', if_not_exists='ignore')
-        pxt.drop_table('not_a_parent_dir.non_existing_table', force=True)
+        pxt.drop_table('not_a_parent_dir/non_existing_table', if_not_exists='ignore')
+        pxt.drop_table('not_a_parent_dir/non_existing_table', force=True)
         assert table_list == pxt.list_tables()
 
     def test_image_table(self, uses_db: None) -> None:
