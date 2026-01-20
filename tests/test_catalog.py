@@ -139,7 +139,7 @@ class TestCatalog:
         assert str(unix_appended) == 'a/b/c/d'
         assert dotted_appended.components == unix_appended.components == ('a', 'b', 'c', 'd')
 
-    def test_ls(self, reset_db: None) -> None:
+    def test_ls(self, uses_db: None) -> None:
         t = pxt.create_table('tbl_for_replica', {'a': pxt.Int})
         snapshot = pxt.create_snapshot('snapshot_for_replica', t)
         packager = TablePackager(snapshot)

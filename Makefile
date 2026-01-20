@@ -171,7 +171,7 @@ formatcheck: install
 	@ruff format --check pixeltable tests tool
 	@echo 'Running `ruff check --select I` ...'
 	@ruff check --select I pixeltable tests tool
-	@echo 'Checking notebooks...'
+	@echo 'Running `./scripts/notebooks-markdown.sh check` ...'
 	@./scripts/notebooks-markdown.sh check
 
 .PHONY: format
@@ -180,7 +180,7 @@ format: install
 	@ruff format pixeltable tests tool
 	@echo 'Running `ruff check --select I --fix` ...'
 	@ruff check --select I --fix pixeltable tests tool
-	@echo 'Formatting notebooks...'
+	@echo 'Running `./scripts/notebooks-markdown.sh format` ...'
 	@./scripts/notebooks-markdown.sh format
 
 .PHONY: release

@@ -18,7 +18,7 @@ def _reset_env(reinit: bool, db_name: str) -> None:
 class TestEnvReset:
     """Run tests for env reset"""
 
-    def test_basic(self, reset_db: None) -> None:
+    def test_basic(self, uses_db: None) -> None:
         """Test basic env clear functionality."""
         # Set environment
         dbname = 'test_basic_db'
@@ -43,7 +43,7 @@ class TestEnvReset:
         assert t is not None
         assert t.count() == 1
 
-    def test_switch_environments(self, reset_db: None) -> None:
+    def test_switch_environments(self, uses_db: None) -> None:
         """Test switching between two environments."""
         dbname1 = 'test_switch_environments_db1'
         dbname2 = 'test_switch_environments_db2'
@@ -82,7 +82,7 @@ class TestEnvReset:
         with pytest.raises(excs.Error):
             pxt.get_table('table2')
 
-    def test_metadata_persistence(self, reset_db: None) -> None:
+    def test_metadata_persistence(self, uses_db: None) -> None:
         """Test that metadata persists across environment switches."""
         metadata_db = 'test_metadata_persistence_db'
         # Environment 1 setup
