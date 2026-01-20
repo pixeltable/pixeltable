@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable, Iterator
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import sqlalchemy as sql
 
@@ -60,13 +61,36 @@ class SimilarityExpr(Expr):
 
     def sql_expr(self, _: SqlElementCache) -> sql.ColumnElement | None:
         from pixeltable.index import EmbeddingIndex
+        import logging
+        _logger = logging.getLogger('pixeltable')
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
         if not isinstance(self.components[1], Literal):
             raise excs.Error('similarity(): requires a value, not an expression')
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
-        return idx_info.idx.similarity_clause(idx_info.val_col, self.components[1])
+        
+        # Debug logging
+        _logger.debug(f'SimilarityExpr.sql_expr:')
+        _logger.debug(f'  components[0] (col_ref): {self.components[0]}')
+        _logger.debug(f'    col.name: {self.components[0].col.name}')
+        _logger.debug(f'    col.id: {self.components[0].col.id}')
+        _logger.debug(f'    col.col_type: {self.components[0].col.col_type}')
+        _logger.debug(f'    col.has_sa_vector_type(): {self.components[0].col.has_sa_vector_type()}')
+        _logger.debug(f'  idx_info.col (original column): name={idx_info.col.name}, id={idx_info.col.id}, type={idx_info.col.col_type}')
+        _logger.debug(f'  idx_info.val_col (index value column): name={idx_info.val_col.name}, id={idx_info.val_col.id}, type={idx_info.val_col.col_type}')
+        _logger.debug(f'    val_col.has_sa_vector_type(): {idx_info.val_col.has_sa_vector_type()}')
+        _logger.debug(f'    val_col.sa_col_type: {type(idx_info.val_col.sa_col_type)}')
+        
+        # val_col should be the index value column (vector column), not the original array column
+        assert idx_info.val_col.has_sa_vector_type(), \
+            f'val_col should be a vector column, but got column {idx_info.val_col.name} (id={idx_info.val_col.id}) with type {type(idx_info.val_col.sa_col_type)}'
+        assert idx_info.val_col.id != idx_info.col.id, \
+            f'val_col (id={idx_info.val_col.id}) should be different from the original column (id={idx_info.col.id})'
+        
+        similarity_clause = idx_info.idx.similarity_clause(idx_info.val_col, self.components[1])
+        _logger.debug(f'  similarity_clause: {similarity_clause}')
+        return similarity_clause
 
     def as_order_by_clause(self, is_asc: bool) -> sql.ColumnElement | None:
         from pixeltable.index import EmbeddingIndex

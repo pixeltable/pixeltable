@@ -65,6 +65,7 @@ class EmbeddingIndex(IndexBase):
         image_embed: func.Function | None = None,
         audio_embed: func.Function | None = None,
         video_embed: func.Function | None = None,
+        column: catalog.Column | None = None,
     ):
         if embed is None and string_embed is None and image_embed is None:
             raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified')
@@ -109,7 +110,7 @@ class EmbeddingIndex(IndexBase):
 
         # Now validate the return types of the embedding functions.
         for _, embed_fn in self.embeddings.items():
-            self._validate_embedding_fn(embed_fn)
+            self._validate_embedding_fn(embed_fn, column=column)
 
         self.metric = self.Metric[metric.upper()]
         try:
@@ -124,13 +125,18 @@ class EmbeddingIndex(IndexBase):
             ts.ColumnType.Type.IMAGE,
             ts.ColumnType.Type.AUDIO,
             ts.ColumnType.Type.VIDEO,
+            ts.ColumnType.Type.ARRAY,
         ):
             raise excs.Error(f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.')
+        
+        # For ARRAY columns, return column reference directly - array already contains the embeddings
+        if c.col_type._type == ts.ColumnType.Type.ARRAY:
+            return exprs.ColumnRef(c)
+        # For non-array columns, apply the embedding function
         if c.col_type._type not in self.embeddings:
             raise excs.Error(
                 f'The specified embedding function does not support the type `{c.col_type}` of column {c.name!r}.'
             )
-
         embed_fn = self.embeddings[c.col_type._type]
         return embed_fn(exprs.ColumnRef(c))
 
@@ -251,7 +257,7 @@ class EmbeddingIndex(IndexBase):
         return None
 
     @classmethod
-    def _validate_embedding_fn(cls, embed_fn: func.Function) -> None:
+    def _validate_embedding_fn(cls, embed_fn: func.Function, column: catalog.Column | None = None) -> None:
         """Validate the given embedding function."""
         assert not embed_fn.is_polymorphic
 
@@ -275,6 +281,30 @@ class EmbeddingIndex(IndexBase):
                 f'it returns an array of invalid length {shape[0]}'
             )
 
+        # If column is an array type, validate that the embedding function's return type matches
+        if column is not None and column.col_type._type == ts.ColumnType.Type.ARRAY:
+            # Validate shape compatibility
+            if (
+                shape is not None
+                and column.col_type.shape is not None
+                and shape != column.col_type.shape
+            ):
+                raise excs.Error(
+                    f'The function `{embed_fn.name}` returns an array with shape {shape}, '
+                    f'but column {column.name!r} requires shape {column.col_type.shape}'
+                )
+            
+            # Validate dtype compatibility
+            if (
+                return_type.dtype is not None
+                and column.col_type.dtype is not None
+                and return_type.dtype != column.col_type.dtype
+            ):
+                raise excs.Error(
+                    f'The function `{embed_fn.name}` returns an array with dtype {return_type.dtype}, '
+                    f'but column {column.name!r} requires dtype {column.col_type.dtype}'
+                )
+
     def as_dict(self) -> dict:
         d: dict[str, Any] = {'metric': self.metric.name.lower(), 'precision': self.precision.value}
         for embed_type, embed_fn in self.embeddings.items():
@@ -284,15 +314,17 @@ class EmbeddingIndex(IndexBase):
 
     @classmethod
     def from_dict(cls, d: dict) -> EmbeddingIndex:
+        embed = func.Function.from_dict(d['embed']) if d.get('embed') is not None else None
         string_embed = func.Function.from_dict(d['string_embed']) if d.get('string_embed') is not None else None
         image_embed = func.Function.from_dict(d['image_embed']) if d.get('image_embed') is not None else None
         audio_embed = func.Function.from_dict(d['audio_embed']) if d.get('audio_embed') is not None else None
         video_embed = func.Function.from_dict(d['video_embed']) if d.get('video_embed') is not None else None
         return cls(
             metric=d['metric'],
+            precision=d['precision'],
+            embed=embed,
             string_embed=string_embed,
             image_embed=image_embed,
             audio_embed=audio_embed,
             video_embed=video_embed,
-            precision=d['precision'],
         )

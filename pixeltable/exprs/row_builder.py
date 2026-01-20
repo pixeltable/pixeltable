@@ -179,6 +179,37 @@ class RowBuilder:
 
             self.add_table_column(col, expr.slot_idx)
             self.output_exprs.add(expr)
+        
+        # Debug logging for row builder
+        import logging
+        _logger = logging.getLogger('pixeltable')
+        _logger.debug(f'RowBuilder.__init__:')
+        _logger.debug(f'  output_exprs ({len(self.output_exprs)}):')
+        for expr in self.output_exprs:
+            _logger.debug(f'    {type(expr).__name__}: {expr} (slot_idx={expr.slot_idx}, id={expr.id})')
+            if hasattr(expr, 'components'):
+                _logger.debug(f'      components: {[type(c).__name__ + (f"({c.col.name}, id={c.id}, slot_idx={c.slot_idx})" if isinstance(c, ColumnRef) else f"(id={c.id}, slot_idx={c.slot_idx})") for c in expr.components]}')
+        _logger.debug(f'  input_exprs ({len(self.input_exprs)}):')
+        for expr in self.input_exprs:
+            _logger.debug(f'    {type(expr).__name__}: {expr} (slot_idx={expr.slot_idx}, id={expr.id})')
+        _logger.debug(f'  table_columns: {[(col.name if col.name else f"col_id={col.id}", slot_idx) for col, slot_idx in self.table_columns.items()]}')
+        
+        # Check for duplicate ColumnRefs with same column but different slot_idx
+        col_refs_by_col_id = {}
+        for expr in self.unique_exprs:
+            if isinstance(expr, ColumnRef):
+                col_id = expr.col.id
+                if col_id not in col_refs_by_col_id:
+                    col_refs_by_col_id[col_id] = []
+                col_refs_by_col_id[col_id].append(expr)
+        duplicates = {col_id: refs for col_id, refs in col_refs_by_col_id.items() if len(refs) > 1}
+        if duplicates:
+            _logger.debug(f'  DUPLICATE ColumnRefs found (same column, different expr instances):')
+            for col_id, refs in duplicates.items():
+                col_name = refs[0].col.name if refs[0].col.name else f"col_id={col_id}"
+                slot_idxs = [r.slot_idx for r in refs]
+                ids = [r.id for r in refs]
+                _logger.debug(f'    {col_name}: {len(refs)} refs, slot_idxs={slot_idxs}, ids={ids}, same_id={len(set(ids)) == 1}')
 
         # default eval ctx: all output exprs
         self.default_eval_ctx = self.create_eval_ctx(list(self.output_exprs), exclude=unique_input_exprs)
@@ -467,10 +498,34 @@ class RowBuilder:
         ignore_errors: if False, raises ExprEvalError if any expr.eval() raises an exception
         force_eval: forces exprs in the specified scope to be reevaluated, even if they already have a value
         """
+        import logging
+        from .column_ref import ColumnRef
+        _logger = logging.getLogger('pixeltable')
+        
+        _logger.debug(f'RowBuilder.eval: Starting evaluation with {len(ctx.exprs)} expressions')
+        _logger.debug(f'RowBuilder.eval: ctx.slot_idxs={ctx.slot_idxs}')
+        for i, expr in enumerate(ctx.exprs):
+            expr_type = type(expr).__name__
+            if isinstance(expr, ColumnRef):
+                _logger.debug(f'RowBuilder.eval: ctx.exprs[{i}] = ColumnRef {expr.col.name if expr.col.name else f"col_id={expr.col.id}"} (slot_idx={expr.slot_idx}, id={expr.id})')
+            else:
+                _logger.debug(f'RowBuilder.eval: ctx.exprs[{i}] = {expr_type} (slot_idx={expr.slot_idx}, id={expr.id})')
+        
+        eval_counts = {}  # Track how many times each slot_idx is evaluated
         for expr in ctx.exprs:
             assert expr.slot_idx >= 0
+            slot_idx = expr.slot_idx
+            if slot_idx not in eval_counts:
+                eval_counts[slot_idx] = 0
+            
             if expr.scope() != force_eval and (data_row.has_val[expr.slot_idx] or data_row.has_exc(expr.slot_idx)):
+                _logger.debug(f'RowBuilder.eval: Skipping {type(expr).__name__} (slot_idx={slot_idx}, id={expr.id}) - already has value or exception')
                 continue
+            
+            eval_counts[slot_idx] += 1
+            if isinstance(expr, ColumnRef):
+                _logger.debug(f'RowBuilder.eval: Evaluating ColumnRef {expr.col.name if expr.col.name else f"col_id={expr.col.id}"} (slot_idx={slot_idx}, id={expr.id}, eval_count={eval_counts[slot_idx]})')
+            
             try:
                 start_time = time.perf_counter()
                 expr.eval(data_row, self)
@@ -485,6 +540,11 @@ class RowBuilder:
                     raise excs.ExprEvalError(
                         expr, f'expression {expr}', data_row.get_exc(expr.slot_idx), exc_tb, input_vals, 0
                     ) from exc
+        
+        # Log if any slot_idx was evaluated multiple times
+        duplicates = {slot_idx: count for slot_idx, count in eval_counts.items() if count > 1}
+        if duplicates:
+            _logger.debug(f'RowBuilder.eval: DUPLICATE EVALUATIONS detected: {duplicates}')
 
     def create_store_table_row(
         self, data_row: DataRow, cols_with_excs: set[int] | None, pk: tuple[int, ...]

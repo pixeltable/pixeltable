@@ -111,30 +111,54 @@ class CellReconstructionNode(ExecNode):
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
         async for batch in self.input:
             for row in batch:
+                # Deduplicate by slot_idx (similar to how SqlNode uses slot_idx as key)
+                # This prevents reconstructing the same slot_idx twice when duplicate ColumnRefs exist
+                processed_json_slots = set()
                 for col_ref in self.json_refs:
-                    val = row[col_ref.slot_idx]
+                    slot_idx = col_ref.slot_idx
+                    if slot_idx in processed_json_slots:
+                        continue
+                    processed_json_slots.add(slot_idx)
+                    
+                    val = row[slot_idx]
                     if val is None:
                         continue
-                    cell_md = row.slot_md.get(col_ref.slot_idx)
-                    if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(row[col_ref.slot_idx]):
+                    cell_md = row.slot_md.get(slot_idx)
+                    if cell_md is None or cell_md.file_urls is None or not json_has_inlined_objs(row[slot_idx]):
                         continue
-                    row[col_ref.slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
+                    row[slot_idx] = reconstruct_json(val, cell_md.file_urls, self.file_handles)
 
+                # Deduplicate by slot_idx to avoid reconstructing the same column twice
+                # (can happen when SimilarityExpr.components[0] contains the same ColumnRef as explicit selection)
+                processed_array_slots = set()
                 for col_ref in self.array_refs:
-                    cell_md = row.slot_md.get(col_ref.slot_idx)
+                    slot_idx = col_ref.slot_idx
+                    if slot_idx in processed_array_slots:
+                        continue
+                    processed_array_slots.add(slot_idx)
+                    
+                    cell_md = row.slot_md.get(slot_idx)
                     if cell_md is not None and cell_md.array_md is not None:
-                        assert row[col_ref.slot_idx] is None
-                        row[col_ref.slot_idx] = self._reconstruct_array(cell_md)
+                        # Arrays stored externally need reconstruction
+                        assert row[slot_idx] is None
+                        row[slot_idx] = self._reconstruct_array(cell_md)
                     else:
-                        assert isinstance(row[col_ref.slot_idx], (NoneType, np.ndarray))
+                        assert isinstance(row[slot_idx], (NoneType, np.ndarray))
 
+                # Deduplicate by slot_idx
+                processed_binary_slots = set()
                 for col_ref in self.binary_refs:
-                    cell_md = row.slot_md.get(col_ref.slot_idx)
+                    slot_idx = col_ref.slot_idx
+                    if slot_idx in processed_binary_slots:
+                        continue
+                    processed_binary_slots.add(slot_idx)
+                    
+                    cell_md = row.slot_md.get(slot_idx)
                     if cell_md is not None and cell_md.binary_md is not None:
-                        assert row[col_ref.slot_idx] is None
-                        row[col_ref.slot_idx] = self._reconstruct_binary(cell_md)
+                        assert row[slot_idx] is None
+                        row[slot_idx] = self._reconstruct_binary(cell_md)
                     else:
-                        assert isinstance(row[col_ref.slot_idx], (NoneType, bytes))
+                        assert isinstance(row[slot_idx], (NoneType, bytes))
 
             yield batch
 

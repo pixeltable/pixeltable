@@ -985,3 +985,65 @@ class TestIndex:
         sim = t.text.similarity(string='one')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
+
+    def test_string_embedding_debug(self, reset_db: None, e5_embed: pxt.Function) -> None:
+        """Debug test for string column with string embedding function."""
+        skip_test_if_not_installed('transformers')
+        import logging
+        logging.basicConfig(level=logging.DEBUG, format='%(levelname)s %(name)s: %(message)s')
+        _logger = logging.getLogger('pixeltable')
+        
+        # Create a table with text column
+        t = pxt.create_table(
+            'string_embedding_debug_test',
+            {
+                'id': pxt.Int,
+                'text': pxt.String,
+            },
+            if_exists='replace',
+        )
+        
+        # Insert text rows
+        texts = [
+            'a cat sitting on a mat',
+            'a dog playing in the park',
+            'a bird flying in the sky',
+        ]
+        rows = [{'id': i, 'text': text} for i, text in enumerate(texts)]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+        
+        # Add embedding index on the string column
+        _logger.debug('Adding embedding index...')
+        t.add_embedding_index(
+            'text',
+            idx_name='text_idx',
+            embedding=e5_embed,
+            metric='cosine',
+            precision='fp32',
+        )
+        
+        # Get index info
+        col = t._tbl_version_path.get_column('text')
+        assert col is not None
+        idx_info = t._tbl_version.get().get_idx(col, 'text_idx', pxt.index.EmbeddingIndex)
+        assert idx_info is not None
+        idx = idx_info.idx
+        assert isinstance(idx, pxt.index.EmbeddingIndex)
+        
+        _logger.debug(f'Index info:')
+        _logger.debug(f'  idx_info.col (original): name={idx_info.col.name}, id={idx_info.col.id}, type={idx_info.col.col_type}')
+        _logger.debug(f'  idx_info.val_col (index value): name={idx_info.val_col.name}, id={idx_info.val_col.id}, type={idx_info.val_col.col_type}')
+        _logger.debug(f'    val_col.has_sa_vector_type(): {idx_info.val_col.has_sa_vector_type()}')
+        _logger.debug(f'    val_col.sa_col_type: {type(idx_info.val_col.sa_col_type)}')
+        
+        # Test similarity search using text queries
+        _logger.debug('Creating query with similarity search...')
+        query_text = 'a cat'
+        sim = t.text.similarity(string=query_text, idx='text_idx')
+        query = t.select(t.id, t.text, sim=sim)
+        
+        _logger.debug('Collecting results...')
+        res = query.order_by(sim, asc=False).limit(3).collect()
+        
+        _logger.debug(f'Results: {res}')
+        assert len(res) == 3
