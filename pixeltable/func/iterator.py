@@ -1,8 +1,9 @@
 import inspect
+import itertools
 import typing
 from collections import abc
 from dataclasses import dataclass
-from typing import Any, Callable, Iterator, NamedTuple, overload
+from typing import Any, Callable, Iterable, Iterator, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.iterators.base import ComponentIterator
@@ -11,44 +12,71 @@ from .signature import Signature
 
 
 class PxtIterator:
-    py_fn: Callable
+    decorated_callable: Callable
+    is_class_based: bool
+    init_fn: Callable
     _default_output_schema: dict[str, ts.ColumnType] | None
     signature: Signature
 
-    def __init__(self, py_fn: Callable, unstored_cols: list[str]) -> None:
-        self.py_fn = py_fn
-        self._default_output_schema = self._infer_output_schema(py_fn)
-        self.signature = Signature.create(py_fn, return_type=ts.JsonType())
+    def __init__(self, decorated_callable: Callable, unstored_cols: list[str]) -> None:
+        self.decorated_callable = decorated_callable
+        self._default_output_schema = self._infer_output_schema(decorated_callable)
+        self.signature = Signature.create(decorated_callable, return_type=ts.JsonType())
 
-    @classmethod
-    def _infer_output_schema(cls, py_fn: Callable) -> dict[str, ts.ColumnType] | None:
-        py_sig = inspect.signature(py_fn)
-        return_type = py_sig.return_annotation
-        return_type_args = typing.get_args(return_type)
-        if (
-            typing.get_origin(return_type) is not abc.Iterator
-            or len(return_type_args) != 1
-            or not isinstance(return_type_args[0], type)
-            or not issubclass(return_type_args[0], dict)
-        ):
-            raise excs.Error(
-                f'@pxt.iterator-decorated function `{py_fn.__name__}` must have return type Iterator[dict] or Iterator[MyTypedDict]'
-            )
+    def _infer_output_schema(self, decorated_callable: Callable) -> dict[str, ts.ColumnType] | None:
+        if isinstance(decorated_callable, type):
+            if not hasattr(decorated_callable, '__init__') or not hasattr(decorated_callable, '__next__'):
+                raise excs.Error(
+                    '@pxt.iterator-decorated class '
+                    f'`{decorated_callable.__module__}.{decorated_callable.__qualname__}` '
+                    'must define `__init__()` and `__next__()` methods.'
+                )
+            self.init_fn = decorated_callable.__init__
+            py_sig = inspect.signature(decorated_callable.__next__)
+            output_schema_type = py_sig.return_annotation
+            if not isinstance(output_schema_type, type) or not issubclass(output_schema_type, dict):
+                raise excs.Error(
+                    '@pxt.iterator-decorated class '
+                    f'`{decorated_callable.__module__}.{decorated_callable.__qualname__}` '
+                    'must have `__next__()` return type `dict` or `MyTypedDict`.'
+                )
 
-        output_schema_type = typing.get_args(return_type)[0]
+        else:
+            self.init_fn = decorated_callable
+            py_sig = inspect.signature(decorated_callable)
+            return_type = py_sig.return_annotation
+            return_type_args = typing.get_args(return_type)
+            if (
+                typing.get_origin(return_type) is not abc.Iterator
+                or len(return_type_args) != 1
+                or not isinstance(return_type_args[0], type)
+                or not issubclass(return_type_args[0], dict)
+            ):
+                raise excs.Error(
+                    '@pxt.iterator-decorated function '
+                    f'`{decorated_callable.__module__}.{decorated_callable.__qualname__}()` '
+                    'must have return type `Iterator[dict]` or `Iterator[MyTypedDict]`.'
+                )
+            output_schema_type = return_type_args[0]
+
         if not hasattr(output_schema_type, '__orig_bases__') or not hasattr(output_schema_type, '__annotations__'):
-            return None  # Not a TypedDict
-        annotations = output_schema_type.__annotations__
+            # The return type is a dict, but not a TypedDict. There is no way to infer the output schema at this stage;
+            # the user must later define an appropriate conditional_output_schema.
+            return None
+
+        annotations = output_schema_type.__annotations__.items()
         output_schema: dict[str, ts.ColumnType] = {}
-        for name, type_ in annotations.items():
+        for name, type_ in annotations:
             col_type = ts.ColumnType.from_python_type(type_)
             if col_type is None:
                 raise excs.Error(
-                    f'Could not infer Pixeltable type for output field {name!r} (with Python type `{type_.__name__}`).\n'
-                    f'This field was mentioned in the return type `{output_schema_type.__name__}` '
-                    f'in iterator function `{py_fn.__name__}`.'
+                    f'Could not infer Pixeltable type for output field {name!r} (with Python type `{type_.__name__}`).'
+                    '\nThis field was mentioned in the return type '
+                    f'`{output_schema_type.__module__}.{output_schema_type.__qualname__}` '
+                    f'in iterator `{decorated_callable.__module__}.{decorated_callable.__qualname__}`.'
                 )
             output_schema[name] = col_type
+
         return output_schema
 
     def output_schema(self, **kwargs: Any) -> dict[str, ts.ColumnType]:
@@ -56,7 +84,7 @@ class PxtIterator:
         return self._default_output_schema
 
     def __call__(self, *args: Any, **kwargs: Any) -> 'IteratorCall':
-        py_sig = inspect.signature(self.py_fn)
+        py_sig = inspect.signature(self.init_fn)
         args = [exprs.Expr.from_object(arg) for arg in args]
         kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
 
@@ -76,17 +104,17 @@ class PxtIterator:
         return IteratorCall(self, args, kwargs, bound_args, output_schema)
 
     def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
-        return self.py_fn(**bound_args)
+        return self.decorated_callable(**bound_args)
 
     def _retrofit(iterator_cls: type[ComponentIterator], iterator_args: dict[str, Any]) -> 'PxtIterator':
         it = PxtIterator.__new__(PxtIterator)
-        it.py_fn = iterator_cls.__init__
+        it.decorated_callable = iterator_cls.__init__
         it._default_output_schema = iterator_cls.output_schema()
         it.signature = Signature.create(iterator_cls.__init__, return_type=ts.JsonType())
 
     @property
     def fqn(self) -> str:
-        return f'{self.py_fn.__module__}.{self.py_fn.__qualname__}'
+        return f'{self.decorated_callable.__module__}.{self.decorated_callable.__qualname__}'
 
 
 @dataclass
@@ -108,7 +136,7 @@ def iterator(*, unstored_cols: list[str] | None = None) -> Callable[[Callable], 
 
 def iterator(*args, **kwargs):  # type: ignore[no-untyped-def]
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
-        return PxtIterator(py_fn=args[0], unstored_cols=[])
+        return PxtIterator(decorated_callable=args[0], unstored_cols=[])
     else:
         unstored_cols = kwargs.pop('unstored_cols', None)
         if len(kwargs) > 0:
@@ -117,6 +145,6 @@ def iterator(*args, **kwargs):  # type: ignore[no-untyped-def]
             raise excs.Error('Unexpected @iterator decorator arguments.')
 
         def decorator(decorated_fn: Callable) -> PxtIterator:
-            return PxtIterator(py_fn=decorated_fn, unstored_cols=unstored_cols)
+            return PxtIterator(decorated_callable=decorated_fn, unstored_cols=unstored_cols)
 
         return decorator
