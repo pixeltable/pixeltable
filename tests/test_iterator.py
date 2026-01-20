@@ -1,4 +1,5 @@
 from typing import Iterator, TypedDict
+
 import pixeltable as pxt
 from tests.utils import ReloadTester
 

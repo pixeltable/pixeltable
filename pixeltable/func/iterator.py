@@ -1,12 +1,14 @@
-from collections import abc
 import inspect
 import typing
+from collections import abc
+from dataclasses import dataclass
 from typing import Any, Callable, Iterator, NamedTuple, overload
 
-from pixeltable.iterators.base import ComponentIterator
-from .signature import Signature
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from dataclasses import dataclass
+from pixeltable.iterators.base import ComponentIterator
+
+from .signature import Signature
+
 
 class PxtIterator:
     py_fn: Callable
@@ -23,8 +25,15 @@ class PxtIterator:
         py_sig = inspect.signature(py_fn)
         return_type = py_sig.return_annotation
         return_type_args = typing.get_args(return_type)
-        if typing.get_origin(return_type) is not abc.Iterator or len(return_type_args) != 1 or not isinstance(return_type_args[0], type) or not issubclass(return_type_args[0], dict):
-            raise excs.Error(f'@pxt.iterator-decorated function `{py_fn.__name__}` must have return type Iterator[dict] or Iterator[MyTypedDict]')
+        if (
+            typing.get_origin(return_type) is not abc.Iterator
+            or len(return_type_args) != 1
+            or not isinstance(return_type_args[0], type)
+            or not issubclass(return_type_args[0], dict)
+        ):
+            raise excs.Error(
+                f'@pxt.iterator-decorated function `{py_fn.__name__}` must have return type Iterator[dict] or Iterator[MyTypedDict]'
+            )
 
         output_schema_type = typing.get_args(return_type)[0]
         if not hasattr(output_schema_type, '__orig_bases__') or not hasattr(output_schema_type, '__annotations__'):
@@ -92,8 +101,10 @@ class IteratorCall:
 @overload
 def iterator(decorated_fn: Callable) -> PxtIterator: ...
 
+
 @overload
 def iterator(*, unstored_cols: list[str] | None = None) -> Callable[[Callable], PxtIterator]: ...
+
 
 def iterator(*args, **kwargs):  # type: ignore[no-untyped-def]
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):

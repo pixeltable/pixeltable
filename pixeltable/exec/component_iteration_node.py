@@ -25,9 +25,7 @@ class ComponentIterationNode(ExecNode):
         self.iterator_args = iterator_args[0]
         assert isinstance(self.iterator_args, exprs.InlineDict)
         self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args])
-        self.iterator_output_schema = self.view.get().iterator_cls.output_schema(
-            **self.iterator_args.to_kwargs()
-        )
+        self.iterator_output_schema = self.view.get().iterator_cls.output_schema(**self.iterator_args.to_kwargs())
         self.unstored_column_names = []  # TODO: handle unstored columns
         self.iterator_output_fields = list(self.iterator_output_schema.keys())
         self.iterator_output_cols = {
