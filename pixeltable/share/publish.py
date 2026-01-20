@@ -348,9 +348,9 @@ def _api_headers() -> dict[str, str]:
     api_key = Env.get().pxt_api_key
     if api_key is None:
         raise excs.Error(
-            'Pixeltable API key not found. '
+            'A Pixeltable API key is required to use this feature. '
             'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
-            f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}. '
+            f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
             'For details, see https://docs.pixeltable.com/platform/configuration'
         )
     headers['X-api-key'] = api_key
