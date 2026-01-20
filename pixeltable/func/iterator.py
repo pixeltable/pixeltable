@@ -1,23 +1,23 @@
 from collections import abc
 import inspect
 import typing
-from typing import Any, Callable, Iterator, overload
+from typing import Any, Callable, Iterator, NamedTuple, overload
 from .signature import Signature
 from pixeltable import exceptions as excs, exprs, type_system as ts
 
 
 class PxtIterator:
     py_fn: Callable
-    output_schema: dict[str, ts.ColumnType] | None
+    _default_output_schema: dict[str, ts.ColumnType] | None
     signature: Signature
 
     def __init__(self, py_fn: Callable, unstored_cols: list[str]) -> None:
         self.py_fn = py_fn
-        self.output_schema = self.infer_output_schema(py_fn)
+        self._default_output_schema = self._infer_output_schema(py_fn)
         self.signature = Signature.create(py_fn, return_type=ts.JsonType())
 
     @classmethod
-    def infer_output_schema(cls, py_fn: Callable) -> dict[str, ts.ColumnType] | None:
+    def _infer_output_schema(cls, py_fn: Callable) -> dict[str, ts.ColumnType] | None:
         py_sig = inspect.signature(py_fn)
         return_type = py_sig.return_annotation
         return_type_args = typing.get_args(return_type)
@@ -40,11 +40,36 @@ class PxtIterator:
             output_schema[name] = col_type
         return output_schema
 
+    def output_schema(self, **kwargs: Any) -> dict[str, ts.ColumnType]:
+        assert self._default_output_schema is not None
+        return self._default_output_schema
 
-class IteratorCall:
+    def __call__(self, *args: Any, **kwargs: Any) -> 'IteratorCall':
+        py_sig = inspect.signature(self.py_fn)
+        args = [exprs.Expr.from_object(arg) for arg in args]
+        kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
+
+        # Prompt validation of supplied args and kwargs.
+        try:
+            bound_args = py_sig.bind(*args, **kwargs).arguments
+        except TypeError as exc:
+            raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
+
+        # self_param_name = next(iter(py_sig.parameters))  # can't guarantee it's actually 'self'
+        # del bound_args[self_param_name]
+
+        self.signature.validate_args(bound_args, context=f'in iterator `{self.py_fn.__module__}.{self.py_fn.__qualname__}`')
+        literal_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in bound_args.items()}
+        output_schema = self.output_schema(**literal_args)
+
+        return IteratorCall(self, args, kwargs, output_schema)
+
+
+class IteratorCall(NamedTuple):
     it: PxtIterator
     args: list['exprs.Expr']
     kwargs: dict[str, 'exprs.Expr']
+    output_schema: dict[str, ts.ColumnType]
 
 
 @overload
