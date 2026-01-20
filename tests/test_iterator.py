@@ -24,6 +24,9 @@ class class_based_iterator:
         self.x = x
         self.current = 0
 
+    def __iter__(self) -> Iterator[MyRow]:
+        return self
+
     def __next__(self) -> MyRow:
         if self.current >= self.x:
             raise StopIteration
@@ -33,9 +36,8 @@ class class_based_iterator:
 
 
 def test_iterator(uses_db: None, reload_tester: ReloadTester) -> None:
-    t = pxt.create_table('tbl', schema={'input': pxt.Int})
-
     for n, it in enumerate((simple_iterator, class_based_iterator)):
+        t = pxt.create_table(f'tbl_{n}', schema={'input': pxt.Int})
         v = pxt.create_view(f'view_{n}', t, iterator=it(t.input))
         t.insert([{'input': 3}, {'input': 5}])
         rs = reload_tester.run_query(v.order_by(v.input, v.pos))
