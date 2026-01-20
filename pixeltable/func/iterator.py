@@ -2,9 +2,11 @@ from collections import abc
 import inspect
 import typing
 from typing import Any, Callable, Iterator, NamedTuple, overload
+
+from pixeltable.iterators.base import ComponentIterator
 from .signature import Signature
 from pixeltable import exceptions as excs, exprs, type_system as ts
-
+from dataclasses import dataclass
 
 class PxtIterator:
     py_fn: Callable
@@ -58,17 +60,32 @@ class PxtIterator:
         # self_param_name = next(iter(py_sig.parameters))  # can't guarantee it's actually 'self'
         # del bound_args[self_param_name]
 
-        self.signature.validate_args(bound_args, context=f'in iterator `{self.py_fn.__module__}.{self.py_fn.__qualname__}`')
+        self.signature.validate_args(bound_args, context=f'in iterator `{self.fqn}`')
         literal_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in bound_args.items()}
         output_schema = self.output_schema(**literal_args)
 
-        return IteratorCall(self, args, kwargs, output_schema)
+        return IteratorCall(self, args, kwargs, bound_args, output_schema)
+
+    def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
+        return self.py_fn(**bound_args)
+
+    def _retrofit(iterator_cls: type[ComponentIterator], iterator_args: dict[str, Any]) -> 'PxtIterator':
+        it = PxtIterator.__new__(PxtIterator)
+        it.py_fn = iterator_cls.__init__
+        it._default_output_schema = iterator_cls.output_schema()
+        it.signature = Signature.create(iterator_cls.__init__, return_type=ts.JsonType())
+
+    @property
+    def fqn(self) -> str:
+        return f'{self.py_fn.__module__}.{self.py_fn.__qualname__}'
 
 
-class IteratorCall(NamedTuple):
+@dataclass
+class IteratorCall:
     it: PxtIterator
     args: list['exprs.Expr']
     kwargs: dict[str, 'exprs.Expr']
+    bound_args: dict[str, 'exprs.Expr']
     output_schema: dict[str, ts.ColumnType]
 
 

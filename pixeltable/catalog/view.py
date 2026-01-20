@@ -82,9 +82,9 @@ class View(Table):
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
-        iterator_cls: type[ComponentIterator] | None,
-        iterator_args: dict | None,
+        iterator_call: func.IteratorCall | None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
+        from pixeltable.exprs import InlineDict
         from pixeltable.plan import SampleClause
 
         # Convert select_list to more additional_columns if present
@@ -129,43 +129,17 @@ class View(Table):
                     f'base table {base.tbl_name()!r}'
                 )
 
-        if iterator_cls is not None:
-            assert iterator_args is not None
-
-            # validate iterator_args
-            py_signature = inspect.signature(iterator_cls.__init__)
-
-            # make sure iterator_args can be used to instantiate iterator_cls
-            bound_args: dict[str, Any]
-            try:
-                bound_args = py_signature.bind(None, **iterator_args).arguments  # None: arg for self
-            except TypeError as exc:
-                raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
-            # we ignore 'self'
-            first_param_name = next(iter(py_signature.parameters))  # can't guarantee it's actually 'self'
-            del bound_args[first_param_name]
-
-            # construct Signature and type-check bound_args
-            params = [
-                func.Parameter(param_name, param_type, kind=inspect.Parameter.POSITIONAL_OR_KEYWORD)
-                for param_name, param_type in iterator_cls.input_schema().items()
-            ]
-            sig = func.Signature(ts.InvalidType(), params)
-
-            expr_args = {k: exprs.Expr.from_object(v) for k, v in bound_args.items()}
-            sig.validate_args(expr_args, context=f'in iterator of type `{iterator_cls.__name__}`')
-            literal_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in expr_args.items()}
-
+        if iterator_call is not None:
             # prepend pos and output_schema columns to cols:
             # a component view exposes the pos column of its rowid;
             # we create that column here, so it gets assigned a column id;
             # stored=False: it is not stored separately (it's already stored as part of the rowid)
             iterator_cols = [Column(_POS_COLUMN_NAME, ts.IntType(), is_iterator_col=True, stored=False)]
-            output_dict, unstored_cols = iterator_cls.output_schema(**literal_args)
+            unstored_cols = []  # TODO: Handle unstored cols
             iterator_cols.extend(
                 [
                     Column(col_name, col_type, is_iterator_col=True, stored=col_name not in unstored_cols)
-                    for col_name, col_type in output_dict.items()
+                    for col_name, col_type in iterator_call.output_schema.items()
                 ]
             )
 
@@ -177,10 +151,7 @@ class View(Table):
                     )
             columns = iterator_cols + columns
 
-        from pixeltable.exprs import InlineDict
-
-        iterator_args_expr: exprs.Expr = InlineDict(iterator_args) if iterator_args is not None else None
-        iterator_class_fqn = f'{iterator_cls.__module__}.{iterator_cls.__name__}' if iterator_cls is not None else None
+        iterator_args_expr: exprs.Expr = InlineDict(iterator_call.bound_args) if iterator_call is not None else None
         base_version_path = cls._get_snapshot_path(base) if is_snapshot else base
 
         # if this is a snapshot, we need to retarget all exprs to the snapshot tbl versions
@@ -201,7 +172,7 @@ class View(Table):
             predicate=predicate.as_dict() if predicate is not None else None,
             sample_clause=sample_clause.as_dict() if sample_clause is not None else None,
             base_versions=base_version_path.as_md(),
-            iterator_class_fqn=iterator_class_fqn,
+            iterator_class_fqn=iterator_call.it.fqn,
             iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None,
         )
 

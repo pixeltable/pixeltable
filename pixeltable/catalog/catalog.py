@@ -1112,7 +1112,7 @@ class Catalog:
         additional_columns: dict[str, Any] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
-        iterator: func.IteratorCall | tuple[type[ComponentIterator], dict[str, Any]] | None,
+        iterator: func.IteratorCall | None,
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
@@ -1140,10 +1140,6 @@ class Catalog:
 
             dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
             assert dir is not None
-            if iterator is None:
-                iterator_class, iterator_args = None, None
-            else:
-                iterator_class, iterator_args = iterator
             md, ops = View._create(
                 dir._id,
                 path.name,
@@ -1154,8 +1150,7 @@ class Catalog:
                 sample_clause=sample_clause,
                 is_snapshot=is_snapshot,
                 create_default_idxs=create_default_idxs,
-                iterator_cls=iterator_class,
-                iterator_args=iterator_args,
+                iterator_call=iterator,
                 num_retained_versions=num_retained_versions,
                 comment=comment,
                 media_validation=media_validation,

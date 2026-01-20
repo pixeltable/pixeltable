@@ -16,6 +16,7 @@ from sqlalchemy import exc as sql_exc
 
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
+import pixeltable.func as func
 import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
@@ -145,7 +146,7 @@ class TableVersion:
     predicate: exprs.Expr | None
     sample_clause: 'SampleClause' | None
 
-    iterator_cls: type[ComponentIterator] | None
+    iterator_cls: func.PxtIterator | None
     iterator_args: exprs.InlineDict | None
     num_iterator_cols: int
 
@@ -239,6 +240,7 @@ class TableVersion:
             module_name, class_name = tbl_md.view_md.iterator_class_fqn.rsplit('.', 1)
             module = importlib.import_module(module_name)
             self.iterator_cls = getattr(module, class_name)
+            assert isinstance(self.iterator_cls, func.PxtIterator)  # TODO: Validation
             self.iterator_args = exprs.InlineDict.from_dict(tbl_md.view_md.iterator_args)
             output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.to_kwargs())
             self.num_iterator_cols = len(output_schema)

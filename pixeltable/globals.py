@@ -333,6 +333,10 @@ def create_view(
                     f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
                 )
 
+    if isinstance(iterator, tuple):
+        iterator_cls, iterator_args = iterator
+        iterator = func.PxtIterator._retrofit(iterator_cls, iterator_args)
+
     return Catalog.get().create_view(
         path_obj,
         tbl_version_path,

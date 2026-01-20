@@ -25,9 +25,10 @@ class ComponentIterationNode(ExecNode):
         self.iterator_args = iterator_args[0]
         assert isinstance(self.iterator_args, exprs.InlineDict)
         self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args])
-        self.iterator_output_schema, self.unstored_column_names = self.view.get().iterator_cls.output_schema(
+        self.iterator_output_schema = self.view.get().iterator_cls.output_schema(
             **self.iterator_args.to_kwargs()
         )
+        self.unstored_column_names = []  # TODO: handle unstored columns
         self.iterator_output_fields = list(self.iterator_output_schema.keys())
         self.iterator_output_cols = {
             field_name: self.view.get().cols_by_name[field_name] for field_name in self.iterator_output_fields
@@ -50,7 +51,7 @@ class ComponentIterationNode(ExecNode):
                 # specified and are not null. If any of them are null, then we skip this row (i.e., we emit 0
                 # output rows for this input row).
                 if self.__non_nullable_args_specified(iterator_args):
-                    iterator = self.view.get().iterator_cls(**iterator_args)
+                    iterator = self.view.get().iterator_cls.eval(iterator_args)
                     for pos, component_dict in enumerate(iterator):
                         output_row = self.row_builder.make_row()
                         input_row.copy(output_row)
@@ -68,9 +69,9 @@ class ComponentIterationNode(ExecNode):
         """
         Returns true if all non-nullable iterator arguments are not `None`.
         """
-        input_schema = self.view.get().iterator_cls.input_schema()
+        iterator_cls = self.view.get().iterator_cls
         for arg_name, arg_value in iterator_args.items():
-            col_type = input_schema[arg_name]
+            col_type = iterator_cls.signature.parameters[arg_name].col_type
             if arg_value is None and not col_type.nullable:
                 return False
         return True
