@@ -17,7 +17,7 @@ import sqlalchemy.exc as sql_exc
 from sqlalchemy.sql import elements as sql_elements
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, func
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
@@ -1112,7 +1112,7 @@ class Catalog:
         additional_columns: dict[str, Any] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
-        iterator: tuple[type[ComponentIterator], dict[str, Any]] | None,
+        iterator: func.IteratorCall | tuple[type[ComponentIterator], dict[str, Any]] | None,
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
