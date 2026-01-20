@@ -746,11 +746,11 @@ def create_dir(
 
         Create a subdirectory:
 
-        >>> pxt.create_dir('my_dir.sub_dir')
+        >>> pxt.create_dir('my_dir/sub_dir')
 
         Create a subdirectory only if it does not already exist, otherwise do nothing:
 
-        >>> pxt.create_dir('my_dir.sub_dir', if_exists='ignore')
+        >>> pxt.create_dir('my_dir/sub_dir', if_exists='ignore')
 
         Create a directory and replace if it already exists:
 
@@ -758,7 +758,7 @@ def create_dir(
 
         Create a subdirectory along with its ancestors:
 
-        >>> pxt.create_dir('parent1.parent2.sub_dir', parents=True)
+        >>> pxt.create_dir('parent1/parent2/sub_dir', parents=True)
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
