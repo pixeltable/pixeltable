@@ -35,21 +35,25 @@ class class_based_iterator:
         return result
 
 
-def test_iterator(uses_db: None, reload_tester: ReloadTester) -> None:
-    for n, it in enumerate((simple_iterator, class_based_iterator)):
-        t = pxt.create_table(f'tbl_{n}', schema={'input': pxt.Int})
-        v = pxt.create_view(f'view_{n}', t, iterator=it(t.input))
-        t.insert([{'input': 3}, {'input': 5}])
-        rs = reload_tester.run_query(v.order_by(v.input, v.pos))
-        assert list(rs) == [
-            {'input': 3, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
-            {'input': 3, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
-            {'input': 3, 'pos': 2, 'icol': 2, 'scol': 'string 2'},
-            {'input': 5, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
-            {'input': 5, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
-            {'input': 5, 'pos': 2, 'icol': 2, 'scol': 'string 2'},
-            {'input': 5, 'pos': 3, 'icol': 3, 'scol': 'string 3'},
-            {'input': 5, 'pos': 4, 'icol': 4, 'scol': 'string 4'},
-        ]
+class TestIterator:
+    def test_iterator(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        for n, it in enumerate((simple_iterator, class_based_iterator)):
+            t = pxt.create_table(f'tbl_{n}', schema={'input': pxt.Int})
+            t.insert([{'input': 2}])
+            v = pxt.create_view(f'view_{n}', t, iterator=it(t.input))
+            t.insert([{'input': 3}, {'input': 5}])
+            rs = reload_tester.run_query(v.order_by(v.input, v.pos))
+            assert list(rs) == [
+                {'input': 2, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
+                {'input': 2, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
+                {'input': 3, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
+                {'input': 3, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
+                {'input': 3, 'pos': 2, 'icol': 2, 'scol': 'string 2'},
+                {'input': 5, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
+                {'input': 5, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
+                {'input': 5, 'pos': 2, 'icol': 2, 'scol': 'string 2'},
+                {'input': 5, 'pos': 3, 'icol': 3, 'scol': 'string 3'},
+                {'input': 5, 'pos': 4, 'icol': 4, 'scol': 'string 4'},
+            ]
 
-    reload_tester.run_reload_test()
+        reload_tester.run_reload_test()

@@ -15,12 +15,13 @@ import builtins
 import re
 import textwrap
 from string import whitespace
-from typing import Any
+from typing import Any, Iterator, TypedDict
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.spacy import get_spacy_model
 
 
 @pxt.udf(is_method=True)
@@ -818,9 +819,12 @@ def zfill(self: str, width: int) -> str:
     return self.zfill(width)
 
 
-def string_splitter(
-    text: Any, separators: str, *, spacy_model: str = 'en_core_web_sm'
-) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
+class StringChunk(TypedDict):
+    text: str
+
+
+@pxt.iterator
+def string_splitter(text: str, separators: str, *, spacy_model: str = 'en_core_web_sm') -> Iterator[StringChunk]:
     """Iterator over chunks of a string. The string is chunked according to the specified `separators`.
 
     The iterator yields a `text` field containing the text of the chunk.
@@ -841,7 +845,10 @@ def string_splitter(
         ...     iterator=string_splitter(tbl.text, separators='sentence')
         ... )
     """
-    return pxt.iterators.string.StringSplitter._create(text=text, separators=separators)
+    spacy_model_ = get_spacy_model(spacy_model)
+    doc = spacy_model_(text)
+    for sent in doc.sents:
+        yield StringChunk(text=sent.text)
 
 
 __all__ = local_public_names(__name__)
