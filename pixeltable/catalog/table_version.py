@@ -138,7 +138,8 @@ class TableVersion:
     # record metadata stored in catalog
     _tbl_md: schema.TableMd
     _version_md: schema.VersionMd
-    _schema_version_md: schema.SchemaVersionMd
+    # this was just user columns, but now it's all columns including the system ones
+    _schema_version_md: schema.SchemaVersionMd  # this is where the column info is moving to
 
     path: 'TableVersionPath' | None  # only set for non-snapshots; needed to resolve computed cols
     base: TableVersionHandle | None  # only set for views
@@ -303,7 +304,7 @@ class TableVersion:
         index_ids = itertools.count()
 
         # assign ids, create metadata
-        column_md: dict[int, schema.ColumnMd] = {}
+        # column_md: dict[int, schema.ColumnMd] = {}
         schema_col_md: dict[int, schema.SchemaColumn] = {}
         for pos, col in enumerate(cols):
             col.tbl_handle = tbl_handle
@@ -311,9 +312,9 @@ class TableVersion:
             col.schema_version_add = 0
             if col.is_computed:
                 col.check_value_expr()
-            col_md, sch_md = col.to_md(pos)
-            assert sch_md is not None
-            column_md[col.id] = col_md
+            # sch_md now contains md (type info, value expr, etc)
+            sch_md = col.to_md(pos)
+            # column_md[col.id] = col_md
             schema_col_md[col.id] = sch_md
 
         index_md: dict[int, schema.IndexMd] = {}
@@ -340,14 +341,24 @@ class TableVersion:
                 )
                 index_md[idx_id] = md
 
+            # val and undo cols for each btree index
             for col in index_cols:
-                col_md, _ = col.to_md()
-                column_md[col.id] = col_md
+                # col_md, _ = col.to_md()
+                # column_md[col.id] = col_md
+                sch_md = col.to_md()
+                assert col.id not in schema_col_md
+                schema_col_md[col.id] = sch_md
 
-            assert all(column_md[id].id == id for id in column_md)
+            assert all(schema_col_md[id].md.id == id for id in schema_col_md)
             assert all(index_md[id].id == id for id in index_md)
 
-            cols.extend(index_cols)
+        is_pure_snapshot = (
+            view_md is not None
+            and view_md.is_snapshot
+            and view_md.sample_clause is None
+            and view_md.predicate is None
+            and len(schema_col_md) == 0
+        )
 
         tbl_md = schema.TableMd(
             tbl_id=tbl_id_str,
@@ -360,11 +371,12 @@ class TableVersion:
             next_idx_id=next(index_ids),
             next_row_id=0,
             view_sn=0,
-            column_md=column_md,
+            # column_md=column_md,
             index_md=index_md,
             external_stores=[],
             view_md=view_md,
             additional_md={},
+            is_pure_snapshot=is_pure_snapshot,
         )
 
         table_version_md = schema.VersionMd(
@@ -497,6 +509,8 @@ class TableVersion:
         self.is_initialized = True
 
     def _init_schema(self) -> None:
+        # Schema init code that happens when the table is loaded (not necessarily when the table or table version is
+        # first created)
         from pixeltable.store import StoreComponentView, StoreTable, StoreView
 
         from .catalog import Catalog
@@ -519,7 +533,14 @@ class TableVersion:
         self.cols_by_id = {}
         # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
         # point backward.
-        sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
+        # in particular, this code initializes columns and indexes
+        sorted_column_md: list[schema.ColumnMd] = sorted(
+            (schema_column.md for schema_column in self.schema_version_md.columns.values()),
+            key=lambda column_md: column_md.id,
+        )
+        # ==== validation ====
+        # sorted_column_md_old: list[schema.ColumnMd] = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
+        # assert sorted_column_md_old == sorted_column_md
         for col_md in sorted_column_md:
             col_type = ts.ColumnType.from_dict(col_md.col_type)
             schema_col_md = self.schema_version_md.columns.get(col_md.id)
@@ -862,14 +883,26 @@ class TableVersion:
             self.cols.append(col)
             self.cols_by_id[col.id] = col
             if col.name is not None:
+                # user column (i.e. non-system column)
                 self.cols_by_name[col.name] = col
-                col_md, sch_md = col.to_md(len(self.cols_by_name))
-                assert sch_md is not None, 'Schema column metadata must be created for user-facing columns'
-                self._tbl_md.column_md[col.id] = col_md
-                self._schema_version_md.columns[col.id] = sch_md
+                sch_md = col.to_md(len(self.cols_by_name))
+                # assert sch_md is not None, 'Schema column metadata must be created for user-facing columns'
+                # self._tbl_md.column_md[col.id] = col_md
+                # TODO should this be done inside col.to_md()?
+                # sch_md.md = col_md
+
             else:
-                col_md, _ = col.to_md()
-                self._tbl_md.column_md[col.id] = col_md
+                # col_md, _ = col.to_md()
+                sch_md = col.to_md()
+
+            self._schema_version_md.columns[col.id] = sch_md
+
+            # ==== validation ====
+            # assert self.schema_version_md.columns.keys() == self._tbl_md.column_md.keys()
+            # assert all(
+            #     self.schema_version_md.columns[id].md == self._tbl_md.column_md[id]
+            #     for id in self.schema_version_md.columns
+            # )
 
             if col.is_stored:
                 self.store_tbl.add_column(col)
@@ -951,13 +984,20 @@ class TableVersion:
             assert col.id in self.cols_by_id
             del self.cols_by_id[col.id]
             # update stored md
-            self._tbl_md.column_md[col.id].schema_version_drop = col.schema_version_drop
+            # self._tbl_md.column_md[col.id].schema_version_drop = col.schema_version_drop
+            # if col.name is not None:
+            #     del self._schema_version_md.columns[col.id]
             if col.name is not None:
+                self._schema_version_md.columns[col.id].md.schema_version_drop = col.schema_version_drop
+            else:
                 del self._schema_version_md.columns[col.id]
 
         # update positions
-        for pos, schema_col in enumerate(self._schema_version_md.columns.values()):
-            schema_col.pos = pos
+        pos = 0
+        for schema_col in self._schema_version_md.columns.values():
+            if schema_col.md.name is None:
+                schema_col.pos = pos
+                pos += 1
 
         self.store_tbl.create_sa_tbl()
         Catalog.get().record_column_dependencies(self)
@@ -1391,7 +1431,8 @@ class TableVersion:
                 for col in added_cols:
                     if col.is_stored:
                         self.store_tbl.drop_column(col)
-                    del self._tbl_md.column_md[col.id]
+                    # del self._tbl_md.column_md[col.id]
+                    del self._schema_version_md.columns[col.id]
 
             # remove newly-added indices from the lookup structures
             # (the value and undo columns got removed in the preceding step)
@@ -1403,11 +1444,15 @@ class TableVersion:
                     del self._tbl_md.index_md[md.id]
 
             # make newly-dropped columns visible again
-            dropped_col_md = [
-                md for md in self._tbl_md.column_md.values() if md.schema_version_drop == self.schema_version
-            ]
-            for col_md in dropped_col_md:
-                col_md.schema_version_drop = None
+            # dropped_col_md = [
+            #     md for md in self._tbl_md.column_md.values() if md.schema_version_drop == self.schema_version
+            # ]
+            # for col_md in dropped_col_md:
+            #     col_md.schema_version_drop = None
+
+            for col_md in self._schema_version_md.columns.values():
+                if col_md.md.schema_version_drop == self.schema_version:
+                    col_md.md.schema_version_drop = None
 
             # make newly-dropped indices visible again
             dropped_idx_md = [

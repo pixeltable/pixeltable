@@ -138,9 +138,13 @@ class Column:
         self.sa_cellmd_col = None
         self._explicit_destination = destination
 
-    def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
+    def to_md(self, pos: int | None = None) -> schema.SchemaColumn:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
         assert self.is_pk is not None
+        assert (pos is None) == (self.name is None), (
+            f'Column name must be set for and only for user-facing columns: name={self.name!r}, pos={pos}'
+        )
+
         col_md = schema.ColumnMd(
             id=self.id,
             col_type=self.col_type.as_dict(),
@@ -151,15 +155,13 @@ class Column:
             stored=self.stored,
             destination=self._explicit_destination,
         )
-        if pos is None:
-            return col_md, None
-        assert self.name is not None, 'Column name must be set for user-facing columns'
         sch_md = schema.SchemaColumn(
             name=self.name,
+            md=col_md,
             pos=pos,
             media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
         )
-        return col_md, sch_md
+        return sch_md
 
     def init_value_expr(self, tvp: 'TableVersionPath' | None) -> None:
         """

@@ -224,12 +224,18 @@ class TableMd:
     # {'class': 'pixeltable.io.label_studio.LabelStudioProject', 'md': {'project_id': 3}}
     external_stores: list[dict[str, Any]]
 
-    column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
+    # table-global col and index metadata
+    # column indexes, value expressions, etc. but not names
+    # move this stuff to SchemaColumn
+    # column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
     view_md: ViewMd | None
     # TODO: Remove additional_md from this and other Md dataclasses (and switch to using the separate additional_md
     #     column in all cases)
     additional_md: dict[str, Any]  # deprecated
+
+    # Pure snapshots are views with no additional columns and no sampling or filtering
+    is_pure_snapshot: bool
 
     # deprecated
     has_pending_ops: bool = False
@@ -244,16 +250,6 @@ class TableMd:
     @property
     def is_mutable(self) -> bool:
         return not self.is_snapshot and not self.is_replica
-
-    @property
-    def is_pure_snapshot(self) -> bool:
-        return (
-            self.view_md is not None
-            and self.view_md.is_snapshot
-            and self.view_md.sample_clause is None
-            and self.view_md.predicate is None
-            and len(self.column_md) == 0
-        )
 
     @property
     def ancestors(self) -> TableVersionPath:
@@ -312,20 +308,27 @@ class TableVersion(Base):
 
 
 @dataclasses.dataclass
+# versioned md for a column
 class SchemaColumn:
     """
     Records the versioned metadata of a column.
     """
 
     pos: int
+    # renames are versioned:
     name: str
+    # type info and value expr need to move here
+    # TODO what's then the difference between SchemaColumn.md and ColumnMd? any way they can be merged now?
+    md: ColumnMd
 
     # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
     # stores column.MediaValiation.name.lower()
     media_validation: str | None
 
 
+# pg table tableschemaversions, column md
 @dataclasses.dataclass
+# versioned schema of a table
 class SchemaVersionMd:
     """
     Records all versioned table metadata.
@@ -352,7 +355,8 @@ class TableSchemaVersion(Base):
         UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
     )
     schema_version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
-    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
+
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # SchemaVersionMd
     additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
