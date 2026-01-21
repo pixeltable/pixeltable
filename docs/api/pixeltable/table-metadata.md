@@ -1,3 +1,0 @@
-# TableMetadata
-
-## ::: pixeltable.TableMetadata

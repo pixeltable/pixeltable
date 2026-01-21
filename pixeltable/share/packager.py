@@ -689,21 +689,20 @@ class TableRestorer:
         val_sql_clauses: dict[str, sql.ColumnElement] = {}
         undo_sql_clauses: dict[str, sql.ColumnElement] = {}
         for index in index_md.values():
-            if index.class_fqn.endswith('.EmbeddingIndex'):
-                val_col_name = f'col_{index.index_val_col_id}'
-                undo_col_name = f'col_{index.index_val_undo_col_id}'
-                # Check that the val column for the index is actually present in the store table. We need to do this
-                # to properly handle the case where the replica represents a table version that was *not* the most
-                # recent version at the time it was published. In that case, it is possible for tbl_md to contain
-                # metadata for indices not known to any version that has been replicated. (However, the converse
-                # *does* hold: all replicated indices must have metadata in tbl_md; and that's what's important.)
-                if val_col_name in store_sa_tbl.c:
-                    assert undo_col_name in store_sa_tbl.c
-                    coalesce = sql.func.coalesce(store_sa_tbl.c[val_col_name], store_sa_tbl.c[undo_col_name])
-                    val_sql_clauses[val_col_name] = coalesce
-                    val_sql_clauses[undo_col_name] = sql.null()
-                    undo_sql_clauses[undo_col_name] = coalesce
-                    undo_sql_clauses[val_col_name] = sql.null()
+            val_col_name = f'col_{index.index_val_col_id}'
+            undo_col_name = f'col_{index.index_val_undo_col_id}'
+            # Check that the val column for the index is actually present in the store table. We need to do this
+            # to properly handle the case where the replica represents a table version that was *not* the most
+            # recent version at the time it was published. In that case, it is possible for tbl_md to contain
+            # metadata for indices not known to any version that has been replicated. (However, the converse
+            # *does* hold: all replicated indices must have metadata in tbl_md; and that's what's important.)
+            if val_col_name in store_sa_tbl.c:
+                assert undo_col_name in store_sa_tbl.c
+                coalesce = sql.func.coalesce(store_sa_tbl.c[val_col_name], store_sa_tbl.c[undo_col_name])
+                val_sql_clauses[val_col_name] = coalesce
+                val_sql_clauses[undo_col_name] = sql.null()
+                undo_sql_clauses[undo_col_name] = coalesce
+                undo_sql_clauses[val_col_name] = sql.null()
 
         if len(val_sql_clauses) > 0:
             q2 = (

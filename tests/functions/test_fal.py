@@ -9,7 +9,7 @@ from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, v
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestFal:
-    def test_text_to_image(self, reset_db: None) -> None:
+    def test_text_to_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('fal_client')
         skip_test_if_no_client('fal')
         from pixeltable.functions.fal import run
@@ -22,7 +22,7 @@ class TestFal:
         assert 'images' in results['output'][0]
         assert len(results['output'][0]['images']) > 0
 
-    def test_text_to_image_with_url(self, reset_db: None) -> None:
+    def test_text_to_image_with_url(self, uses_db: None) -> None:
         skip_test_if_not_installed('fal_client')
         skip_test_if_no_client('fal')
         from pixeltable.functions.fal import run
@@ -36,7 +36,7 @@ class TestFal:
         assert isinstance(img, PIL.Image.Image)
         assert img.size[0] > 0 and img.size[1] > 0
 
-    def test_fast_sdxl(self, reset_db: None) -> None:
+    def test_fast_sdxl(self, uses_db: None) -> None:
         skip_test_if_not_installed('fal_client')
         skip_test_if_no_client('fal')
         from pixeltable.functions.fal import run
@@ -55,7 +55,7 @@ class TestFal:
         # fast-sdxl with square_hd should produce a 1024x1024 image
         assert img.size == (1024, 1024)
 
-    def test_multiple_images(self, reset_db: None) -> None:
+    def test_multiple_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('fal_client')
         skip_test_if_no_client('fal')
         from pixeltable.functions.fal import run

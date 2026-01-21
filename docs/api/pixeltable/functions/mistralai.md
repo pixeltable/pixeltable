@@ -1,1 +1,0 @@
-## ::: pixeltable.functions.mistralai

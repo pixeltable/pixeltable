@@ -1,10 +1,10 @@
-site_name: Pixeltable API
+site_name: Pixeltable SDK
 site_author: Pixeltable, Inc.
 
 copyright: |
-  &copy; 2022 - 2024 <a href="https://github.com/pixeltable" target="_blank" rel="noopener">Pixeltable, Inc.</a> All rights reserved.
+  &copy; 2022 - 2026 <a href="https://github.com/pixeltable" target="_blank" rel="noopener">Pixeltable, Inc.</a> All rights reserved.
 
-docs_dir: docs/api
+docs_dir: docs/mkdocs
 site_dir: target/site
 
 repo_url: https://github.com/pixeltable/pixeltable
@@ -13,64 +13,8 @@ repo_name: pixeltable/pixeltable
 theme:
   name: material
 
-extra_css:
-  - css/mkdocstrings.css
-
 nav:
   - Home: index.md
-  - 'API Cheat Sheet': api-cheat-sheet.md
-  - 'Configuration Options': https://docs.pixeltable.com/overview/configuration
-  - 'API Reference':
-    - pixeltable: pixeltable/pixeltable.md
-    - pixeltable.io: pixeltable/io.md
-    - pixeltable.iterators:
-      - AudioSplitter: pixeltable/iterators/audio-splitter.md
-      - ComponentIterator: pixeltable/iterators/component-iterator.md
-      - DocumentSplitter: pixeltable/iterators/document-splitter.md
-      - FrameIterator: pixeltable/iterators/frame-iterator.md
-      - TileIterator: pixeltable/iterators/tile-iterator.md
-      - VideoSplitter: pixeltable/iterators/video-splitter.md
-    - ColumnMetadata: pixeltable/column-metadata.md
-    - DirContents: pixeltable/dir-contents.md
-    - IndexMetadata: pixeltable/index-metadata.md
-    - Query: pixeltable/query.md
-    - Table: pixeltable/table.md
-    - TableMetadata: pixeltable/table-metadata.md
-    - UpdateStatus: pixeltable/update-status.md
-    - VersionMetadata: pixeltable/version-metadata.md
-  - Built-in Functions and Operators:
-    - audio: pixeltable/functions/audio.md
-    - date: pixeltable/functions/date.md
-    - image: pixeltable/functions/image.md
-    - json: pixeltable/functions/json.md
-    - math: pixeltable/functions/math.md
-    - string: pixeltable/functions/string.md
-    - timestamp: pixeltable/functions/timestamp.md
-    - video: pixeltable/functions/video.md
-  - Use Cases:
-    - Computer Vision: pixeltable/functions/vision.md
-  - Model and Inference Functions:
-    - anthropic: pixeltable/functions/anthropic.md
-    - bedrock: pixeltable/functions/bedrock.md
-    - deepseek: pixeltable/functions/deepseek.md
-    - fal: pixeltable/functions/fal.md
-    - fireworks: pixeltable/functions/fireworks.md
-    - gemini: pixeltable/functions/gemini.md
-    - groq: pixeltable/functions/groq.md
-    - huggingface: pixeltable/functions/huggingface.md
-    - llama_cpp: pixeltable/functions/llama_cpp.md
-    - mistralai: pixeltable/functions/mistralai.md
-    - ollama: pixeltable/functions/ollama.md
-    - openai: pixeltable/functions/openai.md
-    - openrouter: pixeltable/functions/openrouter.md
-    - replicate: pixeltable/functions/replicate.md
-    - reve: pixeltable/functions/reve.md
-    - together: pixeltable/functions/together.md
-    - twelvelabs: pixeltable/functions/twelvelabs.md
-    - voyageai: pixeltable/functions/voyageai.md
-    - whisper: pixeltable/functions/whisper.md
-    - whisperx: pixeltable/functions/whisperx.md
-    - yolox: pixeltable/functions/yolox.md
 
 validation:
   omitted_files: warn
@@ -81,28 +25,3 @@ validation:
 plugins:
   - search
   - autorefs
-  - mkdocstrings:
-      default_handler: python
-      handlers:
-        python:
-          paths: [.]
-          options:
-              docstring_section_style: list
-              docstring_style: google
-              extensions:
-                tool.doc_plugins.griffe:PxtGriffeExtension:
-              filters: ["!^_"]
-              inherited_members: true
-              line_length: 80
-              docstring_options:
-                ignore_init_summary: true
-              merge_init_into_class: true
-              separate_signature: true
-              show_bases: false
-              show_root_heading: true
-              show_signature_annotations: true
-              show_signature_crossrefs: true
-              show_source: false
-              show_symbol_type_heading: true
-              show_symbol_type_toc: true
-              signature_crossrefs: true

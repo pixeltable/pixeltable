@@ -1,1 +1,0 @@
-## ::: pixeltable.iterators.ComponentIterator

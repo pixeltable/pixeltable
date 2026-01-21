@@ -13,7 +13,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 class TestMcp:
-    def test_mcp_server(self, reset_db: None, init_mcp_server: None) -> None:
+    def test_mcp_server(self, uses_db: None, init_mcp_server: None) -> None:
         skip_test_if_not_installed('mcp')
 
         udfs = pxt.mcp_udfs('http://localhost:8000/mcp')
@@ -29,7 +29,7 @@ class TestMcp:
         assert res[0]['pixelmultiple'] == str((3 + 22) * 4)
         assert res[1]['pixelmultiple'] == str((5 + 22) * 6)
 
-    def test_mcp_as_tools(self, reset_db: None, init_mcp_server: None) -> None:
+    def test_mcp_as_tools(self, uses_db: None, init_mcp_server: None) -> None:
         skip_test_if_not_installed('mcp')
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')

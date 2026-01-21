@@ -1,9 +1,0 @@
-
-code.doc-symbol-udf {
-  color: var(--doc-symbol-function-fg-color);
-  background-color: var(--doc-symbol-function-bg-color);
-}
-
-code.doc-symbol-udf::after {
-  content: "udf";
-}

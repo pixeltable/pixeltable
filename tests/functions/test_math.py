@@ -14,7 +14,7 @@ class TestMath:
     TEST_INTS = (0, 1, -19, 4171780)
 
     @pytest.mark.parametrize('method_type', [pxt.Float, pxt.Int])
-    def test_methods(self, method_type: type, reset_db: None) -> None:
+    def test_methods(self, method_type: type, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'x': method_type})
         values = self.TEST_FLOATS if method_type is pxt.Float else self.TEST_INTS
         t.insert({'x': x} for x in values)

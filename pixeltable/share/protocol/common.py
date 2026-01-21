@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import UUID
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 # Protocol version for replica operations. Used by both client and server
 # to determine request/response format and maintain backward compatibility.
@@ -33,6 +33,13 @@ class PxtUri(BaseModel):
     path: str | None = None  # The table or directory path (None if using UUID)
     id: UUID | None = None  # The table UUID (None if using path)
     version: int | None = None  # Optional version number parsed from URI (format: identifier:<version>)
+
+    @field_validator('version')
+    @classmethod
+    def validate_version(cls, v: int | None) -> int | None:
+        if v is not None and v < 0:
+            raise ValueError('Version must be a non-negative integer.')
+        return v
 
     def __init__(self, uri: str | dict | None = None, **kwargs: Any) -> None:
         # Handle dict input directly (from JSON deserialization or explicit dict)
@@ -97,30 +104,26 @@ class PxtUri(BaseModel):
         path_part = parsed.path.lstrip('/') if parsed.path else ''
 
         # Handle version parsing (format: identifier:version)
-        # For root path, path_part will be empty string after lstrip
+        identifier, version = path_part, None
         if path_part and ':' in path_part:
-            parts = path_part.rsplit(':', 1)  # Split from right, only once
-            if len(parts) == 2 and parts[1].isdigit():
-                identifier, version = parts[0], int(parts[1])
-            else:
-                identifier, version = path_part, None
-        else:
-            identifier, version = path_part, None
+            parts = path_part.rsplit(':', 1)
+            if len(parts) == 2:
+                try:
+                    version_int = int(parts[1])
+                except ValueError:
+                    raise ValueError(f'Invalid table version {parts[1]!r} in uri: {uri}') from None
+                else:
+                    if version_int < 0:
+                        raise ValueError('Version must be a non-negative integer.') from None
+                    identifier, version = parts[0], version_int
 
         # Parse identifier into either a path string or UUID
         path: str | None = None
         id: UUID | None = None
-        if identifier:
-            if is_valid_uuid(identifier):
-                # It's a UUID
-                id = UUID(identifier)
-            else:
-                # It's a path - keep as string (URI format uses / as separator)
-                # Empty string means root path
-                path = identifier or ''
+        if identifier and is_valid_uuid(identifier):
+            id = UUID(identifier)
         else:
-            # Empty identifier means root path
-            path = ''
+            path = identifier or ''
 
         return {'org': org, 'db': db, 'path': path, 'id': id, 'version': version}
 
@@ -138,6 +141,8 @@ class PxtUri(BaseModel):
             raise ValueError('Either path or id must be provided')
         if path is not None and id is not None:
             raise ValueError('Cannot specify both path and id')
+        if version is not None and version < 0:
+            raise ValueError('Version must be a non-negative integer.')
 
         # Build the URI string from components
         netloc = org if db is None else f'{org}:{db}'

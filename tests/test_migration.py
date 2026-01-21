@@ -134,13 +134,13 @@ class TestMigration:
     def _run_v12_tests(cls) -> None:
         """Tests that apply to DB artifacts of version 12-14."""
         pxt.get_table('sample_table').describe()
-        pxt.get_table('views.sample_view').describe()
-        pxt.get_table('views.sample_snapshot').describe()
+        pxt.get_table('views/sample_view').describe()
+        pxt.get_table('views/sample_snapshot').describe()
 
     @classmethod
     def _run_v13_tests(cls) -> None:
         """Tests that apply to DB artifacts of version 13-14."""
-        t = pxt.get_table('views.empty_view')
+        t = pxt.get_table('views/empty_view')
         # Test that the batched function is properly loaded as batched
         expr = t['batched'].col.value_expr
         assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
@@ -148,7 +148,7 @@ class TestMigration:
     @classmethod
     def _run_v14_tests(cls) -> None:
         """Tests that apply to DB artifacts of version ==14."""
-        t = pxt.get_table('views.sample_view')
+        t = pxt.get_table('views/sample_view')
         # Test that stored batched functions are properly loaded as batched
         expr = t['test_udf_batched'].col.value_expr
         assert isinstance(expr, FunctionCall) and isinstance(expr.fn, CallableFunction) and expr.fn.is_batched
@@ -159,13 +159,13 @@ class TestMigration:
         # Test that computed column metadata of tables and views loads properly by forcing
         # the tables to describe themselves
         pxt.get_table('base_table').describe()
-        pxt.get_table('views.view').describe()
-        pxt.get_table('views.snapshot').describe()
-        pxt.get_table('views.view_of_views').describe()
-        pxt.get_table('views.empty_view').describe()
+        pxt.get_table('views/view').describe()
+        pxt.get_table('views/snapshot').describe()
+        pxt.get_table('views/view_of_views').describe()
+        pxt.get_table('views/empty_view').describe()
 
-        v = pxt.get_table('views.view')
-        e = pxt.get_table('views.empty_view')
+        v = pxt.get_table('views/view')
+        e = pxt.get_table('views/empty_view')
 
         # Test that batched functions are properly loaded as batched
         expr = e['empty_view_batched'].col.value_expr
@@ -204,7 +204,7 @@ class TestMigration:
         from pixeltable.io.label_studio import LabelStudioProject
 
         t = pxt.get_table('base_table')
-        v = pxt.get_table('views.view')
+        v = pxt.get_table('views/view')
 
         # Test that external stores are loaded properly.
         assert len(v.external_stores()) == 2

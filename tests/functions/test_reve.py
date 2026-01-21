@@ -15,7 +15,7 @@ _logger = logging.getLogger('pixeltable')
 @rerun(reruns=3, reruns_delay=8)
 class TestReve:
     @pytest.mark.parametrize('default_params', [True, False], ids=['default_params', 'nondefault_params'])
-    def test_create_edit_remix(self, default_params: bool, reset_db: None) -> None:
+    def test_create_edit_remix(self, default_params: bool, uses_db: None) -> None:
         skip_test_if_no_client('reve')
 
         t = pxt.create_table('test_tbl', {'pixeltable_logo': pxt.Image})

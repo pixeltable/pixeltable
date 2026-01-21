@@ -1,5 +1,6 @@
 import importlib.util
 import logging
+import platform
 import random
 
 import sqlalchemy as sql
@@ -45,6 +46,11 @@ class ExecContext:
 
         # disable progress reporting in Jupyter if ipywidgets is not installed
         if Env.get().is_notebook() and importlib.util.find_spec('ipywidgets') is None:
+            self.show_progress = False
+
+        # disable progress reporting on Windows
+        # TODO: PXT-948
+        if platform.system() == 'Windows':
             self.show_progress = False
 
         self.progress = None

@@ -1,2 +1,0 @@
-## ::: pixeltable.functions.twelvelabs
-

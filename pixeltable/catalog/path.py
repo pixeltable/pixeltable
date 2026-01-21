@@ -11,7 +11,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 class Path(NamedTuple):
-    components: list[str]
+    components: tuple[str, ...]
     version: int | None = None
 
     @classmethod
@@ -22,25 +22,35 @@ class Path(NamedTuple):
         allow_system_path: bool = False,
         allow_versioned_path: bool = False,
     ) -> Path:
-        components: list[str]
+        components: tuple[str, ...]
         version: int | None
+        # Extract version if present
         if ':' in path:
             parts = path.split(':')
             if len(parts) != 2:
                 raise excs.Error(f'Invalid path: {path}')
             try:
-                components = parts[0].split('.')
+                path_part = parts[0]
                 version = int(parts[1])
             except ValueError:
                 raise excs.Error(f'Invalid path: {path}') from None
         else:
-            components = path.split('.')
+            path_part = path
             version = None
 
-        if components == [''] and not allow_empty_path:
+        # Parse a path string into a Path object.
+        if '.' in path_part:
+            components = tuple(path_part.split('.'))
+        elif '/' in path_part:
+            components = tuple(path_part.split('/'))
+        else:
+            # Single component
+            components = (path_part,) if path_part else ('',)
+
+        if components == ('',) and not allow_empty_path:
             raise excs.Error(f'Invalid path: {path}')
 
-        if components != [''] and not all(
+        if components != ('',) and not all(
             is_valid_identifier(c, allow_system_identifiers=allow_system_path, allow_hyphens=True) for c in components
         ):
             raise excs.Error(f'Invalid path: {path}')
@@ -76,9 +86,9 @@ class Path(NamedTuple):
 
     def append(self, name: str) -> Path:
         if self.is_root:
-            return Path([name])
+            return Path((name,))
         else:
-            return Path([*self.components, name])
+            return Path((*self.components, name))
 
     def is_ancestor(self, other: Path, is_parent: bool = False) -> bool:
         """
@@ -105,17 +115,20 @@ class Path(NamedTuple):
         return repr(str(self))
 
     def __str__(self) -> str:
-        base = '.'.join(self.components)
+        base = '/'.join(self.components)
         if self.version is not None:
             return f'{base}:{self.version}'
         else:
             return base
 
     def __eq__(self, other: object) -> bool:
-        return isinstance(other, Path) and str(self) == str(other)
+        if not isinstance(other, Path):
+            return False
+        return self.components == other.components and self.version == other.version
 
     def __hash__(self) -> int:
-        return hash(str(self))
+        # Hash based on components and version
+        return hash((self.components, self.version))
 
 
-ROOT_PATH = Path([''])
+ROOT_PATH = Path(('',))

@@ -9,7 +9,7 @@ from ..utils import rerun, skip_test_if_no_client, skip_test_if_not_installed, v
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestOpenRouter:
-    def test_chat_completions(self, reset_db: None) -> None:
+    def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openrouter')
         from pixeltable.functions.openrouter import chat_completions
@@ -42,7 +42,7 @@ class TestOpenRouter:
         assert 'Paris' in results['output'][0]['choices'][0]['message']['content']
         assert 'Paris' in results['output2'][0]['choices'][0]['message']['content']
 
-    def test_tool_invocations(self, reset_db: None) -> None:
+    def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openrouter')
         from pixeltable.functions.openai import invoke_tools
@@ -65,7 +65,7 @@ class TestOpenRouter:
 
         run_tool_invocations_test(make_table)
 
-    def test_transforms(self, reset_db: None) -> None:
+    def test_transforms(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openrouter')
         from pixeltable.functions.openrouter import chat_completions

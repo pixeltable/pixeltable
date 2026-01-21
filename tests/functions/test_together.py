@@ -10,7 +10,7 @@ from ..utils import IN_CI, rerun, skip_test_if_no_client, skip_test_if_not_insta
 @rerun(reruns=3, reruns_delay=8)
 class TestTogether:
     @pytest.mark.skip('Not working due to API issues')
-    def test_completions(self, reset_db: None) -> None:
+    def test_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('together')
         skip_test_if_no_client('together')
         from pixeltable.functions.together import completions
@@ -39,7 +39,7 @@ class TestTogether:
         assert len(result['output'][0]['choices'][0]['text']) > 0
         assert len(result['output_2'][0]['choices'][0]['text']) > 0
 
-    def test_chat_completions(self, reset_db: None) -> None:
+    def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('together')
         skip_test_if_no_client('together')
         from pixeltable.functions.together import chat_completions
@@ -74,7 +74,7 @@ class TestTogether:
         assert len(result['output'][0]['choices'][0]['message']) > 0
         assert len(result['output_2'][0]['choices'][0]['message']) > 0
 
-    def test_embeddings(self, reset_db: None) -> None:
+    def test_embeddings(self, uses_db: None) -> None:
         skip_test_if_not_installed('together')
         skip_test_if_no_client('together')
         from pixeltable.functions.together import embeddings
@@ -85,7 +85,7 @@ class TestTogether:
         assert len(t.collect()['embed'][0]) > 0
 
     @pytest.mark.expensive
-    def test_image_generations(self, reset_db: None) -> None:
+    def test_image_generations(self, uses_db: None) -> None:
         skip_test_if_not_installed('together')
         skip_test_if_no_client('together')
         from pixeltable.functions.together import image_generations

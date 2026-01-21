@@ -12,27 +12,27 @@ from tests.utils import ReloadTester, validate_update_status
 
 
 class TestUUID:
-    def test_uuid4_function(self, reset_db: None) -> None:
-        """Test the uuid4() UDF function."""
+    @pytest.mark.parametrize('uuid_fn, uuid_version', [(pxtf.uuid.uuid4, 4), (pxtf.uuid.uuid7, 7)])
+    def test_uuid_function(self, uuid_fn: pxt.Function, uuid_version: int, uses_db: None) -> None:
         t = pxt.create_table('test_uuid_tbl', {'id': pxt.Int})
         validate_update_status(t.insert([{'id': 1}, {'id': 2}, {'id': 3}]), expected_rows=3)
 
-        # Test uuid4 in select
-        res = t.select(uuid_col=pxtf.uuid.uuid4()).collect()
+        res = t.select(uuid_col=uuid_fn()).collect()
         assert len(res) == 3
         assert all(isinstance(u, uuid.UUID) for u in res['uuid_col'])
+        assert all(u.version == uuid_version for u in res['uuid_col'])
         # Verify all UUIDs are unique
         assert len(set(res['uuid_col'])) == 3
 
-        # Test uuid4 in computed column
-        t.add_computed_column(uuid_col=pxtf.uuid.uuid4())
+        t.add_computed_column(uuid_col=uuid_fn())
         res = t.select(t.id, t.uuid_col).collect()
         assert len(res) == 3
         assert all(isinstance(u, uuid.UUID) for u in res['uuid_col'])
+        assert all(u.version == uuid_version for u in res['uuid_col'])
         # Verify all UUIDs are unique
         assert len(set(res['uuid_col'])) == 3
 
-    def test_uuid_type(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_uuid_type(self, uses_db: None, reload_tester: ReloadTester) -> None:
         # Test UUIDs of different versions
         test_uuids: list[uuid.UUID] = [
             uuid.uuid1(),
@@ -103,7 +103,7 @@ class TestUUID:
         # Verify queries work after reload
         reload_tester.run_reload_test()
 
-    def test_uuid_primary_key(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_uuid_primary_key(self, uses_db: None, reload_tester: ReloadTester) -> None:
         # Test creating a table with a UUID primary key using computed column
         t = pxt.create_table('test_uuid_pk_tbl1', {'id': pxtf.uuid.uuid4(), 'data': pxt.String}, primary_key=['id'])
 
