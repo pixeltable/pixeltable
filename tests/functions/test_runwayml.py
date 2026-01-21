@@ -13,6 +13,7 @@ from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if
 @rerun(reruns=3, reruns_delay=30)
 class TestRunwayML:
     def test_image_to_data_uri(self) -> None:
+        skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import _image_to_data_uri
 
         # RGB image -> webp
@@ -28,6 +29,7 @@ class TestRunwayML:
         assert len(uri) > 30
 
     def test_serialize_result(self) -> None:
+        skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import _serialize_result
 
         dt = datetime.datetime(2024, 1, 15, 10, 30, 0)
@@ -37,6 +39,7 @@ class TestRunwayML:
 
     def test_image_to_video_signatures(self, reset_db: None) -> None:
         """Test image_to_video with required-only and required+optional parameters."""
+        skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import image_to_video
 
         t = pxt.create_table('test_tbl', {'image': pxt.Image, 'prompt': pxt.String})
@@ -51,6 +54,7 @@ class TestRunwayML:
 
     def test_text_to_image_signatures(self, reset_db: None) -> None:
         """Test text_to_image with required-only and required+optional parameters."""
+        skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import text_to_image
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'ref_image': pxt.Image})
@@ -63,6 +67,7 @@ class TestRunwayML:
 
     def test_text_to_video_signatures(self, reset_db: None) -> None:
         """Test text_to_video with required-only and required+optional parameters."""
+        skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import text_to_video
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
@@ -73,6 +78,7 @@ class TestRunwayML:
 
     def test_video_to_video_signatures(self, reset_db: None) -> None:
         """Test video_to_video with required-only and required+optional parameters."""
+        skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import video_to_video
 
         t = pxt.create_table('test_tbl', {'video_url': pxt.String, 'prompt': pxt.String})
