@@ -37,7 +37,7 @@ class TestRunwayML:
         assert result['created_at'] == '2024-01-15T10:30:00'
         assert result['data'][0]['time'] == '2024-01-15T10:30:00'
 
-    def test_image_to_video_signatures(self, reset_db: None) -> None:
+    def test_image_to_video_signatures(self, uses_db: None) -> None:
         """Test image_to_video with required-only and required+optional parameters."""
         skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import image_to_video
@@ -52,7 +52,7 @@ class TestRunwayML:
             )
         )
 
-    def test_text_to_image_signatures(self, reset_db: None) -> None:
+    def test_text_to_image_signatures(self, uses_db: None) -> None:
         """Test text_to_image with required-only and required+optional parameters."""
         skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import text_to_image
@@ -65,7 +65,7 @@ class TestRunwayML:
             output_optional=text_to_image(t.prompt, [t.ref_image], 'gen4_image', '1920:1080', seed=42)
         )
 
-    def test_text_to_video_signatures(self, reset_db: None) -> None:
+    def test_text_to_video_signatures(self, uses_db: None) -> None:
         """Test text_to_video with required-only and required+optional parameters."""
         skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import text_to_video
@@ -76,7 +76,7 @@ class TestRunwayML:
         # Required + optional parameters
         t.add_computed_column(output_optional=text_to_video(t.prompt, 'veo3.1', '1280:720', duration=5, audio=True))
 
-    def test_video_to_video_signatures(self, reset_db: None) -> None:
+    def test_video_to_video_signatures(self, uses_db: None) -> None:
         """Test video_to_video with required-only and required+optional parameters."""
         skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import video_to_video
@@ -87,7 +87,7 @@ class TestRunwayML:
         # Required + optional parameters
         t.add_computed_column(output_optional=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720', seed=42))
 
-    def test_image_to_video(self, reset_db: None) -> None:
+    def test_image_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
         from pixeltable.functions.runwayml import image_to_video
@@ -102,7 +102,7 @@ class TestRunwayML:
         assert results['output'][0] is not None
         assert 'output' in results['output'][0]
 
-    def test_text_to_image(self, reset_db: None) -> None:
+    def test_text_to_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
         from pixeltable.functions.runwayml import text_to_image
@@ -115,7 +115,7 @@ class TestRunwayML:
         assert results['output'][0] is not None
         assert 'output' in results['output'][0]
 
-    def test_text_to_video(self, reset_db: None) -> None:
+    def test_text_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
         from pixeltable.functions.runwayml import text_to_video
@@ -127,7 +127,7 @@ class TestRunwayML:
         assert results['output'][0] is not None
         assert 'output' in results['output'][0]
 
-    def test_video_to_video(self, reset_db: None) -> None:
+    def test_video_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
         from pixeltable.functions.runwayml import video_to_video

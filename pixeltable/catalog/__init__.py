@@ -3,7 +3,7 @@
 from .catalog import Catalog, retry_loop
 from .column import Column
 from .dir import Dir
-from .globals import IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId, is_valid_identifier, is_valid_path
+from .globals import IfExistsParam, IfNotExistsParam, MediaValidation, QColumnId, is_valid_identifier
 from .insertable_table import InsertableTable
 from .path import Path
 from .schema_object import SchemaObject

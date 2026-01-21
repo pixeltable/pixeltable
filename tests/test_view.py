@@ -50,7 +50,7 @@ class TestView:
         t.add_computed_column(d2=t.c3 - t.c10)
         return t
 
-    def test_errors(self, reset_db: None) -> None:
+    def test_errors(self, uses_db: None) -> None:
         t = self.create_tbl()
         v = pxt.create_view('test_view', t)
         with pytest.raises(pxt.Error, match=r"view 'test_view': Cannot insert into a view."):
@@ -66,7 +66,7 @@ class TestView:
             _ = pxt.create_view('join_view', join_df)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_basic(self, do_reload_catalog: bool, reset_db: None) -> None:
+    def test_basic(self, do_reload_catalog: bool, uses_db: None) -> None:
         t = self.create_tbl()
 
         # create view with filter and computed columns
@@ -151,7 +151,7 @@ class TestView:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
         assert "invalid value for column 'v1'" in str(exc_info.value).lower()
 
-    def test_create_if_exists(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test if_exists parameter of create_view API"""
         t = self.create_tbl()
         v = pxt.create_view('test_view', t)
@@ -214,7 +214,7 @@ class TestView:
         _ = reload_tester.run_query(v3.select())
         reload_tester.run_reload_test()
 
-    def test_add_column_to_view(self, reset_db: None, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_add_column_to_view(self, uses_db: None, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         """Test add_column* methods for views"""
         t = test_tbl
         t_c1_val0 = t.order_by(t.c1).collect()[0]['c1']
@@ -329,7 +329,7 @@ class TestView:
             with pytest.raises(pxt.Error, match=expected_err):
                 v.add_computed_column(**{col_name: 'bbb'}, if_exists='replace')
 
-    def test_from_query(self, reset_db: None) -> None:
+    def test_from_query(self, uses_db: None) -> None:
         t = self.create_tbl()
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -344,7 +344,7 @@ class TestView:
             pxt.create_view('test_view', t.limit(10))
         assert 'Cannot use `create_view` after `limit`' in str(exc_info.value)
 
-    def test_parallel_views(self, reset_db: None) -> None:
+    def test_parallel_views(self, uses_db: None) -> None:
         """Two views over the same base table, with non-overlapping filters"""
         t = self.create_tbl()
 
@@ -391,7 +391,7 @@ class TestView:
         assert_resultset_eq(v1_query.collect(), b1_query.collect())
         assert_resultset_eq(v2_query.collect(), b2_query.collect())
 
-    def test_chained_views(self, reset_db: None) -> None:
+    def test_chained_views(self, uses_db: None) -> None:
         """Two views, the second one is a view over the first one"""
         t = self.create_tbl()
 
@@ -492,7 +492,7 @@ class TestView:
         assert v2._get_version() == v2_version
         check_views()
 
-    def test_unstored_columns_non_image(self, reset_db: None) -> None:
+    def test_unstored_columns_non_image(self, uses_db: None) -> None:
         t = self.create_tbl()
         print(t)
 
@@ -559,7 +559,7 @@ class TestView:
         for row in v3_res:
             assert row['wc2a'] + 1000 == row['wc2b']
 
-    def test_unstored_columns(self, reset_db: None) -> None:
+    def test_unstored_columns(self, uses_db: None) -> None:
         """Test chained views with unstored columns"""
         # create table with image column and two updateable int columns
         schema = {'img': pxt.Image, 'int1': pxt.Int, 'int2': pxt.Int}
@@ -632,7 +632,7 @@ class TestView:
         logger.debug('******************* POST UPDATE INT2')
         check_views()
 
-    def test_selected_cols(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_selected_cols(self, uses_db: None, reload_tester: ReloadTester) -> None:
         t = self.create_tbl()
 
         # Note that v1.c3 overrides t.c3, but both are accessible
@@ -686,7 +686,7 @@ class TestView:
             _ = v1.select(v1.c1).head(5)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_computed_cols(self, do_reload_catalog: bool, reset_db: None) -> None:
+    def test_computed_cols(self, do_reload_catalog: bool, uses_db: None) -> None:
         t = self.create_tbl()
 
         # create view with computed columns
@@ -719,7 +719,7 @@ class TestView:
         assert_resultset_eq(v.select(v.v1).order_by(v.c2).collect(), t.select(t.c3 * 2.0).order_by(t.c2).collect())
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_filter(self, do_reload_catalog: bool, reset_db: None) -> None:
+    def test_filter(self, do_reload_catalog: bool, uses_db: None) -> None:
         t = create_test_tbl()
 
         # create view with filter
@@ -751,7 +751,7 @@ class TestView:
         _ = pxt.create_view('test_view_2', t.where(t.c5 < datetime.datetime.now()))
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_view_of_snapshot(self, do_reload_catalog: bool, reset_db: None) -> None:
+    def test_view_of_snapshot(self, do_reload_catalog: bool, uses_db: None) -> None:
         """Test view over a snapshot"""
         t = self.create_tbl()
         snap = pxt.create_snapshot('test_snap', t)
@@ -798,7 +798,7 @@ class TestView:
         check_view(snap, v)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True])
-    def test_snapshots(self, do_reload_catalog: bool, reset_db: None) -> None:
+    def test_snapshots(self, do_reload_catalog: bool, uses_db: None) -> None:
         """Test snapshot of a view of a snapshot"""
         t = self.create_tbl()
         s = pxt.create_snapshot('test_snap', t)
@@ -866,9 +866,9 @@ class TestView:
         assert t.count() == 110
         check(s, v, view_s)
 
-    def test_table_time_travel(self, reset_db: None) -> None:
+    def test_table_time_travel(self, uses_db: None) -> None:
         pxt.create_dir('dir')
-        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+        t = pxt.create_table('dir/test_tbl', {'c1': pxt.Int})
         assert t.get_metadata()['version'] == 0
         t.insert(c1=1)
         t.insert(c1=2)
@@ -881,7 +881,7 @@ class TestView:
         assert t.get_metadata()['version'] == 7
 
         # Check metadata
-        ver = [pxt.get_table(f'dir.test_tbl:{version}') for version in range(0, 8)]
+        ver = [pxt.get_table(f'dir/test_tbl:{version}') for version in range(0, 8)]
         for i in range(len(ver)):
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
@@ -921,7 +921,7 @@ class TestView:
                     'is_view': True,
                     'media_validation': 'on_write',
                     'name': f'test_tbl:{i}',
-                    'path': f'dir.test_tbl:{i}',
+                    'path': f'dir/test_tbl:{i}',
                     'schema_version': expected_schema_version,
                     'version': i,
                 },
@@ -938,19 +938,19 @@ class TestView:
         assert res[6] == [{'balloon': r['c2']} for r in res[5]]
         assert res[7] == res[6] + [{'balloon': f'str{i}'} for i in range(10, 20)]
 
-    def test_view_time_travel(self, reset_db: None) -> None:
+    def test_view_time_travel(self, uses_db: None) -> None:
         pxt.create_dir('dir')
-        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+        t = pxt.create_table('dir/test_tbl', {'c1': pxt.Int})
         assert t.get_metadata()['version'] == 0
         t.insert(c1=1)
         t.insert(c1=2)
         t.add_column(c2=pxt.String)
         t.insert({'c1': i, 'c2': f'str{i}'} for i in range(3, 10))
         assert t.get_metadata()['version'] == 4
-        v = pxt.create_view('dir.test_view', t.where(t.c1 % 2 == 0))
+        v = pxt.create_view('dir/test_view', t.where(t.c1 % 2 == 0))
         assert v.get_metadata()['version'] == 0
         v.add_computed_column(c3=(v.c1 // 2))
-        vv = pxt.create_view('dir.test_subview', v.where(v.c1 % 3 == 0))
+        vv = pxt.create_view('dir/test_subview', v.where(v.c1 % 3 == 0))
         assert vv.get_metadata()['version'] == 0
         v.add_column(c4=pxt.Int)
         assert v.get_metadata()['version'] == 2
@@ -971,7 +971,7 @@ class TestView:
         assert vv.get_metadata()['version'] == 3
 
         # Check view metadata
-        ver = [pxt.get_table(f'dir.test_view:{version}') for version in range(6)]
+        ver = [pxt.get_table(f'dir/test_view:{version}') for version in range(6)]
         for i in range(len(ver)):
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
@@ -1012,7 +1012,7 @@ class TestView:
 
             assert_table_metadata_eq(
                 {
-                    'base': f'dir.test_tbl:{expected_base_version}',
+                    'base': f'dir/test_tbl:{expected_base_version}',
                     'columns': {
                         name: {
                             'computed_with': computed_with,
@@ -1033,7 +1033,7 @@ class TestView:
                     'is_view': True,
                     'media_validation': 'on_write',
                     'name': f'test_view:{i}',
-                    'path': f'dir.test_view:{i}',
+                    'path': f'dir/test_view:{i}',
                     'schema_version': expected_schema_version,
                     'version': i,
                 },
@@ -1050,7 +1050,7 @@ class TestView:
         assert res[5] == [{'balloon': i, 'hamburger': i // 2, 'c4': i // 2 + 91} for i in range(2, 20, 2)]
 
         # Check subview metadata
-        ver = [pxt.get_table(f'dir.test_subview:{version}') for version in range(4)]
+        ver = [pxt.get_table(f'dir/test_subview:{version}') for version in range(4)]
         for i in range(len(ver)):
             assert isinstance(ver[i], pxt.View)
             vmd = ver[i].get_metadata()
@@ -1087,7 +1087,7 @@ class TestView:
                 expected_base_version = 5
             assert_table_metadata_eq(
                 {
-                    'base': f'dir.test_view:{expected_base_version}',
+                    'base': f'dir/test_view:{expected_base_version}',
                     'columns': {
                         name: {
                             'computed_with': computed_with,
@@ -1112,16 +1112,16 @@ class TestView:
                     'is_view': True,
                     'media_validation': 'on_write',
                     'name': f'test_subview:{i}',
-                    'path': f'dir.test_subview:{i}',
+                    'path': f'dir/test_subview:{i}',
                     'schema_version': expected_schema_version,
                     'version': i,
                 },
                 vmd,
             )
 
-    def test_time_travel_over_snapshot(self, reset_db: None) -> None:
+    def test_time_travel_over_snapshot(self, uses_db: None) -> None:
         pxt.create_dir('dir')
-        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+        t = pxt.create_table('dir/test_tbl', {'c1': pxt.Int})
         assert t.get_metadata()['version'] == 0
 
         views: list[pxt.Table] = []
@@ -1132,8 +1132,8 @@ class TestView:
             t.insert(c1=i)
             t.add_computed_column(**{f'x{i}': t.c1 + i * 10})
             assert t.get_metadata()['version'] == (i + 1) * 2
-            snap = pxt.create_snapshot(f'dir.test_snap_{i}', t)
-            view = pxt.create_view(f'dir.test_view_{i}', snap)
+            snap = pxt.create_snapshot(f'dir/test_snap_{i}', t)
+            view = pxt.create_view(f'dir/test_view_{i}', snap)
             views.append(view)
             view_results.append(view.order_by(view.c1).collect())
 
@@ -1145,15 +1145,15 @@ class TestView:
             assert views[i].get_metadata()['version'] == 1
             updated_rs = views[i].order_by(views[i].c1).collect()
             assert len(updated_rs) == len(view_results[i])  # same number of rows as original snapshot
-            specific_version_0 = pxt.get_table(f'dir.test_view_{i}:0')
+            specific_version_0 = pxt.get_table(f'dir/test_view_{i}:0')
             assert_resultset_eq(specific_version_0.order_by(specific_version_0.c1).collect(), view_results[i])
 
             # Now the main point of the test: when we get a *time travel handle* to the updated view, it should
             # still reflect the original snapshot data, not more recent data from the table.
-            specific_version_1 = pxt.get_table(f'dir.test_view_{i}:1')
+            specific_version_1 = pxt.get_table(f'dir/test_view_{i}:1')
             assert_resultset_eq(specific_version_1.order_by(specific_version_1.c1).collect(), updated_rs)
 
-    def test_column_defaults(self, reset_db: None) -> None:
+    def test_column_defaults(self, uses_db: None) -> None:
         """
         Test that during insert() manually-supplied columns are materialized with their defaults and can be referenced
         in computed columns.
@@ -1179,7 +1179,7 @@ class TestView:
         # computed view column for new row is null
         assert v.where(v.computed_1 == None).count() == 1
 
-    def test_drop_base_column(self, reset_db: None) -> None:
+    def test_drop_base_column(self, uses_db: None) -> None:
         t = self.create_tbl()
         # create view with computed columns
         schema = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
@@ -1197,7 +1197,7 @@ class TestView:
         # drop view's own column - allowed
         v1.drop_column(v1.v2)
 
-    def test_rename_base_column(self, reset_db: None) -> None:
+    def test_rename_base_column(self, uses_db: None) -> None:
         t = self.create_tbl()
         schema = {'v1': t.c3 * 2.0, 'v2': t.c6.f5}
         v1 = pxt.create_view('test_view1', t, additional_columns=schema)
@@ -1212,7 +1212,7 @@ class TestView:
         # should work
         v1.rename_column('v1', 'new_v1')
 
-    def test_update_base_column(self, reset_db: None) -> None:
+    def test_update_base_column(self, uses_db: None) -> None:
         t = self.create_tbl()
         v1 = pxt.create_view('test_view1', t, additional_columns={'v1': pxt.Int})
         v2 = pxt.create_view('test_view2', v1, additional_columns={'v2': pxt.Int})
@@ -1232,7 +1232,7 @@ class TestView:
         v = pxt.create_view('test_view', t, additional_columns={'v1': t.c2 + 1})
         validate_update_status(v.recompute_columns(v.v1, cascade=True, where=v.c2 < 10), expected_rows=10)
 
-    def test_circular_view_def(self, reset_db: None) -> None:
+    def test_circular_view_def(self, uses_db: None) -> None:
         # tests for a specific scenario in which:
         # - A view `my_view` is created
         # - A subview of `my_view` is created with the identical name `my_view`, using if_exists='replace'
