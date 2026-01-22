@@ -828,7 +828,7 @@ class Catalog:
                 break
             names.insert(0, dir.md['name'])
             dir_id = dir.parent_id
-        return Path.parse('.'.join(names), allow_empty_path=True, allow_system_path=True)
+        return Path.parse('/'.join(names), allow_empty_path=True, allow_system_path=True)
 
     @dataclasses.dataclass
     class DirEntry:
@@ -1224,7 +1224,7 @@ class Catalog:
             replica_path: Path
             if replica is None:
                 # We've never seen this table before. Create a new anonymous system table for it.
-                replica_path = Path.parse(f'_system.replica_{ancestor_id.hex}', allow_system_path=True)
+                replica_path = Path.parse(f'_system/replica_{ancestor_id.hex}', allow_system_path=True)
             else:
                 # The table already exists in the catalog. The existing path might be a system path (if the table
                 # was created as an anonymous base table of some other table), or it might not (if it's a snapshot

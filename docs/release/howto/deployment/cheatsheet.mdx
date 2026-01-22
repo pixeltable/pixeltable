@@ -29,7 +29,7 @@ import pixeltable as pxt
     ```python
     # Create
     pxt.create_dir('project')
-    pxt.create_dir('project.subdir')
+    pxt.create_dir('project/subdir')
 
     # List
     pxt.ls()                           # DataFrame of contents
@@ -38,7 +38,7 @@ import pixeltable as pxt
     contents = pxt.get_dir_contents('project')
 
     # Move/rename
-    pxt.move('old.path', 'new.path')
+    pxt.move('old/path', 'new/path')
 
     # Delete
     pxt.drop_dir('project', force=True)
@@ -47,7 +47,7 @@ import pixeltable as pxt
   <Tab title="Tables">
     ```python
     # Create
-    t = pxt.create_table('project.users', {
+    t = pxt.create_table('project/users', {
         'id': pxt.Required[pxt.String],
         'name': pxt.String,
         'age': pxt.Int,
@@ -55,7 +55,7 @@ import pixeltable as pxt
     }, primary_key='id')
 
     # Get
-    t = pxt.get_table('project.users')
+    t = pxt.get_table('project/users')
 
     # Operations
     t.describe()                       # Show schema
@@ -70,7 +70,7 @@ import pixeltable as pxt
     t.drop_column('column')
 
     # Delete
-    pxt.drop_table('project.users')
+    pxt.drop_table('project/users')
     ```
   </Tab>
 </Tabs>
@@ -370,7 +370,7 @@ from pixeltable.iterators import (
   <Tab title="Video Frames">
     ```python
     frames = pxt.create_view(
-        'project.frames',
+        'project/frames',
         videos,
         iterator=FrameIterator.create(video=videos.video, fps=1)
     )
@@ -379,7 +379,7 @@ from pixeltable.iterators import (
   <Tab title="Document Chunking">
     ```python
     chunks = pxt.create_view(
-        'project.chunks',
+        'project/chunks',
         docs,
         iterator=DocumentSplitter.create(
             document=docs.document,
@@ -408,20 +408,20 @@ from pixeltable.iterators import (
 ```python
 # Filtered view
 active = pxt.create_view(
-    'project.active_users',
+    'project/active_users',
     users,
     filter=users.status == 'active'
 )
 
 # View with iterator
 frames = pxt.create_view(
-    'project.frames',
+    'project/frames',
     videos,
     iterator=FrameIterator.create(video=videos.video, fps=2)
 )
 
 # Snapshot (read-only)
-snapshot = pxt.create_snapshot('project.backup', users)
+snapshot = pxt.create_snapshot('project/backup', users)
 ```
 
 <Card title="Views Guide" icon="eye" href="/platform/views">
@@ -455,7 +455,7 @@ t.revert()                         # Undo last change (cannot be undone!)
 ```python Publish
 # Publish to cloud
 pxt.publish(
-    source='my.table',
+    source='my/table',
     destination_uri='pxt://username/dataset',
     access='public'  # or 'private' (default)
 )
@@ -828,7 +828,7 @@ results = invoke_tools(tools, response)
 
     # 1. Chunk documents
     chunks = pxt.create_view(
-        'rag.chunks',
+        'rag/chunks',
         docs,
         iterator=DocumentSplitter.create(document=docs.doc, separators='paragraph', limit=500)
     )
@@ -847,7 +847,7 @@ results = invoke_tools(tools, response)
         return chunks.order_by(sim, asc=False).select(chunks.text, score=sim).limit(k)
 
     # 4. Generate answers
-    qa = pxt.create_table('rag.qa', {'question': pxt.String})
+    qa = pxt.create_table('rag/qa', {'question': pxt.String})
     qa.add_computed_column(context=retrieve(qa.question))
     qa.add_computed_column(
         answer=chat_completions(
@@ -869,7 +869,7 @@ results = invoke_tools(tools, response)
   <Accordion title="Agent with Memory" icon="memory">
     ```python
     # Memory store
-    memories = pxt.create_table('agent.memories', {'content': pxt.String})
+    memories = pxt.create_table('agent/memories', {'content': pxt.String})
     memories.add_embedding_index('idx', column=memories.content, embedding=...)
 
     # Retrieval
@@ -890,7 +890,7 @@ results = invoke_tools(tools, response)
     from pixeltable.functions.yolox import yolox
 
     frames = pxt.create_view(
-        'project.frames',
+        'project/frames',
         videos,
         iterator=FrameIterator.create(video=videos.video, fps=1)
     )
@@ -908,8 +908,8 @@ results = invoke_tools(tools, response)
 
 | Task | Command |
 |------|---------|
-| Create table | `pxt.create_table('dir.table', schema)` |
-| Get table | `pxt.get_table('dir.table')` |
+| Create table | `pxt.create_table('dir/table', schema)` |
+| Get table | `pxt.get_table('dir/table')` |
 | Query | `t.where(condition).collect()` |
 | Add computed | `t.add_computed_column(name=expr)` |
 | Embed index | `t.add_embedding_index('idx', column, embedding)` |
