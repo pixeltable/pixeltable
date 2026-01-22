@@ -127,6 +127,11 @@ def to_string(u: uuid.UUID) -> str:
     return str(u)
 
 
+@to_string.to_sql
+def _(u: sql.ColumnElement) -> sql.ColumnElement:
+    return u.cast(sql.Text)
+
+
 @pxt.udf
 def hex(u: uuid.UUID) -> str:
     """
@@ -144,6 +149,12 @@ def hex(u: uuid.UUID) -> str:
         >>> tbl.add_computed_column(id_hex=hex(tbl.id))
     """
     return u.hex
+
+
+@hex.to_sql
+def _(u: sql.ColumnElement) -> sql.ColumnElement:
+    # Convert UUID to text and remove hyphens
+    return sql.func.replace(u.cast(sql.Text), '-', '')
 
 
 __all__ = local_public_names(__name__)
