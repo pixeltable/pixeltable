@@ -162,11 +162,11 @@ Pixelagent is designed to be both powerful and approachable. Our API emphasizes 
     import pixeltable as pxt
 
     # Agent memory is automatically persisted
-    memory = pxt.get_table("my_assistant.memory")
+    memory = pxt.get_table("my_assistant/memory")
     conversations = memory.collect()
 
     # Access tool call history
-    tools_log = pxt.get_table("financial_assistant.tools")
+    tools_log = pxt.get_table("financial_assistant/tools")
     tool_history = tools_log.collect()
     ```
   </Accordion>

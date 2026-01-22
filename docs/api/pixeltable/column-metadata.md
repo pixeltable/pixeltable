@@ -1,3 +1,0 @@
-# ColumnMetadata
-
-## ::: pixeltable.ColumnMetadata
