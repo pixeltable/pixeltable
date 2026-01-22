@@ -50,16 +50,22 @@ class TestAudio:
         video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.add_computed_column(audio=video_t.video.extract_audio())
 
-        # one of the 3 videos doesn't have audio
-        status = video_t.insert({'video': p} for p in video_filepaths)
-        assert status.num_rows == len(video_filepaths)
-        assert status.num_excs == 0
-        assert ObjectOps.count(video_t._id, default_output_dest=True) == len(video_filepaths) - 1
-        assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
+        # Directly count the number of videos with audio streams, without relying on the UDF
+        videos_without_audio = 0
+        for p in video_filepaths:
+            md = av_utils.get_metadata(p)
+            if sum(1 for stream in md['streams'] if stream['type'] == 'audio') == 0:
+                videos_without_audio += 1
+
+        validate_update_status(
+            video_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths)
+        )
+        assert ObjectOps.count(video_t._id, default_output_dest=True) == len(video_filepaths) - videos_without_audio
+        assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - videos_without_audio
         tmp_files_before = TempStore.count()
 
         video_t = pxt.get_table('videos')
-        assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
+        assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - videos_without_audio
 
         # test generating different formats and codecs
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s16le')).collect()['output']
