@@ -63,7 +63,7 @@ errors = table.where(table.analysis.errortype != None).collect()
 import pixeltable as pxt
 import config
 
-docs_table = pxt.get_table(f'{config.APP_NAMESPACE}.documents')
+docs_table = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
 docs_table.add_computed_column(
     embedding=embed_model(docs_table.document),
     if_exists='ignore'  # No-op if column exists
@@ -118,7 +118,7 @@ CMD python setup_pixeltable.py && uvicorn app:app --host 0.0.0.0
 ```python
 # Per-user isolation via namespaces
 pxt.create_dir(f"user_{user_id}", if_exists='ignore')
-user_table = pxt.create_table(f"user_{user_id}.chat_history", schema={...})
+user_table = pxt.create_table(f"user_{user_id}/chat_history", schema={...})
 ```
 
 ### High Availability Constraints
