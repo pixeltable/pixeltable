@@ -104,34 +104,6 @@ class Dir(Base):
 
 
 @dataclasses.dataclass
-class ColumnMd:
-    """
-    Records the non-versioned metadata of a column.
-    - immutable attributes: type, primary key, etc.
-    - when a column was added/dropped, which is needed to GC unreachable storage columns
-      (a column that was added after table snapshot n and dropped before table snapshot n+1 can be removed
-      from the stored table).
-    """
-
-    id: int
-    schema_version_add: int
-    schema_version_drop: int | None
-    col_type: dict
-
-    # if True, is part of the primary key
-    is_pk: bool
-
-    # if set, this is a computed column
-    value_expr: dict | None
-
-    # if True, the column is present in the stored table
-    stored: bool | None
-
-    # If present, the URI for the destination for column values
-    destination: str | None = None
-
-
-@dataclasses.dataclass
 class IndexMd:
     """
     Metadata needed to instantiate an EmbeddingIndex
@@ -228,6 +200,8 @@ class TableMd:
     # column indexes, value expressions, etc. but not names
     # move this stuff to SchemaColumn
     # column_md: dict[int, ColumnMd]  # col_id -> ColumnMd
+    column_schema_version_add: dict[int, int] # col_id -> schema version in which it was added
+    column_schema_version_drop: dict[int, int] # col_id -> schema version in which it was dropped
     index_md: dict[int, IndexMd]  # index_id -> IndexMd
     view_md: ViewMd | None
     # TODO: Remove additional_md from this and other Md dataclasses (and switch to using the separate additional_md
@@ -317,9 +291,21 @@ class SchemaColumn:
     pos: int
     # renames are versioned:
     name: str
-    # type info and value expr need to move here
-    # TODO what's then the difference between SchemaColumn.md and ColumnMd? any way they can be merged now?
-    md: ColumnMd
+
+    id: int
+    col_type: dict
+
+    # if True, is part of the primary key
+    is_pk: bool
+
+    # if set, this is a computed column
+    value_expr: dict | None
+
+    # if True, the column is present in the stored table
+    stored: bool | None
+
+    # If present, the URI for the destination for column values
+    destination: str | None = None
 
     # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
     # stores column.MediaValiation.name.lower()
