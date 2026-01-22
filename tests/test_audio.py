@@ -50,7 +50,7 @@ class TestAudio:
         video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.add_computed_column(audio=video_t.video.extract_audio())
 
-        # Directly count the number of videos with audio streams, without relying on the UDF
+        # Directly count the number of videos without audio streams, without relying on the UDF
         videos_without_audio = 0
         for p in video_filepaths:
             md = av_utils.get_metadata(p)
