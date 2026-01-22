@@ -542,6 +542,10 @@ class TableVersion:
                 stores_cellmd = False
                 sa_col_type = idx.get_index_sa_type(col_type)
 
+            # Get is_computed_column flag (migration ensures this is always set)
+            is_computed_column = getattr(col_md, 'is_computed_column', False)
+            value_expr_dict = col_md.value_expr
+
             col = Column(
                 col_id=col_md.id,
                 name=schema_col_md.name if schema_col_md is not None else None,
@@ -554,8 +558,8 @@ class TableVersion:
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
                 stores_cellmd=stores_cellmd,
-                value_expr_dict=col_md.value_expr,
-                default_expr_dict=col_md.default_expr,
+                value_expr_dict=value_expr_dict,
+                is_computed_column=is_computed_column,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
             )
@@ -609,7 +613,6 @@ class TableVersion:
             tvp = self.path
         for col in self.cols_by_id.values():
             col.init_value_expr(tvp)
-            col.init_default_expr(tvp)
 
         # create the sqlalchemy schema, after instantiating all Columns
         if self.is_component_view:
@@ -699,6 +702,7 @@ class TableVersion:
             col_id=id_cb(),
             name=None,
             computed_with=value_expr,
+            is_computed_column=True,
             sa_col_type=idx.get_index_sa_type(value_expr.col_type),
             stored=True,
             stores_cellmd=idx.records_value_errors(),
@@ -848,9 +852,11 @@ class TableVersion:
         row_count = self.store_tbl.count()
         for col in cols_to_add:
             assert col.tbl_handle.id == self.id
-            if not col.col_type.nullable and not col.is_computed and row_count > 0:
+            # Allow non-nullable columns if they have a default value or are computed
+            if not col.col_type.nullable and not col.is_computed and not col.has_default_value and row_count > 0:
                 raise excs.Error(
-                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
+                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows. '
+                    f'Specify a default value to add a non-nullable column to a non-empty table.'
                 )
 
         num_excs = 0
@@ -876,11 +882,20 @@ class TableVersion:
             if col.is_stored:
                 self.store_tbl.add_column(col)
 
-            if not col.is_computed or not col.is_stored or row_count == 0:
+            # Populate the column if:
+            # 1. It's a computed column that is stored and table has rows, OR
+            # 2. It's a column with a default value that is stored and table has rows
+            if row_count == 0:
                 continue
 
-            # populate the column
-            plan = Planner.create_add_column_plan(self.path, col)
+            if col.is_computed and col.is_stored:
+                # populate computed column
+                plan = Planner.create_add_column_plan(self.path, col)
+            elif col.has_default_value and col.is_stored:
+                # populate column with default value for existing rows
+                plan = Planner.create_add_column_plan(self.path, col)
+            else:
+                continue
             with Env.get().report_progress():
                 try:
                     plan.ctx.title = self.display_str()

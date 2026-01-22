@@ -3033,14 +3033,10 @@ class TestTable:
         t.add_column(c_uuid={'type': pxt.UUID, 'default': default_uuid})
         t.add_column(c_binary={'type': pxt.Binary, 'default': default_binary})
 
-        # Test 1c: Test media type defaults (Image, Audio, Video) - stored as URLs/paths
-        # Use actual test files for defaults (must exist for validation)
+        # Test 1c: Media type defaults are not supported
         default_image_path = str(TESTS_DIR / 'data/images/#_strange_file name!@$.jpg')
-        default_audio_path = str(TESTS_DIR / 'data/audio/sample.mp3')
-        default_video_path = str(TESTS_DIR / 'data/videos/bangkok_half_res.mp4')
-        t.add_column(c_image={'type': pxt.Image, 'default': default_image_path})
-        t.add_column(c_audio={'type': pxt.Audio, 'default': default_audio_path})
-        t.add_column(c_video={'type': pxt.Video, 'default': default_video_path})
+        with pytest.raises(pxt.Error, match='Default values are not supported for media types'):
+            t.add_column(c_image={'type': pxt.Image, 'default': default_image_path})
 
         # Test 2: Expression defaults are not supported - only literals allowed
         with pytest.raises(pxt.Error, match='Only literal defaults are supported'):
@@ -3053,12 +3049,16 @@ class TestTable:
         }
         t.add_columns(schema)  # type: ignore[arg-type]
 
-        # Test 4: Cannot add non-nullable column with default to non-empty table
+        # Test 4: Can add column with default to non-empty table - existing rows get default value
         # Insert rows first
         t.insert([{'c1': 1}, {'c1': 2}])
-        # Now try to add a column with default - should fail because table is not empty
-        with pytest.raises(pxt.Error, match='Cannot add non-nullable column'):
-            t.add_column(c6={'type': pxt.Int, 'default': 0})
+        # Now add a column with default - should succeed and populate existing rows
+        t.add_column(c6={'type': pxt.Int, 'default': 999})
+        # Verify existing rows got the default value
+        result = t.select().collect()
+        assert len(result) == 2
+        for row in result:
+            assert row['c6'] == 999, f'Expected 999, got {row["c6"]}'
 
         # Test 5: Computed columns cannot have defaults
         with pytest.raises(pxt.Error, match="'default' cannot be specified for computed columns"):
@@ -3086,17 +3086,50 @@ class TestTable:
             assert row['c_date'] == default_date, f'Expected {default_date}, got {row["c_date"]}'
             assert row['c_uuid'] == default_uuid, f'Expected {default_uuid}, got {row["c_uuid"]}'
             assert row['c_binary'] == default_binary, f'Expected {default_binary!r}, got {row["c_binary"]!r}'
-            # Media columns should get defaults
-            assert isinstance(row['c_image'], PIL.Image.Image), f'Expected PIL Image, got {type(row["c_image"])}'
-            assert row['c_image'].size == (640, 480), f'Expected size (640, 480), got {row["c_image"].size}'
-            assert row['c_audio'] == default_audio_path, f'Expected {default_audio_path}, got {row["c_audio"]}'
-            assert row['c_video'] == default_video_path or str(row['c_video']) == default_video_path, (
-                f'Expected {default_video_path}, got {row["c_video"]}'
-            )
+            # Verify c6 (added to non-empty table) also has default
+            assert row['c6'] == 999, f'Expected 999, got {row["c6"]}'
 
         # Test 7: Expression defaults are not supported - only literals allowed
         with pytest.raises(pxt.Error, match='Only literal defaults are supported'):
             t.add_column(c8={'type': pxt.Int, 'default': t.c1 * 2})
 
-        # Test 8: Verify defaults work after reloading the catalog
+        # Test 8: Invalid JSON defaults - UUID/datetime not allowed in JSON
+        # Note: These will fail at JsonType validation, not our custom validation
+        # But we should still test that they're rejected
+        test_uuid = uuid.UUID('12345678-1234-5678-1234-567812345678')
+        with pytest.raises((pxt.Error, TypeError), match='scalar JSON types|not a valid Pixeltable JSON'):
+            t.add_column(c9={'type': pxt.Json, 'default': {'id': test_uuid}})
+        test_datetime = datetime.datetime.now()
+        with pytest.raises((pxt.Error, TypeError), match='scalar JSON types|not a valid Pixeltable JSON'):
+            t.add_column(c10={'type': pxt.Json, 'default': {'date': test_datetime}})
+
+        # Test 9: Size limits - default values > 10KB are rejected
+        from pixeltable.catalog.globals import MAX_VALUE_EXPR_SIZE
+        # String default > 10KB
+        large_string = 'x' * (MAX_VALUE_EXPR_SIZE + 100)
+        with pytest.raises(pxt.Error, match='too large'):
+            t.add_column(c11={'type': pxt.String, 'default': large_string})
+        # JSON default > 10KB
+        large_json = {'data': 'x' * (MAX_VALUE_EXPR_SIZE + 100)}
+        with pytest.raises(pxt.Error, match='too large'):
+            t.add_column(c12={'type': pxt.Json, 'default': large_json})
+        # Binary default > 10KB
+        large_binary = b'x' * (MAX_VALUE_EXPR_SIZE + 100)
+        with pytest.raises(pxt.Error, match='too large'):
+            t.add_column(c13={'type': pxt.Binary, 'default': large_binary})
+        # Array default > 10KB (when serialized)
+        # Create array that will exceed size limit when serialized to JSON
+        # Use int64 to match pxt.Int type - need larger array to exceed 10KB when serialized
+        # Arrays are serialized as lists, so we need enough elements
+        large_array = np.ones((MAX_VALUE_EXPR_SIZE // 2,), dtype=np.int64)  # Will be > 10KB when serialized
+        with pytest.raises(pxt.Error, match='too large'):
+            t.add_column(c14={'type': pxt.Array[(MAX_VALUE_EXPR_SIZE // 2,), pxt.Int], 'default': large_array})
+
+        # Test 10: Computed column expression > 10KB is rejected
+        # Use string concatenation to avoid type mismatch
+        large_literal = 'x' * (MAX_VALUE_EXPR_SIZE + 100)
+        with pytest.raises(pxt.Error, match='too large'):
+            t.add_column(c15={'value': t.c2 + large_literal})  # c2 is String, so concatenation works
+
+        # Test 11: Verify defaults work after reloading the catalog
         reload_tester.run_reload_test()

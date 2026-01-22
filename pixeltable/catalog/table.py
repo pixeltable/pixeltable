@@ -32,6 +32,7 @@ from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .column import Column
 from .globals import (
+    MAX_VALUE_EXPR_SIZE,
     _ROWID_COLUMN_NAME,
     IfExistsParam,
     IfNotExistsParam,
@@ -794,13 +795,73 @@ class Table(SchemaObject):
             raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
 
     @classmethod
+    def _validate_json_value_expr(cls, value_expr: exprs.Expr, name: str, max_size: int) -> None:
+        """
+        Validate that a value_expr (for defaults or computed columns) is valid for storage in metadata.
+        
+        For JSON types, ensures the value only contains scalar JSON types (String, Int, Float, Bool)
+        and no custom Pixeltable types (UUID, Timestamp, Date, etc.).
+        Then checks the serialized size.
+        
+        Args:
+            value_expr: The expression to validate
+            name: Column name for error messages
+            max_size: Maximum allowed serialized size in bytes
+        """
+        import json
+        
+        # For JSON types, validate that values are scalar JSON types only
+        if value_expr.col_type.is_json_type():
+            json_val = value_expr.val
+            
+            def _is_scalar_json_value(element: Any) -> bool:
+                """Check if a value is a scalar JSON type (String, Int, Float, Bool) or nested structure of them."""
+                if element is None:
+                    return True  # None is valid in JSON
+                if isinstance(element, (str, int, float, bool)):
+                    # These are scalar JSON types
+                    return True
+                if isinstance(element, list):
+                    return all(_is_scalar_json_value(v) for v in element)
+                if isinstance(element, dict):
+                    return all(isinstance(k, str) and _is_scalar_json_value(v) for k, v in element.items())
+                # Reject custom Pixeltable types (UUID, datetime, etc.) and other non-JSON types
+                return False
+            
+            if not _is_scalar_json_value(json_val):
+                raise excs.Error(
+                    f'Column {name!r}: JSON default values can only contain scalar JSON types '
+                    f'(strings, numbers, booleans, lists, dicts). Custom Pixeltable types like UUID, '
+                    f'Timestamp, and Date are not allowed in JSON defaults.'
+                )
+        
+        # Check serialized size
+        try:
+            value_expr_dict = value_expr.as_dict()
+            serialized_size = len(json.dumps(value_expr_dict))
+            if serialized_size > max_size:
+                is_default = isinstance(value_expr, exprs.Literal)
+                raise excs.Error(
+                    f'Column {name!r}: {"Default value" if is_default else "Computed column expression"} '
+                    f'is too large ({serialized_size} bytes). Maximum size is {max_size} bytes. '
+                    f'Consider using a smaller value or a computed column instead.'
+                )
+        except (TypeError, ValueError) as e:
+            # If serialization fails, that's also a problem
+            is_default = isinstance(value_expr, exprs.Literal)
+            raise excs.Error(
+                f'Column {name!r}: {"Default value" if is_default else "Computed column expression"} '
+                f'cannot be serialized for storage in metadata: {e}'
+            )
+
+    @classmethod
     def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
         """Construct list of Columns, given schema"""
         columns: list[Column] = []
         for name, spec in schema.items():
             col_type: ts.ColumnType | None = None
             value_expr: exprs.Expr | None = None
-            default_expr: exprs.Expr | None = None
+            is_computed_column: bool = True
             primary_key: bool = False
             media_validation: catalog.MediaValidation | None = None
             stored = True
@@ -812,43 +873,85 @@ class Table(SchemaObject):
                 # create copy so we can modify it
                 value_expr = spec.copy()
                 value_expr.bind_rel_paths()
+                is_computed_column = True
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
                 if 'type' in spec:
                     col_type = ts.ColumnType.normalize_type(
                         spec['type'], nullable_default=True, allow_builtin_types=False
                     )
-                value_expr = spec.get('value')
-                if value_expr is not None and isinstance(value_expr, exprs.Expr):
-                    # create copy so we can modify it
-                    value_expr = value_expr.copy()
-                    value_expr.bind_rel_paths()
-                default_expr_obj = spec.get('default')
-                if default_expr_obj is not None:
-                    # Computed columns cannot have defaults
-                    if value_expr is not None:
-                        raise excs.Error(
-                            f'Column {name!r}: `default` cannot be specified for computed columns '
-                            f'(columns with `value`)'
-                        )
 
-                    default_expr = exprs.Expr.from_object(default_expr_obj)
-                    if default_expr is None:
-                        raise excs.Error(
-                            f'Column {name!r}: `default` must be a Pixeltable expression or literal value.'
-                        )
+                # Check for 'value' (computed column) or 'default' (column with default value)
+                if 'value' in spec:
+                    # Computed column
+                    value_expr = spec.get('value')
+                    if value_expr is not None and isinstance(value_expr, exprs.Expr):
+                        # create copy so we can modify it
+                        value_expr = value_expr.copy()
+                        value_expr.bind_rel_paths()
+                        
+                        # Validate JSON content and check serialized size
+                        cls._validate_json_value_expr(value_expr, name, MAX_VALUE_EXPR_SIZE)
+                    is_computed_column = True
+                elif 'default' in spec:
+                    # Column with default value
+                    default_expr_obj = spec.get('default')
+                    if default_expr_obj is not None:
+                        value_expr = exprs.Expr.from_object(default_expr_obj)
+                        if value_expr is None:
+                            raise excs.Error(
+                                f'Column {name!r}: `default` must be a Pixeltable expression or literal value.'
+                            )
 
-                    default_expr = default_expr.copy()
-                    default_expr.bind_rel_paths()
+                        value_expr = value_expr.copy()
+                        value_expr.bind_rel_paths()
 
-                    # Only literal defaults are supported - expressions are not allowed
-                    if not isinstance(default_expr, exprs.Literal):
-                        raise excs.Error(f'Column {name!r}: Only literal defaults are supported.')
+                        # Only literal defaults are supported - expressions are not allowed
+                        if not isinstance(value_expr, exprs.Literal):
+                            raise excs.Error(f'Column {name!r}: Only literal defaults are supported.')
 
-                    # Columns with defaults should be non-nullable
-                    # Make a copy of col_type with nullable=False
-                    if col_type is not None:
-                        col_type = col_type.copy(nullable=False)
+                        # Default values are only supported for types that Literal can represent:
+                        # scalar types (String, Int, Float, Bool, Timestamp, Date, UUID),
+                        # simple JSON (without images/arrays/binary), Array, and Binary.
+                        # Media types (Image, Video, Audio, Document) are not supported.
+                        if col_type is not None:
+                            if col_type.is_media_type():
+                                raise excs.Error(
+                                    f'Column {name!r}: Default values are not supported for media types '
+                                    f'(Image, Video, Audio, Document). Only supported for scalar types, '
+                                    f'simple JSON, Array, and Binary.'
+                                )
+                            # Ensure the column type is one that Literal supports
+                            if not (
+                                col_type.is_scalar_type()
+                                or col_type.is_json_type()
+                                or col_type.is_array_type()
+                                or col_type.is_binary_type()
+                            ):
+                                raise excs.Error(
+                                    f'Column {name!r}: Default values are only supported for scalar types '
+                                    f'(String, Int, Float, Bool, Timestamp, Date, UUID), simple JSON, Array, and Binary.'
+                                )
+                            # Ensure the default value's type is compatible with the column type
+                            # Check compatibility ignoring nullability since we'll make the column non-nullable
+                            default_type = value_expr.col_type
+                            # The column type should be a supertype of the default type (or equal)
+                            # For example: String | None is a supertype of String
+                            if not col_type.is_supertype_of(default_type, ignore_nullable=True):
+                                raise excs.Error(
+                                    f'Column {name!r}: Default value type {default_type} is not compatible '
+                                    f'with column type {col_type}.'
+                                )
+                            
+                            # Validate JSON content and check serialized size
+                            cls._validate_json_value_expr(value_expr, name, MAX_VALUE_EXPR_SIZE)
+
+                        # Columns with defaults should be non-nullable
+                        # Make a copy of col_type with nullable=False
+                        if col_type is not None:
+                            col_type = col_type.copy(nullable=False)
+                    is_computed_column = False
+
                 stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key', False)
                 media_validation_str = spec.get('media_validation')
@@ -859,6 +962,8 @@ class Table(SchemaObject):
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
+            # Use computed_with for both computed columns and defaults
+            # is_computed_column distinguishes between them
             column = Column(
                 name,
                 col_type=col_type,
@@ -867,7 +972,7 @@ class Table(SchemaObject):
                 is_pk=primary_key,
                 media_validation=media_validation,
                 destination=destination,
-                default_expr=default_expr,
+                is_computed_column=is_computed_column,
             )
             # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
             # media destination, it gets validated at this time.
