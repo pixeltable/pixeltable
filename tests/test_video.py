@@ -134,15 +134,16 @@ class TestVideo:
 
         The test runs against both the fixed-framerate and variable-framerate versions of the test video.
         """
-        paths = [p for p in get_video_files()]
-        assert len(paths) >= 2
-        for p in paths:
+        for p in get_video_files():
             for kwargs in (
-                {'fps': None},
-                {'fps': 3},
+                {},
+                {'all_frame_attrs': True},
                 {'fps': 0.5},
+                {'fps': 3},
+                {'fps': 3, 'all_frame_attrs': True},
                 {'fps': 1000},
                 {'num_frames': 10},
+                {'num_frames': 10, 'all_frame_attrs': True},
                 {'num_frames': 50},
                 {'num_frames': 10000},
             ):
