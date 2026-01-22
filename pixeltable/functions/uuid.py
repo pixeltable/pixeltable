@@ -109,28 +109,41 @@ def uuid7() -> uuid.UUID:
 
 
 @pxt.udf
-def to_string(u: uuid.UUID, format: Literal['standard', 'hex'] = 'standard') -> str:
+def to_string(u: uuid.UUID) -> str:
     """
     Convert a UUID to its string representation.
 
     Args:
         u: The UUID to convert.
-        format: The output format. 'standard' returns the hyphenated form 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
-            'hex' returns the 32-character hexadecimal string without hyphens.
 
     Returns:
-        The string representation of the UUID.
+        The string representation of the UUID, in the form `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`.
 
     Example:
-        Convert the UUID column `id` in an existing table `tbl` to a string in 'hex' format:
+        Convert the UUID column `id` in an existing table `tbl` to a string:
 
-        >>> tbl.add_computed_column(id_string=to_string(tbl.id, format='hex'))
+        >>> tbl.add_computed_column(id_string=to_string(tbl.id))
     """
-    if format == 'hex':
-        return u.hex
-    if format == 'standard':
-        return str(u)
-    raise excs.Error(f"Invalid format: {format!r} (expected 'standard' or 'hex')")
+    return str(u)
+
+
+@pxt.udf
+def hex(u: uuid.UUID) -> str:
+    """
+    Convert a UUID to its hexadecimal representation.
+
+    Args:
+        u: The UUID to convert.
+
+    Returns:
+        The hexadecimal representation of the UUID, as a 32-character string of hex digits.
+
+    Example:
+        Convert the UUID column `id` in an existing table `tbl` to a hexadecimal string:
+
+        >>> tbl.add_computed_column(id_hex=hex(tbl.id))
+    """
+    return u.hex
 
 
 __all__ = local_public_names(__name__)
