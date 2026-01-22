@@ -320,6 +320,12 @@
           <outline text="udf|pixeltable.functions.reve.edit" />
           <outline text="udf|pixeltable.functions.reve.remix" />
         </outline>
+        <outline text="module|pixeltable.functions.runwayml">
+          <outline text="udf|pixeltable.functions.runwayml.text_to_image" />
+          <outline text="udf|pixeltable.functions.runwayml.text_to_video" />
+          <outline text="udf|pixeltable.functions.runwayml.image_to_video" />
+          <outline text="udf|pixeltable.functions.runwayml.video_to_video" />
+        </outline>
         <outline text="module|pixeltable.functions.together">
           <outline text="udf|pixeltable.functions.together.completions" />
           <outline text="udf|pixeltable.functions.together.chat_completions" />
