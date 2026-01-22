@@ -6,10 +6,12 @@ import os
 import threading
 import time
 import uuid
+from typing import Literal
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
+from pixeltable import exceptions as excs
 from pixeltable.utils.code import local_public_names
 
 # UUID7 implementation based on CPython's uuid.py (PSF License)
@@ -104,6 +106,31 @@ def uuid7() -> uuid.UUID:
     if hasattr(uuid, 'uuid7'):
         return uuid.uuid7()
     return _uuid7()
+
+
+@pxt.udf
+def to_string(u: uuid.UUID, format: Literal['standard', 'hex'] = 'standard') -> str:
+    """
+    Convert a UUID to its string representation.
+
+    Args:
+        u: The UUID to convert.
+        format: The output format. 'standard' returns the hyphenated form 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+            'hex' returns the 32-character hexadecimal string without hyphens.
+
+    Returns:
+        The string representation of the UUID.
+
+    Example:
+        Convert the UUID column `id` in an existing table `tbl` to a string in 'hex' format:
+
+        >>> tbl.add_computed_column(id_string=to_string(tbl.id, format='hex'))
+    """
+    if format == 'hex':
+        return u.hex
+    if format == 'standard':
+        return str(u)
+    raise excs.Error(f"Invalid format: {format!r} (expected 'standard' or 'hex')")
 
 
 __all__ = local_public_names(__name__)
