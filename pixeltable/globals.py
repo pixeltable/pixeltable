@@ -746,11 +746,11 @@ def create_dir(
 
         Create a subdirectory:
 
-        >>> pxt.create_dir('my_dir.sub_dir')
+        >>> pxt.create_dir('my_dir/sub_dir')
 
         Create a subdirectory only if it does not already exist, otherwise do nothing:
 
-        >>> pxt.create_dir('my_dir.sub_dir', if_exists='ignore')
+        >>> pxt.create_dir('my_dir/sub_dir', if_exists='ignore')
 
         Create a directory and replace if it already exists:
 
@@ -758,7 +758,7 @@ def create_dir(
 
         Create a subdirectory along with its ancestors:
 
-        >>> pxt.create_dir('parent1.parent2.sub_dir', parents=True)
+        >>> pxt.create_dir('parent1/parent2/sub_dir', parents=True)
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
@@ -792,11 +792,11 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
 
         Remove a subdirectory:
 
-        >>> pxt.drop_dir('my_dir.sub_dir')
+        >>> pxt.drop_dir('my_dir/sub_dir')
 
         Remove an existing directory if it is empty, but do nothing if it does not exist:
 
-        >>> pxt.drop_dir('my_dir.sub_dir', if_not_exists='ignore')
+        >>> pxt.drop_dir('my_dir/sub_dir', if_not_exists='ignore')
 
         Remove an existing directory and all its contents:
 
@@ -906,7 +906,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
 
     Examples:
         >>> cl.list_dirs('my_dir', recursive=True)
-        ['my_dir', 'my_dir.sub_dir1']
+        ['my_dir', 'my_dir/sub_dir1']
     """
     path_obj = catalog.Path.parse(path, allow_empty_path=True)  # validate format
     cat = Catalog.get()
