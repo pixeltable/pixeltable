@@ -194,6 +194,7 @@ class TableStatement(Enum):
     DROP_INDEX = 6
 
     def can_abort(self) -> bool:
+        """Returns True if the statement can be aborted by the user."""
         return self in [
             TableStatement.CREATE_TABLE,
             TableStatement.CREATE_VIEW,

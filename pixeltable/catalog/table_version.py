@@ -492,7 +492,7 @@ class TableVersion:
                     self.store_tbl.drop_column(self.cols_by_id[col_id])
 
         elif isinstance(op, (DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp)):
-            # physical deletion cannot be rolled back
+            # undo of physical deletion is currently not supported; see schema.TableStatement.can_abort()
             raise AssertionError()
 
     @classmethod

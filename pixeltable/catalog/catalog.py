@@ -637,13 +637,26 @@ class Catalog:
                 # TODO: handle replicas
                 exc = self._finalize_pending_ops(tbl_id)
                 if exc is not None:
-                    raise excs.Error(f'Table operation was aborted with\n{exc!s}')
+                    raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
             finally:
                 self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """
-        Finalizes all pending ops for the given table. If an exception is encountered during rollforward, returns
+        Finalizes all pending ops for the given table.
+
+        During tbl_state == ROLLFORWARD (error-free path):
+        - executes all remaining pending ops in order op_sn and updates their status to COMPLETED
+        - when done, deletes all table ops and resets tbl_state to LIVE
+        - if it encounters an exception:
+          - if the statement can be aborted, switches tbl_state to ROLLBACK and continues with the rollback protocol
+          - otherwise continues with rollforward
+
+        During tbl_state == ROLLBACK (error path):
+        - undoes ops in reverse order of op_sn and updates their status to ABORTED
+        - this process starts with the first pending op, because it could have been partially executed
+        - when done, deletes all table ops and resets tbl_state to LIVE
+
         that exception.
         """
         num_retries = 0
@@ -671,9 +684,7 @@ class Catalog:
                         # nothing left to do
                         return None
                     is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
-                    is_snapshot = False if tbl_md.view_md is None else tbl_md.view_md.is_snapshot
-                    assert is_snapshot is not None
-                    tbl_version = tbl_md.current_version if is_snapshot else None
+                    tbl_version = tbl_md.current_version if tbl_md.is_snapshot else None
 
                     # retrieve this table's op log
                     q = (

@@ -172,10 +172,6 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
 
     yield
 
-    if 'corrupts_db' in request.keywords:
-        _logger.info('Skipping DB validation due to corrupts_db marker.')
-        return
-
     Env.get().user = None
     Catalog.get().validate_store()
 
