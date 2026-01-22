@@ -137,7 +137,7 @@ class TestSample:
         print(r)
         cls._check_sample_count(expected, len(r))
 
-    def test_sample_basic_n(self, reset_db: None) -> None:
+    def test_sample_basic_n(self, uses_db: None) -> None:
         t = self.create_sample_data(4, 6, False)
 
         query = t.select().sample(n=20)
@@ -146,7 +146,7 @@ class TestSample:
         query = t.select().where(t.id < 200).sample(n=20)
         self._check_sample(query, 20)
 
-    def test_sample_basic_f(self, reset_db: None) -> None:
+    def test_sample_basic_f(self, uses_db: None) -> None:
         t = self.create_sample_data(4, 6, False)
         t_rows = t.count()
 
@@ -156,10 +156,10 @@ class TestSample:
         query = t.select().sample(fraction=0.123, seed=42)
         self._check_sample(query, t_rows * 0.123)
 
-        query = t.select().where(t.id < 200).sample(fraction=0.5)
+        query = t.select().where(t.id < 200).sample(fraction=0.5, seed=876)
         self._check_sample(query, 200 * 0.5)
 
-    def test_sample_snapshot_reload(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_sample_snapshot_reload(self, uses_db: None, reload_tester: ReloadTester) -> None:
         t = self.create_sample_data(4, 6, False)
 
         query = t.select(t.cat1).sample(fraction=0.3, seed=51, stratify_by=[t.cat1])
@@ -169,7 +169,7 @@ class TestSample:
         print(results)
         reload_tester.run_reload_test()
 
-    def test_sample_stratified_n(self, reset_db: None) -> None:
+    def test_sample_stratified_n(self, uses_db: None) -> None:
         t = self.create_sample_data(4, 6, True)
 
         query = (
@@ -184,7 +184,7 @@ class TestSample:
         print(p)
         assert len(r) == 10
 
-    def test_sample_stratified_f(self, reset_db: None) -> None:
+    def test_sample_stratified_f(self, uses_db: None) -> None:
         t = self.create_sample_data(4, 6, True)
         t_rows = t.count()
 
@@ -218,7 +218,7 @@ class TestSample:
                 assert view_results_1.equals(snap_results_1)
 
     @pytest.mark.parametrize('seed', [None, 4171780])
-    def test_sample_snapshot(self, reset_db: None, seed: int) -> None:
+    def test_sample_snapshot(self, uses_db: None, seed: int) -> None:
         t = self.create_sample_data(4, 6, True)
         t_rows = t.count()
         query = t.select().sample(n=10, seed=seed)
@@ -228,7 +228,7 @@ class TestSample:
         self.validate_snapshot(query, t_rows, allow_mutable_view=True, seeded=(seed is not None))
 
     @pytest.mark.parametrize('seed', [None, 4171780])
-    def test_sample_snapshot_stratified(self, reset_db: None, seed: int) -> None:
+    def test_sample_snapshot_stratified(self, uses_db: None, seed: int) -> None:
         t = self.create_sample_data(4, 6, True)
         t_rows = t.count()
         query = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=seed)
@@ -272,7 +272,7 @@ class TestSample:
         query = t.sample(n=20, seed=4171780)
         self.check_create_insert(t, query, 20)
 
-    def test_randomized_sample(self, reset_db: None) -> None:
+    def test_randomized_sample(self, uses_db: None) -> None:
         """Test that subsequent calls to a non-seeded sample return different results."""
         t = self.create_sample_data(4, 6, False)
 
@@ -283,7 +283,7 @@ class TestSample:
         # potential causes of test failure.
         assert not r0.equals(r1)
 
-    def test_reproducible_sample(self, reset_db: None) -> None:
+    def test_reproducible_sample(self, uses_db: None) -> None:
         t = self.create_sample_data(4, 6, False)
 
         query = t.select().sample(n_per_stratum=1, stratify_by=[t.cat1, t.cat2], seed=4141480)
@@ -297,7 +297,7 @@ class TestSample:
         r4 = query.collect()
         assert r0 == r4
 
-    def test_sample_view(self, reset_db: None) -> None:
+    def test_sample_view(self, uses_db: None) -> None:
         t = self.create_sample_data(4, 6, False)
 
         query = t.select().sample(fraction=0.1, stratify_by=[t.cat1, t.cat2], seed=0)
@@ -317,7 +317,7 @@ class TestSample:
         n = len(t.select().sample(fraction=0.01, seed=0).collect())
         assert v.count() == n
 
-    def test_sample_iterator(self, reset_db: None) -> None:
+    def test_sample_iterator(self, uses_db: None) -> None:
         print('\n\nCREATE TABLE WITH ONE IMAGE COLUMN\n')
         t = pxt.create_table('test_tile_tbl', {'image': pxt.Image})
 

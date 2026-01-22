@@ -31,7 +31,7 @@ import config
 pxt.create_dir(config.APP_NAMESPACE, if_exists='ignore')
 
 pxt.create_table(
-    f'{config.APP_NAMESPACE}.documents',
+    f'{config.APP_NAMESPACE}/documents',
     {
         'document': pxt.Document,
         'metadata': pxt.Json,
@@ -46,10 +46,10 @@ pxt.create_table(
 import pixeltable as pxt
 import config
 
-docs_table = pxt.get_table(f'{config.APP_NAMESPACE}.documents')
+docs_table = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
 if docs_table is None:
     raise RuntimeError(
-        f"Table '{config.APP_NAMESPACE}.documents' not found. "
+        f"Table '{config.APP_NAMESPACE}/documents' not found. "
         "Run setup_pixeltable.py first."
     )
 ```
@@ -118,7 +118,7 @@ pxt.create_dir(config.APP_NAMESPACE, if_exists='ignore')
 
 # Define base table
 docs = pxt.create_table(
-    f'{config.APP_NAMESPACE}.documents',
+    f'{config.APP_NAMESPACE}/documents',
     {'document': pxt.Document, 'metadata': pxt.Json, 'timestamp': pxt.Timestamp},
     if_exists='ignore'
 )
@@ -149,7 +149,7 @@ from setup_pixeltable import search_documents
 import config
 
 app = FastAPI()
-docs_table = pxt.get_table(f'{config.APP_NAMESPACE}.documents')
+docs_table = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
 
 @app.get("/search")
 async def search(query: str, limit: int = 5):
@@ -249,7 +249,7 @@ Pixeltable integrates with existing data pipelines via import/export capabilitie
 # Export query results to Parquet
 import pixeltable as pxt
 
-docs_table = pxt.get_table('myapp.documents')
+docs_table = pxt.get_table('myapp/documents')
 results = docs_table.where(docs_table.timestamp > '2024-01-01')
 pxt.io.export_parquet(results, '/data/exports/recent_docs.parquet')
 ```

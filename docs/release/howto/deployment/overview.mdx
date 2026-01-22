@@ -92,7 +92,7 @@ from datetime import datetime
 pxt.create_dir('video_processing', if_exists='ignore')
 
 videos = pxt.create_table(
-    'video_processing.videos',
+    'video_processing/videos',
     {'video': pxt.Video, 'uploaded_at': pxt.Timestamp}
 )
 
@@ -115,7 +115,7 @@ videos.add_computed_column(
 
 # Extract frames for analysis
 frames = pxt.create_view(
-    'video_processing.frames',
+    'video_processing/frames',
     videos,
     iterator=frame_iterator(video=videos.video, fps=1.0)
 )
@@ -191,7 +191,7 @@ from datetime import datetime
 import pixeltable as pxt
 
 app = FastAPI()
-docs_table = pxt.get_table('myapp.documents')  # Has computed columns: embedding, summary
+docs_table = pxt.get_table('myapp/documents')  # Has computed columns: embedding, summary
 
 @app.post("/documents/upload")
 async def upload_document(file: UploadFile):

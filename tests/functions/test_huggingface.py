@@ -24,7 +24,7 @@ from ..utils import (
 @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
 @pytest.mark.skipif(sysconfig.get_platform() == 'linux-aarch64', reason='Not supported on Linux ARM')
 class TestHuggingface:
-    def test_hf_function(self, reset_db: None) -> None:
+    def test_hf_function(self, uses_db: None) -> None:
         skip_test_if_not_installed('sentence_transformers')
         from pixeltable.functions.huggingface import sentence_transformer
 
@@ -50,13 +50,13 @@ class TestHuggingface:
         # TODO: is there some way to capture the output?
         t.describe()
 
-    def test_sentence_transformer(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_sentence_transformer(self, uses_db: None, reload_tester: ReloadTester) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        from pixeltable.functions.huggingface import sentence_transformer, sentence_transformer_list
+        from pixeltable.functions.huggingface import sentence_transformer
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         sents = get_sentences(10)
-        status = t.insert({'input': s, 'input_list': sents} for s in sents)
+        status = t.insert({'input': s} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -69,17 +69,10 @@ class TestHuggingface:
                 **{col_name: sentence_transformer(t.input, model_id=model_id, normalize_embeddings=True)}
             )
             assert t._get_schema()[col_name].is_array_type()
-            list_col_name = f'embed_list{idx}'
-            t.add_computed_column(
-                **{list_col_name: sentence_transformer_list(t.input_list, model_id=model_id, normalize_embeddings=True)}
-            )
-            assert t._get_schema()[list_col_name] == ts.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for idx, (_, d) in enumerate(zip(model_ids, num_dims)):
                 assert row[f'embed{idx}'].shape == (d,)
-                assert len(row[f'embed_list{idx}']) == len(sents)
-                assert all(len(v) == d for v in row[f'embed_list{idx}'])
 
         verify_row(t.tail(1)[0])
 
@@ -88,18 +81,18 @@ class TestHuggingface:
         reload_tester.run_reload_test()
 
         t = pxt.get_table('test_tbl')
-        status = t.insert({'input': s, 'input_list': sents} for s in sents)
+        status = t.insert({'input': s} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_cross_encoder(self, reset_db: None) -> None:
+    def test_cross_encoder(self, uses_db: None) -> None:
         skip_test_if_not_installed('sentence_transformers')
-        from pixeltable.functions.huggingface import cross_encoder, cross_encoder_list
+        from pixeltable.functions.huggingface import cross_encoder
 
-        t = pxt.create_table('test_tbl', {'input': pxt.String, 'input_list': pxt.Json})
+        t = pxt.create_table('test_tbl', {'input': pxt.String})
         sents = get_sentences(10)
-        status = t.insert({'input': s, 'input_list': sents} for s in sents)
+        status = t.insert({'input': s} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
 
@@ -109,26 +102,22 @@ class TestHuggingface:
             col_name = f'embed{idx}'
             t.add_computed_column(**{col_name: cross_encoder(t.input, t.input, model_id=model_id)})
             assert t._get_schema()[col_name] == ts.FloatType(nullable=True)
-            list_col_name = f'embed_list{idx}'
-            t.add_computed_column(**{list_col_name: cross_encoder_list(t.input, t.input_list, model_id=model_id)})
-            assert t._get_schema()[list_col_name] == ts.JsonType(nullable=True)
 
         def verify_row(row: dict[str, Any]) -> None:
             for idx in range(len(model_ids)):
-                assert len(row[f'embed_list{idx}']) == len(sents)
-                assert all(isinstance(v, float) for v in row[f'embed_list{idx}'])
+                assert isinstance(row[f'embed{idx}'], float)
 
         verify_row(t.tail(1)[0])
 
         # execution still works after reload
         reload_catalog()
         t = pxt.get_table('test_tbl')
-        status = t.insert({'input': s, 'input_list': sents} for s in sents)
+        status = t.insert({'input': s} for s in sents)
         assert status.num_rows == len(sents)
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_clip(self, reset_db: None) -> None:
+    def test_clip(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import clip
 
@@ -165,7 +154,7 @@ class TestHuggingface:
         assert status.num_excs == 0
         verify_row(t.tail(1)[0])
 
-    def test_detr_for_object_detection(self, reset_db: None) -> None:
+    def test_detr_for_object_detection(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import detr_for_object_detection
         from pixeltable.utils import coco
@@ -186,7 +175,31 @@ class TestHuggingface:
         assert 'bowl' in label_text
         assert 'broccoli' in label_text
 
-    def test_vit_for_image_classification(self, reset_db: None) -> None:
+    def test_detr_for_segmentation(self, uses_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+        import numpy as np
+
+        from pixeltable.functions.huggingface import detr_for_segmentation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(
+            seg=detr_for_segmentation(t.img, model_id='facebook/detr-resnet-50-panoptic', threshold=0.5)
+        )
+        status = t.insert(img=SAMPLE_IMAGE_URL)
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+        res = t.select(height=t.img.height, width=t.img.width).collect()[0]
+        height, width = res['height'], res['width']
+        result = t.select(t.seg).collect()[0]['seg']
+        assert 'segmentation' in result
+        assert 'segments_info' in result
+        assert isinstance(result['segmentation'], np.ndarray)
+        assert result['segmentation'].shape == (height, width)
+        assert isinstance(result['segments_info'], list)
+        assert len(result['segments_info']) > 0
+        assert 'label_text' in result['segments_info'][0]
+
+    def test_vit_for_image_classification(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import vit_for_image_classification
 
@@ -200,7 +213,12 @@ class TestHuggingface:
         assert result['label_text'] == ['meat loaf, meatloaf', 'mashed potato', 'broccoli']
 
     @pytest.mark.skipif(sys.version_info >= (3, 13), reason='Not working on Python 3.13+')
-    def test_speech2text_for_conditional_generation(self, reset_db: None) -> None:
+    # Bug(PXT-944): speech2text_for_conditional_generation declares a return type of str, but actually returns a list.
+    # That list is then inserted in a string column of the table. Btree index inserts the same value to the index value
+    # column without truncating it to 256 characters because in s[: BtreeIndex.MAX_STRING_LEN], s is a list with
+    # 1 element and not a string.
+    @pytest.mark.corrupts_db
+    def test_speech2text_for_conditional_generation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import speech2text_for_conditional_generation
 
@@ -222,7 +240,7 @@ class TestHuggingface:
         assert 'administration' in result['transcription'][0]
         assert 'construire' in result['translation'][0]
 
-    def test_text_generation(self, reset_db: None) -> None:
+    def test_text_generation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import text_generation
 
@@ -245,7 +263,7 @@ class TestHuggingface:
             assert len(result['completion'].strip()) > 0
         assert 'Paris' in results[1]['completion']
 
-    def test_text_classification(self, reset_db: None) -> None:
+    def test_text_classification(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import text_classification
 
@@ -273,7 +291,7 @@ class TestHuggingface:
 
     @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
     @pytest.mark.expensive
-    def test_image_captioning(self, reset_db: None) -> None:
+    def test_image_captioning(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import image_captioning
 
@@ -293,7 +311,7 @@ class TestHuggingface:
         assert isinstance(result['caption'], str)
         assert 'food' in result['caption']
 
-    def test_summarization(self, reset_db: None) -> None:
+    def test_summarization(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import summarization
 
@@ -319,7 +337,7 @@ class TestHuggingface:
         assert len(result['summary'].strip()) > 0
         assert len(result['summary']) < len(long_text)  # Should be shorter than original
 
-    def test_question_answering(self, reset_db: None) -> None:
+    def test_question_answering(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import question_answering
 
@@ -341,7 +359,7 @@ class TestHuggingface:
         assert 'score' in result['answer']
         assert 'paris' in result['answer']['answer'].lower()
 
-    def test_translation(self, reset_db: None) -> None:
+    def test_translation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import translation
 
@@ -359,7 +377,7 @@ class TestHuggingface:
         assert len(result['french'].strip()) > 0
         assert result['french'] != english_text  # Should be different from input
 
-    def test_named_entity_recognition(self, reset_db: None) -> None:
+    def test_named_entity_recognition(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import token_classification
 
@@ -382,7 +400,7 @@ class TestHuggingface:
             assert 'score' in entity
             assert 'word' in entity
 
-    def test_automatic_speech_recognition(self, reset_db: None) -> None:
+    def test_automatic_speech_recognition(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         from pixeltable.functions.huggingface import automatic_speech_recognition
 
@@ -401,7 +419,7 @@ class TestHuggingface:
         assert isinstance(result['transcript'], str)
         assert len(result['transcript'].strip()) > 0
 
-    def test_text_to_speech(self, reset_db: None) -> None:
+    def test_text_to_speech(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers', 'datasets', 'soundfile')
         from pixeltable.functions.huggingface import text_to_speech
 
@@ -422,7 +440,7 @@ class TestHuggingface:
 
     @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
     @pytest.mark.expensive
-    def test_text_to_image(self, reset_db: None) -> None:
+    def test_text_to_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
         from pixeltable.functions.huggingface import text_to_image
@@ -450,7 +468,7 @@ class TestHuggingface:
 
     @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
     @pytest.mark.expensive
-    def test_image_to_image(self, reset_db: None) -> None:
+    def test_image_to_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
         from pixeltable.functions.huggingface import image_to_image
@@ -476,7 +494,7 @@ class TestHuggingface:
 
     @pytest.mark.skipif(IN_CI, reason='Large model; skipped in CI until we figure out the right CI strategy')
     @pytest.mark.expensive
-    def test_image_to_video(self, reset_db: None) -> None:
+    def test_image_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
         skip_test_if_not_installed('diffusers')
         from pixeltable.functions.huggingface import image_to_video

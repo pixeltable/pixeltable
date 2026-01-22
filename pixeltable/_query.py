@@ -329,12 +329,11 @@ class Query:
         plan = self._create_query_plan()
 
         def exec_plan() -> Iterator[exprs.DataRow]:
-            plan.open()
-            try:
+            with plan:
                 for row_batch in plan:
+                    # stop progress output before we display anything, otherwise it'll mess up the output
+                    Env.get().stop_progress()
                     yield from row_batch
-            finally:
-                plan.close()
 
         yield from exec_plan()
 
@@ -343,13 +342,10 @@ class Query:
         This function must not modify the state of the Query, otherwise it breaks dataset caching.
         """
         plan = self._create_query_plan()
-        plan.open()
-        try:
+        with plan:
             async for row_batch in plan:
                 for row in row_batch:
                     yield row
-        finally:
-            plan.close()
 
     def _create_query_plan(self) -> exec.ExecNode:
         # construct a group-by clause if we're grouping by a table
