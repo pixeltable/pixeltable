@@ -135,6 +135,8 @@ def hex(u: uuid.UUID) -> str:
     """
     Convert a UUID to its hexadecimal representation.
 
+    Equivalent to [`uuid.hex`](https://docs.python.org/3/library/uuid.html#uuid.UUID.hex).
+
     Args:
         u: The UUID to convert.
 
