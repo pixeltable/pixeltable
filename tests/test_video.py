@@ -129,11 +129,11 @@ class TestVideo:
         """
         Test that we can seek to specific frames in the video iterator and get consistent results.
 
-        Loads the first 50 frames of a video with various fps and num_frames settings, then queries for frames at
+        Loads the first 20 frames of a video with various fps and num_frames settings, then queries for frames at
         specific positions and checks that the output is pixel-identical.
-
-        The test runs against both the fixed-framerate and variable-framerate versions of the test video.
         """
+        # It's important to run this test for all videos and for many kwargs combinations, since there are so many
+        # edge cases when working with video data.
         for p in get_video_files():
             for kwargs in (
                 {},
