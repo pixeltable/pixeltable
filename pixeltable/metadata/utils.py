@@ -20,13 +20,13 @@ class MetadataUtils:
             return 'Initial Version'
         if old_md == new_md:
             return ''
-        added = {k: v.name for k, v in new_md.items() if k not in old_md}
+        added = {k: v.name for k, v in new_md.items() if k not in old_md and v.name is not None}
         changed = {
             k: f'{old_md[k].name!r} to {v.name!r}'
             for k, v in new_md.items()
             if k in old_md and old_md[k].name != v.name
         }
-        deleted = {k: v.name for k, v in old_md.items() if k not in new_md}
+        deleted = {k: v.name for k, v in old_md.items() if k not in new_md and v.name is not None}
         if len(added) == 0 and len(changed) == 0 and len(deleted) == 0:
             return ''
         # Format the result

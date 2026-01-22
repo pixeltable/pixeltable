@@ -989,12 +989,14 @@ class TableVersion:
             # self._tbl_md.column_md[col.id].schema_version_drop = col.schema_version_drop
             # if col.name is not None:
             #     del self._schema_version_md.columns[col.id]
-            if col.name is not None:
-                self._schema_version_md.columns[col.id].md.schema_version_drop = col.schema_version_drop
-            else:
-                del self._schema_version_md.columns[col.id]
+            self._schema_version_md.columns[col.id].md.schema_version_drop = col.schema_version_drop
+            # if col.name is not None:
+            #     self._schema_version_md.columns[col.id].md.schema_version_drop = col.schema_version_drop
+            # else:
+            #     del self._schema_version_md.columns[col.id]
 
-        # update positions
+        # update positions of the remaining columns
+        # TODO: I think there's no test for this
         pos = 0
         for schema_col in self._schema_version_md.columns.values():
             if schema_col.name is None:
