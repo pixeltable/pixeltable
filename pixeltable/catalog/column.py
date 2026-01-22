@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import warnings
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
@@ -20,8 +19,6 @@ if TYPE_CHECKING:
     from .table_version import TableVersion
     from .table_version_handle import ColumnHandle, TableVersionHandle
     from .table_version_path import TableVersionPath
-
-_logger = logging.getLogger('pixeltable')
 
 
 class Column:
