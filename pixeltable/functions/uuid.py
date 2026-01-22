@@ -6,12 +6,10 @@ import os
 import threading
 import time
 import uuid
-from typing import Literal
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable import exceptions as excs
 from pixeltable.utils.code import local_public_names
 
 # UUID7 implementation based on CPython's uuid.py (PSF License)

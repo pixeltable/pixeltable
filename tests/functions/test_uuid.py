@@ -1,7 +1,5 @@
-from typing import Callable
 import uuid
-
-import pytest
+from typing import Callable
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
