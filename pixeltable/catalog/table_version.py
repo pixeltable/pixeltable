@@ -139,7 +139,8 @@ class TableVersion:
     _tbl_md: schema.TableMd
     _version_md: schema.VersionMd
     # this was just user columns, but now it's all columns including the system ones
-    # another difference is that when column is dropped, we used to del from this, and now we just set schema_version_drop
+    # another difference is that when column is dropped, we used to del from this, and now we just set
+    # schema_version_drop
     _schema_version_md: schema.SchemaVersionMd  # this is where the column info is moving to
 
     path: 'TableVersionPath' | None  # only set for non-snapshots; needed to resolve computed cols
@@ -996,7 +997,7 @@ class TableVersion:
         # update positions
         pos = 0
         for schema_col in self._schema_version_md.columns.values():
-            if schema_col.md.name is None:
+            if schema_col.name is None:
                 schema_col.pos = pos
                 pos += 1
 
