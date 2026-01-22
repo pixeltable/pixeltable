@@ -1167,6 +1167,7 @@ class Planner:
         return Analyzer(FromClause(tbls=[tbl]), [], where_clause=where_clause)
 
     @classmethod
+    # TODO rename to create_populate_new_column_plan
     def create_add_column_plan(cls, tbl: catalog.TableVersionPath, col: catalog.Column) -> exec.ExecNode:
         """Creates a plan for InsertableTable.add_column()
         Returns:
