@@ -153,8 +153,7 @@
                     "pages": [
                       "howto/cookbooks/search/embed-text-openai",
                       "howto/cookbooks/search/search-semantic-text",
-                      "howto/cookbooks/search/search-similar-images",
-                      "howto/use-cases/ecommerce-search-voyageai"
+                      "howto/cookbooks/search/search-similar-images"
                     ]
                   },
                   {
