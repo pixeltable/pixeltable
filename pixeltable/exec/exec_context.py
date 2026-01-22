@@ -1,6 +1,5 @@
 import importlib.util
 import logging
-import platform
 import random
 
 import sqlalchemy as sql
@@ -48,9 +47,9 @@ class ExecContext:
         if Env.get().is_notebook() and importlib.util.find_spec('ipywidgets') is None:
             self.show_progress = False
 
-        # disable progress reporting on Windows
-        # TODO: PXT-948
-        if platform.system() == 'Windows':
+        # temporarily disable progress reporting under all circumstances unless Env.get().verbosity >= 2.
+        # TODO: remove this once we have confidence that bugs are fixed (see PXT-948 for context).
+        if Env.get().verbosity < 2:
             self.show_progress = False
 
         self.progress = None
