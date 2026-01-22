@@ -1453,9 +1453,6 @@ class TableVersion:
             # ]
             # for col_md in dropped_col_md:
             #     col_md.schema_version_drop = None
-            for schema_col in self._schema_version_md.columns.values():
-                if schema_col.md.schema_version_drop == self.schema_version:
-                    schema_col.md.schema_version_drop = None
 
             for col_md in self._schema_version_md.columns.values():
                 if col_md.md.schema_version_drop == self.schema_version:
