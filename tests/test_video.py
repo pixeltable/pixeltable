@@ -363,10 +363,10 @@ class TestVideo:
         base_t, view_t = pxt.get_table(base_t._name), pxt.get_table(view_t._name)
         _ = view_t.select(self.agg_fn(view_t.pos, view_t.frame, group_by=base_t)).show()
 
+    # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
     def test_clip(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
         t = pxt.create_table('get_clip_test', {'video': pxt.Video}, media_validation='on_write')
-        # TODO: this test is not working with the VFR sample video.
         video_filepaths = get_video_files(include_vfr=False, include_mpgs=False)
         t.insert({'video': p} for p in video_filepaths)
 
@@ -484,10 +484,10 @@ class TestVideo:
             )
         pxt.drop_table('validate_segments')
 
+    # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
     def test_segment_video_duration(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video})
-        # TODO: this test is not working with the VFR sample video.
         t.insert({'video': f} for f in get_video_files(include_vfr=False, include_mpgs=False))
 
         duration = t.video.get_metadata().streams[0].duration_seconds
@@ -515,6 +515,7 @@ class TestVideo:
             assert len(segments) >= 1
             self._validate_segments(segments, total_duration)
 
+    # TODO: Not working with .mpg samples (PXT-987)
     @pytest.mark.parametrize('mode', ['fast', 'accurate'])
     def test_segment_video_segment_times(self, mode: Literal['fast', 'accurate'], uses_db: None) -> None:
         t = pxt.create_table('test_segments', {'video': pxt.Video})
@@ -708,6 +709,7 @@ class TestVideo:
             validation_t.insert([{'segment': row['url']} for row in segments], on_error='abort')
             pxt.drop_table('segment_validation')
 
+    # TODO: Not working with .mpg samples (PXT-987)
     @pytest.mark.parametrize(
         'segment_duration,mode',
         [(5.0, 'fast'), (5.0, 'accurate'), (10.0, 'fast'), (10.0, 'accurate'), (100.0, 'fast'), (100.0, 'accurate')],
@@ -736,6 +738,7 @@ class TestVideo:
                 self._validate_splitter_segments(t, s, overlap, min_segment_duration, eps=eps)
                 pxt.drop_table('videos', force=True)
 
+    # TODO: Not working with .mpg samples (PXT-987)
     @pytest.mark.parametrize('segment_times,mode', [([6.0, 11.0, 16.0], 'fast'), ([6.0, 11.0, 16.0], 'accurate')])
     def test_video_splitter_segment_times(
         self, segment_times: list[float], mode: Literal['fast', 'accurate'], uses_db: None
@@ -1033,10 +1036,10 @@ class TestVideo:
         with pytest.raises(pxt.Error, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')):
             t.select(t.video.overlay_text('Test', box=True, box_border=[-5, 10])).collect()
 
+    # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
     def test_with_audio(self, uses_db: None) -> None:
         from pixeltable.functions.video import with_audio
 
-        # TODO: this test is not working with the VFR sample video.
         video_filepaths = get_video_files(include_vfr=False, include_mpgs=False)
         audio_filepaths = get_audio_files()
         num_rows = min(len(video_filepaths), len(audio_filepaths))
