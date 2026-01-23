@@ -1,4 +1,4 @@
-from typing import Iterator, TypedDict
+from typing import Any, Iterator, TypedDict
 
 import pixeltable as pxt
 from tests.utils import ReloadTester
@@ -10,9 +10,19 @@ class MyRow(TypedDict):
 
 
 @pxt.iterator
-def simple_iterator(x: int) -> Iterator[MyRow]:
+def simple_iterator(x: int, str_text: str = 'string') -> Iterator[MyRow]:
     for i in range(x):
-        yield MyRow(icol=i, scol=f'string {i}')
+        yield MyRow(icol=i, scol=f'{str_text} {i}')
+
+
+@simple_iterator.validator
+def _(bound_args: dict[str, Any]) -> bool:
+    if 'x' in bound_args and bound_args['x'] < 0:
+        raise pxt.Error('Parameter `x` must be non-negative.')
+    if not 'str_text' in bound_args:
+        raise pxt.Error('Parameter `str_text` must be a constant.')
+    if not bound_args['str_text'].isidentifier():
+        raise pxt.Error('Parameter `str_text` must be a valid identifier.')
 
 
 @pxt.iterator
@@ -35,6 +45,30 @@ class class_based_iterator:
         return result
 
 
+@pxt.iterator
+class iterator_with_seek:
+    x: int
+    current: int
+
+    def __init__(self, x: int):
+        self.x = x
+        self.current = 0
+
+    def __iter__(self) -> Iterator[MyRow]:
+        return self
+
+    def __next__(self) -> MyRow:
+        if self.current >= self.x:
+            raise StopIteration
+        result = MyRow(icol=self.current, scol=f'string {self.current}')
+        self.current += 1
+        return result
+
+    def seek(self, pos: int, scol: str) -> None:
+        assert scol == f'string {pos}'
+        self.current = pos
+
+
 class TestIterator:
     def test_iterator(self, uses_db: None, reload_tester: ReloadTester) -> None:
         for n, it in enumerate((simple_iterator, class_based_iterator)):
@@ -55,5 +89,8 @@ class TestIterator:
                 {'input': 5, 'pos': 3, 'icol': 3, 'scol': 'string 3'},
                 {'input': 5, 'pos': 4, 'icol': 4, 'scol': 'string 4'},
             ]
+
+            # Test that the iterator-specific validator works
+            t.insert([{'input': -1}])
 
         reload_tester.run_reload_test()

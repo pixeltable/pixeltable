@@ -1,9 +1,8 @@
 import inspect
-import itertools
 import typing
 from collections import abc
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Iterator, overload
+from typing import Any, Callable, Iterator, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.iterators.base import ComponentIterator
@@ -15,13 +14,18 @@ class PxtIterator:
     decorated_callable: Callable
     is_class_based: bool
     init_fn: Callable
-    _default_output_schema: dict[str, ts.ColumnType] | None
     signature: Signature
+
+    _default_output_schema: dict[str, ts.ColumnType] | None
+    _conditional_output_schema: Callable[..., dict[str, type]] | None
+    _validator: Callable[[dict[str, Any]], bool] | None
 
     def __init__(self, decorated_callable: Callable, unstored_cols: list[str]) -> None:
         self.decorated_callable = decorated_callable
-        self._default_output_schema = self._infer_output_schema(decorated_callable)
         self.signature = Signature.create(decorated_callable, return_type=ts.JsonType())
+        self._default_output_schema = self._infer_output_schema(decorated_callable)
+        self._conditional_output_schema = None
+        self._validator = None
 
     def _infer_output_schema(self, decorated_callable: Callable) -> dict[str, ts.ColumnType] | None:
         if isinstance(decorated_callable, type):
@@ -88,7 +92,7 @@ class PxtIterator:
         if self.is_class_based:
             args = [self.decorated_callable, *args]
 
-        # Prompt validation of supplied args and kwargs.
+        # Promptly validate args and kwargs, as much as possible at this stage.
         try:
             bound_args = py_sig.bind(*args, **kwargs).arguments
         except TypeError as exc:
@@ -100,11 +104,19 @@ class PxtIterator:
 
         self.signature.validate_args(bound_args, context=f'in iterator `{self.fqn}`')
         literal_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in bound_args.items()}
+
+        # Run custom iterator validation on whatever args are bound to literals at this stage
+        if self._validator is not None:
+            self._validator(literal_args)
+
         output_schema = self.output_schema(**literal_args)
 
         return IteratorCall(self, args, kwargs, bound_args, output_schema)
 
     def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
+        # Run custom iterator validation on fully bound args
+        if self._validator is not None:
+            self._validator(bound_args)
         return self.decorated_callable(**bound_args)
 
     def _retrofit(iterator_cls: type[ComponentIterator], iterator_args: dict[str, Any]) -> 'PxtIterator':
@@ -116,6 +128,11 @@ class PxtIterator:
     @property
     def fqn(self) -> str:
         return f'{self.decorated_callable.__module__}.{self.decorated_callable.__qualname__}'
+
+    # Validator decorator
+    def validator(self, fn: Callable[[dict[str, Any]], bool]) -> Callable[[dict[str, Any]], bool]:
+        self._validator = fn
+        return fn
 
 
 @dataclass
