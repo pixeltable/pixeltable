@@ -1,12 +1,39 @@
 ---
 title: 'Building with LLMs'
-description: 'Use LLMs in your Pixeltable workloads'
-icon: 'blank'
+description: 'Use LLMs to build Pixeltable applications'
 ---
 
-## Working with LLMs
+## Vibe Coding with Pixeltable
 
-You can use large language models (LLMs) to assist in building Pixeltable integrations. We provide a set of tools and best practices if you use LLMs during development.
+Pixeltable's declarative primitives make it ideal for LLM-assisted development. Instead of writing complex orchestration code, you describe *what* you want—and LLMs can generate correct Pixeltable code on the first try.
+
+```python
+# LLMs can easily generate this pattern
+import pixeltable as pxt
+from pixeltable.functions.huggingface import sentence_transformer
+
+t = pxt.create_table('myapp.docs', {'text': pxt.String}, if_exists='ignore')
+t.add_embedding_index('text', embedding=sentence_transformer.using(model_id='all-MiniLM-L6-v2'))
+```
+
+---
+
+## Agent Instructions Files
+
+We provide instruction files for AI coding agents (Cursor, Claude Code, Windsurf, etc.) to understand the Pixeltable codebase:
+
+<CardGroup cols={2}>
+  <Card title="AGENTS.md" icon="file-code" href="https://github.com/pixeltable/pixeltable/blob/main/AGENTS.md">
+    Instructions for AI agents: project structure, conventions, and patterns
+  </Card>
+  <Card title="CLAUDE.md" icon="file-code" href="https://github.com/pixeltable/pixeltable/blob/main/CLAUDE.md">
+    Claude-specific agent instructions (same content as AGENTS.md)
+  </Card>
+</CardGroup>
+
+Add these to your project or point your AI assistant to them for better Pixeltable code generation.
+
+---
 
 ## Plain text docs
 
@@ -53,10 +80,13 @@ For developers who want more control or need to call the Pixeltable API directly
   View the source code and contribute to our Pixeltable MCP servers
 </Card>
 
-* Audio
-* Video
-* Images
-* Text
+The self-hosted server gives agents direct access to Pixeltable's multimodal capabilities:
+- **Audio:** Transcription, speaker diarization, audio search
+- **Video:** Frame extraction, scene detection, object tracking
+- **Images:** Object detection, classification, similarity search
+- **Text:** RAG retrieval, document parsing, semantic search
+
+---
 
 ## Pixelagent Toolkit
 
@@ -66,17 +96,21 @@ If you're building agentic software, we provide an SDK for adding Pixeltable fun
   Agent engineering blueprint powered on Pixeltable
 </Card>
 
-* Multi-agent systems
-* Tool calling
-* State management
-* Observability
+Pixelagent provides:
+- **Multi-agent systems:** Coordinate multiple agents with shared memory
+- **Tool calling:** Register UDFs and queries as callable tools
+- **State management:** Automatic persistence of conversation history
+- **Observability:** Full lineage tracking of agent decisions
 
 Learn more in our [Pixelagent documentation](/libraries/pixelagent).
 
+---
+
 ## See also
 
-* [Model Context Protocol](/libraries/mcp)
-* [Pixelagent](/libraries/pixelagent)
-* [Custom Functions](/platform/custom-functions)
-* [Base SDK Server GitHub Repository](https://github.com/pixeltable/pixeltable-mcp-server/tree/main/servers/base-sdk)
-* [MCP Specification](https://spec.modelcontextprotocol.io/)
+- [UDFs in Pixeltable](/platform/udfs-in-pixeltable) — Custom functions
+- [Computed Columns](/tutorials/computed-columns) — Declarative transformations
+- [Embedding Indexes](/platform/embedding-indexes) — Semantic search
+- [Agents & MCP](/use-cases/agents-mcp) — Build AI agents with Pixeltable
+- [Model Context Protocol](/libraries/mcp) — MCP server documentation
+- [Tool Calling Cookbook](/howto/cookbooks/agents/llm-tool-calling) — Hands-on examples

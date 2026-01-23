@@ -197,6 +197,15 @@ flowchart LR
 - Generated media (computed columns): saved to Media Store (default: local, configurable to S3/GCS/Azure per-column).
 - File Cache size: configure via `file_cache_size_g` in `~/.pixeltable/config.toml`. [See configuration guide](/platform/configuration)
 
+<Tip>
+For large datasets with remote media, consider increasing file cache size to avoid repeated downloads (default is 20% of available disk):
+
+```toml
+# ~/.pixeltable/config.toml
+file_cache_size_g = 50  # 50 GB cache
+```
+</Tip>
+
 **Deployment-Specific Storage Patterns:**
 
 *Approach 1 (Orchestration Layer):*
@@ -230,20 +239,20 @@ sentence-transformers==3.3.0  # If using embedding indexes
 
 ## Data Interoperability
 
-Pixeltable integrates with existing data pipelines via import/export capabilities.
+Pixeltable integrates with existing data pipelines via import/export capabilities. See the [Import/Export SDK reference](/sdk/latest/io) for full details.
 
 **Import:**
-- CSV, Excel, JSON: `pxt.io.import_csv()`, `pxt.io.import_excel()`, `pxt.io.import_json()`
-- Parquet: `pxt.io.import_parquet()`
-- Pandas DataFrames: `table.insert(df)` or `pxt.create_table(source=df)`
-- Hugging Face Datasets: `pxt.io.import_huggingface_dataset()`
+- CSV, Excel, JSON: [`pxt.io.import_csv()`](/sdk/latest/io#func-import-csv), [`pxt.io.import_excel()`](/sdk/latest/io#func-import-excel), [`pxt.io.import_json()`](/sdk/latest/io#func-import-json)
+- Parquet: [`pxt.io.import_parquet()`](/sdk/latest/io#func-import-parquet)
+- Pandas DataFrames: [`table.insert(df)`](/sdk/latest/table#method-insert) or [`pxt.create_table(source=df)`](/sdk/latest/pixeltable#func-create-table)
+- Hugging Face Datasets: [`pxt.io.import_huggingface_dataset()`](/sdk/latest/io#func-import-huggingface-dataset)
 
 **Export:**
-- Parquet: `pxt.io.export_parquet(table, path)` for data warehousing
-- LanceDB: `pxt.io.export_lancedb(table, db_uri, table_name)` for vector databases
-- PyTorch: `table.to_pytorch_dataset()` for ML training pipelines
-- COCO: `table.to_coco_dataset()` for computer vision
-- Pandas: `table.collect().to_pandas()` for analysis
+- Parquet: [`pxt.io.export_parquet(table, path)`](/sdk/latest/io#func-export-parquet) for data warehousing
+- LanceDB: [`pxt.io.export_lancedb(table, db_uri, table_name)`](/sdk/latest/io#func-export-lancedb) for vector databases
+- PyTorch: [`table.to_pytorch_dataset()`](/sdk/latest/query#method-to-pytorch-dataset) for ML training pipelines
+- COCO: [`table.to_coco_dataset()`](/sdk/latest/query#method-to-coco-dataset) for computer vision
+- Pandas: [`table.collect().to_pandas()`](/sdk/latest/query#method-collect) for analysis
 
 ```python
 # Export query results to Parquet

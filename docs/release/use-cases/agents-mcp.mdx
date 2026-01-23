@@ -1,0 +1,488 @@
+---
+title: 'Agents & MCP'
+description: 'Build AI agents with tool calling, persistent memory, and MCP server integration'
+---
+
+**Who:** Agent Builders, AI Engineers  
+**Output:** Autonomous AI agents with memory and tool use
+
+Build AI agents that can call tools, remember context, and integrate with MCP servers—all backed by Pixeltable's persistent storage and orchestration.
+
+<Tip>
+**Declarative Agents:** Instead of imperative control flow, define your agent as a table with computed columns. Each row is a user query; computed columns define the reasoning chain (tool selection → execution → context retrieval → response). Pixeltable handles orchestration, caching, and persistence automatically.
+</Tip>
+
+---
+
+## Agent Capabilities
+
+<CardGroup cols={2}>
+  <Card title="Tool Calling" icon="wrench">
+    Register UDFs and queries as tools that LLMs can invoke
+  </Card>
+  <Card title="Persistent Memory" icon="brain">
+    Store conversation history and retrieved context in tables
+  </Card>
+  <Card title="MCP Integration" icon="plug">
+    Connect to Model Context Protocol servers for external tools
+  </Card>
+  <Card title="RAG Retrieval" icon="magnifying-glass">
+    Semantic search over documents, images, and more
+  </Card>
+</CardGroup>
+
+---
+
+## Data Lifecycle
+
+<Tabs>
+  <Tab title="1. Tools">
+    <Steps>
+      <Step title="Define Tool UDFs" icon="code">
+        Wrap any Python code as `@pxt.udf` tools—API calls, web scraping, database queries
+        
+        ```python
+        import pixeltable as pxt
+        import requests
+        import yfinance as yf
+
+        @pxt.udf
+        def get_latest_news(topic: str) -> str:
+            """Fetch latest news using NewsAPI."""
+            response = requests.get(
+                "https://newsapi.org/v2/everything",
+                params={"q": topic, "apiKey": os.environ["NEWS_API_KEY"]}
+            )
+            articles = response.json().get("articles", [])[:3]
+            return "\n".join(f"- {a['title']}" for a in articles)
+
+        @pxt.udf
+        def fetch_financial_data(ticker: str) -> str:
+            """Fetch stock data using yfinance."""
+            stock = yf.Ticker(ticker)
+            info = stock.info
+            return f"{info['shortName']}: ${info['currentPrice']}"
+        ```
+        
+        <Card title="UDF Guide" icon="code" href="/platform/udfs-in-pixeltable">
+          Writing custom functions
+        </Card>
+      </Step>
+      <Step title="Define Query Tools" icon="database">
+        Turn semantic search into callable tools with `@pxt.query`
+        
+        ```python
+        @pxt.query
+        def search_documents(query_text: str, user_id: str):
+            """Search documents by semantic similarity."""
+            sim = chunks.text.similarity(query_text)
+            return (
+                chunks.where((chunks.user_id == user_id) & (sim > 0.5))
+                .order_by(sim, asc=False)
+                .select(chunks.text, source_doc=chunks.document, sim=sim)
+                .limit(20)
+            )
+
+        @pxt.query
+        def search_video_transcripts(query_text: str):
+            """Search video transcripts by text."""
+            sim = transcript_sentences.text.similarity(query_text)
+            return (
+                transcript_sentences.where(sim > 0.7)
+                .order_by(sim, asc=False)
+                .select(transcript_sentences.text, source_video=transcript_sentences.video)
+                .limit(20)
+            )
+        ```
+      </Step>
+      <Step title="Register Tools" icon="list-check">
+        Combine UDFs, queries, and MCP tools into a single registry
+        
+        [`pxt.tools()`](/howto/cookbooks/agents/llm-tool-calling)
+        
+        ```python
+        # Register tools from multiple sources
+        tools = pxt.tools(
+            # UDFs - External API Calls
+            get_latest_news,
+            fetch_financial_data,
+            # Query Functions - Agentic RAG
+            search_documents,
+            search_video_transcripts,
+        )
+        ```
+        
+        <Card title="Tool Calling Cookbook" icon="wrench" href="/howto/cookbooks/agents/llm-tool-calling">
+          Complete tool calling walkthrough
+        </Card>
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="2. Workflow">
+    <Steps>
+      <Step title="Create Agent Table" icon="table">
+        Define the workflow as a table with computed columns
+        
+        ```python
+        # Main workflow table - rows trigger the agent pipeline
+        agent = pxt.create_table('agents.workflow', {
+            'prompt': pxt.String,
+            'timestamp': pxt.Timestamp,
+            'user_id': pxt.String,
+            'system_prompt': pxt.String,
+            'max_tokens': pxt.Int,
+            'temperature': pxt.Float,
+        })
+        ```
+      </Step>
+      <Step title="Tool Selection (LLM)" icon="brain">
+        First LLM call decides which tool to use
+        
+        ```python
+        from pixeltable.functions.anthropic import messages, invoke_tools
+
+        # Step 1: LLM selects which tool to call
+        agent.add_computed_column(
+            initial_response=messages(
+                model='claude-sonnet-4-20250514',
+                messages=[{'role': 'user', 'content': agent.prompt}],
+                max_tokens=agent.max_tokens,
+                tools=tools,  # Available tools
+                tool_choice=tools.choice(required=True),  # Force tool selection
+                model_kwargs={'system': agent.system_prompt}
+            )
+        )
+        ```
+      </Step>
+      <Step title="Tool Execution" icon="play">
+        Pixeltable executes the selected tool automatically
+        
+        [`invoke_tools()`](/howto/cookbooks/agents/llm-tool-calling)
+        
+        ```python
+        # Step 2: Execute the tool the LLM chose
+        agent.add_computed_column(
+            tool_output=invoke_tools(tools, agent.initial_response)
+        )
+        ```
+      </Step>
+      <Step title="Context Assembly" icon="layer-group">
+        Combine tool output with retrieved context
+        
+        ```python
+        # Parallel context retrieval (Pixeltable handles this)
+        agent.add_computed_column(doc_context=search_documents(agent.prompt, agent.user_id))
+        agent.add_computed_column(image_context=search_images(agent.prompt, agent.user_id))
+        agent.add_computed_column(memory_context=search_memory(agent.prompt, agent.user_id))
+
+        # Assemble everything into final context
+        agent.add_computed_column(
+            final_context=assemble_context(
+                agent.prompt,
+                agent.tool_output,
+                agent.doc_context,
+                agent.memory_context,
+            )
+        )
+        ```
+      </Step>
+      <Step title="Final Response" icon="message">
+        Second LLM call generates the answer with full context
+        
+        ```python
+        # Step 3: Generate final answer with all context
+        agent.add_computed_column(
+            final_response=messages(
+                model='claude-sonnet-4-20250514',
+                messages=agent.final_context,
+                max_tokens=agent.max_tokens,
+                model_kwargs={'system': agent.system_prompt}
+            )
+        )
+
+        # Extract answer text
+        agent.add_computed_column(
+            answer=agent.final_response.content[0].text
+        )
+        ```
+        
+        <Card title="Tool Calling Cookbook" icon="wrench" href="/howto/cookbooks/agents/llm-tool-calling">
+          Complete walkthrough
+        </Card>
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="3. MCP">
+    <Steps>
+      <Step title="Connect MCP Server" icon="plug">
+        Load tools from any MCP-compatible server
+        
+        [`pxt.mcp_udfs()`](/howto/cookbooks/agents/llm-tool-calling)
+        
+        ```python
+        # Load tools from MCP server
+        mcp_tools = pxt.mcp_udfs('http://localhost:8000/mcp')
+
+        # Combine with local tools
+        all_tools = pxt.tools(
+            get_latest_news,
+            fetch_financial_data,
+            search_documents,
+            *mcp_tools  # Add MCP tools
+        )
+        ```
+        
+        <Card title="Pixeltable MCP Server" icon="server" href="https://github.com/pixeltable/mcp-server-pixeltable-developer">
+          MCP server for Claude, Cursor, and AI IDEs
+        </Card>
+      </Step>
+      <Step title="Build Your Own MCP Server" icon="hammer">
+        Expose Pixeltable tables as MCP tools for AI IDEs
+        
+        ```python
+        # Example: JFK Files MCP Server
+        # Exposes document search to Claude Desktop, Cursor, etc.
+
+        from mcp.server import Server
+        import pixeltable as pxt
+
+        server = Server("jfk-files")
+
+        @server.tool()
+        def search_jfk_documents(query: str) -> str:
+            """Search declassified JFK documents."""
+            docs = pxt.get_table('jfk.documents')
+            sim = docs.content.similarity(query)
+            results = docs.order_by(sim, asc=False).limit(5).collect()
+            return "\n".join(r['content'] for r in results)
+        ```
+        
+        <Card title="JFK MCP Server" icon="file-lines" href="https://github.com/pixeltable/jfk-mcp-server">
+          Example MCP server with document search
+        </Card>
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="4. Memory">
+    <Steps>
+      <Step title="Chat History" icon="comments">
+        Store conversation turns with semantic search
+        
+        ```python
+        # Chat history with embedding index
+        chat_history = pxt.create_table('agents.chat_history', {
+            'role': pxt.String,           # 'user' or 'assistant'
+            'content': pxt.String,
+            'timestamp': pxt.Timestamp,
+            'user_id': pxt.String
+        })
+
+        chat_history.add_embedding_index(
+            'content',
+            string_embed=sentence_transformer.using(model_id='all-MiniLM-L6-v2')
+        )
+
+        # Recent history query
+        @pxt.query
+        def get_recent_chat_history(user_id: str, limit: int = 4):
+            return (
+                chat_history.where(chat_history.user_id == user_id)
+                .order_by(chat_history.timestamp, asc=False)
+                .select(role=chat_history.role, content=chat_history.content)
+                .limit(limit)
+            )
+
+        # Semantic search over all history
+        @pxt.query
+        def search_chat_history(query_text: str, user_id: str):
+            sim = chat_history.content.similarity(query_text)
+            return (
+                chat_history.where((chat_history.user_id == user_id) & (sim > 0.8))
+                .order_by(sim, asc=False)
+                .select(role=chat_history.role, content=chat_history.content, sim=sim)
+                .limit(10)
+            )
+        ```
+        
+        <Card title="Agent Memory Pattern" icon="brain" href="/howto/cookbooks/agents/pattern-agent-memory">
+          Persistent conversation context
+        </Card>
+      </Step>
+      <Step title="Memory Bank" icon="lightbulb">
+        Store user-saved snippets (code, text, facts) for recall
+        
+        ```python
+        # Selective memory - things the user explicitly saves
+        memory_bank = pxt.create_table('agents.memory_bank', {
+            'content': pxt.String,
+            'type': pxt.String,          # 'code', 'text', 'fact'
+            'language': pxt.String,       # For code: 'python', 'javascript', etc.
+            'context_query': pxt.String,  # What triggered this save
+            'timestamp': pxt.Timestamp,
+            'user_id': pxt.String
+        })
+
+        memory_bank.add_embedding_index('content', string_embed=embed_fn)
+
+        @pxt.query
+        def search_memory(query_text: str, user_id: str):
+            sim = memory_bank.content.similarity(query_text)
+            return (
+                memory_bank.where((memory_bank.user_id == user_id) & (sim > 0.8))
+                .order_by(sim, asc=False)
+                .select(
+                    content=memory_bank.content,
+                    type=memory_bank.type,
+                    language=memory_bank.language,
+                    context_query=memory_bank.context_query,
+                )
+                .limit(10)
+            )
+        ```
+      </Step>
+      <Step title="Multimodal Knowledge Base" icon="photo-film">
+        Index documents, images, video, and audio for retrieval
+        
+        ```python
+        # Documents with chunking
+        documents = pxt.create_table('agents.collection', {
+            'document': pxt.Document,
+            'uuid': pxt.String,
+            'user_id': pxt.String
+        })
+
+        chunks = pxt.create_view('agents.chunks', documents,
+            iterator=DocumentSplitter.create(
+                document=documents.document,
+                separators='paragraph',
+                metadata='title, heading, page'
+            )
+        )
+        chunks.add_embedding_index('text', string_embed=embed_fn)
+
+        # Images with CLIP
+        images = pxt.create_table('agents.images', {
+            'image': pxt.Image,
+            'user_id': pxt.String
+        })
+        images.add_embedding_index('image', embedding=clip.using(model_id='openai/clip-vit-large-patch14'))
+
+        # Video frames
+        videos = pxt.create_table('agents.videos', {'video': pxt.Video, 'user_id': pxt.String})
+        video_frames = pxt.create_view('agents.video_frames', videos,
+            iterator=FrameIterator.create(video=videos.video, fps=1)
+        )
+        video_frames.add_embedding_index('frame', embedding=clip.using(model_id='openai/clip-vit-large-patch14'))
+        ```
+        
+        <Card title="RAG Pipeline" icon="database" href="/howto/cookbooks/agents/pattern-rag-pipeline">
+          Document retrieval patterns
+        </Card>
+      </Step>
+    </Steps>
+  </Tab>
+  <Tab title="5. Deploy">
+    <Steps>
+      <Step title="Flask/FastAPI Endpoint" icon="globe">
+        Expose your agent via HTTP API
+        
+        ```python
+        from flask import Flask, request
+        from datetime import datetime
+        import pixeltable as pxt
+
+        app = Flask(__name__)
+        agent = pxt.get_table('agents.workflow')
+        chat_history = pxt.get_table('agents.chat_history')
+
+        @app.route("/chat", methods=["POST"])
+        def chat():
+            data = request.json
+            user_id = data["user_id"]
+            prompt = data["message"]
+
+            # Store user message
+            chat_history.insert([{
+                "role": "user",
+                "content": prompt,
+                "timestamp": datetime.now(),
+                "user_id": user_id
+            }])
+
+            # Trigger agent workflow (computed columns run automatically)
+            agent.insert([{
+                "prompt": prompt,
+                "timestamp": datetime.now(),
+                "user_id": user_id,
+                "system_prompt": "You are a helpful assistant.",
+                "max_tokens": 1024,
+                "temperature": 0.7,
+            }])
+
+            # Get the answer (already computed)
+            result = agent.order_by(agent.timestamp, asc=False).limit(1).collect()
+            answer = result[0]["answer"]
+
+            # Store assistant response
+            chat_history.insert([{
+                "role": "assistant",
+                "content": answer,
+                "timestamp": datetime.now(),
+                "user_id": user_id
+            }])
+
+            return {"response": answer}
+        ```
+        
+        <Card title="Deployment Guide" icon="server" href="/howto/deployment/overview">
+          Production deployment patterns
+        </Card>
+      </Step>
+      <Step title="Cloud Deployment (Coming Soon)" icon="cloud">
+        One-command deployment with `pxt serve` and `pxt deploy`
+        
+        <Card title="Cloud Offering" icon="cloud" href="/use-cases/services">
+          Learn about upcoming Endpoints and Live Tables
+        </Card>
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+---
+
+## Built with Pixeltable
+
+<CardGroup cols={2}>
+  <Card title="Pixelbot" icon="robot" href="https://github.com/pixeltable/pixelbot">
+    Multimodal AI agent with infinite memory, file search, and image generation
+  </Card>
+  <Card title="Pixelagent" icon="microchip" href="https://github.com/pixeltable/pixelagent">
+    Lightweight agent framework with built-in memory and tool orchestration
+  </Card>
+  <Card title="Pixelmemory" icon="brain" href="https://github.com/pixeltable/pixelmemory">
+    Persistent memory layer for AI applications
+  </Card>
+  <Card title="MCP Server" icon="plug" href="https://github.com/pixeltable/mcp-server-pixeltable-developer">
+    Model Context Protocol server for Claude, Cursor, and AI IDEs
+  </Card>
+</CardGroup>
+
+---
+
+## Related Cookbooks
+
+<CardGroup cols={2}>
+  <Card title="Tool Calling" icon="wrench" href="/howto/cookbooks/agents/llm-tool-calling">
+    Complete guide to `pxt.tools()` and `invoke_tools()`
+  </Card>
+  <Card title="Agent Memory" icon="brain" href="/howto/cookbooks/agents/pattern-agent-memory">
+    Persistent conversation context patterns
+  </Card>
+  <Card title="RAG Pipeline" icon="database" href="/howto/cookbooks/agents/pattern-rag-pipeline">
+    Retrieval-augmented generation workflow
+  </Card>
+  <Card title="Table as UDF" icon="table" href="/howto/cookbooks/agents/pattern-table-as-udf">
+    Use tables as callable functions
+  </Card>
+</CardGroup>

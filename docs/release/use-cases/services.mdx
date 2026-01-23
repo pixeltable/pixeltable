@@ -1,0 +1,74 @@
+---
+title: 'Cloud Offering'
+description: 'Data sharing, endpoints, and collaboration via Pixeltable Cloud'
+---
+
+Pixeltable Cloud extends the local SDK with team collaboration and production deployment capabilities.
+
+---
+
+## Publish & Replicate ✅ Available Now
+
+| Feature | API |
+|---------|-----|
+| Publish datasets | [`pxt.publish(source, destination_uri)`](/platform/data-sharing) |
+| Replicate datasets | [`pxt.replicate(remote_uri, local_path)`](/platform/data-sharing) |
+| Sync updates | `push()`, `pull()` |
+| Access control | `access='public'` or `'private'` |
+
+```python
+# Publish your curated dataset
+pxt.publish(source='my-table', destination_uri='pxt://myorg/my-dataset')
+
+# Anyone can replicate public datasets (no account required)
+coco = pxt.replicate(remote_uri='pxt://pixeltable:fiftyone/coco_mini_2017', local_path='coco-copy')
+```
+
+<Card title="Data Sharing Guide" icon="share" href="/platform/data-sharing">
+  Full documentation on publish, replicate, push, and pull
+</Card>
+
+---
+
+## 2. Endpoints 🔜 Coming Soon
+
+One-command API deployment with managed hosting.
+
+| Feature | What |
+|---------|------|
+| `pxt serve` | Local development server |
+| `pxt deploy` | Cloud deployment with auto-scaling |
+| Pre-signed URLs | Media access without proxying |
+
+<Info>
+[Join the waitlist](https://www.pixeltable.com/waitlist) to get early access to Endpoints.
+</Info>
+
+---
+
+## 3. Live Tables 🔜 Coming Soon
+
+Multi-writer collaboration and serverless compute.
+
+| Feature | What |
+|---------|------|
+| Multi-writer | Team collaboration on shared tables |
+| Serverless compute | Auto-scaling without infrastructure |
+| UDF versioning | Safe experimentation with code changes |
+| RBAC + audit | Governance and compliance |
+
+---
+
+## Unified: Where It's All Going
+
+When all three cloud services are available, the two use cases converge:
+
+- **Data wrangling + AI pipelines + endpoints = one system**
+- **Orchestration + storage + retrieval unified**
+- **Table becomes the endpoint**
+
+Your training datasets and production APIs share the same infrastructure—versioning, lineage, and retrieval in the serving path.
+
+<Card title="Book a Demo" icon="calendar" href="https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM">
+  Schedule time with our team to discuss your use case
+</Card>
