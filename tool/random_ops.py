@@ -395,7 +395,6 @@ def run(
     worker_id: int, read_only: bool, include_only_ops: list[str] | None, exclude_ops: list[str] | None, config_str: str
 ) -> None:
     """Entrypoint for a worker process."""
-    os.environ['PIXELTABLE_DB'] = 'random_ops'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
     os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
     config = RandomTableOpsConfig(**json.loads(config_str))
