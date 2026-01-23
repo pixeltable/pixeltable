@@ -2168,12 +2168,14 @@ class TestTable:
 
     def test_add_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns())
+        orig_cols = set(t.columns())
         t.add_column(add1=pxt.Int)
+        assert set(t.columns()) == orig_cols | {'add1'}
         # Make sure that `name` and `id` are allowed, i.e., not reserved as system names
         t.add_column(name=pxt.String)
+        assert set(t.columns()) == orig_cols | {'add1', 'name'}
         t.add_column(id=pxt.String)
-        assert len(t.columns()) == num_orig_cols + 3
+        assert set(t.columns()) == orig_cols | {'add1', 'name', 'id'}
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_column(add2=pxt.Required[pxt.Int])
@@ -2221,18 +2223,18 @@ class TestTable:
         # make sure this is still true after reloading the metadata
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols + 3
+        assert set(t.columns()) == orig_cols | {'add1', 'name', 'id'}
 
         # revert() works
         t.revert()
         t.revert()
         t.revert()
-        assert len(t.columns()) == num_orig_cols
+        assert set(t.columns()) == orig_cols
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols
+        assert set(t.columns()) == orig_cols
 
     def test_bool_column(self, uses_db: None, reload_tester: ReloadTester) -> None:
         # test adding a bool column with constant value
