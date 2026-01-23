@@ -15,7 +15,7 @@ from .utils import ReloadTester, assert_columns_eq, inf_array_iterator, inf_imag
 
 @pytest.mark.expensive
 class TestInlinedObjects:
-    def test_null_arrays(self, reset_db: None) -> None:
+    def test_null_arrays(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'i': pxt.Int, 'data': pxt.Array})
         validate_update_status(
             t.insert(
@@ -31,7 +31,7 @@ class TestInlinedObjects:
         assert all(row['data'] is not None for row in res)
         assert all(row['i'] % 2 == 0 for row in res)
 
-    def test_insert_arrays(self, reset_db: None) -> None:
+    def test_insert_arrays(self, uses_db: None) -> None:
         """Test storing arrays of various sizes and dtypes."""
         reload_tester = ReloadTester()
 
@@ -72,7 +72,7 @@ class TestInlinedObjects:
         pxt.drop_table('test')
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_insert_binary(self, reset_db: None) -> None:
+    def test_insert_binary(self, uses_db: None) -> None:
         """Test storing binary data of various sizes."""
         reload_tester = ReloadTester()
         t = pxt.create_table('test', {'id': pxt.Int, 'data': pxt.Binary})
@@ -91,7 +91,7 @@ class TestInlinedObjects:
         pxt.drop_table('test')
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_insert_inlined_objects(self, reset_db: None) -> None:
+    def test_insert_inlined_objects(self, uses_db: None) -> None:
         """Test storing lists and dicts with arrays of various sizes and dtypes."""
         reload_tester = ReloadTester()
         rnd = random.Random(4171780)
@@ -163,7 +163,7 @@ class TestInlinedObjects:
         pxt.drop_table('test')
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_nonstandard_json_construction(self, reset_db: None) -> None:
+    def test_nonstandard_json_construction(self, uses_db: None) -> None:
         reload_tester = ReloadTester()
 
         # test list/dict construction
@@ -260,7 +260,7 @@ class TestInlinedObjects:
         pxt.drop_table('test')
         assert LocalStore(Env.get().media_dir).count(tbl_id) == 0
 
-    def test_samples(self, reset_db: None) -> None:
+    def test_samples(self, uses_db: None) -> None:
         reload_tester = ReloadTester()
 
         schema = {'id': pxt.Int, 'c': pxt.Int, 'a': pxt.Array, 'd': pxt.Json}

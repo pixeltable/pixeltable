@@ -1,7 +1,6 @@
 ---
 title: 'Vector Database'
 description: 'Learn how to create, populate and query embedding indexes in Pixeltable'
-icon: 'blank'
 ---
 
 <Info>
@@ -57,7 +56,7 @@ The setup phase defines your schema and creates embedding indexes.
 
     # Create table
     docs = pxt.create_table(
-        "knowledge_base.documents",
+        "knowledge_base/documents",
         {
             "content": pxt.String,
             "metadata": pxt.Json
@@ -89,7 +88,7 @@ The setup phase defines your schema and creates embedding indexes.
 
     # Create table
     docs = pxt.create_table(
-        "knowledge_base.documents",
+        "knowledge_base/documents",
         {
             "content": pxt.String,
             "metadata": pxt.Json
