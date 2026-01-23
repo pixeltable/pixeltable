@@ -45,7 +45,7 @@ class TestDate:
         test_dts, t = self.make_test_table()
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
-            # (pxt_fn, str_fn, args, **kwargs)
+            # (pxt_fn, py_fn, args, **kwargs)
             # (date, lambda dt: datetime(dt.year, dt.month, dt.day), [], {}),
             # (time, lambda dt: datetime(1, 1, 1, dt.hour, dt.minute, dt.second, dt.microsecond), [], {}),
             (year, date.year.__get__, [], {}),

@@ -337,6 +337,8 @@
         </outline>
         <outline text="module|pixeltable.functions.uuid">
           <outline text="udf|pixeltable.functions.uuid.uuid4" />
+          <outline text="udf|pixeltable.functions.uuid.uuid7" />
+          <outline text="udf|pixeltable.functions.uuid.to_string" />
         </outline>
         <outline text="module|pixeltable.functions.vision">
           <outline text="func|pixeltable.functions.vision.eval_detections" />

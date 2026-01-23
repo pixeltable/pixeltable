@@ -106,6 +106,57 @@ def uuid7() -> uuid.UUID:
     return _uuid7()
 
 
+@pxt.udf
+def to_string(u: uuid.UUID) -> str:
+    """
+    Convert a UUID to its string representation.
+
+    Args:
+        u: The UUID to convert.
+
+    Returns:
+        The string representation of the UUID, in the form `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`.
+
+    Example:
+        Convert the UUID column `id` in an existing table `tbl` to a string:
+
+        >>> tbl.add_computed_column(id_string=to_string(tbl.id))
+    """
+    return str(u)
+
+
+@to_string.to_sql
+def _(u: sql.ColumnElement) -> sql.ColumnElement:
+    return u.cast(sql.Text)
+
+
+@pxt.udf
+def hex(u: uuid.UUID) -> str:
+    """
+    Convert a UUID to its hexadecimal representation.
+
+    Equivalent to [`uuid.hex`](https://docs.python.org/3/library/uuid.html#uuid.UUID.hex).
+
+    Args:
+        u: The UUID to convert.
+
+    Returns:
+        The hexadecimal representation of the UUID, as a 32-character string of hex digits.
+
+    Example:
+        Convert the UUID column `id` in an existing table `tbl` to a hexadecimal string:
+
+        >>> tbl.add_computed_column(id_hex=hex(tbl.id))
+    """
+    return u.hex
+
+
+@hex.to_sql
+def _(u: sql.ColumnElement) -> sql.ColumnElement:
+    # Convert UUID to text and remove hyphens
+    return sql.func.replace(u.cast(sql.Text), '-', '')
+
+
 __all__ = local_public_names(__name__)
 
 
