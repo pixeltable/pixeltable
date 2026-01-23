@@ -1018,7 +1018,7 @@ def array(elements: Iterable) -> exprs.Expr:
     return exprs.Expr.from_array(elements)
 
 
-def home() -> str:
+def home() -> Path:
     """Get the path to the user's home directory in Pixeltable.
 
     Returns:

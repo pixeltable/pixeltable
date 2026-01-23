@@ -20,6 +20,7 @@
           <outline text="func|pixeltable.create_dir" />
           <outline text="func|pixeltable.drop_dir" />
           <outline text="func|pixeltable.get_dir_contents" />
+          <outline text="func|pixeltable.home" />
           <outline text="func|pixeltable.ls" />
           <outline text="func|pixeltable.move" />
           <outline text="func|pixeltable.init" />
