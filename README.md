@@ -31,9 +31,7 @@ The only open source Python library providing declarative data infrastructure fo
 pip install pixeltable
 ```
 
-AI teams are building on images, video, audio, and text, but the infrastructure is broken: data lives across object stores, vector DBs, and ad-hoc pipelines; every model change requires costly reprocessing; pipelines are brittle and hard to reproduce.
-
-Pixeltable treats multimodal data and model outputs as first-class, queryable objects with automatic recomputation when anything changes.
+Pixeltable replaces the complex multi-system architecture needed for AI applications with a single declarative table interface that natively handles multimodal data like images, videos, and documents.
 
 ## Demo
 
@@ -144,7 +142,7 @@ t = pxt.create_table(
 </details>
 
 <details>
-<summary><b>⚡ Orchestrate:</b> Declarative Computed Columns</summary>
+<summary><b>Orchestrate:</b> Declarative Computed Columns</summary>
 <br>
 
 [Define processing steps once](https://docs.pixeltable.com/tutorials/computed-columns); they run automatically on new/updated data. Supports **API calls** (OpenAI, Anthropic, Gemini), **local inference** (Hugging Face, YOLOX, Whisper), **vision models**, and any Python logic.
@@ -172,7 +170,7 @@ t.add_computed_column(
 </details>
 
 <details>
-<summary><b>✂️ Iterate:</b> Explode & Process Media</summary>
+<summary><b>Iterate:</b> Explode & Process Media</summary>
 <br>
 
 [Create views with iterators](https://docs.pixeltable.com/platform/views) to explode one row into many (video→frames, doc→chunks, audio→segments).
@@ -214,7 +212,7 @@ results = t.order_by(sim, asc=False).limit(10).collect()
 </details>
 
 <details>
-<summary><b>🧩 Extend:</b> Bring Your Own Code</summary>
+<summary><b>Extend:</b> Bring Your Own Code</summary>
 <br>
 
 [Extend Pixeltable](https://docs.pixeltable.com/platform/udfs-in-pixeltable) with UDFs, reusable queries, batch processing, and custom aggregators.
@@ -253,7 +251,7 @@ t.add_computed_column(
 </details>
 
 <details>
-<summary><b>🧪 Query & Experiment:</b> SQL-like Python Querying</summary>
+<summary><b>Query & Experiment:</b> SQL-like Python Querying</summary>
 <br>
 
 [Familiar syntax](https://docs.pixeltable.com/tutorials/queries-and-expressions) combined with powerful AI capabilities. **Test transformations before committing:**
@@ -277,7 +275,7 @@ t.add_computed_column(summary=summarize(t.text))      # Now commit
 </details>
 
 <details>
-<summary><b>⏪ Version:</b> Data Persistence & Time Travel</summary>
+<summary><b>Version:</b> Data Persistence & Time Travel</summary>
 <br>
 
 [All data is automatically stored and versioned](https://docs.pixeltable.com/platform/version-control). Query any prior version.
@@ -294,7 +292,7 @@ old_version = pxt.get_table('my_table:472')  # Query a specific version
 </details>
 
 <details>
-<summary><b>📥 Import/Export:</b> I/O & Integration</summary>
+<summary><b>Import/Export:</b> I/O & Integration</summary>
 <br>
 
 [Import from any source](https://docs.pixeltable.com/howto/cookbooks/data/data-import-csv) and [export to ML formats](https://docs.pixeltable.com/howto/cookbooks/data/data-export-pytorch).
