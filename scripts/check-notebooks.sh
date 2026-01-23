@@ -17,7 +17,7 @@ fi
 
 echo "Checking code formatting ..."
 nbqa "ruff format --check --line-length=74" --nbqa-dont-skip-bad-cells docs/release || exit 1
-# nbqa "ruff check --select I --line-length=74" --nbqa-dont-skip-bad-cells docs/release || exit 1
+nbqa "ruff check --select I --line-length=74" --nbqa-dont-skip-bad-cells docs/release || exit 1
 
 # Run custom notebook checks
 echo "Running custom notebook checks ..."
