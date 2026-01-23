@@ -31,6 +31,7 @@ from .globals import (
     drop_table,
     get_dir_contents,
     get_table,
+    home,
     init,
     list_dirs,
     list_functions,

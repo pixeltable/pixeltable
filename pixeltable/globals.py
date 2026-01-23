@@ -1018,6 +1018,15 @@ def array(elements: Iterable) -> exprs.Expr:
     return exprs.Expr.from_array(elements)
 
 
+def home() -> str:
+    """Get the path to the user's home directory in Pixeltable.
+
+    Returns:
+        The path to the user's home directory.
+    """
+    return Config.get().home
+
+
 class DirContents(TypedDict):
     """
     Represents the contents of a Pixeltable directory.
