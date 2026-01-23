@@ -232,15 +232,14 @@ jobs:
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
         run: ruff check pixeltable tests tool
-      - name: Notebook lint
-        if: ${{ matrix.test-category == 'lint' }}
-        run: |
-          ./scripts/notebooks-markdown.sh check
       - name: Formatter check
         if: ${{ matrix.test-category == 'lint' }}
         run: |
           ruff format --check
           ruff check --select I
+      - name: Notebook checks
+        if: ${{ matrix.test-category == 'lint' }}
+        run: ./scripts/check-notebooks.sh
       - name: Archive log files
         # Archive the log files even if a preceding step failed. Currently we do this only on ubuntu runners.
         if: ${{ always() && startsWith(matrix.os, 'ubuntu') }}
