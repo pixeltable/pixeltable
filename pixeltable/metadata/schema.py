@@ -52,7 +52,7 @@ def md_from_dict(type_: type[T], data: Any) -> T:
         return data
 
 
-def _md_dict_factory(data: list[tuple[str, Any]]) -> dict:
+def md_dict_factory(data: list[tuple[str, Any]]) -> dict:
     """Use this to serialize <>Md instances with dataclasses.asdict()"""
     # serialize enums to their values
     return {k: v.value if isinstance(v, Enum) else v for k, v in data}
@@ -192,6 +192,15 @@ class TableStatement(Enum):
     DROP_COLUMNS = 4
     ADD_INDEX = 5
     DROP_INDEX = 6
+
+    def can_abort(self) -> bool:
+        """Returns True if the statement can be aborted by the user."""
+        return self in [
+            TableStatement.CREATE_TABLE,
+            TableStatement.CREATE_VIEW,
+            TableStatement.ADD_COLUMNS,
+            TableStatement.ADD_INDEX,
+        ]
 
 
 @dataclasses.dataclass

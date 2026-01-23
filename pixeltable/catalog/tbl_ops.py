@@ -4,38 +4,20 @@
 #   enough information for exec_op() to perform the operation without having to reference data outside of
 #   TableVersion
 
+from __future__ import annotations
+
 import dataclasses
+import sys
+from enum import Enum
 from typing import Any
 
-
-@dataclasses.dataclass
-class CreateStoreTableOp:
-    pass
+import pixeltable.metadata.schema as schema
 
 
-@dataclasses.dataclass
-class CreateIndexOp:
-    idx_id: int
-
-
-@dataclasses.dataclass
-class LoadViewOp:
-    view_path: dict[str, Any]  # needed to create the view load plan
-
-
-@dataclasses.dataclass
-class DeleteTableMdOp:
-    pass
-
-
-@dataclasses.dataclass
-class DeleteTableMediaFilesOp:
-    pass
-
-
-@dataclasses.dataclass
-class DropStoreTableOp:
-    pass
+class OpStatus(Enum):
+    PENDING = 0
+    COMPLETED = 1
+    ABORTED = 2
 
 
 @dataclasses.dataclass
@@ -44,10 +26,71 @@ class TableOp:
     op_sn: int  # sequence number within the update operation; [0, num_ops)
     num_ops: int  # total number of ops forming the update operation
     needs_xact: bool  # if True, op must be run as part of a transaction
+    status: OpStatus
 
-    create_store_table_op: CreateStoreTableOp | None = None
-    create_index_op: CreateIndexOp | None = None
-    load_view_op: LoadViewOp | None = None
-    delete_table_md_op: DeleteTableMdOp | None = None
-    delete_table_media_files_op: DeleteTableMediaFilesOp | None = None
-    drop_store_table_op: DropStoreTableOp | None = None
+    def to_dict(self) -> dict:
+        result = dataclasses.asdict(self, dict_factory=schema.md_dict_factory)
+        result['_classname'] = self.__class__.__name__
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> TableOp:
+        classname = data.pop('_classname')
+        op_class = getattr(sys.modules[__name__], classname)
+        return schema.md_from_dict(op_class, data)
+
+
+@dataclasses.dataclass
+class CreateStoreTableOp(TableOp):
+    pass
+
+
+@dataclasses.dataclass
+class CreateStoreIdxsOp(TableOp):
+    idx_ids: list[int]
+
+
+@dataclasses.dataclass
+class LoadViewOp(TableOp):
+    view_path: dict[str, Any]  # needed to create the view load plan
+
+
+@dataclasses.dataclass
+class CreateTableMdOp(TableOp):
+    """Undo-only log record"""
+
+    pass
+
+
+@dataclasses.dataclass
+class DeleteTableMdOp(TableOp):
+    pass
+
+
+@dataclasses.dataclass
+class CreateTableVersionOp(TableOp):
+    """Undo-only log record"""
+
+    pass
+
+
+@dataclasses.dataclass
+class CreateColumnMdOp(TableOp):
+    """Undo-only log record"""
+
+    column_ids: list[int]
+
+
+@dataclasses.dataclass
+class CreateStoreColumnsOp(TableOp):
+    column_ids: list[int]
+
+
+@dataclasses.dataclass
+class DeleteTableMediaFilesOp(TableOp):
+    pass
+
+
+@dataclasses.dataclass
+class DropStoreTableOp(TableOp):
+    pass
