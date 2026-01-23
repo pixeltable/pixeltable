@@ -52,7 +52,7 @@ errors = table.where(table.analysis.errortype != None).collect()
 
 ## Testing Transformations Before Deployment
 
-When you add a computed column, Pixeltable executes it immediately for all existing rows. For expensive operations (LLM calls, model inference), validate your logic on a sample first using `SELECT`—nothing is stored until you commit with `add_computed_column()`.
+When you add a computed column, Pixeltable executes it immediately for all existing rows. For expensive operations (LLM calls, model inference), validate your logic on a sample first using `select()`; nothing is stored until you commit with `add_computed_column()`.
 
 ```python
 # 1. Test transformation on sample rows (nothing stored)
@@ -177,26 +177,6 @@ rm -rf ~/.pixeltable/pgdata ~/.pixeltable/media ~/.pixeltable/file_cache
 <Warning>
 **This deletes all data.** Only use in development. For production, use backups and `table.revert()` or snapshots instead.
 </Warning>
-
-### Handling Nullable Columns in UDFs
-
-When processing data that may contain `None` values, guard against nulls:
-
-```python
-from typing import Optional
-import pixeltable as pxt
-
-@pxt.udf
-def safe_process(value: Optional[str]) -> str:
-    """Handle nullable input gracefully."""
-    if value is None:
-        return ''
-    return value.upper()  # Your actual processing
-```
-
-<Tip>
-Pixeltable computed columns can produce `None` on errors (when `on_error='ignore'`). Always check `table.column.errortype` to distinguish between legitimate nulls and processing failures.
-</Tip>
 
 ### Common Issues
 

@@ -198,7 +198,7 @@ flowchart LR
 - File Cache size: configure via `file_cache_size_g` in `~/.pixeltable/config.toml`. [See configuration guide](/platform/configuration)
 
 <Tip>
-**Pro tip:** For large datasets with remote media, set a generous file cache size to avoid repeated downloads:
+For large datasets with remote media, consider increasing file cache size to avoid repeated downloads (default is 20% of available disk):
 
 ```toml
 # ~/.pixeltable/config.toml

@@ -7,17 +7,13 @@ description: 'Use LLMs to build Pixeltable applications'
 
 Pixeltable's declarative primitives make it ideal for LLM-assisted development. Instead of writing complex orchestration code, you describe *what* you want—and LLMs can generate correct Pixeltable code on the first try.
 
-**Why Pixeltable is LLM-friendly:**
-- **Simple primitives:** Tables, computed columns, views, and indexes compose predictably
-- **Declarative:** No control flow to debug—just define schemas and transformations
-- **Idempotent:** `if_exists='ignore'` makes generated code safe to re-run
-- **Self-documenting:** Table schemas and column dependencies are explicit
-
 ```python
 # LLMs can easily generate this pattern
+import pixeltable as pxt
+from pixeltable.functions.huggingface import sentence_transformer
+
 t = pxt.create_table('myapp.docs', {'text': pxt.String}, if_exists='ignore')
-t.add_computed_column(embedding=embed(t.text), if_exists='ignore')
-t.add_embedding_index('embedding', if_not_exists=True)
+t.add_embedding_index('text', embedding=sentence_transformer.using(model_id='all-MiniLM-L6-v2'))
 ```
 
 ---

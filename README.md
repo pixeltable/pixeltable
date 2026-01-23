@@ -8,7 +8,7 @@
 <br>
 </div>
 
-**Declarative data infrastructure that makes multimodal AI systems reliable, scalable, and easy to iterate on.**
+The only open source Python library providing declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
@@ -122,7 +122,7 @@ See [Working with External Files](https://docs.pixeltable.com/platform/external-
 ## Key Principles
 
 <details>
-<summary><b>🗄️ Store:</b> Unified Multimodal Interface</summary>
+<summary><b>Store:</b> Unified Multimodal Interface</summary>
 <br>
 
 [`pxt.Image`](https://docs.pixeltable.com/platform/type-system), `pxt.Video`, `pxt.Audio`, `pxt.Document`, `pxt.Json` – manage diverse data consistently.
@@ -195,7 +195,7 @@ frames = pxt.create_view('frames', videos,
 </details>
 
 <details>
-<summary><b>🔍 Index:</b> Built-in Vector Search</summary>
+<summary><b>Index:</b> Built-in Vector Search</summary>
 <br>
 
 [Add embedding indexes](https://docs.pixeltable.com/platform/embedding-indexes) and perform similarity searches directly on tables/views.
@@ -233,7 +233,7 @@ def search_by_topic(topic: str):
 </details>
 
 <details>
-<summary><b>🤖 Agents & Tools:</b> Tool Calling & MCP Integration</summary>
+<summary><b>Agents & Tools:</b> Tool Calling & MCP Integration</summary>
 <br>
 
 Register [`@pxt.udf`](https://docs.pixeltable.com/howto/cookbooks/agents/llm-tool-calling), `@pxt.query` functions, or **MCP servers** as callable tools. LLMs decide which tool to invoke; Pixeltable executes and stores results.

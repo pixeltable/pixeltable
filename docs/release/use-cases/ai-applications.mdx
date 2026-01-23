@@ -20,7 +20,7 @@ Add multimodal intelligence to applications with two deployment patterns.
 <Tabs>
   <Tab title="1. Store">
     <Steps>
-      <Step title="Create Tables" icon="table">
+      <Step title="Create Tables">
         Define schema with native multimodal types — Pixeltable handles storage and references
         
         [`create_table()`](/tutorials/tables-and-data-operations), [`pxt.Image`](/platform/type-system), [`pxt.Video`](/platform/type-system), [`pxt.Audio`](/platform/type-system), [`pxt.Document`](/platform/type-system), [`pxt.Json`](/platform/type-system)
@@ -36,15 +36,15 @@ Add multimodal intelligence to applications with two deployment patterns.
         ```
         
         <CardGroup cols={2}>
-          <Card title="Tables Guide" icon="table" href="/tutorials/tables-and-data-operations">
+          <Card title="Tables Guide" href="/tutorials/tables-and-data-operations">
             Create tables and manage data
           </Card>
-          <Card title="Type System" icon="shapes" href="/platform/type-system">
+          <Card title="Type System" href="/platform/type-system">
             Image, Video, Audio, Document, JSON & more
           </Card>
         </CardGroup>
       </Step>
-      <Step title="Ingest Data" icon="download">
+      <Step title="Ingest Data">
         Load from any source — local files, URLs, cloud storage, or databases
         
         [`insert()`](/tutorials/tables-and-data-operations), [`import_csv()`](/sdk/latest/io), [S3/GCS/Azure](/integrations/cloud-storage)
@@ -59,10 +59,10 @@ Add multimodal intelligence to applications with two deployment patterns.
         ```
         
         <CardGroup cols={2}>
-          <Card title="Import from S3" icon="aws" href="/howto/cookbooks/data/data-import-s3">
+          <Card title="Import from S3" href="/howto/cookbooks/data/data-import-s3">
             Load from cloud storage
           </Card>
-          <Card title="Cloud Storage Setup" icon="cloud" href="/integrations/cloud-storage">
+          <Card title="Cloud Storage Setup" href="/integrations/cloud-storage">
             S3, GCS, Azure, R2 configuration
           </Card>
         </CardGroup>
@@ -71,30 +71,30 @@ Add multimodal intelligence to applications with two deployment patterns.
   </Tab>
   <Tab title="2. Build">
     <Steps>
-      <Step title="Define Pipelines" icon="hammer">
+      <Step title="Define Pipelines">
         Create UDFs and computed columns — they auto-update when data changes
         
         [`@pxt.udf`](/platform/udfs-in-pixeltable), [`@pxt.query`](/platform/udfs-in-pixeltable), [`add_computed_column()`](/tutorials/computed-columns)
         
         <CardGroup cols={2}>
-          <Card title="UDF Guide" icon="code" href="/platform/udfs-in-pixeltable">
+          <Card title="UDF Guide" href="/platform/udfs-in-pixeltable">
             Write custom functions in Python
           </Card>
-          <Card title="Computed Columns" icon="table-columns" href="/tutorials/computed-columns">
+          <Card title="Computed Columns" href="/tutorials/computed-columns">
             Auto-update derived data
           </Card>
         </CardGroup>
       </Step>
-      <Step title="Process Media" icon="photo-film">
+      <Step title="Process Media">
         Extract frames, transcribe audio, chunk documents
         
         [`FrameIterator`](/platform/iterators), [`DocumentSplitter`](/platform/iterators), [`AudioSplitter`](/platform/iterators)
         
         <CardGroup cols={2}>
-          <Card title="Extract Video Frames" icon="film" href="/howto/cookbooks/video/video-extract-frames">
+          <Card title="Extract Video Frames" href="/howto/cookbooks/video/video-extract-frames">
             Process video into searchable frames
           </Card>
-          <Card title="Transcribe Audio" icon="microphone" href="/howto/cookbooks/audio/audio-transcribe">
+          <Card title="Transcribe Audio" href="/howto/cookbooks/audio/audio-transcribe">
             Audio to text with Whisper
           </Card>
         </CardGroup>
@@ -103,7 +103,7 @@ Add multimodal intelligence to applications with two deployment patterns.
   </Tab>
   <Tab title="3. Index">
     <Steps>
-      <Step title="Embedding Index" icon="database">
+      <Step title="Embedding Index">
         Add embedding indexes with **incremental sync** — only new/changed rows are embedded
         
         [`add_embedding_index()`](/platform/embedding-indexes)
@@ -114,10 +114,10 @@ Add multimodal intelligence to applications with two deployment patterns.
         ```
         
         <CardGroup cols={2}>
-          <Card title="Embedding Indexes Guide" icon="vector-square" href="/platform/embedding-indexes">
+          <Card title="Embedding Indexes Guide" href="/platform/embedding-indexes">
             Configure and query indexes
           </Card>
-          <Card title="OpenAI Embeddings" icon="brain" href="/howto/cookbooks/search/embed-text-openai">
+          <Card title="OpenAI Embeddings" href="/howto/cookbooks/search/embed-text-openai">
             Use OpenAI embedding models
           </Card>
         </CardGroup>
@@ -126,7 +126,7 @@ Add multimodal intelligence to applications with two deployment patterns.
   </Tab>
   <Tab title="4. Query">
     <Steps>
-      <Step title="Reusable Queries" icon="code">
+      <Step title="Reusable Queries">
         Define `@pxt.query` functions that return data from your tables
         
         [`@pxt.query`](/platform/udfs-in-pixeltable)
@@ -144,11 +144,11 @@ Add multimodal intelligence to applications with two deployment patterns.
         t.add_computed_column(thumbnail=get_image(t.image_id))
         ```
         
-        <Card title="Query Functions" icon="code" href="/platform/udfs-in-pixeltable">
+        <Card title="Query Functions" href="/platform/udfs-in-pixeltable">
           Reusable parameterized queries
         </Card>
       </Step>
-      <Step title="Similarity Search" icon="magnifying-glass">
+      <Step title="Similarity Search">
         Find relevant content by meaning, not keywords
         
         [`.similarity()`](/platform/embedding-indexes), `.order_by()`, `.where()`, `.collect()`
@@ -162,24 +162,24 @@ Add multimodal intelligence to applications with two deployment patterns.
         ```
         
         <CardGroup cols={2}>
-          <Card title="Semantic Text Search" icon="font" href="/howto/cookbooks/search/search-semantic-text">
+          <Card title="Semantic Text Search" href="/howto/cookbooks/search/search-semantic-text">
             Search documents by meaning
           </Card>
-          <Card title="Similar Images" icon="images" href="/howto/cookbooks/search/search-similar-images">
+          <Card title="Similar Images" href="/howto/cookbooks/search/search-similar-images">
             Find visually similar images
           </Card>
         </CardGroup>
       </Step>
-      <Step title="Tool Calling" icon="wrench">
+      <Step title="Tool Calling">
         Expose Pixeltable functions as LLM tools for agents
         
         [`pxt.tools()`](/howto/cookbooks/agents/llm-tool-calling), [`invoke_tools()`](/howto/cookbooks/agents/llm-tool-calling)
         
         <CardGroup cols={2}>
-          <Card title="Tool Calling Guide" icon="robot" href="/howto/cookbooks/agents/llm-tool-calling">
+          <Card title="Tool Calling Guide" href="/howto/cookbooks/agents/llm-tool-calling">
             LLM agents with function calling
           </Card>
-          <Card title="Agent Memory" icon="brain" href="/howto/cookbooks/agents/pattern-agent-memory">
+          <Card title="Agent Memory" href="/howto/cookbooks/agents/pattern-agent-memory">
             Persistent conversation context
           </Card>
         </CardGroup>
@@ -188,7 +188,7 @@ Add multimodal intelligence to applications with two deployment patterns.
   </Tab>
   <Tab title="5. Serve">
     <Steps>
-      <Step title="API Endpoints" icon="globe">
+      <Step title="API Endpoints">
         Integrate with Flask, FastAPI, or any Python web framework
         
         `pxt.get_table()`, `.insert()`, `.select()`, `.collect()`
@@ -213,15 +213,15 @@ Add multimodal intelligence to applications with two deployment patterns.
         ```
         
         <CardGroup cols={2}>
-          <Card title="Deployment Guide" icon="server" href="/howto/deployment/overview">
+          <Card title="Deployment Guide" href="/howto/deployment/overview">
             Production deployment patterns
           </Card>
-          <Card title="Pixelbot Example" icon="robot" href="https://github.com/pixeltable/pixelbot">
+          <Card title="Pixelbot Example" href="https://github.com/pixeltable/pixelbot">
             Full Flask app with file upload & search
           </Card>
         </CardGroup>
       </Step>
-      <Step title="Media URLs" icon="link">
+      <Step title="Media URLs">
         Get pre-signed URLs for media files stored in cloud storage
         
         `.fileurl`, pre-signed URLs for S3/GCS/Tigris
@@ -238,7 +238,7 @@ Add multimodal intelligence to applications with two deployment patterns.
         )
         ```
         
-        <Card title="Cloud Storage" icon="cloud" href="/integrations/cloud-storage">
+        <Card title="Cloud Storage" href="/integrations/cloud-storage">
           S3, GCS, Azure, R2, Tigris configuration
         </Card>
       </Step>
@@ -268,7 +268,7 @@ Add multimodal intelligence to applications with two deployment patterns.
     df.to_sql('video_metadata', engine, if_exists='append')  # SQLAlchemy
     ```
     
-    <Card title="Orchestration Pattern Guide" icon="layer-group" href="/howto/deployment/overview#approach-1-pixeltable-as-orchestration-layer">
+    <Card title="Orchestration Pattern Guide" href="/howto/deployment/overview#approach-1-pixeltable-as-orchestration-layer">
       Process → Export to your existing infrastructure
     </Card>
   </Tab>
@@ -286,7 +286,7 @@ Add multimodal intelligence to applications with two deployment patterns.
     results = docs.chunks.similarity(query).limit(10).collect()
     ```
     
-    <Card title="Full Backend Guide" icon="server" href="/howto/deployment/overview#approach-2-pixeltable-as-full-backend">
+    <Card title="Full Backend Guide" href="/howto/deployment/overview#approach-2-pixeltable-as-full-backend">
       Versioning, lineage, and retrieval in one system
     </Card>
   </Tab>
@@ -297,13 +297,13 @@ Add multimodal intelligence to applications with two deployment patterns.
 ## End-to-End Examples
 
 <CardGroup cols={2}>
-  <Card title="Pixelbot AI Agent" icon="robot" href="https://github.com/pixeltable/pixelbot">
+  <Card title="Pixelbot AI Agent" href="https://github.com/pixeltable/pixelbot">
     Multimodal AI agent with memory, file search, and image generation
   </Card>
-  <Card title="Similarity Search App" icon="magnifying-glass" href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi">
+  <Card title="Similarity Search App" href="https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi">
     Next.js + FastAPI app for text & image search
   </Card>
-  <Card title="RAG Pipeline" icon="database" href="/howto/cookbooks/agents/pattern-rag-pipeline">
+  <Card title="RAG Pipeline" href="/howto/cookbooks/agents/pattern-rag-pipeline">
     Retrieval-augmented generation workflow
   </Card>
 </CardGroup>
