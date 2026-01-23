@@ -1,4 +1,5 @@
 import dataclasses
+import glob
 import json
 import logging
 import os
@@ -7,6 +8,7 @@ import sys
 import time
 from argparse import ArgumentParser
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Callable, Iterator
 
 import numpy as np
@@ -14,25 +16,42 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.config import Config
+from pixeltable.functions import video
 from tool.worker_harness import run_workers
 
+CURRENT_DIR = Path(os.path.dirname(__file__))
+
 # List of table operations that can be performed by RandomTableOps.
-# (operation_name, relative_prob, is_read_op)
-# The numbers represent relative probabilities; they will be normalized to sum to 1.0. If this is a read-only
-# worker, then only the operations with is_read_op=True will participate.
+# (operation_name, weight, is_read_op)
+# The probability of selecting an operation is proportional to its weight. In read-only workers, only the operations
+# with is_read_op=True are considered.
 TABLE_OPS = (
     ('query', 100, True),
-    ('insert_rows', 30, False),
-    ('update_rows', 15, False),
-    ('delete_rows', 15, False),
-    ('add_data_column', 5, False),
-    ('add_computed_column', 5, False),
-    ('drop_column', 3, False),
-    ('create_view', 5, False),
-    ('rename_view', 5, False),
-    ('drop_view', 1, False),
-    ('drop_table', 0.25, False),
+    ('insert_rows', 0, False),
+    ('update_rows', 0, False),
+    ('delete_rows', 0, False),
+    ('add_data_column', 0, False),
+    ('add_computed_column', 0, False),
+    ('drop_column', 0, False),
+    ('create_view', 0, False),
+    ('rename_view', 0, False),
+    ('drop_view', 0, False),
+    ('drop_table', 0, False),
 )
+
+# TABLE_OPS = (
+#     ('query', 100, True),
+#     ('insert_rows', 30, False),
+#     ('update_rows', 15, False),
+#     ('delete_rows', 15, False),
+#     ('add_data_column', 5, False),
+#     ('add_computed_column', 5, False),
+#     ('drop_column', 0, False),
+#     ('create_view', 5, False),
+#     ('rename_view', 5, False),
+#     ('drop_view', 1, False),
+#     ('drop_table', 0.25, False),
+# )
 
 OP_NAMES = {name for name, _, _ in TABLE_OPS}
 
@@ -48,7 +67,24 @@ BASIC_SCHEMA: dict[str, type] = {
     'bc_array': pxt.Array,
     'bc_json': pxt.Json,
     'bc_image': pxt.Image,
+    'bc_video': pxt.Video,
 }
+
+
+def get_video_files() -> list[str]:
+    path = f'{CURRENT_DIR}/../**/videos/*'
+    glob_result = glob.glob(path, recursive=True)
+    glob_result = [f for f in glob_result if 'bad_video' not in f]
+
+    half_res = [f for f in glob_result if 'half_res' in f or 'bad_video' in f]
+    half_res.sort()
+    assert len(half_res) > 3, path
+    for f in half_res:
+        assert os.path.isfile(f), f
+    return half_res
+
+
+VIDEO_FILES = get_video_files()
 
 # Initial rows to populate a newly created table. These will be augmented by additional rows as the script runs.
 INITIAL_ROWS: list[dict[str, Any]] = [
@@ -62,6 +98,7 @@ INITIAL_ROWS: list[dict[str, Any]] = [
         'bc_array': None,
         'bc_json': None,
         'bc_image': None,
+        'bc_video': VIDEO_FILES[i % len(VIDEO_FILES)],
     }
     for i in range(50)
 ]
@@ -205,6 +242,7 @@ class RandomTableOps:
                 'bc_array': self.random_array(self.config.random_array_freq),
                 'bc_json': self.random_json(self.config.random_json_freq),
                 'bc_image': self.random_img(self.config.random_img_freq),
+                'bc_video': VIDEO_FILES[i % len(VIDEO_FILES)],
             }
             for i in range(i_start, i_start + num_rows)
         ]
@@ -311,7 +349,9 @@ class RandomTableOps:
         p = random.choice(PRIMES)
         yield f'Create view {vname!r} on {self.tbl_descr(t)}: '
         # TODO: Change 'ignore' to 'replace-force' after fixing PXT-774
-        pxt.create_view(vname, t.where(t.bc_int % p == 0), if_exists='ignore')
+        pxt.create_view(
+            vname, t.where(t.bc_int % p == 0), if_exists='ignore', iterator=video.frame_iterator(t.bc_video)
+        )
         yield 'Success.'
 
     def rename_view(self) -> Iterator[str]:
@@ -395,7 +435,7 @@ def run(
     worker_id: int, read_only: bool, include_only_ops: list[str] | None, exclude_ops: list[str] | None, config_str: str
 ) -> None:
     """Entrypoint for a worker process."""
-    os.environ['PIXELTABLE_DB'] = 'random_ops'
+    os.environ['PIXELTABLE_DB'] = 'random_ops1'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
     os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
     config = RandomTableOpsConfig(**json.loads(config_str))
@@ -419,8 +459,8 @@ def run(
 
 def make_parser() -> ArgumentParser:
     parser = ArgumentParser(description='Run random table operations.')
-    parser.add_argument('workers', type=int, help='Number of worker processes to start')
-    parser.add_argument('duration', type=float, help='Duration to run (in seconds)')
+    parser.add_argument('--workers', type=int, default=12, help='Number of worker processes to start')
+    parser.add_argument('--duration', type=float, default=300, help='Duration to run (in seconds)')
     parser.add_argument(
         '-r', '--read-only-workers', type=int, default=0, help='Number of read-only workers (default: 0)'
     )

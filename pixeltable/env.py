@@ -323,6 +323,7 @@ class Env:
         if self._current_conn is None:
             assert self._current_session is None
             try:
+                # self._current_isolation_level = self.SERIALIZABLE_ISOLATION_LEVEL if for_write else 'READ COMMITTED'
                 self._current_isolation_level = self.SERIALIZABLE_ISOLATION_LEVEL
                 with (
                     self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
