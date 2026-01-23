@@ -273,7 +273,7 @@ class FrameIterator(ComponentIterator):
         seek_time: float
         if 'pos_msec' in kwargs:
             self.video_idx = kwargs['pos_frame']
-            seek_time = kwargs['pos_msec'] / 1000.0 + self.video_start_time
+            seek_time = kwargs['pos_msec'] / 1000.0
         else:
             assert 'frame_attrs' in kwargs
             self.video_idx = kwargs['frame_attrs']['index']
@@ -282,8 +282,9 @@ class FrameIterator(ComponentIterator):
         assert isinstance(self.video_idx, int)
         assert isinstance(seek_time, float)
 
-        seek_pts = math.floor(seek_time / self.video_time_base)
-        self.container.seek(seek_pts, backward=True, stream=self.container.streams.video[0])
+        # Subtlety: The offset passed in to seek() is not the pts, but rather the pts adjusted for the video start time.
+        seek_offset = math.floor((seek_time - self.video_start_time) / self.video_time_base)
+        self.container.seek(seek_offset, backward=True, stream=self.container.streams.video[0])
 
         self.cur_frame = self.next_frame()
         while self.cur_frame is not None and float(self.cur_frame.pts * self.video_time_base) < seek_time - 1e-3:
