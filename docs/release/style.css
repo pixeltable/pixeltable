@@ -166,6 +166,13 @@ article a,
   border-bottom-color: var(--kandinsky-yellow);
 }
 
+/* Tab titles should be bold */
+[data-selector="tab"],
+[role="tab"],
+button[role="tab"] {
+  font-weight: 600 !important;
+}
+
 /* ============================================
    LINKS - Kandinsky blue/yellow hover
    ============================================ */
@@ -291,4 +298,40 @@ article a,
 
 .dark [data-selector="step"]::before {
   background: var(--kandinsky-yellow);
+}
+
+/* Step titles should be bold */
+[data-selector="step"] h3,
+[data-selector="step"] [class*="font-medium"],
+[data-selector="step"] > div:first-child,
+.steps h3,
+.steps [class*="title"],
+[class*="step"] h3,
+[class*="Step"] h3 {
+  font-weight: 700 !important;
+}
+
+/* ============================================
+   SIDEBAR GROUP TITLES - Kandinsky accent
+   ============================================ */
+
+/* Light mode - Blue titles for sidebar group headers */
+#sidebar [class*="uppercase"],
+#sidebar [class*="tracking-wide"],
+nav[id="sidebar"] > div > div > div > span,
+#sidebar span.text-xs,
+#sidebar .text-sm.font-semibold:not(a),
+aside span[class*="font-"]:not(a):first-child {
+  color: var(--kandinsky-blue) !important;
+  font-weight: 600 !important;
+}
+
+/* Dark mode - Yellow titles */
+.dark #sidebar [class*="uppercase"],
+.dark #sidebar [class*="tracking-wide"],
+.dark nav[id="sidebar"] > div > div > div > span,
+.dark #sidebar span.text-xs,
+.dark #sidebar .text-sm.font-semibold:not(a),
+.dark aside span[class*="font-"]:not(a):first-child {
+  color: var(--kandinsky-yellow) !important;
 }
