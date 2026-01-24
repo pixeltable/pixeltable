@@ -174,7 +174,7 @@ formatcheck: install
 	@ruff check --select I pixeltable tests tool
 
 .PHONY: nbcheck
-nbcheck:
+nbcheck: install
 	@echo 'Running `./scripts/check-notebooks.sh` ...'
 	@./scripts/check-notebooks.sh
 
