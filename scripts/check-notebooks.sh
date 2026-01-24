@@ -15,6 +15,9 @@ else
     exit 1
 fi
 
+echo "Checking code formatting ..."
+nbqa "ruff format --check --line-length=74" --nbqa-dont-skip-bad-cells docs/release || exit 1
+
 # Run custom notebook checks
 echo "Running custom notebook checks ..."
 python tool/check_notebooks.py docs/release
