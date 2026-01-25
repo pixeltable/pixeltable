@@ -57,28 +57,6 @@
   overflow: hidden;
 }
 
-/* Force code to wrap instead of horizontal scroll */
-pre,
-pre code,
-[data-selector="code-block"] pre,
-[data-selector="code-block"] code,
-.code-block pre,
-.code-block code,
-[data-component-part="code-block-root"],
-[data-component-part="code-block-root"] pre,
-[data-component-part="code-block-root"] code {
-  white-space: pre-wrap !important;
-  word-wrap: break-word !important;
-  overflow-wrap: break-word !important;
-}
-
-/* Override Mintlify's overflow-x-auto on code blocks */
-.code-block [class*="overflow-x"],
-[data-component-part="code-block-root"],
-.code-block div[class*="w-0"] {
-  overflow-x: visible !important;
-  overflow: visible !important;
-}
 
 /* ============================================
    SIDEBAR - Active state with Kandinsky colors
