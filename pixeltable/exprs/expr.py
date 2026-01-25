@@ -144,6 +144,13 @@ class Expr(abc.ABC):
     def is_valid(self) -> bool:
         return self.validation_error is None
 
+    @property
+    def is_nondeterministic(self) -> bool:
+        """
+        Returns True if this expression's value can change even if all of its dependencies are unchanged.
+        """
+        return any(c.is_nondeterministic for c in self.components)
+
     def equals(self, other: Expr) -> bool:
         """
         Subclass-specific comparison. Implemented as a function because __eq__() is needed to construct Comparisons.

@@ -33,6 +33,7 @@ class Function(ABC):
     self_path: str | None
     is_method: bool
     is_property: bool
+    is_nondeterministic: bool
     _conditional_return_type: Callable[..., ts.ColumnType] | None
 
     # We cache the overload resolutions in self._resolutions. This ensures that each resolution is represented
@@ -56,6 +57,7 @@ class Function(ABC):
         self_path: str | None = None,
         is_method: bool = False,
         is_property: bool = False,
+        is_nondeterministic: bool = False,
     ):
         # Check that stored functions cannot be declared using `is_method` or `is_property`:
         assert not ((is_method or is_property) and self_path is None)
@@ -64,6 +66,7 @@ class Function(ABC):
         self.self_path = self_path  # fully-qualified path to self
         self.is_method = is_method
         self.is_property = is_property
+        self.is_nondeterministic = is_nondeterministic
         self._conditional_return_type = None
         self.__resolved_fns = []
         self._to_sql = self.__default_to_sql

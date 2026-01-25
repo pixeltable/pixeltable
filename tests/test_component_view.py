@@ -6,6 +6,7 @@ import PIL
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable.functions.video import frame_iterator
 from pixeltable.iterators import ComponentIterator
@@ -126,6 +127,23 @@ class TestComponentView:
 
         with pytest.raises(pxt.Error, match='Duplicate column name: annotation'):
             view_t.add_column(annotation=pxt.Required[pxt.Json])
+
+    def test_nondeterministic(self, uses_db: None) -> None:
+        """Test that a nondeterministic expr in a view column is recomputed for each row"""
+        video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
+        video_filepaths = get_test_video_files()
+        # create frame view
+        view_t = pxt.create_view(
+            'test_view',
+            video_t,
+            iterator=frame_iterator(video_t.video, fps=1),
+            additional_columns={'id': pxtf.uuid.uuid4()},
+        )
+
+        rows = [{'video': p} for p in video_filepaths]
+        validate_update_status(video_t.insert(rows))
+        res = view_t.select(view_t.id).collect()
+        assert len(set(res['id'])) == len(res)
 
     def test_update(self, uses_db: None) -> None:
         # create video table

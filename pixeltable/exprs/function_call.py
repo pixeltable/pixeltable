@@ -335,6 +335,10 @@ class FunctionCall(Expr):
             return self.components[self.fn_expr_idx]
         return None
 
+    @property
+    def is_nondeterministic(self) -> bool:
+        return self.fn.is_nondeterministic
+
     def update(self, data_row: DataRow) -> None:
         """
         Update agg state
