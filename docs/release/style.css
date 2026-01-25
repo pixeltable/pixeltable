@@ -221,8 +221,16 @@ button[role="tab"] {
 div[class*="emerald-50"],
 div[class*="emerald-100"],
 div[class*="emerald-200"] {
-  background: rgba(2, 42, 89, 0.04) !important;
+  background: #f8fafc !important;
   border-color: rgba(2, 42, 89, 0.15) !important;
+}
+
+/* Ensure callout text is normal color, not muted */
+[class*="bg-emerald"] p,
+[class*="bg-emerald"] span:not([class*="font-"]),
+div[class*="emerald-50"] p,
+div[class*="emerald-100"] p {
+  color: #374151 !important;
 }
 
 .callout[class*="emerald"] svg,
@@ -259,6 +267,14 @@ div[class*="emerald-100"] [class*="text-emerald"] {
 .dark div[class*="emerald-200"] {
   background: rgba(125, 168, 239, 0.08) !important;
   border-color: rgba(125, 168, 239, 0.2) !important;
+}
+
+/* Ensure callout text is normal color in dark mode */
+.dark [class*="bg-emerald"] p,
+.dark [class*="bg-emerald"] span:not([class*="font-"]),
+.dark div[class*="emerald-50"] p,
+.dark div[class*="emerald-100"] p {
+  color: #e5e7eb !important;
 }
 
 .dark .callout[class*="emerald"] svg,
