@@ -229,8 +229,13 @@ div[class*="emerald-200"] {
 .callout[class*="green"] svg,
 [class*="bg-emerald"] svg,
 [data-callout="tip"] svg,
-div[class*="emerald-50"] svg,
-[class*="text-emerald"] {
+div[class*="emerald-50"] svg {
+  color: #022A59 !important;
+}
+
+/* Override emerald text color for icons only */
+svg[class*="text-emerald"],
+[class*="text-emerald"] > svg {
   color: #022A59 !important;
 }
 
@@ -251,8 +256,13 @@ div[class*="emerald-50"] svg,
 .dark .callout[class*="green"] svg,
 .dark [class*="bg-emerald"] svg,
 .dark [data-callout="tip"] svg,
-.dark div[class*="emerald-50"] svg,
-.dark [class*="text-emerald"] {
+.dark div[class*="emerald-50"] svg {
+  color: #7DA8EF !important;
+}
+
+/* Override emerald text color for icons only in dark mode */
+.dark svg[class*="text-emerald"],
+.dark [class*="text-emerald"] > svg {
   color: #7DA8EF !important;
 }
 
