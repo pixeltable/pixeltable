@@ -801,12 +801,7 @@ class Planner:
         base_output_exprs = exprs.ExprSet(
             [e for e in row_builder.default_eval_ctx.exprs if e.is_bound_by([view.base]) and not e.is_nondeterministic]
         )
-        view_output_exprs = [
-            e
-            for e in row_builder.default_eval_ctx.target_exprs
-            if e not in base_output_exprs
-            # if e.is_bound_by([view]) and not e.is_bound_by([view.base])
-        ]
+        view_output_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if e not in base_output_exprs]
 
         # Create a new analyzer reflecting exactly what is required from the base table
         base_analyzer = Analyzer(
