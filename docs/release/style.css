@@ -352,6 +352,36 @@ div[class*="emerald-100"] [class*="text-emerald"] {
 }
 
 /* ============================================
+   BREADCRUMBS / EYEBROW - Kandinsky colors
+   ============================================ */
+
+/* Light mode - blue breadcrumb links */
+.breadcrumb-item a,
+.breadcrumb-list a,
+[class*="breadcrumb"] a {
+  color: var(--kandinsky-blue) !important;
+}
+
+.breadcrumb-item a:hover,
+.breadcrumb-list a:hover,
+[class*="breadcrumb"] a:hover {
+  color: var(--kandinsky-blue-hover) !important;
+}
+
+/* Dark mode - yellow breadcrumb links */
+.dark .breadcrumb-item a,
+.dark .breadcrumb-list a,
+.dark [class*="breadcrumb"] a {
+  color: var(--kandinsky-yellow) !important;
+}
+
+.dark .breadcrumb-item a:hover,
+.dark .breadcrumb-list a:hover,
+.dark [class*="breadcrumb"] a:hover {
+  color: #f5c842 !important;
+}
+
+/* ============================================
    BUTTONS - CTA styling like website
    ============================================ */
 
