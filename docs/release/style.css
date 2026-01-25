@@ -239,6 +239,15 @@ svg[class*="text-emerald"],
   color: #022A59 !important;
 }
 
+/* Reset text color inside emerald callouts - override the green text */
+[class*="bg-emerald"] [class*="text-emerald"],
+[class*="bg-emerald"] span[class*="text-emerald"],
+[class*="bg-emerald"] p[class*="text-emerald"],
+div[class*="emerald-50"] [class*="text-emerald"],
+div[class*="emerald-100"] [class*="text-emerald"] {
+  color: inherit !important;
+}
+
 /* Dark mode - use light blue tint */
 .dark .callout[class*="emerald"],
 .dark .callout[class*="green"],
@@ -264,6 +273,15 @@ svg[class*="text-emerald"],
 .dark svg[class*="text-emerald"],
 .dark [class*="text-emerald"] > svg {
   color: #7DA8EF !important;
+}
+
+/* Reset text color inside emerald callouts in dark mode */
+.dark [class*="bg-emerald"] [class*="text-emerald"],
+.dark [class*="bg-emerald"] span[class*="text-emerald"],
+.dark [class*="bg-emerald"] p[class*="text-emerald"],
+.dark div[class*="emerald-50"] [class*="text-emerald"],
+.dark div[class*="emerald-100"] [class*="text-emerald"] {
+  color: inherit !important;
 }
 
 /* Blue callouts (Note, Info) */
