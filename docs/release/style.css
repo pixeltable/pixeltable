@@ -352,6 +352,15 @@ div[class*="emerald-100"] [class*="text-emerald"] {
 }
 
 /* ============================================
+   HIDE POWERED BY MINTLIFY (if allowed by plan)
+   ============================================ */
+
+a[href*="mintlify.com"][href*="poweredBy"],
+footer a[href*="mintlify"] {
+  display: none !important;
+}
+
+/* ============================================
    BREADCRUMBS / EYEBROW - Kandinsky colors
    ============================================ */
 
