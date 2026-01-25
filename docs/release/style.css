@@ -57,6 +57,18 @@
   overflow: hidden;
 }
 
+/* Force code to wrap instead of horizontal scroll */
+pre,
+pre code,
+[data-selector="code-block"] pre,
+[data-selector="code-block"] code,
+.code-block pre,
+.code-block code {
+  white-space: pre-wrap !important;
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+}
+
 /* ============================================
    SIDEBAR - Active state with Kandinsky colors
    ============================================ */
