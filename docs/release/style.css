@@ -352,6 +352,50 @@ div[class*="emerald-100"] [class*="text-emerald"] {
 }
 
 /* ============================================
+   COPY PAGE BUTTON - Kandinsky styling
+   ============================================ */
+
+#page-context-menu-button,
+[id*="context-menu-button"] {
+  border-color: rgba(2, 42, 89, 0.2) !important;
+}
+
+#page-context-menu-button:hover,
+[id*="context-menu-button"]:hover {
+  border-color: var(--kandinsky-blue) !important;
+  color: var(--kandinsky-blue) !important;
+}
+
+.dark #page-context-menu-button,
+.dark [id*="context-menu-button"] {
+  border-color: rgba(241, 174, 3, 0.2) !important;
+}
+
+.dark #page-context-menu-button:hover,
+.dark [id*="context-menu-button"]:hover {
+  border-color: var(--kandinsky-yellow) !important;
+  color: var(--kandinsky-yellow) !important;
+}
+
+/* Context menu dropdown styling */
+#page-context-menu [role="menuitem"]:hover {
+  background: rgba(2, 42, 89, 0.05) !important;
+}
+
+.dark #page-context-menu [role="menuitem"]:hover {
+  background: rgba(241, 174, 3, 0.08) !important;
+}
+
+/* ============================================
+   HIDE POWERED BY MINTLIFY (if allowed by plan)
+   ============================================ */
+
+a[href*="mintlify.com"][href*="poweredBy"],
+footer a[href*="mintlify"] {
+  display: none !important;
+}
+
+/* ============================================
    BREADCRUMBS / EYEBROW - Kandinsky colors
    ============================================ */
 
