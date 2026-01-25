@@ -256,7 +256,7 @@ div[class*="emerald-100"] [class*="text-emerald"] {
   color: inherit !important;
 }
 
-/* Dark mode - use light blue tint */
+/* Dark mode - use solid dark blue-tinted background */
 .dark .callout[class*="emerald"],
 .dark .callout[class*="green"],
 .dark [class*="bg-emerald"],
@@ -265,8 +265,8 @@ div[class*="emerald-100"] [class*="text-emerald"] {
 .dark div[class*="emerald-50"],
 .dark div[class*="emerald-100"],
 .dark div[class*="emerald-200"] {
-  background: rgba(125, 168, 239, 0.08) !important;
-  border-color: rgba(125, 168, 239, 0.2) !important;
+  background: #0f1729 !important;
+  border-color: rgba(125, 168, 239, 0.25) !important;
 }
 
 /* Ensure callout text is normal color in dark mode */
