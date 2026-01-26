@@ -44,16 +44,6 @@
             "pages": [
               "platform/configuration",
               {
-                "group": "Deployment",
-                "pages": [
-                  "howto/deployment/overview",
-                  "howto/deployment/infrastructure",
-                  "howto/deployment/operations",
-                  "howto/deployment/monitoring",
-                  "howto/deployment/security"
-                ]
-              },
-              {
                 "group": "Integrations",
                 "pages": [
                   "howto/providers/working-with-anthropic",
@@ -240,6 +230,7 @@
                       "sdk/latest/openrouter",
                       "sdk/latest/replicate",
                       "sdk/latest/reve",
+                      "sdk/latest/runwayml",
                       "sdk/latest/together",
                       "sdk/latest/twelvelabs",
                       "sdk/latest/vision",
@@ -275,12 +266,31 @@
         ]
       },
       {
-        "tab": "Cloud",
+        "tab": "Use Cases & Deployment",
         "groups": [
           {
-            "group": "Cloud",
+            "group": "Use Cases",
             "pages": [
-              "cloud/get-started"
+              "use-cases/ml-data-wrangling",
+              "use-cases/ai-applications",
+              "use-cases/agents-mcp"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "howto/deployment/overview",
+              "howto/deployment/infrastructure",
+              "howto/deployment/operations",
+              "howto/deployment/monitoring",
+              "howto/deployment/security"
+            ]
+          },
+          {
+            "group": "Pixeltable Cloud",
+            "pages": [
+              "use-cases/services",
+              "use-cases/get-started"
             ]
           }
         ]
@@ -587,6 +597,30 @@
     {
       "source": "/tutorials/embedding-indexes",
       "destination": "/platform/embedding-indexes"
+    },
+    {
+      "source": "/cloud/use-cases",
+      "destination": "/use-cases/ml-data-wrangling"
+    },
+    {
+      "source": "/cloud/ml-data-wrangling",
+      "destination": "/use-cases/ml-data-wrangling"
+    },
+    {
+      "source": "/cloud/ai-applications",
+      "destination": "/use-cases/ai-applications"
+    },
+    {
+      "source": "/cloud/agents-mcp",
+      "destination": "/use-cases/agents-mcp"
+    },
+    {
+      "source": "/cloud/services",
+      "destination": "/use-cases/services"
+    },
+    {
+      "source": "/cloud/get-started",
+      "destination": "/use-cases/get-started"
     }
   ]
 }

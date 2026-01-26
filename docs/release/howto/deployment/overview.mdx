@@ -26,6 +26,16 @@ Regardless of deployment mode, you get:
 - **[Data Interoperability](/sdk/latest/io):** Import/export Parquet, PyTorch, LanceDB, pandas.
 - **[Configurable Media Storage](/platform/configuration):** Per-column destination (local or cloud bucket).
 
+### Use Case Comparison
+
+| Capability | [ML Data Wrangling](/use-cases/ml-data-wrangling) | [AI Applications](/use-cases/ai-applications) |
+|------------|-------------------|-----------------|
+| **Multimodal Types** | ✅ Video, Audio, Image, Document | ✅ Video, Audio, Image, Document |
+| **Computed Columns** | ✅ Enrichment & pre-annotation | ✅ Pipeline orchestration |
+| **Embedding Indexes** | ✅ Curation & similarity search | ✅ RAG & retrieval |
+| **Versioning** | ✅ Dataset snapshots | ✅ Data lineage |
+| **Data Sharing** | ✅ Publish datasets | ✅ Team collaboration |
+
 ---
 
 ## Deployment Strategies
@@ -226,6 +236,9 @@ async def get_document(doc_id: int):
   </Card>
   <Card title="Production Operations" icon="gears" href="/howto/deployment/operations">
     Concurrency, error handling, and schema evolution
+  </Card>
+  <Card title="Security & Backup" icon="shield" href="/howto/deployment/security">
+    Backup strategies and security best practices
   </Card>
 </CardGroup>
 
