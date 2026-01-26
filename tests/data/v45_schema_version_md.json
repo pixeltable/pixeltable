@@ -1,0 +1,63 @@
+{
+    "0": {
+        "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+        "columns": {
+            "0": {
+                "pos": 0,
+                "name": "c1",
+                "media_validation": null
+            },
+            "1": {
+                "pos": 1,
+                "name": "c2",
+                "media_validation": null
+            }
+        },
+        "comment": "",
+        "additional_md": {
+        },
+        "schema_version": 0,
+        "media_validation": "on_write",
+        "num_retained_versions": 10,
+        "preceding_schema_version": null
+    },
+    "2": {
+        "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+        "columns": {
+            "0": {
+                "pos": 0,
+                "name": "c1",
+                "media_validation": null
+            }
+        },
+        "comment": "",
+        "additional_md": {
+        },
+        "schema_version": 2,
+        "media_validation": "on_write",
+        "num_retained_versions": 10,
+        "preceding_schema_version": 0
+    },
+    "3": {
+        "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+        "columns": {
+            "0": {
+                "pos": 0,
+                "name": "c1",
+                "media_validation": null
+            },
+            "6": {
+                "pos": 1,
+                "name": "c3",
+                "media_validation": null
+            }
+        },
+        "comment": "",
+        "additional_md": {
+        },
+        "schema_version": 3,
+        "media_validation": "on_write",
+        "num_retained_versions": 10,
+        "preceding_schema_version": 2
+    }
+}

@@ -1,4 +1,5 @@
 import glob
+import json
 import logging
 import os
 import platform
@@ -20,7 +21,8 @@ from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
 from pixeltable.func.signature import Batch
 from pixeltable.metadata import VERSION, SystemInfo
-from pixeltable.metadata.converters.util import convert_table_md
+from pixeltable.metadata.converters.convert_45 import _convert_table_and_versions
+from pixeltable.metadata.converters.util import convert_table_md, convert_table_schema_version_md
 from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
 
@@ -103,7 +105,7 @@ class TestMigration:
             # `test_udf_stored_batched` in the DB artifact metadata with a non-pickled variant.
             # TODO: Remove this workaround once we implement a better solution for dealing with legacy pickled UDFs.
             with orm.Session(env.engine) as session:
-                convert_table_md(env.engine, substitution_fn=self.__replace_pickled_udfs)
+                convert_table_schema_version_md(env.engine, schema_column_updater=self.__replace_pickled_udfs)
 
             reload_catalog()
 
@@ -124,15 +126,15 @@ class TestMigration:
                 self._run_v30_tests()
             if old_version >= 33:
                 self._verify_v33()
-            # self._verify_v24(old_version)
+            if old_version >= 45:
+                self._verify_v45()
 
             pxt.drop_table('sample_table', force=True)
 
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, (
             f'No DB dump found for current schema version {VERSION}. You can generate one with:\n'
-            f'`python tool/create_test_db_dump.py`\n'
-            f'`mv target/*.dump.gz target/*.toml tests/data/dbdumps`'
+            f'`python tool/create_test_db_dump.py && mv target/*.dump.gz target/*.toml tests/data/dbdumps`'
         )
         assert VERSION in VERSION_NOTES, (
             f'No version notes found for current schema version {VERSION}. '
@@ -272,21 +274,21 @@ class TestMigration:
         return None
 
     @staticmethod
-    def __replace_pickled_udfs(k: str | None, v: Any) -> tuple[str | None, Any] | None:
+    def __replace_pickled_udfs(column_md: dict) -> None:
         # The following set of conditions uniquely identifies FunctionCall instances in the artifacts whose function
         # is `test_udf_stored_batched`. See comment above re: pickled UDFs in Python 3.10.
         # TODO: Remove this method once we implement a better solution for dealing with legacy pickled UDFs.
-        if (
-            isinstance(v, dict)
-            and v.get('_classname') == 'FunctionCall'
-            and 'id' in v['fn']
-            and len(v['kwarg_idxs']) == 1
-        ):
-            del v['fn']['id']
-            v['fn']['path'] = replacement_batched_udf.self_path
-            v['fn']['signature'] = replacement_batched_udf.signature.as_dict()
-
-        return k, v
+        try:
+            if (
+                column_md['value_expr']['_classname'] == 'FunctionCall'
+                and 'id' in column_md['value_expr']['fn']
+                and len(column_md['value_expr']['kwarg_idxs']) == 1
+            ):
+                del column_md['value_expr']['fn']['id']
+                column_md['value_expr']['fn']['path'] = replacement_batched_udf.self_path
+                column_md['value_expr']['fn']['signature'] = replacement_batched_udf.signature.as_dict()
+        except TypeError:
+            return
 
     @classmethod
     def _run_v30_tests(cls) -> None:
@@ -311,10 +313,35 @@ class TestMigration:
     @classmethod
     def _verify_v33(cls) -> None:
         with Env.get().engine.begin() as conn:
+            for row in conn.execute(sql.select(TableSchemaVersion.md)):
+                for column_md in row[0]['columns'].values():
+                    assert column_md['is_pk'] is not None
+
+    @classmethod
+    def _verify_v45(cls) -> None:
+        unexpected_table_md_col_keys = {'col_type', 'is_pk', 'value_expr', 'destination'}
+        required_table_schema_version_col_keys = {'col_type', 'is_pk'}
+        with Env.get().engine.begin() as conn:
             for row in conn.execute(sql.select(Table.md)):
-                table_md = row[0]
-                for col_md in table_md['column_md'].values():
-                    assert col_md['is_pk'] is not None
+                column_mds = row[0]['column_md']
+                for column_md in column_mds.values():
+                    assert not unexpected_table_md_col_keys & column_md.keys(), column_md
+            for row in conn.execute(sql.select(TableSchemaVersion.md)):
+                for column_md in row[0]['columns'].values():
+                    assert not required_table_schema_version_col_keys - column_md.keys(), column_md
+
+    def test_convert_45(self) -> None:
+        with open('tests/data/v45_table_md.json', 'r', encoding='utf-8') as f:
+            table_md = json.load(f)
+        with open('tests/data/v46_table_md.json', 'r', encoding='utf-8') as f:
+            table_md_expected = json.load(f)
+        with open('tests/data/v45_schema_version_md.json', 'r', encoding='utf-8') as f:
+            schema_version_md = {int(k): v for k, v in json.load(f).items()}
+        with open('tests/data/v46_schema_version_md.json', 'r', encoding='utf-8') as f:
+            schema_version_md_expected = {int(k): v for k, v in json.load(f).items()}
+        _convert_table_and_versions(table_md, schema_version_md)
+        assert table_md == table_md_expected
+        assert schema_version_md == schema_version_md_expected
 
 
 @pxt.udf(batch_size=4)

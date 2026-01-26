@@ -116,19 +116,15 @@ class ColumnMd:
     id: int
     schema_version_add: int
     schema_version_drop: int | None
-    col_type: dict
-
-    # if True, is part of the primary key
-    is_pk: bool
-
-    # if set, this is a computed column
-    value_expr: dict | None
 
     # if True, the column is present in the stored table
     stored: bool | None
 
-    # If present, the URI for the destination for column values
-    destination: str | None = None
+    def is_live_in_version(self, schema_version: int) -> bool:
+        """Returns True if the column is live in the given schema version."""
+        return self.schema_version_add <= schema_version and (
+            self.schema_version_drop is None or self.schema_version_drop > schema_version
+        )
 
 
 @dataclasses.dataclass
@@ -326,12 +322,31 @@ class SchemaColumn:
     Records the versioned metadata of a column.
     """
 
-    pos: int
-    name: str
+    # pos and name must be set for user columns, and be None otherwise (e.g. for index columns)
+    pos: int | None
+    name: str | None
+
+    col_type: dict
+    # True if this column is part of the primary key
+    is_pk: bool
+    # Value expression of a computed column
+    value_expr: dict | None
 
     # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
-    # stores column.MediaValiation.name.lower()
+    # stores column.MediaValidation.name.lower()
     media_validation: str | None
+
+    # If present, the URI for the destination for column values
+    destination: str | None = None
+
+    def __post_init__(self) -> None:
+        assert (self.pos is None) == (self.name is None), (
+            f'Invalid SchemaColumn: pos and name must both be set or both unset: {self.pos}, {self.name}'
+        )
+
+    def is_system_column(self) -> bool:
+        """Returns True if this is a system column (i.e. not user-visible), such as an index value column."""
+        return self.name is None
 
 
 @dataclasses.dataclass
@@ -343,12 +358,13 @@ class SchemaVersionMd:
     tbl_id: str  # uuid.UUID
     schema_version: int
     preceding_schema_version: int | None
+    # User and system columns visible in this schema version
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
     num_retained_versions: int
     comment: str
 
     # default validation strategy for any media column of this table
-    # stores column.MediaValiation.name.lower()
+    # stores column.MediaValidation.name.lower()
     media_validation: str
     additional_md: dict[str, Any]  # deprecated
 
@@ -361,7 +377,7 @@ class TableSchemaVersion(Base):
         UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
     )
     schema_version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
-    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # SchemaVersionMd
     additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
