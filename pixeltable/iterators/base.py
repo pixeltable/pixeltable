@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Iterator
 
 from pixeltable.type_system import ColumnType
 
@@ -30,7 +30,7 @@ class ComponentIterator(ABC):
         """
         raise NotImplementedError
 
-    def __iter__(self) -> ComponentIterator:
+    def __iter__(self) -> Iterator[dict[str, Any]]:
         return self
 
     @abstractmethod

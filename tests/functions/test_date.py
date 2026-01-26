@@ -36,7 +36,7 @@ class TestDate:
         validate_update_status(t.insert({'dt': dt} for dt in test_dts), expected_rows=len(test_dts))
         return test_dts, t
 
-    def test_date_methods(self, reset_db: None) -> None:
+    def test_date_methods(self, uses_db: None) -> None:
         # Set a default time zone that's likely to be different from the system time zone of most test environments
         default_tz = ZoneInfo('America/Anchorage')
         Env.get().default_time_zone = default_tz
@@ -45,7 +45,7 @@ class TestDate:
         test_dts, t = self.make_test_table()
 
         test_params: list[tuple[pxt.Function, Callable, list, dict]] = [
-            # (pxt_fn, str_fn, args, **kwargs)
+            # (pxt_fn, py_fn, args, **kwargs)
             # (date, lambda dt: datetime(dt.year, dt.month, dt.day), [], {}),
             # (time, lambda dt: datetime(1, 1, 1, dt.hour, dt.minute, dt.second, dt.microsecond), [], {}),
             (year, date.year.__get__, [], {}),
@@ -93,7 +93,7 @@ class TestDate:
             else:
                 raise AssertionError()
 
-    def test_date_make(self, reset_db: None) -> None:
+    def test_date_make(self, uses_db: None) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
         test_dts, t = self.make_test_table()
 
@@ -105,7 +105,7 @@ class TestDate:
 
         assert res['out'] == test_dts
 
-    def test_date_arith(self, reset_db: None) -> None:
+    def test_date_arith(self, uses_db: None) -> None:
         _, t = self.make_test_table()
 
         with pytest.raises(pxt.Error, match='requires numeric types'):

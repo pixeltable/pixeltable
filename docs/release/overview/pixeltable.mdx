@@ -1,16 +1,41 @@
 ---
-title: 'Introduction'
-description: 'Pixeltable unifies storage and orchestration for multimodal AI applications, providing a declarative interface for incremental transforms, indexing, and orchestration.'
+title: 'What is Pixeltable?'
+description: 'Data Infrastructure providing a declarative, incremental approach for multimodal AI'
 ---
 
-## Key Capabilities
+**The only open source Python library providing declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.**
+
+With Pixeltable, you define your entire data processing and AI workflow declaratively using computed columns on tables. Focus on your application logic, not the data plumbing.
+
+{/* <PipelineDiagram /> */}
+
+## Before Pixeltable
+
+AI teams are building on images, video, audio, and text, but the infrastructure is broken:
+
+<CardGroup cols={2}>
+  <Card title="Fragmented Data" icon="layer-group" iconType="duotone">
+    Data lives across object stores, vector DBs, SQL, and ad-hoc pipelines. No single source of truth.
+  </Card>
+  <Card title="Costly Iteration" icon="screwdriver-wrench" iconType="duotone">
+    Every model change requires reprocessing. Pipelines are brittle and hard to reproduce.
+  </Card>
+</CardGroup>
+
+This creates high engineering cost, slow iteration, and production risk.
+
+<Tip>
+**Pixeltable solves this.** One system for storage, orchestration, and retrieval. Transactions, incremental updates, and automatic dependency tracking built in.
+</Tip>
+
+## With Pixeltable
 
 <CardGroup cols={2}>
   <Card title="Persistent Storage" icon="database" iconType="duotone">
     All data and computed results are automatically stored and versioned.
   </Card>
   <Card title="Incremental Updates" icon="arrows-rotate" iconType="duotone">
-    Data transformations run automatically on new data—no orchestration code needed.
+    Data transformations run automatically on new data. No orchestration code needed.
   </Card>
   <Card title="Multimodal-Native" icon="photo-film" iconType="duotone">
     Images, video, audio, and documents integrate seamlessly with structured data.
@@ -43,61 +68,248 @@ Many documentation pages are interactive notebooks (marked with <Icon icon="note
 
 ## Core Primitives
 
-Pixeltable provides a small set of primitives that compose into any multimodal AI workflow, including but not limited to:
+Pixeltable provides a small set of primitives that compose into any multimodal AI workflow:
 
-| Primitive | What It Enables |
-|-----------|-----------------|
-| [`pxt.create_table()`](/tutorials/tables-and-data-operations) with [`pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`](/platform/type-system) | Store any multimodal data natively |
-| [`pxt.create_view()`](/platform/views) with [iterators](/platform/iterators) | Extract frames from video, chunk documents, split audio |
-| [`add_computed_column()`](/tutorials/computed-columns) | Run any AI model or transformation—incrementally |
-| [`add_embedding_index()`](/platform/embedding-indexes) | Semantic search on any column |
-| [`@pxt.udf` / `@pxt.query`](/platform/udfs-in-pixeltable) | Extend with your own Python code |
-| [`select()`, `where()`, `order_by()`](/tutorials/queries-and-expressions) | SQL-like querying with Python syntax |
-| [`history()`, `revert()`](/platform/version-control) | Time travel and version control |
-| [`pxt.replicate()`, `pxt.publish()`](/platform/data-sharing) | Share and replicate datasets via Pixeltable Cloud |
-
-These primitives are use-case agnostic by design. We don't build vertical solutions—we build the infrastructure that makes vertical solutions trivial to build.
-
-## What can you build?
+<AccordionGroup>
+  <Accordion title="Store" icon="database">
+    **Create tables with native multimodal types**
+    
+    ```python
+    t = pxt.create_table('myapp.media', {
+        'video': pxt.Video,
+        'image': pxt.Image,
+        'audio': pxt.Audio,
+        'document': pxt.Document,
+        'metadata': pxt.Json
+    })
+    ```
+    
+    <CardGroup cols={2}>
+      <Card title="Tables & Data" icon="table" href="/tutorials/tables-and-data-operations">
+        Create, insert, update, delete
+      </Card>
+      <Card title="Type System" icon="shapes" href="/platform/type-system">
+        All supported types
+      </Card>
+    </CardGroup>
+  </Accordion>
+  
+  <Accordion title="Orchestrate" icon="wand-magic-sparkles">
+    **Declarative computed columns: API calls, LLM inference, local models, vision**
+    
+    ```python
+    # LLM API call
+    t.add_computed_column(summary=openai.chat_completions(
+        messages=[{'role': 'user', 'content': 'Summarize: ' + t.text}]
+    ))
+    
+    # Local model inference
+    t.add_computed_column(objects=yolox(t.image, model_id='yolox_s'))
+    
+    # Vision analysis
+    t.add_computed_column(desc=openai.vision(prompt="Describe", image=t.image))
+    ```
+    
+    <CardGroup cols={2}>
+      <Card title="Computed Columns" icon="bolt" href="/tutorials/computed-columns">
+        Incremental transforms
+      </Card>
+      <Card title="AI Integrations" icon="microchip-ai" href="/integrations/frameworks">
+        OpenAI, Anthropic, Gemini, HuggingFace...
+      </Card>
+    </CardGroup>
+  </Accordion>
+  
+  <Accordion title="Iterate" icon="scissors">
+    **Explode rows: video→frames, doc→chunks, audio→segments**
+    
+    ```python
+    # Extract frames from video at 1 fps
+    frames = pxt.create_view('myapp.frames', t, iterator=FrameIterator(t.video, fps=1))
+    
+    # Chunk documents for RAG
+    chunks = pxt.create_view('myapp.chunks', t, iterator=DocumentSplitter(t.document))
+    ```
+    
+    <CardGroup cols={2}>
+      <Card title="Views" icon="layer-group" href="/platform/views">
+        Virtual tables
+      </Card>
+      <Card title="Iterators" icon="arrows-split-up-and-left" href="/platform/iterators">
+        Frame, Document, Audio splitters
+      </Card>
+    </CardGroup>
+  </Accordion>
+  
+  <Accordion title="Index" icon="magnifying-glass">
+    **Add embedding indexes for semantic search**
+    
+    ```python
+    t.add_embedding_index('text', embedding=openai.embeddings())
+    
+    # Search by similarity
+    results = t.order_by(t.text.similarity('find relevant docs'), asc=False).limit(10)
+    ```
+    
+    <Card title="Embedding Indexes" icon="vector-square" href="/platform/embedding-indexes">
+      Vector search with automatic maintenance
+    </Card>
+  </Accordion>
+  
+  <Accordion title="Extend" icon="puzzle-piece">
+    **Write custom functions with `@pxt.udf` and `@pxt.query`**
+    
+    ```python
+    @pxt.udf
+    def extract_entities(text: str) -> list[str]:
+        # Your custom logic
+        return entities
+    
+    @pxt.query
+    def search_by_topic(topic: str):
+        return t.where(t.category == topic).select(t.title, t.summary)
+    ```
+    
+    <Card title="UDFs & Queries" icon="code" href="/platform/udfs-in-pixeltable">
+      Custom Python functions
+    </Card>
+  </Accordion>
+  
+  <Accordion title="Agents & Tools" icon="robot">
+    **Tool calling for AI agents and MCP integration**
+    
+    ```python
+    # Load tools from MCP server, UDFs, and queries
+    mcp_tools = pxt.mcp_udfs('http://localhost:8000/mcp')
+    tools = pxt.tools(search_by_topic, extract_entities, *mcp_tools)
+    
+    # LLM decides which tool to call; Pixeltable executes it
+    t.add_computed_column(response=openai.chat_completions(
+        messages=[{'role': 'user', 'content': t.question}],
+        tools=tools
+    ))
+    t.add_computed_column(result=openai.invoke_tools(tools, t.response))
+    ```
+    
+    <CardGroup cols={2}>
+      <Card title="Tool Calling" icon="wrench" href="/howto/cookbooks/agents/llm-tool-calling">
+        Build agents with tools
+      </Card>
+      <Card title="Agents & MCP" icon="plug" href="/use-cases/agents-mcp">
+        MCP servers, memory, Pixelbot
+      </Card>
+    </CardGroup>
+  </Accordion>
+  
+  <Accordion title="Query & Experiment" icon="flask">
+    **SQL-like queries + test transformations before committing**
+    
+    ```python
+    # Query data with familiar syntax
+    results = t.where(t.score > 0.8).order_by(t.timestamp).limit(10).collect()
+    
+    # Test transformations on sample rows BEFORE adding to table
+    t.select(t.text, summary=summarize(t.text)).head(3)  # Nothing stored yet
+    t.add_computed_column(summary=summarize(t.text))      # Now commit to all rows
+    ```
+    
+    <CardGroup cols={2}>
+      <Card title="Queries & Expressions" icon="terminal" href="/tutorials/queries-and-expressions">
+        Select, filter, aggregate
+      </Card>
+      <Card title="Iterative Development" icon="rotate" href="/howto/deployment/operations#testing-transformations-before-deployment">
+        Test before commit
+      </Card>
+    </CardGroup>
+  </Accordion>
+  
+  <Accordion title="Version" icon="clock-rotate-left">
+    **Time travel and automatic versioning**
+    
+    ```python
+    t.history()                    # View all versions
+    t.revert(version=5)            # Rollback changes
+    old_data = pxt.get_table('myapp.media:3')  # Query past version
+    ```
+    
+    <Card title="Version Control" icon="code-branch" href="/platform/version-control">
+      History, snapshots, lineage
+    </Card>
+  </Accordion>
+  
+  <Accordion title="Import/Export" icon="arrow-right-arrow-left">
+    **Load from any source, export to ML formats**
+    
+    ```python
+    # Import from files, URLs, S3, Hugging Face
+    t.insert(pxt.io.import_csv('data.csv'))
+    t.insert(pxt.io.import_huggingface_dataset(dataset))
+    
+    # Export to ML/analytics formats
+    pxt.io.export_parquet(t, 'output.parquet')
+    loader = DataLoader(t.to_pytorch_dataset(), batch_size=32)
+    coco_path = t.to_coco_dataset()
+    ```
 
 <CardGroup cols={2}>
-  <Card title="Declarative Pipelines" icon="code" iconType="duotone">
-    Replace complex orchestration with simple computed columns. Define transformations once—they run automatically on all data.
+      <Card title="Data Import" icon="download" href="/howto/cookbooks/data/data-import-csv">
+        CSV, JSON, Parquet, S3, HF
+      </Card>
+      <Card title="Data Export" icon="upload" href="/howto/cookbooks/data/data-export-pytorch">
+        PyTorch, Parquet, COCO, LanceDB
   </Card>
-  <Card title="Multimodal Workloads" icon="photo-film" iconType="duotone">
-    Production RAG with automatic embedding indexing. Find relevant scenes in video. Semantic search across text, images, and audio.
+    </CardGroup>
+  </Accordion>
+  
+  <Accordion title="Share" icon="cloud-arrow-up">
+    **Publish and replicate datasets via Pixeltable Cloud**
+    
+    ```python
+    pxt.publish(t, 'my-dataset')              # Share publicly
+    pxt.replicate('user/dataset', 'local')   # Pull to local
+    ```
+    
+    <Card title="Data Sharing" icon="share-nodes" href="/platform/data-sharing">
+      Publish, replicate, collaborate
   </Card>
-  <Card title="Version Control and Lineage" icon="code-branch" iconType="duotone">
-    Automatic versioning on every change. Time travel queries to any point. Full data lineage for reproducibility.
+  </Accordion>
+</AccordionGroup>
+
+## Use Cases
+
+Pixeltable's primitives are **use-case agnostic**. They compose into any multimodal AI workflow:
+
+<CardGroup cols={2}>
+  <Card title="Data Wrangling for ML" icon="flask" href="/use-cases/ml-data-wrangling">
+    Curate, augment, export training datasets. Pre-annotate with models, integrate Label Studio, export PyTorch.
   </Card>
-  <Card title="AI Agents & MCP" icon="robot" iconType="duotone">
-    Build tool-calling agents with persistent memory, MCP server integration, and automatic conversation history.
-  </Card>
-  <Card title="ML Feature Engineering" icon="download" iconType="duotone">
-    Curate, augment, and export data to PyTorch, Parquet, COCO format, LanceDB, and pandas for training and analytics.
+  <Card title="Backend for AI Apps" icon="microchip-ai" href="/use-cases/ai-applications">
+    Build RAG systems, semantic search, and multimodal APIs. Pixeltable handles storage, retrieval, and orchestration.
   </Card>
 </CardGroup>
 
-### Explore by use case
+<Card title="Agents & MCP" icon="robot" href="/use-cases/agents-mcp">
+  Tool-calling agents with persistent memory, MCP server integration, and automatic conversation history.
+</Card>
 
-<Tabs>
-  <Tab title="AI & LLMs">
-    - [RAG Pipeline](/howto/cookbooks/agents/pattern-rag-pipeline) — Document retrieval & generation
-    - [Vision Analysis](/howto/cookbooks/images/vision-batch-analysis) — GPT-4 Vision on images
-    - [Audio Transcription](/howto/cookbooks/audio/audio-transcribe) — Speech-to-text with Whisper
-    - [Document Chunking](/howto/cookbooks/text/doc-chunk-for-rag) — Split docs for RAG
-  </Tab>
-  <Tab title="Media Processing">
-    - [Video Analysis](/howto/use-cases/object-detection-in-videos) — Object detection in video
-    - [Semantic Search](/howto/cookbooks/search/search-similar-images) — Find similar images/text
-    - [Image Processing](/howto/cookbooks/images/img-detect-objects) — Object detection
-  </Tab>
-  <Tab title="Data Management">
-    - [Data Import](/howto/cookbooks/data/data-import-csv) — CSV, JSON, Parquet, S3
-    - [PyTorch Export](/howto/cookbooks/data/data-export-pytorch) — DataLoader integration
-    - [Version Control](/platform/version-control) — Time travel & lineage
-  </Tab>
-</Tabs>
+<Tip>
+Start with the **[Quick Start](/overview/quick-start)** to get running in 5 minutes, or explore **[Cookbooks](/howto/cookbooks/agents/pattern-rag-pipeline)** for hands-on examples covering RAG, video analysis, audio transcription, and more.
+</Tip>
+
+## Choose How You Run Pixeltable
+
+<CardGroup cols={2}>
+  <Card title="Pixeltable OSS" icon="python" iconType="duotone" href="/overview/quick-start">
+    Open-source Python library. Install with `pip install pixeltable` and run locally. Same APIs scale to production.
+  </Card>
+  <Card title="Pixeltable Cloud" icon="cloud" iconType="duotone" href="/use-cases/services">
+    Data sharing available now. Managed endpoints and live tables coming soon.
+  </Card>
+</CardGroup>
+
+<Card title="Book a Demo" icon="calendar" iconType="duotone" href="https://calendar.google.com/calendar/u/0/appointments/schedules/AcZssZ0BSvx8SRh7HoLdgvGeYUuhdyaifN42nhieCJESo3B1Hmy_buqteAagnSwADXG1lhKFUg3_VTZM">
+  Schedule a call to discuss your use case and see how Pixeltable can help.
+</Card>
 
 ## Next steps
 
