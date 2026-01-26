@@ -34,7 +34,6 @@
               "platform/udfs-in-pixeltable",
               "platform/iterators",
               "platform/embedding-indexes",
-              "platform/blob-storage",
               "platform/version-control",
               "platform/external-files",
               "platform/data-sharing"
@@ -166,6 +165,7 @@
                       "howto/cookbooks/data/data-import-excel",
                       "howto/cookbooks/data/data-import-huggingface",
                       "howto/cookbooks/data/data-import-s3",
+                      "howto/cookbooks/data/data-export-s3",
                       "howto/cookbooks/data/data-export-pytorch",
                       "howto/cookbooks/data/data-export-sql",
                       "howto/cookbooks/data/data-sampling"
