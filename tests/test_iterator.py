@@ -15,7 +15,7 @@ def simple_iterator(x: int, str_text: str = 'string') -> Iterator[MyRow]:
         yield MyRow(icol=i, scol=f'{str_text} {i}')
 
 
-@simple_iterator.validator
+@simple_iterator.validate
 def _(bound_args: dict[str, Any]) -> bool:
     if 'x' in bound_args and bound_args['x'] < 0:
         raise pxt.Error('Parameter `x` must be non-negative.')

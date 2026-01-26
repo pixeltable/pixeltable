@@ -18,14 +18,14 @@ class PxtIterator:
 
     _default_output_schema: dict[str, ts.ColumnType] | None
     _conditional_output_schema: Callable[..., dict[str, type]] | None
-    _validator: Callable[[dict[str, Any]], bool] | None
+    _validate: Callable[[dict[str, Any]], bool] | None
 
     def __init__(self, decorated_callable: Callable, unstored_cols: list[str]) -> None:
         self.decorated_callable = decorated_callable
         self.signature = Signature.create(decorated_callable, return_type=ts.JsonType())
         self._default_output_schema = self._infer_output_schema(decorated_callable)
         self._conditional_output_schema = None
-        self._validator = None
+        self._validate = None
 
     def _infer_output_schema(self, decorated_callable: Callable) -> dict[str, ts.ColumnType] | None:
         if isinstance(decorated_callable, type):
@@ -106,8 +106,8 @@ class PxtIterator:
         literal_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in bound_args.items()}
 
         # Run custom iterator validation on whatever args are bound to literals at this stage
-        if self._validator is not None:
-            self._validator(literal_args)
+        if self._validate is not None:
+            self._validate(literal_args)
 
         output_schema = self.output_schema(**literal_args)
 
@@ -115,8 +115,8 @@ class PxtIterator:
 
     def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
         # Run custom iterator validation on fully bound args
-        if self._validator is not None:
-            self._validator(bound_args)
+        if self._validate is not None:
+            self._validate(bound_args)
         return self.decorated_callable(**bound_args)
 
     def _retrofit(iterator_cls: type[ComponentIterator], iterator_args: dict[str, Any]) -> 'PxtIterator':
@@ -129,9 +129,9 @@ class PxtIterator:
     def fqn(self) -> str:
         return f'{self.decorated_callable.__module__}.{self.decorated_callable.__qualname__}'
 
-    # Validator decorator
-    def validator(self, fn: Callable[[dict[str, Any]], bool]) -> Callable[[dict[str, Any]], bool]:
-        self._validator = fn
+    # Validate decorator
+    def validate(self, fn: Callable[[dict[str, Any]], bool]) -> Callable[[dict[str, Any]], bool]:
+        self._validate = fn
         return fn
 
 
