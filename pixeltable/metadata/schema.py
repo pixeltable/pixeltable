@@ -116,19 +116,9 @@ class ColumnMd:
     id: int
     schema_version_add: int
     schema_version_drop: int | None
-    col_type: dict
-
-    # if True, is part of the primary key
-    is_pk: bool
-
-    # if set, this is a computed column
-    value_expr: dict | None
 
     # if True, the column is present in the stored table
     stored: bool | None
-
-    # If present, the URI for the destination for column values
-    destination: str | None = None
 
 
 @dataclasses.dataclass
@@ -326,12 +316,22 @@ class SchemaColumn:
     Records the versioned metadata of a column.
     """
 
-    pos: int
+    # pos is set for user-visible columns, None otherwise
+    pos: int | None
     name: str
+
+    col_type: dict
+    # if True, is part of the primary key
+    is_pk: bool
+    # if set, this is a computed column
+    value_expr: dict | None
 
     # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
     # stores column.MediaValiation.name.lower()
     media_validation: str | None
+
+    # If present, the URI for the destination for column values
+    destination: str | None = None
 
 
 @dataclasses.dataclass
@@ -343,6 +343,7 @@ class SchemaVersionMd:
     tbl_id: str  # uuid.UUID
     schema_version: int
     preceding_schema_version: int | None
+    # not just user-visible columns
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
     num_retained_versions: int
     comment: str
@@ -361,7 +362,7 @@ class TableSchemaVersion(Base):
         UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
     )
     schema_version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
-    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # TableSchemaVersionMd
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # SchemaVersionMd
     additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 
