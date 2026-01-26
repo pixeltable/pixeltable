@@ -799,6 +799,8 @@ class Planner:
         # 2. if it's an iterator view, expand the base rows into component rows
         # 3. materialize stored view columns that haven't been produced by step 1
         base_output_exprs = exprs.ExprSet(
+            # not e.is_nondeterministic: we cannot evaluate calls to nondeterministic functions before the iterator
+            # expansion, otherwise we'll see invalid duplicates
             [e for e in row_builder.default_eval_ctx.exprs if e.is_bound_by([view.base]) and not e.is_nondeterministic]
         )
         view_output_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if e not in base_output_exprs]
