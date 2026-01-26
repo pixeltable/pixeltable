@@ -32,8 +32,8 @@ from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .column import Column
 from .globals import (
-    MAX_VALUE_EXPR_SIZE,
     _ROWID_COLUMN_NAME,
+    MAX_VALUE_EXPR_SIZE,
     IfExistsParam,
     IfNotExistsParam,
     MediaValidation,
@@ -506,11 +506,9 @@ class Table(SchemaObject):
                 Column specifications can include a `'default'` key for default values.
 
                 Default values:
-                - Only literal values are supported (expressions are not allowed).
-                - Columns with default values are treated as non-nullable.
-                - Columns with default values can only be added to empty tables.
-                - Default values apply to new rows inserted after the columns are added.
-                - Existing rows will have `None` for newly added columns with defaults.
+                - Supported for scalar types (String, Int, Float, Bool, Timestamp, Date, UUID),
+                  simple JSON, Array, and Binary.
+                - Not supported for media types (Image, Video, Audio, Document).
             if_exists: Determines the behavior if a column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -527,8 +525,7 @@ class Table(SchemaObject):
 
         Raises:
             Error: If any column name is invalid, or already exists and `if_exists='error'`,
-                or `if_exists='replace*'` but the column has dependents or is a basetable column,
-                or if attempting to add columns with default values to a non-empty table.
+                or `if_exists='replace*'` but the column has dependents or is a basetable column.
 
         Examples:
             Add multiple columns to the table `my_table`:
@@ -558,9 +555,16 @@ class Table(SchemaObject):
             for col_name, spec in schema.items():
                 if isinstance(spec, dict):
                     col_schema[col_name] = spec.copy()
+                    # Normalize type if present in dict spec
+                    if 'type' in col_schema[col_name]:
+                        col_schema[col_name]['type'] = ts.ColumnType.normalize_type(
+                            col_schema[col_name]['type'], nullable_default=True, allow_builtin_types=False
+                        )
                 else:
-                    # Simple type format: convert to dict
-                    col_schema[col_name] = {'type': spec}
+                    # Simple type format: convert to dict and normalize type
+                    col_schema[col_name] = {
+                        'type': ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
+                    }
 
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
@@ -596,10 +600,9 @@ class Table(SchemaObject):
                 `col_name={'type': col_type, 'default': default_value}`.
 
                 Default values:
-                - Only literal values are supported (expressions are not allowed).
-                - Columns with default values are treated as non-nullable.
-                - Columns with default values can only be added to empty tables.
-                - Default values apply to new rows inserted after the column is added.
+                - Supported for scalar types (String, Int, Float, Bool, Timestamp, Date, UUID),
+                  simple JSON, Array, and Binary.
+                - Not supported for media types (Image, Video, Audio, Document).
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -611,9 +614,8 @@ class Table(SchemaObject):
             Information about the execution status of the operation.
 
         Raises:
-            Error: If the column name is invalid, or already exists and `if_exists='erorr'`,
-                or `if_exists='replace*'` but the column has dependents or is a basetable column,
-                or if attempting to add a column with a default value to a non-empty table.
+            Error: If the column name is invalid, or already exists and `if_exists='error'`,
+                or `if_exists='replace*'` but the column has dependents or is a basetable column.
 
         Examples:
             Add an int column:
@@ -776,9 +778,9 @@ class Table(SchemaObject):
             default_expr = exprs.Expr.from_object(spec['default'])
             if default_expr is None:
                 raise excs.Error(f"Column {name!r}: 'default' must be a Pixeltable expression or a constant value.")
-            # Only literal defaults are supported
+            # Only constant defaults are supported
             if not isinstance(default_expr, exprs.Literal):
-                raise excs.Error(f'Column {name!r}: Only literal defaults are supported.')
+                raise excs.Error(f'Column {name!r}: Default values must be constants.')
             if 'value' in spec:
                 raise excs.Error(
                     f"Column {name!r}: 'default' cannot be specified for computed columns (columns with 'value')"
@@ -795,64 +797,43 @@ class Table(SchemaObject):
             raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
 
     @classmethod
-    def _validate_json_value_expr(cls, value_expr: exprs.Expr, name: str, max_size: int) -> None:
-        """
-        Validate that a value_expr (for defaults or computed columns) is valid for storage in metadata.
-        
-        For JSON types, ensures the value only contains scalar JSON types (String, Int, Float, Bool)
-        and no custom Pixeltable types (UUID, Timestamp, Date, etc.).
-        Then checks the serialized size.
-        
-        Args:
-            value_expr: The expression to validate
-            name: Column name for error messages
-            max_size: Maximum allowed serialized size in bytes
-        """
+    def _validate_json_default_value_expr(cls, value_expr: exprs.Expr, name: str, max_size: int) -> None:
+        """Validate that a default value expression is valid for storage in metadata."""
         import json
-        
-        # For JSON types, validate that values are scalar JSON types only
+
         if value_expr.col_type.is_json_type():
             json_val = value_expr.val
-            
+
             def _is_scalar_json_value(element: Any) -> bool:
-                """Check if a value is a scalar JSON type (String, Int, Float, Bool) or nested structure of them."""
                 if element is None:
-                    return True  # None is valid in JSON
+                    return True
                 if isinstance(element, (str, int, float, bool)):
-                    # These are scalar JSON types
                     return True
                 if isinstance(element, list):
                     return all(_is_scalar_json_value(v) for v in element)
                 if isinstance(element, dict):
                     return all(isinstance(k, str) and _is_scalar_json_value(v) for k, v in element.items())
-                # Reject custom Pixeltable types (UUID, datetime, etc.) and other non-JSON types
                 return False
-            
+
             if not _is_scalar_json_value(json_val):
                 raise excs.Error(
                     f'Column {name!r}: JSON default values can only contain scalar JSON types '
                     f'(strings, numbers, booleans, lists, dicts). Custom Pixeltable types like UUID, '
                     f'Timestamp, and Date are not allowed in JSON defaults.'
                 )
-        
-        # Check serialized size
+
         try:
             value_expr_dict = value_expr.as_dict()
             serialized_size = len(json.dumps(value_expr_dict))
             if serialized_size > max_size:
-                is_default = isinstance(value_expr, exprs.Literal)
                 raise excs.Error(
-                    f'Column {name!r}: {"Default value" if is_default else "Computed column expression"} '
-                    f'is too large ({serialized_size} bytes). Maximum size is {max_size} bytes. '
-                    f'Consider using a smaller value or a computed column instead.'
+                    f'Column {name!r}: Default value is too large ({serialized_size} bytes). '
+                    f'Maximum size is {max_size} bytes.'
                 )
         except (TypeError, ValueError) as e:
-            # If serialization fails, that's also a problem
-            is_default = isinstance(value_expr, exprs.Literal)
             raise excs.Error(
-                f'Column {name!r}: {"Default value" if is_default else "Computed column expression"} '
-                f'cannot be serialized for storage in metadata: {e}'
-            )
+                f'Column {name!r}: Default value cannot be serialized for storage in metadata: {e}'
+            ) from e
 
     @classmethod
     def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
@@ -861,7 +842,7 @@ class Table(SchemaObject):
         for name, spec in schema.items():
             col_type: ts.ColumnType | None = None
             value_expr: exprs.Expr | None = None
-            is_computed_column: bool = True
+            is_computed_column: bool = False  # Default to False, set to True only for computed columns
             primary_key: bool = False
             media_validation: catalog.MediaValidation | None = None
             stored = True
@@ -889,9 +870,7 @@ class Table(SchemaObject):
                         # create copy so we can modify it
                         value_expr = value_expr.copy()
                         value_expr.bind_rel_paths()
-                        
-                        # Validate JSON content and check serialized size
-                        cls._validate_json_value_expr(value_expr, name, MAX_VALUE_EXPR_SIZE)
+
                     is_computed_column = True
                 elif 'default' in spec:
                     # Column with default value
@@ -906,9 +885,9 @@ class Table(SchemaObject):
                         value_expr = value_expr.copy()
                         value_expr.bind_rel_paths()
 
-                        # Only literal defaults are supported - expressions are not allowed
+                        # Only constant defaults are supported - expressions are not allowed
                         if not isinstance(value_expr, exprs.Literal):
-                            raise excs.Error(f'Column {name!r}: Only literal defaults are supported.')
+                            raise excs.Error(f'Column {name!r}: Default values must be constants.')
 
                         # Default values are only supported for types that Literal can represent:
                         # scalar types (String, Int, Float, Bool, Timestamp, Date, UUID),
@@ -930,7 +909,8 @@ class Table(SchemaObject):
                             ):
                                 raise excs.Error(
                                     f'Column {name!r}: Default values are only supported for scalar types '
-                                    f'(String, Int, Float, Bool, Timestamp, Date, UUID), simple JSON, Array, and Binary.'
+                                    f'(String, Int, Float, Bool, Timestamp, Date, UUID), simple JSON, '
+                                    f'Array, and Binary.'
                                 )
                             # Ensure the default value's type is compatible with the column type
                             # Check compatibility ignoring nullability since we'll make the column non-nullable
@@ -943,8 +923,7 @@ class Table(SchemaObject):
                                     f'with column type {col_type}.'
                                 )
                             
-                            # Validate JSON content and check serialized size
-                            cls._validate_json_value_expr(value_expr, name, MAX_VALUE_EXPR_SIZE)
+                            cls._validate_json_default_value_expr(value_expr, name, MAX_VALUE_EXPR_SIZE)
 
                         # Columns with defaults should be non-nullable
                         # Make a copy of col_type with nullable=False

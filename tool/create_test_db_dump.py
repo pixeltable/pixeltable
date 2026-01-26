@@ -12,13 +12,25 @@ from zoneinfo import ZoneInfo
 import pixeltable_pgserver
 import toml
 
+import numpy as np
+
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import metadata
 from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
-from pixeltable.type_system import BoolType, FloatType, ImageType, IntType, JsonType, StringType, TimestampType
+from pixeltable.type_system import (
+    ArrayType,
+    BinaryType,
+    BoolType,
+    FloatType,
+    ImageType,
+    IntType,
+    JsonType,
+    StringType,
+    TimestampType,
+)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -137,12 +149,28 @@ class Dumper:
         ]
 
         self.__add_expr_columns(t, 'base_table')
+
+        # Add columns with default values to base_table
+        t.add_columns({
+            'd_str': {'type': StringType(), 'default': 'default string'},
+            'd_int': {'type': IntType(), 'default': 42},
+            'd_float': {'type': FloatType(), 'default': 3.14},
+            'd_bool': {'type': BoolType(), 'default': True},
+            'd_array': {'type': ArrayType((3,), dtype=IntType()), 'default': np.array([1, 2, 3], dtype=np.int64)},
+            'd_binary': {'type': BinaryType(), 'default': b'default binary'},
+            'd_json': {'type': JsonType(), 'default': {'key': 'value', 'num': 123}},
+        })
+
         t.insert(rows)
 
         pxt.create_dir('views')
 
         # simple view
-        v = pxt.create_view('views.view', t.where(t.c2 < 50))
+        v = pxt.create_view(
+            'views.view',
+            t.where(t.c2 < 50),
+            additional_columns={'view_default_int': {'type': IntType(), 'default': 100}},
+        )
         self.__add_expr_columns(v, 'view')
 
         # snapshot
@@ -246,7 +274,7 @@ class Dumper:
         add_computed_column('inline_dict', {'int': 22, 'dict': {'key': 'val'}, 'expr': t.c1})
 
         # is_null
-        add_computed_column('isnull', t.c1 == None)
+        add_computed_column('isnull', t.c1 == None)  # noqa: E711
 
         # json_mapper and json_path
         add_computed_column('json_mapper', t.c6[3])

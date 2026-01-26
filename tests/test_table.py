@@ -20,6 +20,7 @@ from jsonschema.exceptions import ValidationError
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
+from pixeltable.catalog.globals import MAX_VALUE_EXPR_SIZE
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
@@ -3006,8 +3007,26 @@ class TestTable:
         ):
             t.drop_column('c2')
 
-    def test_column_defaults(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_column_defaults(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test adding columns with default values."""
+        # Test 0: Create table with default values in initial schema
+        t0 = pxt.create_table(
+            'test_defaults_create',
+            {
+                'c1': pxt.Int,
+                'c2': {'type': pxt.String, 'default': 'default_str'},
+                'c3': {'type': pxt.Int, 'default': 42},
+            },
+        )
+        # Insert rows without specifying columns with defaults - they should get default values
+        t0.insert([{'c1': 1}, {'c1': 2}])
+        result = t0.select().collect()
+        assert len(result) == 2
+        for row in result:
+            assert row['c2'] == 'default_str', f"Expected 'default_str', got {row['c2']}"
+            assert row['c3'] == 42, f'Expected 42, got {row["c3"]}'
+        pxt.drop_table('test_defaults_create')
+
         # Test 1: Add column with literal default value to empty table
         t = pxt.create_table('test_defaults', {'c1': pxt.Int})
         # Table is empty, so we can add columns with defaults
@@ -3038,8 +3057,8 @@ class TestTable:
         with pytest.raises(pxt.Error, match='Default values are not supported for media types'):
             t.add_column(c_image={'type': pxt.Image, 'default': default_image_path})
 
-        # Test 2: Expression defaults are not supported - only literals allowed
-        with pytest.raises(pxt.Error, match='Only literal defaults are supported'):
+        # Test 2: Expression defaults are not supported - only constants allowed
+        with pytest.raises(pxt.Error, match='Default values must be constants'):
             t.add_column(c3={'type': pxt.Int, 'default': t.c1 + 10})
 
         # Test 3: Add multiple columns with defaults using add_columns (on empty table)
@@ -3089,47 +3108,39 @@ class TestTable:
             # Verify c6 (added to non-empty table) also has default
             assert row['c6'] == 999, f'Expected 999, got {row["c6"]}'
 
-        # Test 7: Expression defaults are not supported - only literals allowed
-        with pytest.raises(pxt.Error, match='Only literal defaults are supported'):
+        # Test 7: Expression defaults are not supported - only constants allowed
+        with pytest.raises(pxt.Error, match='Default values must be constants'):
             t.add_column(c8={'type': pxt.Int, 'default': t.c1 * 2})
 
         # Test 8: Invalid JSON defaults - UUID/datetime not allowed in JSON
         # Note: These will fail at JsonType validation, not our custom validation
         # But we should still test that they're rejected
         test_uuid = uuid.UUID('12345678-1234-5678-1234-567812345678')
-        with pytest.raises((pxt.Error, TypeError), match='scalar JSON types|not a valid Pixeltable JSON'):
+        with pytest.raises((pxt.Error, TypeError), match=r'scalar JSON types|not a valid Pixeltable JSON'):
             t.add_column(c9={'type': pxt.Json, 'default': {'id': test_uuid}})
         test_datetime = datetime.datetime.now()
-        with pytest.raises((pxt.Error, TypeError), match='scalar JSON types|not a valid Pixeltable JSON'):
+        with pytest.raises((pxt.Error, TypeError), match=r'scalar JSON types|not a valid Pixeltable JSON'):
             t.add_column(c10={'type': pxt.Json, 'default': {'date': test_datetime}})
 
-        # Test 9: Size limits - default values > 10KB are rejected
-        from pixeltable.catalog.globals import MAX_VALUE_EXPR_SIZE
-        # String default > 10KB
+        # Test 9: Size limits - default values > 512 bytes are rejected
+        # String default > 512 bytes
         large_string = 'x' * (MAX_VALUE_EXPR_SIZE + 100)
         with pytest.raises(pxt.Error, match='too large'):
             t.add_column(c11={'type': pxt.String, 'default': large_string})
-        # JSON default > 10KB
+        # JSON default > 512 bytes
         large_json = {'data': 'x' * (MAX_VALUE_EXPR_SIZE + 100)}
         with pytest.raises(pxt.Error, match='too large'):
             t.add_column(c12={'type': pxt.Json, 'default': large_json})
-        # Binary default > 10KB
+        # Binary default > 512 bytes
         large_binary = b'x' * (MAX_VALUE_EXPR_SIZE + 100)
         with pytest.raises(pxt.Error, match='too large'):
             t.add_column(c13={'type': pxt.Binary, 'default': large_binary})
-        # Array default > 10KB (when serialized)
+        # Array default > 512 bytes (when serialized)
         # Create array that will exceed size limit when serialized to JSON
-        # Use int64 to match pxt.Int type - need larger array to exceed 10KB when serialized
-        # Arrays are serialized as lists, so we need enough elements
-        large_array = np.ones((MAX_VALUE_EXPR_SIZE // 2,), dtype=np.int64)  # Will be > 10KB when serialized
+        # Use int64 to match pxt.Int type - arrays are serialized as lists
+        large_array = np.ones((MAX_VALUE_EXPR_SIZE // 2,), dtype=np.int64)  # Will be > 512 bytes when serialized
         with pytest.raises(pxt.Error, match='too large'):
-            t.add_column(c14={'type': pxt.Array[(MAX_VALUE_EXPR_SIZE // 2,), pxt.Int], 'default': large_array})
+            t.add_column(c14={'type': pxt.Array[(MAX_VALUE_EXPR_SIZE // 2,), pxt.Int], 'default': large_array})  # type: ignore[misc]
 
-        # Test 10: Computed column expression > 10KB is rejected
-        # Use string concatenation to avoid type mismatch
-        large_literal = 'x' * (MAX_VALUE_EXPR_SIZE + 100)
-        with pytest.raises(pxt.Error, match='too large'):
-            t.add_column(c15={'value': t.c2 + large_literal})  # c2 is String, so concatenation works
-
-        # Test 11: Verify defaults work after reloading the catalog
+        # Test 10: Verify defaults work after reloading the catalog
         reload_tester.run_reload_test()

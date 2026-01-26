@@ -76,9 +76,9 @@ def create_table(
             Column specifications can be dictionaries with `'type'` and optionally `'default'` keys.
 
             Default values:
-            - Only literal values are supported (expressions are not allowed).
-            - Columns with default values are treated as non-nullable.
-            - Default values apply to new rows when the column value is not specified during insertion.
+            - Supported for scalar types (String, Int, Float, Bool, Timestamp, Date, UUID),
+              simple JSON, Array, and Binary.
+            - Not supported for media types (Image, Video, Audio, Document).
         source: A data source (file, URL, Table, Query, or list of rows) to import from.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,

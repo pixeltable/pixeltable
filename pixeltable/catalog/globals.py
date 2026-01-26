@@ -15,7 +15,7 @@ _POS_COLUMN_NAME = 'pos'
 _ROWID_COLUMN_NAME = '_rowid'
 
 # Maximum size for value_expr (default values and computed column expressions) in metadata
-MAX_VALUE_EXPR_SIZE = 10 * 1024  # 10KB limit per column for value_expr in metadata
+MAX_VALUE_EXPR_SIZE = 512  # 512 bytes limit per column for value_expr in metadata
 
 # Set of symbols that are predefined in the `InsertableTable` class (and are therefore not allowed as column names).
 # This will be populated lazily to avoid circular imports.

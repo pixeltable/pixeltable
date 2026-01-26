@@ -882,17 +882,11 @@ class TableVersion:
             if col.is_stored:
                 self.store_tbl.add_column(col)
 
-            # Populate the column if:
-            # 1. It's a computed column that is stored and table has rows, OR
-            # 2. It's a column with a default value that is stored and table has rows
             if row_count == 0:
                 continue
-
-            if col.is_computed and col.is_stored:
-                # populate computed column
-                plan = Planner.create_add_column_plan(self.path, col)
-            elif col.has_default_value and col.is_stored:
-                # populate column with default value for existing rows
+            
+            # Populate the column if it's a computed column or has a default value and table has rows
+            if (col.is_computed or col.has_default_value) and col.is_stored:
                 plan = Planner.create_add_column_plan(self.path, col)
             else:
                 continue

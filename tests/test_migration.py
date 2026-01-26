@@ -115,6 +115,8 @@ class TestMigration:
                 self._run_v30_tests()
             if old_version >= 33:
                 self._verify_v33()
+            if old_version == 45:
+                self._verify_v46()
             # self._verify_v24(old_version)
 
             pxt.drop_table('sample_table', force=True)
@@ -299,6 +301,20 @@ class TestMigration:
                 table_md = row[0]
                 for col_md in table_md['column_md'].values():
                     assert col_md['is_pk'] is not None
+
+    @classmethod
+    def _verify_v46(cls) -> None:
+        """Verify that is_computed_column flag is set correctly after migration from v45 to v46."""
+        with Env.get().engine.begin() as conn:
+            for row in conn.execute(sql.select(Table.md)):
+                table_md = row[0]
+                for col_md in table_md['column_md'].values():
+                    # Columns with value_expr should have is_computed_column=True (they are computed columns)
+                    if col_md.get('value_expr') is not None:
+                        assert col_md.get('is_computed_column') is True, (
+                            f'Column with value_expr should have is_computed_column=True, '
+                            f'but got {col_md.get("is_computed_column")}'
+                        )
 
 
 @pxt.udf(batch_size=4)

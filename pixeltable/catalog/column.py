@@ -67,7 +67,7 @@ class Column:
     _value_expr: exprs.Expr | None
     value_expr_dict: dict[str, Any] | None
     _is_computed_column: bool  # True if value_expr is a computed column, False if it's a default value
-    _default_stored_value: Any | None  # Cached default value in stored format (None if no default)
+    _default_stored_value: Any | None  # Cached default value in stored format
     # we store a handle here in order to allow Column construction before there is a corresponding TableVersion
     tbl_handle: 'TableVersionHandle' | None
 
@@ -114,10 +114,9 @@ class Column:
             # For computed columns, derive col_type from expression; for defaults, col_type is provided
             if self._is_computed_column:
                 self.col_type = self._value_expr.col_type
-            # For defaults, only literal values are supported
-            if not self._is_computed_column:
-                if not isinstance(self._value_expr, exprs.Literal):
-                    raise excs.Error(f'Column {name!r}: Only literal defaults are supported.')
+            # For defaults, only constant values are supported
+            if not self._is_computed_column and not isinstance(self._value_expr, exprs.Literal):
+                raise excs.Error(f'Column {name!r}: Default values must be constants.')
             # Serialize if value_expr_dict not provided
             if self.value_expr_dict is None:
                 self.value_expr_dict = self._value_expr.as_dict()
@@ -150,7 +149,7 @@ class Column:
         self.sa_cellmd_col = None
         self._explicit_destination = destination
 
-        # Cache for default stored value
+        # Cache for the default value
         self._default_stored_value = None
 
     def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
@@ -235,25 +234,23 @@ class Column:
             self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
             self._value_expr.bind_rel_paths()
             # For columns with defaults, validate that it's a literal
-            if not self._is_computed_column:
-                if not isinstance(self._value_expr, exprs.Literal):
-                    raise excs.Error(
-                        f'Column {self.name!r}: Only literal defaults are supported. Got expression: {self._value_expr}'
+            if not self._is_computed_column and not isinstance(self._value_expr, exprs.Literal):
+                raise excs.Error(
+                    f'Column {self.name!r}: Default values must be constants. Got expression: {self._value_expr}'
+                )
+            if not self._value_expr.is_valid and self._is_computed_column:
+                message = (
+                    dedent(
+                        f"""
+                        The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
+                        {{validation_error}}
+                        You can continue to query existing data from this column, but evaluating it on new data will 
+                        raise an error."""
                     )
-            if not self._value_expr.is_valid:
-                if self._is_computed_column:
-                    message = (
-                        dedent(
-                            f"""
-                            The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
-                            {{validation_error}}
-                            You can continue to query existing data from this column, but evaluating it on new data will raise an error.
-                            """  # noqa: E501
-                        )
-                        .strip()
-                        .format(validation_error=self._value_expr.validation_error)
-                    )
-                    warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
+                    .strip()
+                    .format(validation_error=self._value_expr.validation_error)
+                )
+                warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
 
         if tvp is not None:
             # Retarget the Expr
@@ -270,12 +267,12 @@ class Column:
         if self._default_stored_value is not None:
             return self._default_stored_value
 
-        # For default values, value_expr is a literal
+        # Ensure value_expr is initialized (init_value_expr should have been called, but ensure it here)
         if self._value_expr is None:
             if self.value_expr_dict is None:
                 return None
-            self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
-            self._value_expr.bind_rel_paths()
+            # Use init_value_expr to avoid duplicating logic
+            self.init_value_expr(None)
 
         # Convert literal to stored format and cache
         self._default_stored_value = self._value_expr.as_literal().to_stored_value()
@@ -312,8 +309,8 @@ class Column:
 
     @property
     def is_computed(self) -> bool:
-        """Returns True if this is a computed column (not a column with a default value)."""
-        return (self._value_expr is not None or self.value_expr_dict is not None) and self._is_computed_column
+        """Returns True if this is a computed column"""
+        return self._is_computed_column
 
     @property
     def is_stored(self) -> bool:

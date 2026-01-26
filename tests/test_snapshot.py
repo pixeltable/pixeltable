@@ -414,7 +414,7 @@ class TestSnapshot:
         # should work
         v1.rename_column('v1', 'new_v1')
 
-    def test_additional_columns_with_defaults(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_additional_columns_with_defaults(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test that snapshots with additional_columns that have default values work correctly."""
         # Create base table with columns that have default values
         t = pxt.create_table('base_tbl', {'c1': pxt.Int})

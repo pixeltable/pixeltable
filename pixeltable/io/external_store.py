@@ -149,6 +149,7 @@ class Project(ExternalStore, abc.ABC):
             #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
             computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
             stored=True,
+            is_computed_column=True,
         )
         return proxy_col
 

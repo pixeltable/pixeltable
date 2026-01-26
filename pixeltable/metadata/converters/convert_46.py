@@ -1,5 +1,3 @@
-from typing import Any
-
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
@@ -17,3 +15,5 @@ def _update_column_md(column_md: dict) -> None:
     # Set is_computed_column=True for columns with value_expr (computed columns)
     if 'value_expr' in column_md and column_md['value_expr'] is not None:
         column_md['is_computed_column'] = True
+    else:
+        column_md['is_computed_column'] = False
