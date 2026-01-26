@@ -139,6 +139,7 @@ class Column:
         self._explicit_destination = destination
 
     # TODO update all callers
+    # TODO split into two functions
     def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
         assert self.is_pk is not None

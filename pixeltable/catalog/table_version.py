@@ -1110,12 +1110,12 @@ class TableVersion:
             del self.cols_by_id[col.id]
             # update stored md
             self._tbl_md.column_md[col.id].schema_version_drop = col.schema_version_drop
-            # retaining column in _schema_version_md because we need its col type
             del self._schema_version_md.columns[col.id]
 
         # update positions
         pos = 0
         for schema_col in self._schema_version_md.columns.values():
+            # TODO check name instead
             if schema_col.pos is not None:
                 schema_col.pos = pos
                 pos += 1
