@@ -16,9 +16,14 @@ fi
 WORKERS="$1"
 DURATION="$2"
 
+export PIXELTABLE_HOME=${PIXELTABLE_HOME:-~/.pixeltable}
+
+# Remove old log
+rm -f "$PIXELTABLE_HOME"/random-ops.log
+
+# Drop old database
 export PIXELTABLE_DB="random_ops"
 echo "Cleaning $PIXELTABLE_DB postgres DB ..."
-export PIXELTABLE_HOME=${PIXELTABLE_HOME:-~/.pixeltable}
 POSTGRES_BIN_PATH=$(python -c 'import pixeltable_pgserver; import sys; sys.stdout.write(str(pixeltable_pgserver._commands.POSTGRES_BIN_PATH))')
 PIXELTABLE_URL="postgresql://postgres:@/postgres?host=$PIXELTABLE_HOME/pgdata"
 "$POSTGRES_BIN_PATH/psql" "$PIXELTABLE_URL" -U postgres -c "DROP DATABASE IF EXISTS $PIXELTABLE_DB;"
