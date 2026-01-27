@@ -9,11 +9,9 @@ from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if
 
 
 @pytest.mark.remote_api
-@pytest.mark.expensive
 @rerun(reruns=3, reruns_delay=30)
 class TestRunwayML:
     def test_image_to_data_uri(self) -> None:
-        skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import _image_to_data_uri
 
         # RGB image -> webp
@@ -29,7 +27,6 @@ class TestRunwayML:
         assert len(uri) > 30
 
     def test_serialize_result(self) -> None:
-        skip_test_if_not_installed('runwayml')
         from pixeltable.functions.runwayml import _serialize_result
 
         dt = datetime.datetime(2024, 1, 15, 10, 30, 0)
@@ -87,6 +84,7 @@ class TestRunwayML:
         # Required + optional parameters
         t.add_computed_column(output_optional=video_to_video(t.video_url, t.prompt, 'gen4_aleph', '1280:720', seed=42))
 
+    @pytest.mark.expensive
     def test_image_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
@@ -115,6 +113,7 @@ class TestRunwayML:
         assert results['output'][0] is not None
         assert 'output' in results['output'][0]
 
+    @pytest.mark.expensive
     def test_text_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
@@ -127,6 +126,7 @@ class TestRunwayML:
         assert results['output'][0] is not None
         assert 'output' in results['output'][0]
 
+    @pytest.mark.expensive
     def test_video_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')

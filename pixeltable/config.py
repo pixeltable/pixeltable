@@ -197,7 +197,7 @@ KNOWN_CONFIG_OPTIONS = {
         'rate_limit': 'Rate limit for OpenRouter API requests',
     },
     'replicate': {'api_token': 'Replicate API token'},
-    'runwayml': {'api_key': 'RunwayML API key'},
+    'runwayml': {'api_secret': 'RunwayML API secret'},
     'together': {
         'api_key': 'Together API key',
         'rate_limits': 'Per-model category rate limits for Together API requests',
