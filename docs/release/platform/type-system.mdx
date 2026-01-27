@@ -67,6 +67,10 @@ orders.add_computed_column(order_id=uuid7())
 ```
 
 <Tip>
+By default, `stored=True` for all computed columns—values compute once and persist. For UUIDs, this ensures stable identifiers. Setting `stored=False` would regenerate UUIDs on every query (almost never what you want).
+</Tip>
+
+<Tip>
 See the [UUID cookbook](/howto/cookbooks/core/workflow-uuid-identity) for more examples of working with unique identifiers.
 </Tip>
 
