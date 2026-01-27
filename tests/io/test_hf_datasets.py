@@ -50,7 +50,10 @@ class TestHfDatasets:
                 'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
             },
             # example of dataset dictionary with multiple splits
-            {'dataset_name': 'rotten_tomatoes', 'dataset': datasets.load_dataset('rotten_tomatoes')},
+            {
+                'dataset_name': 'rotten_tomatoes',
+                'dataset': datasets.load_dataset('cornell-movie-review-data/rotten_tomatoes'),
+            },
             # example of dataset with a sequence of dicts
             # (commented out for now, to keep the test overhead low, and because the test itself could use attention)
             # {
@@ -117,7 +120,10 @@ class TestHfDatasets:
                 'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
             },
             # example of dataset dictionary with multiple splits
-            {'dataset_name': 'rotten_tomatoes', 'dataset': datasets.load_dataset('rotten_tomatoes')},
+            {
+                'dataset_name': 'rotten_tomatoes',
+                'dataset': datasets.load_dataset('cornell-movie-review-data/rotten_tomatoes'),
+            },
         ]
 
         # test a column name for splits other than the default of 'split'
@@ -260,7 +266,9 @@ class TestHfDatasets:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        hf_dataset = datasets.load_dataset('librispeech_asr', split='train.clean.100', streaming=streaming).take(100)
+        hf_dataset = datasets.load_dataset(
+            'openslr/librispeech_asr', split='train.clean.100', streaming=streaming
+        ).take(100)
         t = pxt.create_table('audio_test', source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
@@ -315,7 +323,9 @@ class TestHfDatasets:
         import datasets
 
         split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
-        hf_dataset = datasets.load_dataset('rotten_tomatoes', split=split, streaming=streaming)
+        hf_dataset = datasets.load_dataset(
+            'cornell-movie-review-data/rotten_tomatoes', split=split, streaming=streaming
+        )
         if streaming:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('test', source=hf_dataset)
