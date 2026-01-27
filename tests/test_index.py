@@ -982,64 +982,49 @@ class TestIndex:
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
 
-    def test_string_embedding_debug(self, reset_db: None, e5_embed: pxt.Function) -> None:
-        """Debug test for string column with string embedding function."""
+    def test_array_column_embedding_index(self, uses_db: None, e5_embed: pxt.Function) -> None:
+        """Array column (computed from text via embed fn) with embedding index; select embedding + sim exercises set dedup."""
         skip_test_if_not_installed('transformers')
-        import logging
-        logging.basicConfig(level=logging.DEBUG, format='%(levelname)s %(name)s: %(message)s')
-        _logger = logging.getLogger('pixeltable')
-        
-        # Create a table with text column
         t = pxt.create_table(
-            'string_embedding_debug_test',
-            {
-                'id': pxt.Int,
-                'text': pxt.String,
-            },
+            'array_embedding_test',
+            {'id': pxt.Int, 'text': pxt.String},
             if_exists='replace',
         )
-        
-        # Insert text rows
-        texts = [
-            'a cat sitting on a mat',
-            'a dog playing in the park',
-            'a bird flying in the sky',
-        ]
-        rows = [{'id': i, 'text': text} for i, text in enumerate(texts)]
-        validate_update_status(t.insert(rows), expected_rows=len(rows))
-        
-        # Add embedding index on the string column
-        _logger.debug('Adding embedding index...')
-        t.add_embedding_index(
-            'text',
-            idx_name='text_idx',
-            embedding=e5_embed,
-            metric='cosine',
-            precision='fp32',
-        )
-        
-        # Get index info
-        col = t._tbl_version_path.get_column('text')
-        assert col is not None
-        idx_info = t._tbl_version.get().get_idx(col, 'text_idx', pxt.index.EmbeddingIndex)
-        assert idx_info is not None
-        idx = idx_info.idx
-        assert isinstance(idx, pxt.index.EmbeddingIndex)
-        
-        _logger.debug(f'Index info:')
-        _logger.debug(f'  idx_info.col (original): name={idx_info.col.name}, id={idx_info.col.id}, type={idx_info.col.col_type}')
-        _logger.debug(f'  idx_info.val_col (index value): name={idx_info.val_col.name}, id={idx_info.val_col.id}, type={idx_info.val_col.col_type}')
-        _logger.debug(f'    val_col.has_sa_vector_type(): {idx_info.val_col.has_sa_vector_type()}')
-        _logger.debug(f'    val_col.sa_col_type: {type(idx_info.val_col.sa_col_type)}')
-        
-        # Test similarity search using text queries
-        _logger.debug('Creating query with similarity search...')
-        query_text = 'a cat'
-        sim = t.text.similarity(string=query_text, idx='text_idx')
-        query = t.select(t.id, t.text, sim=sim)
-        
-        _logger.debug('Collecting results...')
-        res = query.order_by(sim, asc=False).limit(3).collect()
-        
-        _logger.debug(f'Results: {res}')
+        texts = ['a cat sitting on a mat', 'a dog playing in the park', 'a bird flying in the sky']
+        validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
+        t.add_computed_column(embedding=e5_embed(t.text))
+        t.add_embedding_index('embedding', idx_name='emb_idx', embedding=e5_embed, metric='cosine', precision='fp32')
+        sim = t.embedding.similarity(string='a cat', idx='emb_idx')
+        res = t.select(t.id, t.text, t.embedding, sim=sim).order_by(sim, asc=False).limit(3).collect()
         assert len(res) == 3
+        assert 'embedding' in res.schema and 'sim' in res.schema
+        # Search for "a cat": best match must be "a cat sitting on a mat"
+        assert res[0]['text'] == 'a cat sitting on a mat'
+        # Similarity scores must be in descending order (higher = more similar)
+        sim_vals = [r['sim'] for r in res]
+        assert sim_vals == sorted(sim_vals, reverse=True)
+
+    @staticmethod
+    @pxt.udf
+    def _embed_wrong_shape(x: str) -> pxt.Array[(256,), np.float32]:
+        return np.zeros(256, dtype=np.float32)
+
+    @staticmethod
+    @pxt.udf
+    def _embed_wrong_dtype(x: str) -> pxt.Array[(384,), np.float64]:
+        return np.zeros(384, dtype=np.float64)
+
+    def test_array_embedding_index_validation_errors(self, uses_db: None) -> None:
+        """Adding embedding index on array column fails when embed fn shape/dtype does not match column."""
+        t = pxt.create_table(
+            'arr_val_test',
+            {'id': pxt.Int, 'vec': pxt.Array[(384,), np.float32]},
+            if_exists='replace',
+        )
+        t.insert([{'id': 0, 'vec': np.zeros(384, dtype=np.float32)}])
+        with pytest.raises(pxt.Error) as exc_info:
+            t.add_embedding_index('vec', embedding=self._embed_wrong_shape)
+        assert 'shape' in str(exc_info.value).lower()
+        with pytest.raises(pxt.Error) as exc_info:
+            t.add_embedding_index('vec', embedding=self._embed_wrong_dtype)
+        assert 'dtype' in str(exc_info.value).lower()

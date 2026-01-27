@@ -18,6 +18,20 @@ def _is_agg_fn_call(e: exprs.Expr) -> bool:
     return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call and not e.is_window_fn_call
 
 
+def _dedupe_col_refs(candidates: Iterable[exprs.Expr]) -> list[exprs.ColumnRef]:
+    """Dedupe by expr.id; avoid set(exprs) since Expr.__eq__ builds comparisons."""
+    seen: set[int] = set()
+    out: list[exprs.ColumnRef] = []
+    for e in candidates:
+        if not isinstance(e, exprs.ColumnRef):
+            continue
+        if e.id in seen:
+            continue
+        seen.add(e.id)
+        out.append(e)
+    return out
+
+
 def _get_combined_ordering(
     o1: list[tuple[exprs.Expr, bool]], o2: list[tuple[exprs.Expr, bool]]
 ) -> list[tuple[exprs.Expr, bool]]:
@@ -599,13 +613,14 @@ class Planner:
             return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_binary_type()
 
         json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
-        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
+        json_refs = _dedupe_col_refs(json_candidates)
         array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
-        array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
-        binary_refs = list(
+        array_refs = _dedupe_col_refs(array_candidates)
+        binary_candidates = list(
             exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
         )
-        if len(json_refs) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
+        binary_refs = _dedupe_col_refs(binary_candidates)
+        if json_refs or array_refs or binary_refs:
             return exec.CellReconstructionNode(json_refs, array_refs, binary_refs, input.row_builder, input=input)
         else:
             return input
