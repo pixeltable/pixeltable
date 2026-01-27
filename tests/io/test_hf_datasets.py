@@ -266,7 +266,9 @@ class TestHfDatasets:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        hf_dataset = datasets.load_dataset('openslr/librispeech_asr', split='train.clean.100', streaming=streaming).take(100)
+        hf_dataset = datasets.load_dataset(
+            'openslr/librispeech_asr', split='train.clean.100', streaming=streaming
+        ).take(100)
         t = pxt.create_table('audio_test', source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
