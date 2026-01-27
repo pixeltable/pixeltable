@@ -982,10 +982,10 @@ class TestIndex:
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
 
-    def test_array_column_embedding_index(self, uses_db: None, e5_embed: pxt.Function) -> None:
+    def test_computed_array_column_embedding_index(self, uses_db: None, e5_embed: pxt.Function) -> None:
         skip_test_if_not_installed('transformers')
         t = pxt.create_table('array_embedding_test', {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
-        texts = ['a cat sitting on a mat', 'a dog playing in the park', 'a bird flying in the sky']
+        texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
         t.add_computed_column(embedding=e5_embed(t.text))
         t.add_embedding_index('embedding', idx_name='emb_idx', embedding=e5_embed, metric='cosine', precision='fp32')
@@ -996,6 +996,30 @@ class TestIndex:
         # Search for "a cat": best match must be "a cat sitting on a mat"
         assert res[0]['text'] == 'a cat sitting on a mat'
         # Similarity scores must be in descending order (higher = more similar)
+        sim_vals = [r['sim'] for r in res]
+        assert sim_vals == sorted(sim_vals, reverse=True)
+
+    def test_array_column_embedding_index(self, uses_db: None, e5_embed: pxt.Function) -> None:
+        skip_test_if_not_installed('transformers')
+        texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
+        # Run e5_embed on each text (exec() treats one arg as one row, so we call per string)
+        vecs = [e5_embed.exec([s], {}) for s in texts]
+        dim = len(vecs[0])
+        t = pxt.create_table(
+            'regular_array_embedding_test',
+            {'id': pxt.Int, 'text': pxt.String, 'vec': pxt.Array[(dim,), np.float32]},  # type: ignore[misc]
+            if_exists='replace',
+        )
+        validate_update_status(
+            t.insert([{'id': i, 'text': s, 'vec': vecs[i]} for i, s in enumerate(texts)]), expected_rows=3
+        )
+        t.add_embedding_index('vec', idx_name='emb_idx', embedding=e5_embed, metric='cosine', precision='fp32')
+        sim = t.vec.similarity(string='a cat', idx='emb_idx')
+        res = t.select(t.id, t.text, t.vec, sim=sim).order_by(sim, asc=False).limit(3).collect()
+        assert len(res) == 3
+        assert 'vec' in res.schema and 'sim' in res.schema
+        # Search for "a cat": best match must be "a cat sitting on a mat"
+        assert res[0]['text'] == 'a cat sitting on a mat'
         sim_vals = [r['sim'] for r in res]
         assert sim_vals == sorted(sim_vals, reverse=True)
 
