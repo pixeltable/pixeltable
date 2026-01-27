@@ -15,34 +15,47 @@ class PxtIterator:
     is_class_based: bool
     init_fn: Callable
     signature: Signature
+    unstored_cols: list[str]
+    has_seek: bool
 
     _default_output_schema: dict[str, ts.ColumnType] | None
-    _conditional_output_schema: Callable[..., dict[str, type]] | None
+    _conditional_output_schema: Callable[[dict[str, Any]], dict[str, type]] | None
     _validate: Callable[[dict[str, Any]], bool] | None
 
     def __init__(self, decorated_callable: Callable, unstored_cols: list[str]) -> None:
         self.decorated_callable = decorated_callable
+        self.unstored_cols = unstored_cols
+
         self.signature = Signature.create(decorated_callable, return_type=ts.JsonType())
-        self._default_output_schema = self._infer_output_schema(decorated_callable)
+        self._infer_properties()
+
+        if len(self.unstored_cols) > 0 and not self.has_seek:
+            raise excs.Error(
+                f'Iterator `{self.fqn}` with `unstored_cols` must implement a `seek()` method.'
+            )
+
         self._conditional_output_schema = None
         self._validate = None
 
-    def _infer_output_schema(self, decorated_callable: Callable) -> dict[str, ts.ColumnType] | None:
-        if isinstance(decorated_callable, type):
-            if not hasattr(decorated_callable, '__init__') or not hasattr(decorated_callable, '__iter__'):
+
+    def _infer_properties(self) -> dict[str, ts.ColumnType] | None:
+        if isinstance(self.decorated_callable, type):
+            if not hasattr(self.decorated_callable, '__init__') or not hasattr(self.decorated_callable, '__iter__'):
                 raise excs.Error(
                     '@pxt.iterator-decorated class '
-                    f'`{decorated_callable.__module__}.{decorated_callable.__qualname__}` '
+                    f'`{self.decorated_callable.__module__}.{self.decorated_callable.__qualname__}` '
                     'must implement `__init__()` and `__iter__()` methods.'
                 )
             self.is_class_based = True
-            self.init_fn = decorated_callable.__init__
-            iter_fn = decorated_callable.__iter__
+            self.init_fn = self.decorated_callable.__init__
+            self.has_seek = hasattr(self.decorated_callable, 'seek')
+            iter_fn = self.decorated_callable.__iter__
 
         else:
             self.is_class_based = False
-            self.init_fn = decorated_callable
-            iter_fn = decorated_callable
+            self.init_fn = self.decorated_callable
+            self.has_seek = False
+            iter_fn = self.decorated_callable
 
         py_sig = inspect.signature(iter_fn)
         return_type = py_sig.return_annotation
@@ -63,10 +76,11 @@ class PxtIterator:
         if not hasattr(output_schema_type, '__orig_bases__') or not hasattr(output_schema_type, '__annotations__'):
             # The return type is a dict, but not a TypedDict. There is no way to infer the output schema at this stage;
             # the user must later define an appropriate conditional_output_schema.
-            return None
+            self._default_output_schema = None
+            return
 
         annotations = output_schema_type.__annotations__.items()
-        output_schema: dict[str, ts.ColumnType] = {}
+        self._default_output_schema = {}
         for name, type_ in annotations:
             col_type = ts.ColumnType.from_python_type(type_)
             if col_type is None:
@@ -76,13 +90,27 @@ class PxtIterator:
                     f'`{output_schema_type.__module__}.{output_schema_type.__qualname__}` '
                     f'in iterator function `{iter_fn.__module__}.{iter_fn.__qualname__}()`.'
                 )
-            output_schema[name] = col_type
+            self._default_output_schema[name] = col_type
 
-        return output_schema
+    def call_output_schema(self, bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
+        if self._conditional_output_schema is None:
+            if self._default_output_schema is None:
+                raise excs.Error(
+                    f'Iterator `{self.fqn}` must either return a `TypedDict` or define a `conditional_output_schema`.'
+                )
+            return self._default_output_schema
 
-    def output_schema(self, **kwargs: Any) -> dict[str, ts.ColumnType]:
-        assert self._default_output_schema is not None
-        return self._default_output_schema
+        else:
+            output_schema = self._conditional_output_schema(bound_kwargs)
+            if output_schema is None:
+                raise excs.Error(
+                    f'The `conditional_output_schema` for iterator `{self.fqn}` returned None; '
+                    'it must return a valid output schema dictionary.'
+                )
+            return {
+                name: ts.ColumnType.from_python_type(type_)
+                for name, type_ in output_schema.items()
+            }
 
     def __call__(self, *args: Any, **kwargs: Any) -> 'IteratorCall':
         py_sig = inspect.signature(self.init_fn)
@@ -109,7 +137,7 @@ class PxtIterator:
         if self._validate is not None:
             self._validate(literal_args)
 
-        output_schema = self.output_schema(**literal_args)
+        output_schema = self.call_output_schema(literal_args)
 
         return IteratorCall(self, args, kwargs, bound_args, output_schema)
 
@@ -129,9 +157,14 @@ class PxtIterator:
     def fqn(self) -> str:
         return f'{self.decorated_callable.__module__}.{self.decorated_callable.__qualname__}'
 
-    # Validate decorator
+    # validate decorator
     def validate(self, fn: Callable[[dict[str, Any]], bool]) -> Callable[[dict[str, Any]], bool]:
         self._validate = fn
+        return fn
+
+    # conditional_output_schema decorator
+    def conditional_output_schema(self, fn: Callable[[dict[str, Any]], dict[str, type]]) -> Callable[[dict[str, Any]], dict[str, type]]:
+        self._conditional_output_schema = fn
         return fn
 
 

@@ -253,7 +253,7 @@ class TableVersion:
             self.iterator_cls = getattr(module, class_name)
             assert isinstance(self.iterator_cls, func.PxtIterator)  # TODO: Validation
             self.iterator_args = exprs.InlineDict.from_dict(tbl_md.view_md.iterator_args)
-            output_schema = self.iterator_cls.output_schema(**self.iterator_args.to_kwargs())
+            output_schema = self.iterator_cls.call_output_schema(**self.iterator_args.to_kwargs())
             self.num_iterator_cols = len(output_schema)
             assert tbl_md.view_md.iterator_args is not None
 
