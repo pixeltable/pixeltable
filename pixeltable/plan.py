@@ -19,16 +19,12 @@ def _is_agg_fn_call(e: exprs.Expr) -> bool:
 
 
 def _dedupe_col_refs(candidates: Iterable[exprs.Expr]) -> list[exprs.ColumnRef]:
-    """Dedupe by expr.id; avoid set(exprs) since Expr.__eq__ builds comparisons."""
     seen: set[int] = set()
     out: list[exprs.ColumnRef] = []
     for e in candidates:
-        if not isinstance(e, exprs.ColumnRef):
-            continue
-        if e.id in seen:
-            continue
-        seen.add(e.id)
-        out.append(e)
+        if isinstance(e, exprs.ColumnRef) and e.id not in seen:
+            seen.add(e.id)
+            out.append(e)
     return out
 
 
