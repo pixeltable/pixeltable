@@ -37,7 +37,7 @@ class PxtIterator:
         self._conditional_output_schema = None
         self._validate = None
 
-    def _infer_properties(self) -> dict[str, ts.ColumnType] | None:
+    def _infer_properties(self) -> None:
         if isinstance(self.decorated_callable, type):
             if not hasattr(self.decorated_callable, '__init__') or not hasattr(self.decorated_callable, '__iter__'):
                 raise excs.Error(
