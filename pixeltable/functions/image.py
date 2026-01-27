@@ -479,6 +479,7 @@ class tile_iterator(Iterator[Tile]):
         ...     iterator=tile_iterator(tbl.img, tile_size=(256, 256), overlap=(32, 32))
         ... )
     """
+
     __image: PIL.Image.Image
     __tile_size: Sequence[int]
     __overlap: Sequence[int]
@@ -536,8 +537,12 @@ class tile_iterator(Iterator[Tile]):
 def _(kwargs: dict[str, Any]) -> None:
     tile_size = kwargs.get('tile_size')
     overlap = kwargs.get('overlap', (0, 0))
+    if tile_size[0] <= 0 or tile_size[1] <= 0:
+        raise excs.Error(f'`tile_size` dimensions must be positive; got {tile_size}')
+    if overlap[0] < 0 or overlap[1] < 0:
+        raise excs.Error(f'`overlap` dimensions must be non-negative; got {overlap}')
     if overlap[0] >= tile_size[0] or overlap[1] >= tile_size[1]:
-        raise excs.Error(f'overlap dimensions {overlap} are not strictly smaller than tile size {tile_size}')
+        raise excs.Error(f'`overlap` dimensions {overlap} are not strictly smaller than `tile_size` {tile_size}')
 
 
 __all__ = local_public_names(__name__)

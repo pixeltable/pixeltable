@@ -1,3 +1,5 @@
+import re
+
 import pytest
 from PIL.Image import Dither, Image, Quantize, Transpose
 
@@ -84,9 +86,27 @@ class TestImage:
     def test_tile_iterator_errors(self, uses_db: None) -> None:
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
         t.insert(image=SAMPLE_IMAGE_URL)
+
+        # Test overlap >= tile_size
         for overlap in ((0, 100), (100, 0)):
-            with pytest.raises(pxt.Error) as exc_info:
+            with pytest.raises(
+                pxt.Error,
+                match=re.escape(
+                    rf'`overlap` dimensions {list(overlap)} are not strictly smaller than `tile_size` [100, 100]'
+                ),
+            ):
                 _ = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, (100, 100), overlap=overlap))
-            assert f'overlap dimensions {list(overlap)} are not strictly smaller than tile size [100, 100]' in str(
-                exc_info.value
-            )
+
+        # Test tile_size <= 0
+        for tile_size in ((0, 100), (100, 0), (-1, 100), (100, -1)):
+            with pytest.raises(
+                pxt.Error, match=re.escape(f'`tile_size` dimensions must be positive; got {list(tile_size)}')
+            ):
+                _ = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, tile_size))
+
+        # Test overlap < 0
+        for overlap in ((-1, 0), (0, -1)):
+            with pytest.raises(
+                pxt.Error, match=re.escape(f'`overlap` dimensions must be non-negative; got {list(overlap)}')
+            ):
+                _ = pxt.create_view('test_view', t, iterator=tile_iterator(t.image, (100, 100), overlap=overlap))

@@ -30,9 +30,7 @@ class PxtIterator:
         self._infer_properties()
 
         if len(self.unstored_cols) > 0 and not self.has_seek:
-            raise excs.Error(
-                f'Iterator `{self.fqn}` with `unstored_cols` must implement a `seek()` method.'
-            )
+            raise excs.Error(f'Iterator `{self.fqn}` with `unstored_cols` must implement a `seek()` method.')
 
         self._conditional_output_schema = None
         self._validate = None
@@ -106,10 +104,7 @@ class PxtIterator:
                     f'The `conditional_output_schema` for iterator `{self.fqn}` returned None; '
                     'it must return a valid output schema dictionary.'
                 )
-            return {
-                name: ts.ColumnType.from_python_type(type_)
-                for name, type_ in output_schema.items()
-            }
+            return {name: ts.ColumnType.from_python_type(type_) for name, type_ in output_schema.items()}
 
     def __call__(self, *args: Any, **kwargs: Any) -> 'IteratorCall':
         py_sig = inspect.signature(self.init_fn)
@@ -162,7 +157,9 @@ class PxtIterator:
         return fn
 
     # conditional_output_schema decorator
-    def conditional_output_schema(self, fn: Callable[[dict[str, Any]], dict[str, type]]) -> Callable[[dict[str, Any]], dict[str, type]]:
+    def conditional_output_schema(
+        self, fn: Callable[[dict[str, Any]], dict[str, type]]
+    ) -> Callable[[dict[str, Any]], dict[str, type]]:
         self._conditional_output_schema = fn
         return fn
 
