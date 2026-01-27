@@ -128,7 +128,7 @@ class EmbeddingIndex(IndexBase):
             ts.ColumnType.Type.ARRAY,
         ):
             raise excs.Error(f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.')
-        
+
         # For ARRAY columns, return column reference directly - array already contains the embeddings
         if c.col_type._type == ts.ColumnType.Type.ARRAY:
             return exprs.ColumnRef(c)
@@ -137,6 +137,7 @@ class EmbeddingIndex(IndexBase):
             raise excs.Error(
                 f'The specified embedding function does not support the type `{c.col_type}` of column {c.name!r}.'
             )
+
         embed_fn = self.embeddings[c.col_type._type]
         return embed_fn(exprs.ColumnRef(c))
 
@@ -282,27 +283,23 @@ class EmbeddingIndex(IndexBase):
             )
 
         # If column is an array type, validate that the embedding function's return type matches
-        if column is not None and column.col_type._type == ts.ColumnType.Type.ARRAY:
+        if column is not None and isinstance(column.col_type, ts.ArrayType):
+            col_array_type = column.col_type
             # Validate shape compatibility
-            if (
-                shape is not None
-                and column.col_type.shape is not None
-                and shape != column.col_type.shape
-            ):
+            if shape is not None and col_array_type.shape is not None and shape != col_array_type.shape:
                 raise excs.Error(
                     f'The function `{embed_fn.name}` returns an array with shape {shape}, '
-                    f'but column {column.name!r} requires shape {column.col_type.shape}'
+                    f'but column {column.name!r} requires shape {col_array_type.shape}'
                 )
-            
             # Validate dtype compatibility
             if (
                 return_type.dtype is not None
-                and column.col_type.dtype is not None
-                and return_type.dtype != column.col_type.dtype
+                and col_array_type.dtype is not None
+                and return_type.dtype != col_array_type.dtype
             ):
                 raise excs.Error(
                     f'The function `{embed_fn.name}` returns an array with dtype {return_type.dtype}, '
-                    f'but column {column.name!r} requires dtype {column.col_type.dtype}'
+                    f'but column {column.name!r} requires dtype {col_array_type.dtype}'
                 )
 
     def as_dict(self) -> dict:

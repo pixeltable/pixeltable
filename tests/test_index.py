@@ -983,13 +983,8 @@ class TestIndex:
         assert res[0]['rowid'] == 1
 
     def test_array_column_embedding_index(self, uses_db: None, e5_embed: pxt.Function) -> None:
-        """Array column (computed from text via embed fn) with embedding index; select embedding + sim exercises set dedup."""
         skip_test_if_not_installed('transformers')
-        t = pxt.create_table(
-            'array_embedding_test',
-            {'id': pxt.Int, 'text': pxt.String},
-            if_exists='replace',
-        )
+        t = pxt.create_table('array_embedding_test', {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
         texts = ['a cat sitting on a mat', 'a dog playing in the park', 'a bird flying in the sky']
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
         t.add_computed_column(embedding=e5_embed(t.text))
@@ -1015,10 +1010,9 @@ class TestIndex:
         return np.zeros(384, dtype=np.float64)
 
     def test_array_embedding_index_validation_errors(self, uses_db: None) -> None:
-        """Adding embedding index on array column fails when embed fn shape/dtype does not match column."""
         t = pxt.create_table(
             'arr_val_test',
-            {'id': pxt.Int, 'vec': pxt.Array[(384,), np.float32]},
+            {'id': pxt.Int, 'vec': pxt.Array[(384,), np.float32]},  # type: ignore[misc]
             if_exists='replace',
         )
         t.insert([{'id': 0, 'vec': np.zeros(384, dtype=np.float32)}])
