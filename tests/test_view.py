@@ -1180,7 +1180,6 @@ class TestView:
         assert v.where(v.computed_1 == None).count() == 1
 
     def test_additional_columns_with_defaults(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        """Test that views with additional_columns that have default values work correctly."""
         # Create base table with columns that have default values
         t = pxt.create_table(
             'base_tbl',

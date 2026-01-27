@@ -3010,7 +3010,6 @@ class TestTable:
             t.drop_column('c2')
 
     def test_column_defaults(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        """Test adding columns with default values."""
         # Create table with default values in initial schema
         t0 = pxt.create_table(
             'test_defaults_create',
