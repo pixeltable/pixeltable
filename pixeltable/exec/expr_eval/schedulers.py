@@ -208,6 +208,10 @@ class RateLimitsScheduler(Scheduler):
             if hasattr(exc, 'response') and hasattr(exc.response, 'headers'):
                 _logger.debug(f'scheduler {self.resource_pool}: exception headers: {exc.response.headers}')
 
+            # The very first request can fail due to throttling. Pick up pool info in case the UDF set it, so that we
+            # can use it to determine the retry delay.
+            if self.pool_info is None:
+                self._set_pool_info()
             # If pool info is available, attempt to retry based on the resource information
             # Pool info may not be available yet if the exception occurred before the UDF set it
             if self.pool_info is not None:
