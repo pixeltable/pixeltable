@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 class TestHfDatasets:
     NUM_SAMPLES = 100
 
-    def test_import_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
+    def test_import_hf_dataset(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -50,7 +50,10 @@ class TestHfDatasets:
                 'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
             },
             # example of dataset dictionary with multiple splits
-            {'dataset_name': 'rotten_tomatoes', 'dataset': datasets.load_dataset('rotten_tomatoes')},
+            {
+                'dataset_name': 'rotten_tomatoes',
+                'dataset': datasets.load_dataset('cornell-movie-review-data/rotten_tomatoes'),
+            },
             # example of dataset with a sequence of dicts
             # (commented out for now, to keep the test overhead low, and because the test itself could use attention)
             # {
@@ -88,7 +91,7 @@ class TestHfDatasets:
             else:
                 raise AssertionError()
 
-    def test_insert_hf_dataset(self, reset_db: None, tmp_path: pathlib.Path) -> None:
+    def test_insert_hf_dataset(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -117,7 +120,10 @@ class TestHfDatasets:
                 'schema_override': {'emb': pxt.Array[(1024,), pxt.Float]},  # type: ignore[misc]
             },
             # example of dataset dictionary with multiple splits
-            {'dataset_name': 'rotten_tomatoes', 'dataset': datasets.load_dataset('rotten_tomatoes')},
+            {
+                'dataset_name': 'rotten_tomatoes',
+                'dataset': datasets.load_dataset('cornell-movie-review-data/rotten_tomatoes'),
+            },
         ]
 
         # test a column name for splits other than the default of 'split'
@@ -193,14 +199,14 @@ class TestHfDatasets:
             check_tup = DatasetTuple(**encoded_tup)
             assert check_tup in acc_dataset
 
-    def test_import_hf_dataset_invalid(self, reset_db: None) -> None:
+    def test_import_hf_dataset_invalid(self, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         with pytest.raises(pxt.Error) as exc_info:
             pxt.io.import_huggingface_dataset('test', {})
         assert 'Unsupported data source type' in str(exc_info.value)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    def test_import_images(self, streaming: bool, reset_db: None) -> None:
+    def test_import_images(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -220,7 +226,7 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
-    def test_import_arrays(self, streaming: bool, reset_db: None) -> None:
+    def test_import_arrays(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -238,7 +244,7 @@ class TestHfDatasets:
         assert all(isinstance(row['audio']['array'], np.ndarray) for row in res)
 
     @pytest.mark.parametrize('streaming', [False, True])
-    def test_import_audio_small(self, streaming: bool, reset_db: None) -> None:
+    def test_import_audio_small(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -256,11 +262,13 @@ class TestHfDatasets:
     # This dataset is too large not to use in streaming mode (124GB)
     # TODO: find dataset containing Audio that is not gigantic
     @pytest.mark.parametrize('streaming', [True])
-    def test_import_audio(self, streaming: bool, reset_db: None) -> None:
+    def test_import_audio(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
-        hf_dataset = datasets.load_dataset('librispeech_asr', split='train.clean.100', streaming=streaming).take(100)
+        hf_dataset = datasets.load_dataset(
+            'openslr/librispeech_asr', split='train.clean.100', streaming=streaming
+        ).take(100)
         t = pxt.create_table('audio_test', source=hf_dataset)
         md = t.get_metadata()
         assert set(md['columns'].keys()) == {'file', 'audio', 'text', 'speaker_id', 'chapter_id', 'id'}
@@ -275,7 +283,7 @@ class TestHfDatasets:
     # @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.parametrize('streaming', [False])
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
-    def test_import_list_of_dict(self, streaming: bool, reset_db: None) -> None:
+    def test_import_list_of_dict(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -310,12 +318,14 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
-    def test_import_classlabel(self, streaming: bool, reset_db: None) -> None:
+    def test_import_classlabel(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
         split = f'train[:{self.NUM_SAMPLES}]' if not streaming else 'train'
-        hf_dataset = datasets.load_dataset('rotten_tomatoes', split=split, streaming=streaming)
+        hf_dataset = datasets.load_dataset(
+            'cornell-movie-review-data/rotten_tomatoes', split=split, streaming=streaming
+        )
         if streaming:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('test', source=hf_dataset)
@@ -328,7 +338,7 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
-    def test_import_sequence_of_float(self, streaming: bool, reset_db: None) -> None:
+    def test_import_sequence_of_float(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -351,7 +361,7 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
-    def test_import_sequence_of_dict(self, streaming: bool, reset_db: None) -> None:
+    def test_import_sequence_of_dict(self, streaming: bool, uses_db: None) -> None:
         skip_test_if_not_installed('datasets')
         import datasets
 
@@ -375,7 +385,7 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
-    def test_import_nested_struct(self, streaming: bool, reset_db: None) -> None:
+    def test_import_nested_struct(self, streaming: bool, uses_db: None) -> None:
         """
         Test importing dataset with nested structures:
         - supporting_facts: Sequence({'title': string, 'sent_id': int32})
@@ -405,7 +415,7 @@ class TestHfDatasets:
 
     @pytest.mark.parametrize('streaming', [False, True])
     @pytest.mark.skipif(IN_CI, reason='Too much IO for CI')
-    def test_import_arraynd(self, streaming: bool, reset_db: None) -> None:
+    def test_import_arraynd(self, streaming: bool, uses_db: None) -> None:
         """Test dataset with Array2D and Array3D features."""
         skip_test_if_not_installed('datasets')
         import datasets

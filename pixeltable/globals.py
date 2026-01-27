@@ -71,7 +71,7 @@ def create_table(
     source format and/or schema can be specified directly via the `source_format` and `schema_overrides` parameters.
 
     Args:
-        path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir.my_subdir.my_table'`.
+        path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir/my_subdir/my_table'`.
         schema: Schema for the new table, mapping column names to Pixeltable types.
         source: A data source (file, URL, Table, Query, or list of rows) to import from.
         source_format: Must be used in conjunction with a `source`.
@@ -238,7 +238,7 @@ def create_view(
 
     Args:
         path: A name for the view; can be either a simple name such as `my_view`, or a pathname such as
-            `dir1.my_view`.
+            `dir1/my_view`.
         base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`Query`][pixeltable.Query] to
             base the view on.
         additional_columns: If specified, will add these columns to the view once it is created. The format
@@ -365,7 +365,7 @@ def create_snapshot(
 
     Args:
         path_str: A name for the snapshot; can be either a simple name such as `my_snapshot`, or a pathname such as
-            `dir1.my_snapshot`.
+            `dir1/my_snapshot`.
         base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`Query`][pixeltable.Query] to
             base the snapshot on.
         additional_columns: If specified, will add these columns to the snapshot once it is created. The format
@@ -470,7 +470,7 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     Args:
         remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'` or
             `'pxt://org_name/my_dir/my_table:5'` (with version 5).
-        local_path: Local table path where the replica will be created, such as `'my_new_dir.my_new_tbl'`. It can be
+        local_path: Local table path where the replica will be created, such as `'my_new_dir/my_new_tbl'`. It can be
             the same or different from the cloud table name.
 
     Returns:
@@ -506,7 +506,7 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
 
         For a table in a subdirectory:
 
-        >>> tbl = pxt.get_table('subdir.my_table')
+        >>> tbl = pxt.get_table('subdir/my_table')
 
         Handles to views and snapshots are retrieved in the same way:
 
@@ -551,11 +551,11 @@ def move(
     Examples:
         Move a table to a different directory:
 
-        >>>> pxt.move('dir1.my_table', 'dir2.my_table')
+        >>>> pxt.move('dir1/my_table', 'dir2/my_table')
 
         Rename a table:
 
-        >>>> pxt.move('dir1.my_table', 'dir1.new_name')
+        >>>> pxt.move('dir1/my_table', 'dir1/new_name')
     """
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     if if_exists_ not in (catalog.IfExistsParam.ERROR, catalog.IfExistsParam.IGNORE):
@@ -594,17 +594,17 @@ def drop_table(
 
     Examples:
         Drop a table by its fully qualified name:
-        >>> pxt.drop_table('subdir.my_table')
+        >>> pxt.drop_table('subdir/my_table')
 
         Drop a table by its handle:
-        >>> t = pxt.get_table('subdir.my_table')
+        >>> t = pxt.get_table('subdir/my_table')
         ... pxt.drop_table(t)
 
         Drop a table if it exists, otherwise do nothing:
-        >>> pxt.drop_table('subdir.my_table', if_not_exists='ignore')
+        >>> pxt.drop_table('subdir/my_table', if_not_exists='ignore')
 
         Drop a table and all its dependents:
-        >>> pxt.drop_table('subdir.my_table', force=True)
+        >>> pxt.drop_table('subdir/my_table', force=True)
     """
     tbl_path: str
     if isinstance(table, catalog.Table):
@@ -670,7 +670,7 @@ def _assemble_dir_contents(
     for name, entry in catalog_entries.items():
         if name.startswith('_'):
             continue  # Skip system paths
-        path = f'{dir_path}.{name}' if len(dir_path) > 0 else name
+        path = f'{dir_path}/{name}' if len(dir_path) > 0 else name
         if entry.dir is not None:
             dirs.append(path)
             if entry.dir_entries is not None:
@@ -746,11 +746,11 @@ def create_dir(
 
         Create a subdirectory:
 
-        >>> pxt.create_dir('my_dir.sub_dir')
+        >>> pxt.create_dir('my_dir/sub_dir')
 
         Create a subdirectory only if it does not already exist, otherwise do nothing:
 
-        >>> pxt.create_dir('my_dir.sub_dir', if_exists='ignore')
+        >>> pxt.create_dir('my_dir/sub_dir', if_exists='ignore')
 
         Create a directory and replace if it already exists:
 
@@ -758,7 +758,7 @@ def create_dir(
 
         Create a subdirectory along with its ancestors:
 
-        >>> pxt.create_dir('parent1.parent2.sub_dir', parents=True)
+        >>> pxt.create_dir('parent1/parent2/sub_dir', parents=True)
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
@@ -792,11 +792,11 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
 
         Remove a subdirectory:
 
-        >>> pxt.drop_dir('my_dir.sub_dir')
+        >>> pxt.drop_dir('my_dir/sub_dir')
 
         Remove an existing directory if it is empty, but do nothing if it does not exist:
 
-        >>> pxt.drop_dir('my_dir.sub_dir', if_not_exists='ignore')
+        >>> pxt.drop_dir('my_dir/sub_dir', if_not_exists='ignore')
 
         Remove an existing directory and all its contents:
 
@@ -882,11 +882,11 @@ def _extract_paths(
         matches = [name for name, entry in dir_entries.items() if entry.table is not None]
 
     # Filter out system paths
-    matches = [name for name in matches if catalog.is_valid_identifier(name)]
+    matches = [name for name in matches if catalog.is_valid_identifier(name, allow_hyphens=True)]
     result = [parent.append(name) for name in matches]
 
     for name, entry in dir_entries.items():
-        if len(entry.dir_entries) > 0 and catalog.is_valid_identifier(name):
+        if len(entry.dir_entries) > 0 and catalog.is_valid_identifier(name, allow_hyphens=True):
             result.extend(_extract_paths(entry.dir_entries, parent=parent.append(name), entry_type=entry_type))
     return result
 
@@ -906,7 +906,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
 
     Examples:
         >>> cl.list_dirs('my_dir', recursive=True)
-        ['my_dir', 'my_dir.sub_dir1']
+        ['my_dir', 'my_dir/sub_dir1']
     """
     path_obj = catalog.Path.parse(path, allow_empty_path=True)  # validate format
     cat = Catalog.get()
@@ -1016,6 +1016,15 @@ def configure_logging(
 
 def array(elements: Iterable) -> exprs.Expr:
     return exprs.Expr.from_array(elements)
+
+
+def home() -> Path:
+    """Get the path to the user's home directory in Pixeltable.
+
+    Returns:
+        The path to the user's home directory.
+    """
+    return Config.get().home
 
 
 class DirContents(TypedDict):

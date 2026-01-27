@@ -9,7 +9,7 @@ from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if
 @rerun(reruns=3, reruns_delay=8)
 class TestVoyageAI:
     @pytest.mark.parametrize('output_dimension', [None, 512])
-    def test_embeddings(self, reset_db: None, output_dimension: int | None) -> None:
+    def test_embeddings(self, uses_db: None, output_dimension: int | None) -> None:
         skip_test_if_not_installed('voyageai')
         skip_test_if_no_client('voyage')
         from pixeltable.functions.voyageai import embeddings
@@ -29,7 +29,7 @@ class TestVoyageAI:
         res = t.select(t.embed).collect()
         assert res['embed'][0].shape == (expected_dim,)
 
-    def test_embeddings_index(self, reset_db: None) -> None:
+    def test_embeddings_index(self, uses_db: None) -> None:
         """Test using Voyage AI embeddings with an embedding index."""
         skip_test_if_not_installed('voyageai')
         skip_test_if_no_client('voyage')
@@ -66,7 +66,7 @@ class TestVoyageAI:
             'machine learning' in results['text'][0].lower() or 'artificial intelligence' in results['text'][0].lower()
         )
 
-    def test_rerank(self, reset_db: None) -> None:
+    def test_rerank(self, uses_db: None) -> None:
         skip_test_if_not_installed('voyageai')
         skip_test_if_no_client('voyage')
         from pixeltable.functions.voyageai import rerank
@@ -104,7 +104,7 @@ class TestVoyageAI:
         scores = [r['relevance_score'] for r in result['results']]
         assert scores == sorted(scores, reverse=True)
 
-    def test_multimodal_embed(self, reset_db: None) -> None:
+    def test_multimodal_embed(self, uses_db: None) -> None:
         """Test multimodal embeddings with images and text."""
         skip_test_if_not_installed('voyageai')
         skip_test_if_no_client('voyage')

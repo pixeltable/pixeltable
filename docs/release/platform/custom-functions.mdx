@@ -1,7 +1,6 @@
 ---
 title: 'Custom Functions (UDFs)'
 description: 'Create and use custom functions (UDFs) in Pixeltable'
-icon: 'blank'
 ---
 
 ## What are User-Defined Functions?
@@ -324,7 +323,7 @@ Tables as UDFs are particularly powerful for building AI agents and complex auto
     #### Step 1: Create a Specialized Table
     ```python
     # Create a table with your workflow
-    finance_agent = pxt.create_table('directory.financial_analyst',
+    finance_agent = pxt.create_table('directory/financial_analyst',
                                     {'prompt': pxt.String})
     # Add computed columns for processing
     finance_agent.add_computed_column(/* ... */)
@@ -392,7 +391,7 @@ Tables as UDFs are particularly powerful for building AI agents and complex auto
         ```python
         # Create Financial Analyst Agent Table
         finance_agent = pxt.create_table(
-            f'{DIRECTORY}.financial_analyst',
+            f'{DIRECTORY}/financial_analyst',
             {'prompt': pxt.String},
             if_exists='ignore'
         )
@@ -460,7 +459,7 @@ Tables as UDFs are particularly powerful for building AI agents and complex auto
         ```python
         # Create a Portfolio Manager table that uses the finance agent
         portfolio_manager = pxt.create_table(
-            f'{DIRECTORY}.portfolio_manager',
+            f'{DIRECTORY}/portfolio_manager',
             {'prompt': pxt.String},
             if_exists='ignore'
         )
@@ -475,7 +474,7 @@ Tables as UDFs are particularly powerful for building AI agents and complex auto
       <Accordion title="Step 4: Test the Workflow" icon="vial">
         ```python
         # Get the portfolio manager table
-        portfolio_manager = pxt.get_table(f'{DIRECTORY}.portfolio_manager')
+        portfolio_manager = pxt.get_table(f'{DIRECTORY}/portfolio_manager')
 
         # Insert a test query
         portfolio_manager.insert([
@@ -653,7 +652,7 @@ A retrieval UDF queries a table based on input parameters and returns matching r
 import pixeltable as pxt
 
 # Create a knowledge base table
-kb = pxt.create_table('app.knowledge_base', {
+kb = pxt.create_table('app/knowledge_base', {
     'topic': pxt.String,
     'category': pxt.String,
     'content': pxt.String
@@ -690,7 +689,7 @@ from pixeltable.functions.openai import chat_completions, invoke_tools
 tools = pxt.tools(lookup_kb)
 
 # Use in an agent workflow
-agent = pxt.create_table('app.agent', {'question': pxt.String})
+agent = pxt.create_table('app/agent', {'question': pxt.String})
 
 agent.add_computed_column(
     initial_response=chat_completions(

@@ -1,7 +1,6 @@
 ---
 title: 'Views'
 description: 'Learn how to create and use virtual derived tables in Pixeltable through views'
-icon: 'blank'
 ---
 
 # When to Use Views
@@ -30,13 +29,13 @@ pxt.create_dir('documents')
 
 # Define your base table first
 documents = pxt.create_table(
-    "documents.collection",
+    "documents/collection",
     {"document": pxt.Document}
 )
 
 # Create a view that splits documents into chunks
 chunks = pxt.create_view(
-    'documents.chunks',
+    'documents/chunks',
     documents,
     iterator=document_splitter(
         document=documents.document,
@@ -52,8 +51,8 @@ chunks = pxt.create_view(
 import pixeltable as pxt
 
 # Connect to your base table and view
-documents = pxt.get_table("documents.collection")
-chunks = pxt.get_table("documents.chunks")
+documents = pxt.get_table("documents/collection")
+chunks = pxt.get_table("documents/chunks")
 
 # Insert data into base table - view updates automatically
 documents.insert([{
@@ -72,7 +71,7 @@ print(chunks.collect())
     ```python
     # Document splitting view
     chunks = pxt.create_view(
-        'docs.chunks',
+        'docs/chunks',
         documents,
         iterator=document_splitter(
             document=documents.document
@@ -86,7 +85,7 @@ print(chunks.collect())
     ```python
     # Filtered view of high-budget movies
     blockbusters = pxt.create_view(
-        'movies.blockbusters',
+        'movies/blockbusters',
         movies.where(movies.budget >= 100.0)
     )
     ```
@@ -127,7 +126,7 @@ print(chunks.collect())
     ```python
     # Create a view of embedded chunks
     embedded_chunks = pxt.create_view(
-        'docs.embedded_chunks',
+        'docs/embedded_chunks',
         chunks.where(chunks.text.len() > 100)
     )
     ```
