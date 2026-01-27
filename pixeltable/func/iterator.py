@@ -2,12 +2,14 @@ import inspect
 import typing
 from collections import abc
 from dataclasses import dataclass
-from typing import Any, Callable, Iterator, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterator, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
-from pixeltable.iterators.base import ComponentIterator
 
 from .signature import Signature
+
+if TYPE_CHECKING:
+    from pixeltable.iterators.base import ComponentIterator
 
 
 class PxtIterator:
@@ -141,7 +143,7 @@ class PxtIterator:
             self._validate(bound_args)
         return self.decorated_callable(**bound_args)
 
-    def _retrofit(iterator_cls: type[ComponentIterator], iterator_args: dict[str, Any]) -> 'IteratorCall':
+    def _retrofit(iterator_cls: type['ComponentIterator'], iterator_args: dict[str, Any]) -> 'IteratorCall':
         it = PxtIterator.__new__(PxtIterator)
         it.decorated_callable = iterator_cls.__init__
         it._default_output_schema = None
