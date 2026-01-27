@@ -1,9 +1,11 @@
 import glob
+import json
 import logging
 import os
 import platform
 import subprocess
 import sys
+from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
@@ -20,6 +22,7 @@ from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
 from pixeltable.func.signature import Batch
 from pixeltable.metadata import VERSION, SystemInfo
+from pixeltable.metadata.converters.convert_45 import _convert_table_and_versions
 from pixeltable.metadata.converters.util import convert_table_md
 from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
@@ -300,7 +303,670 @@ class TestMigration:
                 for col_md in table_md['column_md'].values():
                     assert col_md['is_pk'] is not None
 
+    def test_convert_45(self) -> None:
+        table_md = deepcopy(_TABLE_MD)
+        schema_version_md = deepcopy(_SCHEMA_VERSION_MD)
+        _convert_table_and_versions(table_md, schema_version_md)
+        assert table_md == _TABLE_MD_EXPECTED
+        assert set(schema_version_md.keys()) == set(_SCHEMA_VERSION_MD_EXPECTED.keys())
+        for ver in schema_version_md:
+            assert schema_version_md[ver] == _SCHEMA_VERSION_MD_EXPECTED[ver], ver
+
 
 @pxt.udf(batch_size=4)
 def replacement_batched_udf(strings: Batch[str], *, upper: bool = True) -> Batch[pxt.String]:
     return [string.upper() if upper else string.lower() for string in strings]
+
+
+_TABLE_MD = json.loads("""
+ {
+     "name": "test",
+     "user": null,
+     "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+     "view_md": null,
+     "view_sn": 0,
+     "index_md": {
+         "0": {
+             "id": 0,
+             "name": "idx0",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 0,
+             "index_val_col_id": 2,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 0,
+             "schema_version_drop": null,
+             "index_val_undo_col_id": 3
+         },
+         "1": {
+             "id": 1,
+             "name": "idx1",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 1,
+             "index_val_col_id": 4,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 0,
+             "schema_version_drop": 2,
+             "index_val_undo_col_id": 5
+         },
+         "2": {
+             "id": 2,
+             "name": "idx2",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 6,
+             "index_val_col_id": 7,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 3,
+             "schema_version_drop": null,
+             "index_val_undo_col_id": 8
+         }
+     },
+     "column_md": {
+         "0": {
+             "id": 0,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "1": {
+             "id": 1,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "2": {
+             "id": 2,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": {
+                 "col_id": 0,
+                 "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                 "_classname": "ColumnRef",
+                 "tbl_version": null,
+                 "reference_tbl": null,
+                 "perform_validation": false
+             },
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "3": {
+             "id": 3,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "4": {
+             "id": 4,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": {
+                 "col_id": 1,
+                 "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                 "_classname": "ColumnRef",
+                 "tbl_version": null,
+                 "reference_tbl": null,
+                 "perform_validation": false
+             },
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "5": {
+             "id": 5,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "6": {
+             "id": 6,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         },
+         "7": {
+             "id": 7,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": {
+                 "col_id": 6,
+                 "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                 "_classname": "ColumnRef",
+                 "tbl_version": null,
+                 "reference_tbl": null,
+                 "perform_validation": false
+             },
+             "destination": null,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         },
+         "8": {
+             "id": 8,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         }
+     },
+     "tbl_state": 0,
+     "is_replica": false,
+     "next_col_id": 9,
+     "next_idx_id": 3,
+     "next_row_id": 10,
+     "pending_stmt": null,
+     "additional_md": {
+     },
+     "current_version": 4,
+     "external_stores": [
+     ],
+     "has_pending_ops": false,
+     "current_schema_version": 3
+ }""")
+
+_SCHEMA_VERSION_MD = {
+    0: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "media_validation": null
+                        },
+                        "1": {
+                            "pos": 1,
+                            "name": "c2",
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 0,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": null
+                }
+                 """),
+    2: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 2,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": 0
+                }
+                 """),
+    3: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "media_validation": null
+                        },
+                        "6": {
+                            "pos": 1,
+                            "name": "c3",
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 3,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": 2
+                }
+                 """),
+}
+
+_TABLE_MD_EXPECTED = json.loads("""
+ {
+     "name": "test",
+     "user": null,
+     "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+     "view_md": null,
+     "view_sn": 0,
+     "index_md": {
+         "0": {
+             "id": 0,
+             "name": "idx0",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 0,
+             "index_val_col_id": 2,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 0,
+             "schema_version_drop": null,
+             "index_val_undo_col_id": 3
+         },
+         "1": {
+             "id": 1,
+             "name": "idx1",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 1,
+             "index_val_col_id": 4,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 0,
+             "schema_version_drop": 2,
+             "index_val_undo_col_id": 5
+         },
+         "2": {
+             "id": 2,
+             "name": "idx2",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 6,
+             "index_val_col_id": 7,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 3,
+             "schema_version_drop": null,
+             "index_val_undo_col_id": 8
+         }
+     },
+     "column_md": {
+         "0": {
+             "id": 0,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "1": {
+             "id": 1,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "2": {
+             "id": 2,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "3": {
+             "id": 3,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "4": {
+             "id": 4,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "5": {
+             "id": 5,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "6": {
+             "id": 6,
+             "stored": true,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         },
+         "7": {
+             "id": 7,
+             "stored": true,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         },
+         "8": {
+             "id": 8,
+             "stored": true,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         }
+     },
+     "tbl_state": 0,
+     "is_replica": false,
+     "next_col_id": 9,
+     "next_idx_id": 3,
+     "next_row_id": 10,
+     "pending_stmt": null,
+     "additional_md": {
+     },
+     "current_version": 4,
+     "external_stores": [
+     ],
+     "has_pending_ops": false,
+     "current_schema_version": 3
+ }
+ """)
+
+_SCHEMA_VERSION_MD_EXPECTED = {
+    0: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "1": {
+                            "pos": 1,
+                            "name": "c2",
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "2": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": {
+                                "col_id": 0,
+                                "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                                "_classname": "ColumnRef",
+                                "tbl_version": null,
+                                "reference_tbl": null,
+                                "perform_validation": false
+                            },
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "3": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "4": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": {
+                                "col_id": 1,
+                                "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                                "_classname": "ColumnRef",
+                                "tbl_version": null,
+                                "reference_tbl": null,
+                                "perform_validation": false
+                            },
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "5": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 0,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": null
+                }
+    """),
+    2: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "2": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": {
+                                "col_id": 0,
+                                "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                                "_classname": "ColumnRef",
+                                "tbl_version": null,
+                                "reference_tbl": null,
+                                "perform_validation": false
+                            },
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "3": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 2,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": 0
+                }
+    """),
+    3: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "2": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": {
+                                "col_id": 0,
+                                "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                                "_classname": "ColumnRef",
+                                "tbl_version": null,
+                                "reference_tbl": null,
+                                "perform_validation": false
+                            },
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "3": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "6": {
+                            "pos": 1,
+                            "name": "c3",
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "7": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": {
+                                "col_id": 6,
+                                "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                                "_classname": "ColumnRef",
+                                "tbl_version": null,
+                                "reference_tbl": null,
+                                "perform_validation": false
+                            },
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "8": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 3,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": 2
+                }
+    """),
+}
