@@ -10,8 +10,8 @@ from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if
 from .tool_utils import run_tool_invocations_test
 
 
-# @pytest.mark.remote_api
-# @rerun(reruns=3, reruns_delay=8)
+@pytest.mark.remote_api
+@rerun(reruns=3, reruns_delay=8)
 class TestGemini:
     @pytest.mark.parametrize('model', ['gemini-2.5-flash', 'gemini-3-pro-preview'])
     def test_generate_content(self, model: str, uses_db: None) -> None:
