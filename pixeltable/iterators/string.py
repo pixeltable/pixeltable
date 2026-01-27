@@ -2,14 +2,17 @@ from typing import Any
 
 from deprecated import deprecated
 
-import pixeltable as pxt
+from pixeltable.func.iterator import IteratorCall
+from pixeltable.iterators.base import ComponentIterator
 
 
-class StringSplitter:
+class StringSplitter(ComponentIterator):
     @classmethod
     @deprecated(
         '`StringSplitter.create()` is deprecated; use `pixeltable.functions.string.string_splitter()` instead',
         version='0.5.6',
     )
-    def create(cls, **kwargs: Any) -> 'pxt.func.PxtIterator':
-        return pxt.functions.string.string_splitter(**kwargs)
+    def create(cls, **kwargs: Any) -> IteratorCall:
+        from pixeltable.functions.string import string_splitter
+
+        return string_splitter(**kwargs)
