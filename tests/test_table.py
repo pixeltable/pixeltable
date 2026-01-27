@@ -3030,11 +3030,11 @@ class TestTable:
         # Add column with literal default value to empty table
         t = pxt.create_table('test_defaults', {'c1': pxt.Int})
         # Table is empty, so we can add columns with defaults
-        t.add_column(c2={'type': pxt.String, 'default': 'empty'})
+        t.add_column(c2=pxt.String, default='empty')
 
         # Test literal defaults for different types (on empty table)
-        t.add_column(c_int={'type': pxt.Int, 'default': -1})
-        t.add_column(c_float={'type': pxt.Float, 'default': 3.14})
+        t.add_column(c_int=pxt.Int, default=-1)
+        t.add_column(c_float=pxt.Float, default=3.14)
 
         # Add multiple columns with defaults using add_columns
         t.add_columns(
