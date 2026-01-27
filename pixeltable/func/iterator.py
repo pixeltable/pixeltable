@@ -37,7 +37,6 @@ class PxtIterator:
         self._conditional_output_schema = None
         self._validate = None
 
-
     def _infer_properties(self) -> dict[str, ts.ColumnType] | None:
         if isinstance(self.decorated_callable, type):
             if not hasattr(self.decorated_callable, '__init__') or not hasattr(self.decorated_callable, '__iter__'):
@@ -147,10 +146,10 @@ class PxtIterator:
             self._validate(bound_args)
         return self.decorated_callable(**bound_args)
 
-    def _retrofit(iterator_cls: type[ComponentIterator], iterator_args: dict[str, Any]) -> 'PxtIterator':
+    def _retrofit(iterator_cls: type[ComponentIterator], iterator_args: dict[str, Any]) -> 'IteratorCall':
         it = PxtIterator.__new__(PxtIterator)
         it.decorated_callable = iterator_cls.__init__
-        it._default_output_schema = iterator_cls.output_schema()
+        it._default_output_schema = None
         it.signature = Signature.create(iterator_cls.__init__, return_type=ts.JsonType())
 
     @property
