@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import logging
 import sys
 import time
 from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, Sequence, TypeVar
@@ -16,6 +17,8 @@ from pixeltable.utils.misc import non_none_dict_factory
 from .data_row import DataRow
 from .expr import Expr, ExprScope
 from .expr_set import ExprSet
+
+_logger = logging.getLogger('pixeltable')
 
 if TYPE_CHECKING:
     from .column_ref import ColumnRef
@@ -497,23 +500,29 @@ class RowBuilder:
         """
         from pixeltable.exprs.column_property_ref import ColumnPropertyRef
 
+        def _get_default_value(col: catalog.Column) -> Any:
+            """Get default value for a column, initializing value_expr if needed."""
+            col.init_value_expr(None)  # idempotent: no-op if already initialized
+            assert col.value_expr is not None and isinstance(col.value_expr, exprs.Literal), (
+                f'Column {col.name!r} has default value but value_expr is not a Literal'
+            )
+            return col.value_expr.stored_value
+
+        def _is_null(val: Any, col: catalog.Column) -> bool:
+            """Check if value is NULL (None or sql.sql.null() for JSON types)."""
+            return val is None or (
+                col.col_type.is_json_type() and hasattr(val, '__class__') and 'Null' in val.__class__.__name__
+            )
+
         num_excs = 0
         table_row: list[Any] = list(pk)
         # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
         for col, slot_idx in self.table_columns.items():
             if col.id in data_row.cell_vals:
                 val = data_row.cell_vals[col.id]
-                # Apply default if value is None or sql.sql.null() and column has a default
-                # Note: CellMaterializationNode sets JSON columns to sql.sql.null() when val is None
-                is_null = val is None or (isinstance(val, sql.sql.elements.Null) or val is sql.sql.null())
-                if is_null:
-                    # Get cached default value in stored format (computed once per column)
-                    default_stored_val = col.get_default_stored_value()
-                    if default_stored_val is not None:
-                        val = default_stored_val
-                # Convert to stored format - use get_stored_val for proper conversion (arrays, JSON, etc.)
-                # But we need to temporarily set the value in data_row for get_stored_val to work
-                # Actually, for cell_vals, the value is already in the right format, just append it
+                # Use default if value is None (or sql.sql.null() for JSON types)
+                if _is_null(val, col) and col.has_default_value:
+                    val = _get_default_value(col)
                 table_row.append(val)
                 if col.stores_cellmd:
                     if data_row.cell_md[col.id] is None:
@@ -523,6 +532,7 @@ class RowBuilder:
                         md = dataclasses.asdict(data_row.cell_md[col.id], dict_factory=non_none_dict_factory)
                         assert len(md) > 0
                         table_row.append(md)
+                # slot_idx is None when values come from stored data rather than expression evaluation
                 if slot_idx is not None and data_row.has_exc(slot_idx):
                     num_excs += 1
                     if cols_with_excs is not None:
@@ -539,16 +549,16 @@ class RowBuilder:
                     # exceptions get stored in the errortype/-msg properties of the cellmd column
                     table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
-                val = data_row.get_stored_val(slot_idx, col.sa_col_type)
-                # Apply default if value is None and column has a default
-                if val is None and col.has_default_value:
-                    # Get cached default value in stored format (computed once per column)
-                    default_stored_val = col.get_default_stored_value()
-                    if default_stored_val is not None:
-                        val = default_stored_val
-                    # For JSON columns, None needs to be sql.sql.null()
-                    elif col.col_type.is_json_type():
-                        val = sql.sql.null()
+                if data_row.has_val[slot_idx]:
+                    val = data_row.get_stored_val(slot_idx, col.sa_col_type)
+                    # Use default if value is None (or sql.sql.null() for JSON types)
+                    if _is_null(val, col) and col.has_default_value:
+                        val = _get_default_value(col)
+                elif col.has_default_value:
+                    # Use default value
+                    val = _get_default_value(col)
+                else:
+                    val = None
                 table_row.append(val)
                 if col.stores_cellmd:
                     table_row.append(sql.sql.null())  # placeholder for cellmd column

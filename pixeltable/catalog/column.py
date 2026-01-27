@@ -67,7 +67,6 @@ class Column:
     _value_expr: exprs.Expr | None
     value_expr_dict: dict[str, Any] | None
     _is_computed_column: bool  # True if value_expr is a computed column, False if it's a default value
-    _default_stored_value: Any | None  # Cached default value in stored format
     # we store a handle here in order to allow Column construction before there is a corresponding TableVersion
     tbl_handle: 'TableVersionHandle' | None
 
@@ -117,7 +116,6 @@ class Column:
             # For defaults, only constant values are supported
             if not self._is_computed_column and not isinstance(self._value_expr, exprs.Literal):
                 raise excs.Error(f'Column {name!r}: Default values must be constants.')
-            # Serialize if value_expr_dict not provided
             if self.value_expr_dict is None:
                 self.value_expr_dict = self._value_expr.as_dict()
 
@@ -148,9 +146,6 @@ class Column:
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
         self._explicit_destination = destination
-
-        # Cache for the default value
-        self._default_stored_value = None
 
     def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
@@ -233,8 +228,9 @@ class Column:
             # Instantiate the Expr from its dict
             self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
             self._value_expr.bind_rel_paths()
-            # For columns with defaults, validate that it's a literal
-            if not self._is_computed_column and not isinstance(self._value_expr, exprs.Literal):
+            # For columns with defaults (not computed, not index columns), validate that it's a literal
+            # Index columns (name=None) can have non-literal expressions and are not default value columns
+            if self.has_default_value and not isinstance(self._value_expr, exprs.Literal):
                 raise excs.Error(
                     f'Column {self.name!r}: Default values must be constants. Got expression: {self._value_expr}'
                 )
@@ -244,7 +240,7 @@ class Column:
                         f"""
                         The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
                         {{validation_error}}
-                        You can continue to query existing data from this column, but evaluating it on new data will 
+                        You can continue to query existing data from this column, but evaluating it on new data will
                         raise an error."""
                     )
                     .strip()
@@ -255,28 +251,6 @@ class Column:
         if tvp is not None:
             # Retarget the Expr
             self._value_expr = self._value_expr.retarget(tvp)
-
-    def get_default_stored_value(self) -> Any | None:
-        """
-        Returns the default value in stored format, computing it once and caching it.
-        Returns None if there is no default.
-        """
-        if not self.has_default_value:
-            return None
-
-        if self._default_stored_value is not None:
-            return self._default_stored_value
-
-        # Ensure value_expr is initialized (init_value_expr should have been called, but ensure it here)
-        if self._value_expr is None:
-            if self.value_expr_dict is None:
-                return None
-            # Use init_value_expr to avoid duplicating logic
-            self.init_value_expr(None)
-
-        # Convert literal to stored format and cache
-        self._default_stored_value = self._value_expr.as_literal().to_stored_value()
-        return self._default_stored_value
 
     def set_value_expr(self, value_expr: exprs.Expr) -> None:
         self._value_expr = value_expr
@@ -333,7 +307,12 @@ class Column:
     @property
     def has_default_value(self) -> bool:
         """Returns True if column has a default value."""
-        return not self._is_computed_column and (self._value_expr is not None or self.value_expr_dict is not None)
+        # Index columns (name=None) are computed columns, not default value columns
+        return (
+            self.name is not None
+            and not self._is_computed_column
+            and (self._value_expr is not None or self.value_expr_dict is not None)
+        )
 
     @property
     def is_required_for_insert(self) -> bool:

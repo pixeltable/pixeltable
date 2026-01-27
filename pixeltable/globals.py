@@ -261,7 +261,7 @@ def create_view(
         additional_columns: If specified, will add these columns to the view once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema` parameter in
             [`create_table`][pixeltable.create_table]. Column specifications can include a `'default'` key
-            for default values. Default values are applied when rows are inserted into the view's store table.
+            for default values.
         is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
             [`create_snapshot`][pixeltable.create_snapshot].
         create_default_idxs: Whether to create default indexes on the view's columns (the base's columns are excluded).
@@ -389,7 +389,7 @@ def create_snapshot(
         additional_columns: If specified, will add these columns to the snapshot once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema` parameter in
             [`create_table`][pixeltable.create_table]. Column specifications can include a `'default'` key
-            for default values. Default values are applied when rows are copied from the base table to the snapshot.
+            for default values.
         iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
             the base table.
         num_retained_versions: Number of versions of the view to retain.

@@ -1182,11 +1182,15 @@ class TestView:
     def test_additional_columns_with_defaults(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test that views with additional_columns that have default values work correctly."""
         # Create base table with columns that have default values
-        t = pxt.create_table('base_tbl', {'c1': pxt.Int})
-        # Add columns with defaults to base table (table is empty, so this is allowed)
-        t.add_column(base_int={'type': pxt.Int, 'default': 10})
-        t.add_column(base_str={'type': pxt.String, 'default': 'base_default'})
-        t.add_column(base_json={'type': pxt.Json, 'default': {'base': 'data'}})
+        t = pxt.create_table(
+            'base_tbl',
+            {
+                'c1': pxt.Int,
+                'base_int': {'type': pxt.Int, 'default': 10},
+                'base_str': {'type': pxt.String, 'default': 'base_default'},
+                'base_json': {'type': pxt.Json, 'default': {'base': 'data'}},
+            },
+        )
         # Insert rows - they should get default values from base table columns
         t.insert([{'c1': 1}, {'c1': 2}])
 

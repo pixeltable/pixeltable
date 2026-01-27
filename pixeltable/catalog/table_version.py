@@ -23,6 +23,7 @@ from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
+from pixeltable.utils.sql import log_explain
 
 from ..func.globals import resolve_symbol
 from .column import Column
@@ -600,10 +601,6 @@ class TableVersion:
                 stores_cellmd = False
                 sa_col_type = idx.get_index_sa_type(col_type)
 
-            # Get is_computed_column flag (migration ensures this is always set)
-            is_computed_column = getattr(col_md, 'is_computed_column', False)
-            value_expr_dict = col_md.value_expr
-
             col = Column(
                 col_id=col_md.id,
                 name=schema_col_md.name if schema_col_md is not None else None,
@@ -616,8 +613,8 @@ class TableVersion:
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
                 stores_cellmd=stores_cellmd,
-                value_expr_dict=value_expr_dict,
-                is_computed_column=is_computed_column,
+                value_expr_dict=col_md.value_expr,
+                is_computed_column=col_md.is_computed_column,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
             )
@@ -869,7 +866,7 @@ class TableVersion:
         row_count = self.store_tbl.count()
         for col in cols:
             # TODO: check this elsewhere?
-            if not col.col_type.nullable and not col.is_computed and row_count > 0:
+            if not col.col_type.nullable and not col.is_computed and not col.has_default_value and row_count > 0:
                 raise excs.Error(
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
                 )
@@ -979,6 +976,10 @@ class TableVersion:
         # Create indices and their md records
         for col, (idx, val_col, undo_col) in index_cols.items():
             self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
+
+        # Populate default values for columns that were just added to existing rows
+        self._populate_default_values(cols)
+
         self.update_status = status
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
@@ -1009,8 +1010,7 @@ class TableVersion:
             # Allow non-nullable columns if they have a default value or are computed
             if not col.col_type.nullable and not col.is_computed and not col.has_default_value and row_count > 0:
                 raise excs.Error(
-                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows. '
-                    f'Specify a default value to add a non-nullable column to a non-empty table.'
+                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
                 )
 
         num_excs = 0
@@ -1036,14 +1036,11 @@ class TableVersion:
             if col.is_stored:
                 self.store_tbl.add_column(col)
 
-            if row_count == 0:
+            if not col.is_computed or not col.is_stored or row_count == 0:
                 continue
-            
-            # Populate the column if it's a computed column or has a default value and table has rows
-            if (col.is_computed or col.has_default_value) and col.is_stored:
-                plan = Planner.create_add_column_plan(self.path, col)
-            else:
-                continue
+
+            # populate the column
+            plan = Planner.create_add_column_plan(self.path, col)
             with Env.get().report_progress():
                 try:
                     plan.ctx.title = self.display_str()
@@ -1070,6 +1067,58 @@ class TableVersion:
             cols_with_excs=[f'{col.get_tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
         )
+
+    def _populate_default_values(self, cols: Iterable[Column]) -> None:
+        """Populate default values for columns that were just added to existing rows.
+
+        Uses direct SQL UPDATE since default values are constants. This is called
+        synchronously at the end of add_columns() and does not create a pending op.
+        """
+        # Collect column IDs from the passed columns
+        col_ids = {col.id for col in cols if col.id is not None}
+
+        # Get user-facing stored columns (not index columns) with default values
+        default_value_cols = [
+            col
+            for col in self.cols
+            if col.id in col_ids and col.name is not None and col.has_default_value and col.is_stored
+        ]
+
+        row_count = self.store_tbl.count()
+        if len(default_value_cols) == 0 or row_count == 0:
+            # No default values to populate
+            return
+
+        # Ensure sa_tbl is up to date (it should be after add_column calls create_sa_tbl)
+        self.store_tbl.create_sa_tbl()
+
+        conn = Env.get().conn
+
+        # Build UPDATE statement with all default value columns
+        update_stmt = sql.update(self.store_tbl.sa_tbl)
+        # Only update rows that are currently live (v_max == MAX_VERSION)
+        update_stmt = update_stmt.where(self.store_tbl.v_max_col == schema.Table.MAX_VERSION)
+
+        # Set all default value columns
+        for col in default_value_cols:
+            col.init_value_expr(None)  # idempotent: no-op if already initialized
+            assert col.has_default_value, f'Column {col.name!r} should have default value'
+            assert col.value_expr is not None, f'Column {col.name!r} value_expr should be initialized'
+            assert isinstance(col.value_expr, exprs.Literal), (
+                f'Column {col.name!r} has default value but value_expr is not a Literal'
+            )
+            # sa_col should be initialized by create_sa_tbl() called above
+            assert col.sa_col is not None, f'Column {col.name!r} sa_col should be initialized'
+            # Use stored_value from the Literal - it's already converted to the appropriate SQL type
+            default_val = col.value_expr.stored_value
+            update_stmt = update_stmt.values({col.sa_col: default_val})
+            if col.stores_cellmd:
+                assert col.sa_cellmd_col is not None, f'Column {col.name!r} sa_cellmd_col should be initialized'
+                # Set cellmd to NULL for default values (no errors)
+                update_stmt = update_stmt.values({col.sa_cellmd_col: None})
+
+        log_explain(_logger, update_stmt, conn)
+        conn.execute(update_stmt)
 
     def drop_column(self, col: Column) -> None:
         """Drop a column from the table."""

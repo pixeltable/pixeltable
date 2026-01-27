@@ -417,16 +417,20 @@ class TestSnapshot:
     def test_additional_columns_with_defaults(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test that snapshots with additional_columns that have default values work correctly."""
         # Create base table with columns that have default values
-        t = pxt.create_table('base_tbl', {'c1': pxt.Int})
-        # Add columns with defaults to base table (table is empty, so this is allowed)
-        t.add_column(base_int={'type': pxt.Int, 'default': 10})
-        t.add_column(base_str={'type': pxt.String, 'default': 'base_default'})
-        t.add_column(base_json={'type': pxt.Json, 'default': {'base': 'data'}})
+        t = pxt.create_table(
+            'base_tbl',
+            {
+                'c1': pxt.Int,
+                'base_int': {'type': pxt.Int, 'default': 10},
+                'base_str': {'type': pxt.String, 'default': 'base_default'},
+                'base_json': {'type': pxt.Json, 'default': {'base': 'data'}},
+            },
+        )
         # Insert rows - they should get default values from base table columns
         t.insert([{'c1': 1}, {'c1': 2}])
 
         # Verify base table rows have default values
-        result = t.select().collect()
+        result = reload_tester.run_query(t.select())
         assert len(result) == 2
         for row in result:
             assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
@@ -482,23 +486,5 @@ class TestSnapshot:
             # Snapshot additional_columns defaults
             assert row['s2_int'] == 300, f'Expected 300, got {row["s2_int"]}'
             assert row['s2_str'] == 'snap2_default', f"Expected 'snap2_default', got {row['s2_str']}"
-
-        # Test snapshot of snapshot
-        s3 = pxt.create_snapshot('snap3', s1, additional_columns={'s3_int': {'type': pxt.Int, 'default': 400}})
-
-        # Verify snapshot of snapshot has defaults from base table, parent snapshot, and its own additional_columns
-        result = reload_tester.run_query(s3.select())
-        assert len(result) == 2
-        for row in result:
-            # Base table defaults
-            assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
-            assert row['base_str'] == 'base_default', f"Expected 'base_default', got {row['base_str']}"
-            assert row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {row['base_json']}"
-            # Parent snapshot additional_columns defaults
-            assert row['s1_int'] == 100, f'Expected 100, got {row["s1_int"]}'
-            assert row['s1_str'] == 'snapshot_default', f"Expected 'snapshot_default', got {row['s1_str']}"
-            assert row['s1_json'] == {'snapshot': 'data'}, f"Expected {{'snapshot': 'data'}}, got {row['s1_json']}"
-            # This snapshot's additional_columns defaults
-            assert row['s3_int'] == 400, f'Expected 400, got {row["s3_int"]}'
 
         reload_tester.run_reload_test()

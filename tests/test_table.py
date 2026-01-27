@@ -20,7 +20,7 @@ from jsonschema.exceptions import ValidationError
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
-from pixeltable.catalog.globals import MAX_VALUE_EXPR_SIZE
+from pixeltable.catalog.globals import MAX_DEFAULT_VALUE_SIZE
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
@@ -3011,7 +3011,7 @@ class TestTable:
 
     def test_column_defaults(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test adding columns with default values."""
-        # Test 0: Create table with default values in initial schema
+        # Create table with default values in initial schema
         t0 = pxt.create_table(
             'test_defaults_create',
             {
@@ -3027,50 +3027,53 @@ class TestTable:
         for row in result:
             assert row['c2'] == 'default_str', f"Expected 'default_str', got {row['c2']}"
             assert row['c3'] == 42, f'Expected 42, got {row["c3"]}'
-        pxt.drop_table('test_defaults_create')
 
-        # Test 1: Add column with literal default value to empty table
+        # Add column with literal default value to empty table
         t = pxt.create_table('test_defaults', {'c1': pxt.Int})
         # Table is empty, so we can add columns with defaults
         t.add_column(c2={'type': pxt.String, 'default': 'empty'})
 
-        # Test 1b: Test literal defaults for different types (on empty table)
+        # Test literal defaults for different types (on empty table)
         t.add_column(c_int={'type': pxt.Int, 'default': -1})
         t.add_column(c_float={'type': pxt.Float, 'default': 3.14})
-        t.add_column(c_bool={'type': pxt.Bool, 'default': True})
-        # Test dict/JSON default
-        t.add_column(c_dict={'type': pxt.Json, 'default': {'a': 10}})
+
+        # Add multiple columns with defaults using add_columns
+        t.add_columns(
+            {'c_bool': {'type': pxt.Bool, 'default': True}, 'c_dict': {'type': pxt.Json, 'default': {'a': 10}}}
+        )
+
         # Test list default (also uses Json type)
         t.add_column(c_list={'type': pxt.Json, 'default': ['a']})
         # Test array default - arrays are converted to bytes for storage
         t.add_column(c_array={'type': pxt.Array[(3,), pxt.Int], 'default': np.array([1, 2, 3])})  # type: ignore[misc]
+
         # Test timestamp, date, UUID, and binary defaults
         default_timestamp = datetime.datetime(2024, 1, 1, 12, 0, 0, tzinfo=datetime.timezone.utc)
         default_date = datetime.date(2024, 1, 1)
         default_uuid = uuid.UUID('12345678-1234-5678-1234-567812345678')
         default_binary = b'default binary data'
-        t.add_column(c_timestamp={'type': pxt.Timestamp, 'default': default_timestamp})
-        t.add_column(c_date={'type': pxt.Date, 'default': default_date})
-        t.add_column(c_uuid={'type': pxt.UUID, 'default': default_uuid})
-        t.add_column(c_binary={'type': pxt.Binary, 'default': default_binary})
+        t.add_columns(
+            {
+                'c_timestamp': {'type': pxt.Timestamp, 'default': default_timestamp},
+                'c_date': {'type': pxt.Date, 'default': default_date},
+                'c_uuid': {'type': pxt.UUID, 'default': default_uuid},
+                'c_binary': {'type': pxt.Binary, 'default': default_binary},
+            }
+        )
 
-        # Test 1c: Media type defaults are not supported
+        # Media type defaults are not supported
         default_image_path = str(TESTS_DIR / 'data/images/#_strange_file name!@$.jpg')
         with pytest.raises(pxt.Error, match='Default values are not supported for media types'):
             t.add_column(c_image={'type': pxt.Image, 'default': default_image_path})
 
-        # Test 2: Expression defaults are not supported - only constants allowed
+        # Expression defaults are not supported - only constants allowed
         with pytest.raises(pxt.Error, match='Default values must be constants'):
             t.add_column(c3={'type': pxt.Int, 'default': t.c1 + 10})
 
-        # Test 3: Add multiple columns with defaults using add_columns (on empty table)
-        schema: dict[str, dict[str, Any]] = {
-            'c4': {'type': pxt.String, 'default': 'default_str'},
-            'c5': {'type': pxt.Int, 'default': 42},
-        }
-        t.add_columns(schema)  # type: ignore[arg-type]
+        # Add multiple columns with defaults using add_columns
+        t.add_columns({'c4': {'type': pxt.String, 'default': 'default_str'}, 'c5': {'type': pxt.Int, 'default': 42}})
 
-        # Test 4: Can add column with default to non-empty table - existing rows get default value
+        # Can add column with default to non-empty table - existing rows get default value
         # Insert rows first
         t.insert([{'c1': 1}, {'c1': 2}])
         # Now add a column with default - should succeed and populate existing rows
@@ -3081,15 +3084,15 @@ class TestTable:
         for row in result:
             assert row['c6'] == 999, f'Expected 999, got {row["c6"]}'
 
-        # Test 5: Computed columns cannot have defaults
+        # Computed columns cannot have defaults
         with pytest.raises(pxt.Error, match="'default' cannot be specified for computed columns"):
             t.add_column(c7={'value': t.c1 * 2, 'default': 0})
 
-        # Test 6: New rows inserted - defaults are applied when column is omitted
+        # New rows inserted - defaults are applied when column is omitted
         # Insert additional rows without specifying columns with defaults - they should get default values
         t.insert([{'c1': 3}, {'c1': 4}])  # Only specify c1, other columns should get default values
-        result = reload_tester.run_query(t.select())
-        assert len(result) == 4  # 2 rows from Test 4 + 2 rows from Test 6
+        result = t.select().collect()
+        assert len(result) == 4
         # All rows should get default values since table was empty when columns were added
         for row in result:
             assert row['c2'] == 'empty', f"Expected 'empty', got {row['c2']}"
@@ -3110,13 +3113,12 @@ class TestTable:
             # Verify c6 (added to non-empty table) also has default
             assert row['c6'] == 999, f'Expected 999, got {row["c6"]}'
 
-        # Test 7: Expression defaults are not supported - only constants allowed
+        # Expression defaults are not supported - only constants allowed
         with pytest.raises(pxt.Error, match='Default values must be constants'):
             t.add_column(c8={'type': pxt.Int, 'default': t.c1 * 2})
 
-        # Test 8: Invalid JSON defaults - UUID/datetime not allowed in JSON
+        # Invalid JSON defaults - UUID/datetime not allowed in JSON
         # Note: These will fail at JsonType validation, not our custom validation
-        # But we should still test that they're rejected
         test_uuid = uuid.UUID('12345678-1234-5678-1234-567812345678')
         with pytest.raises((pxt.Error, TypeError), match=r'scalar JSON types|not a valid Pixeltable JSON'):
             t.add_column(c9={'type': pxt.Json, 'default': {'id': test_uuid}})
@@ -3124,25 +3126,22 @@ class TestTable:
         with pytest.raises((pxt.Error, TypeError), match=r'scalar JSON types|not a valid Pixeltable JSON'):
             t.add_column(c10={'type': pxt.Json, 'default': {'date': test_datetime}})
 
-        # Test 9: Size limits - default values > 512 bytes are rejected
-        # String default > 512 bytes
-        large_string = 'x' * (MAX_VALUE_EXPR_SIZE + 100)
+        # Size limits - default values > 512 bytes are rejected
+        large_string = 'x' * (MAX_DEFAULT_VALUE_SIZE + 100)
         with pytest.raises(pxt.Error, match='too large'):
             t.add_column(c11={'type': pxt.String, 'default': large_string})
-        # JSON default > 512 bytes
-        large_json = {'data': 'x' * (MAX_VALUE_EXPR_SIZE + 100)}
+        large_json = {'data': 'x' * (MAX_DEFAULT_VALUE_SIZE + 100)}
         with pytest.raises(pxt.Error, match='too large'):
             t.add_column(c12={'type': pxt.Json, 'default': large_json})
-        # Binary default > 512 bytes
-        large_binary = b'x' * (MAX_VALUE_EXPR_SIZE + 100)
+        large_binary = b'x' * (MAX_DEFAULT_VALUE_SIZE + 100)
         with pytest.raises(pxt.Error, match='too large'):
             t.add_column(c13={'type': pxt.Binary, 'default': large_binary})
-        # Array default > 512 bytes (when serialized)
-        # Create array that will exceed size limit when serialized to JSON
-        # Use int64 to match pxt.Int type - arrays are serialized as lists
-        large_array = np.ones((MAX_VALUE_EXPR_SIZE // 2,), dtype=np.int64)  # Will be > 512 bytes when serialized
+        large_array = np.ones((MAX_DEFAULT_VALUE_SIZE // 2,), dtype=np.int64)  # Will be > 512 bytes when serialized
         with pytest.raises(pxt.Error, match='too large'):
-            t.add_column(c14={'type': pxt.Array[(MAX_VALUE_EXPR_SIZE // 2,), pxt.Int], 'default': large_array})  # type: ignore[misc]
+            t.add_column(c14={'type': pxt.Array[(MAX_DEFAULT_VALUE_SIZE // 2,), pxt.Int], 'default': large_array})  # type: ignore[misc]
 
-        # Test 10: Verify defaults work after reloading the catalog
+        # Verify defaults work after reloading the catalog
+        # Register stable query for reload test (after all data modifications)
+        reload_tester.run_query(t0.select())
+        reload_tester.run_query(t.select())
         reload_tester.run_reload_test()

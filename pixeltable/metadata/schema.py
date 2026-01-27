@@ -122,15 +122,13 @@ class ColumnMd:
     is_pk: bool
 
     # if set, this is a computed column or a column with a default value
-    # - if is_computed_column=True: this is a computed column (value_expr is evaluated for each row)
-    # - if is_computed_column=False: this is a column with a default value (value_expr is a literal used as default)
     value_expr: dict | None
 
     # if True, the column is present in the stored table
-    stored: bool | None = None
+    stored: bool | None
 
     # if True, value_expr represents a computed column; if False, value_expr represents a default value
-    is_computed_column: bool = True
+    is_computed_column: bool = False
 
     # If present, the URI for the destination for column values
     destination: str | None = None
