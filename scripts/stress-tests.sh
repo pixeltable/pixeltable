@@ -16,7 +16,7 @@ fi
 WORKERS="$1"
 DURATION="$2"
 
-export PIXELTABLE_HOME=${PIXELTABLE_HOME:-~/.pixeltable}
+PIXELTABLE_HOME=${PIXELTABLE_HOME:-~/.pixeltable}
 
 # Remove the log of the previous run
 rm -f "$PIXELTABLE_HOME"/random-ops.log
