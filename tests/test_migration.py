@@ -295,9 +295,16 @@ class TestMigration:
 
     @classmethod
     def _verify_v45(cls) -> None:
+        unexpected_table_md_col_keys = {'col_type', 'is_pk', 'value_expr', 'destination'}
+        required_table_schema_version_col_keys = {'col_type', 'is_pk'}
         with Env.get().engine.begin() as conn:
             for row in conn.execute(sql.select(Table.md)):
-                pass  # TODO
+                column_mds = row[0]['column_md']
+                for column_md in column_mds.values():
+                    assert not unexpected_table_md_col_keys & column_md.keys(), column_md
+            for row in conn.execute(sql.select(TableSchemaVersion.md)):
+                for column_md in row[0]['columns'].values():
+                    assert not required_table_schema_version_col_keys - column_md.keys(), column_md
 
     def test_convert_45(self) -> None:
         table_md = deepcopy(_TABLE_MD)
