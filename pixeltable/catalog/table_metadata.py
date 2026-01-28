@@ -97,7 +97,5 @@ class VersionMetadata(TypedDict):
     """The number of rows deleted in this version."""
     errors: int
     """The number of errors encountered during this version."""
-    computed: int
-    """The number of computed values calculated in this version."""
     schema_change: str | None
     """A description of the schema change that occurred in this version, if any."""

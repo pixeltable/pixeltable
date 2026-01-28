@@ -1,8 +1,15 @@
+import logging
 import re
+import threading
 import time
+import urllib.parse
+import urllib.request
 from http import HTTPStatus
+from pathlib import Path
 from random import random
 from typing import Any
+
+_logger = logging.getLogger('pixeltable')
 
 _RETRIABLE_ERROR_INDICATORS = (
     'rate limit',
@@ -131,3 +138,71 @@ def exponential_backoff(attempt: int, base: float = 2.0, max_delay: float = 16.0
     """Generates the retry delay using exponential backoff strategy with jitter. Attempt count starts from 0."""
     basic_delay = min(max_delay, base**attempt) / 2
     return basic_delay + random() * basic_delay
+
+
+def fetch_url(url: str, allow_local_file: bool = False) -> Path:
+    """
+    Fetches a remote URL into the TempStore and returns its path.
+
+    If `allow_local_file` is True, and the URL is a file:// URL or a local file path, then the local path is returned
+    directly without copying. If `allow_local_file` is False, then an AssertionError is raised.
+    """
+    from .local_store import TempStore
+    from .object_stores import ObjectOps
+
+    _logger.debug(f'fetching url={url} thread_name={threading.current_thread().name}')
+    parsed = urllib.parse.urlparse(url)
+
+    if len(parsed.scheme) <= 1:
+        # local file path (len(parsed.scheme) == 1 implies a Windows path with drive letter)
+        assert allow_local_file
+        return Path(url)
+
+    path: Path | None = None
+    if parsed.path:
+        path = Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
+
+    if parsed.scheme == 'file':
+        assert allow_local_file
+        assert path is not None
+        return path
+
+    # preserve the file extension, if there is one
+    tmp_path = TempStore.create_path(extension=(path.suffix if path else ''))
+
+    _logger.debug(f'Downloading {url} to {tmp_path}')
+    ObjectOps.copy_object_to_local_file(url, tmp_path)
+    _logger.debug(f'Downloaded {url} to {tmp_path}')
+
+    return tmp_path
+
+
+def parse_duration_str(duration_str: str) -> float | None:
+    """Parses the string representing a duration.
+
+    Returns the number of seconds or None if the input cannot be parsed.
+
+    Real life examples of header values from OpenAI that can be parsed:
+    * '1m33.792s'
+    * '857ms'
+    * '0s'
+    * '47.874s'
+    * '156h58m48.601s'
+    """
+    if duration_str is None or duration_str.strip() == '':
+        return None
+    units = {
+        86400: r'(\d+)d',  # days
+        3600: r'(\d+)h',  # hours
+        60: r'(\d+)m(?:[^s]|$)',  # minutes
+        1: r'([\d.]+)s',  # seconds
+        0.001: r'(\d+)ms',  # millis
+    }
+    seconds = None
+    for unit_value, pattern in units.items():
+        match = re.search(pattern, duration_str)
+        if match:
+            seconds = seconds or 0.0
+            seconds += float(match.group(1)) * unit_value
+    _logger.debug(f'Parsed duration header value "{duration_str}" into {seconds} seconds')
+    return seconds

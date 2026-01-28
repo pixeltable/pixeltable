@@ -138,7 +138,7 @@ class CellReconstructionNode(ExecNode):
 
             yield batch
 
-    def close(self) -> None:
+    def _close(self) -> None:
         for fp in self.file_handles.values():
             fp.close()
 

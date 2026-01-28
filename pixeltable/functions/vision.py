@@ -18,6 +18,9 @@ from typing import Any
 
 import numpy as np
 import PIL.Image
+import PIL.ImageColor
+import PIL.ImageDraw
+import PIL.ImageFont
 
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
@@ -293,10 +296,13 @@ def __create_label_colors(labels: list[Any]) -> dict[Any, str]:
 def draw_bounding_boxes(
     img: PIL.Image.Image,
     boxes: list[list[int]],
+    *,
     labels: list[Any] | None = None,
     color: str | None = None,
     box_colors: list[str] | None = None,
+    alpha: float | None = None,
     fill: bool = False,
+    fill_alpha: float | None = None,
     width: int = 1,
     font: str | None = None,
     font_size: int | None = None,
@@ -308,7 +314,8 @@ def draw_bounding_boxes(
 
     Colors can be specified as common HTML color names (e.g., 'red') supported by PIL's
     [`ImageColor`](https://pillow.readthedocs.io/en/stable/reference/ImageColor.html#imagecolor-module) module or as
-    RGB hex codes (e.g., '#FF0000').
+    RGB/RGBA hex codes (e.g., '#FF0000', '#FF0000FF'). If opacity isn't specified in the color string and
+    `alpha`/`fill_alpha` is `None`, defaults to 1.0 for box borders and 0.5 for filled boxes.
 
     If no colors are specified, this function randomly assigns each label a specific color based on a hash of the label.
 
@@ -318,7 +325,11 @@ def draw_bounding_boxes(
         labels: List of labels for each bounding box.
         color: Single color to be used for all bounding boxes and labels.
         box_colors: List of colors, one per bounding box.
+        alpha: Opacity (0-1) of the bounding box borders and labels. If non-`None`, overrides any alpha in
+            `color`/`box_colors`.
         fill: Whether to fill the bounding boxes with color.
+        fill_alpha: Opacity (0-1) of the bounding box fill. If non-`None`, overrides any alpha in
+            `color`/`box_colors`.
         width: Width of the bounding box borders.
         font: Name of a system font or path to a TrueType font file, as required by
             [`PIL.ImageFont.truetype()`](https://pillow.readthedocs.io/en/stable/reference/ImageFont.html#PIL.ImageFont.truetype).
@@ -349,27 +360,43 @@ def draw_bounding_boxes(
         label_colors = __create_label_colors(labels)
         box_colors = [label_colors[label] for label in labels]
 
-    from PIL import ImageColor, ImageDraw, ImageFont
+    rgb_box_colors = [PIL.ImageColor.getrgb(c) for c in box_colors]
+    rgba_border_colors: list[tuple[int, int, int, int]]
+    if alpha is not None:
+        # override any alpha in rgb_box_colors
+        int_alpha = int(alpha * 255)
+        rgba_border_colors = [(c[0], c[1], c[2], int_alpha) for c in rgb_box_colors]
+    else:
+        # default to full opacity if alpha is missing
+        rgba_border_colors = [(*c, 255) if len(c) == 3 else c for c in rgb_box_colors]
+
+    rgba_fill_colors: list[tuple[int, int, int, int]] = []
+    if fill:
+        if fill_alpha is not None:
+            int_fill_alpha = int(fill_alpha * 255)
+            rgba_fill_colors = [(c[0], c[1], c[2], int_fill_alpha) for c in rgb_box_colors]
+        else:
+            # default to semi-transparent if alpha is missing
+            rgba_fill_colors = [(*c, 127) if len(c) == 3 else c for c in rgb_box_colors]
 
     # set default font if not provided
-    txt_font: ImageFont.ImageFont | ImageFont.FreeTypeFont = (
-        ImageFont.load_default() if font is None else ImageFont.truetype(font=font, size=font_size or 10)
+    txt_font: PIL.ImageFont.ImageFont | PIL.ImageFont.FreeTypeFont = (
+        PIL.ImageFont.load_default() if font is None else PIL.ImageFont.truetype(font=font, size=font_size or 10)
     )
 
     img_to_draw = img.copy()
-    draw = ImageDraw.Draw(img_to_draw, 'RGBA' if fill else 'RGB')
+    draw = PIL.ImageDraw.Draw(img_to_draw, 'RGBA')
 
     # Draw bounding boxes
     for i, bbox in enumerate(boxes):
         # determine color for the current box and label
-        color = box_colors[i % len(box_colors)]
+        border_color = rgba_border_colors[i % len(box_colors)]
 
         if fill:
-            rgb_color = ImageColor.getrgb(color)
-            fill_color = (*rgb_color, 100)  # semi-transparent
-            draw.rectangle(bbox, outline=color, width=width, fill=fill_color)  # type: ignore[arg-type]
+            fill_color = rgba_fill_colors[i % len(box_colors)]
+            draw.rectangle(bbox, outline=border_color, width=width, fill=fill_color)  # type: ignore[arg-type]
         else:
-            draw.rectangle(bbox, outline=color, width=width)  # type: ignore[arg-type]
+            draw.rectangle(bbox, outline=border_color, width=width)  # type: ignore[arg-type]
 
     # Now draw labels separately, so they are not obscured by the boxes
     for bbox, label in zip(boxes, labels):
@@ -389,6 +416,106 @@ def draw_bounding_boxes(
             draw.text((x, y), label_str, fill='white', font=txt_font)
 
     return img_to_draw
+
+
+def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
+    """Get contour mask with specified thickness."""
+    assert mask.dtype == bool
+    # find interior pixels: those with all 8 neighbors in the mask (8: include diagonals)
+    padded = np.pad(mask, 1, mode='constant', constant_values=False)
+    interior = (
+        padded[1:-1, 1:-1]
+        & padded[:-2, 1:-1]
+        & padded[2:, 1:-1]
+        & padded[1:-1, :-2]
+        & padded[1:-1, 2:]
+        & padded[:-2, :-2]
+        & padded[:-2, 2:]
+        & padded[2:, :-2]
+        & padded[2:, 2:]
+    )
+    boundaries = mask & ~interior
+
+    for _ in range(thickness - 1):
+        # binary dilation to all 8 neighbors
+        padded = np.pad(boundaries, 1, mode='constant', constant_values=False)
+        boundaries = (
+            padded[1:-1, 1:-1]
+            | padded[:-2, 1:-1]
+            | padded[2:, 1:-1]
+            | padded[1:-1, :-2]
+            | padded[1:-1, 2:]
+            | padded[:-2, :-2]
+            | padded[:-2, 2:]
+            | padded[2:, :-2]
+            | padded[2:, 2:]
+        )
+
+    return boundaries
+
+
+@pxt.udf
+def overlay_segmentation(
+    img: PIL.Image.Image,
+    segmentation: pxt.Array[(None, None), np.int32],
+    *,
+    alpha: float = 0.5,
+    background: int = 0,
+    segment_colors: list[str] | None = None,
+    draw_contours: bool = True,
+    contour_thickness: int = 1,
+) -> PIL.Image.Image:
+    """
+    Overlays a colored segmentation map on an image.
+
+    Colors can be specified as common HTML color names (e.g., 'red') supported by PIL's
+    [`ImageColor`](https://pillow.readthedocs.io/en/stable/reference/ImageColor.html#imagecolor-module) module or as
+    RGB hex codes (e.g., '#FF0000').
+
+    If no colors are specified, this function randomly assigns each segment a specific color based on a hash of its id.
+
+    Args:
+        img: Input image.
+        segmentation: 2D array of the same shape as `img` where each pixel value is a segment id.
+        alpha: Blend factor for the overlay (0.0 = only original image, 1.0 = only segmentation colors).
+        background: Segment id to treat as background (not overlaid with color, showing the original
+            image through).
+        segment_colors: List of colors, one per segment id. If the list is shorter than the number of segments, the
+            remaining segments will be assigned colors automatically.
+        draw_contours: If True, draw contours around each segment with full opacity.
+        contour_thickness: Thickness of the contour lines in pixels.
+
+    Returns:
+        The image with the colored segmentation overlay.
+    """
+
+    if segmentation.shape != (img.height, img.width):
+        raise ValueError(
+            f'Segmentation shape {segmentation.shape} does not match image dimensions ({img.height}, {img.width})'
+        )
+    segment_ids = sorted(int(sid) for sid in np.unique(segmentation) if sid != background)
+    if segment_colors is None:
+        segment_colors = []
+    missing_ids = segment_ids[len(segment_colors) :]
+    auto_colors = __create_label_colors(missing_ids)
+    color_map = {**auto_colors, **dict(zip(segment_ids, segment_colors))}
+
+    segment_alpha = int(alpha * 255)
+
+    overlay_array = np.zeros((img.height, img.width, 4), dtype=np.uint8)
+    segment_colors = {id: PIL.ImageColor.getrgb(color_map[id]) for id in segment_ids}
+    for segment_id in segment_ids:
+        rgb = segment_colors[segment_id]
+        mask = segmentation == segment_id
+        overlay_array[mask] = (*rgb, segment_alpha)
+        if draw_contours:
+            contour_mask = _get_contours(mask, contour_thickness)
+            overlay_array[contour_mask] = (*rgb, 255)
+
+    overlay = PIL.Image.fromarray(overlay_array, mode='RGBA')
+    img_rgba = img.convert('RGBA')
+    result = PIL.Image.alpha_composite(img_rgba, overlay)
+    return result.convert('RGB')
 
 
 __all__ = local_public_names(__name__)

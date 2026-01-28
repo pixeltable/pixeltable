@@ -26,6 +26,16 @@ Regardless of deployment mode, you get:
 - **[Data Interoperability](/sdk/latest/io):** Import/export Parquet, PyTorch, LanceDB, pandas.
 - **[Configurable Media Storage](/platform/configuration):** Per-column destination (local or cloud bucket).
 
+### Use Case Comparison
+
+| Capability | [ML Data Wrangling](/use-cases/ml-data-wrangling) | [AI Applications](/use-cases/ai-applications) |
+|------------|-------------------|-----------------|
+| **Multimodal Types** | ✅ Video, Audio, Image, Document | ✅ Video, Audio, Image, Document |
+| **Computed Columns** | ✅ Enrichment & pre-annotation | ✅ Pipeline orchestration |
+| **Embedding Indexes** | ✅ Curation & similarity search | ✅ RAG & retrieval |
+| **Versioning** | ✅ Dataset snapshots | ✅ Data lineage |
+| **Data Sharing** | ✅ Publish datasets | ✅ Team collaboration |
+
 ---
 
 ## Deployment Strategies
@@ -92,7 +102,7 @@ from datetime import datetime
 pxt.create_dir('video_processing', if_exists='ignore')
 
 videos = pxt.create_table(
-    'video_processing.videos',
+    'video_processing/videos',
     {'video': pxt.Video, 'uploaded_at': pxt.Timestamp}
 )
 
@@ -115,7 +125,7 @@ videos.add_computed_column(
 
 # Extract frames for analysis
 frames = pxt.create_view(
-    'video_processing.frames',
+    'video_processing/frames',
     videos,
     iterator=frame_iterator(video=videos.video, fps=1.0)
 )
@@ -191,7 +201,7 @@ from datetime import datetime
 import pixeltable as pxt
 
 app = FastAPI()
-docs_table = pxt.get_table('myapp.documents')  # Has computed columns: embedding, summary
+docs_table = pxt.get_table('myapp/documents')  # Has computed columns: embedding, summary
 
 @app.post("/documents/upload")
 async def upload_document(file: UploadFile):
@@ -226,6 +236,9 @@ async def get_document(doc_id: int):
   </Card>
   <Card title="Production Operations" icon="gears" href="/howto/deployment/operations">
     Concurrency, error handling, and schema evolution
+  </Card>
+  <Card title="Security & Backup" icon="shield" href="/howto/deployment/security">
+    Backup strategies and security best practices
   </Card>
 </CardGroup>
 

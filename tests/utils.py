@@ -76,11 +76,11 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
         col_names = []
     data: dict[str, Any] = {}
 
+    # avoid fields with empty dicts, they cannot be serialized as a struct in Parquet
     sample_dict = {
         'detections': [
             {
                 'id': '637e8e073b28441a453564cf',
-                'attributes': {},
                 'tags': [],
                 'label': 'potted plant',
                 'bounding_box': [0.37028125, 0.3345305164319249, 0.038593749999999996, 0.16314553990610328],
@@ -92,7 +92,6 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
             },
             {
                 'id': '637e8e073b28441a453564cf',
-                'attributes': {},
                 'tags': [],
                 'label': 'potted plant',
                 'bounding_box': [0.37028125, 0.3345305164319249, 0.038593749999999996, 0.16314553990610328],
@@ -331,16 +330,17 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: list[str] | No
     return df.to_dict(orient='records')  # type: ignore[return-value]
 
 
-def get_video_files(include_bad_video: bool = False, include_vfr: bool = True) -> list[str]:
+def get_video_files(include_bad_video: bool = False, include_vfr: bool = True, include_mpgs: bool = True) -> list[str]:
     glob_result = glob.glob(f'{TESTS_DIR}/**/videos/*', recursive=True)
     if not include_bad_video:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
     if not include_vfr:
         glob_result = [f for f in glob_result if 'vfr' not in f]
+    if not include_mpgs:
+        glob_result = [f for f in glob_result if not f.endswith('.mpg')]
 
-    half_res = [f for f in glob_result if 'half_res' in f or 'bad_video' in f]
-    half_res.sort()
-    return half_res
+    glob_result.sort()
+    return glob_result
 
 
 def get_test_video_files() -> list[str]:

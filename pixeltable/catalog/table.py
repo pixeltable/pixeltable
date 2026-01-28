@@ -533,6 +533,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
+        new_cols: list[Column]
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('add columns to')
             col_schema = {
@@ -555,10 +556,12 @@ class Table(SchemaObject):
             new_cols = self._create_columns(col_schema)
             for new_col in new_cols:
                 self._verify_column(new_col)
-            assert self._tbl_version is not None
-            result += self._tbl_version.get().add_columns(new_cols, print_stats=False, on_error='abort')
-            FileCache.get().emit_eviction_warnings()
-            return result
+
+        assert self._tbl_version is not None
+        Catalog.get().add_columns(self._tbl_version_path, new_cols)
+        FileCache.get().emit_eviction_warnings()
+        # TODO: return the row count here?
+        return UpdateStatus()
 
     def add_column(
         self,
@@ -983,6 +986,7 @@ class Table(SchemaObject):
         string_embed: pxt.Function | None = None,
         image_embed: pxt.Function | None = None,
         metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
+        precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> None:
         """
@@ -991,32 +995,6 @@ class Table(SchemaObject):
 
         To add an embedding index, one must specify, at minimum, the column to be indexed and an embedding UDF.
         Only `String` and `Image` columns are currently supported.
-
-        Examples:
-            Here's an example that uses a
-            [CLIP embedding][pixeltable.functions.huggingface.clip] to index an image column:
-
-            >>> from pixeltable.functions.huggingface import clip
-            >>> embedding_fn = clip.using(model_id='openai/clip-vit-base-patch32')
-            >>> tbl.add_embedding_index(tbl.img, embedding=embedding_fn)
-
-            Once the index is created, similarity lookups can be performed using the `similarity` pseudo-function:
-
-            >>> reference_img = PIL.Image.open('my_image.jpg')
-            >>> sim = tbl.img.similarity(image=reference_img)
-            >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
-
-            If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
-            performed using any of its supported modalities. In our example, CLIP supports both text and images, so we
-            can also search for images using a text description:
-
-            >>> sim = tbl.img.similarity(string='a picture of a train')
-            >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
-
-            Audio and video lookups would look like this:
-
-            >>> sim = tbl.img.similarity(audio='/path/to/audio.flac')
-            >>> sim = tbl.img.similarity(video='/path/to/video.mp4')
 
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
@@ -1033,6 +1011,7 @@ class Table(SchemaObject):
                 specifying different embedding functions for different data types.
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`.
                 The default is `'cosine'`.
+            precision: level of precision for the embeddings; one of `'fp16'` or `'fp32'`.
             if_exists: Directive for handling an existing index with the same name. Must be one of the following:
 
                 - `'error'`: raise an error if an index with the same name already exists.
@@ -1055,8 +1034,25 @@ class Table(SchemaObject):
 
             >>> tbl.add_embedding_index('img', embedding=embedding_fn)
 
-            Add a second index to the `img` column, using the inner product as the distance metric,
-            and with a specific name:
+            Once the index is created, similarity lookups can be performed using the `similarity` pseudo-function:
+
+            >>> sim = tbl.img.similarity(image='/path/to/my-image.jpg')  # can also be a URL or a PIL image
+            >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+
+            If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
+            performed using any of its supported modalities. In our example, CLIP supports both text and images, so we
+            can also search for images using a text description:
+
+            >>> sim = tbl.img.similarity(string='a picture of a train')
+            >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
+
+            Audio and video lookups would look like this:
+
+            >>> sim = tbl.img.similarity(audio='/path/to/audio.flac')
+            >>> sim = tbl.img.similarity(video='/path/to/video.mp4')
+
+            Multiple indexes can be defined on each column. Add a second index to the `img` column, using the inner
+            product as the distance metric, and with a specific name:
 
             >>> tbl.add_embedding_index(
             ...     tbl.img,
@@ -1101,7 +1097,9 @@ class Table(SchemaObject):
                 Table.validate_column_name(idx_name)
 
             # validate EmbeddingIndex args
-            idx = EmbeddingIndex(metric=metric, embed=embedding, string_embed=string_embed, image_embed=image_embed)
+            idx = EmbeddingIndex(
+                metric=metric, precision=precision, embed=embedding, string_embed=string_embed, image_embed=image_embed
+            )
             _ = idx.create_value_expr(col)
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
             # TODO: how to deal with exceptions here? drop the index and raise?
@@ -1863,7 +1861,6 @@ class Table(SchemaObject):
                     updates=rcs.upd_rows,
                     deletes=rcs.del_rows,
                     errors=rcs.num_excs,
-                    computed=rcs.computed_values,
                     schema_change=schema_change,
                 )
             )

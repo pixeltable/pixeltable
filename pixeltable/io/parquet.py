@@ -24,10 +24,28 @@ def export_parquet(
     inline_images: bool = False,
 ) -> None:
     """
-    Exports a Query's data to one or more Parquet files. Requires pyarrow to be installed.
+    Exports a query result or table to one or more Parquet files. Requires pyarrow to be installed.
 
     It additionally writes the pixeltable metadata in a json file, which would otherwise
     not be available in the parquet format.
+
+    Pixeltable column types are mapped to Parquet types as follows:
+
+    - String: string
+    - Int: int64
+    - Float: float32
+    - Bool: bool
+    - Timestamp: timestamp[us, tz=UTC]
+    - Date: date32
+    - UUID: uuid
+    - Binary: binary
+    - Image: binary (when `inline_images=True`)
+    - Audio, Video, Document: string (file paths)
+    - Array: fixed_shape_tensor
+    - Json: struct
+
+        - Schema is inferred from data via `pyarrow.infer_type()`
+        - Fields that contain empty dicts cannot be mapped to a Parquet type and will result in an exception
 
     Args:
         table_or_query : Table or Query to export.

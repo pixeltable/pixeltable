@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 
 import numpy as np
-import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import PIL.Image
 import sqlalchemy as sql
 
@@ -107,7 +106,7 @@ class CellMaterializationNode(ExecNode):
             self._reset_buffer()
             assert self.buffered_writer is not None
 
-    def close(self) -> None:
+    def _close(self) -> None:
         if self.buffered_writer is not None:
             # there must have been an error, otherwise _flush_full_buffer(finalize=True) would have set this to None
             self.buffered_writer.close()
@@ -122,7 +121,7 @@ class CellMaterializationNode(ExecNode):
             row.cell_md[col.id] = None
 
     def _materialize_array_cell(self, row: exprs.DataRow, col: catalog.Column, val: np.ndarray) -> None:
-        if isinstance(col.sa_col_type, pgvector.sqlalchemy.Vector):
+        if col.has_sa_vector_type():
             # this is a vector column (ie, used for a vector index): store the array itself
             row.cell_vals[col.id] = val
             row.cell_md[col.id] = None

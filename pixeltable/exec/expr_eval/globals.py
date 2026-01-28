@@ -55,7 +55,7 @@ class Scheduler(abc.ABC):
 
         request: FnCallArgs
         num_retries: int
-        exec_ctx: ExecCtx
+        exec_ctx: ExprEvalCtx
         retry_after: float | None = None  # time.monotonic()
 
         def __lt__(self, other: Scheduler.QueueItem) -> bool:
@@ -71,7 +71,7 @@ class Scheduler(abc.ABC):
         self.queue = asyncio.PriorityQueue()
         self.dispatcher = dispatcher
 
-    def submit(self, item: FnCallArgs, exec_ctx: ExecCtx) -> None:
+    def submit(self, item: FnCallArgs, exec_ctx: ExprEvalCtx) -> None:
         self.queue.put_nowait(self.QueueItem(item, 0, exec_ctx))
 
     @classmethod
@@ -120,12 +120,12 @@ class Evaluator(abc.ABC):
 
     dispatcher: Dispatcher
     is_closed: bool
-    exec_ctx: 'ExecCtx'
+    eval_ctx: 'ExprEvalCtx'
 
-    def __init__(self, dispatcher: Dispatcher, exec_ctx: 'ExecCtx') -> None:
+    def __init__(self, dispatcher: Dispatcher, exec_ctx: 'ExprEvalCtx') -> None:
         self.dispatcher = dispatcher
         self.is_closed = False
-        self.exec_ctx = exec_ctx
+        self.eval_ctx = exec_ctx
 
     @abc.abstractmethod
     def schedule(self, rows: list[exprs.DataRow], slot_idx: int) -> None:
@@ -141,7 +141,7 @@ class Evaluator(abc.ABC):
         self._close()
 
 
-class ExecCtx:
+class ExprEvalCtx:
     """DataRow-specific state needed by ExprEvalNode"""
 
     row_builder: exprs.RowBuilder

@@ -44,16 +44,6 @@
             "pages": [
               "platform/configuration",
               {
-                "group": "Deployment",
-                "pages": [
-                  "howto/deployment/overview",
-                  "howto/deployment/infrastructure",
-                  "howto/deployment/operations",
-                  "howto/deployment/monitoring",
-                  "howto/deployment/security"
-                ]
-              },
-              {
                 "group": "Integrations",
                 "pages": [
                   "howto/providers/working-with-anthropic",
@@ -69,10 +59,12 @@
                   "howto/providers/working-with-ollama",
                   "howto/providers/working-with-openai",
                   "howto/providers/working-with-openrouter",
+                  "howto/providers/working-with-pydantic",
                   "howto/providers/working-with-replicate",
                   "howto/providers/working-with-reve",
                   "howto/providers/working-with-tigris",
                   "howto/providers/working-with-together",
+                  "howto/providers/working-with-twelvelabs",
                   "howto/providers/working-with-voyageai",
                   "howto/using-label-studio-with-pixeltable",
                   "howto/working-with-fiftyone"
@@ -113,15 +105,18 @@
                       "howto/cookbooks/text/text-summarize",
                       "howto/cookbooks/text/text-translate",
                       "howto/cookbooks/text/text-extract-entities",
-                      "howto/cookbooks/text/doc-chunk-for-rag"
+                      "howto/cookbooks/text/doc-chunk-for-rag",
+                      "howto/cookbooks/text/doc-extract-text-from-office-files"
                     ]
                   },
                   {
                     "group": "Images",
                     "pages": [
                       "howto/cookbooks/images/img-detect-objects",
+                      "howto/cookbooks/images/img-detection-vs-segmentation",
                       "howto/cookbooks/images/img-visualize-detections",
                       "howto/cookbooks/images/img-generate-captions",
+                      "howto/cookbooks/images/img-image-to-image",
                       "howto/cookbooks/images/vision-batch-analysis",
                       "howto/cookbooks/images/vision-structured-output",
                       "howto/cookbooks/images/img-add-watermarks",
@@ -171,6 +166,7 @@
                       "howto/cookbooks/data/data-import-huggingface",
                       "howto/cookbooks/data/data-import-s3",
                       "howto/cookbooks/data/data-export-pytorch",
+                      "howto/cookbooks/data/data-export-sql",
                       "howto/cookbooks/data/data-sampling"
                     ]
                   }
@@ -234,6 +230,7 @@
                       "sdk/latest/openrouter",
                       "sdk/latest/replicate",
                       "sdk/latest/reve",
+                      "sdk/latest/runwayml",
                       "sdk/latest/together",
                       "sdk/latest/twelvelabs",
                       "sdk/latest/vision",
@@ -269,13 +266,31 @@
         ]
       },
       {
-        "tab": "Cloud",
+        "tab": "Use Cases & Deployment",
         "groups": [
           {
-            "group": "Cloud",
+            "group": "Use Cases",
             "pages": [
-              "cloud/get-started",
-              "cloud/faq"
+              "use-cases/ml-data-wrangling",
+              "use-cases/ai-applications",
+              "use-cases/agents-mcp"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "howto/deployment/overview",
+              "howto/deployment/infrastructure",
+              "howto/deployment/operations",
+              "howto/deployment/monitoring",
+              "howto/deployment/security"
+            ]
+          },
+          {
+            "group": "Pixeltable Cloud",
+            "pages": [
+              "use-cases/services",
+              "use-cases/get-started"
             ]
           }
         ]
@@ -385,6 +400,11 @@
       "claude",
       "cursor"
     ]
+  },
+  "integrations": {
+    "telemetry": {
+      "enabled": false
+    }
   },
   "errors": {
     "404": {
@@ -577,6 +597,30 @@
     {
       "source": "/tutorials/embedding-indexes",
       "destination": "/platform/embedding-indexes"
+    },
+    {
+      "source": "/cloud/use-cases",
+      "destination": "/use-cases/ml-data-wrangling"
+    },
+    {
+      "source": "/cloud/ml-data-wrangling",
+      "destination": "/use-cases/ml-data-wrangling"
+    },
+    {
+      "source": "/cloud/ai-applications",
+      "destination": "/use-cases/ai-applications"
+    },
+    {
+      "source": "/cloud/agents-mcp",
+      "destination": "/use-cases/agents-mcp"
+    },
+    {
+      "source": "/cloud/services",
+      "destination": "/use-cases/services"
+    },
+    {
+      "source": "/cloud/get-started",
+      "destination": "/use-cases/get-started"
     }
   ]
 }

@@ -88,6 +88,7 @@ env:
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
   TWELVELABS_API_KEY: ${{ secrets.TWELVELABS_API_KEY }}
   VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+  RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
 
 jobs:
   generate-matrix:
@@ -236,6 +237,9 @@ jobs:
         run: |
           ruff format --check
           ruff check --select I
+      - name: Notebook checks
+        if: ${{ matrix.test-category == 'lint' }}
+        run: ./scripts/check-notebooks.sh
       - name: Archive log files
         # Archive the log files even if a preceding step failed. Currently we do this only on ubuntu runners.
         if: ${{ always() && startsWith(matrix.os, 'ubuntu') }}
