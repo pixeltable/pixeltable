@@ -41,7 +41,8 @@ def _(engine: sql.engine.Engine) -> None:
                 )
 
 
-_COL_FIELDS_TO_MOVE = ['col_type', 'is_pk', 'value_expr', 'destination']
+# field name -> is required or not
+_COL_FIELDS_TO_MOVE = {'col_type': True, 'is_pk': True, 'value_expr': False, 'destination': False}
 
 
 def _convert_table_and_versions(table_md: dict, schema_versions: dict[int, dict]) -> None:
@@ -58,8 +59,11 @@ def _convert_table_and_versions(table_md: dict, schema_versions: dict[int, dict]
                 continue
             # Update user-visible columns and add system columns
             col = schema_version_md['columns'].setdefault(col_id, {'pos': None, 'name': None, 'media_validation': None})
-            for field in _COL_FIELDS_TO_MOVE:
-                col[field] = table_col_md[field]
+            for field, is_required in _COL_FIELDS_TO_MOVE.items():
+                assert field in table_col_md or not is_required, field
+                if field in table_col_md:
+                    col[field] = table_col_md[field]
         # Finally, remove the moved fields from the source table md
         for field in _COL_FIELDS_TO_MOVE:
-            del table_col_md[field]
+            if field in table_col_md:
+                del table_col_md[field]
