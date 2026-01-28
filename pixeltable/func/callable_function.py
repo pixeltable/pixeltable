@@ -37,6 +37,7 @@ class CallableFunction(Function):
         batch_size: int | None = None,
         is_method: bool = False,
         is_property: bool = False,
+        is_nondeterministic: bool = False,
     ):
         assert len(signatures) > 0
         assert len(signatures) == len(py_fns)
@@ -46,7 +47,13 @@ class CallableFunction(Function):
         self.self_name = self_name
         self.batch_size = batch_size
         self.__doc__ = self.py_fns[0].__doc__
-        super().__init__(signatures, self_path=self_path, is_method=is_method, is_property=is_property)
+        super().__init__(
+            signatures,
+            self_path=self_path,
+            is_method=is_method,
+            is_property=is_property,
+            is_nondeterministic=is_nondeterministic,
+        )
 
     def _update_as_overload_resolution(self, signature_idx: int) -> None:
         assert len(self.py_fns) > signature_idx
