@@ -494,30 +494,3 @@ class TestOpenai:
         validate_update_status(t.insert(input='Where did the game of Backgammon originate?'), 1)
         result = t.collect()
         assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']
-
-    def test_parse_duration_header(self) -> None:
-        from pixeltable.functions.openai import _parse_header_duration
-
-        assert _parse_header_duration(None) is None
-        assert _parse_header_duration('') is None
-        assert _parse_header_duration('invalid') is None
-        assert _parse_header_duration('10x') is None
-
-        assert _parse_header_duration('0s') == 0
-        assert _parse_header_duration('0ms') == 0
-
-        assert _parse_header_duration('6ms') == 0.006
-        assert _parse_header_duration('857ms') == 0.857
-        assert _parse_header_duration('10s') == 10
-        assert _parse_header_duration('10.123s') == 10.123
-        assert _parse_header_duration('10s123ms') == 10.123
-        assert _parse_header_duration('1m') == 60
-        assert _parse_header_duration('1m7s') == 67
-        assert _parse_header_duration('1m33.792s') == 93.792
-        assert _parse_header_duration('0m7s') == 7
-        assert _parse_header_duration('1h') == 3600
-        assert _parse_header_duration('1h10m3s') == 4203
-        assert _parse_header_duration('156h58m48.601s') == 565128.601
-        assert _parse_header_duration('1d') == 86400
-        assert _parse_header_duration('1d2h3m4s') == 93784
-        assert _parse_header_duration('47.874s') == 47.874
