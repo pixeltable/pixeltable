@@ -161,10 +161,12 @@ import pixeltable as pxt
   <Tab title="Aggregations & Joins">
     ```python
     # Aggregate
+    import pixeltable.functions as pxtf
+    
     t.group_by(t.category).select(
         t.category,
-        total=count(t.id),
-        avg=avg(t.score)
+        total=pxtf.count(t.id),
+        average=pxtf.mean(t.score)
     ).collect()
 
     # Join
@@ -274,16 +276,23 @@ t.add_computed_column(words=word_count(t.content))
   
   <Accordion title="User-Defined Aggregates (UDA)" icon="chart-line">
     ```python
-    @pxt.uda(value_type=pxt.Float, update_type=pxt.Json)
-    class RunningAvg:
+    @pxt.uda
+    class std(pxt.Aggregator):
         def __init__(self):
             self.sum = 0.0
+            self.sum_sq = 0.0
             self.count = 0
-        def update(self, val: float):
-            self.sum += val
-            self.count += 1
-        def value(self) -> float:
-            return self.sum / self.count if self.count > 0 else 0.0
+        def update(self, val: float | None):
+            if val is not None:
+                self.sum += val
+                self.sum_sq += val * val
+                self.count += 1
+        def value(self) -> float | None:
+            if self.count == 0:
+                return None
+            mean = self.sum / self.count
+            variance = (self.sum_sq / self.count) - (mean * mean)
+            return variance ** 0.5
     ```
   </Accordion>
   
@@ -408,8 +417,7 @@ from pixeltable.iterators import (
 # Filtered view
 active = pxt.create_view(
     'project/active_users',
-    users,
-    filter=users.status == 'active'
+    users.where(users.status == 'active')
 )
 
 # View with iterator
@@ -679,7 +687,7 @@ t.add_computed_column(transformed=image_to_image(t.img, t.prompt, model_id='stab
     t.metadata['key']['nested']
 
     # UUID & Net
-    uuid4()
+    uuid7()
     presigned_url(t.s3_path, expiration=3600)
     ```
   </Tab>
