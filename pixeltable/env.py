@@ -475,8 +475,6 @@ class Env:
                 except Exception as e:
                     raise excs.Error(f'Invalid {mode} media destination URI: {uri}') from e
 
-        self._pxt_api_key = config.get_string_value('api_key')
-
         # Disable spurious warnings:
         # Suppress tqdm's ipywidgets warning in Jupyter environments
         warnings.filterwarnings('ignore', message='IProgress not found')
@@ -709,7 +707,8 @@ class Env:
 
     @property
     def pxt_api_key(self) -> str | None:
-        return self._pxt_api_key
+        """Get the Pixeltable API key from config"""
+        return Config.get().get_string_value('api_key')
 
     def get_client(self, name: str) -> Any:
         """
