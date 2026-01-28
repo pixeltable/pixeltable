@@ -152,6 +152,10 @@ class TableVersionPath:
         self.refresh_cached_md()
         return self._cached_tbl_version.comment
 
+    def user_metadata(self) -> Any:
+        self.refresh_cached_md()
+        return self._cached_tbl_version.user_metadata
+    
     def num_retained_versions(self) -> int:
         self.refresh_cached_md()
         return self._cached_tbl_version.num_retained_versions

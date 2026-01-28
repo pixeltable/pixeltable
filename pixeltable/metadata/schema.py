@@ -346,11 +346,12 @@ class SchemaVersionMd:
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
     num_retained_versions: int
     comment: str
-
+    
     # default validation strategy for any media column of this table
     # stores column.MediaValiation.name.lower()
     media_validation: str
     additional_md: dict[str, Any]  # deprecated
+    user_metadata: Any | None = None
 
 
 # versioning: each table schema change results in a new record

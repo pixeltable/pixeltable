@@ -163,6 +163,7 @@ class Table(SchemaObject):
             version_created=datetime.datetime.fromtimestamp(tv.created_at, tz=datetime.timezone.utc),
             schema_version=tvp.schema_version(),
             comment=self._get_comment(),
+            user_metadata=self._get_user_metadata(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
             base=None,
         )
@@ -349,6 +350,9 @@ class Table(SchemaObject):
     def _get_comment(self) -> str:
         return self._tbl_version_path.comment()
 
+    def _get_user_metadata(self) -> Any:
+        return self._tbl_version_path.user_metadata()
+    
     def _get_num_retained_versions(self) -> int:
         return self._tbl_version_path.num_retained_versions()
 

@@ -58,6 +58,7 @@ def create_table(
     primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    user_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     extra_args: dict[str, Any] | None = None,  # Additional arguments to data source provider
@@ -93,6 +94,7 @@ def create_table(
             table.
         num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
+        user_metadata: Optional user-defined JSON metadata to associate with the table.
         media_validation: Media validation policy for the table.
 
             - `'on_read'`: validate media files at query time
@@ -203,6 +205,7 @@ def create_table(
         if_exists=if_exists_,
         primary_key=primary_key,
         comment=comment,
+        user_metadata=user_metadata,
         media_validation=media_validation_,
         num_retained_versions=num_retained_versions,
         create_default_idxs=create_default_idxs,

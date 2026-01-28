@@ -1148,6 +1148,7 @@ class Catalog:
         primary_key: list[str] | None,
         num_retained_versions: int,
         comment: str,
+        user_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
     ) -> tuple[Table, bool]:
@@ -1177,6 +1178,7 @@ class Catalog:
                 primary_key=primary_key,
                 num_retained_versions=num_retained_versions,
                 comment=comment,
+                user_metadata=user_metadata,
                 media_validation=media_validation,
                 create_default_idxs=create_default_idxs,
             )
