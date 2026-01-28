@@ -58,12 +58,20 @@ class PxtIterator:
 
         py_sig = inspect.signature(iter_fn)
         return_type = py_sig.return_annotation
+        # Possible return_type: Iterator[dict], Iterator[dict[str, Any]], Iterator[MyTypedDict]
         return_type_args = typing.get_args(return_type)
+        return_type_arg_0_origin = None
+        if len(return_type_args) >= 1:
+            # return_type_arg_0_origin is calculated so that in the above cases it's (respectively):
+            # dict, dict, MyTypedDict
+            return_type_arg_0_origin = typing.get_origin(return_type_args[0])
+            if return_type_arg_0_origin is None:
+                return_type_arg_0_origin = return_type_args[0]
         if (
             typing.get_origin(return_type) is not abc.Iterator
             or len(return_type_args) != 1
             or not isinstance(return_type_args[0], type)
-            or not issubclass(return_type_args[0], dict)
+            or not issubclass(return_type_arg_0_origin, dict)
         ):
             raise excs.Error(
                 '@pxt.iterator-decorated function '
