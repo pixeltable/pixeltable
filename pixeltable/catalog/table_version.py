@@ -27,7 +27,20 @@ from pixeltable.utils.object_stores import ObjectOps
 from ..func.globals import resolve_symbol
 from .column import Column
 from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
-from .tbl_ops import DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp, TableOp
+from .tbl_ops import (
+    CreateColumnMdOp,
+    CreateStoreColumnsOp,
+    CreateStoreIdxsOp,
+    CreateStoreTableOp,
+    CreateTableMdOp,
+    CreateTableVersionOp,
+    DeleteTableMdOp,
+    DeleteTableMediaFilesOp,
+    DropStoreTableOp,
+    LoadViewOp,
+    OpStatus,
+    TableOp,
+)
 from .update_status import RowCountStats, UpdateStatus
 
 if TYPE_CHECKING:
@@ -63,9 +76,7 @@ class TableVersionMd:
         )
 
     def as_dict(self) -> dict:
-        from .catalog import md_dict_factory
-
-        return dataclasses.asdict(self, dict_factory=md_dict_factory)
+        return dataclasses.asdict(self, dict_factory=schema.md_dict_factory)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> TableVersionMd:
@@ -390,44 +401,99 @@ class TableVersion:
         return TableVersionMd(tbl_md, table_version_md, schema_version_md)
 
     def exec_op(self, op: TableOp) -> None:
+        from pixeltable.catalog import Catalog
         from pixeltable.store import StoreBase
 
-        assert op.delete_table_md_op is None  # that needs to get handled by Catalog
-
-        if op.create_store_table_op is not None:
+        if isinstance(op, CreateStoreTableOp):
             # this needs to be called outside of a transaction
-            self.store_tbl.create()
-
-        elif op.create_index_op is not None:
-            idx_info = self.idxs[op.create_index_op.idx_id]
             with Env.get().begin_xact():
-                self.store_tbl.create_index(idx_info.id)
+                self.store_tbl.create()
 
-        elif op.load_view_op is not None:
-            from pixeltable.catalog import Catalog
+        elif isinstance(op, CreateStoreIdxsOp):
+            for idx_id in op.idx_ids:
+                with Env.get().begin_xact():
+                    self.store_tbl.create_index(idx_id)
+
+        elif isinstance(op, LoadViewOp):
             from pixeltable.plan import Planner
 
             from .table_version_path import TableVersionPath
 
-            # clear out any remaining media files from an aborted previous attempt
-            self.delete_media()
-            view_path = TableVersionPath.from_dict(op.load_view_op.view_path)
+            view_path = TableVersionPath.from_dict(op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
-            _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
+            with Env.get().report_progress():
+                plan.ctx.title = self.display_str()
+                _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             status = UpdateStatus(row_count_stats=row_counts)
             Catalog.get().store_update_status(self.id, self.version, status)
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
-        elif op.drop_store_table_op is not None:
+        elif isinstance(op, CreateTableMdOp):
+            # nothing to do here
+            pass
+
+        elif isinstance(op, DeleteTableMdOp):
+            Catalog.get().delete_tbl_md(self.id)
+
+        elif isinstance(op, CreateColumnMdOp):
+            # nothing to do
+            pass
+
+        elif isinstance(op, CreateStoreColumnsOp):
+            for col_id in op.column_ids:
+                with Env.get().begin_xact():
+                    self.store_tbl.add_column(self.cols_by_id[col_id])
+
+        elif isinstance(op, DeleteTableMediaFilesOp):
+            self.delete_media()
+            FileCache.get().clear(tbl_id=self.id)
+
+        elif isinstance(op, DropStoreTableOp):
             # don't reference self.store_tbl here, it needs to reference the metadata for our base table, which at
             # this point may not exist anymore
             with Env.get().begin_xact() as conn:
                 drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(self.id, self.is_view)}'
                 conn.execute(sql.text(drop_stmt))
 
-        elif op.delete_table_media_files_op:
+    def undo_op(self, op: TableOp) -> None:
+        from pixeltable.catalog import Catalog
+
+        # ops that cannot be rolled back raise AssertionError()
+
+        if isinstance(op, CreateStoreTableOp):
+            # this needs to be called outside of a transaction
+            with Env.get().begin_xact():
+                self.store_tbl.drop()
+
+        elif isinstance(op, CreateStoreIdxsOp):
+            for idx_id in op.idx_ids:
+                with Env.get().begin_xact():
+                    self.store_tbl.drop_index(idx_id)
+
+        elif isinstance(op, LoadViewOp):
+            # clear out any media files
             self.delete_media()
             FileCache.get().clear(tbl_id=self.id)
+
+        elif isinstance(op, CreateTableMdOp):
+            Catalog.get().delete_tbl_md(self.id)
+
+        elif isinstance(op, CreateTableVersionOp):
+            Catalog.get().delete_current_tbl_version_md(self.id)
+
+        elif isinstance(op, CreateColumnMdOp):
+            for col_id in op.column_ids:
+                del self._tbl_md.column_md[col_id]
+            Catalog.get().write_tbl_md(self.id, None, self._tbl_md, None, None, [])
+
+        elif isinstance(op, CreateStoreColumnsOp):
+            for col_id in op.column_ids:
+                with Env.get().begin_xact():
+                    self.store_tbl.drop_column(self.cols_by_id[col_id])
+
+        elif isinstance(op, (DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp)):
+            # undo of physical deletion is currently not supported; see schema.TableStatement.can_abort()
+            raise AssertionError()
 
     @classmethod
     def create_replica(cls, md: TableVersionMd, create_store_tbl: bool = True) -> TableVersion:
@@ -465,15 +531,9 @@ class TableVersion:
     def drop(self) -> list[TableOp]:
         id_str = str(self.id)
         ops = [
-            TableOp(
-                tbl_id=id_str,
-                op_sn=0,
-                num_ops=3,
-                needs_xact=False,
-                delete_table_media_files_op=DeleteTableMediaFilesOp(),
-            ),
-            TableOp(tbl_id=id_str, op_sn=1, num_ops=3, needs_xact=False, drop_store_table_op=DropStoreTableOp()),
-            TableOp(tbl_id=id_str, op_sn=2, num_ops=3, needs_xact=True, delete_table_md_op=DeleteTableMdOp()),
+            DeleteTableMediaFilesOp(tbl_id=id_str, op_sn=0, num_ops=3, needs_xact=False, status=OpStatus.PENDING),
+            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, needs_xact=False, status=OpStatus.PENDING),
+            DeleteTableMdOp(tbl_id=id_str, op_sn=2, num_ops=3, needs_xact=True, status=OpStatus.PENDING),
         ]
         return ops
 
@@ -718,10 +778,10 @@ class TableVersion:
         undo_col.tbl_handle = tbl_handle
         return val_col, undo_col
 
-    def _create_index(
+    def _create_index_md(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
-    ) -> None:
-        """Create the given index along with index md"""
+    ) -> int:
+        """Create md for given index and update self._tbl_md. Returns index id."""
         idx_id = self.next_idx_id
         self.next_idx_id += 1
         if idx_name is None:
@@ -729,6 +789,7 @@ class TableVersion:
         else:
             assert is_valid_identifier(idx_name)
             assert idx_name not in [i.name for i in self._tbl_md.index_md.values()]
+
         # create and register the index metadata
         idx_cls = type(idx)
         idx_md = schema.IndexMd(
@@ -743,8 +804,16 @@ class TableVersion:
             class_fqn=idx_cls.__module__ + '.' + idx_cls.__name__,
             init_args=idx.as_dict(),
         )
-        idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
         self._tbl_md.index_md[idx_id] = idx_md
+        return idx_id
+
+    def _create_index(
+        self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
+    ) -> None:
+        """Create the given index along with index md"""
+        idx_id = self._create_index_md(col, val_col, undo_col, idx_name, idx)
+        idx_name = self.tbl_md.index_md[idx_id].name
+        idx_info = self.IndexInfo(id=idx_id, name=idx_name, idx=idx, col=col, val_col=val_col, undo_col=undo_col)
         self.idxs[idx_id] = idx_info
         self.idxs_by_name[idx_name] = idx_info
         self.idxs_by_col.setdefault(col.qid, []).append(idx_info)
@@ -785,6 +854,93 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Dropped index {idx_md.name} on table {self.name}')
 
+    def add_columns_ops(self, cols: Iterable[Column]) -> tuple[TableVersionMd, list[TableOp]]:
+        """Adds columns to the table."""
+        assert self.is_mutable
+        assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
+        assert all(col.stored is not None for col in cols)
+        assert all(col.name not in self.cols_by_name for col in cols if col.name is not None)
+        row_count = self.store_tbl.count()
+        for col in cols:
+            # TODO: check this elsewhere?
+            if not col.col_type.nullable and not col.is_computed and row_count > 0:
+                raise excs.Error(
+                    f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
+                )
+            col.tbl_handle = self.handle
+            col.id = self.next_col_id()
+
+        # collect all columns we need to add, plus indices
+        index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
+        all_cols: list[Column] = []
+        for col in cols:
+            all_cols.append(col)
+            if col.name is not None and self._is_btree_indexable(col):
+                idx = index.BtreeIndex()
+                val_col, undo_col = self._create_index_columns(
+                    col, idx, self.schema_version, self.handle, id_cb=self.next_col_id
+                )
+                index_cols[col] = (idx, val_col, undo_col)
+                all_cols.append(val_col)
+                all_cols.append(undo_col)
+
+        # we're creating a new schema version
+        self.bump_version(bump_schema_version=True)
+
+        # create column md
+        for col in all_cols:
+            assert col.id is not None
+            col_md = schema.ColumnMd(
+                id=col.id,
+                col_type=col.col_type.as_dict(),
+                is_pk=col.is_pk,
+                schema_version_add=self.schema_version,
+                schema_version_drop=None,
+                value_expr=col.value_expr.as_dict() if col.value_expr is not None else None,
+                stored=col.stored,
+                destination=col._explicit_destination,
+            )
+            self._tbl_md.column_md[col.id] = col_md
+
+            if col.name is not None:
+                pos = len(self._schema_version_md.columns)
+                schema_md = schema.SchemaColumn(
+                    name=col.name,
+                    pos=pos,
+                    media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
+                )
+                self._schema_version_md.columns[col.id] = schema_md
+
+        # Create index md
+        idx_ids: list[int] = []
+        for col, (idx, val_col, undo_col) in index_cols.items():
+            idx_ids.append(self._create_index_md(col, val_col, undo_col, idx_name=None, idx=idx))
+
+        id_str = str(self.id)
+        tbl_ops = [
+            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=4, needs_xact=True, status=OpStatus.PENDING),
+            CreateColumnMdOp(
+                tbl_id=id_str,
+                op_sn=1,
+                num_ops=4,
+                needs_xact=True,
+                status=OpStatus.PENDING,
+                column_ids=[col.id for col in all_cols],
+            ),
+            CreateStoreColumnsOp(
+                tbl_id=id_str,
+                op_sn=2,
+                num_ops=4,
+                needs_xact=False,
+                status=OpStatus.PENDING,
+                column_ids=[col.id for col in all_cols],
+            ),
+            CreateStoreIdxsOp(
+                tbl_id=id_str, op_sn=3, num_ops=4, needs_xact=False, status=OpStatus.PENDING, idx_ids=idx_ids
+            ),
+        ]
+        return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops
+
     def add_columns(
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
@@ -798,6 +954,7 @@ class TableVersion:
             col.id = self.next_col_id()
 
         # we're creating a new schema version
+        start_ts = time.perf_counter()
         self.bump_version(bump_schema_version=True)
         index_cols: dict[Column, tuple[index.BtreeIndex, Column, Column]] = {}
         all_cols: list[Column] = []
@@ -820,9 +977,12 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
 
+        duration = time.perf_counter() - start_ts
+        rate_str = f' ({status.num_rows / duration:.2f} rows/s)' if duration > 0 and status.num_rows > 0 else ''
         msg = (
             f'Added {status.num_rows} column value{"" if status.num_rows == 1 else "s"} '
-            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"}.'
+            f'with {status.num_excs} error{"" if status.num_excs == 1 else "s"} '
+            f'in {duration:.2f} s{rate_str}'
         )
         Env.get().console_logger.info(msg)
         _logger.info(f'Columns {[col.name for col in cols]}: {msg}')
@@ -845,7 +1005,6 @@ class TableVersion:
                     f'Cannot add non-nullable column {col.name!r} to table {self.name!r} with existing rows'
                 )
 
-        computed_values = 0
         num_excs = 0
         cols_with_excs: list[Column] = []
         for col in cols_to_add:
@@ -874,10 +1033,9 @@ class TableVersion:
 
             # populate the column
             plan = Planner.create_add_column_plan(self.path, col)
-            plan.ctx.num_rows = row_count
-            try:
-                plan.open()
+            with Env.get().report_progress():
                 try:
+                    plan.ctx.title = self.display_str()
                     excs_per_col = self.store_tbl.load_column(col, plan, on_error == 'abort')
                 except sql_exc.DBAPIError as exc:
                     Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
@@ -886,12 +1044,9 @@ class TableVersion:
                     raise excs.Error(
                         f'Unexpected SQL error during execution of computed column {col.name!r}:\n{exc}'
                     ) from exc
-                if excs_per_col > 0:
-                    cols_with_excs.append(col)
-                    num_excs += excs_per_col
-                computed_values += plan.ctx.num_computed_exprs * row_count
-            finally:
-                plan.close()
+            if excs_per_col > 0:
+                cols_with_excs.append(col)
+                num_excs += excs_per_col
 
         Catalog.get().record_column_dependencies(self)
 
@@ -899,9 +1054,7 @@ class TableVersion:
             plan.ctx.profile.print(num_rows=row_count)
 
         # TODO: what to do about system columns with exceptions?
-        row_counts = RowCountStats(
-            upd_rows=row_count, num_excs=num_excs, computed_values=computed_values
-        )  # add_columns
+        row_counts = RowCountStats(upd_rows=row_count, num_excs=num_excs, computed_values=0)  # add_columns
         return UpdateStatus(
             cols_with_excs=[f'{col.get_tbl().name}.{col.name}' for col in cols_with_excs if col.name is not None],
             row_count_stats=row_counts,
@@ -1033,10 +1186,11 @@ class TableVersion:
                 self.next_row_id += 1
                 yield rowid
 
-        result = self._insert(
-            plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
-        )
-        return result
+        with Env.get().report_progress():
+            result = self._insert(
+                plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
+            )
+            return result
 
     def _insert(
         self,
@@ -1050,6 +1204,7 @@ class TableVersion:
         """Insert rows produced by exec_plan and propagate to views"""
         # we're creating a new version
         self.bump_version(timestamp, bump_schema_version=False)
+        exec_plan.ctx.title = self.display_str()
         cols_with_excs, row_counts = self.store_tbl.insert_rows(
             exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
         )
@@ -1062,8 +1217,8 @@ class TableVersion:
         for view in self.mutable_views:
             from pixeltable.plan import Planner
 
-            plan2, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
-            status = view.get()._insert(plan2, timestamp, print_stats=print_stats)
+            view_plan, _ = Planner.create_view_load_plan(view.get().path, propagates_insert=True)
+            status = view.get()._insert(view_plan, timestamp, print_stats=print_stats)
             result += status.to_cascade()
 
         # Use the net status after all propagations
@@ -1105,7 +1260,6 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
-            show_progress=True,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1229,7 +1383,6 @@ class TableVersion:
             base_versions=[],
             timestamp=time.time(),
             cascade=cascade,
-            show_progress=True,
         )
         result += UpdateStatus(updated_cols=updated_cols)
         return result
@@ -1242,7 +1395,6 @@ class TableVersion:
         base_versions: list[int | None],
         timestamp: float,
         cascade: bool,
-        show_progress: bool = True,
     ) -> UpdateStatus:
         from pixeltable.catalog import Catalog
         from pixeltable.plan import Planner
@@ -1252,9 +1404,7 @@ class TableVersion:
         create_new_table_version = plan is not None
         if create_new_table_version:
             self.bump_version(timestamp, bump_schema_version=False)
-            cols_with_excs, row_counts = self.store_tbl.insert_rows(
-                plan, v_min=self.version, show_progress=show_progress
-            )
+            cols_with_excs, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
                 cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
@@ -1282,7 +1432,7 @@ class TableVersion:
 
     def _validate_where_clause(self, pred: exprs.Expr, error_prefix: str) -> None:
         """Validates that pred can be expressed as a SQL Where clause"""
-        assert self.is_insertable
+        assert self.is_mutable
         from pixeltable.exprs import Expr
         from pixeltable.plan import Planner
 
@@ -1646,6 +1796,9 @@ class TableVersion:
     def is_insertable(self) -> bool:
         """Returns True if this corresponds to an InsertableTable"""
         return self.is_mutable and not self.is_view
+
+    def display_str(self) -> str:
+        return f'{"Table" if self.is_insertable else "View"} {self.name!r}'
 
     def is_iterator_column(self, col: Column) -> bool:
         """Returns True if col is produced by an iterator"""

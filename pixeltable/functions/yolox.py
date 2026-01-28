@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 import PIL.Image
 
 import pixeltable as pxt
+from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.functions.util import normalize_image_mode
 from pixeltable.utils.code import local_public_names
@@ -39,6 +40,7 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
 
         >>> tbl.add_computed_column(detections=yolox(tbl.image, model_id='yolox_m', threshold=0.8))
     """
+    Env.get().require_package('yolox')
     import torch
 
     model = _lookup_model(model_id, 'cpu')

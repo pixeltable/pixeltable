@@ -24,6 +24,7 @@ from pixeltable import env, exprs, type_system as ts
 from pixeltable.config import Config
 from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.http import parse_duration_str
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.system import set_file_descriptor_limit
 
@@ -37,7 +38,7 @@ _logger = logging.getLogger('pixeltable')
 def _(api_key: str, base_url: str | None = None, api_version: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 
-    max_connections = Config.get().get_int_value('openai.max_connections') or 2000
+    max_connections = Config.get().get_int_value('openai.max_connections') or 1000
     max_keepalive_connections = Config.get().get_int_value('openai.max_keepalive_connections') or 100
     set_file_descriptor_limit(max_connections * 2)
     default_query = None if api_version is None else {'api-version': api_version}
@@ -105,37 +106,6 @@ def _rate_limits_pool(model: str) -> str:
     return f'rate-limits:openai:{model}'
 
 
-def _parse_header_duration(duration_str: str) -> float | None:
-    """Parses the value of x-ratelimit-reset-* header into seconds.
-
-    Returns None if the input cannot be parsed.
-
-    Real life examples of header values:
-    * '1m33.792s'
-    * '857ms'
-    * '0s'
-    * '47.874s'
-    * '156h58m48.601s'
-    """
-    if duration_str is None or duration_str.strip() == '':
-        return None
-    units = {
-        86400: r'(\d+)d',  # days
-        3600: r'(\d+)h',  # hours
-        60: r'(\d+)m(?:[^s]|$)',  # minutes
-        1: r'([\d.]+)s',  # seconds
-        0.001: r'(\d+)ms',  # millis
-    }
-    seconds = None
-    for unit_value, pattern in units.items():
-        match = re.search(pattern, duration_str)
-        if match:
-            seconds = seconds or 0.0
-            seconds += float(match.group(1)) * unit_value
-    _logger.debug(f'Parsed duration header value "{duration_str}" into {seconds} seconds')
-    return seconds
-
-
 def _get_header_info(
     headers: httpx.Headers,
 ) -> tuple[tuple[int, int, datetime.datetime] | None, tuple[int, int, datetime.datetime] | None]:
@@ -184,7 +154,7 @@ def _get_resource_info(headers: httpx.Headers, resource: str) -> tuple[int, int,
     limit_str = headers.get(f'x-ratelimit-limit-{resource}')
     limit = int(limit_str) if limit_str is not None else None
     reset_str = headers.get(f'x-ratelimit-reset-{resource}')
-    reset_in_seconds = _parse_header_duration(reset_str) or 5.0  # Default to 5 seconds
+    reset_in_seconds = parse_duration_str(reset_str) or 5.0  # Default to 5 seconds
     reset_ts = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(seconds=reset_in_seconds)
     return (limit, remaining, reset_ts)
 

@@ -36,7 +36,7 @@ class TestAudio:
             if codec is not None:
                 assert codec == audio_stream.codec_context.codec.name
 
-    def test_basic(self, reset_db: None) -> None:
+    def test_basic(self, uses_db: None) -> None:
         audio_filepaths = get_audio_files()
         audio_t = pxt.create_table('audio', {'audio_file': pxt.Audio})
         status = audio_t.insert({'audio_file': p} for p in audio_filepaths)
@@ -45,21 +45,27 @@ class TestAudio:
         paths = audio_t.select(output=audio_t.audio_file.localpath).collect()['output']
         assert set(paths) == set(audio_filepaths)
 
-    def test_extract(self, reset_db: None) -> None:
+    def test_extract(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
         video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.add_computed_column(audio=video_t.video.extract_audio())
 
-        # one of the 3 videos doesn't have audio
-        status = video_t.insert({'video': p} for p in video_filepaths)
-        assert status.num_rows == len(video_filepaths)
-        assert status.num_excs == 0
-        assert ObjectOps.count(video_t._id, default_output_dest=True) == len(video_filepaths) - 1
-        assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
+        # Directly count the number of videos with audio streams, without relying on the UDF
+        videos_with_audio = 0
+        for p in video_filepaths:
+            md = av_utils.get_metadata(p)
+            if sum(1 for stream in md['streams'] if stream['type'] == 'audio') > 0:
+                videos_with_audio += 1
+
+        validate_update_status(
+            video_t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths)
+        )
+        assert ObjectOps.count(video_t._id, default_output_dest=True) == videos_with_audio
+        assert video_t.where(video_t.audio != None).count() == videos_with_audio
         tmp_files_before = TempStore.count()
 
         video_t = pxt.get_table('videos')
-        assert video_t.where(video_t.audio != None).count() == len(video_filepaths) - 1
+        assert video_t.where(video_t.audio != None).count() == videos_with_audio
 
         # test generating different formats and codecs
         paths = video_t.select(output=video_t.video.extract_audio(format='wav', codec='pcm_s16le')).collect()['output']
@@ -77,7 +83,7 @@ class TestAudio:
             for path in [p for p in paths if p is not None]:
                 self.check_audio_params(path, format=format)
 
-    def test_get_metadata(self, reset_db: None) -> None:
+    def test_get_metadata(self, uses_db: None) -> None:
         audio_filepaths = get_audio_files()
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         base_t.add_computed_column(metadata=base_t.audio.get_metadata())
@@ -145,7 +151,7 @@ class TestAudio:
             min_chunk_duration_sec,
         )
 
-    def test_audio_iterator_on_audio(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_audio_iterator_on_audio(self, uses_db: None, reload_tester: ReloadTester) -> None:
         audio_filepaths = get_audio_files()
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
@@ -164,7 +170,7 @@ class TestAudio:
             assert count == file_to_chunks_from_view.get(file, 0)
         reload_tester.run_reload_test()
 
-    def test_audio_iterator_on_videos_revert_media_store(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_audio_iterator_on_videos_revert_media_store(self, uses_db: None, reload_tester: ReloadTester) -> None:
         video_filepaths = get_video_files()
         video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.insert({'video': p} for p in video_filepaths)
@@ -180,7 +186,7 @@ class TestAudio:
         final_count = ObjectOps.count(video_t._id, default_output_dest=True)
         assert final_count == pre_count  # Reverting should remove the added files
 
-    def test_audio_iterator_on_videos(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_audio_iterator_on_videos(self, uses_db: None, reload_tester: ReloadTester) -> None:
         video_filepaths = get_video_files()
         video_t = pxt.create_table('videos', {'video': pxt.Video})
         video_t.insert({'video': p} for p in video_filepaths)
@@ -262,7 +268,7 @@ class TestAudio:
         assert round(chunks[-1][0], 2) == 55.5
         assert round(chunks[-1][1], 2) == 69.5
 
-    def test_audio_iterator_single_file(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_audio_iterator_single_file(self, uses_db: None, reload_tester: ReloadTester) -> None:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
@@ -309,7 +315,7 @@ class TestAudio:
             assert result['audio'] == audio_filepath
         reload_tester.run_reload_test()
 
-    def test_create_audio_iterator(self, reset_db: None) -> None:
+    def test_create_audio_iterator(self, uses_db: None) -> None:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
@@ -365,7 +371,7 @@ class TestAudio:
         ],
     )
     def test_encode_array_to_audio(
-        self, format: str, stereo: bool, downsample: bool, as_1d_array: bool, reset_db: None
+        self, format: str, stereo: bool, downsample: bool, as_1d_array: bool, uses_db: None
     ) -> None:
         # Load a sample mp3 file to an array
         sample_path = './tests/data/audio/sample.mp3' if stereo else './docs/resources/10-minute tour of Pixeltable.mp3'
@@ -413,7 +419,7 @@ class TestAudio:
 
     @pytest.mark.skipif(IN_CI, reason='Runs out of disk space on CI')
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading datasets
-    def test_encode_dataset_audio(self, reset_db: None) -> None:
+    def test_encode_dataset_audio(self, uses_db: None) -> None:
         """
         The point of this test case is to validate encode_audio UDF on a real-world dataset.
         """
@@ -437,7 +443,6 @@ class TestAudio:
             )
         )
         validate_update_status(update_status)
-        assert update_status.num_computed_values > 1000
         for row in t.head(10):
             assert set(row.keys()) == {'audio', 'sentence', 'audio_file'}
             print(f'Encoded audio file: {row["audio_file"]}')

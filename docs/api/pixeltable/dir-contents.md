@@ -1,3 +1,0 @@
-# DirContents
-
-## ::: pixeltable.DirContents

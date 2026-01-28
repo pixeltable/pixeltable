@@ -13,7 +13,7 @@ from pixeltable import env, func
 from pixeltable.config import Config
 from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
-from .globals import Dispatcher, ExecCtx, FnCallArgs, Scheduler
+from .globals import Dispatcher, ExprEvalCtx, FnCallArgs, Scheduler
 
 _logger = logging.getLogger('pixeltable')
 
@@ -171,7 +171,7 @@ class RateLimitsScheduler(Scheduler):
         _logger.debug(f'Determined wait time of {highest_wait:.1f}s for resource {highest_wait_resource}')
         return highest_wait
 
-    async def _exec(self, request: FnCallArgs, exec_ctx: ExecCtx, num_retries: int, is_task: bool) -> None:
+    async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx, num_retries: int, is_task: bool) -> None:
         assert all(not row.has_val[request.fn_call.slot_idx] for row in request.rows)
         assert all(not row.has_exc(request.fn_call.slot_idx) for row in request.rows)
 
@@ -208,6 +208,10 @@ class RateLimitsScheduler(Scheduler):
             if hasattr(exc, 'response') and hasattr(exc.response, 'headers'):
                 _logger.debug(f'scheduler {self.resource_pool}: exception headers: {exc.response.headers}')
 
+            # The very first request can fail due to throttling. Pick up pool info in case the UDF set it, so that we
+            # can use it to determine the retry delay.
+            if self.pool_info is None:
+                self._set_pool_info()
             # If pool info is available, attempt to retry based on the resource information
             # Pool info may not be available yet if the exception occurred before the UDF set it
             if self.pool_info is not None:
@@ -335,7 +339,7 @@ class RequestRateScheduler(Scheduler):
                 task = asyncio.create_task(self._exec(item.request, item.exec_ctx, item.num_retries, is_task=True))
                 self.dispatcher.register_task(task)
 
-    async def _exec(self, request: FnCallArgs, exec_ctx: ExecCtx, num_retries: int, is_task: bool) -> None:
+    async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx, num_retries: int, is_task: bool) -> None:
         assert all(not row.has_val[request.fn_call.slot_idx] for row in request.rows)
         assert all(not row.has_exc(request.fn_call.slot_idx) for row in request.rows)
 

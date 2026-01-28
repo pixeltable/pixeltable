@@ -1,13 +1,14 @@
+import numpy as np
 import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.video import frame_iterator
 
-from ..utils import get_video_files, skip_test_if_not_installed
+from ..utils import get_image_files, get_video_files, skip_test_if_not_installed
 
 
 class TestVision:
-    def test_eval(self, reset_db: None) -> None:
+    def test_eval(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
 
@@ -50,7 +51,7 @@ class TestVision:
             draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
         ).collect()
 
-    def test_draw_bounding_boxes(self, reset_db: None) -> None:
+    def test_draw_bounding_boxes(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pixeltable.functions.yolox import yolox
 
@@ -74,22 +75,39 @@ class TestVision:
                 v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=False, width=3
             )
         ).collect()
-        _ = v.select(
-            draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, color='red')
-        ).collect()
+        for color in ['red', '#FF0000FF']:
+            for alpha in [None, 0.5]:
+                for fill_alpha in [None, 0.3]:
+                    _ = v.select(
+                        draw_bounding_boxes(
+                            v.frame_s,
+                            boxes=v.detections_a.bboxes,
+                            labels=v.detections_a.labels,
+                            color=color,
+                            alpha=alpha,
+                            fill=fill_alpha is not None,
+                            fill_alpha=fill_alpha,
+                        )
+                    ).collect()
 
-        # explicit box colors
-        num_boxes = len(v.where(v.pos == 0).select(v.detections_a.bboxes).collect()[0, 0])
-        box_colors = ['red'] * num_boxes
-        _ = (
-            v.where(v.pos == 0)
-            .select(
-                draw_bounding_boxes(
-                    v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, box_colors=box_colors
+                # explicit box colors
+                num_boxes = len(v.where(v.pos == 0).select(v.detections_a.bboxes).collect()[0, 0])
+                box_colors = [color] * num_boxes
+                _ = (
+                    v.where(v.pos == 0)
+                    .select(
+                        draw_bounding_boxes(
+                            v.frame_s,
+                            boxes=v.detections_a.bboxes,
+                            labels=v.detections_a.labels,
+                            box_colors=box_colors,
+                            alpha=alpha,
+                            fill=fill_alpha is not None,
+                            fill_alpha=fill_alpha,
+                        )
+                    )
+                    .collect()
                 )
-            )
-            .collect()
-        )
 
         with pytest.raises(pxt.Error) as exc_info:
             # multiple color specifications
@@ -115,3 +133,28 @@ class TestVision:
         assert 'number of boxes and box colors must match' in str(exc_info.value).lower()
 
         # TODO: test font and font_size parameters in a system-independent way
+
+    def test_overlay_segmentation(self, uses_db: None) -> None:
+        skip_test_if_not_installed('transformers')
+
+        from pixeltable.functions.huggingface import detr_for_segmentation
+        from pixeltable.functions.vision import overlay_segmentation
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(
+            segmentation=detr_for_segmentation(t.img, model_id='facebook/detr-resnet-50-panoptic', threshold=0.5)
+        )
+        image_files = get_image_files()[:3]
+        t.insert({'img': f} for f in image_files)
+
+        segmentation_map = t.segmentation.segmentation.astype(pxt.Array[(None, None), np.int32])  # type: ignore[misc]
+        _ = t.select(overlay_segmentation(t.img, segmentation_map)).collect()
+
+        # test non-defaults
+        label_colors = ['red', '#00FF00']
+        _ = t.select(
+            overlay_segmentation(t.img, segmentation_map, alpha=0.3, background=1, segment_colors=label_colors)
+        ).collect()
+
+        # test draw_contours
+        _ = t.select(overlay_segmentation(t.img, segmentation_map, draw_contours=True, contour_thickness=2)).collect()

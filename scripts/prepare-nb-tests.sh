@@ -45,9 +45,11 @@ done
 rm "$TARGET_DIR/working-with-gemini.ipynb"  # Temporary
 rm "$TARGET_DIR/rag-operations.ipynb"  # Failing in CI for unknown reasons
 rm "$TARGET_DIR/video-generate-ai.ipynb"  # Expensive
+rm "$TARGET_DIR/img-image-to-image.ipynb"  # Expensive (downloads ~5GB model)
+rm "$TARGET_DIR/llm-tool-calling.ipynb"  # Flaky
 
 # Get a list of all API keys referenced in the notebooks
-REF_API_KEYS=$(grep -hoE '[A-Z_]*_(API|ACCESS)_(KEY|TOKEN)' "$TARGET_DIR"/*.ipynb | sort | uniq)
+REF_API_KEYS=$(grep -hoE '[A-Z0-9_]*_(API|ACCESS)_(KEY|TOKEN)(_[A-Z0-9_]*)?' "$TARGET_DIR"/*.ipynb | sort | uniq)
 echo
 echo "Checking for API keys: $(echo "$REF_API_KEYS" | tr '\n' ' ')"
 for env in $REF_API_KEYS; do

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import datetime
 import glob
 import http.server
@@ -10,7 +11,6 @@ import inspect
 import logging
 import math
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -22,7 +22,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar
+from typing import Any, Callable, Iterator, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nest_asyncio  # type: ignore[import-untyped]
@@ -30,9 +30,9 @@ import pixeltable_pgserver
 import sqlalchemy as sql
 import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
+from rich.progress import Progress
 from sqlalchemy import orm
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
-from tqdm import TqdmWarning
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
@@ -41,10 +41,6 @@ from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
 from pixeltable.utils.object_stores import ObjectPath
 from pixeltable.utils.sql import add_option_to_db_url
-
-if TYPE_CHECKING:
-    import spacy
-
 
 _logger = logging.getLogger('pixeltable')
 
@@ -80,7 +76,6 @@ class Env:
     # info about optional packages that are utilized by some parts of the code
     __optional_packages: dict[str, PackageInfo]
 
-    _spacy_nlp: spacy.Language | None
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
     _logger: logging.Logger
@@ -95,6 +90,7 @@ class Env:
     _stdout_handler: logging.StreamHandler
     _default_video_encoder: str | None
     _initialized: bool
+    _progress: Progress | None
 
     _resource_pool_info: dict[str, Any]
     _current_conn: sql.Connection | None
@@ -141,7 +137,6 @@ class Env:
         self._db_url = None
         self._default_time_zone = None
         self.__optional_packages = {}
-        self._spacy_nlp = None
         self._httpd = None
         self._http_address = None
         self._default_video_encoder = None
@@ -160,6 +155,7 @@ class Env:
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
         self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
         self._initialized = False
+        self._progress = None
 
         self._resource_pool_info = {}
         self._current_conn = None
@@ -264,6 +260,55 @@ class Env:
     def is_local(self) -> bool:
         assert self._db_url is not None  # is_local should be called only after db initialization
         return self._db_server is not None
+
+    def is_interactive(self) -> bool:
+        """Return True if running in an interactive environment."""
+        if getattr(builtins, '__IPYTHON__', False):
+            return True
+        # Python interactive shell
+        if hasattr(sys, 'ps1'):
+            return True
+        # for script execution, __main__ has __file__
+        import __main__
+
+        return not hasattr(__main__, '__file__')
+
+    def is_notebook(self) -> bool:
+        """Return True if running in a Jupyter notebook."""
+        try:
+            shell = get_ipython()  # type: ignore[name-defined]
+            return 'ZMQInteractiveShell' in str(shell)
+        except NameError:
+            return False
+
+    def start_progress(self, create_fn: Callable[[], Progress]) -> Progress:
+        if self._progress is None:
+            self._progress = create_fn()
+            self._progress.start()
+        return self._progress
+
+    def stop_progress(self) -> None:
+        if self._progress is None:
+            return
+        self._progress.stop()
+        self._progress = None
+
+        # if we're running in a notebook, we need to clear the Progress output manually
+        if self.is_notebook():
+            try:
+                from IPython.display import clear_output
+
+                clear_output(wait=False)
+            except ImportError:
+                pass
+
+    @contextmanager
+    def report_progress(self) -> Iterator[None]:
+        """Context manager for the Progress instance."""
+        try:
+            yield
+        finally:
+            self.stop_progress()
 
     @contextmanager
     def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
@@ -432,12 +477,23 @@ class Env:
 
         self._pxt_api_key = config.get_string_value('api_key')
 
-        # Disable spurious warnings
-        warnings.simplefilter('ignore', category=TqdmWarning)
+        # Disable spurious warnings:
+        # Suppress tqdm's ipywidgets warning in Jupyter environments
+        warnings.filterwarnings('ignore', message='IProgress not found')
+        # suppress Rich's ipywidgets warning in Jupyter environments
+        warnings.filterwarnings('ignore', message='install "ipywidgets" for Jupyter support')
         if config.get_bool_value('hide_warnings'):
             # Disable more warnings
             warnings.simplefilter('ignore', category=UserWarning)
             warnings.simplefilter('ignore', category=FutureWarning)
+
+        # if we're running in a Jupyter notebook, warn about missing ipywidgets
+        if self.is_notebook() and importlib.util.find_spec('ipywidgets') is None:
+            warnings.warn(
+                'Progress reporting is disabled because ipywidgets is not installed. '
+                'To fix this, run: `pip install ipywidgets`',
+                stacklevel=1,
+            )
 
         # Set verbosity level for user visible console messages
         self._verbosity = config.get_int_value('verbosity')
@@ -538,12 +594,7 @@ class Env:
         else:
             self._db_name = config.get_string_value('db') or 'pixeltable'
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
-            # cleanup_mode=None will leave the postgres process running after Python exits
-            # cleanup_mode='stop' will terminate the postgres process when Python exits
-            # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
-            # process (such as Terminal or VSCode) exits, potentially leaving it in an unusable state.
-            cleanup_mode = 'stop' if platform.system() == 'Windows' else None
-            self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
+            self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
             self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
             self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
         assert self._dbms is not None
@@ -776,17 +827,18 @@ class Env:
         self.__register_package('boto3')
         self.__register_package('datasets')
         self.__register_package('diffusers')
-        self.__register_package('fiftyone')
-        self.__register_package('twelvelabs')
         self.__register_package('fal_client', library_name='fal-client')
+        self.__register_package('fiftyone')
         self.__register_package('fireworks', library_name='fireworks-ai')
         self.__register_package('google.cloud.storage', library_name='google-cloud-storage')
         self.__register_package('google.genai', library_name='google-genai')
         self.__register_package('groq')
         self.__register_package('huggingface_hub', library_name='huggingface-hub')
         self.__register_package('label_studio_sdk', library_name='label-studio-sdk')
+        self.__register_package('lancedb')
         self.__register_package('librosa')
         self.__register_package('llama_cpp', library_name='llama-cpp-python')
+        self.__register_package('markitdown')
         self.__register_package('mcp')
         self.__register_package('mistralai')
         self.__register_package('mistune')
@@ -797,22 +849,25 @@ class Env:
         self.__register_package('pydantic')
         self.__register_package('replicate')
         self.__register_package('reve')
+        self.__register_package('runwayml')
+        self.__register_package('scenedetect')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')
+        self.__register_package('snowflake.sqlalchemy', library_name='snowflake-sqlalchemy')
         self.__register_package('soundfile')
         self.__register_package('spacy')
         self.__register_package('tiktoken')
+        self.__register_package('timm')
         self.__register_package('together')
         self.__register_package('torch')
         self.__register_package('torchaudio')
         self.__register_package('torchvision')
         self.__register_package('transformers')
+        self.__register_package('twelvelabs')
         self.__register_package('voyageai')
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')
         self.__register_package('yolox', library_name='pixeltable-yolox')
-        self.__register_package('lancedb')
-        self.__register_package('scenedetect')
 
     def __register_package(self, package_name: str, library_name: str | None = None) -> None:
         is_installed: bool
@@ -830,7 +885,9 @@ class Env:
         if not shutil.which(binary_name):
             raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
 
-    def require_package(self, package_name: str, min_version: list[int] | None = None) -> None:
+    def require_package(
+        self, package_name: str, min_version: list[int] | None = None, not_installed_msg: str | None = None
+    ) -> None:
         """
         Checks whether the specified optional package is available. If not, raises an exception
         with an error message informing the user how to install it.
@@ -846,9 +903,10 @@ class Env:
             package_info.is_installed = importlib.util.find_spec(package_name) is not None
             if not package_info.is_installed:
                 # Still not found.
+                if not_installed_msg is None:
+                    not_installed_msg = f'This feature requires the `{package_name}` package'
                 raise excs.Error(
-                    f'This feature requires the `{package_name}` package. To install it, run: '
-                    f'`pip install -U {package_info.library_name}`'
+                    f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`'
                 )
 
         if min_version is None:
@@ -915,32 +973,6 @@ class Env:
     def engine(self) -> sql.engine.base.Engine:
         assert self._sa_engine is not None
         return self._sa_engine
-
-    @property
-    def spacy_nlp(self) -> spacy.Language:
-        Env.get().require_package('spacy')
-        if self._spacy_nlp is None:
-            self.__init_spacy()
-        assert self._spacy_nlp is not None
-        return self._spacy_nlp
-
-    def __init_spacy(self) -> None:
-        """
-        spaCy relies on a pip-installed model to operate. In order to avoid requiring the model as a separate
-        dependency, we install it programmatically here. This should cause no problems, since the model packages
-        have no sub-dependencies (in fact, this is how spaCy normally manages its model resources).
-        """
-        import spacy
-        from spacy.cli.download import download
-
-        spacy_model = 'en_core_web_sm'
-        self._logger.info(f'Ensuring spaCy model is installed: {spacy_model}')
-        download(spacy_model)
-        self._logger.info(f'Loading spaCy model: {spacy_model}')
-        try:
-            self._spacy_nlp = spacy.load(spacy_model)
-        except Exception as exc:
-            raise excs.Error(f'Failed to load spaCy model: {spacy_model}') from exc
 
     def _clean_up(self) -> None:
         """

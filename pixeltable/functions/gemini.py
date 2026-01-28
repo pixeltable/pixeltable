@@ -7,18 +7,24 @@ the [Working with Gemini](https://docs.pixeltable.com/notebooks/integrations/wor
 
 import asyncio
 import io
+import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
+import numpy as np
 import PIL.Image
 
 import pixeltable as pxt
-from pixeltable import env, exceptions as excs, exprs
+from pixeltable import env, exceptions as excs, exprs, type_system as ts
+from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.http import exponential_backoff, parse_duration_str
 from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
     from google import genai
+
+_logger = logging.getLogger('pixeltable')
 
 
 @env.register_client('gemini')
@@ -32,9 +38,37 @@ def _genai_client() -> 'genai.client.Client':
     return env.Env.get().get_client('gemini')
 
 
-@pxt.udf(resource_pool='request-rate:gemini')
+class GeminiRateLimitsInfo(env.RateLimitsInfo):
+    def __init__(self) -> None:
+        super().__init__(self._get_request_resources)
+
+    def _get_request_resources(self) -> dict[str, int]:
+        # TODO(PXT-996): Improve resource tracking for Gemini UDFs
+        return {}
+
+    def is_initialized(self) -> bool:
+        return True
+
+    def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
+        if hasattr(exc, 'code') and exc.code == 429:
+            try:
+                for detail_dict in exc.details['error']['details']:  # type: ignore[attr-defined]
+                    if detail_dict.get('@type') == 'type.googleapis.com/google.rpc.RetryInfo':
+                        delay = parse_duration_str(detail_dict['retryDelay'])
+                        return delay
+            except (AttributeError, KeyError):
+                return exponential_backoff(attempt)
+        return None
+
+
+@pxt.udf()
 async def generate_content(
-    contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None
+    contents: pxt.Json,
+    *,
+    model: str,
+    config: dict | None = None,
+    tools: list[dict] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> dict:
     """
     Generate content from the specified model.
@@ -70,6 +104,9 @@ async def generate_content(
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
+
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
     config_: types.GenerateContentConfig
     if config is None and tools is None:
@@ -121,11 +158,13 @@ def _gemini_response_to_pxt_tool_calls(response: dict) -> dict | None:
 
 @generate_content.resource_pool
 def _(model: str) -> str:
-    return f'request-rate:gemini:{model}'
+    return f'rate-limits:gemini:{model}'
 
 
-@pxt.udf(resource_pool='request-rate:imagen')
-async def generate_images(prompt: str, *, model: str, config: dict | None = None) -> PIL.Image.Image:
+@pxt.udf()
+async def generate_images(
+    prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx | None = None
+) -> PIL.Image.Image:
     """
     Generates images based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/image-generation>
@@ -157,6 +196,9 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
     env.Env.get().require_package('google.genai')
     from google.genai.types import GenerateImagesConfig
 
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
     config_ = GenerateImagesConfig(**config) if config else None
     response = await _genai_client().aio.models.generate_images(model=model, prompt=prompt, config=config_)
     return response.generated_images[0].image._pil_image
@@ -164,12 +206,17 @@ async def generate_images(prompt: str, *, model: str, config: dict | None = None
 
 @generate_images.resource_pool
 def _(model: str) -> str:
-    return f'request-rate:imagen:{model}'
+    return f'rate-limits:gemini:{model}'
 
 
-@pxt.udf(resource_pool='request-rate:veo')
+@pxt.udf()
 async def generate_videos(
-    prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
+    prompt: str | None = None,
+    image: PIL.Image.Image | None = None,
+    *,
+    model: str,
+    config: dict | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> pxt.Video:
     """
     Generates videos based on a text description and configuration. For additional details, see:
@@ -205,6 +252,9 @@ async def generate_videos(
     env.Env.get().require_package('google.genai')
     from google.genai import types
 
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
     if prompt is None and image is None:
         raise excs.Error('At least one of `prompt` or `image` must be provided.')
 
@@ -239,7 +289,122 @@ async def generate_videos(
 
 @generate_videos.resource_pool
 def _(model: str) -> str:
-    return f'request-rate:veo:{model}'
+    return f'rate-limits:gemini:{model}'
+
+
+@pxt.udf(batch_size=32)
+async def generate_embedding(
+    input: Batch[str],
+    *,
+    model: str,
+    config: dict[str, Any] | None = None,
+    use_batch_api: bool = False,
+    _runtime_ctx: env.RuntimeCtx | None = None,
+) -> Batch[pxt.Array[(None,), np.float32]]:
+    """Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
+    <https://ai.google.dev/gemini-api/docs/embeddings>
+
+    __Requirements:__
+
+    - `pip install google-genai`
+
+    Args:
+        input: The strings to generate embeddings for.
+        model: The Gemini model to use.
+        config: Configuration for embedding generation, corresponding to keyword arguments of
+            `genai.types.EmbedContentConfig`. For details on the parameters, see:
+            <https://googleapis.github.io/python-genai/genai.html#genai.types.EmbedContentConfig>
+        use_batch_api: If True, use [Gemini's Batch API](https://ai.google.dev/gemini-api/docs/batch-api) that provides
+            a higher throughput at a lower cost at the expense of higher latency.
+
+    Returns:
+        The generated embeddings.
+
+    Examples:
+        Add a computed column with embeddings to an existing table with a `text` column:
+
+        >>> t.add_computed_column(embedding=generate_embedding(t.text))
+
+        Add an embedding index on `text` column:
+
+        >>> t.add_embedding_index(
+        ...    t.text,
+        ...    embedding=generate_embedding.using(
+        ...        model='gemini-embedding-001', config={'output_dimensionality': 3072}
+        ...    ),
+        ...)
+    """
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
+
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
+    client = _genai_client()
+    config_ = _embedding_config(config)
+
+    if not use_batch_api:
+        result = await client.aio.models.embed_content(model=model, contents=cast(list[Any], input), config=config_)
+        assert len(result.embeddings) == len(input)
+        return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
+
+    # Batch API
+    batch_job = client.batches.create_embeddings(
+        model=model,
+        src=types.EmbeddingsBatchJobSource(inlined_requests=types.EmbedContentBatch(contents=input, config=config_)),
+    )
+
+    await asyncio.sleep(3)
+    i = 0
+    while True:
+        batch_job = client.batches.get(name=batch_job.name)
+        if batch_job.state in (
+            types.JobState.JOB_STATE_SUCCEEDED,
+            types.JobState.JOB_STATE_FAILED,
+            types.JobState.JOB_STATE_CANCELLED,
+            types.JobState.JOB_STATE_EXPIRED,
+        ):
+            break
+        delay = min(10 + i * 2, 30)
+        _logger.debug(
+            f'Waiting for embedding batch job {batch_job.name} to complete. Latest state: {batch_job.state}. Sleeping'
+            f' for {delay}s before the next attempt.'
+        )
+        await asyncio.sleep(delay)
+        i += 1
+
+    if batch_job.state != types.JobState.JOB_STATE_SUCCEEDED:
+        raise excs.Error(f'Embedding batch job did not succeed: {batch_job.state}. Error: {batch_job.error}')
+
+    assert batch_job.error is None
+    results = []
+    for resp in batch_job.dest.inlined_embed_content_responses:
+        assert resp.error is None
+        results.append(np.array(resp.response.embedding.values, dtype=np.float32))
+    return results
+
+
+_DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL: dict[str, int] = {'gemini-embedding-001': 3072}
+
+
+@generate_embedding.conditional_return_type
+def _(model: str, config: dict | None) -> ts.ArrayType:
+    config_ = _embedding_config(config)
+    dim = config_.output_dimensionality
+    if dim is None and model in _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL:
+        dim = _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL.get(model)
+    return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
+
+
+@generate_embedding.resource_pool
+def _(model: str) -> str:
+    return f'rate-limits:gemini:{model}'
+
+
+def _embedding_config(config: dict | None) -> 'genai.types.EmbedContentConfig':
+    from google.genai import types
+
+    return types.EmbedContentConfig(**config) if config else types.EmbedContentConfig()
 
 
 __all__ = local_public_names(__name__)
