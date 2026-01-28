@@ -34,12 +34,12 @@ _logger = logging.getLogger('pixeltable')
 
 
 class TestMigration:
-    # @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
-    # @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
-    # @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Runs only on Python 3.10 (due to pickling issue)')
+    @rerun(reruns=3, reruns_delay=8)  # Deal with occasional concurrency issues
+    @pytest.mark.skipif(platform.system() == 'Windows', reason='Does not run on Windows')
+    @pytest.mark.skipif(sys.version_info >= (3, 11), reason='Runs only on Python 3.10 (due to pickling issue)')
     def test_db_migration(self, init_env: None) -> None:
-        # skip_test_if_not_installed('transformers')
-        # skip_test_if_not_installed('label_studio_sdk')
+        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('label_studio_sdk')
 
         env = Env.get()
         pg_package_dir = os.path.dirname(pixeltable_pgserver.__file__)
