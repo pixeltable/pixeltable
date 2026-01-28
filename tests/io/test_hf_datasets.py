@@ -367,7 +367,7 @@ class TestHfDatasets:
 
         # SQuAD has answers as {'text': List(string), 'answer_start': List(int32)}
         split = f'validation[:{self.NUM_SAMPLES}]' if not streaming else 'validation'
-        hf_dataset = datasets.load_dataset('squad', split=split, streaming=streaming)
+        hf_dataset = datasets.load_dataset('rajpurkar/squad', split=split, streaming=streaming)
         if streaming:
             hf_dataset = hf_dataset.take(self.NUM_SAMPLES)
         t = pxt.create_table('squad_test', source=hf_dataset)
