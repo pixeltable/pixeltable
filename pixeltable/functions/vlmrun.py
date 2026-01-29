@@ -131,11 +131,62 @@ async def upload_image(image: pxt.Image) -> str:
     return result
 
 
+def _build_artifact_schema(output_artifacts: list[str]) -> dict | None:
+    """Build a JSON schema for the requested artifact types.
+
+    Supports both singular and plural artifact types:
+    - Singular: 'image', 'video', 'audio', 'document', 'recon' -> single artifact
+    - Plural: 'images', 'videos', 'audios', 'documents', 'recons' -> list of artifacts
+    """
+    from pydantic import BaseModel, Field
+    from vlmrun.types.refs import AudioRef, DocumentRef, ImageRef, ReconRef, VideoRef
+
+    # Map for singular artifact types
+    singular_ref_map = {
+        'image': ImageRef,
+        'video': VideoRef,
+        'audio': AudioRef,
+        'document': DocumentRef,
+        'recon': ReconRef,
+    }
+
+    # Map for plural artifact types (list versions)
+    plural_ref_map = {
+        'images': ('List[ImageRef]', ImageRef, 'List of images'),
+        'videos': ('List[VideoRef]', VideoRef, 'List of videos'),
+        'audios': ('List[AudioRef]', AudioRef, 'List of audio files'),
+        'documents': ('List[DocumentRef]', DocumentRef, 'List of documents'),
+        'recons': ('List[ReconRef]', ReconRef, 'List of 3D reconstructions'),
+    }
+
+    annotations = {}
+    field_defaults = {}
+
+    for artifact_type in output_artifacts:
+        if artifact_type in singular_ref_map:
+            annotations[artifact_type] = singular_ref_map[artifact_type]
+        elif artifact_type in plural_ref_map:
+            _, ref_class, description = plural_ref_map[artifact_type]
+            annotations[artifact_type] = list[ref_class]
+            field_defaults[artifact_type] = Field(..., description=description)
+
+    if not annotations:
+        return None
+
+    # Create dynamic Pydantic model with field definitions
+    namespace = {'__annotations__': annotations}
+    namespace.update(field_defaults)
+    DynamicModel = type('ArtifactResponse', (BaseModel,), namespace)
+    return DynamicModel.model_json_schema()
+
+
 @pxt.udf(resource_pool='request-rate:vlmrun')
 async def chat_completions(
     messages: list[dict[str, Any]],
     *,
     model: str = 'vlmrun-orion-1:auto',
+    output_artifacts: list[str] | None = None,
+    toolsets: list[str] | None = None,
     model_kwargs: dict[str, Any] | None = None,
 ) -> pxt.Json:
     """
@@ -156,95 +207,341 @@ async def chat_completions(
         messages: A list of messages comprising the conversation so far.
         model: The model to use. Options: `vlmrun-orion-1:fast`, `vlmrun-orion-1:auto`,
             `vlmrun-orion-1:pro`. Defaults to `vlmrun-orion-1:auto`.
+        output_artifacts: List of artifact types to generate.
+            Singular options: 'image', 'video', 'audio', 'document', 'recon' -> returns single artifact ID.
+            Plural options: 'images', 'videos', 'audios', 'documents', 'recons' -> returns list of artifact IDs.
+            When specified, auto-generates the response schema. The response will include
+            object_ids (e.g., 'img_abc123') or lists of object_ids that can be retrieved
+            using get_image_artifact, get_video_artifact, get_recon_artifact, etc.
+        toolsets: List of tool categories to enable. Options: 'core', 'image', 'image-gen',
+            'world_gen', 'viz', 'document', 'video', 'web'. If not specified, all tools are available.
         model_kwargs: Additional keyword args for the VLM Run chat completions API.
 
     Returns:
-        A JSON object containing the response and other metadata.
+        A JSON object containing the response, session_id, and artifact object_ids.
 
     Examples:
-        Add a computed column that analyzes an uploaded file:
+        Text response (no artifacts):
 
-        >>> t.add_computed_column(file_id=vlmrun.upload_file(t.media.localpath))
         >>> messages = [{'role': 'user', 'content': [
-        ...     {'type': 'text', 'text': 'Describe this file'},
+        ...     {'type': 'text', 'text': 'Describe this image'},
         ...     {'type': 'input_file', 'file_id': t.file_id}
         ... ]}]
-        >>> t.add_computed_column(response=vlmrun.chat_completions(messages, model='vlmrun-orion-1:auto'))
+        >>> t.add_computed_column(response=vlmrun.chat_completions(messages))
+
+        Generate image artifact:
+
+        >>> messages = [{'role': 'user', 'content': [
+        ...     {'type': 'text', 'text': 'Blur all faces in this image'},
+        ...     {'type': 'input_file', 'file_id': t.file_id}
+        ... ]}]
+        >>> t.add_computed_column(response=vlmrun.chat_completions(
+        ...     messages, output_artifacts=['image']
+        ... ))
+        >>> t.add_computed_column(blurred=vlmrun.get_image_artifact(
+        ...     t.response['image'], session_id=t.response['session_id']
+        ... ))
+
+        Generate multiple image artifacts (list):
+
+        >>> messages = [{'role': 'user', 'content': [
+        ...     {'type': 'text', 'text': 'Extract all frames with faces'},
+        ...     {'type': 'input_file', 'file_id': t.file_id}
+        ... ]}]
+        >>> t.add_computed_column(response=vlmrun.chat_completions(
+        ...     messages, output_artifacts=['images']  # plural for list
+        ... ))
+        >>> # response['images'] contains a list of image IDs like ['img_1', 'img_2', ...]
+
+        Use specific toolsets for 3D reconstruction:
+
+        >>> t.add_computed_column(response=vlmrun.chat_completions(
+        ...     messages, output_artifacts=['recon'], toolsets=['world_gen']
+        ... ))
+
+        Use document processing tools only:
+
+        >>> t.add_computed_column(response=vlmrun.chat_completions(
+        ...     messages, toolsets=['document']
+        ... ))
     """
     Env.get().require_package('vlmrun')
 
     if model_kwargs is None:
         model_kwargs = {}
 
+    # Auto-generate schema if output_artifacts specified
+    if output_artifacts:
+        schema = _build_artifact_schema(output_artifacts)
+        if schema:
+            model_kwargs['response_format'] = {'type': 'json_schema', 'schema': schema}
+
     def _call_api() -> dict:
         client = _vlmrun_client()
+
+        # Build extra_body for VLM Run-specific parameters
+        extra_body = model_kwargs.pop('extra_body', {}) if model_kwargs else {}
+        if toolsets:
+            extra_body['toolsets'] = toolsets
+
         response = client.agent.completions.create(
             model=model,
             messages=messages,
+            extra_body=extra_body if extra_body else None,
             **model_kwargs,
         )
-        return response.model_dump()
+        result = response.model_dump()
+        # Include session_id at top level for artifact retrieval
+        # session_id may be a direct attribute or in model_extra (Pydantic extra fields)
+        if hasattr(response, 'session_id') and response.session_id is not None:
+            result['session_id'] = response.session_id
+        elif hasattr(response, 'model_extra') and 'session_id' in response.model_extra:
+            result['session_id'] = response.model_extra['session_id']
+
+        # Parse artifact object_ids from content if output_artifacts was used
+        if output_artifacts and result.get('choices'):
+            import json
+            try:
+                content = result['choices'][0]['message']['content']
+                parsed = json.loads(content)
+                # Add parsed artifact IDs to top level for easy access
+                # Singular: {"image": {"id": "img_abc123"}} -> extract ID string
+                # Plural: {"images": [{"id": "img_1"}, {"id": "img_2"}]} -> extract list of IDs
+                for artifact_type in output_artifacts:
+                    if artifact_type in parsed:
+                        artifact_data = parsed[artifact_type]
+                        # Handle list of artifacts (plural types like 'images', 'videos')
+                        if isinstance(artifact_data, list):
+                            ids = []
+                            for item in artifact_data:
+                                if isinstance(item, dict) and 'id' in item:
+                                    ids.append(item['id'])
+                                elif isinstance(item, str):
+                                    ids.append(item)
+                            result[artifact_type] = ids
+                        # Handle single artifact
+                        elif isinstance(artifact_data, dict) and 'id' in artifact_data:
+                            result[artifact_type] = artifact_data['id']
+                        elif isinstance(artifact_data, str):
+                            # Already a string ID
+                            result[artifact_type] = artifact_data
+                        else:
+                            # Store as-is for debugging
+                            result[artifact_type] = artifact_data
+            except (json.JSONDecodeError, KeyError, IndexError):
+                pass
+
+        return result
 
     result = await asyncio.to_thread(_call_api)
     return result
 
 
 @pxt.udf(resource_pool='request-rate:vlmrun')
-async def get_artifact(artifact_id: str) -> str:
+async def get_image_artifact(
+    object_id: str,
+    *,
+    session_id: str | None = None,
+    execution_id: str | None = None,
+) -> pxt.Image:
     """
-    Downloads an artifact from VLM Run and returns the local file path.
-
-    Use this to retrieve generated files (e.g., redacted documents, generated images)
-    from VLM Run's artifact store.
-
-    Request throttling:
-    Applies the rate limit set in the config (section `vlmrun`, key `rate_limit`). If no rate
-    limit is configured, uses a default of 600 RPM.
+    Downloads an image artifact from VLM Run.
 
     __Requirements:__
 
     - `pip install vlmrun`
 
     Args:
-        artifact_id: The artifact ID or URL returned from a chat completion.
+        object_id: The object_id from the structured response (e.g., 'img_abc123').
+        session_id: The session_id from chat_completions.
+        execution_id: The execution_id from agent executions.
 
     Returns:
-        The local file path to the downloaded artifact.
+        The image as a PIL Image.
 
     Examples:
-        Download an artifact from VLM Run:
-
-        >>> t.add_computed_column(artifact_path=vlmrun.get_artifact(t.artifact_id))
+        >>> t.add_computed_column(image=vlmrun.get_image_artifact(
+        ...     t.response['image'], session_id=t.response['session_id']
+        ... ))
     """
-    import urllib.request
-    from urllib.parse import urlparse
-
-    from pixeltable.utils.local_store import TempStore
+    import PIL.Image
 
     Env.get().require_package('vlmrun')
 
-    def _call_api() -> str:
-        # If it's a URL, download directly
-        if artifact_id.startswith('http'):
-            parsed = urlparse(artifact_id)
-            ext = Path(parsed.path).suffix or '.png'
-            local_path = TempStore.create_path(extension=ext)
-            urllib.request.urlretrieve(artifact_id, local_path)
-            return str(local_path)
+    if not session_id and not execution_id:
+        raise ValueError("Either session_id or execution_id must be provided")
 
-        # Otherwise, use the artifacts API
+    def _call_api() -> PIL.Image.Image:
         client = _vlmrun_client()
-        artifact = client.artifacts.get(artifact_id)
+        if session_id:
+            return client.artifacts.get(object_id=object_id, session_id=session_id)
+        return client.artifacts.get(object_id=object_id, execution_id=execution_id)
 
-        # Download from the artifact URL
-        parsed = urlparse(artifact.url)
-        ext = Path(parsed.path).suffix or '.png'
-        local_path = TempStore.create_path(extension=ext)
-        urllib.request.urlretrieve(artifact.url, local_path)
-        return str(local_path)
+    return await asyncio.to_thread(_call_api)
 
-    result = await asyncio.to_thread(_call_api)
-    return result
+
+@pxt.udf(resource_pool='request-rate:vlmrun')
+async def get_video_artifact(
+    object_id: str,
+    *,
+    session_id: str | None = None,
+    execution_id: str | None = None,
+) -> pxt.Video:
+    """
+    Downloads a video artifact from VLM Run.
+
+    __Requirements:__
+
+    - `pip install vlmrun`
+
+    Args:
+        object_id: The object_id from the structured response (e.g., 'vid_abc123').
+        session_id: The session_id from chat_completions.
+        execution_id: The execution_id from agent executions.
+
+    Returns:
+        The local file path to the video.
+
+    Examples:
+        >>> t.add_computed_column(video=vlmrun.get_video_artifact(
+        ...     t.response['video'], session_id=t.response['session_id']
+        ... ))
+    """
+    Env.get().require_package('vlmrun')
+
+    if not session_id and not execution_id:
+        raise ValueError("Either session_id or execution_id must be provided")
+
+    def _call_api() -> str:
+        client = _vlmrun_client()
+        if session_id:
+            return str(client.artifacts.get(object_id=object_id, session_id=session_id))
+        return str(client.artifacts.get(object_id=object_id, execution_id=execution_id))
+
+    return await asyncio.to_thread(_call_api)
+
+
+@pxt.udf(resource_pool='request-rate:vlmrun')
+async def get_audio_artifact(
+    object_id: str,
+    *,
+    session_id: str | None = None,
+    execution_id: str | None = None,
+) -> pxt.Audio:
+    """
+    Downloads an audio artifact from VLM Run.
+
+    __Requirements:__
+
+    - `pip install vlmrun`
+
+    Args:
+        object_id: The object_id from the structured response (e.g., 'aud_abc123').
+        session_id: The session_id from chat_completions.
+        execution_id: The execution_id from agent executions.
+
+    Returns:
+        The local file path to the audio.
+
+    Examples:
+        >>> t.add_computed_column(audio=vlmrun.get_audio_artifact(
+        ...     t.response['audio'], session_id=t.response['session_id']
+        ... ))
+    """
+    Env.get().require_package('vlmrun')
+
+    if not session_id and not execution_id:
+        raise ValueError("Either session_id or execution_id must be provided")
+
+    def _call_api() -> str:
+        client = _vlmrun_client()
+        if session_id:
+            return str(client.artifacts.get(object_id=object_id, session_id=session_id))
+        return str(client.artifacts.get(object_id=object_id, execution_id=execution_id))
+
+    return await asyncio.to_thread(_call_api)
+
+
+@pxt.udf(resource_pool='request-rate:vlmrun')
+async def get_document_artifact(
+    object_id: str,
+    *,
+    session_id: str | None = None,
+    execution_id: str | None = None,
+) -> pxt.Document:
+    """
+    Downloads a document artifact from VLM Run.
+
+    __Requirements:__
+
+    - `pip install vlmrun`
+
+    Args:
+        object_id: The object_id from the structured response (e.g., 'doc_abc123').
+        session_id: The session_id from chat_completions.
+        execution_id: The execution_id from agent executions.
+
+    Returns:
+        The local file path to the document.
+
+    Examples:
+        >>> t.add_computed_column(document=vlmrun.get_document_artifact(
+        ...     t.response['document'], session_id=t.response['session_id']
+        ... ))
+    """
+    Env.get().require_package('vlmrun')
+
+    if not session_id and not execution_id:
+        raise ValueError("Either session_id or execution_id must be provided")
+
+    def _call_api() -> str:
+        client = _vlmrun_client()
+        if session_id:
+            return str(client.artifacts.get(object_id=object_id, session_id=session_id))
+        return str(client.artifacts.get(object_id=object_id, execution_id=execution_id))
+
+    return await asyncio.to_thread(_call_api)
+
+
+@pxt.udf(resource_pool='request-rate:vlmrun')
+async def get_recon_artifact(
+    object_id: str,
+    *,
+    session_id: str | None = None,
+    execution_id: str | None = None,
+) -> str:
+    """
+    Downloads a 3D reconstruction artifact from VLM Run.
+
+    __Requirements:__
+
+    - `pip install vlmrun`
+
+    Args:
+        object_id: The object_id from the structured response (e.g., 'recon_abc123').
+        session_id: The session_id from chat_completions.
+        execution_id: The execution_id from agent executions.
+
+    Returns:
+        The local file path to the 3D reconstruction file (e.g., .glb, .obj).
+
+    Examples:
+        >>> t.add_computed_column(recon=vlmrun.get_recon_artifact(
+        ...     t.response['recon'], session_id=t.response['session_id']
+        ... ))
+    """
+    Env.get().require_package('vlmrun')
+
+    if not session_id and not execution_id:
+        raise ValueError("Either session_id or execution_id must be provided")
+
+    def _call_api() -> str:
+        client = _vlmrun_client()
+        if session_id:
+            return str(client.artifacts.get(object_id=object_id, session_id=session_id))
+        return str(client.artifacts.get(object_id=object_id, execution_id=execution_id))
+
+    return await asyncio.to_thread(_call_api)
 
 
 __all__ = local_public_names(__name__)
