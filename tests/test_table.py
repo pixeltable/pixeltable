@@ -3011,3 +3011,20 @@ class TestTable:
             pxt.Error, match="Cannot drop column 'c2' because it is the last remaining column in this table"
         ):
             t.drop_column('c2')
+
+    def test_table_comment(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('tbl', {'c': pxt.Int}, comment='This is a test table.')
+        assert t.get_metadata()['comment'] == 'This is a test table.'
+
+        # check that raw object JSON comments are rejected
+        with pytest.raises(AssertionError, match='Comment must be a string'):
+            t = pxt.create_table('tbl_invalid', {'c': pxt.Int}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
+
+    def test_table_user_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        user_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': pxt.Int}, user_metadata=user_metadata)
+        assert t.get_metadata()['user_metadata'] == user_metadata
+
+        # check that invalid JSON user metadata are rejected
+        with pytest.raises(TypeError):
+            t = pxt.create_table('tbl_invalid', {'c': pxt.Int}, user_metadata={'key': set})
