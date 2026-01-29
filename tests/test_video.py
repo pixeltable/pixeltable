@@ -166,9 +166,7 @@ class TestVideo:
         videos = pxt.create_table('videos', {'video': pxt.Video})
 
         # Test keyframes_only=True extracts all keyframes
-        keyframes = pxt.create_view(
-            'keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True)
-        )
+        keyframes = pxt.create_view('keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True))
         frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=0))
 
         videos.insert(video=path)

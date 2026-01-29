@@ -2,19 +2,20 @@
 Pixeltable UDFs for `VideoType`.
 """
 
-from fractions import Fraction
 import glob
 import logging
 import math
-from pathlib import Path
 import subprocess
+from fractions import Fraction
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterator, Literal, NamedTuple, NoReturn, TypedDict
 
 import av
 import av.container
 import numpy as np
-import PIL.Image
 import pandas as pd
+import PIL.Image
+from av.container import InputContainer
 
 import pixeltable as pxt
 import pixeltable.utils.av as av_utils
@@ -22,8 +23,6 @@ from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
-
-from av.container import InputContainer
 
 if TYPE_CHECKING:
     from scenedetect.detectors import SceneDetector  # type: ignore[import-untyped]
@@ -1515,6 +1514,7 @@ class frame_iterator(Iterator):
 
         >>> pxt.create_view('ten_frames', tbl, iterator=frame_iterator(tbl.video, num_frames=10))
     """
+
     # Input parameters
     video_path: Path
     fps: float | None
@@ -1606,7 +1606,6 @@ class frame_iterator(Iterator):
             f'keyframes_only={self.keyframes_only}'
         )
         self.cur_frame = self.next_frame()
-
 
     def next_frame(self) -> av.VideoFrame | None:
         try:
