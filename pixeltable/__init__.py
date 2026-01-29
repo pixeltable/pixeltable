@@ -17,7 +17,7 @@ from .catalog import (
     VersionMetadata,
     View,
 )
-from .exceptions import Error, ExprEvalError, PixeltableWarning
+from .exceptions import Error, ErrorCategory, ExprEvalError, PixeltableWarning
 from .func import Aggregator, Function, Tool, ToolChoice, Tools, expr_udf, mcp_udfs, query, retrieval_udf, uda, udf
 from .globals import (
     DirContents,
