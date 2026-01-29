@@ -65,7 +65,15 @@ class InMemoryDataNode(ExecNode):
                 col_info = user_cols_by_name.get(col_name)
                 assert col_info is not None
                 col = col_info.col
-                if col.col_type.is_image_type() and isinstance(val, bytes):
+                # If value is None and column has a default, use the default value
+                if val is None and col.has_default_value:
+                    col.init_value_expr(None)  # idempotent: no-op if already initialized
+                    assert col.value_expr is not None and isinstance(col.value_expr, exprs.Literal), (
+                        f'Column {col.name!r} has default value but value_expr is not a Literal'
+                    )
+                    # Default values don't support image types, so we can set directly
+                    output_row[col_info.slot_idx] = col.value_expr.stored_value
+                elif col.col_type.is_image_type() and isinstance(val, bytes):
                     # this is a literal media file, ie, a sequence of bytes; save it as a binary file and store the path
                     filepath, _ = TempStore.save_media_object(val, col, format=None)
                     output_row[col_info.slot_idx] = str(filepath)
@@ -74,12 +82,21 @@ class InMemoryDataNode(ExecNode):
 
                 input_slot_idxs.add(col_info.slot_idx)
 
-            # set the remaining output slots to their default values (presently None)
+            # set the remaining output slots to their default values
             missing_slot_idxs = output_slot_idxs - input_slot_idxs
             for slot_idx in missing_slot_idxs:
                 col_info = output_cols_by_idx.get(slot_idx)
                 assert col_info is not None
-                output_row[col_info.slot_idx] = None
+                col = col_info.col
+                # If column has a default value, use it; otherwise use None
+                if col.has_default_value:
+                    col.init_value_expr(None)  # idempotent: no-op if already initialized
+                    assert col.value_expr is not None and isinstance(col.value_expr, exprs.Literal), (
+                        f'Column {col.name!r} has default value but value_expr is not a Literal'
+                    )
+                    output_row[col_info.slot_idx] = col.value_expr.stored_value
+                else:
+                    output_row[col_info.slot_idx] = None
             self.output_batch.add_row(output_row)
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:

@@ -121,11 +121,14 @@ class ColumnMd:
     # if True, is part of the primary key
     is_pk: bool
 
-    # if set, this is a computed column
+    # if set, this is a computed column or a column with a default value
     value_expr: dict | None
 
     # if True, the column is present in the stored table
     stored: bool | None
+
+    # if True, value_expr represents a computed column; if False, value_expr represents a default value
+    is_computed_column: bool = False
 
     # If present, the URI for the destination for column values
     destination: str | None = None

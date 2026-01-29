@@ -66,6 +66,7 @@ class Column:
     sa_cellmd_col: sql.schema.Column | None  # JSON metadata for the cell, e.g. errortype, errormsg for media columns
     _value_expr: exprs.Expr | None
     value_expr_dict: dict[str, Any] | None
+    _is_computed_column: bool  # True if value_expr is a computed column, False if it's a default value
     # we store a handle here in order to allow Column construction before there is a corresponding TableVersion
     tbl_handle: 'TableVersionHandle' | None
 
@@ -86,6 +87,7 @@ class Column:
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
         destination: str | None = None,
+        is_computed_column: bool = False,  # True for computed columns, False for columns with or without default values
     ):
         if name is not None and not is_valid_identifier(name):
             raise excs.Error(f'Invalid column name: {name}')
@@ -96,6 +98,9 @@ class Column:
 
         self._value_expr = None
         self.value_expr_dict = value_expr_dict
+        self._is_computed_column = is_computed_column
+
+        # Handle computed column or default value (both use computed_with/value_expr)
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
             if value_expr is None:
@@ -104,11 +109,15 @@ class Column:
                     f'Column {name!r}: `computed_with` needs to be a valid Pixeltable expression, '
                     f'but it is a {type(computed_with)}'
                 )
-            else:
-                self._value_expr = value_expr.copy()
+            self._value_expr = value_expr.copy()
+            # For computed columns, derive col_type from expression; for defaults, col_type is provided
+            if self._is_computed_column:
                 self.col_type = self._value_expr.col_type
-        if self._value_expr is not None and self.value_expr_dict is None:
-            self.value_expr_dict = self._value_expr.as_dict()
+            # For defaults, only constant values are supported
+            if not self._is_computed_column and not isinstance(self._value_expr, exprs.Literal):
+                raise excs.Error(f'Column {name!r}: Default values must be constants.')
+            if self.value_expr_dict is None:
+                self.value_expr_dict = self._value_expr.as_dict()
 
         if col_type is not None:
             self.col_type = col_type
@@ -148,6 +157,7 @@ class Column:
             schema_version_add=self.schema_version_add,
             schema_version_drop=self.schema_version_drop,
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
+            is_computed_column=self._is_computed_column,
             stored=self.stored,
             destination=self._explicit_destination,
         )
@@ -160,39 +170,6 @@ class Column:
             media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
         )
         return col_md, sch_md
-
-    def init_value_expr(self, tvp: 'TableVersionPath' | None) -> None:
-        """
-        Initialize the value_expr from its dict representation, if necessary.
-
-        If `tvp` is not None, retarget the value_expr to the given TableVersionPath.
-        """
-        from pixeltable import exprs
-
-        if self._value_expr is None and self.value_expr_dict is None:
-            return
-
-        if self._value_expr is None:
-            # Instantiate the Expr from its dict
-            self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
-            self._value_expr.bind_rel_paths()
-            if not self._value_expr.is_valid:
-                message = (
-                    dedent(
-                        f"""
-                        The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
-                        {{validation_error}}
-                        You can continue to query existing data from this column, but evaluating it on new data will raise an error.
-                        """  # noqa: E501
-                    )
-                    .strip()
-                    .format(validation_error=self._value_expr.validation_error)
-                )
-                warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
-
-        if tvp is not None:
-            # Retarget the Expr
-            self._value_expr = self._value_expr.retarget(tvp)
 
     def get_tbl(self) -> TableVersion:
         tv = self.tbl_handle.get()
@@ -237,6 +214,44 @@ class Column:
         assert self.value_expr_dict is None or self._value_expr is not None
         return self._value_expr
 
+    def init_value_expr(self, tvp: 'TableVersionPath' | None) -> None:
+        """
+        Initialize the value_expr from its dict representation, if necessary.
+
+        If `tvp` is not None, retarget the value_expr to the given TableVersionPath.
+        This works for both computed columns and columns with default values.
+        """
+        if self._value_expr is None and self.value_expr_dict is None:
+            return
+
+        if self._value_expr is None:
+            # Instantiate the Expr from its dict
+            self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
+            self._value_expr.bind_rel_paths()
+            # For columns with defaults (not computed, not index columns), validate that it's a literal
+            # Index columns (name=None) can have non-literal expressions and are not default value columns
+            if self.has_default_value and not isinstance(self._value_expr, exprs.Literal):
+                raise excs.Error(
+                    f'Column {self.name!r}: Default values must be constants. Got expression: {self._value_expr}'
+                )
+            if not self._value_expr.is_valid and self._is_computed_column:
+                message = (
+                    dedent(
+                        f"""
+                        The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
+                        {{validation_error}}
+                        You can continue to query existing data from this column, but evaluating it on new data will
+                        raise an error."""
+                    )
+                    .strip()
+                    .format(validation_error=self._value_expr.validation_error)
+                )
+                warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
+
+        if tvp is not None:
+            # Retarget the Expr
+            self._value_expr = self._value_expr.retarget(tvp)
+
     def set_value_expr(self, value_expr: exprs.Expr) -> None:
         self._value_expr = value_expr
         self.value_expr_dict = self._value_expr.as_dict()
@@ -250,8 +265,6 @@ class Column:
             )
 
     def has_window_fn_call(self) -> bool:
-        from pixeltable import exprs
-
         if self.value_expr is None:
             return False
         window_fn_calls = list(
@@ -270,7 +283,8 @@ class Column:
 
     @property
     def is_computed(self) -> bool:
-        return self._value_expr is not None or self.value_expr_dict is not None
+        """Returns True if this is a computed column"""
+        return self._is_computed_column
 
     @property
     def is_stored(self) -> bool:
@@ -291,16 +305,24 @@ class Column:
         return self.get_tbl().media_validation
 
     @property
+    def has_default_value(self) -> bool:
+        """Returns True if column has a default value."""
+        # Index columns (name=None) are computed columns, not default value columns
+        return (
+            self.name is not None
+            and not self._is_computed_column
+            and (self._value_expr is not None or self.value_expr_dict is not None)
+        )
+
+    @property
     def is_required_for_insert(self) -> bool:
         """Returns True if column is required when inserting rows."""
-        return not self.col_type.nullable and not self.is_computed
+        return not self.col_type.nullable and not self.is_computed and not self.has_default_value
 
     def source(self) -> None:
         """
         If this is a computed col and the top-level expr is a function call, print the source, if possible.
         """
-        from pixeltable import exprs
-
         if self.value_expr is None or not isinstance(self.value_expr, exprs.FunctionCall):
             return
         self.value_expr.fn.source()
