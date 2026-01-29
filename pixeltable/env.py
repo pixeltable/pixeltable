@@ -290,8 +290,12 @@ class Env:
     def stop_progress(self) -> None:
         if self._progress is None:
             return
-        self._progress.stop()
-        self._progress = None
+        try:
+            self._progress.stop()
+        except Exception as e:
+            self._logger.warning(f'Error stopping progress: {e}')
+        finally:
+            self._progress = None
 
         # if we're running in a notebook, we need to clear the Progress output manually
         if self.is_notebook():
