@@ -8,7 +8,7 @@ import logging
 import math
 from pathlib import Path
 import subprocess
-from typing import TYPE_CHECKING, Any, Iterator, Literal, NamedTuple, NoReturn
+from typing import TYPE_CHECKING, Any, Iterator, Literal, NamedTuple, NoReturn, TypedDict
 
 import av
 import av.container
@@ -1738,8 +1738,17 @@ def _(bound_args: dict[str, Any]) -> dict[str, type]:
     return {**attrs, 'frame': ts.Image}
 
 
+class VideoSegment(TypedDict):
+    segment_start: float | None
+    segment_start_pts: int | None
+    segment_end: float | None
+    segment_end_pts: int | None
+    video_segment: pxt.Video
+
+
+@pxt.iterator
 def video_splitter(
-    video: Any,
+    video: pxt.Video,
     *,
     duration: float | None = None,
     overlap: float | None = None,
@@ -1748,7 +1757,7 @@ def video_splitter(
     mode: Literal['fast', 'accurate'] = 'accurate',
     video_encoder: str | None = None,
     video_encoder_args: dict[str, Any] | None = None,
-) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
+) -> Iterator[VideoSegment]:
     """
     Iterator over segments of a video file, which is split into segments. The segments are specified either via a
     fixed duration or a list of split points.
@@ -1786,23 +1795,191 @@ def video_splitter(
 
         >>> pxt.create_view('custom_segments', tbl, iterator=video_splitter(tbl.video, segment_times=tbl.split_times))
     """
-    kwargs: dict[str, Any] = {}
+    # Input parameters
+    assert (duration is not None) != (segment_times is not None)
     if duration is not None:
-        kwargs['duration'] = duration
-    if overlap is not None:
-        kwargs['overlap'] = overlap
-    if min_segment_duration is not None:
-        kwargs['min_segment_duration'] = min_segment_duration
-    if segment_times is not None:
-        kwargs['segment_times'] = segment_times
-    if mode != 'accurate':
-        kwargs['mode'] = mode
-    if video_encoder is not None:
-        kwargs['video_encoder'] = video_encoder
-    if video_encoder_args is not None:
-        kwargs['video_encoder_args'] = video_encoder_args
+        assert duration > 0.0
+        assert duration >= min_segment_duration
+        assert overlap is None or overlap < duration
 
-    return pxt.iterators.video.VideoSplitter._create(video=video, **kwargs)
+    video_path = Path(video)
+    assert video_path.exists() and video_path.is_file()
+
+    overlap = overlap if overlap is not None else 0.0
+    min_segment_duration = min_segment_duration if min_segment_duration is not None else 0.0
+    segment_times = segment_times
+    video_encoder = video_encoder
+    video_encoder_args = video_encoder_args
+
+    with av.open(video) as container:
+        video_time_base = container.streams.video[0].time_base
+
+    if segment_times is not None and len(segment_times) == 0:
+        # Return the entire video as a single segment
+        with av.open(video) as container:
+            video_stream = container.streams.video[0]
+            start_ts = (
+                float(video_stream.start_time * video_stream.time_base)
+                if video_stream.start_time is not None and video_stream.time_base is not None
+                else 0.0
+            )
+            end_pts = (
+                video_stream.start_time + video_stream.duration
+                if video_stream.start_time is not None and video_stream.duration is not None
+                else None
+            )
+            end_ts = (
+                float(end_pts * video_stream.time_base)
+                if end_pts is not None and video_stream.time_base is not None
+                else 0.0
+            )
+            yield {
+                'segment_start': start_ts,
+                'segment_start_pts': video_stream.start_time,
+                'segment_end': end_ts,
+                'segment_end_pts': end_pts,
+                'video_segment': video,
+            }
+
+    elif mode == 'fast':
+        segment_path: str = ''
+        try:
+            start_time = 0.0
+            start_pts = 0
+            segment_idx = 0
+            while True:
+                target_duration: float | None
+                if duration is not None:
+                    target_duration = duration
+                elif segment_times is not None and segment_idx < len(segment_times):
+                    target_duration = segment_times[segment_idx] - start_time
+                else:
+                    target_duration = None  # the rest of the video
+
+                segment_path = str(TempStore.create_path(extension='.mp4'))
+                cmd = av_utils.ffmpeg_clip_cmd(video, segment_path, start_time, target_duration)
+                _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+                # use the actual duration
+                actual_duration = av_utils.get_video_duration(segment_path)
+                if actual_duration - overlap == 0.0 or actual_duration < min_segment_duration:
+                    # we're done
+                    Path(segment_path).unlink()
+                    return
+
+                segment_end = start_time + actual_duration
+                segment_end_pts = start_pts + round(actual_duration / video_time_base)
+                result = {
+                    'segment_start': start_time,
+                    'segment_start_pts': start_pts,
+                    'segment_end': segment_end,
+                    'segment_end_pts': segment_end_pts,
+                    'video_segment': segment_path,
+                }
+                yield result
+
+                start_time = segment_end - overlap
+                start_pts = segment_end_pts - round(overlap / video_time_base)
+
+                segment_idx += 1
+                if segment_times is not None and segment_idx > len(segment_times):
+                    # We've created all segments including the final segment after the last segment_time
+                    break
+
+        except subprocess.CalledProcessError as e:
+            if segment_path and Path(segment_path).exists():
+                Path(segment_path).unlink()
+            error_msg = f'ffmpeg failed with return code {e.returncode}'
+            if e.stderr:
+                error_msg += f': {e.stderr.strip()}'
+            raise pxt.Error(error_msg) from e
+
+    else:  # mode == 'accurate'
+        base_path = TempStore.create_path(extension='')
+        # Use ffmpeg -f segment for accurate segmentation with re-encoding
+        output_pattern = f'{base_path}_segment_%04d.mp4'
+        cmd = av_utils.ffmpeg_segment_cmd(
+            video,
+            output_pattern,
+            segment_duration=duration,
+            segment_times=segment_times,
+            video_encoder=video_encoder,
+            video_encoder_args=video_encoder_args,
+        )
+        try:
+            _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            output_paths = sorted(glob.glob(f'{base_path}_segment_*.mp4'))
+            # TODO: is this actually an error?
+            # if len(output_paths) == 0:
+            #     stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            #     raise pxt.Error(
+            #         f'ffmpeg failed to create output files for commandline: {" ".join(cmd)}\n{stderr_output}'
+            #     )
+            start_time = 0.0
+            start_pts = 0
+            for segment_path in output_paths:
+                actual_duration = av_utils.get_video_duration(segment_path)
+                if actual_duration < min_segment_duration:
+                    Path(segment_path).unlink()
+                    return
+
+                result = {
+                    'segment_start': start_time,
+                    'segment_start_pts': start_pts,
+                    'segment_end': start_time + actual_duration,
+                    'segment_end_pts': start_pts + round(actual_duration / video_time_base),
+                    'video_segment': segment_path,
+                }
+                yield result
+
+                start_time += actual_duration
+                start_pts += round(actual_duration / video_time_base)
+
+        except subprocess.CalledProcessError as e:
+            error_msg = f'ffmpeg failed with return code {e.returncode}'
+            if e.stderr:
+                error_msg += f': {e.stderr.strip()}'
+            raise pxt.Error(error_msg) from e
+
+
+@video_splitter.validate
+def _(bound_args: dict[str, Any]) -> None:
+    Env.get().require_binary('ffmpeg')
+
+    segment_duration = bound_args.get('duration')
+    segment_times = bound_args.get('segment_times')
+    overlap = bound_args.get('overlap')
+    min_segment_duration = bound_args.get('min_segment_duration')
+    mode = bound_args.get('mode', 'accurate')
+    video_encoder = bound_args.get('video_encoder')
+    video_encoder_args = bound_args.get('video_encoder_args')
+
+    if segment_duration is None and segment_times is None:
+        raise excs.Error('Must specify either duration or segment_times')
+    if segment_duration is not None and segment_times is not None:
+        raise excs.Error('duration and segment_times cannot both be specified')
+    if segment_times is not None and overlap is not None:
+        raise excs.Error('overlap cannot be specified with segment_times')
+    if segment_duration is not None and isinstance(segment_duration, (int, float)):
+        if segment_duration <= 0.0:
+            raise excs.Error(f'duration must be a positive number: {segment_duration}')
+        if (
+            min_segment_duration is not None
+            and isinstance(min_segment_duration, (int, float))
+            and segment_duration < min_segment_duration
+        ):
+            raise excs.Error(
+                f'duration must be at least min_segment_duration: {segment_duration} < {min_segment_duration}'
+            )
+        if overlap is not None and isinstance(overlap, (int, float)) and overlap >= segment_duration:
+            raise excs.Error(f'overlap must be less than duration: {overlap} >= {segment_duration}')
+    if mode == 'accurate' and overlap is not None:
+        raise excs.Error("Cannot specify overlap for mode='accurate'")
+    if mode == 'fast':
+        if video_encoder is not None:
+            raise excs.Error("Cannot specify video_encoder for mode='fast'")
+        if video_encoder_args is not None:
+            raise excs.Error("Cannot specify video_encoder_args for mode='fast'")
 
 
 __all__ = local_public_names(__name__)
