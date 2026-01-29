@@ -85,6 +85,8 @@ class ExecNode(abc.ABC):
     def __exit__(
         self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
     ) -> None:
+        # Ensure progress stops on exit (including empty results, errors, interrupts)
+        Env.get().stop_progress()
         self._close_aux()
 
     def _close_aux(self) -> None:
