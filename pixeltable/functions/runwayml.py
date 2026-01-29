@@ -20,10 +20,10 @@ if TYPE_CHECKING:
 
 
 @register_client('runwayml')
-def _(api_key: str) -> 'AsyncRunwayML':
+def _(api_secret: str) -> 'AsyncRunwayML':
     from runwayml import AsyncRunwayML
 
-    return AsyncRunwayML(api_key=api_key)
+    return AsyncRunwayML(api_key=api_secret)
 
 
 def _runwayml_client() -> 'AsyncRunwayML':
