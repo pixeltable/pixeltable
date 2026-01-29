@@ -43,14 +43,14 @@ table = pxt.create_table('example/basic_types', {
 
 ### Auto-generated UUIDs
 
-Use `uuid4()` to create columns that auto-generate unique identifiers:
+Use `uuid7()` to create columns that auto-generate unique identifiers:
 
 ```python
-from pixeltable.functions.uuid import uuid4
+from pixeltable.functions.uuid import uuid7
 
 # UUID as primary key - auto-generated for each row
 products = pxt.create_table('example/products', {
-    'id': uuid4(),           # Auto-generates UUID
+    'id': uuid7(),           # Auto-generates UUID
     'name': pxt.String,
     'price': pxt.Float
 }, primary_key=['id'])
@@ -63,8 +63,12 @@ You can also add UUIDs to existing tables:
 
 ```python
 # Add UUID column to existing table
-orders.add_computed_column(order_id=uuid4())
+orders.add_computed_column(order_id=uuid7())
 ```
+
+<Tip>
+By default, `stored=True` for all computed columns—values compute once and persist. For UUIDs, this ensures stable identifiers. Setting `stored=False` would regenerate UUIDs on every query (almost never what you want).
+</Tip>
 
 <Tip>
 See the [UUID cookbook](/howto/cookbooks/core/workflow-uuid-identity) for more examples of working with unique identifiers.
@@ -227,22 +231,22 @@ movies = pxt.create_table('example/pydantic_movies', {
 
 ## Type conversion
 
-Use `astype()` to convert between compatible types:
+Use `astype()` to convert string file paths or URLs to media types:
 
 ```python
-# Cast float to integer
-table.select(int_score=table.score.astype(pxt.Int)).collect()
+# String file paths → Media types
+media = pxt.create_table('media_table', {'path': pxt.String})
+media.insert([{'path': '/path/to/image.jpg'}])
 
-# Cast integer to string
-table.select(str_count=table.count.astype(pxt.String)).collect()
-
-# Cast JSON to String (if the value is actually a string)
-table.select(text=table.json_col.astype(pxt.String)).collect()
+# Convert string path to Image
+media.select(img=media.path.astype(pxt.Image)).collect()
 ```
 
-<Warning>
-Type conversion assumes the underlying value is compatible. Converting a dict to a string will raise an exception.
-</Warning>
+**Primary use case:** Converting string columns containing file paths or URLs to media types (`Image`, `Video`, `Audio`, `Document`).
+
+<Tip>
+For other type conversions, use built-in functions from the [`string`](/sdk/latest/string), [`json`](/sdk/latest/json), or [`math`](/sdk/latest/math) modules. For example, use `string.len()` to get string length as an integer, or access JSON fields directly.
+</Tip>
 
 ## Column properties
 
