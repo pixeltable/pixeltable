@@ -3,7 +3,6 @@ from __future__ import annotations
 import enum
 import json
 import logging
-import urllib.request
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
@@ -19,7 +18,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
-from pixeltable.utils import parse_local_file_path
+from pixeltable.utils import resolve_table_source_to_path
 
 from .utils import normalize_schema_names
 
@@ -292,7 +291,8 @@ class CSVTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
-        t.source = pd.read_csv(t.source, **t.extra_fields)
+        path = resolve_table_source_to_path(t.source)
+        t.source = pd.read_csv(path, **t.extra_fields)
         return PandasTableDataConduit.from_tds(t)
 
 
@@ -303,7 +303,8 @@ class ExcelTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
-        t.source = pd.read_excel(t.source, **t.extra_fields)
+        path = resolve_table_source_to_path(t.source)
+        t.source = pd.read_excel(path, **t.extra_fields)
         return PandasTableDataConduit.from_tds(t)
 
 
@@ -314,14 +315,9 @@ class JsonTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
-
-        path = parse_local_file_path(t.source)
-        if path is None:  # it's a URL
-            # TODO: This should read from S3 as well.
-            contents = urllib.request.urlopen(t.source).read()
-        else:
-            with open(path, 'r', encoding='utf-8') as fp:
-                contents = fp.read()
+        path = resolve_table_source_to_path(t.source)
+        with open(path, 'r', encoding='utf-8') as fp:
+            contents = fp.read()
         rows = json.loads(contents, **t.extra_fields)
         t.source = rows
         t2 = RowDataTableDataConduit.from_tds(t)
@@ -623,7 +619,7 @@ class ParquetTableDataConduit(TableDataConduit):
         t = cls(**kwargs)
 
         assert isinstance(tds.source, str)
-        input_path = Path(tds.source).expanduser()
+        input_path = resolve_table_source_to_path(tds.source)
         t.pq_ds = pa.parquet.ParquetDataset(str(input_path))
         return t
 

@@ -11,7 +11,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 
-from ..utils import skip_test_if_not_installed
+from ..utils import ensure_s3_pytest_resources_access, skip_test_if_not_installed
 
 
 class TestPandas:
@@ -128,7 +128,6 @@ class TestPandas:
         t1a = pxt.create_table('online_foods_a', source='tests/data/datasets/onlinefoods.csv')
         assert t1a.count() == 388
         assert t1.show() == t1a.show()
-
         t1a.insert('tests/data/datasets/onlinefoods.csv')
         assert t1a.count() == 2 * 388
 
@@ -171,6 +170,23 @@ class TestPandas:
             None,
             datetime.datetime(2024, 5, 6).astimezone(None),
         ]
+
+    def test_import_csv_from_http_url(self, uses_db: None) -> None:
+        url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/onlinefoods.csv'
+        tab = pxt.create_table('from_http_csv', source=url)
+        assert tab.count() == 388
+        assert 'Age' in tab.columns()
+        assert 'Output' in tab.columns()
+        assert tab.select(tab.Age).limit(5).collect()['Age'][:5] == [20, 24, 22, 22, 22]
+
+    def test_import_csv_from_s3_uri(self, uses_db: None) -> None:
+        ensure_s3_pytest_resources_access()
+        uri = 's3://pxt-test/pytest-resources/onlinefoods.csv'
+        tab = pxt.create_table('from_s3_csv', source=uri)
+        assert tab.count() == 388
+        assert 'Age' in tab.columns()
+        assert 'Output' in tab.columns()
+        assert tab.select(tab.Age).limit(5).collect()['Age'][:5] == [20, 24, 22, 22, 22]
 
     def test_insert_pandas_csv(self, uses_db: None) -> None:
         from pixeltable.io import import_csv

@@ -3,6 +3,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from pixeltable.utils.http import fetch_url
+
 
 def print_perf_counter_delta(delta: float) -> str:
     """Prints a performance counter delta in a human-readable format.
@@ -55,3 +57,15 @@ def parse_local_file_path(file_or_url: str) -> Path | None:
         return Path(urllib.parse.unquote(urllib.request.url2pathname(parsed.path)))
     else:
         return None
+
+
+def resolve_table_source_to_path(source: str) -> Path:
+    """
+    Resolve a table source string (path, URL, or URI) to a local Path.
+
+    Handles local paths, file://, http(s)://, and blob URIs (s3://, gs://, etc.).
+    For remote sources, downloads to TempStore and returns that path.
+    """
+    assert isinstance(source, str), f'source must be str, got {type(source).__name__}'
+    p = parse_local_file_path(source)
+    return p.expanduser() if p is not None else fetch_url(source, allow_local_file=True)

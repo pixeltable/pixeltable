@@ -6,6 +6,8 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
+from ..utils import ensure_s3_pytest_resources_access
+
 
 class TestImport:
     def test_import_rows(self, uses_db: None) -> None:
@@ -95,6 +97,33 @@ class TestImport:
         # `jeopardy.json` is a larger dataset; we try loading it as a URL to test both file and URL loading
         t2 = pxt.io.import_json('jeopardy', jeopardy)
         assert t2.count() == 10000
+
+    def test_import_json_from_http_url(self, uses_db: None) -> None:
+        url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/example.json'
+        tab = pxt.create_table('from_http_json', source=url, source_format='json')
+        assert tab.count() == 4
+        assert tab._get_schema() == {
+            'name': ts.StringType(nullable=True),
+            'human': ts.BoolType(nullable=True),
+            'parents': ts.JsonType(nullable=True),
+            'age': ts.FloatType(nullable=True),
+            'metadata': ts.JsonType(nullable=True),
+            'children': ts.IntType(nullable=True),
+        }
+
+    def test_import_json_from_s3_uri(self, uses_db: None) -> None:
+        ensure_s3_pytest_resources_access()
+        uri = 's3://pxt-test/pytest-resources/example.json'
+        tab = pxt.create_table('from_s3_json', source=uri, source_format='json')
+        assert tab.count() == 4
+        assert tab._get_schema() == {
+            'name': ts.StringType(nullable=True),
+            'human': ts.BoolType(nullable=True),
+            'parents': ts.JsonType(nullable=True),
+            'age': ts.FloatType(nullable=True),
+            'metadata': ts.JsonType(nullable=True),
+            'children': ts.IntType(nullable=True),
+        }
 
     def test_insert_json(self, uses_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
