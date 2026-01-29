@@ -25,7 +25,16 @@ from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
 
 from .conftest import clean_db
-from .utils import reload_catalog, rerun, skip_test_if_not_installed, validate_update_status, SAMPLE_IMAGE_URL, get_audio_files, get_video_files, get_documents
+from .utils import (
+    SAMPLE_IMAGE_URL,
+    get_audio_files,
+    get_documents,
+    get_video_files,
+    reload_catalog,
+    rerun,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 _logger = logging.getLogger('pixeltable')
 

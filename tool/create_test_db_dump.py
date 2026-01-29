@@ -28,7 +28,7 @@ SAMPLE_IMAGE_URLS = (
     'https://raw.githubusercontent.com/pixeltable/pixeltable/870cf9c49a368e2c17bf53e6fde48554e546abd7/'
     'docs/resources/images/000000000016.jpg',
     'https://raw.githubusercontent.com/pixeltable/pixeltable/870cf9c49a368e2c17bf53e6fde48554e546abd7/'
-    'docs/resources/images/000000000019.jpg'
+    'docs/resources/images/000000000019.jpg',
 )
 SAMPLE_VIDEO_URLS = (
     'https://raw.githubusercontent.com/pixeltable/pixeltable/d8b91c59d6f1742ba75c20f318c0f9a2ae729768/'
@@ -46,8 +46,9 @@ SAMPLE_DOCUMENT_URLS = (
     'https://raw.githubusercontent.com/pixeltable/pixeltable/d8b91c59d6f1742ba75c20f318c0f9a2ae729768/'
     'tests/data/documents/layout-parser-paper.pdf',
     'https://raw.githubusercontent.com/pixeltable/pixeltable/d8b91c59d6f1742ba75c20f318c0f9a2ae729768/'
-    'tests/data/documents/1706.03762.pdf'
+    'tests/data/documents/1706.03762.pdf',
 )
+
 
 class Dumper:
     def __init__(self, output_dir: str = 'target', db_name: str = 'pxtdump') -> None:
@@ -224,9 +225,13 @@ class Dumper:
         pxt.create_view('string_splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))
         pxt.create_view('tile_iterator', t, iterator=pxtf.image.tile_iterator(t.c8, (64, 64), overlap=(16, 16)))
         pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.frame_iterator(t.c10, fps=1))
-        pxt.create_view('frame_iterator_2', t, iterator=pxtf.video.frame_iterator(t.c10, num_frames=5, all_frame_attrs=True))
+        pxt.create_view(
+            'frame_iterator_2', t, iterator=pxtf.video.frame_iterator(t.c10, num_frames=5, all_frame_attrs=True)
+        )
         pxt.create_view('frame_iterator_3', t, iterator=pxtf.video.frame_iterator(t.c10, keyframes_only=True))
-        pxt.create_view('document_splitter', t, iterator=pxtf.document.document_splitter(t.c11, 'page', elements=['text']))
+        pxt.create_view(
+            'document_splitter', t, iterator=pxtf.document.document_splitter(t.c11, 'page', elements=['text'])
+        )
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:
         def add_computed_column(col_name: str, col_expr: Any, stored: bool = True) -> None:
@@ -257,16 +262,12 @@ class Dumper:
         add_computed_column('not', ~(t.c2 > 20))
 
         # function_call
-        add_computed_column(
-            'function_call', pxtf.string.format('{0} {key}', t.c1, key=t.c1)
-        )  # library function
+        add_computed_column('function_call', pxtf.string.format('{0} {key}', t.c1, key=t.c1))  # library function
         add_computed_column('test_udf', test_udf_stored(t.c2))  # stored udf
         add_computed_column('test_udf_batched', test_udf_stored_batched(t.c1, upper=False))  # batched stored udf
         if include_expensive_functions:
             # batched library function
-            add_computed_column(
-                'batched', pxtf.huggingface.clip(t.c1, model_id='openai/clip-vit-base-patch32')
-            )
+            add_computed_column('batched', pxtf.huggingface.clip(t.c1, model_id='openai/clip-vit-base-patch32'))
 
         # image_member_access
         add_computed_column('image_mode', t.c8.mode)
