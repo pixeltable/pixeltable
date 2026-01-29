@@ -85,7 +85,7 @@ class TestRunwayML:
 
     @pytest.mark.remote_api
     @pytest.mark.expensive
-    @pytest.mark.skip("Very expensive in terms of the number of credits spent -- consider a partial enablement")
+    @pytest.mark.skip('Very expensive in terms of the number of credits spent -- consider a partial enablement')
     def test_image_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
@@ -118,7 +118,7 @@ class TestRunwayML:
 
     @pytest.mark.remote_api
     @pytest.mark.expensive
-    @pytest.mark.skip("Very expensive in terms of the number of credits spent -- consider a partial enablement")
+    @pytest.mark.skip('Very expensive in terms of the number of credits spent -- consider a partial enablement')
     def test_text_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
@@ -133,7 +133,7 @@ class TestRunwayML:
 
     @pytest.mark.remote_api
     @pytest.mark.expensive
-    @pytest.mark.skip("Very expensive in terms of the number of credits spent -- consider a partial enablement")
+    @pytest.mark.skip('Very expensive in terms of the number of credits spent -- consider a partial enablement')
     def test_video_to_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('runwayml')
         skip_test_if_no_client('runwayml')
