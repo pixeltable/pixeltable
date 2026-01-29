@@ -20,6 +20,7 @@ from . import (
     groq,
     huggingface,
     image,
+    jina,
     json,
     llama_cpp,
     math,
