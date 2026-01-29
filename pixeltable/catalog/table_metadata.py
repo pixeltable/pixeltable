@@ -73,7 +73,7 @@ class TableMetadata(TypedDict):
     comment: str | None
     """User-provided table comment, if one exists."""
     user_metadata: Any
-    """User-defined metadata for this table, if any."""
+    """User-defined JSON metadata for this table, if any."""
     media_validation: Literal['on_read', 'on_write']
     """The media validation policy for this table."""
     base: str | None
