@@ -804,7 +804,7 @@ class Catalog:
                     raise
 
             except Exception as e:
-                if not is_rollback and tbl_md.pending_stmt.can_abort():
+                if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
                     # we got an error for the last op and can abort this statement: switch to rollback mode
                     exc = e
                     _logger.debug(
