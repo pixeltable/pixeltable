@@ -72,7 +72,7 @@ class TableMetadata(TypedDict):
     """The current schema version of the table."""
     comment: str | None
     """User-provided table comment, if one exists."""
-    user_metadata: Any | None
+    user_metadata: Any
     """User-defined metadata for this table, if any."""
     media_validation: Literal['on_read', 'on_write']
     """The media validation policy for this table."""
