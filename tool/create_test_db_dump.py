@@ -13,15 +13,41 @@ import pixeltable_pgserver
 import toml
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
-from pixeltable import metadata
+from pixeltable import functions as pxtf, metadata, type_system as ts
 from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
-from pixeltable.type_system import BoolType, FloatType, ImageType, IntType, JsonType, StringType, TimestampType
 
 _logger = logging.getLogger('pixeltable')
 
+
+# We use URLs (not local files) so that the dumps are portable. We also use repo references with fixed SHAs for all
+# URLs, so that the dumps will survive any future repo reorganizations.
+
+SAMPLE_IMAGE_URLS = (
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/870cf9c49a368e2c17bf53e6fde48554e546abd7/'
+    'docs/resources/images/000000000016.jpg',
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/870cf9c49a368e2c17bf53e6fde48554e546abd7/'
+    'docs/resources/images/000000000019.jpg'
+)
+SAMPLE_VIDEO_URLS = (
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/d8b91c59d6f1742ba75c20f318c0f9a2ae729768/'
+    'tests/data/videos/bangkok_half_res.mp4',
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/1418d69125cd19ff09f8f368b65c248d8dcd7377/'
+    'tests/data/videos/v_shooting_01_01.mpg',
+)
+SAMPLE_AUDIO_URLS = (
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/cab695b0df06286cd88857036adcb5efc3fd122a/'
+    'tests/data/audio/jfk_1961_0109_cityuponahill-excerpt.flac',
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/d8b91c59d6f1742ba75c20f318c0f9a2ae729768/'
+    'tests/data/audio/sample.mp3',
+)
+SAMPLE_DOCUMENT_URLS = (
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/d8b91c59d6f1742ba75c20f318c0f9a2ae729768/'
+    'tests/data/documents/layout-parser-paper.pdf',
+    'https://raw.githubusercontent.com/pixeltable/pixeltable/d8b91c59d6f1742ba75c20f318c0f9a2ae729768/'
+    'tests/data/documents/1706.03762.pdf'
+)
 
 class Dumper:
     def __init__(self, output_dir: str = 'target', db_name: str = 'pxtdump') -> None:
@@ -81,15 +107,18 @@ class Dumper:
     # Expression types, predicate types, embedding indices, views on views
     def create_tables(self) -> None:
         schema = {
-            'c1': StringType(nullable=False),
-            'c1n': StringType(nullable=True),
-            'c2': IntType(nullable=False),
-            'c3': FloatType(nullable=False),
-            'c4': BoolType(nullable=False),
-            'c5': TimestampType(nullable=False),
-            'c6': JsonType(nullable=False),
-            'c7': JsonType(nullable=False),
-            'c8': ImageType(nullable=True),
+            'c1': pxt.Required[pxt.String],
+            'c1n': pxt.String,
+            'c2': pxt.Required[pxt.Int],
+            'c3': pxt.Required[pxt.Float],
+            'c4': pxt.Required[pxt.Bool],
+            'c5': pxt.Required[pxt.Timestamp],
+            'c6': pxt.Required[pxt.Json],
+            'c7': pxt.Required[pxt.Json],
+            'c8': pxt.Image,
+            'c9': pxt.Audio,
+            'c10': pxt.Video,
+            'c11': pxt.Document,
         }
         t = pxt.create_table('base_table', schema, primary_key='c2')
 
@@ -131,7 +160,11 @@ class Dumper:
                 'c5': c5_data[i],
                 'c6': c6_data[i],
                 'c7': c7_data[i],
-                'c8': None,
+                # Use a URL (not local file) with a fixed SHA that db dumps are portable and survive repo refactorings
+                'c8': SAMPLE_IMAGE_URLS[i] if i < len(SAMPLE_IMAGE_URLS) else None,
+                'c9': SAMPLE_AUDIO_URLS[i] if i < len(SAMPLE_AUDIO_URLS) else None,
+                'c10': SAMPLE_VIDEO_URLS[i] if i < len(SAMPLE_VIDEO_URLS) else None,
+                'c11': SAMPLE_DOCUMENT_URLS[i] if i < len(SAMPLE_DOCUMENT_URLS) else None,
             }
             for i in range(num_rows)
         ]
@@ -185,6 +218,16 @@ class Dumper:
         assert len(project.stored_proxies) == 1
         assert t.base_table_image_rot.col.handle in project.stored_proxies
 
+        # Various iterators
+        # TODO: audio_splitter and video_splitter wont't work here because they produce local files as output,
+        #     so the dumps won't be portable - how to test this?
+        pxt.create_view('string_splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))
+        pxt.create_view('tile_iterator', t, iterator=pxtf.image.tile_iterator(t.c8, (64, 64), overlap=(16, 16)))
+        pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.frame_iterator(t.c10, fps=1))
+        pxt.create_view('frame_iterator_2', t, iterator=pxtf.video.frame_iterator(t.c10, num_frames=5, all_frame_attrs=True))
+        pxt.create_view('frame_iterator_3', t, iterator=pxtf.video.frame_iterator(t.c10, keyframes_only=True))
+        pxt.create_view('document_splitter', t, iterator=pxtf.document.document_splitter(t.c11, 'page', elements=['text']))
+
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:
         def add_computed_column(col_name: str, col_expr: Any, stored: bool = True) -> None:
             t.add_computed_column(**{f'{col_prefix}_{col_name}': col_expr}, stored=stored)
@@ -215,14 +258,14 @@ class Dumper:
 
         # function_call
         add_computed_column(
-            'function_call', pxt.functions.string.format('{0} {key}', t.c1, key=t.c1)
+            'function_call', pxtf.string.format('{0} {key}', t.c1, key=t.c1)
         )  # library function
         add_computed_column('test_udf', test_udf_stored(t.c2))  # stored udf
         add_computed_column('test_udf_batched', test_udf_stored_batched(t.c1, upper=False))  # batched stored udf
         if include_expensive_functions:
             # batched library function
             add_computed_column(
-                'batched', pxt.functions.huggingface.clip(t.c1, model_id='openai/clip-vit-base-patch32')
+                'batched', pxtf.huggingface.clip(t.c1, model_id='openai/clip-vit-base-patch32')
             )
 
         # image_member_access
@@ -264,7 +307,7 @@ class Dumper:
         add_computed_column('timestamp_const_2', datetime.datetime.now().astimezone(ZoneInfo('America/Anchorage')))
 
         # type_cast
-        add_computed_column('astype', t.c2.astype(FloatType()))
+        add_computed_column('astype', t.c2.astype(ts.FloatType()))
 
         # .apply
         add_computed_column('c2_to_string', t.c2.apply(str))
@@ -273,14 +316,14 @@ class Dumper:
 
         t.add_embedding_index(
             f'{col_prefix}_function_call',
-            string_embed=pxt.functions.huggingface.clip.using(model_id='openai/clip-vit-base-patch32'),
+            string_embed=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32'),
         )
 
         if t.get_metadata()['is_view']:
             # Add an embedding index to the view that is on a column in the base table
             t.add_embedding_index(
                 'base_table_function_call',
-                string_embed=pxt.functions.huggingface.clip.using(model_id='openai/clip-vit-base-patch32'),
+                string_embed=pxtf.huggingface.clip.using(model_id='openai/clip-vit-base-patch32'),
             )
 
         # query()

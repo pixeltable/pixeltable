@@ -14,6 +14,7 @@ from . import (
     bedrock,
     date,
     deepseek,
+    document,
     fal,
     fireworks,
     gemini,
