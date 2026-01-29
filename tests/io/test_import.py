@@ -125,6 +125,30 @@ class TestImport:
             'children': ts.IntType(nullable=True),
         }
 
+    def test_import_jsonl(self, uses_db: None) -> None:
+        example = Path(__file__).parent.parent / 'data' / 'json' / 'example.jsonl'
+        tab = pxt.create_table('from_jsonl', source=str(example))
+        assert tab.count() == 5
+        for col in ('name', 'human', 'parents', 'age', 'metadata', 'children'):
+            assert col in tab.columns()
+        rows = tab.order_by(tab.name).collect()
+        assert rows[0]['name'] == 'Aragorn' and rows[0]['human'] is True and rows[0]['children'] == 1
+        assert rows[0]['metadata'] == {'first_appearance': 'The Fellowship of the Ring'}
+        assert rows[0]['parents'] == ['Arathorn', 'Gilraen']
+        frodo = next(r for r in rows if r['name'] == 'Frodo')
+        assert frodo['age'] == 33 and frodo['metadata'] == {'bearer': 'Ring'}
+
+    def test_import_jsonl_from_s3_uri(self, uses_db: None) -> None:
+        ensure_s3_pytest_resources_access()
+        uri = 's3://pxt-test/pytest-resources/example.jsonl'
+        tab = pxt.create_table('from_s3_jsonl', source=uri)
+        assert tab.count() == 5
+        for col in ('name', 'human', 'parents', 'age', 'metadata', 'children'):
+            assert col in tab.columns()
+        rows = tab.order_by(tab.name).collect()
+        assert rows[0]['name'] == 'Aragorn'
+        assert rows[0]['metadata'] == {'first_appearance': 'The Fellowship of the Ring'}
+
     def test_insert_json(self, uses_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'

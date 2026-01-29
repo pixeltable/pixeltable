@@ -1,0 +1,5 @@
+{"name": "Aragorn", "human": true, "parents": ["Arathorn", "Gilraen"], "age": 87.1, "metadata": {"first_appearance": "The Fellowship of the Ring"}, "children": 1}
+{"name": "Galadriel", "human": false, "parents": ["Finarfin", "Eärwen"], "age": 7000, "metadata": {"realm": "Lothlórien"}, "children": 1}
+{"name": "Elrond", "human": false, "parents": ["Eärendil", "Elwing"], "age": 6000, "metadata": {"realm": "Rivendell"}, "children": 3}
+{"name": "Arwen", "human": false, "parents": ["Elrond", "Celebrían"], "age": 2700, "metadata": {"spouse": "Aragorn"}, "children": 1}
+{"name": "Frodo", "human": true, "parents": ["Drogo", "Primula"], "age": 33, "metadata": {"bearer": "Ring"}, "children": 0}

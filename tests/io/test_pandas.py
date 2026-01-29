@@ -217,6 +217,15 @@ class TestPandas:
         result_set = t4.order_by(t4.name).select(t4.image.width).collect()
         assert result_set['width'] == [1024, None, 1024, 962]
 
+    def test_import_excel_from_http_url(self, uses_db: None) -> None:
+        skip_test_if_not_installed('openpyxl')
+        url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/Financial%20Sample.xlsx'
+        tab = pxt.create_table('from_http_excel', source=url, source_format='excel')
+        assert tab.count() == 700
+        assert tab._get_schema()['Date'] == ts.TimestampType(nullable=True)
+        entry = tab.limit(1).collect()[0]
+        assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
+
     def test_import_pandas_excel(self, uses_db: None) -> None:
         skip_test_if_not_installed('openpyxl')
         from pixeltable.io.pandas import import_excel

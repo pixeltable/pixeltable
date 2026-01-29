@@ -7,6 +7,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
 
+import jsonlines
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -308,6 +309,23 @@ class ExcelTableDataConduit(TableDataConduit):
         return PandasTableDataConduit.from_tds(t)
 
 
+def _parse_jsonl_from_path(path: Path, extra_fields: dict[str, Any]) -> list[dict]:
+    """Parse JSONL from path line-by-line. Uses jsonlines library."""
+
+    def _loads(raw: str | bytes) -> Any:
+        s = raw.decode('utf-8') if isinstance(raw, bytes) else raw
+        return json.loads(s, **extra_fields)
+
+    rows: list[dict] = []
+    try:
+        with jsonlines.open(path, loads=_loads) as reader:
+            for obj in reader.iter(type=dict, skip_empty=True):
+                rows.append(obj)
+    except jsonlines.InvalidLineError as e:
+        raise excs.Error(f'Invalid JSONL line {e.lineno}: {e.line!r}') from e
+    return rows
+
+
 class JsonTableDataConduit(TableDataConduit):
     @classmethod
     def from_tds(cls, tds: TableDataConduit) -> RowDataTableDataConduit:
@@ -315,10 +333,12 @@ class JsonTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
-        path = resolve_table_source_to_path(t.source)
-        with open(path, 'r', encoding='utf-8') as fp:
-            contents = fp.read()
-        rows = json.loads(contents, **t.extra_fields)
+        source_str = t.source
+        path = resolve_table_source_to_path(source_str)
+        if source_str.lower().rstrip('/').endswith('.jsonl'):
+            rows = _parse_jsonl_from_path(path, t.extra_fields)
+        else:
+            rows = json.loads(path.read_text(encoding='utf-8'), **t.extra_fields)
         t.source = rows
         t2 = RowDataTableDataConduit.from_tds(t)
         t2.disable_mapping = False
@@ -682,7 +702,9 @@ class UnkTableDataConduit(TableDataConduit):
             return CSVTableDataConduit.from_tds(self)
         if self.source_format == 'excel' or (isinstance(self.source, str) and '.xls' in self.source.lower()):
             return ExcelTableDataConduit.from_tds(self)
-        if self.source_format == 'json' or (isinstance(self.source, str) and '.json' in self.source.lower()):
+        if self.source_format == 'json' or (
+            isinstance(self.source, str) and ('.json' in self.source.lower() or '.jsonl' in self.source.lower())
+        ):
             return JsonTableDataConduit.from_tds(self)
         if self.source_format == 'parquet' or (
             isinstance(self.source, str) and any(s in self.source.lower() for s in ['.parquet', '.pq', '.parq'])
