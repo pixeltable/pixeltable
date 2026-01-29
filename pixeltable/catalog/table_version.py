@@ -1680,7 +1680,7 @@ class TableVersion:
     @property
     def user_metadata(self) -> Any:
         return self._schema_version_md.user_metadata
-    
+
     @property
     def num_retained_versions(self) -> int:
         return self._schema_version_md.num_retained_versions

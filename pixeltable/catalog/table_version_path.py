@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from pixeltable.env import Env
@@ -155,7 +156,7 @@ class TableVersionPath:
     def user_metadata(self) -> Any:
         self.refresh_cached_md()
         return self._cached_tbl_version.user_metadata
-    
+
     def num_retained_versions(self) -> int:
         self.refresh_cached_md()
         return self._cached_tbl_version.num_retained_versions

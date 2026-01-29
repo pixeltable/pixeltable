@@ -1209,6 +1209,7 @@ class Catalog:
         iterator: tuple[type[ComponentIterator], dict[str, Any]] | None,
         num_retained_versions: int,
         comment: str,
+        user_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
     ) -> Table:
@@ -1252,6 +1253,7 @@ class Catalog:
                 iterator_args=iterator_args,
                 num_retained_versions=num_retained_versions,
                 comment=comment,
+                user_metadata=user_metadata,
                 media_validation=media_validation,
             )
             tbl_id = UUID(md.tbl_md.tbl_id)

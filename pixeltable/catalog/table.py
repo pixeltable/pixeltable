@@ -352,7 +352,7 @@ class Table(SchemaObject):
 
     def _get_user_metadata(self) -> Any:
         return self._tbl_version_path.user_metadata()
-    
+
     def _get_num_retained_versions(self) -> int:
         return self._tbl_version_path.num_retained_versions()
 

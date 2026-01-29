@@ -199,6 +199,8 @@ def create_table(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
         )
 
+    assert isinstance(comment, str)
+
     tbl, was_created = Catalog.get().create_table(
         path_obj,
         schema,
@@ -234,6 +236,7 @@ def create_view(
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    user_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> catalog.Table | None:
@@ -336,6 +339,8 @@ def create_view(
                     f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
                 )
 
+    assert isinstance(comment, str)
+
     return Catalog.get().create_view(
         path_obj,
         tbl_version_path,
@@ -348,6 +353,7 @@ def create_view(
         iterator=iterator,
         num_retained_versions=num_retained_versions,
         comment=comment,
+        user_metadata=user_metadata,
         media_validation=media_validation_,
         if_exists=if_exists_,
     )
