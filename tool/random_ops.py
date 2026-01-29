@@ -11,9 +11,11 @@ from typing import Any, Callable, Iterator
 
 import numpy as np
 import PIL.Image
+import sqlalchemy as sql
 
 import pixeltable as pxt
 from pixeltable.config import Config
+from pixeltable.env import Env
 from tool.worker_harness import run_workers
 
 # List of table operations that can be performed by RandomTableOps.
@@ -28,6 +30,7 @@ TABLE_OPS = (
     ('add_data_column', 5, False),
     ('add_computed_column', 5, False),
     ('drop_column', 3, False),
+    ('create_table', 5, False),
     ('create_view', 5, False),
     ('rename_view', 5, False),
     ('drop_view', 1, False),
@@ -107,8 +110,9 @@ class RandomTableOps:
     logger = logging.getLogger('random_ops')
 
     config: RandomTableOpsConfig
-    base_table_names: tuple[str, ...]
     random_ops: list[tuple[float, Callable]]
+    live_tables: set[str]
+    live_views: set[str]
 
     worker_id: int
 
@@ -123,7 +127,8 @@ class RandomTableOps:
         self.worker_id = worker_id
         self.read_only = read_only
         self.config = config
-        self.base_table_names = tuple(f'tbl_{i}' for i in range(config.num_base_tables))
+        self.live_tables = set()
+        self.live_views = set()
 
         selected_ops: set[str]
         if include_only_ops:
@@ -163,27 +168,22 @@ class RandomTableOps:
         return f'{t._name!r} ({t._id.hex[:6]}...)'
 
     def get_random_tbl(self, allow_base_tbl: bool = True, allow_view: bool = True) -> pxt.Table | None:
-        # Occasionally it happens that we get a list of views, but by the time we try to get one of them, it has been
-        # dropped by another process. So we wrap the whole operation in a while loop and keep trying until it succeeds.
-        # (At least 99% of the time it succeeds on the first try.)
-        while True:
-            name = random.choice(self.base_table_names)
-            # If the table does not already exist, create it and populate with some initial data
-            t = pxt.create_table(name, source=INITIAL_ROWS, schema_overrides=BASIC_SCHEMA, if_exists='ignore')
-            if not allow_view:
-                return t  # View not allowed
-            if allow_base_tbl and random.uniform(0, 1) < 0.5:
-                return t  # Return base table 50% of the time
-            view_names = t.list_views()
-            if len(view_names) == 0:
-                return t if allow_base_tbl else None  # No views to choose from
-            view_name = random.choice(view_names)
-            view = pxt.get_table(view_name, if_not_exists='ignore')
-            if view is not None:
-                return view
+        table_names: list[str] = []
+        assert allow_base_tbl or allow_view
+        if allow_base_tbl:
+            table_names.extend(self.live_tables)
+        if allow_view:
+            table_names.extend(self.live_views)
+        if not table_names:
+            return None
+        name = random.choice(table_names)
+        return pxt.get_table(name)
 
     def query(self) -> Iterator[str]:
         t = self.get_random_tbl()
+        if t is None:
+            yield 'No tables to query.'
+            return
         num_rows = int(random.uniform(50, 100))
         yield f'Collect {num_rows} rows from {self.tbl_descr(t)}: '
         res = t.sample(n=num_rows).collect()
@@ -191,6 +191,9 @@ class RandomTableOps:
 
     def insert_rows(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=False)
+        if t is None:
+            yield 'No tables to insert into'
+            return
         num_rows = int(random.uniform(20, 50))
         yield f'Insert {num_rows} rows into {self.tbl_descr(t)}: '
         i_start = random.randint(100, 1000000000)
@@ -257,6 +260,9 @@ class RandomTableOps:
 
     def update_rows(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=False)
+        if t is None:
+            yield 'No tables to update.'
+            return
         p = random.choice(PRIMES)
         yield f'Update rows in {self.tbl_descr(t)} where bc_int % {p} == 0: '
         # TODO: We should also do updates/deletes that can be carried out without a full table scan.
@@ -267,6 +273,9 @@ class RandomTableOps:
 
     def delete_rows(self) -> Iterator[str]:
         t = self.get_random_tbl(allow_view=False)
+        if t is None:
+            yield 'No tables to delete from.'
+            return
         p = random.choice(PRIMES)
         yield f'Delete rows from {self.tbl_descr(t)} where bc_int % {p} == 0: '
         us = t.where(t.bc_int % p == 0).delete()
@@ -274,6 +283,9 @@ class RandomTableOps:
 
     def add_data_column(self) -> Iterator[str]:
         t = self.get_random_tbl()
+        if t is None:
+            yield 'No tables to add columns to.'
+            return
         n = int(random.uniform(0, self.config.num_column_names))
         cname = f'c{n}'
         yield f'Add data column {cname!r} to {self.tbl_descr(t)}: '
@@ -282,6 +294,9 @@ class RandomTableOps:
 
     def add_computed_column(self) -> Iterator[str]:
         t = self.get_random_tbl()
+        if t is None:
+            yield 'No tables to add computed columns to.'
+            return
         n = int(random.uniform(0, self.config.num_column_names))
         cname = f'c{n}'
         yield f'Add computed column {cname!r} to {self.tbl_descr(t)}: '
@@ -290,6 +305,9 @@ class RandomTableOps:
 
     def drop_column(self) -> Iterator[str]:
         t = self.get_random_tbl()
+        if t is None:
+            yield 'No tables to drop columns from.'
+            return
         yield f'Drop a column from {self.tbl_descr(t)}: '
         cnames = [
             col_name
@@ -304,14 +322,27 @@ class RandomTableOps:
             t.drop_column(cname, if_not_exists='ignore')
             yield 'Success.'
 
+    def create_table(self) -> Iterator[str]:
+        while True:
+            tbl_name = f'tbl_{random.randint(0, 2**100)}'
+            if tbl_name not in self.live_tables and tbl_name not in self.live_views:
+                break
+        yield f'Create table {tbl_name!r}: '
+        pxt.create_table(tbl_name, source=INITIAL_ROWS, schema_overrides=BASIC_SCHEMA)
+        yield 'Success.'
+
     def create_view(self) -> Iterator[str]:
         t = self.get_random_tbl()  # Allows views on views
-        n = int(random.uniform(0, self.config.num_view_names))
-        vname = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
+        if t is None:
+            yield 'No tables to create a view on.'
+            return
+        while True:
+            view_name = f'view_{random.randint(0, 2**100)}'
+            if view_name not in self.live_tables and view_name not in self.live_views:
+                break
         p = random.choice(PRIMES)
-        yield f'Create view {vname!r} on {self.tbl_descr(t)}: '
-        # TODO: Change 'ignore' to 'replace-force' after fixing PXT-774
-        pxt.create_view(vname, t.where(t.bc_int % p == 0), if_exists='ignore')
+        yield f'Create view {view_name!r} on {self.tbl_descr(t)}: '
+        pxt.create_view(view_name, t.where(t.bc_int % p == 0))
         yield 'Success.'
 
     def rename_view(self) -> Iterator[str]:
@@ -337,7 +368,11 @@ class RandomTableOps:
         yield 'Success.'
 
     def drop_table(self) -> Iterator[str]:
+        if len(self.live_tables) < 2:
+            yield 'Too few tables'
+            return
         t = self.get_random_tbl(allow_view=False)
+        assert t is not None
         yield f'Drop table {self.tbl_descr(t)}: '
         pxt.drop_table(t, force=True, if_not_exists='ignore')
         yield 'Success.'
@@ -378,9 +413,29 @@ class RandomTableOps:
                 self.run_op(op)
                 return
 
+    def refresh_tbl_state(self) -> None:
+        with Env.get().engine.connect().execution_options(isolation_level='AUTOCOMMIT') as conn, conn.begin():
+            self.live_tables.clear()
+            self.live_views.clear()
+            for row in conn.execute(
+                sql.text("""
+                         select
+                          md->>'name' as tbl_name,
+                          md->>'view_md' is not null as is_view
+                         from tables
+                         where md->>'tbl_state' = '0' -- TableState.LIVE
+                         """)
+            ):
+                is_view = row[1]
+                if is_view:
+                    self.live_views.add(row[0])
+                else:
+                    self.live_tables.add(row[0])
+
     def run(self) -> None:
         """Run random table operations indefinitely."""
         while True:
+            self.refresh_tbl_state()
             self.random_op()
             time.sleep(random.uniform(0.1, 0.5))
 
@@ -389,6 +444,12 @@ def init(config: RandomTableOpsConfig) -> None:
     """Initialization. This will ONLY be run once (globally), on Worker 0."""
     print(json.dumps(dataclasses.asdict(config), indent=4))
     pxt.init()
+
+    tbl_name = 'tbl_0'
+    t = pxt.create_table(tbl_name, source=INITIAL_ROWS, schema_overrides=BASIC_SCHEMA, if_exists='error')
+    view_name = 'view_0'
+    p = random.choice(PRIMES)
+    pxt.create_view(view_name, t.where(t.bc_int % p == 0), if_exists='error')
 
 
 def run(
