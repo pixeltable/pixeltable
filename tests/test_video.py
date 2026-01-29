@@ -25,13 +25,13 @@ from .utils import (
 
 class TestVideo:
     def create_tbls(
-        self, base_name: str = 'video_tbl', view_name: str = 'frame_view', all_frame_attrs: bool = True
+        self, base_name: str = 'video_tbl', view_name: str = 'frame_view', use_legacy_schema: bool = False
     ) -> tuple[pxt.Table, pxt.Table]:
         pxt.drop_table(view_name, if_not_exists='ignore')
         pxt.drop_table(base_name, if_not_exists='ignore')
         base_t = pxt.create_table(base_name, {'video': pxt.Video})
         view_t = pxt.create_view(
-            view_name, base_t, iterator=frame_iterator(base_t.video, fps=1, all_frame_attrs=all_frame_attrs)
+            view_name, base_t, iterator=frame_iterator(base_t.video, fps=1, use_legacy_schema=use_legacy_schema)
         )
         return base_t, view_t
 
@@ -134,13 +134,13 @@ class TestVideo:
         for p in get_video_files():
             for kwargs in (
                 {},
-                {'all_frame_attrs': True},
+                {'use_legacy_schema': True},
                 {'fps': 0.5},
                 {'fps': 3},
-                {'fps': 3, 'all_frame_attrs': True},
+                {'fps': 3, 'use_legacy_schema': True},
                 {'fps': 1000},
                 {'num_frames': 10},
-                {'num_frames': 10, 'all_frame_attrs': True},
+                {'num_frames': 10, 'use_legacy_schema': True},
                 {'num_frames': 50},
                 {'num_frames': 10000},
             ):
@@ -167,9 +167,9 @@ class TestVideo:
 
         # Test keyframes_only=True extracts all keyframes
         keyframes = pxt.create_view(
-            'keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True, all_frame_attrs=True)
+            'keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True)
         )
-        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=0, all_frame_attrs=True))
+        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=0))
 
         videos.insert(video=path)
 
@@ -203,11 +203,11 @@ class TestVideo:
 
     def test_frame_attrs(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        base_t, view_t = self.create_tbls(all_frame_attrs=True)
+        base_t, view_t = self.create_tbls(use_legacy_schema=False)
         base_t.insert([{'video': video_filepaths[0]}])
         all_attrs = set(view_t.limit(1).select(view_t.frame_attrs).collect()[0, 0].keys())
         assert all_attrs == {'index', 'pts', 'dts', 'time', 'is_corrupt', 'key_frame', 'pict_type', 'interlaced_frame'}
-        _, view_t = self.create_tbls(all_frame_attrs=False)
+        _, view_t = self.create_tbls(use_legacy_schema=True)
         default_attrs = set(view_t.get_metadata()['columns'].keys())
         assert default_attrs == {'frame', 'pos', 'frame_idx', 'pos_msec', 'pos_frame', 'video'}
 

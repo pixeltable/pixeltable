@@ -2,22 +2,28 @@
 Pixeltable UDFs for `VideoType`.
 """
 
+from fractions import Fraction
 import glob
 import logging
-import pathlib
+import math
+from pathlib import Path
 import subprocess
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn
+from typing import TYPE_CHECKING, Any, Iterator, Literal, NamedTuple, NoReturn
 
 import av
 import av.container
 import numpy as np
 import PIL.Image
+import pandas as pd
 
 import pixeltable as pxt
 import pixeltable.utils.av as av_utils
+from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
+
+from av.container import InputContainer
 
 if TYPE_CHECKING:
     from scenedetect.detectors import SceneDetector  # type: ignore[import-untyped]
@@ -339,7 +345,7 @@ def clip(
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = pathlib.Path(output_path)
+        output_file = Path(output_path)
         if not output_file.exists() or output_file.stat().st_size == 0:
             stderr_output = result.stderr.strip() if result.stderr is not None else ''
             raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
@@ -479,7 +485,7 @@ def segment_video(
                 segment_duration = av_utils.get_video_duration(segment_path)
                 if segment_duration == 0.0:
                     # we're done
-                    pathlib.Path(segment_path).unlink()
+                    Path(segment_path).unlink()
                     return output_paths
                 output_paths.append(segment_path)
                 start_time += segment_duration  # use the actual segment duration here, it won't match duration exactly
@@ -493,7 +499,7 @@ def segment_video(
         except subprocess.CalledProcessError as e:
             # clean up partial results
             for segment_path in output_paths:
-                pathlib.Path(segment_path).unlink()
+                Path(segment_path).unlink()
             _handle_ffmpeg_error(e)
 
 
@@ -713,7 +719,7 @@ def with_audio(
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = pathlib.Path(output_path)
+        output_file = Path(output_path)
         if not output_file.exists() or output_file.stat().st_size == 0:
             stderr_output = result.stderr.strip() if result.stderr is not None else ''
             raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
@@ -862,7 +868,7 @@ def overlay_text(
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = pathlib.Path(output_path)
+        output_file = Path(output_path)
         if not output_file.exists() or output_file.stat().st_size == 0:
             stderr_output = result.stderr.strip() if result.stderr is not None else ''
             raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
@@ -893,7 +899,7 @@ def _create_drawtext_params(
     drawtext_params.append(f'fontsize={font_size}')
 
     if font is not None:
-        if pathlib.Path(font).exists():
+        if Path(font).exists():
             drawtext_params.append(f"fontfile='{font}'")
         else:
             drawtext_params.append(f"font='{font}'")
@@ -1400,7 +1406,7 @@ class _SceneDetectFrameInfo(NamedTuple):
 def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[dict[str, int | float]]:
     from scenedetect import FrameTimecode  # type: ignore[import-untyped]
 
-    with av_utils.VideoFrames(pathlib.Path(video), fps=fps) as frame_iter:
+    with av_utils.VideoFrames(Path(video), fps=fps) as frame_iter:
         video_fps = float(frame_iter.video_framerate)
 
         scenes: list[dict[str, int | float]] = []
@@ -1458,14 +1464,8 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[dic
         return scenes
 
 
-def frame_iterator(
-    video: Any,
-    *,
-    fps: float | None = None,
-    num_frames: int | None = None,
-    keyframes_only: bool = False,
-    all_frame_attrs: bool = False,
-) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
+@pxt.iterator(unstored_cols=['frame'])
+class frame_iterator(Iterator):
     """
     Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be specified. If `fps`
     is specified, then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified,
@@ -1515,17 +1515,227 @@ def frame_iterator(
 
         >>> pxt.create_view('ten_frames', tbl, iterator=frame_iterator(tbl.video, num_frames=10))
     """
-    kwargs: dict[str, Any] = {}
-    if fps is not None:
-        kwargs['fps'] = fps
-    if num_frames is not None:
-        kwargs['num_frames'] = num_frames
-    if keyframes_only:
-        kwargs['keyframes_only'] = keyframes_only
-    if all_frame_attrs:
-        kwargs['all_frame_attrs'] = all_frame_attrs
+    # Input parameters
+    video_path: Path
+    fps: float | None
+    num_frames: int | None
+    keyframes_only: bool
+    all_frame_attrs: bool
 
-    return pxt.iterators.video.FrameIterator._create(video=video, **kwargs)
+    # Video info
+    container: InputContainer
+    video_time_base: Fraction
+    video_start_time: float
+    video_duration: float | None
+
+    # extraction info
+    extraction_step: float | None
+    next_extraction_time: float | None
+
+    # state
+    pos: int
+    video_idx: int
+    cur_frame: av.VideoFrame | None
+
+    def __init__(
+        self,
+        video: pxt.Video,
+        *,
+        fps: float | None = None,
+        num_frames: int | None = None,
+        keyframes_only: bool = False,
+        use_legacy_schema: bool = False,
+    ) -> None:
+        if fps == 0.0:
+            fps = None  # treat 0.0 as unspecified
+
+        video_path = Path(video)
+        assert video_path.exists() and video_path.is_file()
+        self.video_path = video_path
+        self.container = av.open(str(video_path))
+        self.fps = fps
+        self.num_frames = num_frames
+        self.keyframes_only = keyframes_only
+        self.all_frame_attrs = not use_legacy_schema
+
+        self.video_time_base = self.container.streams.video[0].time_base
+
+        start_time = self.container.streams.video[0].start_time or 0
+        self.video_start_time = float(start_time * self.video_time_base)
+
+        duration_pts: int | None = self.container.streams.video[0].duration
+        if duration_pts is not None:
+            self.video_duration = float(duration_pts * self.video_time_base)
+        else:
+            # As a backup, try to calculate duration from DURATION metadata field
+            metadata = self.container.streams.video[0].metadata
+            duration_field = metadata.get('DURATION')  # A string like "00:01:23"
+            if duration_field is not None:
+                assert isinstance(duration_field, str)
+                self.video_duration = pd.to_timedelta(duration_field).total_seconds()
+            else:
+                # TODO: Anything we can do here? Other methods of determining the duration are expensive and
+                #     not so appropriate for an iterator initializer.
+                self.video_duration = None
+
+        if self.video_duration is None and self.num_frames is not None:
+            raise excs.Error(f'Could not determine duration of video: {video}')
+
+        # If self.fps or self.num_frames is specified, we cannot rely on knowing in advance which frame positions will
+        # be needed, since for variable framerate videos we do not know in advance the precise timestamp of each frame.
+        # The strategy is: predetermine a list of "extraction times", the idealized timestamps of the frames we want to
+        # materialize. As we later iterate through the frames, we will choose the frames that are closest to these
+        # idealized timestamps.
+
+        self.pos = 0
+        self.video_idx = 0
+        if self.num_frames is not None:
+            # Divide the video duration into num_frames evenly spaced intervals. The extraction times are the midpoints
+            # of those intervals.
+            self.extraction_step = (self.video_duration - self.video_start_time) / self.num_frames
+            self.next_extraction_time = self.video_start_time + self.extraction_step / 2
+        elif self.fps is not None:
+            self.extraction_step = 1 / self.fps
+            self.next_extraction_time = self.video_start_time
+        else:
+            self.extraction_step = None
+            self.next_extraction_time = None
+
+        _logger.debug(
+            f'FrameIterator: path={self.video_path} fps={self.fps} num_frames={self.num_frames} '
+            f'keyframes_only={self.keyframes_only}'
+        )
+        self.cur_frame = self.next_frame()
+
+
+    def next_frame(self) -> av.VideoFrame | None:
+        try:
+            return next(self.container.decode(video=0))
+        except EOFError:
+            return None
+
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        return self
+
+    def __next__(self) -> dict[str, Any]:
+        while True:
+            if self.cur_frame is None:
+                raise StopIteration
+
+            next_frame = self.next_frame()
+
+            if self.keyframes_only and not self.cur_frame.key_frame:
+                self.cur_frame = next_frame
+                self.video_idx += 1
+                continue
+
+            cur_frame_pts = self.cur_frame.pts
+            cur_frame_time = float(cur_frame_pts * self.video_time_base)
+
+            if self.extraction_step is not None:
+                # We are targeting a specified list of extraction times (because fps or num_frames was specified).
+                assert self.next_extraction_time is not None
+
+                if next_frame is None:
+                    # cur_frame is the last frame of the video. If it is before the next extraction time, then we
+                    # have reached the end of the video.
+                    if cur_frame_time < self.next_extraction_time:
+                        raise StopIteration
+                else:
+                    # The extraction time represents the idealized timestamp of the next frame we want to extract.
+                    # If next_frame is *closer* to it than cur_frame, then we skip cur_frame.
+                    # The following logic handles all three cases:
+                    # - next_extraction_time is before cur_frame_time (never skips)
+                    # - next_extraction_time is after next_frame_time (always skips)
+                    # - next_extraction_time is between cur_frame_time and next_frame_time (depends on which is closer)
+                    next_frame_pts = next_frame.pts
+                    next_frame_time = float(next_frame_pts * self.video_time_base)
+                    if next_frame_time - self.next_extraction_time < self.next_extraction_time - cur_frame_time:
+                        self.cur_frame = next_frame
+                        self.video_idx += 1
+                        continue
+
+            img = self.cur_frame.to_image()
+            assert isinstance(img, PIL.Image.Image)
+            result: dict[str, Any] = {'frame': img}
+            if self.all_frame_attrs:
+                attrs = {
+                    'index': self.video_idx,
+                    'pts': cur_frame_pts,
+                    'dts': self.cur_frame.dts,
+                    'time': float(cur_frame_pts * self.video_time_base),
+                    'is_corrupt': self.cur_frame.is_corrupt,
+                    'key_frame': self.cur_frame.key_frame,
+                    'pict_type': self.cur_frame.pict_type,
+                    'interlaced_frame': self.cur_frame.interlaced_frame,
+                }
+                result['frame_attrs'] = attrs
+            else:
+                pos_msec = float(cur_frame_pts * self.video_time_base * 1000 - self.video_start_time)
+                result.update({'frame_idx': self.pos, 'pos_msec': pos_msec, 'pos_frame': self.video_idx})
+
+            self.cur_frame = next_frame
+            self.video_idx += 1
+
+            self.pos += 1
+            if self.extraction_step is not None:
+                self.next_extraction_time += self.extraction_step
+
+            return result
+
+    def close(self) -> None:
+        self.container.close()
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        assert next(iter(kwargs.values()), None) is not None
+
+        if self.pos == pos:
+            # Nothing to do
+            return
+
+        self.pos = pos
+
+        seek_time: float
+        if 'pos_msec' in kwargs:
+            self.video_idx = kwargs['pos_frame']
+            seek_time = kwargs['pos_msec'] / 1000.0
+        else:
+            assert 'frame_attrs' in kwargs
+            self.video_idx = kwargs['frame_attrs']['index']
+            seek_time = kwargs['frame_attrs']['time']
+
+        assert isinstance(self.video_idx, int)
+        assert isinstance(seek_time, float)
+
+        # Subtlety: The offset passed in to seek() is not the pts, but rather the pts adjusted for the video start time.
+        seek_offset = math.floor((seek_time - self.video_start_time) / self.video_time_base)
+        self.container.seek(seek_offset, backward=True, stream=self.container.streams.video[0])
+
+        self.cur_frame = self.next_frame()
+        while self.cur_frame is not None and float(self.cur_frame.pts * self.video_time_base) < seek_time - 1e-3:
+            self.cur_frame = self.next_frame()
+        assert self.cur_frame is None or abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
+
+
+@frame_iterator.validate
+def _(bound_args: dict[str, Any]) -> None:
+    fps = bound_args.get('fps')
+    num_frames = bound_args.get('num_frames')
+    keyframes_only = bound_args.get('keyframes_only')
+    if int(fps is not None) + int(num_frames is not None) + int(keyframes_only is not None) > 1:
+        raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
+    if fps is not None and (not isinstance(fps, (int, float)) or fps < 0.0):
+        raise excs.Error('`fps` must be a non-negative number')
+
+
+@frame_iterator.conditional_output_schema
+def _(bound_args: dict[str, Any]) -> dict[str, type]:
+    attrs: dict[str, type]
+    if bound_args.get('use_legacy_schema'):
+        attrs = {'frame_idx': ts.Int, 'pos_msec': ts.Float, 'pos_frame': ts.Int}
+    else:
+        attrs = {'frame_attrs': ts.Json}
+    return {**attrs, 'frame': ts.Image}
 
 
 def video_splitter(

@@ -81,7 +81,7 @@ class ComponentIterationNode(ExecNode):
         for field_name, field_val in component_dict.items():
             if field_name not in self.iterator_output_fields:
                 raise excs.Error(
-                    f'Invalid field name {field_name} in output of {self.view.get().iterator_cls.__name__}'
+                    f'Invalid field name {field_name!r} in output of `{self.view.get().iterator_cls.name}`'
                 )
             if field_name not in self.refd_output_slot_idxs:
                 # we can ignore this
@@ -92,5 +92,6 @@ class ComponentIterationNode(ExecNode):
         if len(component_dict) != len(self.iterator_output_fields):
             missing_fields = set(self.refd_output_slot_idxs.keys()) - set(component_dict.keys())
             raise excs.Error(
-                f'Invalid output of {self.view.get().iterator_cls.__name__}: missing fields {", ".join(missing_fields)}'
+                f'Invalid output of `{self.view.get().iterator_cls.name}`: '
+                f'missing fields {", ".join(repr(field) for field in missing_fields)}'
             )

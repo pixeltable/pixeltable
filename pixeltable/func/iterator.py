@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 class PxtIterator:
     decorated_callable: Callable
+    name: str
     is_class_based: bool
     init_fn: Callable
     signature: Signature
@@ -25,6 +26,7 @@ class PxtIterator:
     _validate: Callable[[dict[str, Any]], bool] | None
 
     def __init__(self, decorated_callable: Callable, unstored_cols: list[str]) -> None:
+        self.name = decorated_callable.__name__
         self.decorated_callable = decorated_callable
         self.unstored_cols = unstored_cols
 
