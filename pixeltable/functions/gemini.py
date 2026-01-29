@@ -56,7 +56,7 @@ class GeminiRateLimitsInfo(env.RateLimitsInfo):
                     if detail_dict.get('@type') == 'type.googleapis.com/google.rpc.RetryInfo':
                         delay = parse_duration_str(detail_dict['retryDelay'])
                         return delay
-            except (AttributeError, KeyError):
+            except (AttributeError, KeyError, TypeError):
                 return exponential_backoff(attempt)
         return None
 
