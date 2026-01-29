@@ -323,6 +323,7 @@ class RandomTableOps:
             yield 'Success.'
 
     def create_table(self) -> Iterator[str]:
+        # TODO with a small probability, try to recreate a table that is already there, or that is under construction.
         while True:
             tbl_name = f'tbl_{random.randint(0, 2**100)}'
             if tbl_name not in self.live_tables and tbl_name not in self.live_views:
