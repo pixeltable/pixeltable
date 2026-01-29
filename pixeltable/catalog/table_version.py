@@ -66,6 +66,7 @@ class TableVersionMd:
     schema_version_md: schema.SchemaVersionMd
 
     @property
+    # TODO update to ignore system cols?
     def is_pure_snapshot(self) -> bool:
         return (
             self.tbl_md.view_md is not None
@@ -149,6 +150,8 @@ class TableVersion:
     # record metadata stored in catalog
     _tbl_md: schema.TableMd
     _version_md: schema.VersionMd
+    # used to be only user-visible columns, but now contains all columns
+    # including system columns and dropped columns
     _schema_version_md: schema.SchemaVersionMd
 
     path: 'TableVersionPath' | None  # only set for non-snapshots; needed to resolve computed cols
@@ -163,7 +166,7 @@ class TableVersion:
     # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
     mutable_views: frozenset[TableVersionHandle]
 
-    # contains complete history of columns, incl dropped ones
+    # contains only the columns visible in this table version
     cols: list[Column]
     # contains only user-facing (named) columns visible in this version
     cols_by_name: dict[str, Column]
@@ -352,13 +355,13 @@ class TableVersion:
                 index_md[idx_id] = md
 
             for col in index_cols:
-                col_md, _ = col.to_md()
+                col_md, sch_md = col.to_md()
                 column_md[col.id] = col_md
+                schema_col_md[col.id] = sch_md
 
             assert all(column_md[id].id == id for id in column_md)
+            assert set(column_md.keys()) == set(schema_col_md.keys())
             assert all(index_md[id].id == id for id in index_md)
-
-            cols.extend(index_cols)
 
         tbl_md = schema.TableMd(
             tbl_id=tbl_id_str,
@@ -579,8 +582,15 @@ class TableVersion:
         # point backward.
         sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
         for col_md in sorted_column_md:
-            col_type = ts.ColumnType.from_dict(col_md.col_type)
-            schema_col_md = self.schema_version_md.columns.get(col_md.id)
+            if col_md.schema_version_add > self.schema_version or (
+                col_md.schema_version_drop is not None and col_md.schema_version_drop <= self.schema_version
+            ):
+                # skips cols that are not present in this version
+                # e.g. test that needs this: test_table_time_travel
+                continue
+
+            schema_col_md: schema.SchemaColumn = self.schema_version_md.columns[col_md.id]
+            col_type = ts.ColumnType.from_dict(schema_col_md.col_type)
             media_val = (
                 MediaValidation[schema_col_md.media_validation.upper()]
                 if schema_col_md is not None and schema_col_md.media_validation is not None
@@ -604,7 +614,7 @@ class TableVersion:
                 col_id=col_md.id,
                 name=schema_col_md.name if schema_col_md is not None else None,
                 col_type=col_type,
-                is_pk=col_md.is_pk,
+                is_pk=schema_col_md.is_pk if schema_col_md is not None else False,
                 is_iterator_col=self.is_component_view and col_md.id < self.num_iterator_cols + 1,
                 stored=col_md.stored,
                 media_validation=media_val,
@@ -612,19 +622,16 @@ class TableVersion:
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
                 stores_cellmd=stores_cellmd,
-                value_expr_dict=col_md.value_expr,
+                value_expr_dict=schema_col_md.value_expr if schema_col_md is not None else None,
                 tbl_handle=self.handle,
-                destination=col_md.destination,
+                destination=schema_col_md.destination if schema_col_md is not None else None,
             )
 
             self.cols.append(col)
             # populate lookup structures before Expr.from_dict()
-            if col_md.schema_version_add <= self.schema_version and (
-                col_md.schema_version_drop is None or col_md.schema_version_drop > self.schema_version
-            ):
-                if col.name is not None:
-                    self.cols_by_name[col.name] = col
-                self.cols_by_id[col.id] = col
+            if col.name is not None:
+                self.cols_by_name[col.name] = col
+            self.cols_by_id[col.id] = col
 
         if self.supports_idxs:
             # create IndexInfo for indices visible in current_version
@@ -888,28 +895,26 @@ class TableVersion:
         self.bump_version(bump_schema_version=True)
 
         # create column md
+        highest_pos = max((c.pos for c in self._schema_version_md.columns.values() if c.pos is not None), default=-1)
+        next_pos = itertools.count(start=highest_pos + 1, step=1)
         for col in all_cols:
             assert col.id is not None
             col_md = schema.ColumnMd(
-                id=col.id,
-                col_type=col.col_type.as_dict(),
-                is_pk=col.is_pk,
-                schema_version_add=self.schema_version,
-                schema_version_drop=None,
-                value_expr=col.value_expr.as_dict() if col.value_expr is not None else None,
-                stored=col.stored,
-                destination=col._explicit_destination,
+                id=col.id, schema_version_add=self.schema_version, schema_version_drop=None, stored=col.stored
             )
             self._tbl_md.column_md[col.id] = col_md
 
-            if col.name is not None:
-                pos = len(self._schema_version_md.columns)
-                schema_md = schema.SchemaColumn(
-                    name=col.name,
-                    pos=pos,
-                    media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
-                )
-                self._schema_version_md.columns[col.id] = schema_md
+            schema_md = schema.SchemaColumn(
+                name=col.name,
+                pos=next(next_pos) if col.name is not None else None,
+                col_type=col.col_type.as_dict(),
+                is_pk=col.is_pk,
+                value_expr=col.value_expr.as_dict() if col.value_expr is not None else None,
+                media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
+                destination=col._explicit_destination,
+            )
+            assert col.id not in self._schema_version_md.columns
+            self._schema_version_md.columns[col.id] = schema_md
 
         # Create index md
         idx_ids: list[int] = []
@@ -1017,13 +1022,12 @@ class TableVersion:
             self.cols_by_id[col.id] = col
             if col.name is not None:
                 self.cols_by_name[col.name] = col
-                col_md, sch_md = col.to_md(len(self.cols_by_name))
-                assert sch_md is not None, 'Schema column metadata must be created for user-facing columns'
-                self._tbl_md.column_md[col.id] = col_md
-                self._schema_version_md.columns[col.id] = sch_md
-            else:
-                col_md, _ = col.to_md()
-                self._tbl_md.column_md[col.id] = col_md
+            pos = len(self.cols_by_name) if col.name is not None else None
+            col_md, sch_md = col.to_md(pos)
+            assert col.id not in self._schema_version_md.columns
+            assert col.id not in self._tbl_md.column_md
+            self._schema_version_md.columns[col.id] = sch_md
+            self._tbl_md.column_md[col.id] = col_md
 
             if col.is_stored:
                 self.store_tbl.add_column(col)
@@ -1106,12 +1110,15 @@ class TableVersion:
             del self.cols_by_id[col.id]
             # update stored md
             self._tbl_md.column_md[col.id].schema_version_drop = col.schema_version_drop
-            if col.name is not None:
-                del self._schema_version_md.columns[col.id]
+            del self._schema_version_md.columns[col.id]
 
         # update positions
-        for pos, schema_col in enumerate(self._schema_version_md.columns.values()):
-            schema_col.pos = pos
+        pos = 0
+        for schema_col in self._schema_version_md.columns.values():
+            # TODO check name instead
+            if schema_col.pos is not None:
+                schema_col.pos = pos
+                pos += 1
 
         self.store_tbl.create_sa_tbl()
         Catalog.get().record_column_dependencies(self)
@@ -1546,6 +1553,8 @@ class TableVersion:
                     if col.is_stored:
                         self.store_tbl.drop_column(col)
                     del self._tbl_md.column_md[col.id]
+                    # TODO is this needed?
+                    del self._schema_version_md.columns[col.id]
 
             # remove newly-added indices from the lookup structures
             # (the value and undo columns got removed in the preceding step)
@@ -1646,6 +1655,7 @@ class TableVersion:
     def version_md(self) -> schema.VersionMd:
         return self._version_md
 
+    # TODO delete?
     @property
     def schema_version_md(self) -> schema.SchemaVersionMd:
         return self._schema_version_md

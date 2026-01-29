@@ -1,9 +1,11 @@
 import glob
+import json
 import logging
 import os
 import platform
 import subprocess
 import sys
+from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
@@ -20,7 +22,8 @@ from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
 from pixeltable.func.signature import Batch
 from pixeltable.metadata import VERSION, SystemInfo
-from pixeltable.metadata.converters.util import convert_table_md
+from pixeltable.metadata.converters.convert_45 import _convert_table_and_versions
+from pixeltable.metadata.converters.util import convert_table_md, convert_table_schema_version_md
 from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
 
@@ -94,7 +97,7 @@ class TestMigration:
             # `test_udf_stored_batched` in the DB artifact metadata with a non-pickled variant.
             # TODO: Remove this workaround once we implement a better solution for dealing with legacy pickled UDFs.
             with orm.Session(env.engine) as session:
-                convert_table_md(env.engine, substitution_fn=self.__replace_pickled_udfs)
+                convert_table_schema_version_md(env.engine, schema_column_updater=self.__replace_pickled_udfs)
 
             reload_catalog()
 
@@ -113,17 +116,15 @@ class TestMigration:
                 self._run_v19_tests()
             if old_version >= 30:
                 self._run_v30_tests()
-            if old_version >= 33:
-                self._verify_v33()
-            # self._verify_v24(old_version)
+            if old_version >= 45:
+                self._verify_v45()
 
             pxt.drop_table('sample_table', force=True)
 
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, (
             f'No DB dump found for current schema version {VERSION}. You can generate one with:\n'
-            f'`python tool/create_test_db_dump.py`\n'
-            f'`mv target/*.dump.gz target/*.toml tests/data/dbdumps`'
+            f'`python tool/create_test_db_dump.py && mv target/*.dump.gz target/*.toml tests/data/dbdumps`'
         )
         assert VERSION in VERSION_NOTES, (
             f'No version notes found for current schema version {VERSION}. '
@@ -256,21 +257,21 @@ class TestMigration:
         return None
 
     @staticmethod
-    def __replace_pickled_udfs(k: str | None, v: Any) -> tuple[str | None, Any] | None:
+    def __replace_pickled_udfs(column_md: dict) -> None:
         # The following set of conditions uniquely identifies FunctionCall instances in the artifacts whose function
         # is `test_udf_stored_batched`. See comment above re: pickled UDFs in Python 3.10.
         # TODO: Remove this method once we implement a better solution for dealing with legacy pickled UDFs.
-        if (
-            isinstance(v, dict)
-            and v.get('_classname') == 'FunctionCall'
-            and 'id' in v['fn']
-            and len(v['kwarg_idxs']) == 1
-        ):
-            del v['fn']['id']
-            v['fn']['path'] = replacement_batched_udf.self_path
-            v['fn']['signature'] = replacement_batched_udf.signature.as_dict()
-
-        return k, v
+        try:
+            if (
+                column_md['value_expr']['_classname'] == 'FunctionCall'
+                and 'id' in column_md['value_expr']['fn']
+                and len(column_md['value_expr']['kwarg_idxs']) == 1
+            ):
+                del column_md['value_expr']['fn']['id']
+                column_md['value_expr']['fn']['path'] = replacement_batched_udf.self_path
+                column_md['value_expr']['fn']['signature'] = replacement_batched_udf.signature.as_dict()
+        except TypeError:
+            return
 
     @classmethod
     def _run_v30_tests(cls) -> None:
@@ -293,14 +294,682 @@ class TestMigration:
                 assert table_schema_version_md['schema_version'] == schema_version
 
     @classmethod
-    def _verify_v33(cls) -> None:
+    def _verify_v45(cls) -> None:
+        unexpected_table_md_col_keys = {'col_type', 'is_pk', 'value_expr', 'destination'}
+        required_table_schema_version_col_keys = {'col_type', 'is_pk'}
         with Env.get().engine.begin() as conn:
             for row in conn.execute(sql.select(Table.md)):
-                table_md = row[0]
-                for col_md in table_md['column_md'].values():
-                    assert col_md['is_pk'] is not None
+                column_mds = row[0]['column_md']
+                for column_md in column_mds.values():
+                    assert not unexpected_table_md_col_keys & column_md.keys(), column_md
+            for row in conn.execute(sql.select(TableSchemaVersion.md)):
+                for column_md in row[0]['columns'].values():
+                    assert not required_table_schema_version_col_keys - column_md.keys(), column_md
+
+    def test_convert_45(self) -> None:
+        table_md = deepcopy(_TABLE_MD)
+        schema_version_md = deepcopy(_SCHEMA_VERSION_MD)
+        _convert_table_and_versions(table_md, schema_version_md)
+        assert table_md == _TABLE_MD_EXPECTED
+        assert set(schema_version_md.keys()) == set(_SCHEMA_VERSION_MD_EXPECTED.keys())
+        for ver in schema_version_md:
+            assert schema_version_md[ver] == _SCHEMA_VERSION_MD_EXPECTED[ver], ver
 
 
 @pxt.udf(batch_size=4)
 def replacement_batched_udf(strings: Batch[str], *, upper: bool = True) -> Batch[pxt.String]:
     return [string.upper() if upper else string.lower() for string in strings]
+
+
+_TABLE_MD = json.loads("""
+ {
+     "name": "test",
+     "user": null,
+     "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+     "view_md": null,
+     "view_sn": 0,
+     "index_md": {
+         "0": {
+             "id": 0,
+             "name": "idx0",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 0,
+             "index_val_col_id": 2,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 0,
+             "schema_version_drop": null,
+             "index_val_undo_col_id": 3
+         },
+         "1": {
+             "id": 1,
+             "name": "idx1",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 1,
+             "index_val_col_id": 4,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 0,
+             "schema_version_drop": 2,
+             "index_val_undo_col_id": 5
+         },
+         "2": {
+             "id": 2,
+             "name": "idx2",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 6,
+             "index_val_col_id": 7,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 3,
+             "schema_version_drop": null,
+             "index_val_undo_col_id": 8
+         }
+     },
+     "column_md": {
+         "0": {
+             "id": 0,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "1": {
+             "id": 1,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "2": {
+             "id": 2,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": {
+                 "col_id": 0,
+                 "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                 "_classname": "ColumnRef",
+                 "tbl_version": null,
+                 "reference_tbl": null,
+                 "perform_validation": false
+             },
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "3": {
+             "id": 3,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "4": {
+             "id": 4,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": {
+                 "col_id": 1,
+                 "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                 "_classname": "ColumnRef",
+                 "tbl_version": null,
+                 "reference_tbl": null,
+                 "perform_validation": false
+             },
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "5": {
+             "id": 5,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "6": {
+             "id": 6,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         },
+         "7": {
+             "id": 7,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": {
+                 "col_id": 6,
+                 "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                 "_classname": "ColumnRef",
+                 "tbl_version": null,
+                 "reference_tbl": null,
+                 "perform_validation": false
+             },
+             "destination": null,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         },
+         "8": {
+             "id": 8,
+             "is_pk": false,
+             "stored": true,
+             "col_type": {
+                 "nullable": true,
+                 "_classname": "IntType"
+             },
+             "value_expr": null,
+             "destination": null,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         }
+     },
+     "tbl_state": 0,
+     "is_replica": false,
+     "next_col_id": 9,
+     "next_idx_id": 3,
+     "next_row_id": 10,
+     "pending_stmt": null,
+     "additional_md": {
+     },
+     "current_version": 4,
+     "external_stores": [
+     ],
+     "has_pending_ops": false,
+     "current_schema_version": 3
+ }""")
+
+_SCHEMA_VERSION_MD = {
+    0: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "media_validation": null
+                        },
+                        "1": {
+                            "pos": 1,
+                            "name": "c2",
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 0,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": null
+                }
+                 """),
+    2: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 2,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": 0
+                }
+                 """),
+    3: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "media_validation": null
+                        },
+                        "6": {
+                            "pos": 1,
+                            "name": "c3",
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 3,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": 2
+                }
+                 """),
+}
+
+_TABLE_MD_EXPECTED = json.loads("""
+ {
+     "name": "test",
+     "user": null,
+     "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+     "view_md": null,
+     "view_sn": 0,
+     "index_md": {
+         "0": {
+             "id": 0,
+             "name": "idx0",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 0,
+             "index_val_col_id": 2,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 0,
+             "schema_version_drop": null,
+             "index_val_undo_col_id": 3
+         },
+         "1": {
+             "id": 1,
+             "name": "idx1",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 1,
+             "index_val_col_id": 4,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 0,
+             "schema_version_drop": 2,
+             "index_val_undo_col_id": 5
+         },
+         "2": {
+             "id": 2,
+             "name": "idx2",
+             "class_fqn": "pixeltable.index.btree.BtreeIndex",
+             "init_args": {
+             },
+             "indexed_col_id": 6,
+             "index_val_col_id": 7,
+             "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+             "schema_version_add": 3,
+             "schema_version_drop": null,
+             "index_val_undo_col_id": 8
+         }
+     },
+     "column_md": {
+         "0": {
+             "id": 0,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "1": {
+             "id": 1,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "2": {
+             "id": 2,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "3": {
+             "id": 3,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": null
+         },
+         "4": {
+             "id": 4,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "5": {
+             "id": 5,
+             "stored": true,
+             "schema_version_add": 0,
+             "schema_version_drop": 2
+         },
+         "6": {
+             "id": 6,
+             "stored": true,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         },
+         "7": {
+             "id": 7,
+             "stored": true,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         },
+         "8": {
+             "id": 8,
+             "stored": true,
+             "schema_version_add": 3,
+             "schema_version_drop": null
+         }
+     },
+     "tbl_state": 0,
+     "is_replica": false,
+     "next_col_id": 9,
+     "next_idx_id": 3,
+     "next_row_id": 10,
+     "pending_stmt": null,
+     "additional_md": {
+     },
+     "current_version": 4,
+     "external_stores": [
+     ],
+     "has_pending_ops": false,
+     "current_schema_version": 3
+ }
+ """)
+
+_SCHEMA_VERSION_MD_EXPECTED = {
+    0: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "1": {
+                            "pos": 1,
+                            "name": "c2",
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "2": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": {
+                                "col_id": 0,
+                                "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                                "_classname": "ColumnRef",
+                                "tbl_version": null,
+                                "reference_tbl": null,
+                                "perform_validation": false
+                            },
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "3": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "4": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": {
+                                "col_id": 1,
+                                "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                                "_classname": "ColumnRef",
+                                "tbl_version": null,
+                                "reference_tbl": null,
+                                "perform_validation": false
+                            },
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "5": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 0,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": null
+                }
+    """),
+    2: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "2": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": {
+                                "col_id": 0,
+                                "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                                "_classname": "ColumnRef",
+                                "tbl_version": null,
+                                "reference_tbl": null,
+                                "perform_validation": false
+                            },
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "3": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 2,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": 0
+                }
+    """),
+    3: json.loads("""
+                {
+                    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                    "columns": {
+                        "0": {
+                            "pos": 0,
+                            "name": "c1",
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "2": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": {
+                                "col_id": 0,
+                                "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                                "_classname": "ColumnRef",
+                                "tbl_version": null,
+                                "reference_tbl": null,
+                                "perform_validation": false
+                            },
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "3": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "6": {
+                            "pos": 1,
+                            "name": "c3",
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "7": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": {
+                                "col_id": 6,
+                                "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+                                "_classname": "ColumnRef",
+                                "tbl_version": null,
+                                "reference_tbl": null,
+                                "perform_validation": false
+                            },
+                            "destination": null,
+                            "media_validation": null
+                        },
+                        "8": {
+                            "pos": null,
+                            "name": null,
+                            "is_pk": false,
+                            "col_type": {
+                                "nullable": true,
+                                "_classname": "IntType"
+                            },
+                            "value_expr": null,
+                            "destination": null,
+                            "media_validation": null
+                        }
+                    },
+                    "comment": "",
+                    "additional_md": {
+                    },
+                    "schema_version": 3,
+                    "media_validation": "on_write",
+                    "num_retained_versions": 10,
+                    "preceding_schema_version": 2
+                }
+    """),
+}

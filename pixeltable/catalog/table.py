@@ -1832,6 +1832,7 @@ class Table(SchemaObject):
         vers_list = Catalog.get().collect_tbl_history(tbl_id, n + 1)
 
         # Construct the metadata change description dictionary
+        # TODO this probably needs to be updated. schema_version_md.columns now contains system cols
         md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]
         md_dict = MetadataUtils._create_md_change_dict(md_list)
 

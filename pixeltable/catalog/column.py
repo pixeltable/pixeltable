@@ -138,26 +138,27 @@ class Column:
         self.sa_cellmd_col = None
         self._explicit_destination = destination
 
-    def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
+    # TODO update all callers
+    # TODO split into two functions
+    def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
         assert self.is_pk is not None
         col_md = schema.ColumnMd(
             id=self.id,
-            col_type=self.col_type.as_dict(),
-            is_pk=self.is_pk,
             schema_version_add=self.schema_version_add,
             schema_version_drop=self.schema_version_drop,
-            value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
-            destination=self._explicit_destination,
         )
-        if pos is None:
-            return col_md, None
-        assert self.name is not None, 'Column name must be set for user-facing columns'
+        assert (pos is None) == (self.name is None), 'Column name must be set for and only for user-facing columns'
+
         sch_md = schema.SchemaColumn(
             name=self.name,
             pos=pos,
+            col_type=self.col_type.as_dict(),
+            is_pk=self.is_pk,
+            value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
+            destination=self._explicit_destination,
         )
         return col_md, sch_md
 
