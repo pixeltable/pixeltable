@@ -1,5 +1,5 @@
 import datetime
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 
 class ColumnMetadata(TypedDict):
@@ -72,6 +72,8 @@ class TableMetadata(TypedDict):
     """The current schema version of the table."""
     comment: str | None
     """User-provided table comment, if one exists."""
+    user_metadata: Any | None
+    """User-defined metadata for this table, if any."""
     media_validation: Literal['on_read', 'on_write']
     """The media validation policy for this table."""
     base: str | None

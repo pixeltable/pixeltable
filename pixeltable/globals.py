@@ -58,6 +58,7 @@ def create_table(
     primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    user_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     extra_args: dict[str, Any] | None = None,  # Additional arguments to data source provider
@@ -93,6 +94,7 @@ def create_table(
             table.
         num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
+        user_metadata: Optional user-defined JSON metadata to associate with the table.
         media_validation: Media validation policy for the table.
 
             - `'on_read'`: validate media files at query time
@@ -197,12 +199,15 @@ def create_table(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
         )
 
+    assert isinstance(comment, str), 'Comment must be a string'
+
     tbl, was_created = Catalog.get().create_table(
         path_obj,
         schema,
         if_exists=if_exists_,
         primary_key=primary_key,
         comment=comment,
+        user_metadata=user_metadata,
         media_validation=media_validation_,
         num_retained_versions=num_retained_versions,
         create_default_idxs=create_default_idxs,
@@ -231,6 +236,7 @@ def create_view(
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    user_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> catalog.Table | None:
@@ -333,6 +339,8 @@ def create_view(
                     f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
                 )
 
+    assert isinstance(comment, str), 'Comment must be a string'
+
     return Catalog.get().create_view(
         path_obj,
         tbl_version_path,
@@ -345,6 +353,7 @@ def create_view(
         iterator=iterator,
         num_retained_versions=num_retained_versions,
         comment=comment,
+        user_metadata=user_metadata,
         media_validation=media_validation_,
         if_exists=if_exists_,
     )
@@ -358,6 +367,7 @@ def create_snapshot(
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    user_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> catalog.Table | None:
@@ -426,6 +436,7 @@ def create_snapshot(
         is_snapshot=True,
         num_retained_versions=num_retained_versions,
         comment=comment,
+        user_metadata=user_metadata,
         media_validation=media_validation,
         if_exists=if_exists,
     )
