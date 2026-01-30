@@ -18,7 +18,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
-from pixeltable.utils import resolve_table_source_to_path
+from pixeltable.utils.http import fetch_url
 
 from .utils import normalize_schema_names
 
@@ -291,7 +291,7 @@ class CSVTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
-        path = resolve_table_source_to_path(t.source)
+        path = fetch_url(t.source, allow_local_file=True)
         t.source = pd.read_csv(path, **t.extra_fields)
         return PandasTableDataConduit.from_tds(t)
 
@@ -303,7 +303,7 @@ class ExcelTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
-        path = resolve_table_source_to_path(t.source)
+        path = fetch_url(t.source, allow_local_file=True)
         t.source = pd.read_excel(path, **t.extra_fields)
         return PandasTableDataConduit.from_tds(t)
 
@@ -333,7 +333,7 @@ class JsonTableDataConduit(TableDataConduit):
         t = cls(**kwargs)
         assert isinstance(t.source, str)
         source_str = t.source
-        path = resolve_table_source_to_path(source_str)
+        path = fetch_url(source_str, allow_local_file=True)
         if source_str.lower().rstrip('/').endswith('.jsonl'):
             rows = _parse_jsonl_from_path(path, t.extra_fields)
         else:
@@ -638,7 +638,7 @@ class ParquetTableDataConduit(TableDataConduit):
         t = cls(**kwargs)
 
         assert isinstance(tds.source, str)
-        input_path = resolve_table_source_to_path(tds.source)
+        input_path = fetch_url(tds.source, allow_local_file=True)
         t.pq_ds = pa.parquet.ParquetDataset(str(input_path))
         return t
 
