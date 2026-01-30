@@ -304,16 +304,6 @@ class RandomTableOps:
             t.drop_column(cname, if_not_exists='ignore')
             yield 'Success.'
 
-    def create_table(self) -> Iterator[str]:
-        # TODO with a small probability, try to recreate a table that is already there, or that is under construction.
-        while True:
-            tbl_name = f'tbl_{random.randint(0, 2**100)}'
-            if tbl_name not in self.live_tables and tbl_name not in self.live_views:
-                break
-        yield f'Create table {tbl_name!r}: '
-        pxt.create_table(tbl_name, source=INITIAL_ROWS, schema_overrides=BASIC_SCHEMA)
-        yield 'Success.'
-
     def create_view(self) -> Iterator[str]:
         t = self.get_random_tbl()  # Allows views on views
         n = int(random.uniform(0, self.config.num_view_names))
