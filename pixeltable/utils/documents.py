@@ -30,7 +30,7 @@ def get_document_handle(path: str) -> DocumentHandle:
     if handle is not None:
         return handle
 
-    raise excs.Error(f'Unrecognized document format: {path}')
+    raise excs.Error(f'Unrecognized document format: {path}', excs.BAD_REQUEST)
 
 
 def get_handle_by_extension(path: str, extension: str) -> DocumentHandle | None:
@@ -54,7 +54,7 @@ def get_handle_by_extension(path: str, extension: str) -> DocumentHandle | None:
         if doc_format == ts.DocumentType.DocumentFormat.XLSX:
             return DocumentHandle(doc_format, md_ast=get_office_handle(path))
     except Exception as exc:
-        raise excs.Error(f'An error occurred processing a {doc_format} document: {path}') from exc
+        raise excs.Error(f'An error occurred processing a {doc_format} document: {path}', excs.BAD_REQUEST) from exc
 
     return None
 
@@ -63,7 +63,7 @@ def get_html_handle(path: str) -> bs4.BeautifulSoup:
     with open(path, 'r', encoding='utf8') as fp:
         doc = bs4.BeautifulSoup(fp, 'lxml')
     if doc.find() is None:
-        raise excs.Error(f'Not a valid HTML document: {path}')
+        raise excs.Error(f'Not a valid HTML document: {path}', excs.BAD_REQUEST)
     return doc
 
 
@@ -83,7 +83,7 @@ def get_xml_handle(path: str) -> bs4.BeautifulSoup:
     with open(path, 'r', encoding='utf8') as fp:
         doc = bs4.BeautifulSoup(fp, 'xml')
     if doc.find() is None:
-        raise excs.Error(f'Not a valid XML document: {path}')
+        raise excs.Error(f'Not a valid XML document: {path}', excs.BAD_REQUEST)
     return doc
 
 

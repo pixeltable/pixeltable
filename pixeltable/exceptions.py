@@ -15,6 +15,13 @@ class ErrorCategory(enum.Enum):
     INTERNAL_SERVER_ERROR = 'internal_server_error'  # DB/config/runtime failure
 
 
+# Short aliases for raise sites: excs.Error('...', excs.NOT_FOUND)
+RETRYABLE = ErrorCategory.RETRYABLE
+NOT_FOUND = ErrorCategory.NOT_FOUND
+BAD_REQUEST = ErrorCategory.BAD_REQUEST
+INTERNAL_SERVER_ERROR = ErrorCategory.INTERNAL_SERVER_ERROR
+
+
 class Error(Exception):
     """Base exception for all user-facing Pixeltable errors."""
 

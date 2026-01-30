@@ -98,7 +98,7 @@ class ColumnHandle:
             raise excs.Error(
                 f'Column was dropped (no record for column ID {self.col_id} in table '
                 f'{self.tbl_version.get().versioned_name!r}; it was dropped in table version {schema_version_drop})'
-            )
+            , excs.BAD_REQUEST)
         return self.tbl_version.get().cols_by_id[self.col_id]
 
     def as_dict(self) -> dict:

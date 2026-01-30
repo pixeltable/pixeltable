@@ -34,13 +34,13 @@ class Config:
 
         for var in config_overrides:
             if var not in KNOWN_CONFIG_OVERRIDES:
-                raise excs.Error(f'Unrecognized configuration variable: {var}')
+                raise excs.Error(f'Unrecognized configuration variable: {var}', excs.INTERNAL_SERVER_ERROR)
 
         self.__config_overrides = config_overrides
 
         self.__home = Path(self.lookup_env('pixeltable', 'home', str(Path.home() / '.pixeltable')))
         if self.__home.exists() and not self.__home.is_dir():
-            raise excs.Error(f'Not a directory: {self.__home}')
+            raise excs.Error(f'Not a directory: {self.__home}', excs.INTERNAL_SERVER_ERROR)
         if not self.__home.exists():
             print(f'Creating a Pixeltable instance at: {self.__home}')
             self.__home.mkdir()
@@ -53,20 +53,20 @@ class Config:
                 try:
                     self.__config_dict = toml.load(stream)
                 except Exception as exc:
-                    raise excs.Error(f'Could not read config file: {self.__config_file}') from exc
+                    raise excs.Error(f'Could not read config file: {self.__config_file}', excs.INTERNAL_SERVER_ERROR) from exc
             for section, section_dict in self.__config_dict.items():
                 if section not in KNOWN_CONFIG_OPTIONS:
-                    raise excs.Error(f'Unrecognized section {section!r} in config file: {self.__config_file}')
+                    raise excs.Error(f'Unrecognized section {section!r} in config file: {self.__config_file}', excs.INTERNAL_SERVER_ERROR)
                 for key in section_dict:
                     if key not in KNOWN_CONFIG_OPTIONS[section]:
-                        raise excs.Error(f"Unrecognized option '{section}.{key}' in config file: {self.__config_file}")
+                        raise excs.Error(f"Unrecognized option '{section}.{key}' in config file: {self.__config_file}", excs.INTERNAL_SERVER_ERROR)
         else:
             self.__config_dict = self.__create_default_config(self.__config_file)
             with open(self.__config_file, 'w', encoding='utf-8') as stream:
                 try:
                     toml.dump(self.__config_dict, stream)
                 except Exception as exc:
-                    raise excs.Error(f'Could not write config file: {self.__config_file}') from exc
+                    raise excs.Error(f'Could not write config file: {self.__config_file}', excs.INTERNAL_SERVER_ERROR) from exc
             _logger.info(f'Created default config file at: {self.__config_file}')
 
     @property
@@ -93,7 +93,7 @@ class Config:
         elif len(config_overrides) > 0:
             raise excs.Error(
                 'Pixeltable has already been initialized; cannot specify new config values in the same session'
-            )
+            , excs.BAD_REQUEST)
 
     @classmethod
     def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
@@ -132,14 +132,14 @@ class Config:
         try:
             if expected_type is bool and isinstance(value, str):
                 if value.lower() not in ('true', 'false'):
-                    raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}")
+                    raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}", excs.BAD_REQUEST)
                 return value.lower() == 'true'  # type: ignore[return-value]
             if (expected_type is dict or expected_type is list) and isinstance(value, str):
                 # Treat a string as a JSON-serialized dict or list
                 value = json.loads(value)
             return expected_type(value)  # type: ignore[call-arg]
         except (ValueError, TypeError) as exc:
-            raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}") from exc
+            raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}", excs.BAD_REQUEST) from exc
 
     def get_string_value(self, key: str, section: str = 'pixeltable') -> str | None:
         return self.get_value(key, str, section)

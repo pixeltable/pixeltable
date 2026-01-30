@@ -256,7 +256,7 @@ async def generate_videos(
     env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
 
     if prompt is None and image is None:
-        raise excs.Error('At least one of `prompt` or `image` must be provided.')
+        raise excs.Error('At least one of `prompt` or `image` must be provided.', excs.BAD_REQUEST)
 
     image_: types.Image | None = None
     if image is not None:
@@ -374,7 +374,7 @@ async def generate_embedding(
         i += 1
 
     if batch_job.state != types.JobState.JOB_STATE_SUCCEEDED:
-        raise excs.Error(f'Embedding batch job did not succeed: {batch_job.state}. Error: {batch_job.error}')
+        raise excs.Error(f'Embedding batch job did not succeed: {batch_job.state}. Error: {batch_job.error}', excs.INTERNAL_SERVER_ERROR)
 
     assert batch_job.error is None
     results = []

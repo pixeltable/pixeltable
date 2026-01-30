@@ -65,14 +65,14 @@ class FunctionRegistry:
 
     def register_function(self, fqn: str, fn: Function) -> None:
         if fqn in self.module_fns:
-            raise excs.Error(f'A UDF with that name already exists: {fqn}')
+            raise excs.Error(f'A UDF with that name already exists: {fqn}', excs.BAD_REQUEST)
         self.module_fns[fqn] = fn
         if fn.is_method or fn.is_property:
             base_type = fn.signatures[0].parameters_by_pos[0].col_type.type_enum
             if base_type not in self.type_methods:
                 self.type_methods[base_type] = {}
             if fn.name in self.type_methods[base_type]:
-                raise excs.Error(f'Duplicate method name for type {base_type}: {fn.name}')
+                raise excs.Error(f'Duplicate method name for type {base_type}: {fn.name}', excs.BAD_REQUEST)
             self.type_methods[base_type][fn.name] = fn
 
     def list_functions(self) -> list[Function]:
@@ -111,16 +111,16 @@ class FunctionRegistry:
     #                 eval_fn = cloudpickle.loads(row[1]) if row[1] is not None else None
     #                 # TODO: are these checks needed?
     #                 if row[1] is not None and eval_fn is None:
-    #                     raise excs.Error(f'Could not load eval_fn for function {name}')
+    #                     raise excs.Error(f'Could not load eval_fn for function {name}', excs.BAD_REQUEST)
     #                 init_fn = cloudpickle.loads(row[2]) if row[2] is not None else None
     #                 if row[2] is not None and init_fn is None:
-    #                     raise excs.Error(f'Could not load init_fn for aggregate function {name}')
+    #                     raise excs.Error(f'Could not load init_fn for aggregate function {name}', excs.BAD_REQUEST)
     #                 update_fn = cloudpickle.loads(row[3]) if row[3] is not None else None
     #                 if row[3] is not None and update_fn is None:
-    #                     raise excs.Error(f'Could not load update_fn for aggregate function {name}')
+    #                     raise excs.Error(f'Could not load update_fn for aggregate function {name}', excs.BAD_REQUEST)
     #                 value_fn = cloudpickle.loads(row[4]) if row[4] is not None else None
     #                 if row[4] is not None and value_fn is None:
-    #                     raise excs.Error(f'Could not load value_fn for aggregate function {name}')
+    #                     raise excs.Error(f'Could not load value_fn for aggregate function {name}', excs.BAD_REQUEST)
     #
     #                 func = Function(
     #                     md, id=id,
@@ -174,7 +174,7 @@ class FunctionRegistry:
         with env.Env.get().engine.begin() as conn:
             row = conn.execute(stmt).fetchone()
             if row is None:
-                raise excs.Error(f'Function with id {id} not found')
+                raise excs.Error(f'Function with id {id} not found', excs.NOT_FOUND)
             # create instance of the referenced class
             md = schema.md_from_dict(schema.FunctionMd, row[0])
             func_module = importlib.import_module(self.__module__.rsplit('.', 1)[0])

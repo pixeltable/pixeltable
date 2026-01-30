@@ -122,11 +122,11 @@ class AudioSplitter(ComponentIterator):
         min_chunk_duration_sec = params.get('min_chunk_duration_sec', 0.0)
         overlap_sec = params.get('overlap_sec', 0.0)
         if chunk_duration_sec <= 0.0:
-            raise excs.Error('chunk_duration_sec must be a positive number')
+            raise excs.Error('chunk_duration_sec must be a positive number', excs.BAD_REQUEST)
         if chunk_duration_sec < min_chunk_duration_sec:
-            raise excs.Error('chunk_duration_sec must be at least min_chunk_duration_sec')
+            raise excs.Error('chunk_duration_sec must be at least min_chunk_duration_sec', excs.BAD_REQUEST)
         if overlap_sec >= chunk_duration_sec:
-            raise excs.Error('overlap_sec must be less than chunk_duration_sec')
+            raise excs.Error('overlap_sec must be less than chunk_duration_sec', excs.BAD_REQUEST)
         return {
             'start_time_sec': ts.FloatType(),
             'end_time_sec': ts.FloatType(),
@@ -153,7 +153,7 @@ class AudioSplitter(ComponentIterator):
             try:
                 frame = next(self.container.decode(audio=0))
             except EOFError as e:
-                raise excs.Error(f"Failed to read audio file '{self.audio_path}': {e}") from e
+                raise excs.Error(f"Failed to read audio file '{self.audio_path}': {e}", excs.BAD_REQUEST) from e
             except StopIteration:
                 # no more frames to scan
                 break

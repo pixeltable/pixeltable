@@ -30,14 +30,14 @@ class StringOp(Expr):
             if operator == StringOperator.CONCAT and not op2.col_type.is_string_type():
                 raise excs.Error(
                     f'{self}: {operator} on strings requires string type, but {op2} has type {op2.col_type}'
-                )
+                , excs.BAD_REQUEST)
             if operator == StringOperator.REPEAT and not op2.col_type.is_int_type():
-                raise excs.Error(f'{self}: {operator} on strings requires int type, but {op2} has type {op2.col_type}')
+                raise excs.Error(f'{self}: {operator} on strings requires int type, but {op2} has type {op2.col_type}', excs.BAD_REQUEST)
         else:
             raise excs.Error(
                 f'{self}: invalid operation {operator} on strings; '
                 f'only operators {StringOperator.CONCAT} and {StringOperator.REPEAT} are supported'
-            )
+            , excs.BAD_REQUEST)
         self.id = self._create_id()
 
     @property

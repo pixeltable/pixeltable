@@ -420,8 +420,8 @@ class ColumnType:
         for builtin_type, suggestion in cls.__TYPE_SUGGESTIONS:
             if t is builtin_type or (isinstance(t, type) and issubclass(t, builtin_type)):
                 name = t.__name__ if t.__module__ == 'builtins' else f'{t.__module__}.{t.__name__}'
-                raise excs.Error(f'Standard Python type `{name}` cannot be used here; use `{suggestion}` instead')
-        raise excs.Error(f'Unknown type: {t}')
+                raise excs.Error(f'Standard Python type `{name}` cannot be used here; use `{suggestion}` instead', excs.BAD_REQUEST)
+        raise excs.Error(f'Unknown type: {t}', excs.NOT_FOUND)
 
     @classmethod
     def from_json_schema(cls, schema: dict[str, Any]) -> ColumnType | None:
@@ -574,7 +574,7 @@ class ColumnType:
             return self._to_json_schema()
 
     def _to_json_schema(self) -> dict[str, Any]:
-        raise excs.Error(f'Pixeltable type {self} is not a valid JSON type')
+        raise excs.Error(f'Pixeltable type {self} is not a valid JSON type', excs.BAD_REQUEST)
 
     @classmethod
     def from_np_dtype(cls, dtype: np.dtype, nullable: bool) -> ColumnType | None:
@@ -1261,7 +1261,7 @@ class ImageType(ColumnType):
                 return img
             except Exception as exc:
                 error_msg_val = val if len(val) < 50 else val[:50] + '...'
-                raise excs.Error(f'data URL could not be decoded into a valid image: {error_msg_val}') from exc
+                raise excs.Error(f'data URL could not be decoded into a valid image: {error_msg_val}', excs.BAD_REQUEST) from exc
         return val
 
     def _validate_literal(self, val: Any) -> None:
@@ -1274,7 +1274,7 @@ class ImageType(ColumnType):
         try:
             _ = PIL.Image.open(val)
         except PIL.UnidentifiedImageError:
-            raise excs.Error(f'Not a valid image: {val}') from None
+            raise excs.Error(f'Not a valid image: {val}', excs.BAD_REQUEST) from None
 
 
 class VideoType(ColumnType):
@@ -1294,7 +1294,7 @@ class VideoType(ColumnType):
         try:
             with av.open(val, 'r') as fh:
                 if len(fh.streams.video) == 0:
-                    raise excs.Error(f'Not a valid video: {val}')
+                    raise excs.Error(f'Not a valid video: {val}', excs.BAD_REQUEST)
                 # decode a few frames to make sure it's playable
                 # TODO: decode all frames? but that's very slow
                 num_decoded = 0
@@ -1305,9 +1305,9 @@ class VideoType(ColumnType):
                         break
                 if num_decoded < 2:
                     # this is most likely an image file
-                    raise excs.Error(f'Not a valid video: {val}')
+                    raise excs.Error(f'Not a valid video: {val}', excs.BAD_REQUEST)
         except av.FFmpegError:
-            raise excs.Error(f'Not a valid video: {val}') from None
+            raise excs.Error(f'Not a valid video: {val}', excs.BAD_REQUEST) from None
 
 
 class AudioType(ColumnType):
@@ -1326,7 +1326,7 @@ class AudioType(ColumnType):
         try:
             with av.open(val) as container:
                 if len(container.streams.audio) == 0:
-                    raise excs.Error(f'No audio stream in file: {val}')
+                    raise excs.Error(f'No audio stream in file: {val}', excs.BAD_REQUEST)
                 audio_stream = container.streams.audio[0]
 
                 # decode everything to make sure it's playable
@@ -1335,7 +1335,7 @@ class AudioType(ColumnType):
                     for _ in packet.decode():
                         pass
         except av.FFmpegError as e:
-            raise excs.Error(f'Not a valid audio file: {val}\n{e}') from None
+            raise excs.Error(f'Not a valid audio file: {val}\n{e}', excs.BAD_REQUEST) from None
 
 
 class DocumentType(ColumnType):

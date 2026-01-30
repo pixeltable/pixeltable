@@ -464,7 +464,7 @@ class Env:
                 'pixeltable/file_cache_size_g is missing from configuration\n'
                 f'(either add a `file_cache_size_g` entry to the `pixeltable` section of {Config.get().config_file},\n'
                 'or set the PIXELTABLE_FILE_CACHE_SIZE_G environment variable)'
-            )
+            , excs.INTERNAL_SERVER_ERROR)
 
         self._default_input_media_dest = config.get_string_value('input_media_dest')
         self._default_output_media_dest = config.get_string_value('output_media_dest')
@@ -473,7 +473,7 @@ class Env:
                 try:
                     _ = ObjectPath.parse_object_storage_addr(uri, False)
                 except Exception as e:
-                    raise excs.Error(f'Invalid {mode} media destination URI: {uri}') from e
+                    raise excs.Error(f'Invalid {mode} media destination URI: {uri}', excs.BAD_REQUEST) from e
 
         self._pxt_api_key = config.get_string_value('api_key')
 
@@ -542,7 +542,7 @@ class Env:
         if reinit_db and not self.is_local:
             raise excs.Error(
                 'Reinitializing pixeltable database is not supported when running in non-local environment'
-            )
+            , excs.INTERNAL_SERVER_ERROR)
 
         if reinit_db and self._store_db_exists():
             self._drop_store_db()
@@ -577,19 +577,19 @@ class Env:
             except sql.exc.ArgumentError as e:
                 error = f'Invalid db connection string {db_connect_str}: {e}'
                 self._logger.error(error)
-                raise excs.Error(error) from e
+                raise excs.Error(error, excs.BAD_REQUEST) from e
             self._db_url = db_url.render_as_string(hide_password=False)
             self._db_name = db_url.database  # use the dbname given in connect string
             dialect = db_url.get_dialect().name
             if dialect == 'cockroachdb':
                 self._dbms = CockroachDbms(db_url)
             else:
-                raise excs.Error(f'Unsupported DBMS {dialect}')
+                raise excs.Error(f'Unsupported DBMS {dialect}', excs.INTERNAL_SERVER_ERROR)
             # Check if database exists
             if not self._store_db_exists():
                 error = f'Database {self._db_name!r} does not exist'
                 self._logger.error(error)
-                raise excs.Error(error)
+                raise excs.Error(error, excs.BAD_REQUEST)
             self._logger.info(f'Using database at: {self.db_url}')
         else:
             self._db_name = config.get_string_value('db') or 'pixeltable'
@@ -746,7 +746,7 @@ class Env:
                     f'`{name}` client not initialized: parameter `{pname}` is not configured.\n'
                     f'To fix this, specify the `{name.upper()}_{pname.upper()}` environment variable, '
                     f'or put `{pname.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
-                )
+                , excs.INTERNAL_SERVER_ERROR)
 
         # Construct the requested client
         with _registered_clients_lock:
@@ -883,7 +883,7 @@ class Env:
 
     def require_binary(self, binary_name: str) -> None:
         if not shutil.which(binary_name):
-            raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.')
+            raise excs.Error(f'{binary_name} is not installed or not in PATH. Please install it to use this feature.', excs.INTERNAL_SERVER_ERROR)
 
     def require_package(
         self, package_name: str, min_version: list[int] | None = None, not_installed_msg: str | None = None
@@ -907,7 +907,7 @@ class Env:
                     not_installed_msg = f'This feature requires the `{package_name}` package'
                 raise excs.Error(
                     f'{not_installed_msg}. To install it, run: `pip install -U {package_info.library_name}`'
-                )
+                , excs.BAD_REQUEST)
 
         if min_version is None:
             return
@@ -923,7 +923,7 @@ class Env:
                 f'{".".join(str(v) for v in package_info.version)}, '
                 f'but version >={".".join(str(v) for v in min_version)} is required. '
                 f'To fix this, run: `pip install -U {package_info.library_name}`'
-            )
+            , excs.BAD_REQUEST)
 
     def clear_tmp_dir(self) -> None:
         for path in glob.glob(f'{self._tmp_dir}/*'):

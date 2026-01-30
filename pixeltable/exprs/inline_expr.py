@@ -37,7 +37,7 @@ class InlineArray(Expr):
                 raise excs.Error(
                     f'Could not infer element type of array: element of type `{expr.col_type}` at index {i} '
                     f'is not compatible with type `{inferred_element_type}` of preceding elements'
-                )
+                , excs.BAD_REQUEST)
             inferred_element_type = supertype
 
         if inferred_element_type.is_scalar_type():
@@ -51,7 +51,7 @@ class InlineArray(Expr):
             else:
                 col_type = ts.ArrayType(shape=None, dtype=dtype)
         else:
-            raise excs.Error(f'Element type is not a valid dtype for an array: {inferred_element_type}')
+            raise excs.Error(f'Element type is not a valid dtype for an array: {inferred_element_type}', excs.BAD_REQUEST)
 
         super().__init__(col_type)
         self.components.extend(exprs)
@@ -143,7 +143,7 @@ class InlineDict(Expr):
         exprs: list[Expr] = []
         for key, val in d.items():
             if not isinstance(key, str):
-                raise excs.Error(f'Dictionary requires string keys; {key} has type {type(key)}')
+                raise excs.Error(f'Dictionary requires string keys; {key} has type {type(key)}', excs.BAD_REQUEST)
             self.keys.append(key)
             exprs.append(Expr.from_object(val))
 

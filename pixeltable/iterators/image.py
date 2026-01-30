@@ -70,7 +70,7 @@ class TileIterator(ComponentIterator):
         tile_size = kwargs.get('tile_size')
         overlap = kwargs.get('overlap', (0, 0))
         if overlap[0] >= tile_size[0] or overlap[1] >= tile_size[1]:
-            raise excs.Error(f'overlap dimensions {overlap} are not strictly smaller than tile size {tile_size}')
+            raise excs.Error(f'overlap dimensions {overlap} are not strictly smaller than tile size {tile_size}', excs.BAD_REQUEST)
         return {'tile': ts.ImageType(), 'tile_coord': ts.JsonType(), 'tile_box': ts.JsonType()}, ['tile']
 
     @classmethod

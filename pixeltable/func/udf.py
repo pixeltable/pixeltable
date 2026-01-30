@@ -61,7 +61,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         return_value = kwargs.pop('return_value', None)
         description = kwargs.pop('description', None)
         if len(kwargs) > 0:
-            raise excs.Error(f'Invalid udf kwargs: {", ".join(kwargs.keys())}')
+            raise excs.Error(f'Invalid udf kwargs: {", ".join(kwargs.keys())}', excs.BAD_REQUEST)
         return from_table(args[0], return_value, description)
 
     else:
@@ -75,9 +75,9 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         type_substitutions = kwargs.pop('type_substitutions', None)
         force_stored = kwargs.pop('_force_stored', False)
         if len(kwargs) > 0:
-            raise excs.Error(f'Invalid @udf decorator kwargs: {", ".join(kwargs.keys())}')
+            raise excs.Error(f'Invalid @udf decorator kwargs: {", ".join(kwargs.keys())}', excs.BAD_REQUEST)
         if len(args) > 0:
-            raise excs.Error('Unexpected @udf decorator arguments.')
+            raise excs.Error('Unexpected @udf decorator arguments.', excs.BAD_REQUEST)
 
         def decorator(decorated_fn: Callable) -> CallableFunction:
             return make_function(
@@ -136,33 +136,33 @@ def make_function(
         # batched functions must have a batched return type
         # TODO: remove 'Python' from the error messages when we have full inference with Annotated types
         if batch_size is not None and not sig.is_batched:
-            raise excs.Error(f'{errmsg_name}(): batch_size is specified; Python return type must be a `Batch`')
+            raise excs.Error(f'{errmsg_name}(): batch_size is specified; Python return type must be a `Batch`', excs.BAD_REQUEST)
         if batch_size is not None and len(sig.batched_parameters) == 0:
-            raise excs.Error(f'{errmsg_name}(): batch_size is specified; at least one Python parameter must be `Batch`')
+            raise excs.Error(f'{errmsg_name}(): batch_size is specified; at least one Python parameter must be `Batch`', excs.BAD_REQUEST)
         if batch_size is None and len(sig.batched_parameters) > 0:
-            raise excs.Error(f'{errmsg_name}(): batched parameters in udf, but no `batch_size` given')
+            raise excs.Error(f'{errmsg_name}(): batched parameters in udf, but no `batch_size` given', excs.BAD_REQUEST)
 
         if is_method and is_property:
-            raise excs.Error(f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)')
+            raise excs.Error(f'Cannot specify both `is_method` and `is_property` (in function `{function_name}`)', excs.BAD_REQUEST)
         if is_property and len(sig.parameters) != 1:
             raise excs.Error(
                 '`is_property=True` expects a UDF with exactly 1 parameter, but '
                 f'`{function_name}` has {len(sig.parameters)}'
-            )
+            , excs.BAD_REQUEST)
         if (is_method or is_property) and function_path is None:
-            raise excs.Error('Stored functions cannot be declared using `is_method` or `is_property`')
+            raise excs.Error('Stored functions cannot be declared using `is_method` or `is_property`', excs.BAD_REQUEST)
 
         signatures = [sig]
     else:
         if function_path is None:
             raise excs.Error(
                 f'{errmsg_name}(): type substitutions can only be used with module UDFs (not locally defined UDFs)'
-            )
+            , excs.BAD_REQUEST)
         if batch_size is not None:
-            raise excs.Error(f'{errmsg_name}(): type substitutions cannot be used with batched functions')
+            raise excs.Error(f'{errmsg_name}(): type substitutions cannot be used with batched functions', excs.BAD_REQUEST)
         if is_method is not None or is_property is not None:
             # TODO: Support this for `is_method`?
-            raise excs.Error(f'{errmsg_name}(): type substitutions cannot be used with `is_method` or `is_property`')
+            raise excs.Error(f'{errmsg_name}(): type substitutions cannot be used with `is_method` or `is_property`', excs.BAD_REQUEST)
         signatures = [
             Signature.create(decorated_fn, param_types, return_type, type_substitutions=subst)
             for subst in type_substitutions
@@ -172,7 +172,7 @@ def make_function(
         py_fn = decorated_fn
     else:
         if function_path is None:
-            raise excs.Error(f'{errmsg_name}(): @udf decorator with a `substitute_fn` can only be used in a module')
+            raise excs.Error(f'{errmsg_name}(): @udf decorator with a `substitute_fn` can only be used in a module', excs.BAD_REQUEST)
         py_fn = substitute_fn
 
     result = CallableFunction(
