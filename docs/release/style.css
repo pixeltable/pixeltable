@@ -456,3 +456,32 @@ aside span[class*="font-"]:not(a):first-child {
 .dark aside span[class*="font-"]:not(a):first-child {
   color: var(--kandinsky-yellow) !important;
 }
+
+/* ============================================
+   NOTEBOOK OUTPUTS - Fix dark mode visibility
+   ============================================ */
+
+/* Override inline color: black on notebook output pre tags in dark mode */
+.dark pre[style*="color: black"],
+.dark pre[style*="color:black"] {
+  color: #e5e5e5 !important;
+}
+
+/* Also handle spans inside pre tags with inline black color */
+.dark pre[style*="color: black"] *,
+.dark pre[style*="color:black"] *,
+.dark pre span[style*="color: black"],
+.dark pre span[style*="color:black"] {
+  color: #e5e5e5 !important;
+}
+
+/* Generic fix for any element with inline black color in notebook outputs */
+.dark #content pre,
+.dark #content-area pre {
+  color: #e5e5e5 !important;
+}
+
+.dark #content pre *,
+.dark #content-area pre * {
+  color: inherit !important;
+}
