@@ -58,8 +58,9 @@ class PxtIterator:
             self.has_seek = False
             iter_fn = self.decorated_callable
 
-        py_sig = inspect.signature(iter_fn)
-        return_type = py_sig.return_annotation
+        self.py_sig = inspect.signature(self.init_fn)
+        iter_py_sig = inspect.signature(iter_fn)
+        return_type = iter_py_sig.return_annotation
         # Possible return_type: Iterator[dict], Iterator[dict[str, Any]], Iterator[MyTypedDict]
         return_type_args = typing.get_args(return_type)
         return_type_arg_0_origin = None
@@ -119,7 +120,6 @@ class PxtIterator:
             return {name: ts.ColumnType.from_python_type(type_) for name, type_ in output_schema.items()}
 
     def __call__(self, *args: Any, **kwargs: Any) -> 'IteratorCall':
-        py_sig = inspect.signature(self.init_fn)
         args = [exprs.Expr.from_object(arg) for arg in args]
         kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
 
@@ -128,16 +128,23 @@ class PxtIterator:
 
         # Promptly validate args and kwargs, as much as possible at this stage.
         try:
-            bound_args = py_sig.bind(*args, **kwargs).arguments
+            bound_args = self.py_sig.bind(*args, **kwargs).arguments
         except TypeError as exc:
             raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
 
         if self.is_class_based:
-            self_param_name = next(iter(py_sig.parameters))  # can't guarantee it's actually 'self'
+            self_param_name = next(iter(self.py_sig.parameters))  # can't guarantee it's actually 'self'
             del bound_args[self_param_name]
 
         self.signature.validate_args(bound_args, context=f'in iterator `{self.fqn}`')
-        literal_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in bound_args.items()}
+
+        # Build the dict of literal args for validation and output schema determination
+        literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
+
+        # Also include in literal_args default values for any unbound args that have them
+        for param_name, param in self.py_sig.parameters.items():
+            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
+                literal_args[param_name] = param.default
 
         # Run custom iterator validation on whatever args are bound to literals at this stage
         if self._validate is not None:
@@ -149,8 +156,12 @@ class PxtIterator:
 
     def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
         # Run custom iterator validation on fully bound args
+        bound_args_with_defaults = bound_args.copy()
+        for param_name, param in self.py_sig.parameters.items():
+            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
+                bound_args_with_defaults[param_name] = param.default
         if self._validate is not None:
-            self._validate(bound_args)
+            self._validate(bound_args_with_defaults)
         return self.decorated_callable(**bound_args)
 
     def _retrofit(iterator_cls: type['ComponentIterator'], iterator_args: dict[str, Any]) -> 'IteratorCall':

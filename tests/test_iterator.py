@@ -1,6 +1,9 @@
 from typing import Any, Iterator, TypedDict
 
+import pytest
+
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 from tests.utils import ReloadTester
 
 
@@ -30,7 +33,7 @@ class class_based_iterator:
     x: int
     current: int
 
-    def __init__(self, x: int):
+    def __init__(self, x: int, str_text: str = 'string') -> None:
         self.x = x
         self.current = 0
 
@@ -43,6 +46,16 @@ class class_based_iterator:
         result = MyRow(icol=self.current, scol=f'string {self.current}')
         self.current += 1
         return result
+
+
+@class_based_iterator.validate
+def _(bound_args: dict[str, Any]) -> bool:
+    if 'x' in bound_args and bound_args['x'] < 0:
+        raise pxt.Error('Parameter `x` must be non-negative.')
+    if not 'str_text' in bound_args:
+        raise pxt.Error('Parameter `str_text` must be a constant.')
+    if not bound_args['str_text'].isidentifier():
+        raise pxt.Error('Parameter `str_text` must be a valid identifier.')
 
 
 @pxt.iterator
@@ -90,7 +103,16 @@ class TestIterator:
                 {'input': 5, 'pos': 4, 'icol': 4, 'scol': 'string 4'},
             ]
 
-            # Test that the iterator-specific validator works
-            t.insert([{'input': -1}])
+            # Test that the iterator-specific validator works at insertion time
+            with pytest.raises(pxt.Error, match='Parameter `x` must be non-negative.'):
+                t.insert([{'input': -1}])
+
+            # Test that the iterator-specific validator works at iterator creation time
+            with pytest.raises(pxt.Error, match='Parameter `x` must be non-negative.'):
+                it(-1)
+            with pytest.raises(pxt.Error, match='Parameter `str_text` must be a constant.'):
+                it(t.input, str_text=pxtf.uuid.uuid7().to_string())
+            with pytest.raises(pxt.Error, match='Parameter `str_text` must be a valid identifier.'):
+                it(t.input, str_text='I am not a valid identifier!')
 
         reload_tester.run_reload_test()
