@@ -17,9 +17,9 @@ from pixeltable.config import Config
 from tool.worker_harness import run_workers
 
 # List of table operations that can be performed by RandomTableOps.
-# (operation_name, relative_prob, is_read_op)
-# The numbers represent relative probabilities; they will be normalized to sum to 1.0. If this is a read-only
-# worker, then only the operations with is_read_op=True will participate.
+# (operation_name, weight, is_read_op)
+# The probability of selecting an operation is proportional to its weight. In read-only workers, only the operations
+# with is_read_op=True are considered.
 TABLE_OPS = (
     ('query', 100, True),
     ('insert_rows', 30, False),
@@ -395,7 +395,6 @@ def run(
     worker_id: int, read_only: bool, include_only_ops: list[str] | None, exclude_ops: list[str] | None, config_str: str
 ) -> None:
     """Entrypoint for a worker process."""
-    os.environ['PIXELTABLE_DB'] = 'random_ops'
     os.environ['PIXELTABLE_VERBOSITY'] = '0'
     os.environ['PXTTEST_RANDOM_TBL_OPS'] = str(worker_id)
     config = RandomTableOpsConfig(**json.loads(config_str))
