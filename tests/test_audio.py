@@ -328,7 +328,7 @@ class TestAudio:
                     audio=base_t.audio, segment_duration_sec=-1, overlap_sec=1, min_segment_duration_sec=1
                 ),
             )
-        assert 'segment_duration_sec must be a positive number' in str(excinfo.value)
+        assert '`segment_duration_sec` must be a positive number' in str(excinfo.value)
 
         with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
@@ -338,7 +338,7 @@ class TestAudio:
                     audio=base_t.audio, segment_duration_sec=1, overlap_sec=0, min_segment_duration_sec=2
                 ),
             )
-        assert 'segment_duration_sec must be at least min_segment_duration_sec' in str(excinfo.value)
+        assert '`segment_duration_sec` must be at least `min_segment_duration_sec`' in str(excinfo.value)
 
         with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view(
@@ -348,7 +348,7 @@ class TestAudio:
                     audio=base_t.audio, segment_duration_sec=1, overlap_sec=1, min_segment_duration_sec=0
                 ),
             )
-        assert 'overlap_sec must be less than segment_duration_sec' in str(excinfo.value)
+        assert '`overlap_sec` must be strictly less than `segment_duration_sec`' in str(excinfo.value)
 
     @pytest.mark.parametrize(
         'format,stereo,downsample,as_1d_array',
