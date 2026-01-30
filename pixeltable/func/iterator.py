@@ -1,7 +1,8 @@
+import importlib
 import inspect
 import typing
 from collections import abc
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Iterator, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
@@ -123,12 +124,11 @@ class PxtIterator:
         args = [exprs.Expr.from_object(arg) for arg in args]
         kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
 
-        if self.is_class_based:
-            args = [self.decorated_callable, *args]
+        args_with_self = [self.decorated_callable, *args] if self.is_class_based else args
 
         # Promptly validate args and kwargs, as much as possible at this stage.
         try:
-            bound_args = self.py_sig.bind(*args, **kwargs).arguments
+            bound_args = self.py_sig.bind(*args_with_self, **kwargs).arguments
         except TypeError as exc:
             raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
 
@@ -152,7 +152,7 @@ class PxtIterator:
 
         output_schema = self.call_output_schema(literal_args)
 
-        return IteratorCall(self, args, kwargs, bound_args, output_schema)
+        return IteratorCall(self, args, kwargs, bound_args, output_schema, {})
 
     def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
         # Run custom iterator validation on fully bound args
@@ -186,6 +186,17 @@ class PxtIterator:
         self._conditional_output_schema = fn
         return fn
 
+    def as_dict(self) -> dict[str, Any]:
+        return {'fqn': self.fqn}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> 'PxtIterator':
+        module_name, class_name = d['fqn'].rsplit('.', 1)
+        module = importlib.import_module(module_name)
+        iterator_cls = getattr(module, class_name)
+        assert isinstance(iterator_cls, PxtIterator)  # TODO: Validation
+        return iterator_cls
+
 
 @dataclass
 class IteratorCall:
@@ -194,6 +205,27 @@ class IteratorCall:
     kwargs: dict[str, 'exprs.Expr']
     bound_args: dict[str, 'exprs.Expr']
     output_schema: dict[str, ts.ColumnType]
+    col_mapping: dict[str, str]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            'fn': self.it.as_dict(),
+            'args': [arg.as_dict() for arg in self.args],
+            'kwargs': {k: v.as_dict() for k, v in self.kwargs.items()},
+            'bound_args': {k: v.as_dict() for k, v in self.bound_args.items()},
+            'output_schema': {name: col_type.as_dict() for name, col_type in self.output_schema.items()},
+            'col_mapping': self.col_mapping,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> 'IteratorCall':
+        it = PxtIterator.from_dict(d['fn'])
+        args = [exprs.Expr.from_dict(arg_dict) for arg_dict in d['args']]
+        kwargs = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['kwargs'].items()}
+        bound_args = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['bound_args'].items()}
+        output_schema = {name: ts.ColumnType.from_dict(col_type_dict) for name, col_type_dict in d['output_schema'].items()}
+        col_mapping = d['col_mapping']
+        return cls(it, args, kwargs, bound_args, output_schema, col_mapping)
 
 
 @overload

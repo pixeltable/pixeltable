@@ -1720,8 +1720,8 @@ class frame_iterator(Iterator):
 def _(bound_args: dict[str, Any]) -> None:
     fps = bound_args.get('fps')
     num_frames = bound_args.get('num_frames')
-    keyframes_only = bound_args.get('keyframes_only')
-    if int(fps is not None) + int(num_frames is not None) + int(keyframes_only is not None) > 1:
+    keyframes_only = bound_args.get('keyframes_only', False)
+    if int(fps is not None) + int(num_frames is not None) + int(keyframes_only) > 1:
         raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
     if fps is not None and (not isinstance(fps, (int, float)) or fps < 0.0):
         raise excs.Error('`fps` must be a non-negative number')

@@ -10,6 +10,8 @@ from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
+from pixeltable.func.iterator import IteratorCall
+
 from ..catalog.update_status import UpdateStatus
 
 # Base has to be marked explicitly as a type, in order to be used elsewhere as a type hint. But in addition to being
@@ -167,11 +169,8 @@ class ViewMd:
     # sampling predicate applied to the base table; view-only
     sample_clause: dict[str, Any] | None
 
-    # ComponentIterator subclass; only for component views
-    iterator_class_fqn: str | None
-
-    # args to pass to the iterator class constructor; only for component views
-    iterator_args: dict[str, Any] | None
+    # IteratorCall for iterator (component) views
+    iterator_call: dict[str, Any] | None
 
 
 class TableState(Enum):

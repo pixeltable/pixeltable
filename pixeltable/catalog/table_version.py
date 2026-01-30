@@ -17,6 +17,7 @@ from sqlalchemy import exc as sql_exc
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.func as func
+from pixeltable.func.iterator import IteratorCall
 import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
@@ -247,15 +248,11 @@ class TableVersion:
         self.iterator_cls = None
         self.iterator_args = None
         self.num_iterator_cols = 0
-        if self.view_md is not None and self.view_md.iterator_class_fqn is not None:
-            module_name, class_name = tbl_md.view_md.iterator_class_fqn.rsplit('.', 1)
-            module = importlib.import_module(module_name)
-            self.iterator_cls = getattr(module, class_name)
-            assert isinstance(self.iterator_cls, func.PxtIterator)  # TODO: Validation
-            self.iterator_args = exprs.InlineDict.from_dict(tbl_md.view_md.iterator_args)
-            output_schema = self.iterator_cls.call_output_schema(self.iterator_args.to_kwargs())
-            self.num_iterator_cols = len(output_schema)
-            assert tbl_md.view_md.iterator_args is not None
+        if self.view_md is not None and self.view_md.iterator_call is not None:
+            iterator_call = IteratorCall.from_dict(self.view_md.iterator_call)
+            self.iterator_cls = iterator_call.it
+            self.iterator_args = exprs.InlineDict(iterator_call.bound_args)
+            self.num_iterator_cols = len(iterator_call.output_schema)
 
         self.mutable_views = frozenset(mutable_views)
         assert self.is_mutable or len(self.mutable_views) == 0

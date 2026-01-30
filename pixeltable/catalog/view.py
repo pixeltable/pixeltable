@@ -172,8 +172,7 @@ class View(Table):
             predicate=predicate.as_dict() if predicate is not None else None,
             sample_clause=sample_clause.as_dict() if sample_clause is not None else None,
             base_versions=base_version_path.as_md(),
-            iterator_class_fqn=iterator_call.it.fqn,
-            iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None,
+            iterator_call=iterator_call.as_dict() if iterator_call is not None else None,
         )
 
         md = TableVersion.create_initial_md(
