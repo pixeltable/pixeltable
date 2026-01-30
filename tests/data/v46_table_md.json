@@ -1,0 +1,117 @@
+{
+    "name": "test",
+    "user": null,
+    "tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+    "view_md": null,
+    "view_sn": 0,
+    "index_md": {
+        "0": {
+            "id": 0,
+            "name": "idx0",
+            "class_fqn": "pixeltable.index.btree.BtreeIndex",
+            "init_args": {
+            },
+            "indexed_col_id": 0,
+            "index_val_col_id": 2,
+            "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+            "schema_version_add": 0,
+            "schema_version_drop": null,
+            "index_val_undo_col_id": 3
+        },
+        "1": {
+            "id": 1,
+            "name": "idx1",
+            "class_fqn": "pixeltable.index.btree.BtreeIndex",
+            "init_args": {
+            },
+            "indexed_col_id": 1,
+            "index_val_col_id": 4,
+            "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+            "schema_version_add": 0,
+            "schema_version_drop": 2,
+            "index_val_undo_col_id": 5
+        },
+        "2": {
+            "id": 2,
+            "name": "idx2",
+            "class_fqn": "pixeltable.index.btree.BtreeIndex",
+            "init_args": {
+            },
+            "indexed_col_id": 6,
+            "index_val_col_id": 7,
+            "indexed_col_tbl_id": "c463b145-7085-4d03-a197-1f7835c78d6e",
+            "schema_version_add": 3,
+            "schema_version_drop": null,
+            "index_val_undo_col_id": 8
+        }
+    },
+    "column_md": {
+        "0": {
+            "id": 0,
+            "stored": true,
+            "schema_version_add": 0,
+            "schema_version_drop": null
+        },
+        "1": {
+            "id": 1,
+            "stored": true,
+            "schema_version_add": 0,
+            "schema_version_drop": 2
+        },
+        "2": {
+            "id": 2,
+            "stored": true,
+            "schema_version_add": 0,
+            "schema_version_drop": null
+        },
+        "3": {
+            "id": 3,
+            "stored": true,
+            "schema_version_add": 0,
+            "schema_version_drop": null
+        },
+        "4": {
+            "id": 4,
+            "stored": true,
+            "schema_version_add": 0,
+            "schema_version_drop": 2
+        },
+        "5": {
+            "id": 5,
+            "stored": true,
+            "schema_version_add": 0,
+            "schema_version_drop": 2
+        },
+        "6": {
+            "id": 6,
+            "stored": true,
+            "schema_version_add": 3,
+            "schema_version_drop": null
+        },
+        "7": {
+            "id": 7,
+            "stored": true,
+            "schema_version_add": 3,
+            "schema_version_drop": null
+        },
+        "8": {
+            "id": 8,
+            "stored": true,
+            "schema_version_add": 3,
+            "schema_version_drop": null
+        }
+    },
+    "tbl_state": 0,
+    "is_replica": false,
+    "next_col_id": 9,
+    "next_idx_id": 3,
+    "next_row_id": 10,
+    "pending_stmt": null,
+    "additional_md": {
+    },
+    "current_version": 4,
+    "external_stores": [
+    ],
+    "has_pending_ops": false,
+    "current_schema_version": 3
+}
