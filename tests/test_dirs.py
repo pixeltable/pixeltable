@@ -37,6 +37,11 @@ class TestDirs:
         with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_dir('dir1/sub1/subsub1')
 
+        # get_table with missing parent dir: if_not_exists='ignore' returns None
+        assert pxt.get_table('nonexistent_dir/some_tbl', if_not_exists='ignore') is None
+        with pytest.raises(pxt.Error, match="Directory 'nonexistent_dir' does not exist"):
+            pxt.get_table('nonexistent_dir.some_tbl')
+
         # existing table
         make_tbl('dir1/t1')
         _ = pxt.get_table('dir1/t1')

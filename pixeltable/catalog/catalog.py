@@ -1094,10 +1094,9 @@ class Catalog:
     ) -> SchemaObject | None:
         """Return the schema object at the given path, or None if it doesn't exist.
 
-        Raises Error if
-        - the parent directory doesn't exist
+        Raises Error only when the following conditions are met:
+        - raise_if_not_exists is True and (the parent directory or the path) does not exist
         - raise_if_exists is True and the path exists
-        - raise_if_not_exists is True and the path does not exist
         - expected is not None and the existing object has a different type
         """
         assert expected in (None, Table, Dir), expected
@@ -1114,10 +1113,10 @@ class Catalog:
         parent_path = path.parent
         parent_dir = self._get_dir(parent_path, lock_dir=lock_parent)
         if parent_dir is None:
+            # Parent directory does not exist: raise only when caller asked to raise on missing path
             if raise_if_not_exists:
                 raise excs.Error(f'Directory {parent_path!r} does not exist.')
-            else:
-                return None
+            return None
         obj = self._get_dir_entry(parent_dir.id, path.name, path.version, lock_entry=lock_obj)
 
         if obj is None and raise_if_not_exists:
