@@ -1267,3 +1267,24 @@ class TestView:
         pxt.drop_table('my_view_2')
         pxt.drop_table('my_view_1')
         pxt.drop_table('my_tbl')
+
+    def test_view_comment(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('tbl', {'c': pxt.Int})
+        v1 = pxt.create_view('tbl_view', t, comment='This is a test view.')
+
+        assert v1.get_metadata()['comment'] == 'This is a test view.'
+
+        # check that raw object JSON comments are rejected
+        with pytest.raises(pxt.Error, match='Comment must be a string'):
+            pxt.create_view('tbl_view_invalid', t, comment={'comment': 'This is a test view.'})  # type: ignore[arg-type]
+
+    def test_view_user_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        user_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': pxt.Int})
+        v1 = pxt.create_view('tbl_view', t, user_metadata=user_metadata)
+
+        assert v1.get_metadata()['user_metadata'] == user_metadata
+
+        # check that invalid JSON user metadata are rejected
+        with pytest.raises(pxt.Error):
+            pxt.create_view('tbl_view_invalid', t, user_metadata={'key': set})

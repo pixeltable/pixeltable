@@ -3017,8 +3017,8 @@ class TestTable:
         assert t.get_metadata()['comment'] == 'This is a test table.'
 
         # check that raw object JSON comments are rejected
-        with pytest.raises(AssertionError, match='Comment must be a string'):
-            t = pxt.create_table('tbl_invalid', {'c': pxt.Int}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
+        with pytest.raises(pxt.Error, match='Comment must be a string'):
+            pxt.create_table('tbl_invalid', {'c': pxt.Int}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
 
     def test_table_user_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
         user_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
@@ -3026,5 +3026,5 @@ class TestTable:
         assert t.get_metadata()['user_metadata'] == user_metadata
 
         # check that invalid JSON user metadata are rejected
-        with pytest.raises(TypeError):
-            t = pxt.create_table('tbl_invalid', {'c': pxt.Int}, user_metadata={'key': set})
+        with pytest.raises(pxt.Error):
+            pxt.create_table('tbl_invalid', {'c': pxt.Int}, user_metadata={'key': set})

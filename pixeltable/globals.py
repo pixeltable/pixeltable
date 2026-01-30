@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
@@ -199,7 +200,13 @@ def create_table(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
         )
 
-    assert isinstance(comment, str), 'Comment must be a string'
+    if not isinstance(comment, str):
+        raise excs.Error('Comment must be a string')
+
+    try:
+        json.dumps(user_metadata)
+    except (TypeError, ValueError) as err:
+        raise excs.Error('`user_metadata` must be JSON-serializable') from err
 
     tbl, was_created = Catalog.get().create_table(
         path_obj,
@@ -339,7 +346,13 @@ def create_view(
                     f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
                 )
 
-    assert isinstance(comment, str), 'Comment must be a string'
+    if not isinstance(comment, str):
+        raise excs.Error('Comment must be a string')
+
+    try:
+        json.dumps(user_metadata)
+    except (TypeError, ValueError) as err:
+        raise excs.Error('`user_metadata` must be JSON-serializable') from err
 
     return Catalog.get().create_view(
         path_obj,
