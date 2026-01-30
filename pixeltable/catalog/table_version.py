@@ -17,10 +17,10 @@ from sqlalchemy import exc as sql_exc
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.func as func
-from pixeltable.func.iterator import IteratorCall
 import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
+from pixeltable.func.iterator import IteratorCall
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache

@@ -99,7 +99,10 @@ def _parse_metadata(metadata: str) -> list[ChunkMetadata]:
     return ret
 
 
-def _parse_elements(elements: list[Literal['text', 'image']]) -> list[Element]:
+def _parse_elements(elements: list[Literal['text', 'image']] | None) -> list[Element]:
+    if elements is None:
+        return [Element.TEXT]
+
     result: list[Element] = []
     for e in elements:
         clean_e = e.strip().upper()
@@ -199,7 +202,7 @@ class document_splitter(Iterator):
         if skip_tags is None:
             skip_tags = ['nav']
         self._doc_handle = get_document_handle(document)
-        self._elements = _parse_elements(elements.copy()) if elements is not None else [Element.TEXT]
+        self._elements = _parse_elements(elements)
         assert self._doc_handle is not None
         self._separators = _parse_separators(separators)
         self._metadata_fields = _parse_metadata(metadata)
@@ -501,7 +504,7 @@ class document_splitter(Iterator):
 
 @document_splitter.validate
 def _(bound_args: dict[str, Any]) -> None:
-    elements = _parse_elements(bound_args.get('elements', ['text']))
+    elements = _parse_elements(bound_args.get('elements'))
     _parse_metadata(bound_args.get('metadata', ''))
 
     assert 'separators' in bound_args

@@ -1795,7 +1795,7 @@ def video_splitter(
         >>> pxt.create_view('custom_segments', tbl, iterator=video_splitter(tbl.video, segment_times=tbl.split_times))
     """
     # Input parameters
-    assert (duration is not None) != (segment_times is not None)
+    assert (duration is None) != (segment_times is None)
     if duration is not None:
         assert duration > 0.0
         assert duration >= min_segment_duration
@@ -1945,7 +1945,7 @@ def video_splitter(
 def _(bound_args: dict[str, Any]) -> None:
     Env.get().require_binary('ffmpeg')
 
-    segment_duration = bound_args.get('duration')
+    duration = bound_args.get('duration')
     segment_times = bound_args.get('segment_times')
     overlap = bound_args.get('overlap')
     min_segment_duration = bound_args.get('min_segment_duration')
@@ -1953,25 +1953,24 @@ def _(bound_args: dict[str, Any]) -> None:
     video_encoder = bound_args.get('video_encoder')
     video_encoder_args = bound_args.get('video_encoder_args')
 
-    if segment_duration is None and segment_times is None:
+    if 'duration' in bound_args and 'segment_times' in bound_args and duration is None and segment_times is None:
+        # Both 'duration' and 'segment_times' are specified as constants, and they're both `None`
         raise excs.Error('Must specify either duration or segment_times')
-    if segment_duration is not None and segment_times is not None:
+    if duration is not None and segment_times is not None:
         raise excs.Error('duration and segment_times cannot both be specified')
     if segment_times is not None and overlap is not None:
         raise excs.Error('overlap cannot be specified with segment_times')
-    if segment_duration is not None and isinstance(segment_duration, (int, float)):
-        if segment_duration <= 0.0:
-            raise excs.Error(f'duration must be a positive number: {segment_duration}')
+    if duration is not None and isinstance(duration, (int, float)):
+        if duration <= 0.0:
+            raise excs.Error(f'duration must be a positive number: {duration}')
         if (
             min_segment_duration is not None
             and isinstance(min_segment_duration, (int, float))
-            and segment_duration < min_segment_duration
+            and duration < min_segment_duration
         ):
-            raise excs.Error(
-                f'duration must be at least min_segment_duration: {segment_duration} < {min_segment_duration}'
-            )
-        if overlap is not None and isinstance(overlap, (int, float)) and overlap >= segment_duration:
-            raise excs.Error(f'overlap must be less than duration: {overlap} >= {segment_duration}')
+            raise excs.Error(f'duration must be at least min_segment_duration: {duration} < {min_segment_duration}')
+        if overlap is not None and isinstance(overlap, (int, float)) and overlap >= duration:
+            raise excs.Error(f'overlap must be less than duration: {overlap} >= {duration}')
     if mode == 'accurate' and overlap is not None:
         raise excs.Error("Cannot specify overlap for mode='accurate'")
     if mode == 'fast':

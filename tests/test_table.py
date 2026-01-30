@@ -1438,7 +1438,7 @@ class TestTable:
             )
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
-        view = pxt.create_view('test_view', tbl, iterator=frame_iterator(tbl.video, fps=0))
+        view = pxt.create_view('test_view', tbl, iterator=frame_iterator(tbl.video, use_legacy_schema=True))
         view.add_computed_column(c1=view.frame.rotate(30), stored=True)
         view.add_computed_column(c2=view.c1.rotate(40), stored=False)
         view.add_computed_column(c3=view.c2.rotate(50), stored=True)

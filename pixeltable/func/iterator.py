@@ -223,7 +223,9 @@ class IteratorCall:
         args = [exprs.Expr.from_dict(arg_dict) for arg_dict in d['args']]
         kwargs = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['kwargs'].items()}
         bound_args = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['bound_args'].items()}
-        output_schema = {name: ts.ColumnType.from_dict(col_type_dict) for name, col_type_dict in d['output_schema'].items()}
+        output_schema = {
+            name: ts.ColumnType.from_dict(col_type_dict) for name, col_type_dict in d['output_schema'].items()
+        }
         col_mapping = d['col_mapping']
         return cls(it, args, kwargs, bound_args, output_schema, col_mapping)
 
