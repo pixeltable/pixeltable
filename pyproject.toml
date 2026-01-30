@@ -47,7 +47,6 @@ dependencies = [
     "toml>=0.10",
     "jsonschema>=4.1.0",
     "jmespath>=1.0.1",
-    "jsonlines>=4.0.0",
     "more-itertools>=10.2",
     "cloudpickle>=2.2.1",
     "psycopg[binary]>=3.1.18",

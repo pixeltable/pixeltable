@@ -60,10 +60,18 @@ class TestParquet:
             pqt.insert(xfile)
             assert pqt.count() == len1 * 2
 
-    def test_import_parquet_from_http_url(self, uses_db: None) -> None:
+    @pytest.mark.parametrize(
+        'source',
+        [
+            'https://raw.githubusercontent.com/apache/parquet-testing/master/data/alltypes_plain.parquet',
+            's3://pxt-test/pytest-resources/alltypes_plain.parquet',
+        ],
+    )
+    def test_import_parquet_from_remote(self, uses_db: None, source: str) -> None:
         skip_test_if_not_installed('pyarrow')
-        url = 'https://raw.githubusercontent.com/apache/parquet-testing/master/data/alltypes_plain.parquet'
-        tab = pxt.create_table('from_http_parquet', source=url, source_format='parquet')
+        if source.startswith('s3://'):
+            ensure_s3_pytest_resources_access()
+        tab = pxt.create_table('from_remote_parquet', source=source, source_format='parquet')
         assert tab.count() == 8
         for col in (
             'id',
@@ -85,13 +93,6 @@ class TestParquet:
         assert r1['tinyint_col'] == 1 and r1['smallint_col'] == 1 and r1['int_col'] == 1
         assert r1['bigint_col'] == 10 and r1['double_col'] == 10.1
         assert abs(r1['float_col'] - 1.1) < 1e-5  # float32 precision
-
-    def test_import_parquet_from_s3_uri(self, uses_db: None) -> None:
-        skip_test_if_not_installed('pyarrow')
-        ensure_s3_pytest_resources_access()
-        uri = 's3://pxt-test/pytest-resources/iris.parquet'
-        tab = pxt.create_table('from_s3_parquet', source=uri, source_format='parquet')
-        assert tab.count() == 150
 
     def test_import_parquet(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')

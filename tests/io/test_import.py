@@ -98,9 +98,17 @@ class TestImport:
         t2 = pxt.io.import_json('jeopardy', jeopardy)
         assert t2.count() == 10000
 
-    def test_import_json_from_http_url(self, uses_db: None) -> None:
-        url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/example.json'
-        tab = pxt.create_table('from_http_json', source=url, source_format='json')
+    @pytest.mark.parametrize(
+        'source',
+        [
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/example.json',
+            's3://pxt-test/pytest-resources/example.json',
+        ],
+    )
+    def test_import_json_from_remote(self, uses_db: None, source: str) -> None:
+        if source.startswith('s3://'):
+            ensure_s3_pytest_resources_access()
+        tab = pxt.create_table('from_remote_json', source=source, source_format='json')
         assert tab.count() == 4
         assert tab._get_schema() == {
             'name': ts.StringType(nullable=True),
@@ -110,44 +118,6 @@ class TestImport:
             'metadata': ts.JsonType(nullable=True),
             'children': ts.IntType(nullable=True),
         }
-
-    def test_import_json_from_s3_uri(self, uses_db: None) -> None:
-        ensure_s3_pytest_resources_access()
-        uri = 's3://pxt-test/pytest-resources/example.json'
-        tab = pxt.create_table('from_s3_json', source=uri, source_format='json')
-        assert tab.count() == 4
-        assert tab._get_schema() == {
-            'name': ts.StringType(nullable=True),
-            'human': ts.BoolType(nullable=True),
-            'parents': ts.JsonType(nullable=True),
-            'age': ts.FloatType(nullable=True),
-            'metadata': ts.JsonType(nullable=True),
-            'children': ts.IntType(nullable=True),
-        }
-
-    def test_import_jsonl(self, uses_db: None) -> None:
-        example = Path(__file__).parent.parent / 'data' / 'json' / 'example.jsonl'
-        tab = pxt.create_table('from_jsonl', source=str(example))
-        assert tab.count() == 5
-        for col in ('name', 'human', 'parents', 'age', 'metadata', 'children'):
-            assert col in tab.columns()
-        rows = tab.order_by(tab.name).collect()
-        assert rows[0]['name'] == 'Aragorn' and rows[0]['human'] is True and rows[0]['children'] == 1
-        assert rows[0]['metadata'] == {'first_appearance': 'The Fellowship of the Ring'}
-        assert rows[0]['parents'] == ['Arathorn', 'Gilraen']
-        frodo = next(r for r in rows if r['name'] == 'Frodo')
-        assert frodo['age'] == 33 and frodo['metadata'] == {'bearer': 'Ring'}
-
-    def test_import_jsonl_from_s3_uri(self, uses_db: None) -> None:
-        ensure_s3_pytest_resources_access()
-        uri = 's3://pxt-test/pytest-resources/example.jsonl'
-        tab = pxt.create_table('from_s3_jsonl', source=uri)
-        assert tab.count() == 5
-        for col in ('name', 'human', 'parents', 'age', 'metadata', 'children'):
-            assert col in tab.columns()
-        rows = tab.order_by(tab.name).collect()
-        assert rows[0]['name'] == 'Aragorn'
-        assert rows[0]['metadata'] == {'first_appearance': 'The Fellowship of the Ring'}
 
     def test_insert_json(self, uses_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'

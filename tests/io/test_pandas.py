@@ -171,18 +171,17 @@ class TestPandas:
             datetime.datetime(2024, 5, 6).astimezone(None),
         ]
 
-    def test_import_csv_from_http_url(self, uses_db: None) -> None:
-        url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/onlinefoods.csv'
-        tab = pxt.create_table('from_http_csv', source=url)
-        assert tab.count() == 388
-        assert 'Age' in tab.columns()
-        assert 'Output' in tab.columns()
-        assert tab.select(tab.Age).limit(5).collect()['Age'][:5] == [20, 24, 22, 22, 22]
-
-    def test_import_csv_from_s3_uri(self, uses_db: None) -> None:
-        ensure_s3_pytest_resources_access()
-        uri = 's3://pxt-test/pytest-resources/onlinefoods.csv'
-        tab = pxt.create_table('from_s3_csv', source=uri)
+    @pytest.mark.parametrize(
+        'source',
+        [
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/onlinefoods.csv',
+            's3://pxt-test/pytest-resources/onlinefoods.csv',
+        ],
+    )
+    def test_import_csv_from_remote(self, uses_db: None, source: str) -> None:
+        if source.startswith('s3://'):
+            ensure_s3_pytest_resources_access()
+        tab = pxt.create_table('from_remote_csv', source=source)
         assert tab.count() == 388
         assert 'Age' in tab.columns()
         assert 'Output' in tab.columns()
@@ -217,10 +216,18 @@ class TestPandas:
         result_set = t4.order_by(t4.name).select(t4.image.width).collect()
         assert result_set['width'] == [1024, None, 1024, 962]
 
-    def test_import_excel_from_http_url(self, uses_db: None) -> None:
+    @pytest.mark.parametrize(
+        'source',
+        [
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/Financial%20Sample.xlsx',
+            's3://pxt-test/pytest-resources/Financial Sample.xlsx',
+        ],
+    )
+    def test_import_excel_from_remote(self, uses_db: None, source: str) -> None:
         skip_test_if_not_installed('openpyxl')
-        url = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/Financial%20Sample.xlsx'
-        tab = pxt.create_table('from_http_excel', source=url, source_format='excel')
+        if source.startswith('s3://'):
+            ensure_s3_pytest_resources_access()
+        tab = pxt.create_table('from_remote_excel', source=source, source_format='excel')
         assert tab.count() == 700
         assert tab._get_schema()['Date'] == ts.TimestampType(nullable=True)
         entry = tab.limit(1).collect()[0]

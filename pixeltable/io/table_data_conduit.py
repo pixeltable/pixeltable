@@ -7,7 +7,6 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
 
-import jsonlines
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -310,19 +309,19 @@ class ExcelTableDataConduit(TableDataConduit):
 
 
 def _parse_jsonl_from_path(path: Path, extra_fields: dict[str, Any]) -> list[dict]:
-    """Parse JSONL from path line-by-line. Uses jsonlines library."""
-
-    def _loads(raw: str | bytes) -> Any:
-        s = raw.decode('utf-8') if isinstance(raw, bytes) else raw
-        return json.loads(s, **extra_fields)
-
+    """Parse JSONL from path line-by-line. Stops on first invalid line."""
     rows: list[dict] = []
-    try:
-        with jsonlines.open(path, loads=_loads) as reader:
-            for obj in reader.iter(type=dict, skip_empty=True):
-                rows.append(obj)
-    except jsonlines.InvalidLineError as e:
-        raise excs.Error(f'Invalid JSONL line {e.lineno}: {e.line!r}') from e
+    with path.open(encoding='utf-8') as fp:
+        for lineno, line in enumerate(fp, start=1):
+            if not (line := line.strip()):
+                continue
+            try:
+                obj = json.loads(line, **extra_fields)
+            except json.JSONDecodeError as e:
+                raise excs.Error(f'Invalid JSONL line {lineno}: {line!r}') from e
+            if not isinstance(obj, dict):
+                raise excs.Error(f'JSONL line {lineno} must be a JSON object, got {type(obj).__name__}')
+            rows.append(obj)
     return rows
 
 
@@ -702,9 +701,7 @@ class UnkTableDataConduit(TableDataConduit):
             return CSVTableDataConduit.from_tds(self)
         if self.source_format == 'excel' or (isinstance(self.source, str) and '.xls' in self.source.lower()):
             return ExcelTableDataConduit.from_tds(self)
-        if self.source_format == 'json' or (
-            isinstance(self.source, str) and ('.json' in self.source.lower() or '.jsonl' in self.source.lower())
-        ):
+        if self.source_format == 'json' or (isinstance(self.source, str) and '.json' in self.source.lower()):
             return JsonTableDataConduit.from_tds(self)
         if self.source_format == 'parquet' or (
             isinstance(self.source, str) and any(s in self.source.lower() for s in ['.parquet', '.pq', '.parq'])
