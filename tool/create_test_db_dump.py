@@ -144,7 +144,7 @@ class Dumper:
 
     # Expression types, predicate types, embedding indices, views on views
     def create_tables(self) -> None:
-        import tool.create_test_db_dump
+        import tool.create_test_db_dump  # noqa: PLW0406  # we need a self-reference since this module is run as main
 
         schema = {
             'c1': pxt.Required[pxt.String],
@@ -200,7 +200,6 @@ class Dumper:
                 'c5': c5_data[i],
                 'c6': c6_data[i],
                 'c7': c7_data[i],
-                # Use a URL (not local file) with a fixed SHA that db dumps are portable and survive repo refactorings
                 'c8': SAMPLE_IMAGE_URLS[i] if i < len(SAMPLE_IMAGE_URLS) else None,
                 'c9': SAMPLE_AUDIO_URLS[i] if i < len(SAMPLE_AUDIO_URLS) else None,
                 'c10': SAMPLE_VIDEO_URLS[i] if i < len(SAMPLE_VIDEO_URLS) else None,
@@ -259,7 +258,7 @@ class Dumper:
         assert t.base_table_image_rot.col.handle in project.stored_proxies
 
         # Various iterators
-        # TODO: audio_splitter and video_splitter wont't work here because they produce local files as output,
+        # TODO: audio_splitter and video_splitter won't work here because they produce local files as output,
         #     so the dumps won't be portable - how to test this?
         pxt.create_view('string_splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))
         pxt.create_view('tile_iterator', t, iterator=pxtf.image.tile_iterator(t.c8, (64, 64), overlap=(16, 16)))
