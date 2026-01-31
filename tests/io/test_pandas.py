@@ -11,7 +11,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 
-from ..utils import skip_test_if_not_installed
+from ..utils import ensure_s3_pytest_resources_access, skip_test_if_not_installed
 
 
 class TestPandas:
@@ -128,7 +128,6 @@ class TestPandas:
         t1a = pxt.create_table('online_foods_a', source='tests/data/datasets/onlinefoods.csv')
         assert t1a.count() == 388
         assert t1.show() == t1a.show()
-
         t1a.insert('tests/data/datasets/onlinefoods.csv')
         assert t1a.count() == 2 * 388
 
@@ -172,6 +171,22 @@ class TestPandas:
             datetime.datetime(2024, 5, 6).astimezone(None),
         ]
 
+    @pytest.mark.parametrize(
+        'source',
+        [
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/onlinefoods.csv',
+            's3://pxt-test/pytest-resources/onlinefoods.csv',
+        ],
+    )
+    def test_import_csv_from_remote(self, uses_db: None, source: str) -> None:
+        if source.startswith('s3://'):
+            ensure_s3_pytest_resources_access()
+        tab = pxt.create_table('from_remote_csv', source=source)
+        assert tab.count() == 388
+        assert 'Age' in tab.columns()
+        assert 'Output' in tab.columns()
+        assert tab.select(tab.Age).limit(5).collect()['Age'][:5] == [20, 24, 22, 22, 22]
+
     def test_insert_pandas_csv(self, uses_db: None) -> None:
         from pixeltable.io import import_csv
 
@@ -200,6 +215,23 @@ class TestPandas:
         assert t4._get_schema() == {'name': ts.StringType(nullable=True), 'image': ts.ImageType(nullable=True)}
         result_set = t4.order_by(t4.name).select(t4.image.width).collect()
         assert result_set['width'] == [1024, None, 1024, 962]
+
+    @pytest.mark.parametrize(
+        'source',
+        [
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/datasets/Financial%20Sample.xlsx',
+            's3://pxt-test/pytest-resources/Financial Sample.xlsx',
+        ],
+    )
+    def test_import_excel_from_remote(self, uses_db: None, source: str) -> None:
+        skip_test_if_not_installed('openpyxl')
+        if source.startswith('s3://'):
+            ensure_s3_pytest_resources_access()
+        tab = pxt.create_table('from_remote_excel', source=source, source_format='excel')
+        assert tab.count() == 700
+        assert tab._get_schema()['Date'] == ts.TimestampType(nullable=True)
+        entry = tab.limit(1).collect()[0]
+        assert entry['Date'] == datetime.datetime(2014, 1, 1, 0, 0).astimezone(None)
 
     def test_import_pandas_excel(self, uses_db: None) -> None:
         skip_test_if_not_installed('openpyxl')

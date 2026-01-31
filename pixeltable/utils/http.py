@@ -156,7 +156,7 @@ def fetch_url(url: str, allow_local_file: bool = False) -> Path:
     if len(parsed.scheme) <= 1:
         # local file path (len(parsed.scheme) == 1 implies a Windows path with drive letter)
         assert allow_local_file
-        return Path(url)
+        return Path(url).expanduser()
 
     path: Path | None = None
     if parsed.path:
