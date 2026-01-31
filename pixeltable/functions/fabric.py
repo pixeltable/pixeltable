@@ -11,8 +11,6 @@ For more information on Fabric AI services, see:
 <https://learn.microsoft.com/en-us/fabric/data-science/ai-services/ai-services-overview>
 """
 
-import datetime
-import json
 import logging
 from typing import Any
 
@@ -20,7 +18,7 @@ import httpx
 import numpy as np
 
 import pixeltable as pxt
-from pixeltable import env, type_system as ts
+from pixeltable import type_system as ts
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
 
@@ -68,190 +66,6 @@ def _is_reasoning_model(model: str) -> bool:
     return model.startswith('gpt-5') or 'reasoning' in model.lower()
 
 
-def _get_header_info(
-    headers: httpx.Headers,
-) -> tuple[tuple[int, int, datetime.datetime] | None, tuple[int, int, datetime.datetime] | None]:
-    """Parse Azure OpenAI rate limit headers.
-
-    Azure OpenAI uses the same header format as OpenAI:
-    - x-ratelimit-remaining-requests
-    - x-ratelimit-remaining-tokens
-    - x-ratelimit-reset-requests
-    - x-ratelimit-reset-tokens
-
-    Args:
-        headers: Response headers from Azure OpenAI API.
-
-    Returns:
-        tuple: (requests_info, tokens_info) where each is (limit, remaining, reset_ts) or None
-    """
-    def _get_resource_info(resource: str) -> tuple[int, int, datetime.datetime] | None:
-        remaining_str = headers.get(f'x-ratelimit-remaining-{resource}')
-        if remaining_str is None:
-            return None
-        remaining = int(remaining_str)
-
-        limit_str = headers.get(f'x-ratelimit-limit-{resource}')
-        limit = int(limit_str) if limit_str is not None else None
-
-        reset_str = headers.get(f'x-ratelimit-reset-{resource}')
-        if reset_str is not None:
-            # Azure OpenAI reset header is in ISO format or seconds
-            try:
-                reset_ts = datetime.datetime.fromisoformat(reset_str.replace('Z', '+00:00'))
-            except (ValueError, AttributeError):
-                # Fallback: treat as seconds from now
-                reset_in_seconds = float(reset_str) if reset_str else 5.0
-                reset_ts = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(seconds=reset_in_seconds)
-        else:
-            # Default to 5 seconds if no reset header
-            reset_ts = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(seconds=5.0)
-
-        return (limit, remaining, reset_ts)
-
-    requests_info = _get_resource_info('requests')
-    tokens_info = _get_resource_info('tokens')
-
-    if requests_info is None or tokens_info is None:
-        _logger.debug(f'_get_header_info(): incomplete rate limit info: {headers}')
-
-    return requests_info, tokens_info
-
-
-class FabricRateLimitsInfo(env.RateLimitsInfo):
-    """Rate limiting information for Azure OpenAI in Fabric.
-
-    Handles rate limit tracking and retry logic for Azure OpenAI API calls
-    made through Microsoft Fabric.
-    """
-
-    def __init__(self, get_request_resources):
-        super().__init__(get_request_resources)
-        # Azure OpenAI uses httpx.HTTPStatusError for rate limit errors
-        self.retryable_errors = (
-            httpx.TimeoutException,
-            httpx.ConnectError,
-            httpx.HTTPStatusError,  # Covers 429, 500, 503
-        )
-
-    def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:
-        """Record rate limit info from an exception.
-
-        Args:
-            request_ts: Timestamp when the request was made.
-            exc: The exception that was raised.
-        """
-        if not isinstance(exc, httpx.HTTPStatusError):
-            return
-
-        if not hasattr(exc, 'response') or not hasattr(exc.response, 'headers'):
-            return
-
-        requests_info, tokens_info = _get_header_info(exc.response.headers)
-        _logger.debug(
-            f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} tokens_info={tokens_info}'
-        )
-        self.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info)
-        self.has_exc = True
-
-    def _retry_delay_from_exception(self, exc: Exception) -> float | None:
-        """Extract retry delay from retry-after header.
-
-        Args:
-            exc: The exception to extract retry delay from.
-
-        Returns:
-            float: Retry delay in seconds, or None if not available.
-        """
-        try:
-            retry_after_str = exc.response.headers.get('retry-after')
-        except AttributeError:
-            return None
-
-        if retry_after_str is not None:
-            try:
-                return float(retry_after_str)
-            except ValueError:
-                return None
-        return None
-
-    def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
-        """Calculate retry delay for an exception.
-
-        Args:
-            exc: The exception that occurred.
-            attempt: The current retry attempt number.
-
-        Returns:
-            float: Delay in seconds before retry, or None if not retryable.
-        """
-        if not isinstance(exc, self.retryable_errors):
-            return None
-
-        # Check for rate limit errors (429)
-        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code != 429:
-            # Only retry rate limit errors and server errors (5xx)
-            if exc.response.status_code < 500:
-                return None
-
-        return self._retry_delay_from_exception(exc) or super().get_retry_delay(exc, attempt)
-
-
-def _chat_completions_get_request_resources(
-    messages: list, model: str, model_kwargs: dict[str, Any] | None = None
-) -> dict[str, int]:
-    """Estimate request resources for chat completions.
-
-    Args:
-        messages: The messages list.
-        model: The model name.
-        model_kwargs: Additional model parameters.
-
-    Returns:
-        dict: Estimated resources with 'requests' and 'tokens' keys.
-    """
-    # Rough estimate: 4 chars per token
-    total_chars = sum(
-        len(str(msg.get('content', '')))
-        for msg in messages
-        if isinstance(msg, dict)
-    )
-    estimated_tokens = int(total_chars / 4)
-
-    # Add max_tokens or max_completion_tokens for output
-    max_output = 4000  # default
-    if model_kwargs:
-        max_output = model_kwargs.get('max_tokens') or model_kwargs.get('max_completion_tokens', 4000)
-
-    return {
-        'requests': 1,
-        'tokens': estimated_tokens + max_output
-    }
-
-
-def _embeddings_get_request_resources(
-    input: list[str], model: str, model_kwargs: dict[str, Any] | None = None
-) -> dict[str, int]:
-    """Estimate request resources for embeddings.
-
-    Args:
-        input: The input text list.
-        model: The model name.
-        model_kwargs: Additional model parameters.
-
-    Returns:
-        dict: Estimated resources with 'requests' and 'tokens' keys.
-    """
-    # Rough estimate: 4 chars per token
-    total_chars = sum(len(text) for text in input)
-    estimated_tokens = int(total_chars / 4)
-
-    return {
-        'requests': 1,
-        'tokens': estimated_tokens
-    }
-
-
 @pxt.udf
 async def chat_completions(
     messages: list[dict],
@@ -274,9 +88,9 @@ async def chat_completions(
     - `gpt-4.1`
     - `gpt-4.1-mini`
 
-    Request throttling:
-    Uses the rate limit-related headers returned by the Azure OpenAI API to throttle requests adaptively,
-    based on available request and token capacity. No configuration is necessary.
+    Rate limiting:
+    Azure OpenAI handles rate limiting automatically. If rate limits are exceeded, the API will return
+    429 errors. Consider implementing retry logic in your application if needed.
 
     __Requirements:__
 
@@ -394,9 +208,9 @@ async def embeddings(
     - `text-embedding-3-small`
     - `text-embedding-3-large`
 
-    Request throttling:
-    Uses the rate limit-related headers returned by the Azure OpenAI API to throttle requests adaptively,
-    based on available request and token capacity. Batches up to 32 inputs per request for efficiency.
+    Batching and rate limiting:
+    Batches up to 32 inputs per request for efficiency. Azure OpenAI handles rate limiting automatically.
+    If rate limits are exceeded, the API will return 429 errors.
 
     __Requirements:__
 
