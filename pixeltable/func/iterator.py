@@ -2,7 +2,7 @@ import importlib
 import inspect
 import typing
 from collections import abc
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Iterator, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
@@ -164,11 +164,17 @@ class PxtIterator:
             self._validate(bound_args_with_defaults)
         return self.decorated_callable(**bound_args)
 
-    def _retrofit(iterator_cls: type['ComponentIterator'], iterator_args: dict[str, Any]) -> 'IteratorCall':
+    @classmethod
+    def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'IteratorCall':
         it = PxtIterator.__new__(PxtIterator)
-        it.decorated_callable = iterator_cls.__init__
-        it._default_output_schema = None
-        it.signature = Signature.create(iterator_cls.__init__, return_type=ts.JsonType())
+        it.decorated_callable = iterator_cls
+        it.signature = Signature.create(iterator_cls, return_type=ts.JsonType())
+
+        def call_output_schema(bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
+            schema, _ = iterator_cls.output_schema(**bound_kwargs)
+            return schema
+
+        it.call_output_schema = call_output_schema
 
     @property
     def fqn(self) -> str:
@@ -191,11 +197,19 @@ class PxtIterator:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'PxtIterator':
+        from pixeltable.iterators.base import ComponentIterator
+
         module_name, class_name = d['fqn'].rsplit('.', 1)
         module = importlib.import_module(module_name)
         iterator_cls = getattr(module, class_name)
-        assert isinstance(iterator_cls, PxtIterator)  # TODO: Validation
-        return iterator_cls
+        # TODO: Validation
+        if isinstance(iterator_cls, PxtIterator):
+            return iterator_cls
+        elif isinstance(iterator_cls, type) and issubclass(iterator_cls, ComponentIterator):
+            # Support legacy ComponentIterator pattern for backward compatibility
+            return cls._retrofit(iterator_cls)
+        else:
+            raise AssertionError()  # TODO: Validation
 
 
 @dataclass
