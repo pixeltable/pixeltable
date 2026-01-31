@@ -29,6 +29,10 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
             match iterator_class_fqn:
                 case 'pixeltable.iterators.audio.AudioSplitter':
                     iterator_class_fqn = 'pixeltable.functions.audio.audio_splitter'
+                    if 'chunk_duration_sec' in kwargs:
+                        kwargs['segment_duration_sec'] = kwargs.pop('chunk_duration_sec')
+                    if 'min_chunk_duration_sec' in kwargs:
+                        kwargs['min_segment_duration_sec'] = kwargs.pop('min_chunk_duration_sec')
                 case 'pixeltable.iterators.document.DocumentSplitter':
                     iterator_class_fqn = 'pixeltable.functions.document.document_splitter'
                 case 'pixeltable.iterators.image.TileIterator':
