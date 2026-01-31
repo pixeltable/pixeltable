@@ -52,6 +52,7 @@ SAMPLE_DOCUMENT_URLS = (
 
 
 class CustomLegacyIterator(ComponentIterator):
+    """This is preserved in code for the benefit of version <= 45 database dumps that reference it."""
     input_text: str
     expand_by: int
     idx: int
@@ -262,17 +263,13 @@ class Dumper:
         #     so the dumps won't be portable - how to test this?
         pxt.create_view('string_splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))
         pxt.create_view('tile_iterator', t, iterator=pxtf.image.tile_iterator(t.c8, (64, 64), overlap=(16, 16)))
-        pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.frame_iterator(t.c10, fps=1))
+        pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.frame_iterator(t.c10, fps=1, use_legacy_schema=True))
         pxt.create_view(
-            'frame_iterator_2', t, iterator=pxtf.video.frame_iterator(t.c10, num_frames=5, all_frame_attrs=True)
+            'frame_iterator_2', t, iterator=pxtf.video.frame_iterator(t.c10, num_frames=5)
         )
         pxt.create_view('frame_iterator_3', t, iterator=pxtf.video.frame_iterator(t.c10, keyframes_only=True))
         pxt.create_view(
             'document_splitter', t, iterator=pxtf.document.document_splitter(t.c11, 'page', elements=['text'])
-        )
-        # Use a qualified references to CustomIterator so that it doesn't get persisted as __main__.CustomIterator
-        pxt.create_view(
-            'custom_iterator', t, iterator=tool.create_test_db_dump.CustomLegacyIterator.create(text=t.c1, expand_by=2)
         )
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:

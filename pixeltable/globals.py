@@ -335,7 +335,8 @@ def create_view(
 
     if isinstance(iterator, tuple):
         iterator_cls, iterator_args = iterator
-        iterator = func.PxtIterator._retrofit(iterator_cls, iterator_args)
+        it = func.PxtIterator._retrofit(iterator_cls)
+        iterator = it([], iterator_args)
 
     return Catalog.get().create_view(
         path_obj,

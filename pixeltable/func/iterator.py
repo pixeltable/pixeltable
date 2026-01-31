@@ -120,6 +120,17 @@ class PxtIterator:
                 )
             return {name: ts.ColumnType.from_python_type(type_) for name, type_ in output_schema.items()}
 
+    def bind_args(self, args: list[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
+        """Bind arguments to iterator. Raises TypeError on failure."""
+        args_with_self = [self.decorated_callable, *args] if self.is_class_based else args
+        bound_args = self.py_sig.bind(*args_with_self, **kwargs).arguments
+
+        if self.is_class_based:
+            self_param_name = next(iter(self.py_sig.parameters))  # can't guarantee it's actually 'self'
+            del bound_args[self_param_name]
+
+        return bound_args
+
     def __call__(self, *args: Any, **kwargs: Any) -> 'IteratorCall':
         args = [exprs.Expr.from_object(arg) for arg in args]
         kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
@@ -128,13 +139,9 @@ class PxtIterator:
 
         # Promptly validate args and kwargs, as much as possible at this stage.
         try:
-            bound_args = self.py_sig.bind(*args_with_self, **kwargs).arguments
+            bound_args = self.bind_args(args, kwargs)
         except TypeError as exc:
             raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
-
-        if self.is_class_based:
-            self_param_name = next(iter(self.py_sig.parameters))  # can't guarantee it's actually 'self'
-            del bound_args[self_param_name]
 
         self.signature.validate_args(bound_args, context=f'in iterator `{self.fqn}`')
 
@@ -152,7 +159,7 @@ class PxtIterator:
 
         output_schema = self.call_output_schema(literal_args)
 
-        return IteratorCall(self, args, kwargs, bound_args, output_schema, {})
+        return IteratorCall(self, args, kwargs, bound_args, output_schema, self.unstored_cols, {})
 
     def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
         # Run custom iterator validation on fully bound args
@@ -169,12 +176,16 @@ class PxtIterator:
         it = PxtIterator.__new__(PxtIterator)
         it.decorated_callable = iterator_cls
         it.signature = Signature.create(iterator_cls, return_type=ts.JsonType())
+        it.is_class_based = True
+        it.py_sig = inspect.signature(iterator_cls.__init__)
 
         def call_output_schema(bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
             schema, _ = iterator_cls.output_schema(**bound_kwargs)
             return schema
 
         it.call_output_schema = call_output_schema
+        it._validate = lambda _: None  # Validation in legacy iterators was done in output_schema()
+        return it
 
     @property
     def fqn(self) -> str:
@@ -218,7 +229,8 @@ class IteratorCall:
     args: list['exprs.Expr']
     kwargs: dict[str, 'exprs.Expr']
     bound_args: dict[str, 'exprs.Expr']
-    output_schema: dict[str, ts.ColumnType]
+    output_schema: dict[str, ts.ColumnType] | None
+    unstored_cols: list[str]
     col_mapping: dict[str, str]
 
     def as_dict(self) -> dict[str, Any]:
@@ -226,8 +238,8 @@ class IteratorCall:
             'fn': self.it.as_dict(),
             'args': [arg.as_dict() for arg in self.args],
             'kwargs': {k: v.as_dict() for k, v in self.kwargs.items()},
-            'bound_args': {k: v.as_dict() for k, v in self.bound_args.items()},
             'output_schema': {name: col_type.as_dict() for name, col_type in self.output_schema.items()},
+            'unstored_cols': self.unstored_cols,
             'col_mapping': self.col_mapping,
         }
 
@@ -236,12 +248,32 @@ class IteratorCall:
         it = PxtIterator.from_dict(d['fn'])
         args = [exprs.Expr.from_dict(arg_dict) for arg_dict in d['args']]
         kwargs = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['kwargs'].items()}
-        bound_args = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['bound_args'].items()}
-        output_schema = {
-            name: ts.ColumnType.from_dict(col_type_dict) for name, col_type_dict in d['output_schema'].items()
-        }
+
+        # Bind args and kwargs against the latest version of the iterator defined in code.
+        try:
+            bound_args = it.bind_args(args, kwargs)
+        except TypeError as exc:
+            raise AssertionError()  # TODO: Validation
+
+        # Deserialize the output_schema and validate against the latest version of the iterator defined in code.
+        # For legacy iterators, output_schema was not persisted, and there is no practical way to reconstruct it as
+        # part of the schema migration. In that case we just query the iterator for it, but we lose the ability to
+        # sanity check against any schema evolution of the iterator.
+        if d['output_schema'] is None:
+            literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
+            for param_name, param in it.py_sig.parameters.items():
+                if param_name not in bound_args and param.default is not inspect.Parameter.empty:
+                    literal_args[param_name] = param.default
+            output_schema = it.call_output_schema(literal_args)
+        else:
+            output_schema = {
+                name: ts.ColumnType.from_dict(col_type_dict) for name, col_type_dict in d['output_schema'].items()
+            }
+
+        unstored_cols = d['unstored_cols']
         col_mapping = d['col_mapping']
-        return cls(it, args, kwargs, bound_args, output_schema, col_mapping)
+
+        return cls(it, args, kwargs, bound_args, output_schema, unstored_cols, col_mapping)
 
 
 @overload
