@@ -20,15 +20,35 @@ if TYPE_CHECKING:
 T = TypeVar('T')
 
 
+@dataclass(frozen=True)
+class IteratorOutput:
+    orig_name: str
+    is_stored: bool
+    col_type: ts.ColumnType
+
+    def as_dict(self) -> dict[str, Any]:
+        return {'orig_name': self.orig_name, 'is_stored': self.is_stored, 'col_type': self.col_type.as_dict()}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> 'IteratorOutput':
+        return cls(orig_name=d['orig_name'], is_stored=d['is_stored'], col_type=ts.ColumnType.from_dict(d['col_type']))
+
+
 class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
     def __iter__(self) -> Self:
         return self
 
-    def __next__(self) -> T:
-        raise NotImplementedError()
+    @abc.abstractmethod
+    def __next__(self) -> T: ...
 
     def seek(self, pos: int, **kwargs: Any) -> None:
         raise NotImplementedError()
+
+    def validate(self) -> None:
+        pass
+
+    def conditional_output_schema(self) -> dict[str, type] | None:
+        return None
 
 
 class GeneratingFunction:
@@ -47,6 +67,8 @@ class GeneratingFunction:
     unstored_cols: list[str]
     has_seek: bool
     is_legacy_retrofit: bool
+    class_defines_validate: bool
+    class_defines_conditional_output_schema: bool
 
     _default_output_schema: dict[str, ts.ColumnType] | None
     _conditional_output_schema: Callable[[dict[str, Any]], dict[str, type]] | None
@@ -83,6 +105,10 @@ class GeneratingFunction:
                 raise excs.Error('@pxt.iterator-decorated class `{self.fqn}` must implement a `__next__()` method.')
             iter_fn = self.decorated_callable.__next__
             self.has_seek = self.decorated_callable.seek is not PxtIterator.seek
+            self.class_defines_validate = self.decorated_callable.validate is not PxtIterator.validate
+            self.class_defines_conditional_output_schema = (
+                self.decorated_callable.conditional_output_schema is not PxtIterator.conditional_output_schema
+            )
             return_type = typing.get_type_hints(iter_fn).get('return')
 
             # remove type args from return_type (e.g., convert `dict[str, Any]` to `dict`)
@@ -181,7 +207,7 @@ class GeneratingFunction:
         output_schema = self.call_output_schema(literal_args)
 
         outputs = {
-            name: IteratorOutputInfo(orig_name=name, is_stored=(name not in self.unstored_cols), col_type=col_type)
+            name: IteratorOutput(orig_name=name, is_stored=(name not in self.unstored_cols), col_type=col_type)
             for name, col_type in output_schema.items()
         }
 
@@ -219,6 +245,8 @@ class GeneratingFunction:
 
     # validate decorator
     def validate(self, fn: Callable[[dict[str, Any]], bool]) -> Callable[[dict[str, Any]], bool]:
+        if self.class_defines_validate:
+            raise excs.Error(f'PxtIterator `{self.fqn}` already defines a `validate()` method.')
         self._validate = fn
         return fn
 
@@ -226,6 +254,8 @@ class GeneratingFunction:
     def conditional_output_schema(
         self, fn: Callable[[dict[str, Any]], dict[str, type]]
     ) -> Callable[[dict[str, Any]], dict[str, type]]:
+        if self.class_defines_conditional_output_schema:
+            raise excs.Error(f'PxtIterator `{self.fqn}` already defines a `conditional_output_schema()` method.')
         self._conditional_output_schema = fn
         return fn
 
@@ -250,26 +280,12 @@ class GeneratingFunction:
 
 
 @dataclass(frozen=True)
-class IteratorOutputInfo:
-    orig_name: str
-    is_stored: bool
-    col_type: ts.ColumnType
-
-    def as_dict(self) -> dict[str, Any]:
-        return {'orig_name': self.orig_name, 'is_stored': self.is_stored, 'col_type': self.col_type.as_dict()}
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> 'IteratorOutputInfo':
-        return cls(orig_name=d['orig_name'], is_stored=d['is_stored'], col_type=ts.ColumnType.from_dict(d['col_type']))
-
-
-@dataclass(frozen=True)
 class GeneratingFunctionCall:
     it: GeneratingFunction
     args: list['exprs.Expr']
     kwargs: dict[str, 'exprs.Expr']
     bound_args: dict[str, 'exprs.Expr']
-    outputs: dict[str, IteratorOutputInfo] | None
+    outputs: dict[str, IteratorOutput] | None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -306,12 +322,12 @@ class GeneratingFunctionCall:
             else:
                 unstored_cols = it.unstored_cols
             outputs = {
-                name: IteratorOutputInfo(orig_name=name, is_stored=(name in unstored_cols), col_type=col_type)
+                name: IteratorOutput(orig_name=name, is_stored=(name in unstored_cols), col_type=col_type)
                 for name, col_type in output_schema.items()
             }
         else:
             outputs = {
-                name: IteratorOutputInfo.from_dict(output_info_dict) for name, output_info_dict in d['outputs'].items()
+                name: IteratorOutput.from_dict(output_info_dict) for name, output_info_dict in d['outputs'].items()
             }
 
         return cls(it, args, kwargs, bound_args, outputs)

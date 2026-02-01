@@ -131,7 +131,6 @@ def adjust_iterator_methods(ctx: ClassDefContext) -> bool:
     """
     Same idea as `adjust_uda_methods`, but for the `@pxt.iterator` decorator.
     """
-    fn_arg = nodes.Argument(nodes.Var('fn'), AnyType(TypeOfAny.special_form), None, nodes.ARG_POS)
     args_arg = nodes.Argument(nodes.Var('args'), AnyType(TypeOfAny.special_form), None, nodes.ARG_STAR)
     kwargs_arg = nodes.Argument(nodes.Var('kwargs'), AnyType(TypeOfAny.special_form), None, nodes.ARG_STAR2)
     add_method_to_class(ctx.api, ctx.cls, '__init__', args=[args_arg, kwargs_arg], return_type=NoneType())
@@ -139,11 +138,16 @@ def adjust_iterator_methods(ctx: ClassDefContext) -> bool:
         ctx.api,
         ctx.cls,
         'conditional_output_schema',
-        args=[fn_arg],
+        args=[args_arg, kwargs_arg],
         return_type=AnyType(TypeOfAny.special_form),
         is_classmethod=True,
     )
     add_method_to_class(
-        ctx.api, ctx.cls, 'validate', args=[fn_arg], return_type=AnyType(TypeOfAny.special_form), is_staticmethod=True
+        ctx.api,
+        ctx.cls,
+        'validate',
+        args=[args_arg, kwargs_arg],
+        return_type=AnyType(TypeOfAny.special_form),
+        is_classmethod=True,
     )
     return True
