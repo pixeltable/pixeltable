@@ -57,7 +57,7 @@ def _(bound_args: dict[str, Any]) -> None:
         raise pxt.Error('Parameter `str_text` must be a valid identifier.')
 
 
-@pxt.iterator
+@pxt.iterator(unstored_cols=['icol'])
 class iterator_with_seek(pxt.PxtIterator[MyRow]):
     x: int
     str_text: str
@@ -79,10 +79,20 @@ class iterator_with_seek(pxt.PxtIterator[MyRow]):
         assert kwargs['scol'] == f'{self.str_text} {pos}'
         self.current = pos
 
+    # Inline validate() method
+    @classmethod
+    def validate(cls, bound_args: dict[str, Any]) -> None:
+        if 'x' in bound_args and bound_args['x'] < 0:
+            raise pxt.Error('Parameter `x` must be non-negative.')
+        if 'str_text' not in bound_args:
+            raise pxt.Error('Parameter `str_text` must be a constant.')
+        if not bound_args['str_text'].isidentifier():
+            raise pxt.Error('Parameter `str_text` must be a valid identifier.')
+
 
 class TestIterator:
     def test_iterator(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        for n, it in enumerate((simple_iterator, class_based_iterator)):
+        for n, it in enumerate((simple_iterator, class_based_iterator, iterator_with_seek)):
             assert callable(it)
             t = pxt.create_table(f'tbl_{n}', schema={'input': pxt.Int})
             t.insert([{'input': 2}])
@@ -115,3 +125,155 @@ class TestIterator:
                 it(t.input, str_text='I am not a valid identifier!')
 
         reload_tester.run_reload_test()
+
+    def test_iterator_errors(self, uses_db: None) -> None:
+        # Error: class not a subclass of PxtIterator
+        with pytest.raises(pxt.Error, match=r'@pxt.iterator-decorated class `.*not_pxt_iterator` must be a subclass of `pixeltable.PxtIterator`.'):
+            @pxt.iterator
+            class not_pxt_iterator:
+                def __init__(self) -> None:
+                    pass
+
+        # Error: class doesn't implement __next__()
+        with pytest.raises(pxt.Error, match=r'@pxt.iterator-decorated class `.*no_next_method` must implement a `__next__\(\)` method.'):
+            @pxt.iterator
+            class no_next_method(pxt.PxtIterator[MyRow]):
+                def __init__(self) -> None:
+                    pass
+
+        # Error: unstored_cols without seek() method
+        with pytest.raises(pxt.Error, match=r'Iterator `.*no_seek_method` with `unstored_cols` must implement a `seek\(\)` method.'):
+            @pxt.iterator(unstored_cols=['icol'])
+            class no_seek_method(pxt.PxtIterator[MyRow]):
+                def __init__(self) -> None:
+                    pass
+
+                def __next__(self) -> MyRow:
+                    raise StopIteration
+
+        # Error: validate() not a @classmethod
+        with pytest.raises(pxt.Error, match=r'`validate\(\)` method of @pxt.iterator `.*validate_not_classmethod` must be a @classmethod.'):
+            @pxt.iterator
+            class validate_not_classmethod(pxt.PxtIterator[MyRow]):
+                def __init__(self) -> None:
+                    pass
+
+                def __next__(self) -> MyRow:
+                    raise StopIteration
+
+                def validate(self, bound_args: dict[str, Any]) -> None:  # type: ignore[override]
+                    pass
+
+        # Error: conditional_output_schema() not a @classmethod
+        with pytest.raises(pxt.Error, match=r'`conditional_output_schema\(\)` method of @pxt.iterator `.*cos_not_classmethod` must be a @classmethod.'):
+            @pxt.iterator
+            class cos_not_classmethod(pxt.PxtIterator[MyRow]):
+                def __init__(self) -> None:
+                    pass
+
+                def __next__(self) -> MyRow:
+                    raise StopIteration
+
+                def conditional_output_schema(self, bound_args: dict[str, Any]) -> dict[str, type] | None:  # type: ignore[override]
+                    return None
+
+        # Error: __next__() has wrong return type (not dict)
+        with pytest.raises(pxt.Error, match=r'`__next__\(\)` method of @pxt.iterator-decorated class `.*wrong_next_return_type` must have return type `dict` or `MyTypedDict`.'):
+            @pxt.iterator
+            class wrong_next_return_type(pxt.PxtIterator):
+                def __init__(self) -> None:
+                    pass
+
+                def __next__(self) -> int:
+                    raise StopIteration
+
+        # Error: function iterator with wrong return type (not Iterator[dict])
+        with pytest.raises(pxt.Error, match=r'@pxt.iterator-decorated function `.*wrong_return_type\(\)` must have return type `Iterator\[dict\]` or `Iterator\[MyTypedDict\]`.'):
+            @pxt.iterator
+            def wrong_return_type(x: int) -> int:  # type: ignore[misc]
+                return x
+
+        # Error: function iterator returning Iterator[int] instead of Iterator[dict]
+        with pytest.raises(pxt.Error, match=r'@pxt.iterator-decorated function `.*iterator_of_ints\(\)` must have return type `Iterator\[dict\]` or `Iterator\[MyTypedDict\]`.'):
+            @pxt.iterator
+            def iterator_of_ints(x: int) -> Iterator[int]:
+                yield from []
+
+        # Error: TypedDict field has non-convertible type
+        class BadFieldType(TypedDict):
+            icol: int
+            bad_field: object  # object cannot be converted to a Pixeltable type
+
+        with pytest.raises(pxt.Error, match=r"Could not infer Pixeltable type for output field 'bad_field'"):
+            @pxt.iterator
+            def bad_field_iterator(x: int) -> Iterator[BadFieldType]:
+                yield from []
+
+        # Error: plain dict return without conditional_output_schema
+        @pxt.iterator
+        def plain_dict_iterator(x: int) -> Iterator[dict]:
+            yield from []
+
+        t = pxt.create_table('tbl_plain_dict', schema={'input': pxt.Int})
+        with pytest.raises(pxt.Error, match=r'Iterator `.*plain_dict_iterator` must either return a `TypedDict` or define a `conditional_output_schema`.'):
+            pxt.create_view('view_plain_dict', t, iterator=plain_dict_iterator(t.input))
+
+        # Error: conditional_output_schema returns None
+        @pxt.iterator
+        def conditional_returns_none(x: int) -> Iterator[dict]:
+            yield from []
+
+        @conditional_returns_none.conditional_output_schema
+        def _(bound_args: dict[str, Any]) -> dict[str, type] | None:
+            return None
+
+        with pytest.raises(pxt.Error, match=r'The `conditional_output_schema` for iterator `.*conditional_returns_none` returned None'):
+            pxt.create_view('view_cond_none', t, iterator=conditional_returns_none(t.input))
+
+        # Error: duplicate validate() decorator
+        @pxt.iterator
+        class iterator_with_validate(pxt.PxtIterator[MyRow]):
+            def __init__(self) -> None:
+                pass
+
+            def __next__(self) -> MyRow:
+                raise StopIteration
+
+            @classmethod
+            def validate(cls, bound_args: dict[str, Any]) -> None:
+                pass
+
+        with pytest.raises(pxt.Error, match=r'@pxt.iterator `.*iterator_with_validate` already defines a `validate\(\)` method.'):
+            @iterator_with_validate.validate
+            def _(bound_args: dict[str, Any]) -> None:
+                pass
+
+        # Error: duplicate conditional_output_schema() decorator
+        @pxt.iterator
+        class iterator_with_cos(pxt.PxtIterator[MyRow]):
+            def __init__(self) -> None:
+                pass
+
+            def __next__(self) -> MyRow:
+                raise StopIteration
+
+            @classmethod
+            def conditional_output_schema(cls, bound_args: dict[str, Any]) -> dict[str, type] | None:
+                return {'icol': int, 'scol': str}
+
+        with pytest.raises(pxt.Error, match=r'@pxt.iterator `.*iterator_with_cos` already defines a `conditional_output_schema\(\)` method.'):
+            @iterator_with_cos.conditional_output_schema
+            def _(bound_args: dict[str, Any]) -> dict[str, type]:
+                return {'icol': int}
+
+        # Error: invalid decorator kwargs
+        with pytest.raises(pxt.Error, match=r'Invalid @iterator decorator kwargs: invalid_kwarg'):
+            @pxt.iterator(invalid_kwarg='value')  # type: ignore[call-overload]
+            def invalid_kwarg_iterator(x: int) -> Iterator[MyRow]:
+                yield from []
+
+        # Error: unexpected decorator arguments
+        with pytest.raises(pxt.Error, match=r'Unexpected @iterator decorator arguments.'):
+            @pxt.iterator('unexpected_arg')  # type: ignore[call-overload]
+            def unexpected_arg_iterator(x: int) -> Iterator[MyRow]:
+                yield from []

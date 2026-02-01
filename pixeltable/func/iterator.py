@@ -102,7 +102,7 @@ class GeneratingFunction:
                     f'@pxt.iterator-decorated class `{self.fqn}` must be a subclass of `pixeltable.PxtIterator`.'
                 )
             if self.decorated_callable.__next__ is PxtIterator.__next__:
-                raise excs.Error('@pxt.iterator-decorated class `{self.fqn}` must implement a `__next__()` method.')
+                raise excs.Error(f'@pxt.iterator-decorated class `{self.fqn}` must implement a `__next__()` method.')
             self.has_seek = self.decorated_callable.seek is not PxtIterator.seek
 
             if not isinstance(self.decorated_callable.validate, MethodType):
