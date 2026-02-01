@@ -76,9 +76,9 @@ Pixeltable lets you build comprehensive video search workflows combining both au
         video_index,
         iterator=audio_splitter(
             audio=video_index.audio_extract,
-            segment_duration_sec=30.0,
-            overlap_sec=2.0,
-            min_segment_duration_sec=5.0
+            duration=30.0,
+            overlap=2.0,
+            min_segment_duration=5.0
         )
     )
 
