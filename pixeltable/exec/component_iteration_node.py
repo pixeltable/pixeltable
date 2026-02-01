@@ -1,6 +1,7 @@
 from typing import AsyncIterator
 
 from pixeltable import catalog, exceptions as excs, exprs
+from pixeltable.exprs.inline_expr import InlineDict
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -20,13 +21,13 @@ class ComponentIterationNode(ExecNode):
         assert view.get().is_component_view
         super().__init__(input.row_builder, [], [], input)
         self.view = view
-        iterator_args = [view.get().iterator_args.copy()]
+        iterator_args = [view.get().iterator_args]
         self.row_builder.set_slot_idxs(iterator_args)
         self.iterator_args = iterator_args[0]
-        assert isinstance(self.iterator_args, exprs.InlineDict)
         self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args])
-        self.iterator_output_schema = self.view.get().iterator_cls.call_output_schema(self.iterator_args.to_kwargs())
-        self.unstored_column_names = []  # TODO: handle unstored columns
+        iterator_call = self.view.get().iterator_call
+        self.iterator_output_schema = {name: output_info.col_type for name, output_info in iterator_call.outputs.items()}
+        self.unstored_column_names = [name for name, output_info in iterator_call.outputs.items() if not output_info.is_stored]
         self.iterator_output_fields = list(self.iterator_output_schema.keys())
         self.iterator_output_cols = {
             field_name: self.view.get().cols_by_name[field_name] for field_name in self.iterator_output_fields
@@ -49,7 +50,7 @@ class ComponentIterationNode(ExecNode):
                 # specified and are not null. If any of them are null, then we skip this row (i.e., we emit 0
                 # output rows for this input row).
                 if self.__non_nullable_args_specified(iterator_args):
-                    iterator = self.view.get().iterator_cls.eval(iterator_args)
+                    iterator = self.view.get().iterator_call.it.eval(iterator_args)
                     for pos, component_dict in enumerate(iterator):
                         output_row = self.row_builder.make_row()
                         input_row.copy(output_row)
@@ -67,7 +68,7 @@ class ComponentIterationNode(ExecNode):
         """
         Returns true if all non-nullable iterator arguments are not `None`.
         """
-        iterator_cls = self.view.get().iterator_cls
+        iterator_cls = self.view.get().iterator_call.it
         for arg_name, arg_value in iterator_args.items():
             col_type = iterator_cls.signature.parameters[arg_name].col_type
             if arg_value is None and not col_type.nullable:
@@ -81,7 +82,7 @@ class ComponentIterationNode(ExecNode):
         for field_name, field_val in component_dict.items():
             if field_name not in self.iterator_output_fields:
                 raise excs.Error(
-                    f'Invalid field name {field_name!r} in output of `{self.view.get().iterator_cls.name}`'
+                    f'Invalid field name {field_name!r} in output of `{self.view.get().iterator_call.it.fqn}`'
                 )
             if field_name not in self.refd_output_slot_idxs:
                 # we can ignore this

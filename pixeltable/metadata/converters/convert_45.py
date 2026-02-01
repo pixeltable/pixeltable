@@ -28,8 +28,7 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
         else:
             assert iterator_args['_classname'] == 'InlineDict'  # Versions <= 45 stored args as InlineDict
             kwargs = dict(zip(iterator_args['keys'], iterator_args['components']))
-            unstored_cols: list[str] = []
-            col_mapping: dict[str, Any] = {}
+            outputs: dict[str, dict[str, Any]] | None = None
 
             match iterator_class_fqn:
                 case 'pixeltable.iterators.audio.AudioSplitter':
@@ -38,12 +37,28 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
                         kwargs['segment_duration_sec'] = kwargs.pop('chunk_duration_sec')
                     if 'min_chunk_duration_sec' in kwargs:
                         kwargs['min_segment_duration_sec'] = kwargs.pop('min_chunk_duration_sec')
-                    col_mapping['audio_segment'] = 'audio_chunk'
+                    # For `audio_splitter`, output columns were renamed in v46, so we explicitly emit them here.
+                    outputs = {
+                        'audio_chunk': {
+                            'orig_name': 'audio_segment',
+                            'is_stored': True,
+                            'col_type': {'nullable': True, '_classname': 'AudioType'},
+                        },
+                        'start_time_sec': {
+                            'orig_name': 'segment_start',
+                            'is_stored': True,
+                            'col_type': {'nullable': False, '_classname': 'FloatType'},
+                        },
+                        'end_time_sec': {
+                            'orig_name': 'segment_end',
+                            'is_stored': True,
+                            'col_type': {'nullable': False, '_classname': 'FloatType'},
+                        },
+                    }
                 case 'pixeltable.iterators.document.DocumentSplitter':
                     iterator_class_fqn = 'pixeltable.functions.document.document_splitter'
                 case 'pixeltable.iterators.image.TileIterator':
                     iterator_class_fqn = 'pixeltable.functions.image.tile_iterator'
-                    unstored_cols.append('tile')
                 case 'pixeltable.iterators.string.StringSplitter':
                     iterator_class_fqn = 'pixeltable.functions.string.string_splitter'
                 case 'pixeltable.iterators.video.FrameIterator':
@@ -57,7 +72,6 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
                         assert isinstance(afa_expr['val'], bool)
                         afa_expr['val'] = not afa_expr['val']
                         kwargs['use_legacy_schema'] = afa_expr
-                    unstored_cols.append('frame')
                 case 'pixeltable.iterators.video.VideoSplitter':
                     iterator_class_fqn = 'pixeltable.functions.video.video_splitter'
 
@@ -65,9 +79,7 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
                 'fn': {'fqn': iterator_class_fqn},
                 'args': [],  # Non-kwargs inputs were not supported in versions <= 45
                 'kwargs': kwargs,
-                'output_schema': None,
-                'unstored_cols': unstored_cols,
-                'col_mapping': col_mapping,
+                'outputs': outputs
             }
 
     return key, value

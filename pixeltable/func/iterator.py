@@ -21,6 +21,7 @@ class PxtIterator:
     signature: Signature
     unstored_cols: list[str]
     has_seek: bool
+    is_legacy_retrofit: bool
 
     _default_output_schema: dict[str, ts.ColumnType] | None
     _conditional_output_schema: Callable[[dict[str, Any]], dict[str, type]] | None
@@ -39,6 +40,8 @@ class PxtIterator:
 
         self._conditional_output_schema = None
         self._validate = None
+
+        self.is_legacy_retrofit = False
 
     def _infer_properties(self) -> None:
         if isinstance(self.decorated_callable, type):
@@ -159,7 +162,16 @@ class PxtIterator:
 
         output_schema = self.call_output_schema(literal_args)
 
-        return IteratorCall(self, args, kwargs, bound_args, output_schema, self.unstored_cols, {})
+        outputs = {
+            name: IteratorOutputInfo(
+                orig_name=name,
+                is_stored=(name not in self.unstored_cols),
+                col_type=col_type,
+            )
+            for name, col_type in output_schema.items()
+        }
+
+        return IteratorCall(self, args, kwargs, bound_args, outputs)
 
     def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
         # Run custom iterator validation on fully bound args
@@ -185,6 +197,7 @@ class PxtIterator:
 
         it.call_output_schema = call_output_schema
         it._validate = lambda _: None  # Validation in legacy iterators was done in output_schema()
+        it.is_legacy_retrofit = True
         return it
 
     @property
@@ -223,24 +236,42 @@ class PxtIterator:
             raise AssertionError()  # TODO: Validation
 
 
-@dataclass
+@dataclass(frozen=True)
+class IteratorOutputInfo:
+    orig_name: str
+    is_stored: bool
+    col_type: ts.ColumnType
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            'orig_name': self.orig_name,
+            'is_stored': self.is_stored,
+            'col_type': self.col_type.as_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> 'IteratorOutputInfo':
+        return cls(
+            orig_name=d['orig_name'],
+            is_stored=d['is_stored'],
+            col_type=ts.ColumnType.from_dict(d['col_type']),
+        )
+
+
+@dataclass(frozen=True)
 class IteratorCall:
     it: PxtIterator
     args: list['exprs.Expr']
     kwargs: dict[str, 'exprs.Expr']
     bound_args: dict[str, 'exprs.Expr']
-    output_schema: dict[str, ts.ColumnType] | None
-    unstored_cols: list[str]
-    col_mapping: dict[str, str]
+    outputs: dict[str, IteratorOutputInfo] | None
 
     def as_dict(self) -> dict[str, Any]:
         return {
             'fn': self.it.as_dict(),
             'args': [arg.as_dict() for arg in self.args],
             'kwargs': {k: v.as_dict() for k, v in self.kwargs.items()},
-            'output_schema': {name: col_type.as_dict() for name, col_type in self.output_schema.items()},
-            'unstored_cols': self.unstored_cols,
-            'col_mapping': self.col_mapping,
+            'outputs': {name: output_info.as_dict() for name, output_info in self.outputs.items()},
         }
 
     @classmethod
@@ -255,25 +286,30 @@ class IteratorCall:
         except TypeError as exc:
             raise AssertionError()  # TODO: Validation
 
-        # Deserialize the output_schema and validate against the latest version of the iterator defined in code.
-        # For legacy iterators, output_schema was not persisted, and there is no practical way to reconstruct it as
-        # part of the schema migration. In that case we just query the iterator for it, but we lose the ability to
-        # sanity check against any schema evolution of the iterator.
-        if d['output_schema'] is None:
+        # Deserialize the output schema and validate against the latest version of the iterator defined in code.
+        if d['outputs'] is None:
+            # For legacy iterators, `outputs` was not persisted, and there is no practical way to reconstruct it as
+            # part of the schema migration. In that case we just query the iterator for it, but we lose the ability to
+            # sanity check against any schema evolution of the iterator.
             literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
             for param_name, param in it.py_sig.parameters.items():
                 if param_name not in bound_args and param.default is not inspect.Parameter.empty:
                     literal_args[param_name] = param.default
             output_schema = it.call_output_schema(literal_args)
+            if it.is_legacy_retrofit:
+                _, unstored_cols = it.decorated_callable.output_schema(literal_args)
+            else:
+                unstored_cols = it.unstored_cols
+            outputs = {
+                name: IteratorOutputInfo(orig_name=name, is_stored=(name in unstored_cols), col_type=col_type)
+                for name, col_type in output_schema.items()
+            }
         else:
-            output_schema = {
-                name: ts.ColumnType.from_dict(col_type_dict) for name, col_type_dict in d['output_schema'].items()
+            outputs = {
+                name: IteratorOutputInfo.from_dict(output_info_dict) for name, output_info_dict in d['outputs'].items()
             }
 
-        unstored_cols = d['unstored_cols']
-        col_mapping = d['col_mapping']
-
-        return cls(it, args, kwargs, bound_args, output_schema, unstored_cols, col_mapping)
+        return cls(it, args, kwargs, bound_args, outputs)
 
 
 @overload

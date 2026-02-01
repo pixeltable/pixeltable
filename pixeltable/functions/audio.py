@@ -134,9 +134,9 @@ def encode_audio(
 
 
 class AudioSegment(TypedDict):
+    segment_start: float
+    segment_end: float
     audio_segment: pxt.Audio | None
-    start_time_sec: float
-    end_time_sec: float
 
 
 @pxt.iterator

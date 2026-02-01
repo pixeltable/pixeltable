@@ -16,6 +16,7 @@ from sqlalchemy import exc as sql_exc
 
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
+from pixeltable.exprs.inline_expr import InlineDict
 import pixeltable.func as func
 import pixeltable.index as index
 import pixeltable.type_system as ts
@@ -158,8 +159,7 @@ class TableVersion:
     predicate: exprs.Expr | None
     sample_clause: 'SampleClause' | None
 
-    iterator_cls: func.PxtIterator | None
-    iterator_args: exprs.InlineDict | None
+    iterator_call: IteratorCall | None
     num_iterator_cols: int
 
     # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
@@ -245,14 +245,11 @@ class TableVersion:
         self.sample_clause = SampleClause.from_dict(sample_dict) if sample_dict is not None else None
 
         # component view-specific initialization
-        self.iterator_cls = None
-        self.iterator_args = None
+        self.iterator_call = None
         self.num_iterator_cols = 0
         if self.view_md is not None and self.view_md.iterator_call is not None:
-            iterator_call = IteratorCall.from_dict(self.view_md.iterator_call)
-            self.iterator_cls = iterator_call.it
-            self.iterator_args = exprs.InlineDict(iterator_call.bound_args)
-            self.num_iterator_cols = len(iterator_call.output_schema)
+            self.iterator_call = IteratorCall.from_dict(self.view_md.iterator_call)
+            self.num_iterator_cols = len(self.iterator_call.outputs)
 
         self.mutable_views = frozenset(mutable_views)
         assert self.is_mutable or len(self.mutable_views) == 0
@@ -1789,7 +1786,7 @@ class TableVersion:
 
     @property
     def is_component_view(self) -> bool:
-        return self.iterator_cls is not None
+        return self.iterator_call is not None
 
     @property
     def is_insertable(self) -> bool:
@@ -1811,6 +1808,12 @@ class TableVersion:
     def iterator_columns(self) -> list[Column]:
         """Return all iterator-produced columns"""
         return self.cols[1 : self.num_iterator_cols + 1]
+
+    @property
+    def iterator_args(self) -> InlineDict | None:
+        if self.is_component_view:
+            return InlineDict(self.iterator_call.bound_args)
+        return None
 
     def user_columns(self) -> list[Column]:
         """Return all non-system columns"""

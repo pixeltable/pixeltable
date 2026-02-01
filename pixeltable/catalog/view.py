@@ -135,11 +135,10 @@ class View(Table):
             # we create that column here, so it gets assigned a column id;
             # stored=False: it is not stored separately (it's already stored as part of the rowid)
             iterator_cols = [Column(_POS_COLUMN_NAME, ts.IntType(), is_iterator_col=True, stored=False)]
-            unstored_cols = iterator_call.it.unstored_cols
             iterator_cols.extend(
                 [
-                    Column(col_name, col_type, is_iterator_col=True, stored=col_name not in unstored_cols)
-                    for col_name, col_type in iterator_call.output_schema.items()
+                    Column(name, output_info.col_type, is_iterator_col=True, stored=(output_info.is_stored))
+                    for name, output_info in iterator_call.outputs.items()
                 ]
             )
 
