@@ -37,7 +37,6 @@ class TestWhisperx:
         assert 'long and deliberate process' in results['transcription2']['segments'][1]['text']
         assert 'city upon a hill' not in results['transcription2']['segments'][1]['text']  # due to shorter chunk size
 
-    @pytest.mark.skip
     @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
     def test_diarization(self, uses_db: None) -> None:
         skip_test_if_not_installed('whisperx')

@@ -43,7 +43,6 @@ class GeneratingFunction:
 
     decorated_callable: Callable
     name: str
-    is_class_based: bool
     signature: Signature
     unstored_cols: list[str]
     has_seek: bool
@@ -70,22 +69,21 @@ class GeneratingFunction:
         self.is_legacy_retrofit = False
 
     def _infer_properties(self) -> None:
+        self.py_sig = inspect.signature(self.decorated_callable)
         output_schema_type: type[dict]
         iter_fn: Callable
 
         if isinstance(self.decorated_callable, type):
+            # Case 1: decorating a subclass of PxtIterator
+
             if not issubclass(self.decorated_callable, PxtIterator):
                 raise excs.Error(
                     f'@pxt.iterator-decorated class `{self.fqn}` must be a subclass of `pixeltable.PxtIterator`.'
                 )
-            if not hasattr(self.decorated_callable, '__init__') or not hasattr(self.decorated_callable, '__next__'):
+            if self.decorated_callable.__next__ is PxtIterator.__next__:
                 raise excs.Error(
-                    '@pxt.iterator-decorated class '
-                    f'`{self.decorated_callable.__module__}.{self.decorated_callable.__qualname__}` '
-                    'must implement `__init__()` and `__next__()` methods.'
+                    '@pxt.iterator-decorated class `{self.fqn}` must implement a `__next__()` method.'
                 )
-            self.is_class_based = True
-            self.py_sig = inspect.signature(self.decorated_callable.__init__)
             self.has_seek = self.decorated_callable.seek is not PxtIterator.seek
             next_sig = inspect.signature(self.decorated_callable.__next__)
             return_type = next_sig.return_annotation
@@ -99,8 +97,8 @@ class GeneratingFunction:
             output_schema_type = element_type
 
         else:
-            self.is_class_based = False
-            self.py_sig = inspect.signature(self.decorated_callable)
+            # Case 2: decorating a function that returns an Iterator[T]
+
             self.has_seek = False
             return_type = self.py_sig.return_annotation
             # Possible return_type: Iterator[dict], Iterator[dict[str, Any]], Iterator[MyTypedDict]
@@ -157,24 +155,13 @@ class GeneratingFunction:
                 )
             return {name: ts.ColumnType.from_python_type(type_) for name, type_ in output_schema.items()}
 
-    def bind_args(self, args: list[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
-        """Bind arguments to iterator. Raises TypeError on failure."""
-        args_with_self = [self.decorated_callable, *args] if self.is_class_based else args
-        bound_args = self.py_sig.bind(*args_with_self, **kwargs).arguments
-
-        if self.is_class_based:
-            self_param_name = next(iter(self.py_sig.parameters))  # can't guarantee it's actually 'self'
-            del bound_args[self_param_name]
-
-        return bound_args
-
     def __call__(self, *args: Any, **kwargs: Any) -> 'GeneratingFunctionCall':
         args = [exprs.Expr.from_object(arg) for arg in args]
         kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
 
         # Promptly validate args and kwargs, as much as possible at this stage.
         try:
-            bound_args = self.bind_args(args, kwargs)
+            bound_args = self.py_sig.bind(*args, **kwargs).arguments
         except TypeError as exc:
             raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
 
@@ -216,8 +203,7 @@ class GeneratingFunction:
         it = GeneratingFunction.__new__(GeneratingFunction)
         it.decorated_callable = iterator_cls
         it.signature = Signature.create(iterator_cls, return_type=ts.JsonType())
-        it.is_class_based = True
-        it.py_sig = inspect.signature(iterator_cls.__init__)
+        it.py_sig = inspect.signature(iterator_cls)
 
         def call_output_schema(bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
             schema, _ = iterator_cls.output_schema(**bound_kwargs)
@@ -302,7 +288,7 @@ class GeneratingFunctionCall:
 
         # Bind args and kwargs against the latest version of the iterator defined in code.
         try:
-            bound_args = it.bind_args(args, kwargs)
+            bound_args = it.py_sig.bind(*args, **kwargs).arguments
         except TypeError:
             raise AssertionError()  # TODO: Validation
 
