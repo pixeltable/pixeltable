@@ -284,11 +284,11 @@ class TestAudio:
         results = reload_tester.run_query(audio_segment_view.order_by(audio_segment_view.pos))
         for result in results:
             assert result['audio'] == audio_filepath
-        assert results[-1]['end_time_sec'] == 60
+        assert results[-1]['segment_end'] == 60
         for i in range(len(results)):
-            assert math.floor(results[i]['start_time_sec']) == i * 5.0
+            assert math.floor(results[i]['segment_start']) == i * 5.0
         for i in range(len(results) - 1):
-            assert round(results[i]['end_time_sec'] - results[i]['start_time_sec']) == 5.0
+            assert round(results[i]['segment_end'] - results[i]['segment_start']) == 5.0
 
         audio_segment_view = pxt.create_view(
             'audio_segments_overlap',
@@ -301,7 +301,7 @@ class TestAudio:
         results = reload_tester.run_query(audio_segment_view.order_by(audio_segment_view.pos))
         for result in results:
             assert result['audio'] == audio_filepath
-        assert results[-1]['end_time_sec'] == 60
+        assert results[-1]['segment_end'] == 60
 
         audio_segment_view = pxt.create_view(
             'audio_segments_overlap_with_drop',

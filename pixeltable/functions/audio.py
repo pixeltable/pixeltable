@@ -312,9 +312,9 @@ class audio_splitter(Iterator[AudioSegment]):
             output_container.mux(output_stream.encode(None))
             output_container.close()
             result: AudioSegment = {
+                'segment_start': round(float(segment_start_pts * self.audio_time_base), 4),
+                'segment_end': round(float(segment_end_pts * self.audio_time_base), 4),
                 'audio_segment': segment_file if frame_count > 0 else None,
-                'start_time_sec': round(float(segment_start_pts * self.audio_time_base), 4),
-                'end_time_sec': round(float(segment_end_pts * self.audio_time_base), 4),
             }
             _logger.debug('audio segment result: %s', result)
             self.next_pos += 1

@@ -785,7 +785,7 @@ class Planner:
         target = view.tbl_version.get()  # the one we need to populate
         stored_cols = [c for c in target.cols_by_id.values() if c.is_stored]
         # 2. for component views: iterator args
-        iterator_args = [target.iterator_args] if target.iterator_args is not None else []
+        iterator_args = [target.iterator_args_expr()] if target.is_component_view else []
 
         from_clause = FromClause(tbls=[view.base])
         base_analyzer = Analyzer(

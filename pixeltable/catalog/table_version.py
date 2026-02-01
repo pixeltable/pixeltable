@@ -1809,10 +1809,9 @@ class TableVersion:
         """Return all iterator-produced columns"""
         return self.cols[1 : self.num_iterator_cols + 1]
 
-    @property
-    def iterator_args(self) -> InlineDict | None:
+    def iterator_args_expr(self) -> InlineDict | None:
         if self.is_component_view:
-            return InlineDict(self.iterator_call.bound_args)
+            return InlineDict(self.iterator_call.bound_args).copy()
         return None
 
     def user_columns(self) -> list[Column]:
