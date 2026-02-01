@@ -5,7 +5,7 @@ Pixeltable UDFs for `AudioType`.
 import logging
 from fractions import Fraction
 from pathlib import Path
-from typing import Any, ClassVar, Iterator, TypedDict
+from typing import Any, ClassVar, TypedDict
 
 import av
 import numpy as np

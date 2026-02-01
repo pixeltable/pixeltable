@@ -10,7 +10,7 @@ t.select(t.img_col.convert('L')).collect()
 ```
 """
 
-from typing import Any, Iterator, Literal, Sequence, TypedDict
+from typing import Any, Literal, Sequence, TypedDict
 
 import PIL.Image
 

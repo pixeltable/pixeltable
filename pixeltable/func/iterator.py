@@ -75,18 +75,16 @@ class GeneratingFunction:
 
         if isinstance(self.decorated_callable, type):
             # Case 1: decorating a subclass of PxtIterator
-
             if not issubclass(self.decorated_callable, PxtIterator):
                 raise excs.Error(
                     f'@pxt.iterator-decorated class `{self.fqn}` must be a subclass of `pixeltable.PxtIterator`.'
                 )
             if self.decorated_callable.__next__ is PxtIterator.__next__:
-                raise excs.Error(
-                    '@pxt.iterator-decorated class `{self.fqn}` must implement a `__next__()` method.'
-                )
+                raise excs.Error('@pxt.iterator-decorated class `{self.fqn}` must implement a `__next__()` method.')
+            iter_fn = self.decorated_callable.__next__
             self.has_seek = self.decorated_callable.seek is not PxtIterator.seek
-            next_sig = inspect.signature(self.decorated_callable.__next__)
-            return_type = next_sig.return_annotation
+            return_type = typing.get_type_hints(iter_fn).get('return')
+
             # remove type args from return_type (e.g., convert `dict[str, Any]` to `dict`)
             element_type = typing.get_origin(return_type) or return_type
             if not isinstance(element_type, type) or not issubclass(element_type, dict):
@@ -98,10 +96,11 @@ class GeneratingFunction:
 
         else:
             # Case 2: decorating a function that returns an Iterator[T]
-
+            iter_fn = self.decorated_callable
             self.has_seek = False
-            return_type = self.py_sig.return_annotation
-            # Possible return_type: Iterator[dict], Iterator[dict[str, Any]], Iterator[MyTypedDict]
+            return_type = typing.get_type_hints(iter_fn).get('return')
+
+            # Allowed return_types: Iterator[dict], Iterator[dict[str, Any]], Iterator[MyTypedDict]
             return_type_args = typing.get_args(return_type)
             element_type = None
             if len(return_type_args) >= 1:
