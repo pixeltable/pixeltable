@@ -143,14 +143,14 @@ class AudioSegment(TypedDict):
 class audio_splitter(pxt.PxtIterator[AudioSegment]):
     """
     Iterator over segments of an audio file. The audio file is split into smaller segments,
-    where the duration of each segment is determined by segment_duration_sec.
+    where the duration of each segment is determined by `duration`.
     The iterator yields audio segments as pxt.Audio, along with the start and end time of each segment.
     If the input contains no audio, no segments are yielded.
 
     Args:
-        segment_duration_sec: Audio segment duration in seconds
-        overlap_sec: Overlap between consecutive segments in seconds
-        min_segment_duration_sec: Drop the last segment if it is smaller than min_segment_duration_sec
+        duration: Audio segment duration in seconds
+        overlap: Overlap between consecutive segments in seconds
+        min_segment_duration: Drop the last segment if it is smaller than `min_segment_duration`
 
     Examples:
         This example assumes an existing table `tbl` with a column `audio` of type `pxt.Audio`.
@@ -160,13 +160,14 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
         >>> pxt.create_view(
         ...     'audio_segments',
         ...     tbl,
-        ...     iterator=audio_splitter(tbl.audio, segment_duration_sec=30.0, overlap_sec=5.0)
+        ...     iterator=audio_splitter(tbl.audio, duration=30.0, overlap=5.0)
         ... )
     """
 
     audio_path: Path
-    segment_duration_sec: float
-    overlap_sec: float
+    segment_duration: float
+    overlap: float
+    min_segment_duration: float
 
     # audio stream details
     container: av.container.input.InputContainer
@@ -199,20 +200,20 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
         if len(self.container.streams.audio) == 0:
             # No audio stream
             return
-        self.segment_duration_sec = duration
-        self.overlap_sec = overlap
-        self.min_segment_duration_sec = min_segment_duration
+        self.segment_duration = duration
+        self.overlap = overlap
+        self.min_segment_duration = min_segment_duration
         self.audio_time_base = self.container.streams.audio[0].time_base
 
         audio_start_time_pts = self.container.streams.audio[0].start_time or 0
-        audio_start_time_sec = float(audio_start_time_pts * self.audio_time_base)
+        audio_start_time = float(audio_start_time_pts * self.audio_time_base)
         total_audio_duration_pts = self.container.streams.audio[0].duration or 0
-        total_audio_duration_sec = float(total_audio_duration_pts * self.audio_time_base)
+        total_audio_duration = float(total_audio_duration_pts * self.audio_time_base)
 
         self.segments_to_extract_in_pts = [
             (round(start / self.audio_time_base), round(end / self.audio_time_base))
             for (start, end) in self.build_segments(
-                audio_start_time_sec, total_audio_duration_sec, duration, overlap, min_segment_duration
+                audio_start_time, total_audio_duration, duration, overlap, min_segment_duration
             )
         ]
         _logger.debug(
@@ -223,29 +224,29 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
     @classmethod
     def build_segments(
         cls,
-        start_time_sec: float,
-        total_duration_sec: float,
-        segment_duration_sec: float,
-        overlap_sec: float,
-        min_segment_duration_sec: float,
+        start_time: float,
+        total_duration: float,
+        segment_duration: float,
+        overlap: float,
+        min_segment_duration: float,
     ) -> list[tuple[float, float]]:
-        segments_to_extract_in_sec: list[tuple[float, float]] = []
-        current_pos = start_time_sec
-        end_time = start_time_sec + total_duration_sec
+        segments_to_extract_in: list[tuple[float, float]] = []
+        current_pos = start_time
+        end_time = start_time + total_duration
         while current_pos < end_time:
             segment_start = current_pos
-            segment_end = min(segment_start + segment_duration_sec, end_time)
-            segments_to_extract_in_sec.append((segment_start, segment_end))
+            segment_end = min(segment_start + segment_duration, end_time)
+            segments_to_extract_in.append((segment_start, segment_end))
             if segment_end >= end_time:
                 break
-            current_pos = segment_end - overlap_sec
-        # If the last segment is smaller than min_segment_duration_sec then drop the last segment from the list
+            current_pos = segment_end - overlap
+        # If the last segment is smaller than min_segment_duration then drop the last segment from the list
         if (
-            len(segments_to_extract_in_sec) > 0
-            and (segments_to_extract_in_sec[-1][1] - segments_to_extract_in_sec[-1][0]) < min_segment_duration_sec
+            len(segments_to_extract_in) > 0
+            and (segments_to_extract_in[-1][1] - segments_to_extract_in[-1][0]) < min_segment_duration
         ):
-            return segments_to_extract_in_sec[:-1]  # return all but the last segment
-        return segments_to_extract_in_sec
+            return segments_to_extract_in[:-1]  # return all but the last segment
+        return segments_to_extract_in
 
     def __next__(self) -> AudioSegment:
         if self.next_pos >= len(self.segments_to_extract_in_pts):
@@ -314,20 +315,16 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
 
     @classmethod
     def validate(cls, bound_args: dict[str, Any]) -> None:
-        segment_duration_sec = bound_args.get('segment_duration_sec')
-        overlap_sec = bound_args.get('overlap_sec')
-        min_segment_duration_sec = bound_args.get('min_segment_duration_sec')
+        duration = bound_args.get('duration')
+        overlap = bound_args.get('overlap')
+        min_segment_duration = bound_args.get('min_segment_duration')
 
-        if segment_duration_sec is not None and segment_duration_sec <= 0.0:
-            raise excs.Error('`segment_duration_sec` must be a positive number')
-        if (
-            segment_duration_sec is not None
-            and min_segment_duration_sec is not None
-            and segment_duration_sec < min_segment_duration_sec
-        ):
-            raise excs.Error('`segment_duration_sec` must be at least `min_segment_duration_sec`')
-        if segment_duration_sec is not None and overlap_sec is not None and overlap_sec >= segment_duration_sec:
-            raise excs.Error('`overlap_sec` must be strictly less than `segment_duration_sec`')
+        if duration is not None and duration <= 0.0:
+            raise excs.Error('`duration` must be a positive number')
+        if duration is not None and min_segment_duration is not None and duration < min_segment_duration:
+            raise excs.Error('`duration` must be at least `min_segment_duration`')
+        if duration is not None and overlap is not None and overlap >= duration:
+            raise excs.Error('`overlap` must be strictly less than `duration`')
 
 
 __all__ = local_public_names(__name__)

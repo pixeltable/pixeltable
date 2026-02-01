@@ -319,35 +319,26 @@ class TestAudio:
         audio_filepath = get_audio_file('jfk_1961_0109_cityuponahill-excerpt.flac')  # 60s audio file
         base_t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
         validate_update_status(base_t.insert([{'audio': audio_filepath}]))
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.Error, match=r'`duration` must be a positive number'):
             _ = pxt.create_view(
                 'audio_segments',
                 base_t,
-                iterator=audio_splitter(
-                    audio=base_t.audio, segment_duration_sec=-1, overlap_sec=1, min_segment_duration_sec=1
-                ),
+                iterator=audio_splitter(audio=base_t.audio, duration=-1, overlap=1, min_segment_duration=1),
             )
-        assert '`segment_duration_sec` must be a positive number' in str(excinfo.value)
 
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.Error, match=r'`duration` must be at least `min_segment_duration`'):
             _ = pxt.create_view(
                 'audio_segments',
                 base_t,
-                iterator=audio_splitter(
-                    audio=base_t.audio, segment_duration_sec=1, overlap_sec=0, min_segment_duration_sec=2
-                ),
+                iterator=audio_splitter(audio=base_t.audio, duration=1, overlap=0, min_segment_duration=2),
             )
-        assert '`segment_duration_sec` must be at least `min_segment_duration_sec`' in str(excinfo.value)
 
-        with pytest.raises(pxt.Error) as excinfo:
+        with pytest.raises(pxt.Error, match=r'`overlap` must be strictly less than `duration`'):
             _ = pxt.create_view(
                 'audio_segments',
                 base_t,
-                iterator=audio_splitter(
-                    audio=base_t.audio, segment_duration_sec=1, overlap_sec=1, min_segment_duration_sec=0
-                ),
+                iterator=audio_splitter(audio=base_t.audio, duration=1, overlap=1, min_segment_duration=0),
             )
-        assert '`overlap_sec` must be strictly less than `segment_duration_sec`' in str(excinfo.value)
 
     @pytest.mark.parametrize(
         'format,stereo,downsample,as_1d_array',
