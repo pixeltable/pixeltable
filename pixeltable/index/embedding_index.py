@@ -65,7 +65,7 @@ class EmbeddingIndex(IndexBase):
         image_embed: func.Function | None = None,
         audio_embed: func.Function | None = None,
         video_embed: func.Function | None = None,
-        column: catalog.Column | None = None,
+        column: catalog.Column | None = None,  # Used for validation when the indexed column is an array.
     ):
         if embed is None and string_embed is None and image_embed is None:
             raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified')
@@ -289,17 +289,7 @@ class EmbeddingIndex(IndexBase):
             if shape is not None and col_array_type.shape is not None and shape != col_array_type.shape:
                 raise excs.Error(
                     f'The function `{embed_fn.name}` returns an array with shape {shape}, '
-                    f'but column {column.name!r} requires shape {col_array_type.shape}'
-                )
-            # Validate dtype compatibility
-            if (
-                return_type.dtype is not None
-                and col_array_type.dtype is not None
-                and return_type.dtype != col_array_type.dtype
-            ):
-                raise excs.Error(
-                    f'The function `{embed_fn.name}` returns an array with dtype {return_type.dtype}, '
-                    f'but column {column.name!r} requires dtype {col_array_type.dtype}'
+                    f'but column {column.name!r} has shape {col_array_type.shape}'
                 )
 
     def as_dict(self) -> dict:
@@ -311,7 +301,6 @@ class EmbeddingIndex(IndexBase):
 
     @classmethod
     def from_dict(cls, d: dict) -> EmbeddingIndex:
-        embed = func.Function.from_dict(d['embed']) if d.get('embed') is not None else None
         string_embed = func.Function.from_dict(d['string_embed']) if d.get('string_embed') is not None else None
         image_embed = func.Function.from_dict(d['image_embed']) if d.get('image_embed') is not None else None
         audio_embed = func.Function.from_dict(d['audio_embed']) if d.get('audio_embed') is not None else None
@@ -319,7 +308,7 @@ class EmbeddingIndex(IndexBase):
         return cls(
             metric=d['metric'],
             precision=d['precision'],
-            embed=embed,
+            embed=None,
             string_embed=string_embed,
             image_embed=image_embed,
             audio_embed=audio_embed,

@@ -1103,7 +1103,7 @@ class Table(SchemaObject):
                 embed=embedding,
                 string_embed=string_embed,
                 image_embed=image_embed,
-                column=col,  # Pass column for shape/dtype validation
+                column=col,  # Pass column for shape validation
             )
             _ = idx.create_value_expr(col)
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
