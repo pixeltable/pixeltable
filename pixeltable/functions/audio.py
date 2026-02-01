@@ -323,23 +323,22 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
             self.next_pos += 1
             raise StopIteration
 
+    @classmethod
+    def validate(cls, bound_args: dict[str, Any]) -> None:
+        segment_duration_sec = bound_args.get('segment_duration_sec')
+        overlap_sec = bound_args.get('overlap_sec')
+        min_segment_duration_sec = bound_args.get('min_segment_duration_sec')
 
-@audio_splitter.validate
-def _(bound_args: dict[str, Any]) -> None:
-    segment_duration_sec = bound_args.get('segment_duration_sec')
-    overlap_sec = bound_args.get('overlap_sec')
-    min_segment_duration_sec = bound_args.get('min_segment_duration_sec')
-
-    if segment_duration_sec is not None and segment_duration_sec <= 0.0:
-        raise excs.Error('`segment_duration_sec` must be a positive number')
-    if (
-        segment_duration_sec is not None
-        and min_segment_duration_sec is not None
-        and segment_duration_sec < min_segment_duration_sec
-    ):
-        raise excs.Error('`segment_duration_sec` must be at least `min_segment_duration_sec`')
-    if segment_duration_sec is not None and overlap_sec is not None and overlap_sec >= segment_duration_sec:
-        raise excs.Error('`overlap_sec` must be strictly less than `segment_duration_sec`')
+        if segment_duration_sec is not None and segment_duration_sec <= 0.0:
+            raise excs.Error('`segment_duration_sec` must be a positive number')
+        if (
+            segment_duration_sec is not None
+            and min_segment_duration_sec is not None
+            and segment_duration_sec < min_segment_duration_sec
+        ):
+            raise excs.Error('`segment_duration_sec` must be at least `min_segment_duration_sec`')
+        if segment_duration_sec is not None and overlap_sec is not None and overlap_sec >= segment_duration_sec:
+            raise excs.Error('`overlap_sec` must be strictly less than `segment_duration_sec`')
 
 
 __all__ = local_public_names(__name__)

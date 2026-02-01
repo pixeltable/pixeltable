@@ -1712,26 +1712,24 @@ class frame_iterator(pxt.PxtIterator):
             self.cur_frame = self.next_frame()
         assert self.cur_frame is None or abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
 
+    @classmethod
+    def validate(self, bound_args: dict[str, Any]) -> None:
+        fps = bound_args.get('fps')
+        num_frames = bound_args.get('num_frames')
+        keyframes_only = bound_args.get('keyframes_only', False)
+        if int(fps is not None) + int(num_frames is not None) + int(keyframes_only) > 1:
+            raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
+        if fps is not None and (not isinstance(fps, (int, float)) or fps < 0.0):
+            raise excs.Error('`fps` must be a non-negative number')
 
-@frame_iterator.validate
-def _(bound_args: dict[str, Any]) -> None:
-    fps = bound_args.get('fps')
-    num_frames = bound_args.get('num_frames')
-    keyframes_only = bound_args.get('keyframes_only', False)
-    if int(fps is not None) + int(num_frames is not None) + int(keyframes_only) > 1:
-        raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
-    if fps is not None and (not isinstance(fps, (int, float)) or fps < 0.0):
-        raise excs.Error('`fps` must be a non-negative number')
-
-
-@frame_iterator.conditional_output_schema
-def _(bound_args: dict[str, Any]) -> dict[str, type]:
-    attrs: dict[str, type]
-    if bound_args.get('use_legacy_schema'):
-        attrs = {'frame_idx': ts.Int, 'pos_msec': ts.Float, 'pos_frame': ts.Int}
-    else:
-        attrs = {'frame_attrs': ts.Json}
-    return {**attrs, 'frame': ts.Image}
+    @classmethod
+    def conditional_output_schema(self, bound_args: dict[str, Any]) -> dict[str, type]:
+        attrs: dict[str, type]
+        if bound_args.get('use_legacy_schema'):
+            attrs = {'frame_idx': ts.Int, 'pos_msec': ts.Float, 'pos_frame': ts.Int}
+        else:
+            attrs = {'frame_attrs': ts.Json}
+        return {**attrs, 'frame': ts.Image}
 
 
 class VideoSegment(TypedDict):

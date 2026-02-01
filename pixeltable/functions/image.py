@@ -529,17 +529,16 @@ class tile_iterator(pxt.PxtIterator[Tile]):
         self.__j = pos // self.__xlen
         self.__i = pos % self.__xlen
 
-
-@tile_iterator.validate
-def _(kwargs: dict[str, Any]) -> None:
-    tile_size = kwargs.get('tile_size')
-    overlap = kwargs.get('overlap', (0, 0))
-    if tile_size[0] <= 0 or tile_size[1] <= 0:
-        raise excs.Error(f'`tile_size` dimensions must be positive; got {tile_size}')
-    if overlap[0] < 0 or overlap[1] < 0:
-        raise excs.Error(f'`overlap` dimensions must be non-negative; got {overlap}')
-    if overlap[0] >= tile_size[0] or overlap[1] >= tile_size[1]:
-        raise excs.Error(f'`overlap` dimensions {overlap} are not strictly smaller than `tile_size` {tile_size}')
+    @classmethod
+    def validate(self, bound_args: dict[str, Any]) -> None:
+        tile_size = bound_args.get('tile_size')
+        overlap = bound_args.get('overlap', (0, 0))
+        if tile_size[0] <= 0 or tile_size[1] <= 0:
+            raise excs.Error(f'`tile_size` dimensions must be positive; got {tile_size}')
+        if overlap[0] < 0 or overlap[1] < 0:
+            raise excs.Error(f'`overlap` dimensions must be non-negative; got {overlap}')
+        if overlap[0] >= tile_size[0] or overlap[1] >= tile_size[1]:
+            raise excs.Error(f'`overlap` dimensions {overlap} are not strictly smaller than `tile_size` {tile_size}')
 
 
 __all__ = local_public_names(__name__)

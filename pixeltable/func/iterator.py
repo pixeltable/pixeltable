@@ -4,6 +4,7 @@ import importlib
 import inspect
 import typing
 from dataclasses import dataclass
+from types import MethodType
 from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar, overload
 
 from typing_extensions import Self
@@ -44,10 +45,12 @@ class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
     def seek(self, pos: int, **kwargs: Any) -> None:
         raise NotImplementedError()
 
-    def validate(self) -> None:
+    @classmethod
+    def validate(cls, bound_args: dict[str, Any]) -> None:
         pass
 
-    def conditional_output_schema(self) -> dict[str, type] | None:
+    @classmethod
+    def conditional_output_schema(cls, bound_args: dict[str, Any]) -> dict[str, type] | None:
         return None
 
 
@@ -67,8 +70,6 @@ class GeneratingFunction:
     unstored_cols: list[str]
     has_seek: bool
     is_legacy_retrofit: bool
-    class_defines_validate: bool
-    class_defines_conditional_output_schema: bool
 
     _default_output_schema: dict[str, ts.ColumnType] | None
     _conditional_output_schema: Callable[[dict[str, Any]], dict[str, type]] | None
@@ -78,15 +79,14 @@ class GeneratingFunction:
         self.name = decorated_callable.__name__
         self.decorated_callable = decorated_callable
         self.unstored_cols = unstored_cols
-
+        self._conditional_output_schema = None
+        self._validate = None
         self.signature = Signature.create(decorated_callable, return_type=ts.JsonType())
+
         self._infer_properties()
 
         if len(self.unstored_cols) > 0 and not self.has_seek:
             raise excs.Error(f'Iterator `{self.fqn}` with `unstored_cols` must implement a `seek()` method.')
-
-        self._conditional_output_schema = None
-        self._validate = None
 
         self.is_legacy_retrofit = False
 
@@ -103,12 +103,29 @@ class GeneratingFunction:
                 )
             if self.decorated_callable.__next__ is PxtIterator.__next__:
                 raise excs.Error('@pxt.iterator-decorated class `{self.fqn}` must implement a `__next__()` method.')
-            iter_fn = self.decorated_callable.__next__
             self.has_seek = self.decorated_callable.seek is not PxtIterator.seek
-            self.class_defines_validate = self.decorated_callable.validate is not PxtIterator.validate
-            self.class_defines_conditional_output_schema = (
-                self.decorated_callable.conditional_output_schema is not PxtIterator.conditional_output_schema
-            )
+
+            if not isinstance(self.decorated_callable.validate, MethodType):
+                raise excs.Error(f'`validate()` method of @pxt.iterator `{self.fqn}` must be a @classmethod.')
+            assert isinstance(PxtIterator.validate, MethodType)
+            if self.decorated_callable.validate.__func__ is not PxtIterator.validate.__func__:
+                # The PxtIterator subclass defines a validate() method; use it as the validator (but strip the `cls`
+                # parameter)
+                self._validate = self.decorated_callable.validate
+
+            if not isinstance(self.decorated_callable.conditional_output_schema, MethodType):
+                raise excs.Error(
+                    f'`conditional_output_schema()` method of @pxt.iterator `{self.fqn}` must be a @classmethod.'
+                )
+            assert isinstance(PxtIterator.conditional_output_schema, MethodType)
+            if (
+                self.decorated_callable.conditional_output_schema.__func__
+                is not PxtIterator.conditional_output_schema.__func__
+            ):
+                # The PxtIterator subclass defines a conditional_output_schema() method; use it
+                self._conditional_output_schema = self.decorated_callable.conditional_output_schema
+
+            iter_fn = self.decorated_callable.__next__
             return_type = typing.get_type_hints(iter_fn).get('return')
 
             # remove type args from return_type (e.g., convert `dict[str, Any]` to `dict`)
@@ -245,8 +262,8 @@ class GeneratingFunction:
 
     # validate decorator
     def validate(self, fn: Callable[[dict[str, Any]], bool]) -> Callable[[dict[str, Any]], bool]:
-        if self.class_defines_validate:
-            raise excs.Error(f'PxtIterator `{self.fqn}` already defines a `validate()` method.')
+        if self._validate is not None:
+            raise excs.Error(f'@pxt.iterator `{self.fqn}` already defines a `validate()` method.')
         self._validate = fn
         return fn
 
@@ -254,8 +271,8 @@ class GeneratingFunction:
     def conditional_output_schema(
         self, fn: Callable[[dict[str, Any]], dict[str, type]]
     ) -> Callable[[dict[str, Any]], dict[str, type]]:
-        if self.class_defines_conditional_output_schema:
-            raise excs.Error(f'PxtIterator `{self.fqn}` already defines a `conditional_output_schema()` method.')
+        if self._conditional_output_schema is not None:
+            raise excs.Error(f'@pxt.iterator `{self.fqn}` already defines a `conditional_output_schema()` method.')
         self._conditional_output_schema = fn
         return fn
 

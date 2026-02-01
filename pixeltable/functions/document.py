@@ -498,53 +498,51 @@ class document_splitter(pxt.PxtIterator):
                 yield DocumentSection(text=text, metadata=section.metadata)
                 start_idx += self._limit - self._overlap
 
+    @classmethod
+    def validate(cls, bound_args: dict[str, Any]) -> None:
+        elements = _parse_elements(bound_args.get('elements'))
+        _parse_metadata(bound_args.get('metadata', ''))
 
-@document_splitter.validate
-def _(bound_args: dict[str, Any]) -> None:
-    elements = _parse_elements(bound_args.get('elements'))
-    _parse_metadata(bound_args.get('metadata', ''))
+        assert 'separators' in bound_args
+        separators = _parse_separators(bound_args['separators'])
 
-    assert 'separators' in bound_args
-    separators = _parse_separators(bound_args['separators'])
+        limit = bound_args.get('limit')
+        overlap = bound_args.get('overlap')
 
-    limit = bound_args.get('limit')
-    overlap = bound_args.get('overlap')
+        if Element.IMAGE in elements and separators != [Separator.PAGE]:
+            raise excs.Error("Image elements are only supported for the 'page' separator on PDF documents")
+        if limit is not None or overlap is not None:
+            if Separator.TOKEN_LIMIT not in separators and Separator.CHAR_LIMIT not in separators:
+                raise excs.Error("limit/overlap requires the 'token_limit' or 'char_limit' separator")
+            if limit is not None and limit <= 0:
+                raise excs.Error("'limit' must be a positive integer")
+            if overlap is not None and overlap < 0:
+                raise excs.Error("'overlap' must be a non-negative integer")
+        if Separator.TOKEN_LIMIT in separators or Separator.CHAR_LIMIT in separators:
+            if Separator.TOKEN_LIMIT in separators and Separator.CHAR_LIMIT in separators:
+                raise excs.Error("Cannot specify both 'token_limit' and 'char_limit' separators")
+            if bound_args.get('limit') is None:
+                raise excs.Error("'limit' must be specified with 'token_limit' and 'char_limit' separators")
 
-    if Element.IMAGE in elements and separators != [Separator.PAGE]:
-        raise excs.Error("Image elements are only supported for the 'page' separator on PDF documents")
-    if limit is not None or overlap is not None:
-        if Separator.TOKEN_LIMIT not in separators and Separator.CHAR_LIMIT not in separators:
-            raise excs.Error("limit/overlap requires the 'token_limit' or 'char_limit' separator")
-        if limit is not None and limit <= 0:
-            raise excs.Error("'limit' must be a positive integer")
-        if overlap is not None and overlap < 0:
-            raise excs.Error("'overlap' must be a non-negative integer")
-    if Separator.TOKEN_LIMIT in separators or Separator.CHAR_LIMIT in separators:
-        if Separator.TOKEN_LIMIT in separators and Separator.CHAR_LIMIT in separators:
-            raise excs.Error("Cannot specify both 'token_limit' and 'char_limit' separators")
-        if bound_args.get('limit') is None:
-            raise excs.Error("'limit' must be specified with 'token_limit' and 'char_limit' separators")
+        if Separator.SENTENCE in separators:
+            # Validate spaCy model
+            _ = get_spacy_model(bound_args.get('spacy_model', 'en_core_web_sm'))
 
-    if Separator.SENTENCE in separators:
-        # Validate spaCy model
-        _ = get_spacy_model(bound_args.get('spacy_model', 'en_core_web_sm'))
+        if Separator.TOKEN_LIMIT in separators:
+            Env.get().require_package('tiktoken')
 
-    if Separator.TOKEN_LIMIT in separators:
-        Env.get().require_package('tiktoken')
+    @classmethod
+    def conditional_output_schema(cls, bound_args: dict[str, Any]) -> dict[str, type]:
+        schema: dict[str, type] = {}
+        elements = _parse_elements(bound_args.get('elements', ['text']))
+        for element in elements:
+            if element == Element.TEXT:
+                schema['text'] = ts.String
+            elif element == Element.IMAGE:
+                schema['image'] = ts.Image
 
+        md_fields = _parse_metadata(bound_args.get('metadata', ''))
+        for md_field in md_fields:
+            schema[md_field.name.lower()] = _METADATA_COLUMN_TYPES[md_field]
 
-@document_splitter.conditional_output_schema
-def _(bound_args: dict[str, Any]) -> dict[str, type]:
-    schema: dict[str, type] = {}
-    elements = _parse_elements(bound_args.get('elements', ['text']))
-    for element in elements:
-        if element == Element.TEXT:
-            schema['text'] = ts.String
-        elif element == Element.IMAGE:
-            schema['image'] = ts.Image
-
-    md_fields = _parse_metadata(bound_args.get('metadata', ''))
-    for md_field in md_fields:
-        schema[md_field.name.lower()] = _METADATA_COLUMN_TYPES[md_field]
-
-    return schema
+        return schema
