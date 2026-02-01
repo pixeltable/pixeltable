@@ -31,16 +31,18 @@ def _(bound_args: dict[str, Any]) -> None:
 @pxt.iterator
 class class_based_iterator(pxt.PxtIterator[MyRow]):
     x: int
+    str_text: str
     current: int
 
     def __init__(self, x: int, str_text: str = 'string') -> None:
         self.x = x
+        self.str_text = str_text
         self.current = 0
 
     def __next__(self) -> MyRow:
         if self.current >= self.x:
             raise StopIteration
-        result = MyRow(icol=self.current, scol=f'string {self.current}')
+        result = MyRow(icol=self.current, scol=f'{self.str_text} {self.current}')
         self.current += 1
         return result
 
@@ -58,21 +60,23 @@ def _(bound_args: dict[str, Any]) -> None:
 @pxt.iterator
 class iterator_with_seek(pxt.PxtIterator[MyRow]):
     x: int
+    str_text: str
     current: int
 
-    def __init__(self, x: int):
+    def __init__(self, x: int, str_text: str = 'string') -> None:
         self.x = x
+        self.str_text = str_text
         self.current = 0
 
     def __next__(self) -> MyRow:
         if self.current >= self.x:
             raise StopIteration
-        result = MyRow(icol=self.current, scol=f'string {self.current}')
+        result = MyRow(icol=self.current, scol=f'{self.str_text} {self.current}')
         self.current += 1
         return result
 
     def seek(self, pos: int, **kwargs: Any) -> None:
-        assert kwargs['scol'] == f'string {pos}'
+        assert kwargs['scol'] == f'{self.str_text} {pos}'
         self.current = pos
 
 
