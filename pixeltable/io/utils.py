@@ -27,7 +27,7 @@ def normalize_primary_key_parameter(primary_key: str | list[str] | None = None) 
     elif isinstance(primary_key, str):
         primary_key = [primary_key]
     elif not isinstance(primary_key, list) or not all(isinstance(pk, str) for pk in primary_key):
-        raise excs.Error('primary_key must be a single column name or a list of column names')
+        raise excs.Error('primary_key must be a single column name or a list of column names', excs.BAD_REQUEST)
     return primary_key
 
 
@@ -56,7 +56,7 @@ def normalize_schema_names(
     # Report any untyped columns as an error
     untyped_cols = [in_name for in_name, column_type in in_schema.items() if column_type is None]
     if len(untyped_cols) > 0:
-        raise excs.Error(f'Could not infer pixeltable type for column(s): {", ".join(untyped_cols)}')
+        raise excs.Error(f'Could not infer pixeltable type for column(s): {", ".join(untyped_cols)}', excs.BAD_REQUEST)
 
     # Report any columns in `schema_overrides` that are not in the source
     extraneous_overrides = schema_overrides.keys() - in_schema.keys()
@@ -64,7 +64,7 @@ def normalize_schema_names(
         raise excs.Error(
             f'Some column(s) specified in `schema_overrides` are not present '
             f'in the source: {", ".join(extraneous_overrides)}'
-        )
+        , excs.BAD_REQUEST)
 
     schema: dict[str, Any] = {}
     col_mapping: dict[str, str] = {}  # Maps column names to Pixeltable column names if needed
@@ -86,14 +86,14 @@ def normalize_schema_names(
         if require_valid_pxt_column_names:
             raise excs.Error(
                 f'Column names must be valid pixeltable identifiers. Invalid names: {", ".join(non_identity_keys)}'
-            )
+            , excs.BAD_REQUEST)
     else:
         col_mapping = None
 
     # Report any primary key columns that are not in the source as an error
     missing_pk = [pk for pk in primary_key if pk not in in_schema]
     if len(missing_pk) > 0:
-        raise excs.Error(f'Primary key column(s) are not found in the source: {", ".join(missing_pk)}')
+        raise excs.Error(f'Primary key column(s) are not found in the source: {", ".join(missing_pk)}', excs.NOT_FOUND)
 
     pxt_pk = [col_mapping[pk] for pk in primary_key] if col_mapping is not None else primary_key
 

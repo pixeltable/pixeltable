@@ -48,7 +48,7 @@ class Comparison(Expr):
             raise excs.Error(
                 f'String literal too long for comparison against indexed column {self._op1.col.name!r} '
                 f'(max length is {index.BtreeIndex.MAX_STRING_LEN - 1})'
-            )
+            , excs.BAD_REQUEST)
 
         self.id = self._create_id()
 

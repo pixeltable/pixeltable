@@ -26,35 +26,35 @@ Required format:
 def _verify_input_dict(input_dict: dict[str, Any]) -> None:
     """Verify that input_dict is a valid input dict for write_coco_dataset()"""
     if not isinstance(input_dict, dict):
-        raise excs.Error(f'Expected dict, got {input_dict}{format_msg}')
+        raise excs.Error(f'Expected dict, got {input_dict}{format_msg}', excs.BAD_REQUEST)
     if 'image' not in input_dict:
-        raise excs.Error(f'Missing key "image" in input dict: {input_dict}{format_msg}')
+        raise excs.Error(f'Missing key "image" in input dict: {input_dict}{format_msg}', excs.BAD_REQUEST)
     if not isinstance(input_dict['image'], PIL.Image.Image):
-        raise excs.Error(f'Value for "image" is not a PIL.Image.Image: {input_dict}{format_msg}')
+        raise excs.Error(f'Value for "image" is not a PIL.Image.Image: {input_dict}{format_msg}', excs.BAD_REQUEST)
     if 'annotations' not in input_dict:
-        raise excs.Error(f'Missing key "annotations" in input dict: {input_dict}{format_msg}')
+        raise excs.Error(f'Missing key "annotations" in input dict: {input_dict}{format_msg}', excs.BAD_REQUEST)
     if not isinstance(input_dict['annotations'], list):
-        raise excs.Error(f'Value for "annotations" is not a list: {input_dict}{format_msg}')
+        raise excs.Error(f'Value for "annotations" is not a list: {input_dict}{format_msg}', excs.BAD_REQUEST)
     for annotation in input_dict['annotations']:
         if not isinstance(annotation, dict):
-            raise excs.Error(f'Annotation is not a dict: {annotation}{format_msg}')
+            raise excs.Error(f'Annotation is not a dict: {annotation}{format_msg}', excs.BAD_REQUEST)
         if 'bbox' not in annotation:
-            raise excs.Error(f'Missing key "bbox" in annotation: {annotation}{format_msg}')
+            raise excs.Error(f'Missing key "bbox" in annotation: {annotation}{format_msg}', excs.BAD_REQUEST)
         if not isinstance(annotation['bbox'], list):
-            raise excs.Error(f'Value for "bbox" is not a list [x, y, w, h]: {annotation}{format_msg}')
+            raise excs.Error(f'Value for "bbox" is not a list [x, y, w, h]: {annotation}{format_msg}', excs.BAD_REQUEST)
         if len(annotation['bbox']) != 4 or not all(isinstance(x, int) for x in annotation['bbox']):
-            raise excs.Error(f'Key "bbox" is not a list [x, y, w, h] of ints: {annotation}{format_msg}')
+            raise excs.Error(f'Key "bbox" is not a list [x, y, w, h] of ints: {annotation}{format_msg}', excs.BAD_REQUEST)
         if 'category' not in annotation:
-            raise excs.Error(f'Missing key "category" in annotation: {annotation}{format_msg}')
+            raise excs.Error(f'Missing key "category" in annotation: {annotation}{format_msg}', excs.BAD_REQUEST)
         if not isinstance(annotation['category'], (str, int)):
-            raise excs.Error(f'Value for "category" is not a str or int: {annotation}{format_msg}')
+            raise excs.Error(f'Value for "category" is not a str or int: {annotation}{format_msg}', excs.BAD_REQUEST)
 
 
 def write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
     """Export a ResultSet as a COCO dataset in dest_path and return the path of the data.json file."""
     # TODO: validate schema
     if len(query._select_list_exprs) != 1 or not query._select_list_exprs[0].col_type.is_json_type():
-        raise excs.Error(f'Expected exactly one json-typed column in select list: {query._select_list_exprs}')
+        raise excs.Error(f'Expected exactly one json-typed column in select list: {query._select_list_exprs}', excs.BAD_REQUEST)
     input_dict_slot_idx = -1  # df._select_list_exprs[0].slot_idx isn't valid until _exec()
 
     # create output dir

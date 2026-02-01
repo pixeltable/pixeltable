@@ -73,5 +73,5 @@ def mcp_tool_to_udf(url: str, mcp_tool: 'mcp.types.Tool') -> 'pxt.func.Function'
 def __mcp_param_to_pxt_type(tool_name: str, name: str, param: dict[str, Any]) -> ts.ColumnType:
     pxt_type = ts.ColumnType.from_json_schema(param)
     if pxt_type is None:
-        raise excs.Error(f'Unknown type schema for MCP parameter {name!r} of tool {tool_name!r}: {param}')
+        raise excs.Error(f'Unknown type schema for MCP parameter {name!r} of tool {tool_name!r}: {param}', excs.NOT_FOUND)
     return pxt_type

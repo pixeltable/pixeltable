@@ -1,3 +1,4 @@
+import enum
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
@@ -5,8 +6,30 @@ if TYPE_CHECKING:
     from pixeltable import exprs
 
 
+class ErrorCategory(enum.Enum):
+    """Category for user-facing errors. Used to classify each Error for handling/retries."""
+
+    RETRYABLE = 'retryable'  # Conflict/concurrency/timeout; retry may succeed
+    NOT_FOUND = 'not_found'  # Unknown columns, indexes, tables, functions, UDFs
+    BAD_REQUEST = 'bad_request'  # Invalid input or operation not allowed (e.g. immutable)
+    INTERNAL_SERVER_ERROR = 'internal_server_error'  # DB/config/runtime failure
+
+
+# Short aliases for raise sites: excs.Error('...', excs.NOT_FOUND)
+RETRYABLE = ErrorCategory.RETRYABLE
+NOT_FOUND = ErrorCategory.NOT_FOUND
+BAD_REQUEST = ErrorCategory.BAD_REQUEST
+INTERNAL_SERVER_ERROR = ErrorCategory.INTERNAL_SERVER_ERROR
+
+
 class Error(Exception):
-    pass
+    """Base exception for all user-facing Pixeltable errors."""
+
+    category: ErrorCategory | None
+
+    def __init__(self, msg: str, category: ErrorCategory | None = None) -> None:
+        super().__init__(msg)
+        self.category = category
 
 
 class ExprEvalError(Exception):

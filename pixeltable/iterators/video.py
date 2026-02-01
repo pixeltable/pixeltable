@@ -91,10 +91,10 @@ class FrameIterator(ComponentIterator):
         all_frame_attrs: bool = False,
     ):
         if int(fps is not None) + int(num_frames is not None) + int(keyframes_only) > 1:
-            raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
+            raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified', excs.BAD_REQUEST)
 
         if fps is not None and fps < 0.0:
-            raise excs.Error('`fps` must be a non-negative number')
+            raise excs.Error('`fps` must be a non-negative number', excs.BAD_REQUEST)
 
         if fps == 0.0:
             fps = None  # treat 0.0 as unspecified
@@ -129,7 +129,7 @@ class FrameIterator(ComponentIterator):
                 self.video_duration = None
 
         if self.video_duration is None and self.num_frames is not None:
-            raise excs.Error(f'Could not determine duration of video: {video}')
+            raise excs.Error(f'Could not determine duration of video: {video}', excs.INTERNAL_SERVER_ERROR)
 
         # If self.fps or self.num_frames is specified, we cannot rely on knowing in advance which frame positions will
         # be needed, since for variable framerate videos we do not know in advance the precise timestamp of each frame.
@@ -173,12 +173,12 @@ class FrameIterator(ComponentIterator):
         num_frames = kwargs.get('num_frames')
         keyframes_only = kwargs.get('keyframes_only')
         if int(fps is not None) + int(num_frames is not None) + int(keyframes_only is not None) > 1:
-            raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
+            raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified', excs.BAD_REQUEST)
 
         attrs: dict[str, ts.ColumnType]
         fps = kwargs.get('fps')
         if fps is not None and (not isinstance(fps, (int, float)) or fps < 0.0):
-            raise excs.Error('`fps` must be a non-negative number')
+            raise excs.Error('`fps` must be a non-negative number', excs.BAD_REQUEST)
 
         if kwargs.get('all_frame_attrs'):
             attrs = {'frame_attrs': ts.JsonType()}
@@ -400,14 +400,14 @@ class VideoSplitter(ComponentIterator):
         video_encoder_args: Any,
     ) -> None:
         if segment_duration is None and segment_times is None:
-            raise excs.Error('Must specify either duration or segment_times')
+            raise excs.Error('Must specify either duration or segment_times', excs.BAD_REQUEST)
         if segment_duration is not None and segment_times is not None:
-            raise excs.Error('duration and segment_times cannot both be specified')
+            raise excs.Error('duration and segment_times cannot both be specified', excs.BAD_REQUEST)
         if segment_times is not None and overlap is not None:
-            raise excs.Error('overlap cannot be specified with segment_times')
+            raise excs.Error('overlap cannot be specified with segment_times', excs.BAD_REQUEST)
         if segment_duration is not None and isinstance(segment_duration, (int, float)):
             if segment_duration <= 0.0:
-                raise excs.Error(f'duration must be a positive number: {segment_duration}')
+                raise excs.Error(f'duration must be a positive number: {segment_duration}', excs.BAD_REQUEST)
             if (
                 min_segment_duration is not None
                 and isinstance(min_segment_duration, (int, float))
@@ -415,16 +415,16 @@ class VideoSplitter(ComponentIterator):
             ):
                 raise excs.Error(
                     f'duration must be at least min_segment_duration: {segment_duration} < {min_segment_duration}'
-                )
+                , excs.BAD_REQUEST)
             if overlap is not None and isinstance(overlap, (int, float)) and overlap >= segment_duration:
-                raise excs.Error(f'overlap must be less than duration: {overlap} >= {segment_duration}')
+                raise excs.Error(f'overlap must be less than duration: {overlap} >= {segment_duration}', excs.BAD_REQUEST)
         if mode == 'accurate' and overlap is not None:
-            raise excs.Error("Cannot specify overlap for mode='accurate'")
+            raise excs.Error("Cannot specify overlap for mode='accurate'", excs.BAD_REQUEST)
         if mode == 'fast':
             if video_encoder is not None:
-                raise excs.Error("Cannot specify video_encoder for mode='fast'")
+                raise excs.Error("Cannot specify video_encoder for mode='fast'", excs.BAD_REQUEST)
             if video_encoder_args is not None:
-                raise excs.Error("Cannot specify video_encoder_args for mode='fast'")
+                raise excs.Error("Cannot specify video_encoder_args for mode='fast'", excs.BAD_REQUEST)
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:

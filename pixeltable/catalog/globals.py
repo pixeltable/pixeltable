@@ -37,7 +37,7 @@ class MediaValidation(enum.Enum):
             return cls[name.upper()]
         except KeyError:
             val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__)
-            raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]') from None
+            raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]', excs.BAD_REQUEST) from None
 
 
 class IfExistsParam(enum.Enum):
@@ -52,7 +52,7 @@ class IfExistsParam(enum.Enum):
             return cls[param_val.upper()]
         except KeyError:
             val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__)
-            raise excs.Error(f'{param_name} must be one of: [{val_strs}]') from None
+            raise excs.Error(f'{param_name} must be one of: [{val_strs}]', excs.BAD_REQUEST) from None
 
 
 class IfNotExistsParam(enum.Enum):
@@ -65,7 +65,7 @@ class IfNotExistsParam(enum.Enum):
             return cls[param_val.upper()]
         except KeyError:
             val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__)
-            raise excs.Error(f'{param_name} must be one of: [{val_strs}]') from None
+            raise excs.Error(f'{param_name} must be one of: [{val_strs}]', excs.BAD_REQUEST) from None
 
 
 def is_valid_identifier(name: str, *, allow_system_identifiers: bool = False, allow_hyphens: bool = False) -> bool:

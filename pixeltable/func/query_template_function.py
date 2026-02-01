@@ -164,11 +164,11 @@ def retrieval_udf(
     else:
         for param in parameters:
             if isinstance(param, str) and param not in col_names:
-                raise excs.Error(f'The specified parameter {param!r} is not a column of the table {table._path()!r}')
+                raise excs.Error(f'The specified parameter {param!r} is not a column of the table {table._path()!r}', excs.BAD_REQUEST)
         col_refs = [table[param] if isinstance(param, str) else param for param in parameters]
 
     if len(col_refs) == 0:
-        raise excs.Error('Parameter list cannot be empty.')
+        raise excs.Error('Parameter list cannot be empty.', excs.BAD_REQUEST)
 
     # Construct the Query
     predicates = [col_ref == exprs.Variable(col_ref.col.name, col_ref.col.col_type) for col_ref in col_refs]

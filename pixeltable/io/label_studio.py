@@ -78,7 +78,7 @@ class LabelStudioProject(Project):
                 raise excs.Error(
                     f'Could not locate Label Studio project: {self.project_id} '
                     '(cannot connect to server or project no longer exists)'
-                ) from exc
+                , excs.BAD_REQUEST) from exc
         return self._project
 
     @property
@@ -457,7 +457,7 @@ class LabelStudioProject(Project):
         """
         root: ET.Element = ET.fromstring(xml_config)
         if root.tag.lower() != 'view':
-            raise excs.Error('Root of Label Studio config must be a `View`')
+            raise excs.Error('Root of Label Studio config must be a `View`', excs.BAD_REQUEST)
         config = _LabelStudioConfig(
             data_keys=cls.__parse_data_keys_config(root), rectangle_labels=cls.__parse_rectangle_labels_config(root)
         )
@@ -476,7 +476,7 @@ class LabelStudioProject(Project):
                 if column_type is None:
                     raise excs.Error(
                         f'Unsupported Label Studio data type: `{element.tag}` (in data key `{external_col_name}`)'
-                    )
+                    , excs.BAD_REQUEST)
                 config[external_col_name] = _DataKey(name=name, column_type=column_type)
         return config
 
@@ -491,7 +491,7 @@ class LabelStudioProject(Project):
                 labels = [child.attrib['value'] for child in element if child.tag.lower() == 'label']
                 for label in labels:
                     if label not in coco.COCO_2017_CATEGORIES.values():
-                        raise excs.Error(f'Label in `rectanglelabels` config is not a valid COCO object name: {label}')
+                        raise excs.Error(f'Label in `rectanglelabels` config is not a valid COCO object name: {label}', excs.BAD_REQUEST)
                 config[name] = _RectangleLabel(to_name=to_name, labels=labels)
         return config
 
@@ -589,14 +589,14 @@ class LabelStudioProject(Project):
 
         # Perform some additional validation
         if media_import_method == 'post' and len(config.data_keys) > 1:
-            raise excs.Error('`media_import_method` cannot be `post` if there is more than one data key')
+            raise excs.Error('`media_import_method` cannot be `post` if there is more than one data key', excs.BAD_REQUEST)
 
         if s3_configuration is not None:
             if media_import_method != 'url':
-                raise excs.Error("`s3_configuration` is only valid when `media_import_method == 'url'`")
+                raise excs.Error("`s3_configuration` is only valid when `media_import_method == 'url'`", excs.BAD_REQUEST)
             s3_configuration = copy.copy(s3_configuration)
             if 'bucket' not in s3_configuration:
-                raise excs.Error('`s3_configuration` must contain a `bucket` field')
+                raise excs.Error('`s3_configuration` must contain a `bucket` field', excs.BAD_REQUEST)
             if 'title' not in s3_configuration:
                 s3_configuration['title'] = 'Pixeltable-S3-Import-Storage'
             if (
@@ -639,7 +639,7 @@ class LabelStudioProject(Project):
                             'for local file storage.\nPlease set the `LABEL_STUDIO_LOCAL_FILES_SERVING_ENABLED` '
                             'environment variable to `true` in the environment where your Label Studio server '
                             'is running.'
-                        ) from exc
+                        , excs.BAD_REQUEST) from exc
                 raise  # Handle any other exception type normally
 
         if s3_configuration is not None:
@@ -674,7 +674,7 @@ class _LabelStudioConfig:
                 raise excs.Error(
                     f'Invalid Label Studio configuration: `toName` attribute of RectangleLabels `{name}` '
                     f'references an unknown data key: `{rl.to_name}`'
-                )
+                , excs.BAD_REQUEST)
 
     @property
     def export_columns(self) -> dict[str, ts.ColumnType]:

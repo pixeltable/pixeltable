@@ -68,7 +68,7 @@ def export_parquet(
         query = table_or_query
 
     if not inline_images and any(col_type.is_image_type() for col_type in query.schema.values()):
-        raise excs.Error('Cannot export Query with image columns when inline_images is False')
+        raise excs.Error('Cannot export Query with image columns when inline_images is False', excs.BAD_REQUEST)
 
     # store the changes atomically
     with transactional_directory(parquet_path) as temp_path:

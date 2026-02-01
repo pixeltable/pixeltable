@@ -266,7 +266,7 @@ class S3Store(ObjectStoreBase):
         except ConnectionError as e:
             raise excs.Error(
                 f'Connection error while validating destination {self.__base_uri!r} for {error_col_name}: {e}'
-            ) from e
+            , excs.BAD_REQUEST) from e
         return None
 
     def _prepare_uri_raw(self, tbl_id: uuid.UUID, col_id: int, tbl_version: int, ext: str | None = None) -> str:
@@ -452,19 +452,19 @@ class S3Store(ObjectStoreBase):
         if ignore_404 and error_code == '404':
             return
         if error_code == '404':
-            raise excs.Error(f'Client error while {operation}: Bucket {self.bucket_name!r} not found') from e
+            raise excs.Error(f'Client error while {operation}: Bucket {self.bucket_name!r} not found', excs.NOT_FOUND) from e
         elif error_code == '403':
             raise excs.Error(
                 f'Client error while {operation}: Access denied to bucket {self.bucket_name!r}: {error_message}'
-            ) from e
+            , excs.BAD_REQUEST) from e
         elif error_code == 'PreconditionFailed' or 'PreconditionFailed' in error_message:
             raise excs.Error(
                 f'Client error while {operation}: Precondition failed for bucket {self.bucket_name!r}: {error_message}'
-            ) from e
+            , excs.BAD_REQUEST) from e
         else:
             raise excs.Error(
                 f'Client error while {operation} in bucket {self.bucket_name!r}: {error_code} - {error_message}'
-            ) from e
+            , excs.BAD_REQUEST) from e
 
     @classmethod
     def create_boto_session(cls, profile_name: str | None = None) -> Any:
@@ -508,7 +508,7 @@ class S3Store(ObjectStoreBase):
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
         """Create a presigned URL for downloading an object from S3-compatible storage."""
         if not soa.has_object:
-            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}', excs.BAD_REQUEST)
 
         s3_client = self.client()
 

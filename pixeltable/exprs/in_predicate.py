@@ -19,7 +19,7 @@ class InPredicate(Expr):
     def __init__(self, lhs: Expr, value_set_literal: Iterable | None = None, value_set_expr: Expr | None = None):
         assert (value_set_literal is None) != (value_set_expr is None)
         if not lhs.col_type.is_scalar_type():
-            raise excs.Error(f'isin(): only supported for scalar types, not {lhs.col_type}')
+            raise excs.Error(f'isin(): only supported for scalar types, not {lhs.col_type}', excs.BAD_REQUEST)
         super().__init__(ts.BoolType())
 
         self.value_list: list | None = None  # only contains values of the correct type
@@ -27,7 +27,7 @@ class InPredicate(Expr):
             if not value_set_expr.col_type.is_json_type():
                 raise excs.Error(
                     f'isin(): argument must have a JSON type, but {value_set_expr} has type {value_set_expr.col_type}'
-                )
+                , excs.BAD_REQUEST)
             self.components = [lhs.copy(), value_set_expr.copy()]
         else:
             assert value_set_literal is not None
@@ -47,7 +47,7 @@ class InPredicate(Expr):
 
     def _normalize_value_set(self, value_set: Iterable, filter_type_mismatches: bool = True) -> list:
         if not isinstance(value_set, Iterable):
-            raise excs.Error(f'isin(): argument must be an Iterable (eg, list, dict, ...), not {value_set!r}')
+            raise excs.Error(f'isin(): argument must be an Iterable (eg, list, dict, ...), not {value_set!r}', excs.BAD_REQUEST)
         value_list = list(value_set)
         if not filter_type_mismatches:
             return value_list

@@ -57,7 +57,7 @@ def presigned_url(uri: str, expiration_seconds: int) -> str:
         raise excs.Error(
             'Cannot generate presigned URL for local file:// URLs. '
             'Please use cloud storage (S3, GCS, Azure) for presigned URLs.'
-        )
+        , excs.BAD_REQUEST)
 
     store = ObjectOps.get_store(soa, allow_obj_name=True)
     return store.create_presigned_url(soa, expiration_seconds)

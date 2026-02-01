@@ -67,10 +67,10 @@ class EmbeddingIndex(IndexBase):
         video_embed: func.Function | None = None,
     ):
         if embed is None and string_embed is None and image_embed is None:
-            raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified')
+            raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified', excs.BAD_REQUEST)
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
-            raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
+            raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}', excs.BAD_REQUEST)
 
         self.embeddings = {}
 
@@ -91,7 +91,7 @@ class EmbeddingIndex(IndexBase):
                     raise excs.Error(
                         f'The function `{embed_fn.name}` is not a valid {embed_type.name.lower()} '
                         f'embedding: it must take a single {embed_type.name.lower()} parameter'
-                    )
+                    , excs.BAD_REQUEST)
                 self.embeddings[embed_type] = resolved_fn
             elif embed is not None:
                 # General `embed` is specified; see if it has a matching signature.
@@ -105,7 +105,7 @@ class EmbeddingIndex(IndexBase):
             raise excs.Error(
                 f'The function `{embed.name}` is not a valid embedding: '
                 'it must take a single string, image, audio, or video parameter'
-            )
+            , excs.BAD_REQUEST)
 
         # Now validate the return types of the embedding functions.
         for _, embed_fn in self.embeddings.items():
@@ -116,7 +116,7 @@ class EmbeddingIndex(IndexBase):
             self.precision = self.Precision(precision)
         except ValueError:
             valid_values = [p.value for p in self.Precision]
-            raise excs.Error(f"Invalid precision '{precision}'. Must be one of: {valid_values}") from None
+            raise excs.Error(f"Invalid precision '{precision}'. Must be one of: {valid_values}", excs.BAD_REQUEST) from None
 
     def create_value_expr(self, c: catalog.Column) -> exprs.Expr:
         if c.col_type._type not in (
@@ -125,11 +125,11 @@ class EmbeddingIndex(IndexBase):
             ts.ColumnType.Type.AUDIO,
             ts.ColumnType.Type.VIDEO,
         ):
-            raise excs.Error(f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.')
+            raise excs.Error(f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.', excs.BAD_REQUEST)
         if c.col_type._type not in self.embeddings:
             raise excs.Error(
                 f'The specified embedding function does not support the type `{c.col_type}` of column {c.name!r}.'
-            )
+            , excs.BAD_REQUEST)
 
         embed_fn = self.embeddings[c.col_type._type]
         return embed_fn(exprs.ColumnRef(c))
@@ -155,14 +155,14 @@ class EmbeddingIndex(IndexBase):
                     raise excs.Error(
                         f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
                         f' {MAX_EMBEDDING_VECTOR_LENGTH} for {self.precision.value} precision'
-                    )
+                    , excs.BAD_REQUEST)
                 return pgvector.sqlalchemy.Vector(vector_length)
             case self.Precision.FP16:
                 if vector_length > MAX_EMBEDDING_HALFVEC_LENGTH:
                     raise excs.Error(
                         f"Embedding index's vector dimensionality {vector_length} exceeds maximum of"
                         f' {MAX_EMBEDDING_HALFVEC_LENGTH} for {self.precision.value} precision'
-                    )
+                    , excs.BAD_REQUEST)
                 return pgvector.sqlalchemy.HALFVEC(vector_length)
             case _:
                 raise AssertionError(self.precision)
@@ -261,19 +261,19 @@ class EmbeddingIndex(IndexBase):
             raise excs.Error(
                 f'The function `{embed_fn.name}` is not a valid embedding: '
                 f'it must return an array, but returns {return_type}'
-            )
+            , excs.BAD_REQUEST)
 
         shape = return_type.shape
         if len(shape) != 1 or shape[0] is None:
             raise excs.Error(
                 f'The function `{embed_fn.name}` is not a valid embedding: '
                 f'it must return a 1-dimensional array of a specific length, but returns {return_type}'
-            )
+            , excs.BAD_REQUEST)
         if shape[0] <= 0:
             raise excs.Error(
                 f'The function `{embed_fn.name}` is not a valid embedding: '
                 f'it returns an array of invalid length {shape[0]}'
-            )
+            , excs.BAD_REQUEST)
 
     def as_dict(self) -> dict:
         d: dict[str, Any] = {'metric': self.metric.name.lower(), 'precision': self.precision.value}

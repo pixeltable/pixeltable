@@ -29,7 +29,7 @@ def get_spacy_model(model_name: str) -> 'spacy.Language':
             raise excs.Error(
                 f'Failed to locate spaCy model {model_name!r}. To install it, run:\n'
                 f'    python -m spacy download {model_name}'
-            ) from e
+            , excs.BAD_REQUEST) from e
         _MODEL_CACHE[model_name] = model
 
     return _MODEL_CACHE[model_name]

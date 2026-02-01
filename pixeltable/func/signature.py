@@ -30,13 +30,13 @@ class Parameter:
 
         if self.default is not None:
             if self.col_type is None:
-                raise excs.Error(f'Cannot have a default value for variable parameter {self.name!r}')
+                raise excs.Error(f'Cannot have a default value for variable parameter {self.name!r}', excs.BAD_REQUEST)
             if not isinstance(self.default, exprs.Literal):
-                raise excs.Error(f'Default value for parameter {self.name!r} is not a constant')
+                raise excs.Error(f'Default value for parameter {self.name!r} is not a constant', excs.BAD_REQUEST)
             if not self.col_type.is_supertype_of(self.default.col_type):
                 raise excs.Error(
                     f'Default value for parameter {self.name!r} is not of type {self.col_type!r}: {self.default}'
-                )
+                , excs.BAD_REQUEST)
 
     def has_default(self) -> bool:
         return self.default is not None
@@ -185,7 +185,7 @@ class Signature:
             assert param.col_type is not None
 
             if arg is None:
-                raise excs.Error(f'Parameter {param_name!r}{context}: invalid argument')
+                raise excs.Error(f'Parameter {param_name!r}{context}: invalid argument', excs.BAD_REQUEST)
 
             # Check that the argument is consistent with the expected parameter type, with the allowance that
             # non-nullable parameters can still accept nullable arguments (since in that event, FunctionCall.eval()
@@ -201,7 +201,7 @@ class Signature:
                 raise excs.Error(
                     f'Parameter {param_name!r}{context}: argument type {arg.col_type} does not'
                     f' match parameter type {param.col_type}'
-                )
+                , excs.BAD_REQUEST)
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Signature):
@@ -276,9 +276,9 @@ class Signature:
             if param.name in cls.SYSTEM_PARAM_NAMES:
                 continue  # skip system parameters
             if param.name.startswith('_'):
-                raise excs.Error(f"{param.name!r}: parameters starting with '_' are reserved")
+                raise excs.Error(f"{param.name!r}: parameters starting with '_' are reserved", excs.BAD_REQUEST)
             if param.name in cls.SPECIAL_PARAM_NAMES:
-                raise excs.Error(f'{param.name!r} is a reserved parameter name')
+                raise excs.Error(f'{param.name!r} is a reserved parameter name', excs.BAD_REQUEST)
             if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
                 parameters.append(Parameter(param.name, col_type=None, kind=param.kind))
                 continue
@@ -286,7 +286,7 @@ class Signature:
             # check non-var parameters for name collisions and default value compatibility
             if param_types is not None:
                 if idx >= len(param_types):
-                    raise excs.Error(f'Missing type for parameter {param.name!r}')
+                    raise excs.Error(f'Missing type for parameter {param.name!r}', excs.BAD_REQUEST)
                 param_type = param_types[idx]
                 is_batched = False
             else:
@@ -294,11 +294,11 @@ class Signature:
                 py_type = type_substitutions.get(param.annotation, param.annotation)
                 param_type, is_batched = cls._infer_type(py_type)
                 if param_type is None:
-                    raise excs.Error(f'Cannot infer pixeltable type for parameter {param.name!r}')
+                    raise excs.Error(f'Cannot infer pixeltable type for parameter {param.name!r}', excs.BAD_REQUEST)
 
             default = None if param.default is inspect.Parameter.empty else exprs.Expr.from_object(param.default)
             if not (default is None or isinstance(default, exprs.Literal)):
-                raise excs.Error(f'Default value for parameter {param.name!r} must be a constant')
+                raise excs.Error(f'Default value for parameter {param.name!r} must be a constant', excs.BAD_REQUEST)
 
             parameters.append(
                 Parameter(param.name, col_type=param_type, kind=param.kind, is_batched=is_batched, default=default)
@@ -331,7 +331,7 @@ class Signature:
             py_type = type_substitutions.get(sig.return_annotation, sig.return_annotation)
             return_type, return_is_batched = cls._infer_type(py_type)
             if return_type is None:
-                raise excs.Error('Cannot infer pixeltable return type')
+                raise excs.Error('Cannot infer pixeltable return type', excs.BAD_REQUEST)
         else:
             _, return_is_batched = cls._infer_type(sig.return_annotation)
         system_params = [param_name for param_name in sig.parameters if param_name in cls.SYSTEM_PARAM_NAMES]

@@ -97,7 +97,7 @@ class AggregateFunction(Function):
         assert value_type is not None
 
         if len(update_types) == 0:
-            raise excs.Error('update() must have at least one parameter')
+            raise excs.Error('update() must have at least one parameter', excs.BAD_REQUEST)
 
         # our signature is the signature of 'update', but without self,
         # plus the parameters of 'init' as keyword-only parameters
@@ -128,7 +128,7 @@ class AggregateFunction(Function):
         if len(duplicate_params) > 0:
             raise excs.Error(
                 f'__init__() and update() cannot have parameters with the same name: {", ".join(duplicate_params)}'
-            )
+            , excs.BAD_REQUEST)
         params = update_params + init_params  # init_params are keyword-only and come last
         init_param_names = [p.name for p in init_params]
 
@@ -148,11 +148,11 @@ class AggregateFunction(Function):
 
     def overload(self, cls: type[Aggregator]) -> AggregateFunction:
         if not isinstance(cls, type) or not issubclass(cls, Aggregator):
-            raise excs.Error(f'Invalid argument to @overload decorator: {cls}')
+            raise excs.Error(f'Invalid argument to @overload decorator: {cls}', excs.BAD_REQUEST)
         if self._has_resolved_fns:
-            raise excs.Error('New `overload` not allowed after the UDF has already been called')
+            raise excs.Error('New `overload` not allowed after the UDF has already been called', excs.BAD_REQUEST)
         if self._conditional_return_type is not None:
-            raise excs.Error('New `overload` not allowed after a conditional return type has been specified')
+            raise excs.Error('New `overload` not allowed after a conditional return type has been specified', excs.BAD_REQUEST)
         sig, init_param_names = self.__cls_to_signature(cls)
         self.signatures.append(sig)
         self.agg_classes.append(cls)
@@ -179,22 +179,22 @@ class AggregateFunction(Function):
                 raise excs.Error(
                     f'{self.display_name}(): order_by invalid, this function requires the first argument to be the '
                     f'ordering expression'
-                )
+                , excs.BAD_REQUEST)
             if not self.allows_window:
                 raise excs.Error(
                     f'{self.display_name}(): order_by invalid with an aggregate function that does not allow windows'
-                )
+                , excs.BAD_REQUEST)
             order_by_clause = kwargs.pop(self.ORDER_BY_PARAM)
         elif self.requires_order_by:
             # the first argument is the order-by expr
             if len(args) == 0:
-                raise excs.Error(f'{self.display_name}(): requires an ordering expression as its first argument')
+                raise excs.Error(f'{self.display_name}(): requires an ordering expression as its first argument', excs.BAD_REQUEST)
             order_by_clause = args[0]
             if not isinstance(order_by_clause, exprs.Expr):
                 raise excs.Error(
                     f'{self.display_name}(): the first argument needs to be a Pixeltable expression, but instead is a '
                     f'{type(order_by_clause)}'
-                )
+                , excs.BAD_REQUEST)
             # don't pass the first parameter on, the Function doesn't get to see it
             args = args[1:]
 
@@ -203,7 +203,7 @@ class AggregateFunction(Function):
             if not self.allows_window:
                 raise excs.Error(
                     f'{self.display_name}(): group_by invalid with an aggregate function that does not allow windows'
-                )
+                , excs.BAD_REQUEST)
             group_by_clause = kwargs.pop(self.GROUP_BY_PARAM)
 
         args = [exprs.Expr.from_object(arg) for arg in args]
@@ -230,7 +230,7 @@ class AggregateFunction(Function):
         # TODO: do this in the planner (check that init parameters are either constants or only refer to grouping exprs)
         for param_name in self.init_param_names[0]:
             if param_name in bound_args and not isinstance(bound_args[param_name], exprs.Literal):
-                raise excs.Error(f'{self.display_name}(): init() parameter {param_name!r} must be a constant value')
+                raise excs.Error(f'{self.display_name}(): init() parameter {param_name!r} must be a constant value', excs.BAD_REQUEST)
 
     def __repr__(self) -> str:
         return f'<Pixeltable Aggregator {self.name}>'
@@ -281,9 +281,9 @@ def uda(*args, **kwargs):  # type: ignore[no-untyped-def]
         allows_window = kwargs.pop('allows_window', False)
         type_substitutions = kwargs.pop('type_substitutions', None)
         if len(kwargs) > 0:
-            raise excs.Error(f'Invalid @uda decorator kwargs: {", ".join(kwargs.keys())}')
+            raise excs.Error(f'Invalid @uda decorator kwargs: {", ".join(kwargs.keys())}', excs.BAD_REQUEST)
         if len(args) > 0:
-            raise excs.Error('Unexpected @uda decorator arguments.')
+            raise excs.Error('Unexpected @uda decorator arguments.', excs.BAD_REQUEST)
 
         def decorator(cls: type[Aggregator]) -> AggregateFunction:
             return make_aggregator(

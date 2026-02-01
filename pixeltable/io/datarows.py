@@ -30,7 +30,7 @@ def _infer_schema_from_rows(
                     raise excs.Error(
                         f'Could not infer type for column `{col_name}`; the value in row {n} '
                         f'has an unsupported type: {type(value)}'
-                    )
+                    , excs.BAD_REQUEST)
                 if col_name not in schema:
                     schema[col_name] = col_type
                 else:
@@ -40,7 +40,7 @@ def _infer_schema_from_rows(
                             f'Could not infer type of column `{col_name}`; the value in row {n} '
                             f'does not match preceding type {schema[col_name]}: {value!r}\n'
                             'Consider specifying the type explicitly in `schema_overrides`.'
-                        )
+                        , excs.BAD_REQUEST)
                     schema[col_name] = supertype
             else:
                 cols_with_nones.add(col_name)
@@ -52,7 +52,7 @@ def _infer_schema_from_rows(
         raise excs.Error(
             f'The following columns have no non-null values: {", ".join(entirely_none_cols)}\n'
             'Consider specifying the type(s) explicitly in `schema_overrides`.'
-        )
+        , excs.BAD_REQUEST)
     return schema
 
 

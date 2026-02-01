@@ -101,7 +101,7 @@ class View(Table):
         # verify that filters can be evaluated in the context of the base
         if predicate is not None:
             if not predicate.is_bound_by([base]):
-                raise excs.Error(f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}')
+                raise excs.Error(f'View filter cannot be computed in the context of the base table {base.tbl_name()!r}', excs.BAD_REQUEST)
             # create a copy that we can modify and store
             predicate = predicate.copy()
         if sample_clause is not None:
@@ -111,7 +111,7 @@ class View(Table):
             ):
                 raise excs.Error(
                     f'View sample clause cannot be computed in the context of the base table {base.tbl_name()!r}'
-                )
+                , excs.BAD_REQUEST)
             # create a copy that we can modify and store
             sc = sample_clause
             sample_clause = SampleClause(
@@ -127,7 +127,7 @@ class View(Table):
                 raise excs.Error(
                     f'Column {col.name!r}: Value expression cannot be computed in the context of the '
                     f'base table {base.tbl_name()!r}'
-                )
+                , excs.BAD_REQUEST)
 
         if iterator_cls is not None:
             assert iterator_args is not None
@@ -140,7 +140,7 @@ class View(Table):
             try:
                 bound_args = py_signature.bind(None, **iterator_args).arguments  # None: arg for self
             except TypeError as exc:
-                raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
+                raise excs.Error(f'Invalid iterator arguments: {exc}', excs.BAD_REQUEST) from exc
             # we ignore 'self'
             first_param_name = next(iter(py_signature.parameters))  # can't guarantee it's actually 'self'
             del bound_args[first_param_name]
@@ -174,7 +174,7 @@ class View(Table):
                 if col.name in iterator_col_names:
                     raise excs.Error(
                         f'Duplicate name: column {col.name!r} is already present in the iterator output schema'
-                    )
+                    , excs.BAD_REQUEST)
             columns = iterator_cols + columns
 
         from pixeltable.exprs import InlineDict
@@ -239,7 +239,7 @@ class View(Table):
     def _verify_column(cls, col: Column) -> None:
         # make sure that columns are nullable or have a default
         if not col.col_type.nullable and not col.is_computed:
-            raise excs.Error(f'Column {col.name!r}: Non-computed columns in views must be nullable')
+            raise excs.Error(f'Column {col.name!r}: Non-computed columns in views must be nullable', excs.BAD_REQUEST)
         super()._verify_column(col)
 
     @classmethod
@@ -297,10 +297,10 @@ class View(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        raise excs.Error(f'{self._display_str()}: Cannot insert into a {self._display_name()}.')
+        raise excs.Error(f'{self._display_str()}: Cannot insert into a {self._display_name()}.', excs.BAD_REQUEST)
 
     def delete(self, where: exprs.Expr | None = None) -> UpdateStatus:
-        raise excs.Error(f'{self._display_str()}: Cannot delete from a {self._display_name()}.')
+        raise excs.Error(f'{self._display_str()}: Cannot delete from a {self._display_name()}.', excs.BAD_REQUEST)
 
     @property
     def _base_tbl_id(self) -> UUID | None:

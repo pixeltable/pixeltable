@@ -458,7 +458,7 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
         raise excs.Error(
             f"Language code '{language}' is not supported by the model '{model_id}'. "
             f'Supported languages are: {list(tokenizer.lang_code_to_id.keys())}'
-        )
+        , excs.BAD_REQUEST)
 
     forced_bos_token_id: int | None = None if language is None else tokenizer.lang_code_to_id[language]
 
@@ -763,7 +763,7 @@ def token_classification(
     if aggregation_strategy not in valid_strategies:
         raise excs.Error(
             f'Invalid aggregation_strategy {aggregation_strategy!r}. Must be one of: {", ".join(valid_strategies)}'
-        )
+        , excs.BAD_REQUEST)
 
     with torch.no_grad():
         # Tokenize with special tokens and return offsets for entity extraction
@@ -975,13 +975,13 @@ def translation(
         raise excs.Error(
             f'Source language code {src_lang!r} is not supported by the model {model_id!r}. '
             f'Supported languages are: {list(lang_code_to_id.keys())}'
-        )
+        , excs.BAD_REQUEST)
 
     if target_lang is not None and target_lang not in lang_code_to_id:
         raise excs.Error(
             f'Target language code {target_lang!r} is not supported by the model {model_id!r}. '
             f'Supported languages are: {list(lang_code_to_id.keys())}'
-        )
+        , excs.BAD_REQUEST)
 
     with torch.no_grad():
         inputs = tokenizer(text, return_tensors='pt', padding=True, truncation=True, max_length=512)
@@ -1053,10 +1053,10 @@ def text_to_image(
 
     # Parameter validation - following best practices pattern
     if height <= 0 or width <= 0:
-        raise excs.Error(f'Height ({height}) and width ({width}) must be positive integers')
+        raise excs.Error(f'Height ({height}) and width ({width}) must be positive integers', excs.BAD_REQUEST)
 
     if height % 8 != 0 or width % 8 != 0:
-        raise excs.Error(f'Height ({height}) and width ({width}) must be divisible by 8 for most diffusion models')
+        raise excs.Error(f'Height ({height}) and width ({width}) must be divisible by 8 for most diffusion models', excs.BAD_REQUEST)
 
     pipeline = _lookup_model(
         model_id,
@@ -1358,7 +1358,7 @@ def automatic_speech_recognition(
                 raise excs.Error(
                     f"Language code '{language}' is not supported by Whisper model '{model_id}'. "
                     f"Try common codes like 'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'ja', 'ko', 'zh'."
-                ) from None
+                , excs.BAD_REQUEST) from None
 
     elif 'wav2vec2' in model_id.lower():
         from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
@@ -1486,16 +1486,16 @@ def image_to_video(
 
     # Parameter validation - following best practices pattern
     if num_frames < 1:
-        raise excs.Error(f'num_frames must be at least 1, got {num_frames}')
+        raise excs.Error(f'num_frames must be at least 1, got {num_frames}', excs.BAD_REQUEST)
 
     if num_frames > 25:
-        raise excs.Error(f'num_frames cannot exceed 25 for most video diffusion models, got {num_frames}')
+        raise excs.Error(f'num_frames cannot exceed 25 for most video diffusion models, got {num_frames}', excs.BAD_REQUEST)
 
     if fps < 1:
-        raise excs.Error(f'fps must be at least 1, got {fps}')
+        raise excs.Error(f'fps must be at least 1, got {fps}', excs.BAD_REQUEST)
 
     if fps > 60:
-        raise excs.Error(f'fps should not exceed 60 for reasonable video generation, got {fps}')
+        raise excs.Error(f'fps should not exceed 60 for reasonable video generation, got {fps}', excs.BAD_REQUEST)
 
     pipe = _lookup_model(
         model_id,

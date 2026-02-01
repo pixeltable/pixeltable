@@ -28,12 +28,12 @@ class Path(NamedTuple):
         if ':' in path:
             parts = path.split(':')
             if len(parts) != 2:
-                raise excs.Error(f'Invalid path: {path}')
+                raise excs.Error(f'Invalid path: {path}', excs.BAD_REQUEST)
             try:
                 path_part = parts[0]
                 version = int(parts[1])
             except ValueError:
-                raise excs.Error(f'Invalid path: {path}') from None
+                raise excs.Error(f'Invalid path: {path}', excs.BAD_REQUEST) from None
         else:
             path_part = path
             version = None
@@ -48,15 +48,15 @@ class Path(NamedTuple):
             components = (path_part,) if path_part else ('',)
 
         if components == ('',) and not allow_empty_path:
-            raise excs.Error(f'Invalid path: {path}')
+            raise excs.Error(f'Invalid path: {path}', excs.BAD_REQUEST)
 
         if components != ('',) and not all(
             is_valid_identifier(c, allow_system_identifiers=allow_system_path, allow_hyphens=True) for c in components
         ):
-            raise excs.Error(f'Invalid path: {path}')
+            raise excs.Error(f'Invalid path: {path}', excs.BAD_REQUEST)
 
         if version is not None and not allow_versioned_path:
-            raise excs.Error(f'Versioned path not allowed here: {path}')
+            raise excs.Error(f'Versioned path not allowed here: {path}', excs.BAD_REQUEST)
 
         assert len(components) > 0
         return Path(components, version)

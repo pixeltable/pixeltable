@@ -361,7 +361,7 @@ class StoreBase:
                     for row in row_batch:
                         if abort_on_exc and row.has_exc():
                             exc = row.get_first_exc()
-                            raise excs.Error(f'Error while evaluating computed column {col.name!r}:\n{exc}') from exc
+                            raise excs.Error(f'Error while evaluating computed column {col.name!r}:\n{exc}', excs.INTERNAL_SERVER_ERROR) from exc
                         table_row, num_row_exc = row_builder.create_store_table_row(row, None, row.pk)
                         num_excs += num_row_exc
                         batch_table_rows.append(tuple(table_row))

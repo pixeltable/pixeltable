@@ -57,7 +57,7 @@ class JoinType(enum.Enum):
             return cls[name.upper()]
         except KeyError as exc:
             val_strs = ', '.join(f'{s.lower()!r}' for s in cls.__members__)
-            raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]') from exc
+            raise excs.Error(f'{error_prefix} must be one of: [{val_strs}]', excs.BAD_REQUEST) from exc
 
 
 @dataclasses.dataclass
@@ -224,7 +224,7 @@ class Analyzer:
         self.all_exprs.extend(e for e, _ in self.order_by_clause)
         if self.filter is not None:
             if sample_clause is not None:
-                raise excs.Error(f'Filter {self.filter} not expressible in SQL')
+                raise excs.Error(f'Filter {self.filter} not expressible in SQL', excs.BAD_REQUEST)
             self.all_exprs.append(self.filter)
 
         self.agg_order_by = []
@@ -263,25 +263,25 @@ class Analyzer:
         if is_agg_output.count(False) > 0:
             raise excs.Error(
                 f'Invalid non-aggregate expression in aggregate query: {self.select_list[is_agg_output.index(False)]}'
-            )
+            , excs.BAD_REQUEST)
 
         # check that Where clause and filter doesn't contain aggregates
         if self.sql_where_clause is not None and any(
             _is_agg_fn_call(e) for e in self.sql_where_clause.subexprs(expr_class=exprs.FunctionCall)
         ):
-            raise excs.Error(f'where() cannot contain aggregate functions: {self.sql_where_clause}')
+            raise excs.Error(f'where() cannot contain aggregate functions: {self.sql_where_clause}', excs.BAD_REQUEST)
         if self.filter is not None and any(
             _is_agg_fn_call(e) for e in self.filter.subexprs(expr_class=exprs.FunctionCall)
         ):
-            raise excs.Error(f'where() cannot contain aggregate functions: {self.filter}')
+            raise excs.Error(f'where() cannot contain aggregate functions: {self.filter}', excs.BAD_REQUEST)
 
         # check that grouping exprs don't contain aggregates and can be expressed as SQL (we perform sort-based
         # aggregation and rely on the SqlScanNode returning data in the correct order)
         for e in self.group_by_clause:
             if not self.sql_elements.contains(e):
-                raise excs.Error(f'Invalid grouping expression, needs to be expressible in SQL: {e}')
+                raise excs.Error(f'Invalid grouping expression, needs to be expressible in SQL: {e}', excs.BAD_REQUEST)
             if e._contains(filter=_is_agg_fn_call):
-                raise excs.Error(f'Grouping expression contains aggregate function: {e}')
+                raise excs.Error(f'Grouping expression contains aggregate function: {e}', excs.BAD_REQUEST)
 
     def _determine_agg_status(self, e: exprs.Expr, grouping_expr_ids: set[int]) -> tuple[bool, bool]:
         """Determine whether expr is the input to or output of an aggregate function.
@@ -294,7 +294,7 @@ class Analyzer:
             for c in e.components:
                 _, is_input = self._determine_agg_status(c, grouping_expr_ids)
                 if not is_input:
-                    raise excs.Error(f'Invalid nested aggregates: {e}')
+                    raise excs.Error(f'Invalid nested aggregates: {e}', excs.BAD_REQUEST)
             return True, False
         elif isinstance(e, exprs.Literal):
             return True, True
@@ -310,7 +310,7 @@ class Analyzer:
             is_output = component_is_output.count(True) == len(e.components)
             is_input = component_is_input.count(True) == len(e.components)
             if not is_output and not is_input:
-                raise excs.Error(f'Invalid expression, mixes aggregate with non-aggregate: {e}')
+                raise excs.Error(f'Invalid expression, mixes aggregate with non-aggregate: {e}', excs.BAD_REQUEST)
             return is_output, is_input
 
     def finalize(self, row_builder: exprs.RowBuilder) -> None:
@@ -353,7 +353,7 @@ class Planner:
         sql_node = plan.get_node(exec.SqlNode)
         assert sql_node is not None
         if sql_node.py_filter is not None:
-            raise excs.Error('count() cannot be used with Python-only filters. Use collect() instead.')
+            raise excs.Error('count() cannot be used with Python-only filters. Use collect() instead.', excs.BAD_REQUEST)
         # Get the SQL statement from the SqlNode as a CTE
         cte, _ = sql_node.to_cte(keep_pk=True)
         count_stmt = sql.select(sql.func.count().label('all_count')).select_from(cte)
@@ -520,7 +520,7 @@ class Planner:
                     )
                     .strip()
                     .format(validation_error=col.value_expr.validation_error)
-                )
+                , excs.BAD_REQUEST)
 
     @classmethod
     def _cell_md_col_refs(cls, expr_list: Iterable[exprs.Expr]) -> list[exprs.ColumnRef]:
@@ -838,7 +838,7 @@ class Planner:
         """Verify that join clauses are expressible in SQL"""
         for join_clause in analyzer.from_clause.join_clauses:
             if join_clause.join_predicate is not None and analyzer.sql_elements.get(join_clause.join_predicate) is None:
-                raise excs.Error(f'Join predicate {join_clause.join_predicate} not expressible in SQL')
+                raise excs.Error(f'Join predicate {join_clause.join_predicate} not expressible in SQL', excs.BAD_REQUEST)
 
     @classmethod
     def _create_combined_ordering(cls, analyzer: Analyzer, verify_agg: bool) -> OrderByClause | None:
@@ -871,7 +871,7 @@ class Planner:
                 raise excs.Error(
                     f'Incompatible ordering requirements: '
                     f'{print_order_by_clause(combined_ordering)} vs {print_order_by_clause(ordering)}'
-                )
+                , excs.BAD_REQUEST)
             combined_ordering = combined
         return combined_ordering
 

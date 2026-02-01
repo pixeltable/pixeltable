@@ -119,12 +119,12 @@ class TableDataConduit:
             mapped_col_name = self.source_column_map.get(col_name, col_name)
             col_name_set.add(mapped_col_name)
             if mapped_col_name not in self.pxt_schema:
-                raise excs.Error(f'Unknown column name {mapped_col_name}')
+                raise excs.Error(f'Unknown column name {mapped_col_name}', excs.NOT_FOUND)
             if mapped_col_name in self.computed_col_names:
-                raise excs.Error(f'Value for computed column {mapped_col_name}')
+                raise excs.Error(f'Value for computed column {mapped_col_name}', excs.BAD_REQUEST)
         missing_cols = self.reqd_col_names - col_name_set
         if len(missing_cols) > 0:
-            raise excs.Error(f'Missing required column(s) ({", ".join(missing_cols)})')
+            raise excs.Error(f'Missing required column(s) ({", ".join(missing_cols)})', excs.BAD_REQUEST)
 
 
 class QueryTableDataConduit(TableDataConduit):
@@ -201,7 +201,7 @@ class RowDataTableDataConduit(TableDataConduit):
 
     def _translate_row(self, row: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(row, dict):
-            raise excs.Error(f'row {row} is not a dictionary')
+            raise excs.Error(f'row {row} is not a dictionary', excs.BAD_REQUEST)
 
         col_names: set[str] = set()
         output_row: dict[str, Any] = {}
@@ -209,19 +209,19 @@ class RowDataTableDataConduit(TableDataConduit):
             mapped_col_name = self.source_column_map.get(col_name, col_name)
             col_names.add(mapped_col_name)
             if mapped_col_name not in self.pxt_schema:
-                raise excs.Error(f'Unknown column name {mapped_col_name} in row {row}')
+                raise excs.Error(f'Unknown column name {mapped_col_name} in row {row}', excs.NOT_FOUND)
             if mapped_col_name in self.computed_col_names:
-                raise excs.Error(f'Value for computed column {mapped_col_name} in row {row}')
+                raise excs.Error(f'Value for computed column {mapped_col_name} in row {row}', excs.BAD_REQUEST)
             # basic sanity checks here
             try:
                 checked_val = self.pxt_schema[mapped_col_name].create_literal(val)
             except TypeError as e:
                 msg = str(e)
-                raise excs.Error(f'Error in column {col_name}: {msg[0].lower() + msg[1:]}\nRow: {row}') from e
+                raise excs.Error(f'Error in column {col_name}: {msg[0].lower() + msg[1:]}\nRow: {row}', excs.BAD_REQUEST) from e
             output_row[mapped_col_name] = checked_val
         missing_cols = self.reqd_col_names - col_names
         if len(missing_cols) > 0:
-            raise excs.Error(f'Missing required column(s) ({", ".join(missing_cols)}) in row {row}')
+            raise excs.Error(f'Missing required column(s) ({", ".join(missing_cols)}) in row {row}', excs.BAD_REQUEST)
         return output_row
 
     def valid_row_batch(self) -> Iterator[RowData]:
@@ -401,7 +401,7 @@ class HFTableDataConduit(TableDataConduit):
                     raise excs.Error(
                         f'Column name `{self.column_name_for_split}` already exists in dataset schema;'
                         f'provide a different `column_name_for_split`'
-                    )
+                    , excs.BAD_REQUEST)
                 self.src_schema[self.column_name_for_split] = ts.StringType(nullable=True)
 
             inferred_schema, inferred_pk, self.source_column_map = normalize_schema_names(
@@ -699,4 +699,4 @@ class UnkTableDataConduit(TableDataConduit):
         ):
             return RowDataTableDataConduit.from_tds(self)
 
-        raise excs.Error(f'Unsupported data source type: {type(self.source)}')
+        raise excs.Error(f'Unsupported data source type: {type(self.source)}', excs.BAD_REQUEST)
