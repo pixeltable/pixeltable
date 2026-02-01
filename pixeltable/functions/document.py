@@ -116,7 +116,7 @@ def _parse_elements(elements: list[Literal['text', 'image']] | None) -> list[Ele
 
 _HTML_HEADINGS = {'h1', 'h2', 'h3', 'h4', 'h5', 'h6'}
 
-_METADATA_COLUMN_TYPES: dict[ChunkMetadata, type] = {
+_METADATA_COLUMN_TYPES: dict = {
     ChunkMetadata.TITLE: ts.String | None,
     ChunkMetadata.HEADING: ts.Json | None,
     ChunkMetadata.SOURCELINE: ts.Int | None,

@@ -10,6 +10,7 @@ import sqlalchemy as sql
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable import func
 from pixeltable.catalog.table_version import TableVersionKey
 
 from ..utils.description_helper import DescriptionHelper
@@ -400,6 +401,7 @@ class ColumnRef(Expr):
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
         assert all(name is not None for name in stored_outputs)
+        assert isinstance(self.iterator, func.PxtIterator)  # Otherwise we could not have an unstored column
         self.iterator.seek(data_row.pk[self.pos_idx], **stored_outputs)
         res = next(self.iterator)
         data_row[self.slot_idx] = res[self.col.name]

@@ -25,7 +25,7 @@ class VideoSplitter(ComponentIterator):
         '`VideoSplitter.create()` is deprecated; use `pixeltable.functions.video.video_splitter()` instead',
         version='0.5.6',
     )
-    def create(cls, **kwargs: Any) -> tuple[type[ComponentIterator], dict[str, Any]]:
+    def create(cls, **kwargs: Any) -> GeneratingFunctionCall:
         from pixeltable.functions.video import video_splitter
 
         return video_splitter(**kwargs)

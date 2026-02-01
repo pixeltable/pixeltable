@@ -1865,7 +1865,7 @@ def video_splitter(
 
                 segment_end = start_time + actual_duration
                 segment_end_pts = start_pts + round(actual_duration / video_time_base)
-                result = {
+                result: VideoSegment = {
                     'segment_start': start_time,
                     'segment_start_pts': start_pts,
                     'segment_end': segment_end,

@@ -210,7 +210,7 @@ class TestAudio:
         reload_tester.run_reload_test()
 
     def test_audio_splitter_build_segments(self) -> None:
-        build_segments: Callable = audio_splitter.decorated_callable.build_segments
+        build_segments: Callable = audio_splitter.decorated_callable.build_segments  # type: ignore[attr-defined]
         segments = build_segments(0, 1005, 100, 0, 10)
         assert len(segments) == self.__count_segments(0, 1005, 100, 0, 10)
         assert all((segment[1] - segment[0]) == 100 for segment in segments)

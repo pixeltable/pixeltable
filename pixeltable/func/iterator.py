@@ -4,7 +4,9 @@ import importlib
 import inspect
 import typing
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar, overload
+from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar, overload
+
+from typing_extensions import Self
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 
@@ -14,8 +16,19 @@ if TYPE_CHECKING:
     from pixeltable.iterators.base import ComponentIterator
 
 
-class PxtIterator(abc.ABC, Iterator):
-    pass
+# We'd like to say bound=dict, but mypy inexplicably doesn't understand that a TypedDict is a dict (!)
+T = TypeVar('T')
+
+
+class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
+    def __iter__(self) -> Any:
+        return self
+
+    def __next__(self) -> T:
+        raise NotImplementedError()
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        raise NotImplementedError()
 
 
 class GeneratingFunction:
@@ -66,9 +79,9 @@ class GeneratingFunction:
                     'must implement `__init__()` and `__iter__()` methods.'
                 )
             self.is_class_based = True
-            self.init_fn = self.decorated_callable.__init__
+            self.init_fn = self.decorated_callable.__init__  # type: ignore[misc]
             self.has_seek = hasattr(self.decorated_callable, 'seek')
-            iter_fn = self.decorated_callable.__iter__
+            iter_fn = self.decorated_callable.__iter__  # type: ignore[attr-defined]
 
         else:
             self.is_class_based = False
@@ -192,7 +205,7 @@ class GeneratingFunction:
         return self.decorated_callable(**bound_args)
 
     @classmethod
-    def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunctionCall':
+    def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunction':
         it = GeneratingFunction.__new__(GeneratingFunction)
         it.decorated_callable = iterator_cls
         it.signature = Signature.create(iterator_cls, return_type=ts.JsonType())
@@ -203,7 +216,7 @@ class GeneratingFunction:
             schema, _ = iterator_cls.output_schema(**bound_kwargs)
             return schema
 
-        it.call_output_schema = call_output_schema
+        it.call_output_schema = call_output_schema  # type: ignore[method-assign]
         it._validate = lambda _: None  # Validation in legacy iterators was done in output_schema()
         it.is_legacy_retrofit = True
         return it
@@ -297,7 +310,7 @@ class GeneratingFunctionCall:
                     literal_args[param_name] = param.default
             output_schema = it.call_output_schema(literal_args)
             if it.is_legacy_retrofit:
-                _, unstored_cols = it.decorated_callable.output_schema(literal_args)
+                _, unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
             else:
                 unstored_cols = it.unstored_cols
             outputs = {

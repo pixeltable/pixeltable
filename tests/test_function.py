@@ -577,7 +577,7 @@ class TestFunction:
         assert self.agg.__doc__ == 'An aggregator.'
 
     @pxt.udf
-    def overloaded_udf(x: str, y: str, z: str = 'a') -> str:  # type: ignore[misc]  # noqa: N805
+    def overloaded_udf(x: str, y: str, z: str = 'a') -> str:  # noqa: N805
         return x + y
 
     @staticmethod
