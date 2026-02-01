@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -133,6 +134,9 @@ class Config:
                 if value.lower() not in ('true', 'false'):
                     raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}")
                 return value.lower() == 'true'  # type: ignore[return-value]
+            if (expected_type is dict or expected_type is list) and isinstance(value, str):
+                # Treat a string as a JSON-serialized dict or list
+                value = json.loads(value)
             return expected_type(value)  # type: ignore[call-arg]
         except (ValueError, TypeError) as exc:
             raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}") from exc
