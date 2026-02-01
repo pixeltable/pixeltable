@@ -1464,7 +1464,7 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[dic
 
 
 @pxt.iterator(unstored_cols=['frame'])
-class frame_iterator(Iterator):
+class frame_iterator(pxt.PxtIterator):
     """
     Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be specified. If `fps`
     is specified, then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified,

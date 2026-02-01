@@ -21,6 +21,7 @@ from .exceptions import Error, ExprEvalError, PixeltableWarning
 from .func import (
     Aggregator,
     Function,
+    PxtIterator,
     Tool,
     ToolChoice,
     Tools,

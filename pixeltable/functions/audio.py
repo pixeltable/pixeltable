@@ -140,7 +140,7 @@ class AudioSegment(TypedDict):
 
 
 @pxt.iterator
-class audio_splitter(Iterator[AudioSegment]):
+class audio_splitter(pxt.PxtIterator[AudioSegment]):
     """
     Iterator over segments of an audio file. The audio file is split into smaller segments,
     where the duration of each segment is determined by segment_duration_sec.

@@ -456,7 +456,7 @@ class Tile(TypedDict):
 
 
 @pxt.iterator(unstored_cols=['tile'])
-class tile_iterator(Iterator[Tile]):
+class tile_iterator(pxt.PxtIterator[Tile]):
     """
     Iterator over tiles of an image. Each image will be divided into tiles of size `tile_size`, and the tiles will be
     iterated over in row-major order (left-to-right, then top-to-bottom). An optional `overlap` parameter may be

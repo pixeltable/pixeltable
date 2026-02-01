@@ -19,7 +19,7 @@ class ConstantImgFrame(TypedDict):
 
 
 @pxt.iterator(unstored_cols=['frame'])
-class constant_img_iterator(Iterator[ConstantImgFrame]):
+class constant_img_iterator(pxt.PxtIterator):
     """Component iterator that generates a fixed number of all-black 1280x720 images."""
 
     def __init__(self, video: pxt.Video, *, num_frames: int = 10):
@@ -32,7 +32,7 @@ class constant_img_iterator(Iterator[ConstantImgFrame]):
     def __iter__(self) -> Iterator[ConstantImgFrame]:
         return self
 
-    def __next__(self) -> dict[str, Any]:
+    def __next__(self) -> ConstantImgFrame:
         if self.next_frame_idx == self.num_frames:
             raise StopIteration
         result: ConstantImgFrame = {

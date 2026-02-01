@@ -1144,7 +1144,7 @@ class TestVideo:
         v = pxt.create_view(
             'scenes_view',
             t,
-            iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate'),  # type: ignore[arg-type]
+            iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate'),
         )
         _ = v.collect()
 

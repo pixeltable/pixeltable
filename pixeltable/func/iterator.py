@@ -4,7 +4,7 @@ import importlib
 import inspect
 import typing
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable, Iterator, overload
+from typing import TYPE_CHECKING, Any, Callable, Iterator, TypeVar, overload
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
 
@@ -12,6 +12,10 @@ from .signature import Signature
 
 if TYPE_CHECKING:
     from pixeltable.iterators.base import ComponentIterator
+
+
+class PxtIterator(abc.ABC, Iterator):
+    pass
 
 
 class GeneratingFunction:

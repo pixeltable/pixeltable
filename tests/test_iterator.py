@@ -19,7 +19,7 @@ def simple_iterator(x: int, str_text: str = 'string') -> Iterator[MyRow]:
 
 
 @simple_iterator.validate
-def _(bound_args: dict[str, Any]) -> bool:
+def _(bound_args: dict[str, Any]) -> None:
     if 'x' in bound_args and bound_args['x'] < 0:
         raise pxt.Error('Parameter `x` must be non-negative.')
     if 'str_text' not in bound_args:
@@ -49,7 +49,7 @@ class class_based_iterator:
 
 
 @class_based_iterator.validate
-def _(bound_args: dict[str, Any]) -> bool:
+def _(bound_args: dict[str, Any]) -> None:
     if 'x' in bound_args and bound_args['x'] < 0:
         raise pxt.Error('Parameter `x` must be non-negative.')
     if 'str_text' not in bound_args:
@@ -85,6 +85,7 @@ class iterator_with_seek:
 class TestIterator:
     def test_iterator(self, uses_db: None, reload_tester: ReloadTester) -> None:
         for n, it in enumerate((simple_iterator, class_based_iterator)):
+            assert callable(it)
             t = pxt.create_table(f'tbl_{n}', schema={'input': pxt.Int})
             t.insert([{'input': 2}])
             v = pxt.create_view(f'view_{n}', t, iterator=it(t.input))

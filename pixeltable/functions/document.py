@@ -126,7 +126,7 @@ _METADATA_COLUMN_TYPES: dict[ChunkMetadata, type] = {
 
 
 @pxt.iterator
-class document_splitter(Iterator):
+class document_splitter(pxt.PxtIterator):
     """Iterator over chunks of a document. The document is chunked according to the specified `separators`.
 
     The iterator yields a `text` field containing the text of the chunk, and it may also

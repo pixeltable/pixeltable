@@ -11,6 +11,7 @@ from pixeltable import exprs
 
 class PxtPlugin(Plugin):
     __UDA_FULLNAME = f'{pxt.uda.__module__}.{pxt.uda.__name__}'
+    __ITERATOR_FULLNAME = f'{pxt.iterator.__module__}.{pxt.iterator.__name__}'
     __ARRAY_GETITEM_FULLNAME = f'{pxt.Array.__module__}.{pxt.Array.__name__}.__class_getitem__'
     __ADD_COLUMN_FULLNAME = f'{pxt.Table.__module__}.{pxt.Table.__name__}.{pxt.Table.add_column.__name__}'
     __ADD_COMPUTED_COLUMN_FULLNAME = (
@@ -43,6 +44,8 @@ class PxtPlugin(Plugin):
     def get_class_decorator_hook_2(self, fullname: str) -> Callable[[ClassDefContext], bool] | None:
         if fullname == self.__UDA_FULLNAME:
             return adjust_uda_methods
+        if fullname == self.__ITERATOR_FULLNAME:
+            return adjust_iterator_methods
         return None
 
 
@@ -51,6 +54,7 @@ def plugin(version: str) -> type:
 
 
 _AGGREGATOR_FULLNAME = f'{pxt.Aggregator.__module__}.{pxt.Aggregator.__name__}'
+_PXTITERATOR_FULLNAME = f'{pxt.PxtIterator.__module__}.{pxt.PxtIterator.__name__}'
 _FN_CALL_FULLNAME = f'{exprs.Expr.__module__}.{exprs.Expr.__name__}'
 
 
@@ -62,8 +66,8 @@ def adjust_uda_type(ctx: FunctionContext) -> Type:
     """
     ret_type = ctx.default_return_type
     if isinstance(ret_type, Instance) and (
-        ret_type.type.fullname == _AGGREGATOR_FULLNAME
-        or any(base.type.fullname == _AGGREGATOR_FULLNAME for base in ret_type.type.bases)
+        ret_type.type.fullname in (_AGGREGATOR_FULLNAME, _PXTITERATOR_FULLNAME)
+        or any(base.type.fullname in (_AGGREGATOR_FULLNAME, _PXTITERATOR_FULLNAME) for base in ret_type.type.bases)
     ):
         ret_type = AnyType(TypeOfAny.special_form)
     return ret_type
@@ -120,4 +124,26 @@ def adjust_uda_methods(ctx: ClassDefContext) -> bool:
         ctx.api, ctx.cls, 'overload', args=[fn_arg], return_type=AnyType(TypeOfAny.special_form), is_staticmethod=True
     )
     add_attribute_to_class(ctx.api, ctx.cls, 'signatures', typ=list_type, is_classvar=True)
+    return True
+
+
+def adjust_iterator_methods(ctx: ClassDefContext) -> bool:
+    """
+    Same idea as `adjust_uda_methods`, but for the `@pxt.iterator` decorator.
+    """
+    fn_arg = nodes.Argument(nodes.Var('fn'), AnyType(TypeOfAny.special_form), None, nodes.ARG_POS)
+    args_arg = nodes.Argument(nodes.Var('args'), AnyType(TypeOfAny.special_form), None, nodes.ARG_STAR)
+    kwargs_arg = nodes.Argument(nodes.Var('kwargs'), AnyType(TypeOfAny.special_form), None, nodes.ARG_STAR2)
+    add_method_to_class(ctx.api, ctx.cls, '__init__', args=[args_arg, kwargs_arg], return_type=NoneType())
+    add_method_to_class(
+        ctx.api,
+        ctx.cls,
+        'conditional_output_schema',
+        args=[fn_arg],
+        return_type=AnyType(TypeOfAny.special_form),
+        is_classmethod=True,
+    )
+    add_method_to_class(
+        ctx.api, ctx.cls, 'validate', args=[fn_arg], return_type=AnyType(TypeOfAny.special_form), is_staticmethod=True
+    )
     return True
