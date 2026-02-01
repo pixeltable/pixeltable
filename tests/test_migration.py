@@ -64,9 +64,6 @@ class TestMigration:
                 old_version = info['pixeltable-dump']['metadata-version']
                 assert isinstance(old_version, int)
 
-            if old_version < 45:
-                continue
-
             _logger.info(f'Migrating from version: {old_version} -> {VERSION}')
             versions_found.append(old_version)
 

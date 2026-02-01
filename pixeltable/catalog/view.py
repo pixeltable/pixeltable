@@ -82,7 +82,7 @@ class View(Table):
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
-        iterator_call: func.IteratorCall | None,
+        iterator_call: func.GeneratingFunctionCall | None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
         from pixeltable.exprs import InlineDict
         from pixeltable.plan import SampleClause

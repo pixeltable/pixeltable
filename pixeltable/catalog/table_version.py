@@ -21,7 +21,7 @@ import pixeltable.func as func
 import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
-from pixeltable.func.iterator import IteratorCall
+from pixeltable.func.iterator import GeneratingFunctionCall
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
@@ -159,7 +159,7 @@ class TableVersion:
     predicate: exprs.Expr | None
     sample_clause: 'SampleClause' | None
 
-    iterator_call: IteratorCall | None
+    iterator_call: GeneratingFunctionCall | None
     num_iterator_cols: int
 
     # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
@@ -248,7 +248,7 @@ class TableVersion:
         self.iterator_call = None
         self.num_iterator_cols = 0
         if self.view_md is not None and self.view_md.iterator_call is not None:
-            self.iterator_call = IteratorCall.from_dict(self.view_md.iterator_call)
+            self.iterator_call = GeneratingFunctionCall.from_dict(self.view_md.iterator_call)
             self.num_iterator_cols = len(self.iterator_call.outputs)
 
         self.mutable_views = frozenset(mutable_views)

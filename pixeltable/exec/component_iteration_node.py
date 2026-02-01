@@ -1,7 +1,7 @@
 from typing import AsyncIterator
 
 from pixeltable import catalog, exceptions as excs, exprs, type_system as ts
-from pixeltable.func.iterator import IteratorCall
+from pixeltable.func.iterator import GeneratingFunctionCall
 
 from .data_row_batch import DataRowBatch
 from .exec_node import ExecNode
@@ -14,7 +14,7 @@ class ComponentIterationNode(ExecNode):
     """
 
     view: catalog.TableVersionHandle
-    iterator_call: IteratorCall
+    iterator_call: GeneratingFunctionCall
     iterator_args_expr: exprs.InlineDict
     iterator_args_ctx: exprs.RowBuilder.EvalCtx
     iterator_output_cols: dict[str, catalog.Column]

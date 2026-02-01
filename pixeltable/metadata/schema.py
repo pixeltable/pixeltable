@@ -10,8 +10,6 @@ from sqlalchemy import BigInteger, ForeignKey, Integer, LargeBinary, orm
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
-from pixeltable.func.iterator import IteratorCall
-
 from ..catalog.update_status import UpdateStatus
 
 # Base has to be marked explicitly as a type, in order to be used elsewhere as a type hint. But in addition to being

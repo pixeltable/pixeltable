@@ -2,7 +2,7 @@ from typing import Any
 
 from deprecated import deprecated
 
-from pixeltable.func.iterator import IteratorCall
+from pixeltable.func.iterator import GeneratingFunctionCall
 
 from .base import ComponentIterator
 
@@ -13,7 +13,7 @@ class FrameIterator(ComponentIterator):
         '`FrameIterator.create()` is deprecated; use `pixeltable.functions.video.frame_iterator()` instead',
         version='0.5.6',
     )
-    def create(cls, **kwargs: Any) -> IteratorCall:
+    def create(cls, **kwargs: Any) -> GeneratingFunctionCall:
         from pixeltable.functions.video import frame_iterator
 
         return frame_iterator(**kwargs)

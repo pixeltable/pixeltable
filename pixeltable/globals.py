@@ -228,7 +228,7 @@ def create_view(
     additional_columns: dict[str, Any] | None = None,
     is_snapshot: bool = False,
     create_default_idxs: bool = False,
-    iterator: func.IteratorCall | tuple[type[ComponentIterator], dict[str, Any]] | None = None,
+    iterator: func.GeneratingFunctionCall | tuple[type[ComponentIterator], dict[str, Any]] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -335,7 +335,7 @@ def create_view(
 
     if isinstance(iterator, tuple):
         iterator_cls, iterator_args = iterator
-        it = func.PxtIterator._retrofit(iterator_cls)
+        it = func.GeneratingFunction._retrofit(iterator_cls)
         iterator = it([], iterator_args)
 
     return Catalog.get().create_view(

@@ -2,7 +2,7 @@ from typing import Any
 
 from deprecated import deprecated
 
-from pixeltable.func.iterator import IteratorCall
+from pixeltable.func.iterator import GeneratingFunctionCall
 from pixeltable.iterators.base import ComponentIterator
 
 
@@ -12,7 +12,7 @@ class DocumentSplitter(ComponentIterator):
         '`DocumentSplitter.create()` is deprecated; use `pixeltable.functions.document.document_splitter()` instead',
         version='0.5.6',
     )
-    def create(cls, **kwargs: Any) -> IteratorCall:
+    def create(cls, **kwargs: Any) -> GeneratingFunctionCall:
         from pixeltable.functions.document import document_splitter
 
         return document_splitter(**kwargs)

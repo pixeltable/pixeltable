@@ -1,7 +1,8 @@
+import abc
+import collections.abc
 import importlib
 import inspect
 import typing
-from collections import abc
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Iterator, overload
 
@@ -13,7 +14,15 @@ if TYPE_CHECKING:
     from pixeltable.iterators.base import ComponentIterator
 
 
-class PxtIterator:
+class GeneratingFunction:
+    """
+    A function that evaluates to iterators over its inputs.
+
+    It is the Pixeltable equivalent of a table generating function in SQL.
+
+    It is the "lift" of a PxtIterator: a PxtIterator represents a one-to-many expansion of its inputs; the
+    corresponding GeneratingFunction represents a one-to-many expansion of *columns* of inputs.
+    """
     decorated_callable: Callable
     name: str
     is_class_based: bool
@@ -75,7 +84,7 @@ class PxtIterator:
             if return_type_arg_0_origin is None:
                 return_type_arg_0_origin = return_type_args[0]
         if (
-            typing.get_origin(return_type) is not abc.Iterator
+            typing.get_origin(return_type) is not collections.abc.Iterator
             or len(return_type_args) != 1
             or not isinstance(return_type_args[0], type)
             or not issubclass(return_type_arg_0_origin, dict)
@@ -134,7 +143,7 @@ class PxtIterator:
 
         return bound_args
 
-    def __call__(self, *args: Any, **kwargs: Any) -> 'IteratorCall':
+    def __call__(self, *args: Any, **kwargs: Any) -> 'GeneratingFunctionCall':
         args = [exprs.Expr.from_object(arg) for arg in args]
         kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
 
@@ -171,7 +180,7 @@ class PxtIterator:
             for name, col_type in output_schema.items()
         }
 
-        return IteratorCall(self, args, kwargs, bound_args, outputs)
+        return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs)
 
     def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
         # Run custom iterator validation on fully bound args
@@ -184,8 +193,8 @@ class PxtIterator:
         return self.decorated_callable(**bound_args)
 
     @classmethod
-    def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'IteratorCall':
-        it = PxtIterator.__new__(PxtIterator)
+    def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunctionCall':
+        it = GeneratingFunction.__new__(GeneratingFunction)
         it.decorated_callable = iterator_cls
         it.signature = Signature.create(iterator_cls, return_type=ts.JsonType())
         it.is_class_based = True
@@ -220,14 +229,14 @@ class PxtIterator:
         return {'fqn': self.fqn}
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> 'PxtIterator':
+    def from_dict(cls, d: dict[str, Any]) -> 'GeneratingFunction':
         from pixeltable.iterators.base import ComponentIterator
 
         module_name, class_name = d['fqn'].rsplit('.', 1)
         module = importlib.import_module(module_name)
         iterator_cls = getattr(module, class_name)
         # TODO: Validation
-        if isinstance(iterator_cls, PxtIterator):
+        if isinstance(iterator_cls, GeneratingFunction):
             return iterator_cls
         elif isinstance(iterator_cls, type) and issubclass(iterator_cls, ComponentIterator):
             # Support legacy ComponentIterator pattern for backward compatibility
@@ -259,8 +268,8 @@ class IteratorOutputInfo:
 
 
 @dataclass(frozen=True)
-class IteratorCall:
-    it: PxtIterator
+class GeneratingFunctionCall:
+    it: GeneratingFunction
     args: list['exprs.Expr']
     kwargs: dict[str, 'exprs.Expr']
     bound_args: dict[str, 'exprs.Expr']
@@ -275,8 +284,8 @@ class IteratorCall:
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> 'IteratorCall':
-        it = PxtIterator.from_dict(d['fn'])
+    def from_dict(cls, d: dict[str, Any]) -> 'GeneratingFunctionCall':
+        it = GeneratingFunction.from_dict(d['fn'])
         args = [exprs.Expr.from_dict(arg_dict) for arg_dict in d['args']]
         kwargs = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['kwargs'].items()}
 
@@ -313,16 +322,16 @@ class IteratorCall:
 
 
 @overload
-def iterator(decorated_fn: Callable) -> PxtIterator: ...
+def iterator(decorated_fn: Callable) -> GeneratingFunction: ...
 
 
 @overload
-def iterator(*, unstored_cols: list[str] | None = None) -> Callable[[Callable], PxtIterator]: ...
+def iterator(*, unstored_cols: list[str] | None = None) -> Callable[[Callable], GeneratingFunction]: ...
 
 
 def iterator(*args, **kwargs):  # type: ignore[no-untyped-def]
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
-        return PxtIterator(decorated_callable=args[0], unstored_cols=[])
+        return GeneratingFunction(decorated_callable=args[0], unstored_cols=[])
     else:
         unstored_cols = kwargs.pop('unstored_cols', None)
         if len(kwargs) > 0:
@@ -330,7 +339,7 @@ def iterator(*args, **kwargs):  # type: ignore[no-untyped-def]
         if len(args) > 0:
             raise excs.Error('Unexpected @iterator decorator arguments.')
 
-        def decorator(decorated_fn: Callable) -> PxtIterator:
-            return PxtIterator(decorated_callable=decorated_fn, unstored_cols=unstored_cols)
+        def decorator(decorated_fn: Callable) -> GeneratingFunction:
+            return GeneratingFunction(decorated_callable=decorated_fn, unstored_cols=unstored_cols)
 
         return decorator

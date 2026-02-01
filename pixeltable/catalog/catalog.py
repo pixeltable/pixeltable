@@ -1204,7 +1204,7 @@ class Catalog:
         additional_columns: dict[str, Any] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
-        iterator: func.IteratorCall | None,
+        iterator: func.GeneratingFunctionCall | None,
         num_retained_versions: int,
         comment: str,
         media_validation: MediaValidation,
