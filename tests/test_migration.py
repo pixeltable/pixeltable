@@ -25,7 +25,16 @@ from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
 
 from .conftest import clean_db
-from .utils import reload_catalog, rerun, skip_test_if_not_installed, validate_update_status
+from .utils import (
+    SAMPLE_IMAGE_URL,
+    get_audio_files,
+    get_documents,
+    get_video_files,
+    reload_catalog,
+    rerun,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -110,7 +119,7 @@ class TestMigration:
             if old_version >= 17:
                 self._run_v17_tests()
             if old_version >= 19:
-                self._run_v19_tests()
+                self._run_v19_tests(old_version)
             if old_version >= 30:
                 self._run_v30_tests()
             if old_version >= 33:
@@ -224,16 +233,17 @@ class TestMigration:
         assert t.base_table_image_rot.col.handle in store1.stored_proxies
 
     @classmethod
-    def _run_v19_tests(cls) -> None:
+    def _run_v19_tests(cls, version: int) -> None:
+        assert version >= 19
         t = pxt.get_table('base_table')
-        status = t.insert(
-            c1='test string 21',
-            c1n='test string 21',
-            c2=21,
-            c3=21.0,
-            c4=True,
-            c5=datetime.now(),
-            c6={
+        row = {
+            'c1': 'test string 21',
+            'c1n': 'test string 21',
+            'c2': 21,
+            'c3': 21.0,
+            'c4': True,
+            'c5': datetime.now(),
+            'c6': {
                 'f1': 'test string 21',
                 'f2': 21,
                 'f3': float(21.0),
@@ -241,8 +251,14 @@ class TestMigration:
                 'f5': [1.0, 2.0, 3.0, 4.0],
                 'f6': {'f7': 'test string 2', 'f8': [1.0, 2.0, 3.0, 4.0]},
             },
-            c7=[],
-        )
+            'c7': [],
+            'c8': SAMPLE_IMAGE_URL,
+        }
+        if version >= 45:
+            row['c9'] = get_audio_files()[0]
+            row['c10'] = get_video_files()[0]
+            row['c11'] = get_documents()[0]
+        status = t.insert([row])
         validate_update_status(status)
         inline_list_mixed = (
             t.where(t.c2 == 21).select(t.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
