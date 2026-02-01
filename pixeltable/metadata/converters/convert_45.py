@@ -35,9 +35,11 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
                 case 'pixeltable.iterators.audio.AudioSplitter':
                     iterator_class_fqn = 'pixeltable.functions.audio.audio_splitter'
                     if 'chunk_duration_sec' in kwargs:
-                        kwargs['segment_duration_sec'] = kwargs.pop('chunk_duration_sec')
+                        kwargs['duration'] = kwargs.pop('chunk_duration_sec')
+                    if 'overlap_sec' in kwargs:
+                        kwargs['overlap'] = kwargs.pop('overlap_sec')
                     if 'min_chunk_duration_sec' in kwargs:
-                        kwargs['min_segment_duration_sec'] = kwargs.pop('min_chunk_duration_sec')
+                        kwargs['min_segment_duration'] = kwargs.pop('min_chunk_duration_sec')
                     # For `audio_splitter`, output columns were renamed in v46, so we explicitly emit them here.
                     outputs = {
                         'audio_chunk': {

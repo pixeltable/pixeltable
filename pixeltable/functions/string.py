@@ -20,6 +20,7 @@ from typing import Any, Iterator, TypedDict
 import sqlalchemy as sql
 
 import pixeltable as pxt
+from pixeltable import exceptions as excs
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.spacy import get_spacy_model
 
@@ -851,7 +852,10 @@ def string_splitter(text: str, separators: str, *, spacy_model: str = 'en_core_w
         yield StringChunk(text=sent.text)
 
 
-# TODO: Validator
+@string_splitter.validate
+def _(bound_args: dict[str, Any]) -> None:
+    if bound_args['separators'] != 'sentence':
+        raise excs.Error("Only 'sentence' is supported as a separator in `string_splitter` iterator.")
 
 
 __all__ = local_public_names(__name__)

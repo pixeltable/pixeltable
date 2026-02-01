@@ -187,17 +187,10 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
         'alac': 'alac',  # ALAC decoder -> ALAC encoder
     }
 
-    def __init__(
-        self,
-        audio: pxt.Audio,
-        segment_duration_sec: float,
-        *,
-        overlap_sec: float = 0.0,
-        min_segment_duration_sec: float = 0.0,
-    ):
-        assert segment_duration_sec > 0.0
-        assert segment_duration_sec >= min_segment_duration_sec
-        assert overlap_sec < segment_duration_sec
+    def __init__(self, audio: pxt.Audio, duration: float, *, overlap: float = 0.0, min_segment_duration: float = 0.0):
+        assert duration > 0.0
+        assert duration >= min_segment_duration
+        assert overlap < duration
         audio_path = Path(audio)
         assert audio_path.exists() and audio_path.is_file()
         self.audio_path = audio_path
@@ -206,9 +199,9 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
         if len(self.container.streams.audio) == 0:
             # No audio stream
             return
-        self.segment_duration_sec = segment_duration_sec
-        self.overlap_sec = overlap_sec
-        self.min_segment_duration_sec = min_segment_duration_sec
+        self.segment_duration_sec = duration
+        self.overlap_sec = overlap
+        self.min_segment_duration_sec = min_segment_duration
         self.audio_time_base = self.container.streams.audio[0].time_base
 
         audio_start_time_pts = self.container.streams.audio[0].start_time or 0
@@ -219,11 +212,7 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
         self.segments_to_extract_in_pts = [
             (round(start / self.audio_time_base), round(end / self.audio_time_base))
             for (start, end) in self.build_segments(
-                audio_start_time_sec,
-                total_audio_duration_sec,
-                segment_duration_sec,
-                overlap_sec,
-                min_segment_duration_sec,
+                audio_start_time_sec, total_audio_duration_sec, duration, overlap, min_segment_duration
             )
         ]
         _logger.debug(

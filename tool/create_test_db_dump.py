@@ -274,9 +274,7 @@ class Dumper:
         pxt.create_view(
             'audio_splitter',
             t.where(t.c2 >= len(SAMPLE_AUDIO_URLS)),
-            iterator=pxtf.audio.audio_splitter(
-                t.c9, segment_duration_sec=10.0, overlap_sec=1.0, min_segment_duration_sec=5.0
-            ),
+            iterator=pxtf.audio.audio_splitter(t.c9, duration=10.0, overlap=1.0, min_segment_duration=5.0),
         )
         pxt.create_view(
             'video_splitter',

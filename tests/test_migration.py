@@ -105,28 +105,34 @@ class TestMigration:
             with orm.Session(env.engine) as session:
                 convert_table_md(env.engine, substitution_fn=self.__replace_pickled_udfs)
 
-            reload_catalog()
+            try:
+                reload_catalog()
 
-            # TODO(aaron-siegel) We need many more of these sorts of checks.
-            if 12 <= old_version <= 14:
-                self._run_v12_tests()
-            if 13 <= old_version <= 14:
-                self._run_v13_tests()
-            if old_version == 14:
-                self._run_v14_tests()
-            if old_version >= 15:
-                self._run_v15_tests()
-            if old_version >= 17:
-                self._run_v17_tests()
-            if old_version >= 19:
-                self._run_v19_tests(old_version)
-            if old_version >= 30:
-                self._run_v30_tests()
-            if old_version >= 33:
-                self._verify_v33()
-            # self._verify_v24(old_version)
+                # TODO: We need many more of these sorts of checks.
+                if 12 <= old_version <= 14:
+                    self._run_v12_tests()
+                if 13 <= old_version <= 14:
+                    self._run_v13_tests()
+                if old_version == 14:
+                    self._run_v14_tests()
+                if old_version >= 15:
+                    self._run_v15_tests()
+                if old_version >= 17:
+                    self._run_v17_tests()
+                if old_version >= 19:
+                    self._run_v19_tests(old_version)
+                if old_version >= 30:
+                    self._run_v30_tests()
+                if old_version >= 33:
+                    self._verify_v33()
+                # self._verify_v24(old_version)
 
-            pxt.drop_table('sample_table', force=True)
+                pxt.drop_table('sample_table', force=True)
+
+            except Exception as e:
+                raise RuntimeError(
+                    f'Migration test failed on version {old_version} with `{e.__class__.__qualname__}`: {e}'
+                ) from e
 
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, (
