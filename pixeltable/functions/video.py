@@ -1613,9 +1613,6 @@ class frame_iterator(pxt.PxtIterator):
         except EOFError:
             return None
 
-    def __iter__(self) -> Iterator[dict[str, Any]]:
-        return self
-
     def __next__(self) -> dict[str, Any]:
         while True:
             if self.cur_frame is None:

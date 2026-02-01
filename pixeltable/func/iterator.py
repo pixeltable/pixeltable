@@ -21,7 +21,7 @@ T = TypeVar('T')
 
 
 class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
-    def __iter__(self) -> Any:
+    def __iter__(self) -> Self:
         return self
 
     def __next__(self) -> T:
@@ -44,7 +44,6 @@ class GeneratingFunction:
     decorated_callable: Callable
     name: str
     is_class_based: bool
-    init_fn: Callable
     signature: Signature
     unstored_cols: list[str]
     has_seek: bool
@@ -71,48 +70,56 @@ class GeneratingFunction:
         self.is_legacy_retrofit = False
 
     def _infer_properties(self) -> None:
+        output_schema_type: type[dict]
+        iter_fn: Callable
+
         if isinstance(self.decorated_callable, type):
-            if not hasattr(self.decorated_callable, '__init__') or not hasattr(self.decorated_callable, '__iter__'):
+            if not issubclass(self.decorated_callable, PxtIterator):
+                raise excs.Error(
+                    f'@pxt.iterator-decorated class `{self.fqn}` must be a subclass of `pixeltable.PxtIterator`.'
+                )
+            if not hasattr(self.decorated_callable, '__init__') or not hasattr(self.decorated_callable, '__next__'):
                 raise excs.Error(
                     '@pxt.iterator-decorated class '
                     f'`{self.decorated_callable.__module__}.{self.decorated_callable.__qualname__}` '
-                    'must implement `__init__()` and `__iter__()` methods.'
+                    'must implement `__init__()` and `__next__()` methods.'
                 )
             self.is_class_based = True
-            self.init_fn = self.decorated_callable.__init__  # type: ignore[misc]
-            self.has_seek = hasattr(self.decorated_callable, 'seek')
-            iter_fn = self.decorated_callable.__iter__  # type: ignore[attr-defined]
+            self.py_sig = inspect.signature(self.decorated_callable.__init__)
+            self.has_seek = self.decorated_callable.seek is not PxtIterator.seek
+            next_sig = inspect.signature(self.decorated_callable.__next__)
+            return_type = next_sig.return_annotation
+            # remove type args from return_type (e.g., convert `dict[str, Any]` to `dict`)
+            element_type = typing.get_origin(return_type) or return_type
+            if not isinstance(element_type, type) or not issubclass(element_type, dict):
+                raise excs.Error(
+                    f'`__next__()` method of @pxt.iterator-decorated class `{self.fqn}` '
+                    'must have return type `dict` or `MyTypedDict`.'
+                )
+            output_schema_type = element_type
 
         else:
             self.is_class_based = False
-            self.init_fn = self.decorated_callable
+            self.py_sig = inspect.signature(self.decorated_callable)
             self.has_seek = False
-            iter_fn = self.decorated_callable
-
-        self.py_sig = inspect.signature(self.init_fn)
-        iter_py_sig = inspect.signature(iter_fn)
-        return_type = iter_py_sig.return_annotation
-        # Possible return_type: Iterator[dict], Iterator[dict[str, Any]], Iterator[MyTypedDict]
-        return_type_args = typing.get_args(return_type)
-        return_type_arg_0_origin = None
-        if len(return_type_args) >= 1:
-            # return_type_arg_0_origin is calculated so that in the above cases it's (respectively):
-            # dict, dict, MyTypedDict
-            return_type_arg_0_origin = typing.get_origin(return_type_args[0])
-            if return_type_arg_0_origin is None:
-                return_type_arg_0_origin = return_type_args[0]
-        if (
-            typing.get_origin(return_type) is not collections.abc.Iterator
-            or len(return_type_args) != 1
-            or not isinstance(return_type_args[0], type)
-            or not issubclass(return_type_arg_0_origin, dict)
-        ):
-            raise excs.Error(
-                '@pxt.iterator-decorated function '
-                f'`{iter_fn.__module__}.{iter_fn.__qualname__}()` '
-                'must have return type `Iterator[dict]` or `Iterator[MyTypedDict]`.'
-            )
-        output_schema_type = return_type_args[0]
+            return_type = self.py_sig.return_annotation
+            # Possible return_type: Iterator[dict], Iterator[dict[str, Any]], Iterator[MyTypedDict]
+            return_type_args = typing.get_args(return_type)
+            element_type = None
+            if len(return_type_args) >= 1:
+                # element_type is calculated so that in the above cases it's (respectively):
+                # dict, dict, MyTypedDict
+                element_type = typing.get_origin(return_type_args[0]) or return_type_args[0]
+            if (
+                typing.get_origin(return_type) is not collections.abc.Iterator
+                or not isinstance(element_type, type)
+                or not issubclass(element_type, dict)
+            ):
+                raise excs.Error(
+                    f'@pxt.iterator-decorated function `{self.fqn}()` '
+                    'must have return type `Iterator[dict]` or `Iterator[MyTypedDict]`.'
+                )
+            output_schema_type = element_type
 
         if not hasattr(output_schema_type, '__orig_bases__') or not hasattr(output_schema_type, '__annotations__'):
             # The return type is a dict, but not a TypedDict. There is no way to infer the output schema at this stage;
@@ -129,7 +136,7 @@ class GeneratingFunction:
                     f'Could not infer Pixeltable type for output field {name!r} (with Python type `{type_.__name__}`).'
                     '\nThis field was mentioned in the return type '
                     f'`{output_schema_type.__module__}.{output_schema_type.__qualname__}` '
-                    f'in iterator function `{iter_fn.__module__}.{iter_fn.__qualname__}()`.'
+                    f'in function `{iter_fn.__module__}.{iter_fn.__qualname__}()`.'
                 )
             self._default_output_schema[name] = col_type
 

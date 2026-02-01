@@ -505,9 +505,6 @@ class tile_iterator(pxt.PxtIterator[Tile]):
         self.__i = 0
         self.__j = 0
 
-    def __iter__(self) -> Iterator[Tile]:
-        return self
-
     def __next__(self) -> Tile:
         if self.__j >= self.__ylen:
             raise StopIteration

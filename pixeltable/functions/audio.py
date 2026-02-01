@@ -258,9 +258,6 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
             return segments_to_extract_in_sec[:-1]  # return all but the last segment
         return segments_to_extract_in_sec
 
-    def __iter__(self) -> Iterator[AudioSegment]:
-        return self
-
     def __next__(self) -> AudioSegment:
         if self.next_pos >= len(self.segments_to_extract_in_pts):
             raise StopIteration

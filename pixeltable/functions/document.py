@@ -253,9 +253,6 @@ class document_splitter(pxt.PxtIterator):
         if Separator.CHAR_LIMIT in self._separators:
             self._sections = self._char_chunks(self._sections)
 
-    def __iter__(self) -> Iterator[dict[str, Any]]:
-        return self
-
     def __next__(self) -> dict[str, Any]:
         while True:
             section = next(self._sections)

@@ -29,16 +29,13 @@ def _(bound_args: dict[str, Any]) -> None:
 
 
 @pxt.iterator
-class class_based_iterator:
+class class_based_iterator(pxt.PxtIterator[MyRow]):
     x: int
     current: int
 
     def __init__(self, x: int, str_text: str = 'string') -> None:
         self.x = x
         self.current = 0
-
-    def __iter__(self) -> Iterator[MyRow]:
-        return self
 
     def __next__(self) -> MyRow:
         if self.current >= self.x:
@@ -59,16 +56,13 @@ def _(bound_args: dict[str, Any]) -> None:
 
 
 @pxt.iterator
-class iterator_with_seek:
+class iterator_with_seek(pxt.PxtIterator[MyRow]):
     x: int
     current: int
 
     def __init__(self, x: int):
         self.x = x
         self.current = 0
-
-    def __iter__(self) -> Iterator[MyRow]:
-        return self
 
     def __next__(self) -> MyRow:
         if self.current >= self.x:
@@ -77,8 +71,8 @@ class iterator_with_seek:
         self.current += 1
         return result
 
-    def seek(self, pos: int, scol: str) -> None:
-        assert scol == f'string {pos}'
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        assert kwargs['scol'] == f'string {pos}'
         self.current = pos
 
 

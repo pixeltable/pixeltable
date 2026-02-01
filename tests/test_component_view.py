@@ -29,9 +29,6 @@ class constant_img_iterator(pxt.PxtIterator):
         self.pos_msec = 0.0
         self.pos_frame = 0.0
 
-    def __iter__(self) -> Iterator[ConstantImgFrame]:
-        return self
-
     def __next__(self) -> ConstantImgFrame:
         if self.next_frame_idx == self.num_frames:
             raise StopIteration
