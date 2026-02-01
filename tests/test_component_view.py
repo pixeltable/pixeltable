@@ -162,15 +162,22 @@ class TestComponentView:
         """Test that a nondeterministic expr in a view column is recomputed for each row"""
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         video_filepaths = get_test_video_files()
-        # create frame view
+        # Scenario 1: additional_columns
         view_t = pxt.create_view(
-            'test_view',
+            'test_view1',
             video_t,
             iterator=frame_iterator(video_t.video, fps=1),
             additional_columns={'id': pxtf.uuid.uuid4()},
         )
 
         rows = [{'video': p} for p in video_filepaths]
+        validate_update_status(video_t.insert(rows))
+        res = view_t.select(view_t.id).collect()
+        assert len(set(res['id'])) == len(res)
+
+        # Scenario 2: add_computed_column()
+        view_t = pxt.create_view('test_view2', video_t, iterator=frame_iterator(video_t.video, fps=1))
+        view_t.add_computed_column(id=pxtf.uuid.uuid4())
         validate_update_status(video_t.insert(rows))
         res = view_t.select(view_t.id).collect()
         assert len(set(res['id'])) == len(res)
