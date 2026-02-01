@@ -9,7 +9,6 @@ import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.iterators as iters
 import pixeltable.type_system as ts
 from pixeltable.catalog.table_version import TableVersionKey
 

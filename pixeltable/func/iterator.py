@@ -23,6 +23,7 @@ class GeneratingFunction:
     It is the "lift" of a PxtIterator: a PxtIterator represents a one-to-many expansion of its inputs; the
     corresponding GeneratingFunction represents a one-to-many expansion of *columns* of inputs.
     """
+
     decorated_callable: Callable
     name: str
     is_class_based: bool
@@ -147,8 +148,6 @@ class GeneratingFunction:
         args = [exprs.Expr.from_object(arg) for arg in args]
         kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
 
-        args_with_self = [self.decorated_callable, *args] if self.is_class_based else args
-
         # Promptly validate args and kwargs, as much as possible at this stage.
         try:
             bound_args = self.bind_args(args, kwargs)
@@ -172,11 +171,7 @@ class GeneratingFunction:
         output_schema = self.call_output_schema(literal_args)
 
         outputs = {
-            name: IteratorOutputInfo(
-                orig_name=name,
-                is_stored=(name not in self.unstored_cols),
-                col_type=col_type,
-            )
+            name: IteratorOutputInfo(orig_name=name, is_stored=(name not in self.unstored_cols), col_type=col_type)
             for name, col_type in output_schema.items()
         }
 
@@ -252,19 +247,11 @@ class IteratorOutputInfo:
     col_type: ts.ColumnType
 
     def as_dict(self) -> dict[str, Any]:
-        return {
-            'orig_name': self.orig_name,
-            'is_stored': self.is_stored,
-            'col_type': self.col_type.as_dict(),
-        }
+        return {'orig_name': self.orig_name, 'is_stored': self.is_stored, 'col_type': self.col_type.as_dict()}
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'IteratorOutputInfo':
-        return cls(
-            orig_name=d['orig_name'],
-            is_stored=d['is_stored'],
-            col_type=ts.ColumnType.from_dict(d['col_type']),
-        )
+        return cls(orig_name=d['orig_name'], is_stored=d['is_stored'], col_type=ts.ColumnType.from_dict(d['col_type']))
 
 
 @dataclass(frozen=True)
@@ -292,7 +279,7 @@ class GeneratingFunctionCall:
         # Bind args and kwargs against the latest version of the iterator defined in code.
         try:
             bound_args = it.bind_args(args, kwargs)
-        except TypeError as exc:
+        except TypeError:
             raise AssertionError()  # TODO: Validation
 
         # Deserialize the output schema and validate against the latest version of the iterator defined in code.

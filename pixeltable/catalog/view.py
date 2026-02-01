@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import logging
 from typing import TYPE_CHECKING, Any, List, Literal
 from uuid import UUID
@@ -9,7 +8,6 @@ import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
-from pixeltable.iterators import ComponentIterator
 
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation

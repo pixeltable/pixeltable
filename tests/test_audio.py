@@ -8,7 +8,6 @@ import pytest
 import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable.functions.audio import audio_splitter, encode_audio
-from pixeltable.iterators.audio import AudioSplitter
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.object_stores import ObjectOps
 

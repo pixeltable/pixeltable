@@ -1,6 +1,6 @@
 from typing import AsyncIterator
 
-from pixeltable import catalog, exceptions as excs, exprs, type_system as ts
+from pixeltable import catalog, exceptions as excs, exprs
 from pixeltable.func.iterator import GeneratingFunctionCall
 
 from .data_row_batch import DataRowBatch
@@ -32,9 +32,7 @@ class ComponentIterationNode(ExecNode):
         self.row_builder.set_slot_idxs(iterator_args_expr)
         self.iterator_args_expr = iterator_args_expr[0]
         self.iterator_args_ctx = self.row_builder.create_eval_ctx([self.iterator_args_expr])
-        self.iterator_output_cols = {
-            name: self.view.get().cols_by_name[name] for name in self.iterator_call.outputs
-        }
+        self.iterator_output_cols = {name: self.view.get().cols_by_name[name] for name in self.iterator_call.outputs}
 
         # referenced iterator output fields
         self.refd_output_slot_idxs = {

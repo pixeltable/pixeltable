@@ -22,7 +22,7 @@ def simple_iterator(x: int, str_text: str = 'string') -> Iterator[MyRow]:
 def _(bound_args: dict[str, Any]) -> bool:
     if 'x' in bound_args and bound_args['x'] < 0:
         raise pxt.Error('Parameter `x` must be non-negative.')
-    if not 'str_text' in bound_args:
+    if 'str_text' not in bound_args:
         raise pxt.Error('Parameter `str_text` must be a constant.')
     if not bound_args['str_text'].isidentifier():
         raise pxt.Error('Parameter `str_text` must be a valid identifier.')
@@ -52,7 +52,7 @@ class class_based_iterator:
 def _(bound_args: dict[str, Any]) -> bool:
     if 'x' in bound_args and bound_args['x'] < 0:
         raise pxt.Error('Parameter `x` must be non-negative.')
-    if not 'str_text' in bound_args:
+    if 'str_text' not in bound_args:
         raise pxt.Error('Parameter `str_text` must be a constant.')
     if not bound_args['str_text'].isidentifier():
         raise pxt.Error('Parameter `str_text` must be a valid identifier.')
@@ -104,15 +104,15 @@ class TestIterator:
             ]
 
             # Test that the iterator-specific validator works at insertion time
-            with pytest.raises(pxt.Error, match='Parameter `x` must be non-negative.'):
+            with pytest.raises(pxt.Error, match=r'Parameter `x` must be non-negative.'):
                 t.insert([{'input': -1}])
 
             # Test that the iterator-specific validator works at iterator creation time
-            with pytest.raises(pxt.Error, match='Parameter `x` must be non-negative.'):
+            with pytest.raises(pxt.Error, match=r'Parameter `x` must be non-negative.'):
                 it(-1)
-            with pytest.raises(pxt.Error, match='Parameter `str_text` must be a constant.'):
+            with pytest.raises(pxt.Error, match=r'Parameter `str_text` must be a constant.'):
                 it(t.input, str_text=pxtf.uuid.uuid7().to_string())
-            with pytest.raises(pxt.Error, match='Parameter `str_text` must be a valid identifier.'):
+            with pytest.raises(pxt.Error, match=r'Parameter `str_text` must be a valid identifier.'):
                 it(t.input, str_text='I am not a valid identifier!')
 
         reload_tester.run_reload_test()

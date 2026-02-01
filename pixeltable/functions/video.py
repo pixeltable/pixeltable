@@ -1798,17 +1798,14 @@ def video_splitter(
     assert (duration is None) != (segment_times is None)
     if duration is not None:
         assert duration > 0.0
-        assert duration >= min_segment_duration
+        assert min_segment_duration is None or duration >= min_segment_duration
         assert overlap is None or overlap < duration
 
     video_path = Path(video)
     assert video_path.exists() and video_path.is_file()
 
-    overlap = overlap if overlap is not None else 0.0
-    min_segment_duration = min_segment_duration if min_segment_duration is not None else 0.0
-    segment_times = segment_times
-    video_encoder = video_encoder
-    video_encoder_args = video_encoder_args
+    overlap = overlap or 0.0
+    min_segment_duration = min_segment_duration or 0.0
 
     with av.open(video) as container:
         video_time_base = container.streams.video[0].time_base

@@ -6,9 +6,7 @@ import PIL
 import pytest
 
 import pixeltable as pxt
-import pixeltable.type_system as ts
 from pixeltable.functions.video import frame_iterator
-from pixeltable.iterators import ComponentIterator
 
 from .utils import assert_resultset_eq, get_test_video_files, reload_catalog, validate_update_status
 

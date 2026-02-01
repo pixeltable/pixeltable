@@ -5,7 +5,7 @@ Pixeltable UDFs for `DocumentType`.
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 
 import ftfy
 import PIL.Image

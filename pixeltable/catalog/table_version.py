@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-import importlib
 import itertools
 import logging
 import time
@@ -16,13 +15,11 @@ from sqlalchemy import exc as sql_exc
 
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
-from pixeltable.exprs.inline_expr import InlineDict
-import pixeltable.func as func
 import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
+from pixeltable.exprs.inline_expr import InlineDict
 from pixeltable.func.iterator import GeneratingFunctionCall
-from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps

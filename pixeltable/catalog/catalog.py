@@ -17,7 +17,6 @@ import sqlalchemy.exc as sql_exc
 import pixeltable.index as index
 from pixeltable import exceptions as excs, func
 from pixeltable.env import Env
-from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.utils.exception_handler import run_cleanup
 

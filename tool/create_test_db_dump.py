@@ -146,8 +146,6 @@ class Dumper:
 
     # Expression types, predicate types, embedding indices, views on views
     def create_tables(self) -> None:
-        import tool.create_test_db_dump  # noqa: PLW0406  # we need a self-reference since this module is run as main
-
         schema = {
             'c1': pxt.Required[pxt.String],
             'c1n': pxt.String,

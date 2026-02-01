@@ -14,7 +14,7 @@ def _(engine: sql.engine.Engine) -> None:
 def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | None:
     if not isinstance(value, dict):
         return None
-    
+
     if 'iterator_class_fqn' in value:
         assert 'iterator_args' in value
         iterator_class_fqn: str = value['iterator_class_fqn']
@@ -80,7 +80,7 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
                 'fn': {'fqn': iterator_class_fqn},
                 'args': [],  # Non-kwargs inputs were not supported in versions <= 45
                 'kwargs': kwargs,
-                'outputs': outputs
+                'outputs': outputs,
             }
 
     return key, value
