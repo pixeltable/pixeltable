@@ -153,6 +153,11 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
     with torch.no_grad():
         inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
         output: torch.Tensor
+        # TODO: There is no longer a uniform API for get_*_features() that works in both Transformers 4 and
+        #     Transformers 5. The following is the migration pattern suggested by Hugging Face. It works in the
+        #     sense that clip() completes without crashing; however, the top-k tests in tests/text_index.py fail
+        #     on Transformers 5 for unknown reasons. Reference doc:
+        #     https://github.com/huggingface/transformers/blob/main/MIGRATION_GUIDE_V5.md#feature-extraction-helpers-get__features
         if transformers.__version__ >= '5':
             output = model.get_text_features(**inputs.to(device), return_dict=True).pooler_output
         else:
