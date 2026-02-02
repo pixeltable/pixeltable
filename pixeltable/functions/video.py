@@ -1713,7 +1713,7 @@ class frame_iterator(pxt.PxtIterator):
         assert self.cur_frame is None or abs(float(self.cur_frame.pts * self.video_time_base) - seek_time) < 1e-3
 
     @classmethod
-    def validate(self, bound_args: dict[str, Any]) -> None:
+    def validate(cls, bound_args: dict[str, Any]) -> None:
         fps = bound_args.get('fps')
         num_frames = bound_args.get('num_frames')
         keyframes_only = bound_args.get('keyframes_only', False)
@@ -1723,7 +1723,7 @@ class frame_iterator(pxt.PxtIterator):
             raise excs.Error('`fps` must be a non-negative number')
 
     @classmethod
-    def conditional_output_schema(self, bound_args: dict[str, Any]) -> dict[str, type]:
+    def conditional_output_schema(cls, bound_args: dict[str, Any]) -> dict[str, type]:
         attrs: dict[str, type]
         if bound_args.get('use_legacy_schema'):
             attrs = {'frame_idx': ts.Int, 'pos_msec': ts.Float, 'pos_frame': ts.Int}

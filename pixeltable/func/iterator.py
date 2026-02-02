@@ -322,7 +322,7 @@ class GeneratingFunctionCall:
         try:
             bound_args = it.py_sig.bind(*args, **kwargs).arguments
         except TypeError:
-            raise AssertionError()  # TODO: Validation
+            raise AssertionError() from None  # TODO: Validation
 
         # Deserialize the output schema and validate against the latest version of the iterator defined in code.
         if d['outputs'] is None:

@@ -181,7 +181,8 @@ class TestIterator:
         # Error: conditional_output_schema() not a @classmethod
         with pytest.raises(
             pxt.Error,
-            match=r'`conditional_output_schema\(\)` method of @pxt.iterator `.*cos_not_classmethod` must be a @classmethod.',
+            match=r'`conditional_output_schema\(\)` method of @pxt.iterator '
+            r'`.*cos_not_classmethod` must be a @classmethod.',
         ):
 
             @pxt.iterator
@@ -198,7 +199,8 @@ class TestIterator:
         # Error: __next__() has wrong return type (not dict)
         with pytest.raises(
             pxt.Error,
-            match=r'`__next__\(\)` method of @pxt.iterator-decorated class `.*wrong_next_return_type` must have return type `dict` or `MyTypedDict`.',
+            match=r'`__next__\(\)` method of @pxt.iterator-decorated class '
+            r'`.*wrong_next_return_type` must have return type `dict` or `MyTypedDict`.',
         ):
 
             @pxt.iterator
@@ -212,17 +214,19 @@ class TestIterator:
         # Error: function iterator with wrong return type (not Iterator[dict])
         with pytest.raises(
             pxt.Error,
-            match=r'@pxt.iterator-decorated function `.*wrong_return_type\(\)` must have return type `Iterator\[dict\]` or `Iterator\[MyTypedDict\]`.',
+            match=r'@pxt.iterator-decorated function `.*wrong_return_type\(\)` must have return type '
+            r'`Iterator\[dict\]` or `Iterator\[MyTypedDict\]`.',
         ):
 
             @pxt.iterator
-            def wrong_return_type(x: int) -> int:  # type: ignore[misc]
+            def wrong_return_type(x: int) -> int:
                 return x
 
         # Error: function iterator returning Iterator[int] instead of Iterator[dict]
         with pytest.raises(
             pxt.Error,
-            match=r'@pxt.iterator-decorated function `.*iterator_of_ints\(\)` must have return type `Iterator\[dict\]` or `Iterator\[MyTypedDict\]`.',
+            match=r'@pxt.iterator-decorated function `.*iterator_of_ints\(\)` must have return type '
+            r'`Iterator\[dict\]` or `Iterator\[MyTypedDict\]`.',
         ):
 
             @pxt.iterator
@@ -248,7 +252,8 @@ class TestIterator:
         t = pxt.create_table('tbl_plain_dict', schema={'input': pxt.Int})
         with pytest.raises(
             pxt.Error,
-            match=r'Iterator `.*plain_dict_iterator` must either return a `TypedDict` or define a `conditional_output_schema`.',
+            match=r'Iterator `.*plain_dict_iterator` must either return a `TypedDict` '
+            r'or define a `conditional_output_schema`.',
         ):
             pxt.create_view('view_plain_dict', t, iterator=plain_dict_iterator(t.input))
 

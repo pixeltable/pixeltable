@@ -115,26 +115,26 @@ class TestAudio:
         self,
         start_time_sec: float,
         total_duration_sec: float,
-        segment_duration_sec: float,
-        overlap_sec: float,
-        min_segment_duration_sec: float,
+        duration: float,
+        overlap: float,
+        min_segment_duration: float,
     ) -> int:
-        effective_segment_duration_sec = segment_duration_sec - overlap_sec
+        effective_duration = duration - overlap
         segment_count = 0
         start = start_time_sec
         end = start_time_sec + total_duration_sec
         while True:
-            if start + segment_duration_sec >= end:
+            if start + duration >= end:
                 last_segment_size = end - start
-                if last_segment_size > 0 and last_segment_size >= min_segment_duration_sec:
+                if last_segment_size > 0 and last_segment_size >= min_segment_duration:
                     segment_count += 1
                 break
-            start += effective_segment_duration_sec
+            start += effective_duration
             segment_count += 1
         return segment_count
 
     def __get_segment_count(
-        self, file: str, target_segment_size_sec: float, overlap_sec: float, min_segment_duration_sec: float
+        self, file: str, target_segment_size_sec: float, overlap: float, min_segment_duration: float
     ) -> int:
         container = av.open(file)
         if len(container.streams.audio) == 0:
@@ -146,8 +146,8 @@ class TestAudio:
             float(start_time * time_base),
             float(total_duration * time_base),
             target_segment_size_sec,
-            overlap_sec,
-            min_segment_duration_sec,
+            overlap,
+            min_segment_duration,
         )
 
     def test_audio_splitter_on_audio(self, uses_db: None, reload_tester: ReloadTester) -> None:
@@ -157,9 +157,7 @@ class TestAudio:
         audio_segment_view = pxt.create_view(
             'audio_segments',
             base_t,
-            iterator=audio_splitter(
-                audio=base_t.audio, segment_duration_sec=5.0, overlap_sec=1.25, min_segment_duration_sec=0.5
-            ),
+            iterator=audio_splitter(audio=base_t.audio, duration=5.0, overlap=1.25, min_segment_duration=0.5),
         )
         file_to_segments = {file: self.__get_segment_count(file, 5.0, 1.25, 0.5) for file in audio_filepaths}
         results = reload_tester.run_query(audio_segment_view.order_by(audio_segment_view.pos))
@@ -194,9 +192,7 @@ class TestAudio:
         audio_segment_view = pxt.create_view(
             'audio_segments',
             video_t,
-            iterator=audio_splitter(
-                audio=video_t.audio, segment_duration_sec=2.0, overlap_sec=0.5, min_segment_duration_sec=0.25
-            ),
+            iterator=audio_splitter(audio=video_t.audio, duration=2.0, overlap=0.5, min_segment_duration=0.25),
         )
         audio_files = [
             result['audio'] for result in video_t.select(video_t.audio).where(video_t.audio != None).collect()
@@ -275,9 +271,7 @@ class TestAudio:
         audio_segment_view = pxt.create_view(
             'audio_segments',
             base_t,
-            iterator=audio_splitter(
-                audio=base_t.audio, segment_duration_sec=5.0, overlap_sec=0.0, min_segment_duration_sec=0.0
-            ),
+            iterator=audio_splitter(audio=base_t.audio, duration=5.0, overlap=0.0, min_segment_duration=0.0),
         )
         assert audio_segment_view.count() == self.__get_segment_count(audio_filepath, 5.0, 0.0, 0.0)
         results = reload_tester.run_query(audio_segment_view.order_by(audio_segment_view.pos))
@@ -292,9 +286,7 @@ class TestAudio:
         audio_segment_view = pxt.create_view(
             'audio_segments_overlap',
             base_t,
-            iterator=audio_splitter(
-                audio=base_t.audio, segment_duration_sec=14.0, overlap_sec=2.5, min_segment_duration_sec=0.0
-            ),
+            iterator=audio_splitter(audio=base_t.audio, duration=14.0, overlap=2.5, min_segment_duration=0.0),
         )
         assert audio_segment_view.count() == self.__get_segment_count(audio_filepath, 14.0, 2.5, 0.0)
         results = reload_tester.run_query(audio_segment_view.order_by(audio_segment_view.pos))
@@ -305,9 +297,7 @@ class TestAudio:
         audio_segment_view = pxt.create_view(
             'audio_segments_overlap_with_drop',
             base_t,
-            iterator=audio_splitter(
-                audio=base_t.audio, segment_duration_sec=14.0, overlap_sec=7.5, min_segment_duration_sec=10
-            ),
+            iterator=audio_splitter(audio=base_t.audio, duration=14.0, overlap=7.5, min_segment_duration=10),
         )
         assert audio_segment_view.count() == self.__get_segment_count(audio_filepath, 14.0, 7.5, 10.0)
         results = reload_tester.run_query(audio_segment_view.order_by(audio_segment_view.pos))

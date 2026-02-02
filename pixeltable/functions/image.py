@@ -530,7 +530,7 @@ class tile_iterator(pxt.PxtIterator[Tile]):
         self.__i = pos % self.__xlen
 
     @classmethod
-    def validate(self, bound_args: dict[str, Any]) -> None:
+    def validate(cls, bound_args: dict[str, Any]) -> None:
         tile_size = bound_args.get('tile_size')
         overlap = bound_args.get('overlap', (0, 0))
         if tile_size[0] <= 0 or tile_size[1] <= 0:
