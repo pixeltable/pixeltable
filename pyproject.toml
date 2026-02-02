@@ -94,6 +94,7 @@ default-groups = ["dev", "test"]
 override-dependencies = [
     "numpy>=2.2",  # Required because 'whisperx' hard-codes 'numpy<2.1'
     "sse-starlette>=2.0",  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
+    "ruff>=0.14"  # Required because 'fireworks-ai' hard-codes 'ruff<10'
 ]
 
 [tool.uv-dynamic-versioning]
@@ -118,7 +119,7 @@ dev = [
     "types-sqlalchemy-utils~=1.1",
     "types-toml>=0.10",
     "types-tqdm~=4.64",
-    "ruff>=0.9.3,<0.10",
+    "ruff>=0.14",
     "notebook>=7.1.0,<8",
     "mkdocs>=1.6.0,<2",
     "mkdocs-material>=9.5.23,<10",

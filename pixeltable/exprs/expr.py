@@ -192,7 +192,7 @@ class Expr(abc.ABC):
             return False
         return all(a[i].equals(b[i]) for i in range(len(a)))
 
-    def copy(self: T) -> T:
+    def copy(self) -> Self:
         """
         Creates a copy that can be evaluated separately: it doesn't share any eval context (slot_idx)
         but shares everything else (catalog objects, etc.)
