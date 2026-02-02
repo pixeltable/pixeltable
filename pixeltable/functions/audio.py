@@ -144,8 +144,16 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
     """
     Iterator over segments of an audio file. The audio file is split into smaller segments,
     where the duration of each segment is determined by `duration`.
-    The iterator yields audio segments as pxt.Audio, along with the start and end time of each segment.
+
     If the input contains no audio, no segments are yielded.
+
+    __Outputs__:
+
+        One row per audio segment, with the following columns:
+
+        - `segment_start` (`pxt.Float`): Start time of the audio segment in seconds
+        - `segment_end` (`pxt.Float`): End time of the audio segment in seconds
+        - `audio_segment` (`pxt.Audio | None`): The audio content of the segment
 
     Args:
         duration: Audio segment duration in seconds

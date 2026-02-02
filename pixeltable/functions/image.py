@@ -463,6 +463,14 @@ class tile_iterator(pxt.PxtIterator[Tile]):
     specified. If the tiles do not exactly cover the image, then the rightmost and bottommost tiles will be padded with
     blackspace, so that the output images all have the exact size `tile_size`.
 
+    __Outputs__:
+
+        One row per tile, with the following columns:
+
+        - `tile` (`pxt.Image`): The image tile
+        - `tile_coord` (`pxt.Json`): The (x, y) coordinates of the tile in the grid of tiles
+        - `tile_box` (`pxt.Json`): The (x1, y1, x2, y2) pixel coordinates of the tile in the original image
+
     Args:
         image: Image to split into tiles.
         tile_size: Size of each tile, as a pair of integers `(width, height)`.

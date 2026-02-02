@@ -1468,8 +1468,34 @@ class frame_iterator(pxt.PxtIterator):
     """
     Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be specified. If `fps`
     is specified, then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified,
-    then the exact number of frames will be extracted. If neither is specified, then all frames will be extracted. The
-    first frame of the video will always be extracted, and the remaining frames will be spaced as evenly as possible.
+    then the exact number of frames will be extracted. If neither is specified, then all frames will be extracted.
+
+    __Outputs:__
+
+    One row per extracted frame, with the following columns:
+
+    - `frame` (`pxt.Image`): The extracted video frame
+    - `frame_attrs` (`pxt.Json`): A dictionary containing the following attributes (for more information,
+        see `pyav`'s documentation on
+        [VideoFrame](https://pyav.org/docs/develop/api/video.html#module-av.video.frame) and
+        [Frame](https://pyav.org/docs/develop/api/frame.html)):
+
+            * `index` (`int`): The index of the frame in the video stream
+            * `pts` (`int | None`): The presentation timestamp of the frame
+            * `dts` (`int | None`): The decoding timestamp of the frame
+            * `time` (`float | None`): The timestamp of the frame in seconds
+            * `is_corrupt` (`bool`): `True` if the frame is corrupt
+            * `key_frame` (`bool`): `True` if the frame is a keyframe
+            * `pict_type` (`int`): The picture type of the frame
+            * `interlaced_frame` (`bool`): `True` if the frame is interlaced
+
+    If `use_legacy_schema=True`, then `frame_attrs` will be omitted, and the following columns will be provided
+    instead:
+
+    - `frame` (`pxt.Image`): The extracted video frame
+    - `frame_idx` (`int`): The index of the frame in the video stream
+    - `pos_msec` (`float`): The timestamp of the frame in milliseconds
+    - `pos_frame` (`int`): The position of the frame in the video stream
 
     Args:
         fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
@@ -1478,22 +1504,8 @@ class frame_iterator(pxt.PxtIterator):
         num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
             `num_frames` is greater than the number of frames in the video, all frames will be extracted.
         keyframes_only: If True, only extract keyframes.
-        all_frame_attrs:
-            If True, outputs a `pxt.Json` column `frame_attrs` with the following `pyav`-provided attributes
-            (for more information, see `pyav`'s documentation on
-            [VideoFrame](https://pyav.org/docs/develop/api/video.html#module-av.video.frame) and
-            [Frame](https://pyav.org/docs/develop/api/frame.html)):
-
-            * `index` (`int`)
-            * `pts` (`int | None`)
-            * `dts` (`int | None`)
-            * `time` (`float | None`)
-            * `is_corrupt` (`bool`)
-            * `key_frame` (`bool`)
-            * `pict_type` (`int`)
-            * `interlaced_frame` (`bool`)
-
-            If False, only outputs frame attributes `frame_idx`, `pos_msec`, and `pos_frame` as separate columns.
+        use_legacy_schema: For backward compatibility. If `True`, then uses the alternative output schema
+            as described above.
 
     Examples:
         All these examples assume an existing table `tbl` with a column `video` of type `pxt.Video`.

@@ -129,10 +129,23 @@ _METADATA_COLUMN_TYPES: dict = {
 class document_splitter(pxt.PxtIterator):
     """Iterator over chunks of a document. The document is chunked according to the specified `separators`.
 
-    The iterator yields a `text` field containing the text of the chunk, and it may also
-    include additional metadata fields if specified in the `metadata` parameter, as explained below.
-
     Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
+
+    __Outputs__:
+
+        One row per chunk, with the following columns, depending on the specified `elements` and `metadata`:
+
+        - `text` (`pxt.String`): The text of the chunk. Present if `'text'` is specified in `elements`.
+        - `image` (`pxt.Image`): The image extracted from the chunk. Present if `'image'` is specified in `elements`.
+        - `title` (`pxt.String | None`): The document title. Present if `'title'` is specified in `metadata`.
+        - `heading` (`pxt.Json | None`): The heading hierarchy at the start of the chunk (HTML and Markdown only).
+            Present if `'heading'` is specified in `metadata`.
+        - `sourceline` (`pxt.Int | None`): The source line number of the start of the chunk (HTML only).
+            Present if `'sourceline'` is specified in `metadata`.
+        - `page` (`pxt.Int | None`): The page number of the chunk (PDF only). Present if `'page'` is specified in
+            `metadata`.
+        - `bounding_box` (`pxt.Json | None`): The bounding box of the chunk on the page, as an `{x1, y1, x2, y2}`
+            dictionary (PDF only). Present if `'bounding_box'` is specified in `metadata`.
 
     Args:
         separators: separators to use to chunk the document. Options are:
@@ -146,8 +159,14 @@ class document_splitter(pxt.PxtIterator):
         metadata: additional metadata fields to include in the output. Options are:
              `'title'`, `'heading'` (HTML and Markdown), `'sourceline'` (HTML), `'page'` (PDF), `'bounding_box'`
              (PDF). The input may be a comma-separated string, e.g., `'title,heading,sourceline'`.
+        skip_tags: list of HTML tags to skip when processing HTML documents.
         spacy_model: Name of the spaCy model to use for sentence segmentation. This parameter is ignored unless
             the `'sentence'` separator is specified.
+        tiktoken_encoding: Name of the tiktoken encoding to use when counting tokens. This parameter is ignored
+            unless the `'token_limit'` separator is specified.
+        tiktoken_target_model: Name of the target model to use when counting tokens with tiktoken. If specified,
+            this parameter overrides `tiktoken_encoding`. This parameter is ignored unless the `'token_limit'`
+            separator is specified.
         image_dpi: DPI to use when extracting images from PDFs. Defaults to 300.
         image_format: format to use when extracting images from PDFs. Defaults to 'png'.
 

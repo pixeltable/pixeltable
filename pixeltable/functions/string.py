@@ -828,11 +828,14 @@ class StringChunk(TypedDict):
 def string_splitter(text: str, separators: str, *, spacy_model: str = 'en_core_web_sm') -> Iterator[StringChunk]:
     """Iterator over chunks of a string. The string is chunked according to the specified `separators`.
 
-    The iterator yields a `text` field containing the text of the chunk.
-    Chunked text will be cleaned with `ftfy.fix_text` to fix up common problems with unicode sequences.
+    __Outputs__:
+
+        One row per chunk, with the following columns:
+
+        - `text` (`pxt.String`): The text of the chunk.
 
     Args:
-        separators: separators to use to chunk the document. Currently the only supported option is `'sentence'`.
+        separators: Separators to use to chunk the document. Currently the only supported option is `'sentence'`.
         spacy_model: Name of the spaCy model to use for sentence segmentation.
 
     Examples:
