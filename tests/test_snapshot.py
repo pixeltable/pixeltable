@@ -168,7 +168,7 @@ class TestSnapshot:
             pxt.create_snapshot('not_snapshot', t)
         for ie in ('ignore', 'replace', 'replace_force'):
             with pytest.raises(pxt.Error) as exc_info:
-                pxt.create_snapshot('not_snapshot', t, if_exists=ie)  # type: ignore[arg-type]
+                pxt.create_snapshot('not_snapshot', t, if_exists=ie)
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a snapshot' in err_msg
             assert 'not_snapshot' in pxt.list_tables(), f'with if_exists={ie}'
