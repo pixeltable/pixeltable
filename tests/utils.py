@@ -602,8 +602,7 @@ _S3_PYTEST_RESOURCES = 's3://pxt-test/pytest-resources'
 
 def ensure_s3_pytest_resources_access() -> None:
     """Skip if s3://pxt-test/pytest-resources is not reachable (no creds or no access)."""
-    if not Env.get().is_installed_package('boto3'):
-        pytest.skip('Package `boto3` is not installed.')
+    skip_test_if_not_installed('boto3')
     try:
         ObjectOps.validate_destination(_S3_PYTEST_RESOURCES)
     except Exception as exc:
