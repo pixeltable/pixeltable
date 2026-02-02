@@ -144,6 +144,7 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
+    import transformers
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
@@ -151,7 +152,11 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
 
     with torch.no_grad():
         inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
-        output = model.get_text_features(**inputs.to(device), return_dict=True).pooler_output
+        output: torch.Tensor
+        if transformers.__version__ >= '5':
+            output = model.get_text_features(**inputs.to(device), return_dict=True).pooler_output
+        else:
+            output = model.get_text_features(**inputs.to(device))
         embeddings = output.detach().to('cpu').numpy()
 
     return [embeddings[i] for i in range(embeddings.shape[0])]
@@ -162,6 +167,7 @@ def _(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
+    import transformers
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
@@ -169,7 +175,11 @@ def _(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,
 
     with torch.no_grad():
         inputs = processor(images=image, return_tensors='pt', padding=True)
-        output = model.get_image_features(**inputs.to(device), return_dict=True).pooler_output
+        output: torch.Tensor
+        if transformers.__version__ >= '5':
+            output = model.get_image_features(**inputs.to(device), return_dict=True).pooler_output
+        else:
+            output = model.get_image_features(**inputs.to(device))
         embeddings = output.detach().to('cpu').numpy()
 
     return [embeddings[i] for i in range(embeddings.shape[0])]
