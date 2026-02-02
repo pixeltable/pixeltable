@@ -290,8 +290,12 @@ class Env:
     def stop_progress(self) -> None:
         if self._progress is None:
             return
-        self._progress.stop()
-        self._progress = None
+        try:
+            self._progress.stop()
+        except Exception as e:
+            self._logger.warning(f'Error stopping progress: {e}')
+        finally:
+            self._progress = None
 
         # if we're running in a notebook, we need to clear the Progress output manually
         if self.is_notebook():
@@ -474,8 +478,6 @@ class Env:
                     _ = ObjectPath.parse_object_storage_addr(uri, False)
                 except Exception as e:
                     raise excs.Error(f'Invalid {mode} media destination URI: {uri}') from e
-
-        self._pxt_api_key = config.get_string_value('api_key')
 
         # Disable spurious warnings:
         # Suppress tqdm's ipywidgets warning in Jupyter environments
@@ -709,7 +711,8 @@ class Env:
 
     @property
     def pxt_api_key(self) -> str | None:
-        return self._pxt_api_key
+        """Get the Pixeltable API key from config"""
+        return Config.get().get_string_value('api_key')
 
     def get_client(self, name: str) -> Any:
         """
@@ -849,6 +852,7 @@ class Env:
         self.__register_package('pydantic')
         self.__register_package('replicate')
         self.__register_package('reve')
+        self.__register_package('runwayml')
         self.__register_package('scenedetect')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')

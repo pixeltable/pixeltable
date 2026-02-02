@@ -13,7 +13,7 @@ Every operation that modifies a table creates a new version:
 import pixeltable as pxt
 
 # Version 0: Table created
-products = pxt.create_table('demo.products', {
+products = pxt.create_table('demo/products', {
     'name': pxt.String,
     'price': pxt.Float
 })
@@ -64,7 +64,7 @@ Query any historical version using the `table_name:version` syntax:
 
 ```python
 # Get the table at version 1 (before computed column)
-products_v1 = pxt.get_table('demo.products:1')
+products_v1 = pxt.get_table('demo/products:1')
 products_v1.collect()  # Returns data as it was at version 1
 
 # Compare with current state
@@ -104,7 +104,7 @@ Create named, persistent point-in-time copies for long-term preservation:
 
 ```python
 # Freeze current state before a major data update
-baseline = pxt.create_snapshot('demo.products_baseline', products)
+baseline = pxt.create_snapshot('demo/products_baseline', products)
 
 # Later: source table changes, but snapshot remains unchanged
 products.insert([{'name': 'NewItem', 'price': 99.99}])
@@ -140,7 +140,7 @@ Views automatically track their source tables:
 
 ```python
 expensive = pxt.create_view(
-    'demo.expensive_products',
+    'demo/expensive_products',
     products.where(products.price > 20)
 )
 # View lineage: expensive_products → products
@@ -171,7 +171,7 @@ expensive = pxt.create_view(
     Use `revert()` immediately after mistakes. For older issues, use time travel to identify the problem.
   </Card>
   <Card title="Namespace by Environment" icon="folder-tree">
-    Use directories like `dev.products`, `staging.products` to isolate versioning across environments.
+    Use directories like `dev/products`, `staging/products` to isolate versioning across environments.
   </Card>
 </CardGroup>
 

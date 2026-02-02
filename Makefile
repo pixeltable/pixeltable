@@ -27,7 +27,7 @@ help:
 	@echo '  test          Run pytest, stresstest, and check'
 	@echo '  fulltest      Run fullpytest, nbtest, stresstest, and check'
 	@echo '  slimtest      Run a slimpytest and check'
-	@echo '  check         Run typecheck, lint, and formatcheck'
+	@echo '  check         Run typecheck, lint, formatcheck, and nbcheck'
 	@echo '  format        Run `ruff format` (updates .py files in place)'
 	@echo '  release       Create a pypi release and post to github'
 	@echo '  docs          Build mintlify documentation'
@@ -46,6 +46,7 @@ help:
 	@echo '  docscheck     Run `mkdocs build --strict`'
 	@echo '  lint          Run `ruff check`'
 	@echo '  formatcheck   Run `ruff format --check` (check only, do not modify files)'
+	@echo '  nbcheck       Run `./scripts/check-notebooks.sh`'
 	@echo ''
 	@echo 'Global parameters:'
 	@echo '  UV_ARGS       Additional arguments to pass to `uv sync` (default = '\''--group extra-dev'\'')'
@@ -122,7 +123,7 @@ slimtest: slimpytest check
 	@echo 'All tests passed.'
 
 .PHONY: check
-check: typecheck lint formatcheck
+check: typecheck lint formatcheck nbcheck
 	@echo 'All static checks passed.'
 
 .PHONY: pytest
@@ -171,8 +172,11 @@ formatcheck: install
 	@ruff format --check pixeltable tests tool
 	@echo 'Running `ruff check --select I` ...'
 	@ruff check --select I pixeltable tests tool
-	@echo 'Checking notebooks...'
-	@./scripts/notebooks-markdown.sh check
+
+.PHONY: nbcheck
+nbcheck: install
+	@echo 'Running `./scripts/check-notebooks.sh` ...'
+	@./scripts/check-notebooks.sh
 
 .PHONY: format
 format: install
@@ -180,8 +184,8 @@ format: install
 	@ruff format pixeltable tests tool
 	@echo 'Running `ruff check --select I --fix` ...'
 	@ruff check --select I --fix pixeltable tests tool
-	@echo 'Formatting notebooks...'
-	@./scripts/notebooks-markdown.sh format
+	@echo 'Running `./scripts/format-notebooks.sh` ...'
+	@./scripts/format-notebooks.sh
 
 .PHONY: release
 release: install

@@ -5349,6 +5349,7 @@ dev = [
     { name = "pyiceberg" },
     { name = "replicate" },
     { name = "ruff" },
+    { name = "runwayml" },
     { name = "scenedetect" },
     { name = "sentence-transformers" },
     { name = "sentencepiece" },
@@ -5483,6 +5484,7 @@ dev = [
     { name = "pyiceberg", specifier = ">=0.6.0" },
     { name = "replicate", specifier = ">=1.0.7,<2" },
     { name = "ruff", specifier = ">=0.9.3,<0.10" },
+    { name = "runwayml", specifier = ">=4.2.0" },
     { name = "scenedetect", specifier = ">=0.6.0.1" },
     { name = "sentence-transformers", specifier = "~=4.0" },
     { name = "sentencepiece", specifier = ">=0.2.0" },
@@ -5529,7 +5531,7 @@ test = [
 [[package]]
 name = "pixeltable-doctools"
 version = "0.1.0"
-source = { git = "https://github.com/pixeltable/pixeltable-doctools#aa9157882b67a07e6f187f98d1c6b5ce442e2cf2" }
+source = { git = "https://github.com/pixeltable/pixeltable-doctools#bb956983fd24fdb8e311f03e34f66d0358b7c331" }
 dependencies = [
     { name = "docstring-parser" },
     { name = "griffe" },
@@ -7652,6 +7654,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/23/15/f6751c07c21ca10e3f4a51ea495ca975ad936d780c347d9808bcedbd7182/ruff-0.9.4-py3-none-win32.whl", hash = "sha256:db1192ddda2200671f9ef61d9597fcef89d934f5d1705e571a93a67fb13a4402", size = 9852302, upload-time = "2025-01-30T18:09:40.013Z" },
     { url = "https://files.pythonhosted.org/packages/12/41/2d2d2c6a72e62566f730e49254f602dfed23019c33b5b21ea8f8917315a1/ruff-0.9.4-py3-none-win_amd64.whl", hash = "sha256:05bebf4cdbe3ef75430d26c375773978950bbf4ee3c95ccb5448940dc092408e", size = 10850051, upload-time = "2025-01-30T18:09:43.42Z" },
     { url = "https://files.pythonhosted.org/packages/c6/e6/3d6ec3bc3d254e7f005c543a661a41c3e788976d0e52a1ada195bd664344/ruff-0.9.4-py3-none-win_arm64.whl", hash = "sha256:585792f1e81509e38ac5123492f8875fbc36f3ede8185af0a26df348e5154f41", size = 10078251, upload-time = "2025-01-30T18:09:48.01Z" },
+]
+
+[[package]]
+name = "runwayml"
+version = "4.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anyio" },
+    { name = "distro" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "sniffio" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/74/f0/5af7b663be024fea7c27aa3a66c1e4d032ead851fe6fa0e9e514666ca0f0/runwayml-4.2.0.tar.gz", hash = "sha256:97bdb74e7e44be6efde126bb09428fec26bc9dd97e1012a455469c3296c6d962", size = 133813, upload-time = "2025-12-04T02:46:16.671Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/5e/5ac51418a421fcc144fa863474fa3b76070db91fad62b9669da1e980bac8/runwayml-4.2.0-py3-none-any.whl", hash = "sha256:6a0c3db0d4e8ebb9350457f8209033aedecc73cdcba7fc2b681bd4b765cebb96", size = 122534, upload-time = "2025-12-04T02:46:15.669Z" },
 ]
 
 [[package]]
