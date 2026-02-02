@@ -151,7 +151,8 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
 
     with torch.no_grad():
         inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
-        embeddings = model.get_text_features(**inputs.to(device)).detach().to('cpu').numpy()
+        output = model.get_text_features(**inputs.to(device), return_dict=True).pooler_output
+        embeddings = output.detach().to('cpu').numpy()
 
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
@@ -168,7 +169,8 @@ def _(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,
 
     with torch.no_grad():
         inputs = processor(images=image, return_tensors='pt', padding=True)
-        embeddings = model.get_image_features(**inputs.to(device)).detach().to('cpu').numpy()
+        output = model.get_image_features(**inputs.to(device), return_dict=True).pooler_output
+        embeddings = output.detach().to('cpu').numpy()
 
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
@@ -899,7 +901,8 @@ def question_answering(context: str, question: str, *, model_id: str) -> dict[st
 
     with torch.no_grad():
         # Tokenize the question and context
-        inputs = tokenizer.encode_plus(
+        # Use tokenizer() instead of encode_plus() for compatibility with transformers v5
+        inputs = tokenizer(
             question, context, add_special_tokens=True, return_tensors='pt', truncation=True, max_length=512
         )
 
