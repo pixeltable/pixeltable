@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal, NamedTuple
 
 import numpy as np
+import pandas as pd
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import pyarrow.parquet as pq
 import pytest
@@ -147,6 +148,9 @@ class TestPackager:
             print(f'Checking column: {col}')
             pxt_values: list = pxt_data[col]
             parquet_values = list(parquet_data[col])
+            # Parquet loading behavior changed in Pandas 3.0; Nones are now loaded as NaNs.
+            # Replace NaNs with None to get a clean comparison against pxt values.
+            parquet_values = [None if pd.isna(x) else x for x in parquet_values]
             if col_type.is_array_type():
                 parquet_values = [np.load(io.BytesIO(val)) for val in parquet_values]
                 for pxt_val, parquet_val in zip(pxt_values, parquet_values):

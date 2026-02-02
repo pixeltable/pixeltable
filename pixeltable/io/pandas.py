@@ -157,6 +157,8 @@ def __pd_dtype_to_pxt_type(pd_dtype: DtypeObj, nullable: bool) -> ts.ColumnType 
     # The timezone-aware datetime64[ns, tz=] dtype is a pandas extension dtype
     if is_datetime64_any_dtype(pd_dtype):
         return ts.TimestampType(nullable=nullable)
+    if isinstance(pd_dtype, pd.StringDtype):
+        return ts.StringType(nullable=nullable)
     if is_extension_array_dtype(pd_dtype):
         return None
     # Most other pandas dtypes are directly NumPy compatible
