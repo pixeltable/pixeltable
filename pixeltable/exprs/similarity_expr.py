@@ -52,6 +52,12 @@ class SimilarityExpr(Expr):
     def __repr__(self) -> str:
         return f'{self.components[0]}.similarity({self.components[1]})'
 
+    def components_to_traverse(self, *, for_materialization: bool = False) -> list[Expr]:
+        # components[0] (the indexed column) is used only to produce SQL; never materialized.
+        if for_materialization:
+            return [self.components[1]]
+        return self.components
+
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('idx_id', self.idx_id)]
 

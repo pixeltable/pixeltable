@@ -303,18 +303,34 @@ class Expr(abc.ABC):
             return str(expr_list[0])
         return f'({", ".join(str(e) for e in expr_list)})'
 
+    def components_to_traverse(self, *, for_materialization: bool = False) -> list[Expr]:
+        """
+        Components to recurse into when listing subexprs.
+        Override in subclasses to exclude components when for_materialization is True
+        (e.g. SimilarityExpr excludes the indexed column, which is used only for SQL).
+        """
+        return self.components
+
     # `subexprs` has two forms: one that takes an explicit subclass of `Expr` as an argument and returns only
     # instances of that subclass; and another that returns all subexpressions that match the given filter.
     # In order for type checking to behave correctly on both forms, we provide two overloaded signatures.
 
     @overload
     def subexprs(
-        self, *, filter: Callable[[Expr], bool] | None = None, traverse_matches: bool = True
+        self,
+        *,
+        filter: Callable[[Expr], bool] | None = None,
+        traverse_matches: bool = True,
+        materialization_only: bool = False,
     ) -> Iterator[Expr]: ...
 
     @overload
     def subexprs(
-        self, expr_class: type[T], filter: Callable[[Expr], bool] | None = None, traverse_matches: bool = True
+        self,
+        expr_class: type[T],
+        filter: Callable[[Expr], bool] | None = None,
+        traverse_matches: bool = True,
+        materialization_only: bool = False,
     ) -> Iterator[T]: ...
 
     def subexprs(
@@ -322,24 +338,38 @@ class Expr(abc.ABC):
         expr_class: type[T] | None = None,
         filter: Callable[[Expr], bool] | None = None,
         traverse_matches: bool = True,
+        materialization_only: bool = False,
     ) -> Iterator[T]:
         """
         Iterate over all subexprs, including self.
+        When materialization_only is True, recurses only into components returned by
+        components_to_traverse(for_materialization=True).
         """
         is_match = isinstance(self, expr_class) if expr_class is not None else True
         # apply filter after checking for expr_class
         if filter is not None and is_match:
             is_match = filter(self)
         if not is_match or traverse_matches:
-            for c in self.components:
-                yield from c.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
+            to_traverse = self.components_to_traverse(for_materialization=materialization_only)
+            for c in to_traverse:
+                yield from c.subexprs(
+                    expr_class=expr_class,
+                    filter=filter,
+                    traverse_matches=traverse_matches,
+                    materialization_only=materialization_only,
+                )
         if is_match:
             yield self  # type: ignore[misc]
 
     @overload
     @classmethod
     def list_subexprs(
-        cls, expr_list: Iterable[Expr], *, filter: Callable[[Expr], bool] | None = None, traverse_matches: bool = True
+        cls,
+        expr_list: Iterable[Expr],
+        *,
+        filter: Callable[[Expr], bool] | None = None,
+        traverse_matches: bool = True,
+        materialization_only: bool = False,
     ) -> Iterator[Expr]: ...
 
     @overload
@@ -350,6 +380,7 @@ class Expr(abc.ABC):
         expr_class: type[T],
         filter: Callable[[Expr], bool] | None = None,
         traverse_matches: bool = True,
+        materialization_only: bool = False,
     ) -> Iterator[T]: ...
 
     @classmethod
@@ -359,10 +390,16 @@ class Expr(abc.ABC):
         expr_class: type[T] | None = None,
         filter: Callable[[Expr], bool] | None = None,
         traverse_matches: bool = True,
+        materialization_only: bool = False,
     ) -> Iterator[T]:
         """Produce subexprs for all exprs in list. Can contain duplicates."""
         for e in expr_list:
-            yield from e.subexprs(expr_class=expr_class, filter=filter, traverse_matches=traverse_matches)
+            yield from e.subexprs(
+                expr_class=expr_class,
+                filter=filter,
+                traverse_matches=traverse_matches,
+                materialization_only=materialization_only,
+            )
 
     @classmethod
     def list_contains(

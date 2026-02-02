@@ -608,12 +608,27 @@ class Planner:
         def binary_filter(e: exprs.Expr) -> bool:
             return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_binary_type()
 
-        json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
+        # materialization_only=True: skip components that don't need materialization (e.g. SimilarityExpr.components[0])
+        json_candidates = list(
+            exprs.Expr.list_subexprs(
+                expr_list, filter=json_filter, traverse_matches=False, materialization_only=True
+            )
+        )
         json_refs = _dedupe_col_refs(json_candidates)
-        array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
+        array_candidates = list(
+            exprs.Expr.list_subexprs(
+                expr_list, filter=array_filter, traverse_matches=False, materialization_only=True
+            )
+        )
         array_refs = _dedupe_col_refs(array_candidates)
         binary_candidates = list(
-            exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
+            exprs.Expr.list_subexprs(
+                expr_list,
+                exprs.ColumnRef,
+                filter=binary_filter,
+                traverse_matches=False,
+                materialization_only=True,
+            )
         )
         binary_refs = _dedupe_col_refs(binary_candidates)
         if json_refs or array_refs or binary_refs:

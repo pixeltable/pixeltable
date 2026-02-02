@@ -982,55 +982,60 @@ class TestIndex:
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
 
-    def test_array_column_embedding_index(self, uses_db: None, e5_embed: pxt.Function) -> None:
+    def test_array_column_embedding_index(
+        self, uses_db: None, e5_embed: pxt.Function, reload_tester: ReloadTester
+    ) -> None:
+        """Single table with computed embedding, float32 vec, and float64 vec64; all support similarity search."""
         skip_test_if_not_installed('transformers')
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
-        # Pre-compute vectors for the stored column (exec() treats one arg as one row)
         vecs = [e5_embed.exec([s], {}) for s in texts]
         dim = len(vecs[0])
+        vecs64 = [v.astype(np.float64) for v in vecs]
         t = pxt.create_table(
             'array_embedding_test',
-            {'id': pxt.Int, 'text': pxt.String, 'vec': pxt.Array[(dim,), np.float32]},  # type: ignore[misc]
+            {
+                'id': pxt.Int,
+                'text': pxt.String,
+                'vec': pxt.Array[(dim,), np.float32],  # type: ignore[misc]
+                'vec64': pxt.Array[(dim,), np.float64],  # type: ignore[misc]
+            },
             if_exists='replace',
         )
         validate_update_status(
-            t.insert([{'id': i, 'text': s, 'vec': vecs[i]} for i, s in enumerate(texts)]), expected_rows=3
+            t.insert([
+                {'id': i, 'text': s, 'vec': vecs[i], 'vec64': vecs64[i]}
+                for i, s in enumerate(texts)
+            ]),
+            expected_rows=3,
         )
         t.add_computed_column(embedding=e5_embed(t.text))
         t.add_embedding_index(
             'embedding', idx_name='emb_computed', embedding=e5_embed, metric='cosine', precision='fp32'
         )
         t.add_embedding_index('vec', idx_name='emb_stored', embedding=e5_embed, metric='cosine', precision='fp32')
-        # Similarity search on computed column
-        sim_computed = t.embedding.similarity(string='a cat', idx='emb_computed')
-        res_computed = (
-            t.select(t.id, t.text, t.embedding, sim=sim_computed).order_by(sim_computed, asc=False).limit(3).collect()
-        )
-        assert len(res_computed) == 3
-        assert res_computed[0]['text'] == 'a cat sitting on a mat'
-        sim_computed_vals = [r['sim'] for r in res_computed]
-        assert all(sim_computed_vals[i] >= sim_computed_vals[i + 1] for i in range(len(sim_computed_vals) - 1)), (
-            f'Similarity scores must be descending; got {sim_computed_vals}'
-        )
-        # Similarity search on stored array column
-        sim_stored = t.vec.similarity(string='a cat', idx='emb_stored')
-        res_stored = t.select(t.id, t.text, t.vec, sim=sim_stored).order_by(sim_stored, asc=False).limit(3).collect()
-        assert len(res_stored) == 3
-        assert res_stored[0]['text'] == 'a cat sitting on a mat'
-        sim_stored_vals = [r['sim'] for r in res_stored]
-        assert all(sim_stored_vals[i] >= sim_stored_vals[i + 1] for i in range(len(sim_stored_vals) - 1)), (
-            f'Similarity scores must be descending; got {sim_stored_vals}'
-        )
+        t.add_embedding_index('vec64', idx_name='emb_stored64', embedding=e5_embed, metric='cosine', precision='fp32')
+        best = 'a cat sitting on a mat'
+        for col_name, idx_name in [
+            ('embedding', 'emb_computed'),
+            ('vec', 'emb_stored'),
+            ('vec64', 'emb_stored64'),
+        ]:
+            col = getattr(t, col_name)
+            sim = col.similarity(string='a cat', idx=idx_name)
+            query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
+            res = reload_tester.run_query(query)
+            assert len(res) == 3, col_name
+            assert res[0]['text'] == best, col_name
+            sim_vals = [r['sim'] for r in res]
+            assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
+                f'{col_name}: similarity scores must be descending; got {sim_vals}'
+            )
+        reload_tester.run_reload_test()
 
     @staticmethod
     @pxt.udf
     def _embed_wrong_shape(x: str) -> pxt.Array[(256,), np.float32]:
         return np.zeros(256, dtype=np.float32)
-
-    @staticmethod
-    @pxt.udf
-    def _embed_wrong_dtype(x: str) -> pxt.Array[(384,), np.float64]:
-        return np.zeros(384, dtype=np.float64)
 
     def test_array_embedding_index_validation_errors(self, uses_db: None) -> None:
         t = pxt.create_table(
@@ -1042,6 +1047,3 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             t.add_embedding_index('vec', embedding=self._embed_wrong_shape)
         assert 'shape' in str(exc_info.value).lower()
-        with pytest.raises(pxt.Error) as exc_info:
-            t.add_embedding_index('vec', embedding=self._embed_wrong_dtype)
-        assert 'dtype' in str(exc_info.value).lower()
