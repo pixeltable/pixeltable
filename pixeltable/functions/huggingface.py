@@ -499,7 +499,9 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
         generated_ids = model.generate(**inputs.to(device), forced_bos_token_id=forced_bos_token_id).to('cpu')
 
     transcription = processor.batch_decode(generated_ids, skip_special_tokens=True)
-    return transcription
+    assert len(transcription) == 1
+    assert isinstance(transcription[0], str)
+    return transcription[0]
 
 
 @pxt.udf
