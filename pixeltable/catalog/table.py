@@ -536,24 +536,23 @@ class Table(SchemaObject):
         new_cols: list[Column]
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('add columns to')
-            col_schema = {
-                col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)}
-                for col_name, spec in schema.items()
-            }
+
+            # make a copy of schema so del operations below don't modify the caller's dict
+            schema = schema.copy()
 
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
-                list(col_schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
+                list(schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
             )
             # if all columns to be added already exist and user asked to ignore
             # existing columns, there's nothing to do.
             for cname in cols_to_ignore:
-                assert cname in col_schema
-                del col_schema[cname]
+                assert cname in schema
+                del schema[cname]
             result = UpdateStatus()
-            if len(col_schema) == 0:
+            if len(schema) == 0:
                 return result
-            new_cols = self._create_columns(col_schema)
+            new_cols = self._create_columns(schema)
             for new_col in new_cols:
                 self._verify_column(new_col)
 
