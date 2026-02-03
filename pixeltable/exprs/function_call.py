@@ -336,8 +336,8 @@ class FunctionCall(Expr):
         return None
 
     @property
-    def is_nondeterministic(self) -> bool:
-        return self.fn.is_nondeterministic
+    def is_deterministic(self) -> bool:
+        return self.fn.is_deterministic
 
     def update(self, data_row: DataRow) -> None:
         """

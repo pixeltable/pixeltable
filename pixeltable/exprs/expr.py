@@ -145,11 +145,11 @@ class Expr(abc.ABC):
         return self.validation_error is None
 
     @property
-    def is_nondeterministic(self) -> bool:
+    def is_deterministic(self) -> bool:
         """
         Returns True if this expression's value can change even if all of its dependencies are unchanged.
         """
-        return any(c.is_nondeterministic for c in self.components)
+        return any(c.is_deterministic for c in self.components)
 
     def equals(self, other: Expr) -> bool:
         """

@@ -30,7 +30,7 @@ def udf(
     substitute_fn: Callable | None = None,
     is_method: bool = False,
     is_property: bool = False,
-    is_nondeterministic: bool = False,
+    is_deterministic: bool = True,
     resource_pool: str | None = None,
     type_substitutions: Sequence[dict] | None = None,
     _force_stored: bool = False,
@@ -72,7 +72,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
         substitute_fn = kwargs.pop('substitute_fn', None)
         is_method = kwargs.pop('is_method', None)
         is_property = kwargs.pop('is_property', None)
-        is_nondeterministic = kwargs.pop('is_nondeterministic', None)
+        is_deterministic = kwargs.pop('is_deterministic', None)
         resource_pool = kwargs.pop('resource_pool', None)
         type_substitutions = kwargs.pop('type_substitutions', None)
         force_stored = kwargs.pop('_force_stored', False)
@@ -88,7 +88,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
                 substitute_fn=substitute_fn,
                 is_method=is_method,
                 is_property=is_property,
-                is_nondeterministic=is_nondeterministic,
+                is_deterministic=is_deterministic,
                 resource_pool=resource_pool,
                 type_substitutions=type_substitutions,
                 force_stored=force_stored,
@@ -105,7 +105,7 @@ def make_function(
     substitute_fn: Callable | None = None,
     is_method: bool = False,
     is_property: bool = False,
-    is_nondeterministic: bool = False,
+    is_deterministic: bool = True,
     resource_pool: str | None = None,
     type_substitutions: Sequence[dict] | None = None,
     function_name: str | None = None,
@@ -187,7 +187,7 @@ def make_function(
         batch_size=batch_size,
         is_method=is_method,
         is_property=is_property,
-        is_nondeterministic=is_nondeterministic,
+        is_deterministic=is_deterministic,
     )
     if resource_pool is not None:
         result.resource_pool(lambda: resource_pool)
