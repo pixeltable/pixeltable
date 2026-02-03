@@ -784,9 +784,7 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
 
-    @pytest.mark.skipif(
-        't4' in os.environ.get('PXTTEST_CI_OS'), reason='Fonts not available on t4 CI instances'
-    )
+    @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS'), reason='Fonts not available on t4 CI instances')
     def test_overlay_text(self, uses_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.add_computed_column(clip_5s=t.video.clip(start_time=0, duration=5))
