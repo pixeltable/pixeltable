@@ -6,7 +6,12 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_image_files, make_test_arrow_table, skip_test_if_not_installed
+from ..utils import (
+    ensure_s3_pytest_resources_access,
+    get_image_files,
+    make_test_arrow_table,
+    skip_test_if_not_installed,
+)
 
 
 class TestParquet:
@@ -54,6 +59,40 @@ class TestParquet:
             xfile = test_path + fn
             pqt.insert(xfile)
             assert pqt.count() == len1 * 2
+
+    @pytest.mark.parametrize(
+        'source',
+        [
+            'https://raw.githubusercontent.com/apache/parquet-testing/master/data/alltypes_plain.parquet',
+            's3://pxt-test/pytest-resources/alltypes_plain.parquet',
+        ],
+    )
+    def test_import_parquet_from_remote(self, uses_db: None, source: str) -> None:
+        skip_test_if_not_installed('pyarrow')
+        if source.startswith('s3://'):
+            ensure_s3_pytest_resources_access()
+        tab = pxt.create_table('from_remote_parquet', source=source, source_format='parquet')
+        assert tab.count() == 8
+        for col in (
+            'id',
+            'bool_col',
+            'tinyint_col',
+            'smallint_col',
+            'int_col',
+            'bigint_col',
+            'float_col',
+            'double_col',
+        ):
+            assert col in tab.columns()
+        rows = tab.order_by(tab.id).collect()
+        r0, r1 = rows[0], rows[1]
+        assert r0['id'] == 0 and r0['bool_col'] is True
+        assert r0['tinyint_col'] == 0 and r0['smallint_col'] == 0 and r0['int_col'] == 0
+        assert r0['bigint_col'] == 0 and r0['float_col'] == 0.0 and r0['double_col'] == 0.0
+        assert r1['id'] == 1 and r1['bool_col'] is False
+        assert r1['tinyint_col'] == 1 and r1['smallint_col'] == 1 and r1['int_col'] == 1
+        assert r1['bigint_col'] == 10 and r1['double_col'] == 10.1
+        assert abs(r1['float_col'] - 1.1) < 1e-5  # float32 precision
 
     def test_import_parquet(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
