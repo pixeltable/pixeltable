@@ -2,6 +2,7 @@ import abc
 import collections.abc
 import importlib
 import inspect
+from textwrap import dedent
 import typing
 from dataclasses import dataclass
 from types import MethodType
@@ -66,9 +67,10 @@ class GeneratingFunction:
     """
 
     decorated_callable: Callable
+    unstored_cols: list[str]
+    fqn: str
     name: str
     signature: Signature
-    unstored_cols: list[str]
     has_seek: bool
     is_legacy_retrofit: bool
 
@@ -76,10 +78,14 @@ class GeneratingFunction:
     _conditional_output_schema: Callable[[dict[str, Any]], dict[str, type]] | None
     _validate: Callable[[dict[str, Any]], bool] | None
 
-    def __init__(self, decorated_callable: Callable, unstored_cols: list[str]) -> None:
-        self.name = decorated_callable.__name__
+    def __init__(self, decorated_callable: Callable, unstored_cols: list[str], fqn: str | None = None) -> None:
         self.decorated_callable = decorated_callable
         self.unstored_cols = unstored_cols
+        if fqn is None:
+            self.fqn = f'{decorated_callable.__module__}.{decorated_callable.__qualname__}'
+        else:
+            self.fqn = fqn
+        self.name = decorated_callable.__name__
         self._conditional_output_schema = None
         self._validate = None
         self.signature = Signature.create(decorated_callable, return_type=ts.JsonType())
@@ -247,10 +253,6 @@ class GeneratingFunction:
         it.is_legacy_retrofit = True
         return it
 
-    @property
-    def fqn(self) -> str:
-        return f'{self.decorated_callable.__module__}.{self.decorated_callable.__qualname__}'
-
     # validate decorator
     def validate(self, fn: Callable[[dict[str, Any]], bool]) -> Callable[[dict[str, Any]], bool]:
         if self._validate is not None:
@@ -358,25 +360,49 @@ class GeneratingFunctionCall:
         it = GeneratingFunction.from_dict(d['fn'])
         args = [exprs.Expr.from_dict(arg_dict) for arg_dict in d['args']]
         kwargs = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['kwargs'].items()}
-
+        outputs = None
         validation_error = None
 
-        # Bind args and kwargs against the latest version of the iterator defined in code.
+        if d['outputs'] is not None:
+            outputs = {
+                name: IteratorOutput.from_dict(output_info_dict) for name, output_info_dict in d['outputs'].items()
+            }
+
+        if isinstance(it, InvalidGeneratingFunction):
+            validation_error = f'The iterator `{it.fqn}` cannot be located, because\n{it.error_msg}'
+            # We can't instantiate the GeneratingFunction, so nothing more to do (we can't bind arguments nor
+            # reconstruct outputs of legacy iterators).
+            return cls(it, args, kwargs, {}, outputs, validation_error)
+
+        # Bind args and kwargs against the latest version of the iterator defined as in code.
         try:
             bound_args = it.py_sig.bind(*args, **kwargs).arguments
         except TypeError:
-            raise AssertionError() from None  # TODO: Validation
+            args_str = [f'pxt.{arg.col_type}' for arg in args]
+            args_str.extend(f'{name}: pxt.{arg.col_type}' for name, arg in kwargs.items())
+            call_signature_str = f'({", ".join(args_str)}) -> ...'
+            fn_signature_str = str(it.signature).removesuffix('pxt.Json') + '...'
+            validation_error = dedent(
+                f"""
+                The signature stored in the database for an iterator call to `{it.fqn}` no longer
+                matches its signature as currently defined in the code. This probably means that the
+                code for `{it.fqn}` has changed in a backward-incompatible way.
+                Signature of UDF call in the database: {call_signature_str}
+                Signature of UDF as currently defined in code: {fn_signature_str}
+                """
+            ).strip()
+            return cls(it, args, kwargs, {}, outputs, validation_error)
 
-        # Deserialize the output schema and validate against the latest version of the iterator defined in code.
-        if d['outputs'] is None:
+        literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
+        for param_name, param in it.py_sig.parameters.items():
+            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
+                literal_args[param_name] = param.default
+        output_schema = it.call_output_schema(literal_args)
+
+        if outputs is None:
             # For legacy iterators, `outputs` was not persisted, and there is no practical way to reconstruct it as
             # part of the schema migration. In that case we just query the iterator for it, but we lose the ability to
             # sanity check against any schema evolution of the iterator.
-            literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
-            for param_name, param in it.py_sig.parameters.items():
-                if param_name not in bound_args and param.default is not inspect.Parameter.empty:
-                    literal_args[param_name] = param.default
-            output_schema = it.call_output_schema(literal_args)
             if it.is_legacy_retrofit:
                 _, unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
             else:
@@ -386,9 +412,8 @@ class GeneratingFunctionCall:
                 for name, col_type in output_schema.items()
             }
         else:
-            outputs = {
-                name: IteratorOutput.from_dict(output_info_dict) for name, output_info_dict in d['outputs'].items()
-            }
+            # TODO: Validate call_output_schema against stored outputs
+            pass
 
         return cls(it, args, kwargs, bound_args, outputs, validation_error)
 

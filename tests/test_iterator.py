@@ -1,10 +1,14 @@
+import re
+from textwrap import dedent
 from typing import Any, Iterator, TypedDict
+import warnings
 
 import pytest
 
 import pixeltable as pxt
+from pixeltable import func
 import pixeltable.functions as pxtf
-from tests.utils import ReloadTester
+from tests.utils import ReloadTester, reload_catalog
 
 
 class MyRow(TypedDict):
@@ -327,3 +331,147 @@ class TestIterator:
             @pxt.iterator('unexpected_arg')  # type: ignore[call-overload]
             def unexpected_arg_iterator(x: int) -> Iterator[MyRow]:
                 yield from []
+
+    @pytest.mark.parametrize('as_kwarg', [False, True])
+    def test_iterator_evolution(self, as_kwarg: bool, uses_db: None) -> None:
+        """
+        Tests that code changes to iterators that are backward-compatible with the code pattern in view
+        are accepted by Pixeltable.
+
+        The test operates by instantiating a computed column with the UDF `evolving_iterator`, then repeatedly
+        monkey-patching `evolving_iterator` with different signatures and checking that they new signatures are
+        accepted by Pixeltable.
+
+        The test runs two ways:
+        - with the iterator invoked using a positional argument: `evolving_iterator(t.c1)`
+        - with the iterator invoked using a keyword argument: `evolving_iterator(a=t.c1)`
+
+        We also test that backward-incompatible changes raise appropriate warnings and errors. Because the
+        error messages are lengthy and complex, we match against the entire fully-baked error string, to ensure
+        that they remain comprehensible after future refactorings.
+        """
+        import tests.test_iterator  # noqa: PLW0406
+
+        t = pxt.create_table('test', {'c1': pxt.Int})
+        t.insert(c1=5)
+
+        def mimic(it: func.GeneratingFunction) -> None:
+            """Monkey-patches `tests.test_function.evolving_udf` with the given function."""
+            tests.test_iterator.evolving_iterator = func.GeneratingFunction(
+                it.decorated_callable, it.unstored_cols, 'tests.test_iterator.evolving_iterator'
+            )
+
+        def reload_and_validate_table(validation_error: str | None = None) -> None:
+            reload_catalog()
+
+            t: pxt.Table
+            v: pxt.Table
+            # Ensure a warning is generated when the table is accessed, if appropriate
+            if validation_error is None:
+                with warnings.catch_warnings():  # Ensure no warning is displayed
+                    warnings.simplefilter('error', pxt.PixeltableWarning)
+                    t = pxt.get_table('test')
+                    v = pxt.get_table('view')
+            else:
+                with pytest.warns(pxt.PixeltableWarning, match=warning_regex(validation_error)):
+                    t = pxt.get_table('test')
+                    v = pxt.get_table('view')
+                with warnings.catch_warnings():  # Ensure the warning is only displayed once
+                    warnings.simplefilter('error', pxt.PixeltableWarning)
+                    _ = pxt.get_table('test')
+                    _ = pxt.get_table('view')
+
+            assert list(t.head()) == [{'c1': 5}]
+            assert list(v.head()) == [{'c1': 5, 'pos': i, 'icol': i, 'scol': f'prefix {i}'} for i in range(5)]
+
+            # Ensure that inserting or updating raises an error if there is an invalid column
+            if validation_error is None:
+                with warnings.catch_warnings():
+                    warnings.simplefilter('error', pxt.PixeltableWarning)
+                    t.insert(c1=6)
+                    t.where(t.c1 == 6).update({'c1': 7})
+                    t.where(t.c1 == 5).delete()
+            # else:
+            #     with pytest.raises(pxt.Error, match=insert_error_regex(validation_error)):
+            #         t.insert(c1='abc')
+            #     with pytest.raises(pxt.Error, match=update_error_regex(validation_error)):
+            #         t.where(t.c1 == 'xyz').update({'c1': 'def'})
+
+        def warning_regex(msg: str) -> str:
+            regex = '\n'.join(
+                [
+                    re.escape("The computed column 'result' in table 'test' is no longer valid."),
+                    re.escape(msg),
+                    re.escape(
+                        'You can continue to query existing data from this column, '
+                        'but evaluating it on new data will raise an error.'
+                    ),
+                ]
+            )
+            return '(?s)' + regex
+
+        def insert_error_regex(msg: str) -> str:
+            regex = '\n'.join(
+                [
+                    re.escape(
+                        "Data cannot be inserted into the Table 'test',\n"
+                        "because the column 'result' is currently invalid:"
+                    ),
+                    re.escape(msg),
+                ]
+            )
+            return '(?s)' + regex
+
+        def update_error_regex(msg: str) -> str:
+            regex = '.*'.join(
+                [
+                    re.escape(
+                        "Data cannot be updated in the Table 'test',\nbecause the column 'result' is currently invalid:"
+                    ),
+                    re.escape(msg),
+                ]
+            )
+            return '(?s)' + regex
+
+        db_params = '(a: pxt.String | None)' if as_kwarg else '(pxt.String | None)'
+        signature_error = dedent(
+            f"""
+            The signature stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
+            matches its signature as currently defined in the code. This probably means that the
+            code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
+            Signature of UDF call in the database: {db_params} -> pxt.Array[float32] | None
+            Signature of UDF as currently defined in code: {{params}} -> pxt.Array[float32] | None
+            """
+        ).strip()
+        return_type_error = dedent(
+            """
+            The return type stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
+            matches its return type as currently defined in the code. This probably means that the
+            code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
+            Return type of UDF call in the database: Array[float32] | None
+            Return type of UDF as currently defined in code: {return_type}
+            """
+        ).strip()
+
+        @pxt.iterator
+        def iter_base_version(a: int, prefix: str = 'prefix') -> Iterator[MyRow]:
+            for i in range(a):
+                yield MyRow(icol=i, scol=f'{prefix} {i}')
+
+        mimic(iter_base_version)
+        if as_kwarg:
+            pxt.create_view('view', t, iterator=tests.test_iterator.evolving_iterator(a=t.c1))
+        else:
+            pxt.create_view('view', t, iterator=tests.test_iterator.evolving_iterator(t.c1))
+
+        # Change type of an unused optional parameter; this works in all cases
+        @pxt.iterator
+        def iter_version_2(a: int, prefix: int = 8) -> Iterator[MyRow]:
+            for i in range(a):
+                yield MyRow(icol=i, scol=f'{prefix} {i}')
+
+        mimic(iter_version_2)
+        reload_and_validate_table()
+
+
+evolving_iterator: func.GeneratingFunction | None = None
