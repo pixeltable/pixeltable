@@ -1933,5 +1933,5 @@ class Table(SchemaObject):
         else:
             result = str(metadata)
             if len(result) > max_character_limit:
-                result = result[: max_character_limit - interpose] + '...' + result[-interpose:]
+                result = result[: max_character_limit - interpose] + ' ... ' + result[-interpose:]
             return result
