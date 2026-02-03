@@ -255,6 +255,7 @@ filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)
     'error:Use of similarity\(\):DeprecationWarning',
     'error:create\(\) is deprecated:DeprecationWarning',
+    'error::pixeltable.exceptions.PixeltableWarning',
     "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
     "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning",
     "ignore:Pydantic V1 style `@root_validator` validators are deprecated.:DeprecationWarning",

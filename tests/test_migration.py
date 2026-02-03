@@ -316,6 +316,19 @@ class TestMigration:
                 for col_md in table_md['column_md'].values():
                     assert col_md['is_pk'] is not None
 
+    def test_convert_45(self) -> None:
+        from pixeltable.metadata.converters.convert_45 import _substitution_fn
+
+        updated_key, updated_value = _substitution_fn(
+            'default', {'val': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0], 'val_t': 'ARRAY', '_classname': 'Literal'}
+        )
+        assert updated_key == 'default'
+        assert updated_value == {
+            'val': [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            'val_t': {'shape': [6], 'nullable': False, '_classname': 'ArrayType', 'numpy_dtype': 'float64'},
+            '_classname': 'Literal',
+        }
+
 
 @pxt.udf(batch_size=4)
 def replacement_batched_udf(strings: Batch[str], *, upper: bool = True) -> Batch[pxt.String]:

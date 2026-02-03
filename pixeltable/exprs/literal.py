@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import datetime
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import sqlalchemy as sql
@@ -106,7 +106,7 @@ class Literal(Expr):
             return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         elif self.col_type.is_array_type():
             assert isinstance(self.val, np.ndarray)
-            return {'val': self.val.tolist(), 'val_t': self.col_type._type.name, **super()._as_dict()}
+            return {'val': self.val.tolist(), 'val_t': self.col_type.as_dict(), **super()._as_dict()}
         else:
             return {'val': self.val, **super()._as_dict()}
 
@@ -132,7 +132,14 @@ class Literal(Expr):
                 assert isinstance(d['val'], str)
                 bytes_val = base64.b64decode(d['val'].encode('utf-8'))
                 return cls(bytes_val)
-            elif val_t == ts.ColumnType.Type.ARRAY.name:
-                arrays = np.array(d['val'])
-                return cls(arrays)
+            elif isinstance(val_t, dict) and val_t.get('_classname', None) == 'ArrayType':
+                col_type = ts.ColumnType.from_dict(val_t)
+                assert col_type.is_array_type()
+                if TYPE_CHECKING:
+                    assert isinstance(col_type, ts.ArrayType)
+                dtype = col_type.dtype  # possibly None
+                array = np.array(d['val'], dtype=dtype)
+                return cls(array, col_type=col_type)
+            else:
+                raise ValueError(f'Unsupported literal type: {val_t}')
         return cls(d['val'])
