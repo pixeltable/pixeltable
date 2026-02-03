@@ -171,16 +171,20 @@ class TestComponentView:
         )
 
         rows = [{'video': p} for p in video_filepaths]
-        validate_update_status(video_t.insert(rows))
+        status = video_t.insert(rows)
+        assert status.num_excs == 0
+        assert status.num_rows > len(video_filepaths)
         res = view_t.select(view_t.id).collect()
-        assert len(set(res['id'])) == len(res)
+        assert len(res) > 0 and len(set(res['id'])) == len(res)
 
         # Scenario 2: add_computed_column()
         view_t = pxt.create_view('test_view2', video_t, iterator=frame_iterator(video_t.video, fps=1))
         view_t.add_computed_column(id=pxtf.uuid.uuid4())
-        validate_update_status(video_t.insert(rows))
+        status = video_t.insert(rows)
+        assert status.num_excs == 0
+        assert status.num_rows > len(video_filepaths)
         res = view_t.select(view_t.id).collect()
-        assert len(set(res['id'])) == len(res)
+        assert len(res) > 0 and len(set(res['id'])) == len(res)
 
     def test_update(self, uses_db: None) -> None:
         # create video table

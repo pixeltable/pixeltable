@@ -147,9 +147,9 @@ class Expr(abc.ABC):
     @property
     def is_deterministic(self) -> bool:
         """
-        Returns True if this expression's value can change even if all of its dependencies are unchanged.
+        Returns False if this expression's value can change even if all of its dependencies are unchanged.
         """
-        return any(c.is_deterministic for c in self.components)
+        return all(c.is_deterministic for c in self.components)
 
     def equals(self, other: Expr) -> bool:
         """
