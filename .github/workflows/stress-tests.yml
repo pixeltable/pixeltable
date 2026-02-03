@@ -72,7 +72,7 @@ jobs:
 
   performance-tests:
     if: false # Disable until it can reliably pass on a GitHub runner
-    runs-on: ubuntu-24.04-perftest
+    runs-on: ubuntu-large
     defaults:
       run:
         shell: bash -el {0}  # Needed for conda to work
