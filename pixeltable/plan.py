@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 from textwrap import dedent
-from typing import Any, Iterable, Literal, Sequence, cast
+from typing import Any, ClassVar, Iterable, Literal, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -93,7 +93,7 @@ class SampleClause:
     stratify_exprs: list[exprs.Expr] | None
 
     # The version of the hashing algorithm used for ordering and fractional sampling.
-    CURRENT_VERSION = 1
+    CURRENT_VERSION: ClassVar[int] = 1
 
     def __post_init__(self) -> None:
         # If no version was provided, provide the default version

@@ -10,7 +10,6 @@ from typing import Any
 
 import numpy as np
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
-import PIL
 import PIL.Image
 import sqlalchemy as sql
 

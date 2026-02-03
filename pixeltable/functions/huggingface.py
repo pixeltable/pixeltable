@@ -144,6 +144,7 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
+    import transformers
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
@@ -151,7 +152,17 @@ def clip(text: Batch[str], *, model_id: str) -> Batch[pxt.Array[(None,), pxt.Flo
 
     with torch.no_grad():
         inputs = processor(text=text, return_tensors='pt', padding=True, truncation=True)
-        embeddings = model.get_text_features(**inputs.to(device)).detach().to('cpu').numpy()
+        output: torch.Tensor
+        # TODO: There is no longer a uniform API for get_*_features() that works in both Transformers 4 and
+        #     Transformers 5. The following is the migration pattern suggested by Hugging Face. It works in the
+        #     sense that clip() completes without crashing; however, the top-k tests in tests/text_index.py fail
+        #     on Transformers 5 for unknown reasons. Reference doc:
+        #     https://github.com/huggingface/transformers/blob/main/MIGRATION_GUIDE_V5.md#feature-extraction-helpers-get__features
+        if transformers.__version__ >= '5':
+            output = model.get_text_features(**inputs.to(device), return_dict=True).pooler_output
+        else:
+            output = model.get_text_features(**inputs.to(device))
+        embeddings = output.detach().to('cpu').numpy()
 
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
@@ -161,6 +172,7 @@ def _(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
     import torch
+    import transformers
     from transformers import CLIPModel, CLIPProcessor
 
     model = _lookup_model(model_id, CLIPModel.from_pretrained, device=device)
@@ -168,7 +180,12 @@ def _(image: Batch[PIL.Image.Image], *, model_id: str) -> Batch[pxt.Array[(None,
 
     with torch.no_grad():
         inputs = processor(images=image, return_tensors='pt', padding=True)
-        embeddings = model.get_image_features(**inputs.to(device)).detach().to('cpu').numpy()
+        output: torch.Tensor
+        if transformers.__version__ >= '5':
+            output = model.get_image_features(**inputs.to(device), return_dict=True).pooler_output
+        else:
+            output = model.get_image_features(**inputs.to(device))
+        embeddings = output.detach().to('cpu').numpy()
 
     return [embeddings[i] for i in range(embeddings.shape[0])]
 
@@ -899,7 +916,8 @@ def question_answering(context: str, question: str, *, model_id: str) -> dict[st
 
     with torch.no_grad():
         # Tokenize the question and context
-        inputs = tokenizer.encode_plus(
+        # Use tokenizer() instead of encode_plus() for compatibility with transformers v5
+        inputs = tokenizer(
             question, context, add_special_tokens=True, return_tensors='pt', truncation=True, max_length=512
         )
 

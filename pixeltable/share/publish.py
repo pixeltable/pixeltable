@@ -11,6 +11,7 @@ from typing import Any, BinaryIO, Literal
 import requests
 from requests.adapters import HTTPAdapter
 from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TransferSpeedColumn
+from typing_extensions import Self
 from urllib3.util.retry import Retry
 
 import pixeltable as pxt
@@ -52,7 +53,7 @@ class _ProgressFileReader:
             self.progress.update(self.task_id, advance=len(data))
         return data
 
-    def __enter__(self) -> '_ProgressFileReader':
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(
