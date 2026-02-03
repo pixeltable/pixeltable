@@ -252,6 +252,7 @@ markers = [
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)
+    'error::pixeltable.PixeltableWarning',
     'error:Use of similarity\(\):DeprecationWarning',
     'error:create\(\) is deprecated:DeprecationWarning',
     "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
