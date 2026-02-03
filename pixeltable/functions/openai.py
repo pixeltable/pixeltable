@@ -224,7 +224,7 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
 # Audio Endpoints
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, Any] | None = None) -> pxt.Audio:
     """
     Generates audio from the input text.
@@ -399,7 +399,7 @@ def _chat_completions_get_request_resources(
     return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def chat_completions(
     messages: list,
     *,
@@ -514,7 +514,7 @@ def _vision_get_request_resources(
     return {'requests': 1, 'tokens': int(total_tokens)}
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def vision(
     prompt: str,
     image: PIL.Image.Image,
@@ -682,7 +682,7 @@ def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
 # Images Endpoints
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def image_generations(
     prompt: str, *, model: str = 'dall-e-2', model_kwargs: dict[str, Any] | None = None
 ) -> PIL.Image.Image:
@@ -749,7 +749,7 @@ def _(model_kwargs: dict[str, Any] | None = None) -> ts.ImageType:
 # Moderations Endpoints
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
     """
     Classifies if text is potentially harmful.
