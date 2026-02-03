@@ -590,8 +590,9 @@ class TestFunction:
     def _(x: float, y: float) -> float:
         return x + y + 2.0
 
+    @staticmethod
     @pxt.udf(type_substitutions=({T: str}, {T: int}, {T: float}))
-    def typevar_udf(x: T, y: T, z: str = 'a') -> T:  # noqa: N805
+    def typevar_udf(x: T, y: T, z: str = 'a') -> T:
         return x + y  # type: ignore[operator]
 
     def test_overloaded_udf(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:

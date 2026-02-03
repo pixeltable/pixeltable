@@ -46,7 +46,7 @@ def _to_pixeltable_type(feature_type: Any, nullable: bool) -> ts.ColumnType | No
         return ts.StringType(nullable=nullable)
     elif isinstance(feature_type, datasets.Value):
         # example: Value(dtype='int64', id=None)
-        pt = _hf_to_pxt.get(feature_type.dtype, None)
+        pt = _hf_to_pxt.get(feature_type.dtype)
         return pt.copy(nullable=nullable) if pt is not None else None
     elif isinstance(feature_type, (datasets.Sequence, datasets.LargeList)):
         # example: cohere wiki. Sequence(feature=Value(dtype='float32', id=None), length=-1, id=None)
@@ -67,7 +67,7 @@ def _to_pixeltable_type(feature_type: Any, nullable: bool) -> ts.ColumnType | No
         return ts.VideoType(nullable=nullable)
     elif isinstance(feature_type, (datasets.Array2D, datasets.Array3D, datasets.Array4D, datasets.Array5D)):
         # Multi-dimensional arrays with fixed shape and dtype
-        inner_dtype = _hf_to_pxt.get(feature_type.dtype, None)
+        inner_dtype = _hf_to_pxt.get(feature_type.dtype)
         if inner_dtype is None:
             return None
         return ts.ArrayType(shape=feature_type.shape, dtype=inner_dtype, nullable=nullable)

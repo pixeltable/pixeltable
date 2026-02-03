@@ -3,7 +3,6 @@ from __future__ import annotations
 import enum
 import json
 import logging
-import urllib.request
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
@@ -19,7 +18,7 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
-from pixeltable.utils import parse_local_file_path
+from pixeltable.utils.http import fetch_url
 
 from .utils import normalize_schema_names
 
@@ -292,7 +291,8 @@ class CSVTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
-        t.source = pd.read_csv(t.source, **t.extra_fields)
+        path = fetch_url(t.source, allow_local_file=True)
+        t.source = pd.read_csv(path, **t.extra_fields)
         return PandasTableDataConduit.from_tds(t)
 
 
@@ -303,8 +303,26 @@ class ExcelTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
-        t.source = pd.read_excel(t.source, **t.extra_fields)
+        path = fetch_url(t.source, allow_local_file=True)
+        t.source = pd.read_excel(path, **t.extra_fields)
         return PandasTableDataConduit.from_tds(t)
+
+
+def _parse_jsonl_from_path(path: Path, extra_fields: dict[str, Any]) -> list[dict]:
+    """Parse JSONL from path line-by-line. Stops on first invalid line."""
+    rows: list[dict] = []
+    with path.open(encoding='utf-8') as fp:
+        for lineno, line in enumerate(fp, start=1):
+            if not (line := line.strip()):
+                continue
+            try:
+                obj = json.loads(line, **extra_fields)
+            except json.JSONDecodeError as e:
+                raise excs.Error(f'Invalid JSONL line {lineno}: {line!r}') from e
+            if not isinstance(obj, dict):
+                raise excs.Error(f'JSONL line {lineno} must be a JSON object, got {type(obj).__name__}')
+            rows.append(obj)
+    return rows
 
 
 class JsonTableDataConduit(TableDataConduit):
@@ -314,15 +332,12 @@ class JsonTableDataConduit(TableDataConduit):
         kwargs = {k: v for k, v in tds.__dict__.items() if k in tds_fields}
         t = cls(**kwargs)
         assert isinstance(t.source, str)
-
-        path = parse_local_file_path(t.source)
-        if path is None:  # it's a URL
-            # TODO: This should read from S3 as well.
-            contents = urllib.request.urlopen(t.source).read()
+        source_str = t.source
+        path = fetch_url(source_str, allow_local_file=True)
+        if source_str.lower().rstrip('/').endswith('.jsonl'):
+            rows = _parse_jsonl_from_path(path, t.extra_fields)
         else:
-            with open(path, 'r', encoding='utf-8') as fp:
-                contents = fp.read()
-        rows = json.loads(contents, **t.extra_fields)
+            rows = json.loads(path.read_text(encoding='utf-8'), **t.extra_fields)
         t.source = rows
         t2 = RowDataTableDataConduit.from_tds(t)
         t2.disable_mapping = False
@@ -623,7 +638,7 @@ class ParquetTableDataConduit(TableDataConduit):
         t = cls(**kwargs)
 
         assert isinstance(tds.source, str)
-        input_path = Path(tds.source).expanduser()
+        input_path = fetch_url(tds.source, allow_local_file=True)
         t.pq_ds = pa.parquet.ParquetDataset(str(input_path))
         return t
 
