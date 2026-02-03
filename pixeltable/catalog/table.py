@@ -383,6 +383,8 @@ class Table(SchemaObject):
                 helper.append(stores)
             if self._get_comment():
                 helper.append(f'COMMENT: {self._get_comment()}')
+            if self._get_custom_metadata():
+                helper.append(f'CUSTOM METADATA: {self._format_custom_metadata(self._get_custom_metadata())}')
             return helper
 
     def _col_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
@@ -1902,3 +1904,34 @@ class Table(SchemaObject):
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a replica.')
         if self._tbl_version_path.is_snapshot():
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
+
+    def _format_custom_metadata(
+        self, metadata: Any, max_elements: int = 5, max_character_limit: int = 80, indent: int = 4, interpose: int = 10
+    ) -> str:
+        indent = ' ' * indent
+        if isinstance(metadata, dict):
+            items = list(metadata.items())[:max_elements]
+            parts = []
+            for key, value in items:
+                if isinstance(value, str):
+                    value_str = f'"{value}"'
+                elif isinstance(value, (dict, list)):
+                    value_str = json.dumps(value)
+                else:
+                    value_str = str(value)
+
+                if len(value_str) > max_character_limit:
+                    value_str = value_str[: max_character_limit - interpose] + ' ... ' + value_str[-interpose:]
+
+                parts.append(f'{indent}"{key}": {value_str}')
+            result = '{\n' + ',\n'.join(parts)
+            if len(metadata) > max_elements:
+                result += f',\n{indent}... ({len(metadata) - max_elements} more)'
+            result += '\n}'
+
+            return result
+        else:
+            result = str(metadata)
+            if len(result) > max_character_limit:
+                result = result[: max_character_limit - interpose] + '...' + result[-interpose:]
+            return result
