@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar, ove
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
+from pixeltable.func.globals import resolve_symbol
 
 from .signature import Signature
 
@@ -228,17 +229,7 @@ class GeneratingFunction:
             for name, col_type in output_schema.items()
         }
 
-        return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs)
-
-    def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
-        # Run custom iterator validation on fully bound args
-        bound_args_with_defaults = bound_args.copy()
-        for param_name, param in self.py_sig.parameters.items():
-            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
-                bound_args_with_defaults[param_name] = param.default
-        if self._validate is not None:
-            self._validate(bound_args_with_defaults)
-        return self.decorated_callable(**bound_args)
+        return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs, validation_error=None)
 
     @classmethod
     def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunction':
@@ -283,17 +274,49 @@ class GeneratingFunction:
     def from_dict(cls, d: dict[str, Any]) -> 'GeneratingFunction':
         from pixeltable.iterators.base import ComponentIterator
 
-        module_name, class_name = d['fqn'].rsplit('.', 1)
-        module = importlib.import_module(module_name)
-        iterator_cls = getattr(module, class_name)
-        # TODO: Validation
-        if isinstance(iterator_cls, GeneratingFunction):
-            return iterator_cls
-        elif isinstance(iterator_cls, type) and issubclass(iterator_cls, ComponentIterator):
-            # Support legacy ComponentIterator pattern for backward compatibility
-            return cls._retrofit(iterator_cls)
-        else:
-            raise AssertionError()  # TODO: Validation
+        try:
+            fqn = d['fqn']
+            iterator_cls = resolve_symbol(fqn)
+            if isinstance(iterator_cls, GeneratingFunction):
+                return iterator_cls
+            if isinstance(iterator_cls, type) and issubclass(iterator_cls, ComponentIterator):
+                # Support legacy ComponentIterator pattern for backward compatibility
+                return cls._retrofit(iterator_cls)
+            return InvalidGeneratingFunction(
+                fqn,
+                d,
+                f'the symbol {fqn!r} is no longer a Pixeltable iterator. (Was the `@pxt.iterator` decorator removed?)',
+            )
+        except (AttributeError, ImportError):
+            return InvalidGeneratingFunction(
+                fqn, d, f'the symbol {fqn!r} no longer exists. (Was the iterator moved or renamed?)'
+            )
+
+
+class InvalidGeneratingFunction(GeneratingFunction):
+    fqn: str
+    fn_dict: dict[str, Any]
+    error_msg: str
+
+    def __init__(self, fqn: str, d: dict[str, Any], error_msg: str) -> None:
+        self.fqn = fqn
+        self.fn_dict = d
+        self.error_msg = error_msg
+
+    def __call__(self, *args: Any, **kwargs: Any) -> 'GeneratingFunctionCall':
+        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+
+    def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
+        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+
+    def call_output_schema(self, bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
+        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+
+    def validate(self, bound_args: dict[str, Any]) -> None:
+        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+
+    def as_dict(self) -> dict[str, Any]:
+        return self.fn_dict
 
 
 @dataclass(frozen=True)
@@ -303,6 +326,24 @@ class GeneratingFunctionCall:
     kwargs: dict[str, 'exprs.Expr']
     bound_args: dict[str, 'exprs.Expr']
     outputs: dict[str, IteratorOutput] | None
+    validation_error: str | None
+
+    @property
+    def is_valid(self) -> bool:
+        return self.validation_error is None
+
+    def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
+        assert self.is_valid
+
+        # Run custom iterator validation on fully bound args
+        bound_args_with_defaults = bound_args.copy()
+        for param_name, param in self.it.py_sig.parameters.items():
+            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
+                bound_args_with_defaults[param_name] = param.default
+        if self.it._validate is not None:
+            self.it._validate(bound_args_with_defaults)
+
+        return self.it.decorated_callable(**bound_args)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -317,6 +358,8 @@ class GeneratingFunctionCall:
         it = GeneratingFunction.from_dict(d['fn'])
         args = [exprs.Expr.from_dict(arg_dict) for arg_dict in d['args']]
         kwargs = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['kwargs'].items()}
+
+        validation_error = None
 
         # Bind args and kwargs against the latest version of the iterator defined in code.
         try:
@@ -347,7 +390,7 @@ class GeneratingFunctionCall:
                 name: IteratorOutput.from_dict(output_info_dict) for name, output_info_dict in d['outputs'].items()
             }
 
-        return cls(it, args, kwargs, bound_args, outputs)
+        return cls(it, args, kwargs, bound_args, outputs, validation_error)
 
 
 @overload

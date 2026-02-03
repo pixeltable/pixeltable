@@ -397,7 +397,7 @@ class ColumnRef(Expr):
             assert self.iter_arg_ctx is not None
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
-            self.iterator = self.col.get_tbl().iterator_call.it.eval(iterator_args)
+            self.iterator = self.col.get_tbl().iterator_call.eval(iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
         assert all(name is not None for name in stored_outputs)

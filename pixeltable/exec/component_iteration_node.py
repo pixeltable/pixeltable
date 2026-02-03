@@ -52,7 +52,7 @@ class ComponentIterationNode(ExecNode):
                 # specified and are not null. If any of them are null, then we skip this row (i.e., we emit 0
                 # output rows for this input row).
                 if self.__non_nullable_args_specified(iterator_args):
-                    iterator = self.view.get().iterator_call.it.eval(iterator_args)
+                    iterator = self.view.get().iterator_call.eval(iterator_args)
                     for pos, component_dict in enumerate(iterator):
                         output_row = self.row_builder.make_row()
                         input_row.copy(output_row)
