@@ -414,7 +414,7 @@ class TestSnapshot:
         # should work
         v1.rename_column('v1', 'new_v1')
 
-    # TODO: Currently, comments and user_metadata are not persisted for pure snapshots.
+    # TODO: Currently, comments and custom_metadata are not persisted for pure snapshots.
     # Should we consider snapshots as non-pure when these are provided?
     def test_snapshot_comment(self, uses_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('tbl', {'c': pxt.Int})
@@ -434,15 +434,15 @@ class TestSnapshot:
                 comment={'comment': 'This is a test snapshot.'},  # type: ignore[arg-type]
             )
 
-    def test_snapshot_user_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        user_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+    def test_snapshot_custom_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table('tbl', {'c': pxt.Int})
-        s1 = pxt.create_snapshot('tbl_snapshot', t, additional_columns={'d': pxt.Int}, user_metadata=user_metadata)
+        s1 = pxt.create_snapshot('tbl_snapshot', t, additional_columns={'d': pxt.Int}, custom_metadata=custom_metadata)
 
-        assert s1.get_metadata()['user_metadata'] == user_metadata
+        assert s1.get_metadata()['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected
         with pytest.raises(pxt.Error):
             pxt.create_snapshot(
-                'tbl_snapshot_invalid', t, additional_columns={'d': pxt.Int}, user_metadata={'key': set}
+                'tbl_snapshot_invalid', t, additional_columns={'d': pxt.Int}, custom_metadata={'key': set}
             )

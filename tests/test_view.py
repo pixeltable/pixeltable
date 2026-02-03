@@ -923,7 +923,7 @@ class TestView:
                     'name': f'test_tbl:{i}',
                     'path': f'dir/test_tbl:{i}',
                     'schema_version': expected_schema_version,
-                    'user_metadata': None,
+                    'custom_metadata': None,
                     'version': i,
                 },
                 vmd,
@@ -1036,7 +1036,7 @@ class TestView:
                     'name': f'test_view:{i}',
                     'path': f'dir/test_view:{i}',
                     'schema_version': expected_schema_version,
-                    'user_metadata': None,
+                    'custom_metadata': None,
                     'version': i,
                 },
                 vmd,
@@ -1116,7 +1116,7 @@ class TestView:
                     'name': f'test_subview:{i}',
                     'path': f'dir/test_subview:{i}',
                     'schema_version': expected_schema_version,
-                    'user_metadata': None,
+                    'custom_metadata': None,
                     'version': i,
                 },
                 vmd,
@@ -1278,13 +1278,13 @@ class TestView:
         with pytest.raises(pxt.Error, match='Comment must be a string'):
             pxt.create_view('tbl_view_invalid', t, comment={'comment': 'This is a test view.'})  # type: ignore[arg-type]
 
-    def test_view_user_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        user_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+    def test_view_custom_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table('tbl', {'c': pxt.Int})
-        v1 = pxt.create_view('tbl_view', t, user_metadata=user_metadata)
+        v1 = pxt.create_view('tbl_view', t, custom_metadata=custom_metadata)
 
-        assert v1.get_metadata()['user_metadata'] == user_metadata
+        assert v1.get_metadata()['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected
         with pytest.raises(pxt.Error):
-            pxt.create_view('tbl_view_invalid', t, user_metadata={'key': set})
+            pxt.create_view('tbl_view_invalid', t, custom_metadata={'key': set})

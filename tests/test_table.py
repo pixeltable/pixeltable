@@ -328,7 +328,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': tbl_path,
                     'schema_version': 0,
-                    'user_metadata': None,
+                    'custom_metadata': None,
                     'version': 0,
                 },
                 tbl.get_metadata(),
@@ -372,7 +372,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': view_path,
                     'schema_version': 1,
-                    'user_metadata': None,
+                    'custom_metadata': None,
                     'version': 1,
                 },
                 view.get_metadata(),
@@ -402,7 +402,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': puresnap_path,
                     'schema_version': 0,
-                    'user_metadata': None,
+                    'custom_metadata': None,
                     'version': 0,
                 },
                 puresnap.get_metadata(),
@@ -442,7 +442,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': snap_path,
                     'schema_version': 0,
-                    'user_metadata': None,
+                    'custom_metadata': None,
                     'version': 0,
                 },
                 snap.get_metadata(),
@@ -3020,11 +3020,11 @@ class TestTable:
         with pytest.raises(pxt.Error, match='Comment must be a string'):
             pxt.create_table('tbl_invalid', {'c': pxt.Int}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
 
-    def test_table_user_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        user_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
-        t = pxt.create_table('tbl', {'c': pxt.Int}, user_metadata=user_metadata)
-        assert t.get_metadata()['user_metadata'] == user_metadata
+    def test_table_custom_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': pxt.Int}, custom_metadata=custom_metadata)
+        assert t.get_metadata()['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected
         with pytest.raises(pxt.Error):
-            pxt.create_table('tbl_invalid', {'c': pxt.Int}, user_metadata={'key': set})
+            pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})
