@@ -584,7 +584,7 @@ class Table(SchemaObject):
             Information about the execution status of the operation.
 
         Raises:
-            Error: If the column name is invalid, or already exists and `if_exists='erorr'`,
+            Error: If the column name is invalid, or already exists and `if_exists='error'`,
                 or `if_exists='replace*'` but the column has dependents or is a basetable column.
 
         Examples:
