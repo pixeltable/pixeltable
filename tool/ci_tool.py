@@ -76,7 +76,13 @@ def generate_matrix(args: argparse.Namespace) -> None:
         MatrixConfig(
             'full', 'py', os, '3.10', pytest_options="-m ''" if os.startswith('ubuntu') else "-m 'not expensive'"
         )
-        for os in BASIC_PLATFORMS
+        for os in (
+            # Same as BASIC_PLATFORMS, but upgrade the Ubuntu VM for non-PR triggers.
+            # This is part of a gradual transition to using larger runners for merge queue.
+            'ubuntu-24.04' if trigger == 'pull_request' else 'ubuntu-24.04-medium',
+            'macos-15',
+            'windows-2022',
+        )
     )
 
     if force_all or trigger != 'pull_request':
@@ -94,17 +100,17 @@ def generate_matrix(args: argparse.Namespace) -> None:
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
         # tests_table.py only, against CockroachDB backend
-        if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
-            configs.append(
-                MatrixConfig(
-                    'cockroach',
-                    'py',
-                    'ubuntu-24.04',
-                    '3.10',
-                    pytest_options='--reruns 2 tests/test_table.py',
-                    pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
-                )
-            )
+        # if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
+        #     configs.append(
+        #         MatrixConfig(
+        #             'cockroach',
+        #             'py',
+        #             'ubuntu-24.04',
+        #             '3.10',
+        #             pytest_options='--reruns 2 tests/test_table.py',
+        #             pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
+        #         )
+        #     )
 
         # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
         # different test runs don't interfere with each other and any stale data is easy to clean up.

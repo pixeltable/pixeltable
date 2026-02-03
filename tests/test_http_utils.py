@@ -2,7 +2,7 @@
 
 import types
 
-from pixeltable.utils.http import is_retriable_error
+from pixeltable.utils.http import is_retriable_error, parse_duration_str
 
 
 class DummyError(Exception):
@@ -102,3 +102,27 @@ class TestHttpUtils:
             'x-trace-id': '122506435189331138',
         }
         assert is_retriable_error(exc) == (True, 11382)
+
+    def test_parse_duration_header(self) -> None:
+        assert parse_duration_str(None) is None
+        assert parse_duration_str('') is None
+        assert parse_duration_str('invalid') is None
+        assert parse_duration_str('10x') is None
+
+        assert parse_duration_str('0s') == 0
+        assert parse_duration_str('0ms') == 0
+        assert parse_duration_str('6ms') == 0.006
+        assert parse_duration_str('857ms') == 0.857
+        assert parse_duration_str('10s') == 10
+        assert parse_duration_str('10.123s') == 10.123
+        assert parse_duration_str('10s123ms') == 10.123
+        assert parse_duration_str('1m') == 60
+        assert parse_duration_str('1m7s') == 67
+        assert parse_duration_str('1m33.792s') == 93.792
+        assert parse_duration_str('0m7s') == 7
+        assert parse_duration_str('1h') == 3600
+        assert parse_duration_str('1h10m3s') == 4203
+        assert parse_duration_str('156h58m48.601s') == 565128.601
+        assert parse_duration_str('1d') == 86400
+        assert parse_duration_str('1d2h3m4s') == 93784
+        assert parse_duration_str('47.874s') == 47.874

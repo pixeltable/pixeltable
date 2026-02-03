@@ -11,7 +11,6 @@ from typing import Any, Literal, _GenericAlias, cast  # type: ignore[attr-define
 import av
 import numpy as np
 import pandas as pd
-import PIL
 import PIL.Image
 import pydantic
 import pytest
@@ -98,7 +97,7 @@ class TestTable:
         pxt.create_dir('dir1')
         schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp}
         tbl = pxt.create_table('test', schema)
-        _ = pxt.create_table('dir1.test', schema)
+        _ = pxt.create_table('dir1/test', schema)
 
         with pytest.raises(pxt.Error, match='Invalid path: 1test'):
             pxt.create_table('1test', schema)
@@ -109,7 +108,7 @@ class TestTable:
         with pytest.raises(pxt.Error, match='is an existing table'):
             pxt.create_table('test', schema)
         with pytest.raises(pxt.Error, match='does not exist'):
-            pxt.create_table('dir2.test2', schema)
+            pxt.create_table('dir2/test2', schema)
         with pytest.raises(pxt.Error, match='Creating a table directly from a cloud URI is not supported'):
             pxt.create_table('test', source='pxt://some/remote/table')
 
@@ -135,16 +134,16 @@ class TestTable:
         pxt.move('test', 'test2')
 
         pxt.drop_table('test2')
-        pxt.drop_table('dir1.test')
+        pxt.drop_table('dir1/test')
 
         # test create with hyphens
         pxt.create_dir('hyphenated-dir')
-        _ = pxt.create_table('hyphenated-dir.hyphenated-table', schema)
+        _ = pxt.create_table('hyphenated-dir/hyphenated-table', schema)
 
         with pytest.raises(pxt.Error, match="Path 'test' does not exist"):
             pxt.drop_table('test')
-        with pytest.raises(pxt.Error, match=r"Path 'dir1.test2' does not exist"):
-            pxt.drop_table('dir1.test2')
+        with pytest.raises(pxt.Error, match=r"Path 'dir1/test2' does not exist"):
+            pxt.drop_table('dir1/test2')
         with pytest.raises(pxt.Error, match=r'Invalid path: .test2'):
             pxt.drop_table('.test2')
         with pytest.raises(pxt.Error, match='Versioned path not allowed here: test2:120'):
@@ -236,13 +235,13 @@ class TestTable:
             _ = pxt.create_table('dir1', schema)
         assert 'is an existing' in str(exc_info.value)
         assert len(tbl.select().collect()) == 1
-        for _ie in ['ignore', 'replace', 'replace_force']:
+        for ie in ('ignore', 'replace', 'replace_force'):
             with pytest.raises(pxt.Error) as exc_info:
-                pxt.create_table('dir1', schema, if_exists=_ie)  # type: ignore[arg-type]
+                pxt.create_table('dir1', schema, if_exists=ie)
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a table' in err_msg
-            assert len(tbl.select().collect()) == 1, f'with if_exists={_ie}'
-            assert 'dir1' in pxt.list_dirs(), f'with if_exists={_ie}'
+            assert len(tbl.select().collect()) == 1, f'with if_exists={ie}'
+            assert 'dir1' in pxt.list_dirs(), f'with if_exists={ie}'
 
         # sanity check persistence
         _ = reload_tester.run_query(tbl.select())
@@ -285,8 +284,8 @@ class TestTable:
         skip_test_if_not_installed('transformers')  # we need a `clip_embed` instance to test index metadata
 
         pxt.create_dir('dir')
-        pxt.create_dir('dir.subdir')
-        for tbl_path, media_val in (('test', 'on_read'), ('dir.test', 'on_write'), ('dir.subdir.test', 'on_read')):
+        pxt.create_dir('dir/subdir')
+        for tbl_path, media_val in (('test', 'on_read'), ('dir/test', 'on_write'), ('dir/subdir/test', 'on_read')):
             tbl = pxt.create_table(tbl_path, {'col': pxt.String}, media_validation=media_val)  # type: ignore[arg-type]
             view_path = f'{tbl_path}_view'
             view = pxt.create_view(view_path, tbl, media_validation=media_val)  # type: ignore[arg-type]
@@ -301,8 +300,8 @@ class TestTable:
                 additional_columns={'col2': tbl.col + 'x'},
             )
             assert tbl._path() == tbl_path
-            assert tbl._name == tbl_path.split('.')[-1]
-            assert tbl._parent()._path() == '.'.join(tbl_path.split('.')[:-1])
+            assert tbl._name == tbl_path.split('/')[-1]
+            assert tbl._parent()._path() == '/'.join(tbl_path.split('/')[:-1])
 
             assert_table_metadata_eq(
                 {
@@ -1097,8 +1096,8 @@ class TestTable:
         # force=True should not raise an error, irrespective of if_not_exists value
         pxt.drop_table(non_existing_t, force=True)
         # same if the parent dir does not exist
-        pxt.drop_table('not_a_parent_dir.non_existing_table', if_not_exists='ignore')
-        pxt.drop_table('not_a_parent_dir.non_existing_table', force=True)
+        pxt.drop_table('not_a_parent_dir/non_existing_table', if_not_exists='ignore')
+        pxt.drop_table('not_a_parent_dir/non_existing_table', force=True)
         assert table_list == pxt.list_tables()
 
     def test_image_table(self, uses_db: None) -> None:
@@ -2168,12 +2167,14 @@ class TestTable:
 
     def test_add_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
-        num_orig_cols = len(t.columns())
+        orig_cols = set(t.columns())
         t.add_column(add1=pxt.Int)
+        assert set(t.columns()) == orig_cols | {'add1'}
         # Make sure that `name` and `id` are allowed, i.e., not reserved as system names
         t.add_column(name=pxt.String)
+        assert set(t.columns()) == orig_cols | {'add1', 'name'}
         t.add_column(id=pxt.String)
-        assert len(t.columns()) == num_orig_cols + 3
+        assert set(t.columns()) == orig_cols | {'add1', 'name', 'id'}
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_column(add2=pxt.Required[pxt.Int])
@@ -2221,18 +2222,18 @@ class TestTable:
         # make sure this is still true after reloading the metadata
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols + 3
+        assert set(t.columns()) == orig_cols | {'add1', 'name', 'id'}
 
         # revert() works
         t.revert()
         t.revert()
         t.revert()
-        assert len(t.columns()) == num_orig_cols
+        assert set(t.columns()) == orig_cols
 
         # make sure this is still true after reloading the metadata once more
         reload_catalog()
         t = pxt.get_table(t._name)
-        assert len(t.columns()) == num_orig_cols
+        assert set(t.columns()) == orig_cols
 
     def test_bool_column(self, uses_db: None, reload_tester: ReloadTester) -> None:
         # test adding a bool column with constant value
