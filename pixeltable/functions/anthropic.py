@@ -152,7 +152,7 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
         return super().get_retry_delay(exc, attempt)
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def messages(
     messages: list[dict[str, str]],
     *,

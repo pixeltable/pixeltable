@@ -106,6 +106,9 @@ bump = true
 dev = [
     "mypy>=1.16",
     "boto3-stubs==1.36.23",
+    "opentelemetry-api>=1.39.0",
+    "opentelemetry-sdk>=1.39.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.39.0",
     "pandas-stubs>=2.0",
     "pyarrow-stubs>=19",
     "types-beautifulsoup4>=4.2",
