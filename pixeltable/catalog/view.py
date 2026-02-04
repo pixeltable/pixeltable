@@ -95,6 +95,12 @@ class View(Table):
             select_list_columns = cls._create_columns(r)
 
         columns_from_additional_columns = cls._create_columns(additional_columns)
+        if is_snapshot:
+            for col in columns_from_additional_columns:
+                if col.has_default_value:
+                    raise excs.Error(
+                        f"Column {col.name!r}: Default values are not supported for snapshot additional columns."
+                    )
         columns = select_list_columns + columns_from_additional_columns
         cls._verify_schema(columns)
 
