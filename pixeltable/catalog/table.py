@@ -615,9 +615,11 @@ class Table(SchemaObject):
 
             >>> tbl.add_column(img_col={'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'})
 
-            Alternatively, these can also be expressed using `add_columns`:
+            Alternatively, simple column insertions can be expressed using `add_columns`:
 
             >>> tbl.add_columns({'new_col': pxt.Int})
+
+            As well as with column metadata:
 
             >>> tbl.add_columns({'img_col': {'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'}})
         """
