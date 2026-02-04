@@ -3026,8 +3026,8 @@ class TestTable:
 
         t = pxt.get_table('tbl')
         assert 'c3' in t.columns()
-        assert t.c3.col.stored
-        assert t.c3.col.media_validation == MediaValidation.ON_WRITE
+        assert t.get_metadata()['columns']['c3']['is_stored']
+        assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_add_column_with_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
@@ -3048,20 +3048,20 @@ class TestTable:
 
         # verify column was added correctly
         assert 'c3' in t.columns()
-        assert t.c3.col.stored
-        assert t.c3.col.media_validation == MediaValidation.ON_WRITE
+        assert t.get_metadata()['columns']['c3']['is_stored']
+        assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
 
         # add another column with on_read validation
         t.add_column(c4={'type': pxt.Video, 'media_validation': 'on_read'})
         assert 'c4' in t.columns()
-        assert t.c4.col.media_validation == MediaValidation.ON_READ
+        assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'
 
         # make sure this metadata is persisted
         reload_catalog(do_reload_catalog)
 
         t = pxt.get_table('tbl')
         assert 'c3' in t.columns()
-        assert t.c3.col.stored
-        assert t.c3.col.media_validation == MediaValidation.ON_WRITE
+        assert t.get_metadata()['columns']['c3']['is_stored']
+        assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
         assert 'c4' in t.columns()
-        assert t.c4.col.media_validation == MediaValidation.ON_READ
+        assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'

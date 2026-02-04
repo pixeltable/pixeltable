@@ -501,7 +501,12 @@ class Table(SchemaObject):
         The format of the `schema` argument is a dict mapping column names to their types.
 
         Args:
-            schema: A dictionary mapping column names to types.
+            schema: A dictionary mapping column names to a `col_type` or a `col_spec_dict`
+                where `col_spec_dict` is a dict with keys:
+
+                - `'type'` (required): The column type (e.g., `pxt.Image`).
+                - `'stored'`: Whether to store the column data (bool, default varies by type).
+                - `'media_validation'`: When to validate media; `'on_read'` or `'on_write'`.
             if_exists: Determines the behavior if a column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
