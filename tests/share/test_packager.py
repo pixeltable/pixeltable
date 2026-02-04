@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Literal, NamedTuple
 
 import numpy as np
+import pandas as pd
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import pyarrow.parquet as pq
 import pytest
@@ -40,8 +41,6 @@ from ..utils import (
 )
 
 
-# Bug(PXT-943): non-latest row versions have non-NULL index column values
-@pytest.mark.corrupts_db
 class TestPackager:
     def test_packager(self, test_tbl: pxt.Table) -> None:
         packager = TablePackager(test_tbl)
@@ -55,10 +54,10 @@ class TestPackager:
 
     def test_packager_with_views(self, test_tbl: pxt.Table) -> None:
         pxt.create_dir('test_dir')
-        pxt.create_dir('test_dir.subdir')
-        view = pxt.create_view('test_dir.subdir.test_view', test_tbl)
+        pxt.create_dir('test_dir/subdir')
+        view = pxt.create_view('test_dir/subdir/test_view', test_tbl)
         view.add_computed_column(vc2=(view.c2 + 1))
-        subview = pxt.create_view('test_dir.subdir.test_subview', view.where(view.c2 % 5 == 0))
+        subview = pxt.create_view('test_dir/subdir/test_subview', view.where(view.c2 % 5 == 0))
         subview.add_computed_column(vvc2=(subview.vc2 + 1))
         packager = TablePackager(subview)
         bundle_path = packager.package()
@@ -70,7 +69,7 @@ class TestPackager:
         self.__check_parquet_tbl(view, dest, scope_tbl=subview)
         self.__check_parquet_tbl(subview, dest, scope_tbl=subview)
 
-    def test_media_packager(self, reset_db: None) -> None:
+    def test_media_packager(self, uses_db: None) -> None:
         t = pxt.create_table('media_tbl', {'image': pxt.Image, 'audio': pxt.Audio, 'video': pxt.Video})
         images = get_image_files()[:10]
         audio = get_audio_files()[:5]
@@ -149,6 +148,9 @@ class TestPackager:
             print(f'Checking column: {col}')
             pxt_values: list = pxt_data[col]
             parquet_values = list(parquet_data[col])
+            # Parquet loading behavior changed in Pandas 3.0; Nones are now loaded as NaNs.
+            # Replace NaNs with None to get a clean comparison against pxt values.
+            parquet_values = [None if pd.isna(x) else x for x in parquet_values]
             if col_type.is_array_type():
                 parquet_values = [np.load(io.BytesIO(val)) for val in parquet_values]
                 for pxt_val, parquet_val in zip(pxt_values, parquet_values):
@@ -246,6 +248,10 @@ class TestPackager:
         reconstituted_data = t.head(n=5000)
         assert_resultset_eq(bundle_info.result_set, reconstituted_data)
 
+        # Run the database consistency checks; this will ensure we check for consistency after every __check_table(),
+        # not just at the end of the test.
+        Catalog.get().validate_store()
+
     def __extract_store_col_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
         with Env.get().begin_xact():
             store_tbl_name = tbl._tbl_version_path.tbl_version.get().store_tbl._storage_name()
@@ -329,7 +335,7 @@ class TestPackager:
         snapshot = pxt.create_snapshot('snapshot', t)
         self.__do_round_trip(snapshot)
 
-    def test_non_snapshot_round_trip(self, reset_db: None) -> None:
+    def test_non_snapshot_round_trip(self, uses_db: None) -> None:
         """package() / restore() round trip for multiple versions of a table that is not a snapshot"""
         t = pxt.create_table('tbl', {'int_col': pxt.Int})
         t.insert({'int_col': i} for i in range(200))
@@ -350,7 +356,7 @@ class TestPackager:
     def test_media_round_trip(self, img_tbl: pxt.Table) -> None:
         self.__do_round_trip(img_tbl)
 
-    def test_array_round_trip(self, reset_db: None) -> None:
+    def test_array_round_trip(self, uses_db: None) -> None:
         t = pxt.create_table('tbl', {'arr1': pxt.Array[pxt.Int, (200, 200)], 'arr2': pxt.Array[pxt.Bool]})  # type: ignore[misc]
         t.insert(
             {'arr1': np.ones((200, 200), dtype=np.int64) * i, 'arr2': np.array([j % 19 == 0 for j in range(10000 + i)])}
@@ -358,7 +364,7 @@ class TestPackager:
         )
         self.__do_round_trip(t)
 
-    def test_json_round_trip(self, reset_db: None) -> None:
+    def test_json_round_trip(self, uses_db: None) -> None:
         images = get_image_files()
         t = pxt.create_table('tbl', {'jcol': pxt.Json})
         t.insert(
@@ -377,7 +383,7 @@ class TestPackager:
         snapshot = pxt.create_snapshot('snapshot', v2)
         self.__do_round_trip(snapshot)
 
-    def test_restricted_view_round_trip(self, reset_db: None) -> None:
+    def test_restricted_view_round_trip(self, uses_db: None) -> None:
         """Tests a view that only selects a subset of the columns from its base table."""
         t = pxt.create_table('base_tbl', {'icol': pxt.Int, 'scol': pxt.String})
         t.insert({'icol': i, 'scol': f'string {i}'} for i in range(100))
@@ -385,7 +391,7 @@ class TestPackager:
 
         self.__do_round_trip(v)
 
-    def test_iterator_view_round_trip(self, reset_db: None) -> None:
+    def test_iterator_view_round_trip(self, uses_db: None) -> None:
         t = pxt.create_table('base_tbl', {'video': pxt.Video})
         t.insert({'video': video} for video in get_video_files()[:2])
 
@@ -406,7 +412,7 @@ class TestPackager:
         t_replica_query = pxt.Query(FromClause(tbls=[snapshot_replica._tbl_version_path.base]))
         assert t_replica_query.count() == 2
 
-    def test_multi_view_round_trip_1(self, reset_db: None) -> None:
+    def test_multi_view_round_trip_1(self, uses_db: None) -> None:
         """
         Simplest multi-view test: two snapshots that are exported at the same time.
         (All v_min/v_max values are consistent in the bundles.)
@@ -430,7 +436,7 @@ class TestPackager:
         self.__restore_and_check_table(bundle1, 'replica1')
         self.__restore_and_check_table(bundle2, 'replica2')
 
-    def test_multi_view_round_trip_2(self, reset_db: None) -> None:
+    def test_multi_view_round_trip_2(self, uses_db: None) -> None:
         """
         Two snapshots that are exported at different times, requiring rectification of the v_max values.
         """
@@ -453,7 +459,7 @@ class TestPackager:
         self.__restore_and_check_table(bundle2, 'replica2')
 
     @pytest.mark.parametrize('pure_snapshots', [False, True])
-    def test_multi_view_round_trip_3(self, reset_db: None, pure_snapshots: bool) -> None:
+    def test_multi_view_round_trip_3(self, uses_db: None, pure_snapshots: bool) -> None:
         """
         Two snapshots that are exported at different times, involving column operations.
         """
@@ -496,7 +502,7 @@ class TestPackager:
         self.__restore_and_check_table(bundle1, 'replica1')
         self.__restore_and_check_table(bundle2, 'replica2')
 
-    def test_multi_view_round_trip_5(self, reset_db: None) -> None:
+    def test_multi_view_round_trip_5(self, uses_db: None) -> None:
         """
         A much more sophisticated multi-view test. Here we create 11 snapshots, each one modifying a
         different subset of the rows in the table. The snapshots are then reconstituted in an arbitrary
@@ -522,7 +528,7 @@ class TestPackager:
         for n in (0, 1, 3, 4, 5, 7, 8, 9, 10):
             self.__check_table(bundles[n], f'replica_{n}')
 
-    def test_multi_view_round_trip_6(self, reset_db: None) -> None:
+    def test_multi_view_round_trip_6(self, uses_db: None) -> None:
         """
         Another test with many snapshots, involving row and column additions and deletions.
         """
@@ -552,7 +558,7 @@ class TestPackager:
         for n in (0, 1, 3, 4, 5, 7, 8, 9, 10):
             self.__check_table(bundles[n], f'replica_{n}')
 
-    def test_interleaved_non_snapshots(self, reset_db: None) -> None:
+    def test_interleaved_non_snapshots(self, uses_db: None) -> None:
         """
         Test the case where two versions of a non-snapshot table are packaged out of order.
         """
@@ -573,7 +579,7 @@ class TestPackager:
         self.__restore_and_check_table(v_bundle, 'view_replica')
         self.__restore_and_check_table(t_bundle, 'tbl_replica')
 
-    def test_multi_view_non_snapshot_round_trip(self, reset_db: None) -> None:
+    def test_multi_view_non_snapshot_round_trip(self, uses_db: None) -> None:
         """
         A similar test, this one involving multiple versions of a table that is not a snapshot,
         intermixed with various snapshots.
@@ -607,7 +613,7 @@ class TestPackager:
             name = 'replica' if n % 2 != 0 else f'replica_{n}'
             self.__restore_and_check_table(bundles[n], name)
 
-    def test_replica_ops(self, reset_db: None, clip_embed: pxt.Function) -> None:
+    def test_replica_ops(self, uses_db: None, clip_embed: pxt.Function) -> None:
         t = pxt.create_table('test_tbl', {'icol': pxt.Int, 'scol': pxt.String})
         t.insert({'icol': i, 'scol': f'string {i}'} for i in range(10))
         v = pxt.create_view('test_view', t)
@@ -622,7 +628,7 @@ class TestPackager:
         # Check that test_tbl was instantiated as a system table
         assert pxt.list_tables() == ['view_replica']
         system_contents = pxt.globals._list_tables('_system', allow_system_paths=True)
-        assert len(system_contents) == 1 and system_contents[0].startswith('_system.replica_')
+        assert len(system_contents) == 1 and system_contents[0].startswith('_system/replica_')
 
         self.__restore_and_check_table(t_bundle, 'tbl_replica')
         # Check that test_tbl has been renamed to a user table
@@ -666,7 +672,7 @@ class TestPackager:
             with pytest.raises(pxt.Error, match='Cannot create a view or snapshot on top of a replica'):
                 _ = pxt.create_view(f'subview_of_{name}', s)
 
-    def test_drop_replica(self, reset_db: None) -> None:
+    def test_drop_replica(self, uses_db: None) -> None:
         """
         Test dropping a replica table.
         """
@@ -734,7 +740,7 @@ class TestPackager:
         assert pxt.list_tables() == []
         assert len(pxt.globals._list_tables('_system', allow_system_paths=True)) == 0
 
-    def test_deep_view_hierarchy(self, reset_db: None) -> None:
+    def test_deep_view_hierarchy(self, uses_db: None) -> None:
         """
         Test dropping various replica tables.
         """
@@ -776,7 +782,7 @@ class TestPackager:
                 # Re-check all tables that are still present
                 self.__check_table(bundles[j], f'replica_{j}')
 
-    def test_older_versions_round_trip(self, reset_db: None) -> None:
+    def test_older_versions_round_trip(self, uses_db: None) -> None:
         t = pxt.create_table('tbl', {'int_col': pxt.Int})
         for i in range(50):
             t.insert([{'int_col': i}])
@@ -792,9 +798,9 @@ class TestPackager:
         for i, bundle in zip(versions, bundles, strict=True):
             self.__restore_and_check_table(bundle, 'replica', version=i)
 
-    def test_view_over_snapshot_round_trip(self, reset_db: None) -> None:
+    def test_view_over_snapshot_round_trip(self, uses_db: None) -> None:
         pxt.create_dir('dir')
-        t = pxt.create_table('dir.test_tbl', {'c1': pxt.Int})
+        t = pxt.create_table('dir/test_tbl', {'c1': pxt.Int})
 
         views: list[pxt.Table] = []
         bundles: list[TestPackager.BundleInfo] = []
@@ -803,8 +809,8 @@ class TestPackager:
         for i in range(5):
             t.insert(c1=i)
             t.add_computed_column(**{f'x{i}': t.c1 + i * 10})
-            snap = pxt.create_snapshot(f'dir.test_snap_{i}', t)
-            view = pxt.create_view(f'dir.test_view_{i}', snap)
+            snap = pxt.create_snapshot(f'dir/test_snap_{i}', t)
+            view = pxt.create_view(f'dir/test_view_{i}', snap)
             views.append(view)
 
         # Now modify each of the views.
@@ -824,7 +830,7 @@ class TestPackager:
 
     @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
     def test_embedding_index(
-        self, reset_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
+        self, uses_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
     ) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP
 
@@ -837,7 +843,7 @@ class TestPackager:
 
     @pytest.mark.parametrize('embedding_precision', ['fp16', 'fp32'])
     def test_multi_version_embedding_index(
-        self, reset_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
+        self, uses_db: None, clip_embed: pxt.Function, embedding_precision: Literal['fp16', 'fp32']
     ) -> None:
         skip_test_if_not_installed('transformers')  # needed for CLIP
 
@@ -871,7 +877,7 @@ class TestPackager:
 
         self.__validate_index_data(t, 15, 5)
 
-    def test_replicating_view_with_existing_base_tbl(self, reset_db: None) -> None:
+    def test_replicating_view_with_existing_base_tbl(self, uses_db: None) -> None:
         """
         Test restoring a view when its base table already exists in the catalog as a non-replica table.
         """

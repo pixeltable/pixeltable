@@ -5,7 +5,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.config import Config
 
-from ..utils import get_audio_files, runs_linux_with_gpu, skip_test_if_not_installed, validate_update_status
+from ..utils import get_audio_files, rerun, runs_linux_with_gpu, skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.skipif(
@@ -13,7 +13,7 @@ from ..utils import get_audio_files, runs_linux_with_gpu, skip_test_if_not_insta
 )
 @pytest.mark.skipif(runs_linux_with_gpu(), reason='crashes on Linux with GPU')
 class TestWhisperx:
-    def test_transcription(self, reset_db: None) -> None:
+    def test_transcription(self, uses_db: None) -> None:
         skip_test_if_not_installed('whisperx')
         from pixeltable.functions import whisperx
 
@@ -37,7 +37,8 @@ class TestWhisperx:
         assert 'long and deliberate process' in results['transcription2']['segments'][1]['text']
         assert 'city upon a hill' not in results['transcription2']['segments'][1]['text']  # due to shorter chunk size
 
-    def test_diarization(self, reset_db: None) -> None:
+    @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
+    def test_diarization(self, uses_db: None) -> None:
         skip_test_if_not_installed('whisperx')
         if Config.get().get_string_value('auth_token', section='hf') is None:
             # Diarization requires a HF access token for the opt-in pyannote models
@@ -72,7 +73,7 @@ class TestWhisperx:
         assert results['diarization2']['segments'][1]['speaker'] == 'SPEAKER_00'
         assert 'I have been at the task' in results['diarization2']['segments'][1]['text']
 
-    def test_whisperx_errors(self, reset_db: None) -> None:
+    def test_whisperx_errors(self, uses_db: None) -> None:
         skip_test_if_not_installed('whisperx')
         from pixeltable.functions import whisperx
 

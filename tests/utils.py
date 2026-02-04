@@ -330,16 +330,17 @@ def read_data_file(dir_name: str, file_name: str, path_col_names: list[str] | No
     return df.to_dict(orient='records')  # type: ignore[return-value]
 
 
-def get_video_files(include_bad_video: bool = False, include_vfr: bool = True) -> list[str]:
+def get_video_files(include_bad_video: bool = False, include_vfr: bool = True, include_mpgs: bool = True) -> list[str]:
     glob_result = glob.glob(f'{TESTS_DIR}/**/videos/*', recursive=True)
     if not include_bad_video:
         glob_result = [f for f in glob_result if 'bad_video' not in f]
     if not include_vfr:
         glob_result = [f for f in glob_result if 'vfr' not in f]
+    if not include_mpgs:
+        glob_result = [f for f in glob_result if not f.endswith('.mpg')]
 
-    half_res = [f for f in glob_result if 'half_res' in f or 'bad_video' in f]
-    half_res.sort()
-    return half_res
+    glob_result.sort()
+    return glob_result
 
 
 def get_test_video_files() -> list[str]:
@@ -594,6 +595,18 @@ def skip_test_if_no_aws_credentials() -> None:
         cl.list_buckets()
     except NoCredentialsError as exc:
         pytest.skip(str(exc))
+
+
+_S3_PYTEST_RESOURCES = 's3://pxt-test/pytest-resources'
+
+
+def ensure_s3_pytest_resources_access() -> None:
+    """Skip if s3://pxt-test/pytest-resources is not reachable (no creds or no access)."""
+    skip_test_if_not_installed('boto3')
+    try:
+        ObjectOps.validate_destination(_S3_PYTEST_RESOURCES)
+    except Exception as exc:
+        pytest.skip(f'S3 bucket not reachable or not configured: {exc}')
 
 
 def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None = None) -> None:

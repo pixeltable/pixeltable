@@ -21,6 +21,7 @@ from ..utils import (
     get_image_files,
     get_video_files,
     reload_catalog,
+    rerun,
     skip_test_if_not_installed,
     validate_sync_status,
     validate_update_status,
@@ -286,6 +287,7 @@ class TestLabelStudio:
     def __is_expected_url(cls, url: str) -> bool:
         return url.startswith('file://') or url.startswith('https://') or url.startswith('s3://')
 
+    @rerun(reruns=3, reruns_delay=15)  # Guard against connection errors downloading models
     @pytest.mark.xdist_group('label_studio')
     def test_label_studio_sync_preannotations(self, ls_image_table: pxt.InsertableTable) -> None:
         skip_test_if_not_installed('label_studio_sdk')
@@ -442,7 +444,7 @@ class TestLabelStudio:
 
 
 @pytest.fixture(scope='function')
-def ls_image_table(init_ls: None, reset_db: None) -> pxt.Table:
+def ls_image_table(init_ls: None, uses_db: None) -> pxt.Table:
     skip_test_if_not_installed('label_studio_sdk')
     t = pxt.create_table('test_ls_sync', {'id': pxt.Int, 'image_col': pxt.Image})
     t.add_computed_column(rot_image_col=t.image_col.rotate(180), stored=False)
@@ -454,7 +456,7 @@ def ls_image_table(init_ls: None, reset_db: None) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
-def ls_video_table(init_ls: None, reset_db: None) -> pxt.Table:
+def ls_video_table(init_ls: None, uses_db: None) -> pxt.Table:
     skip_test_if_not_installed('label_studio_sdk')
     t = pxt.create_table('test_ls_sync', {'id': pxt.Int, 'video_col': pxt.Video})
     local_video = next(video for video in get_video_files() if video.endswith('bangkok_half_res.mp4'))
@@ -470,7 +472,7 @@ def ls_video_table(init_ls: None, reset_db: None) -> pxt.Table:
 
 
 @pytest.fixture(scope='function')
-def ls_audio_table(init_ls: None, reset_db: None) -> pxt.Table:
+def ls_audio_table(init_ls: None, uses_db: None) -> pxt.Table:
     skip_test_if_not_installed('label_studio_sdk')
     t = pxt.create_table('test_ls_sync', {'id': pxt.Int, 'audio_col': pxt.Audio})
     audio = get_audio_files()

@@ -6,9 +6,11 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
+from ..utils import ensure_s3_pytest_resources_access
+
 
 class TestImport:
-    def test_import_rows(self, reset_db: None) -> None:
+    def test_import_rows(self, uses_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         with open(example, encoding='utf-8') as fp:
             data = json.loads(fp.read())
@@ -62,7 +64,7 @@ class TestImport:
             pxt.io.import_rows('example7', [{'__unusable_name': 'abc'}])
         assert 'Column names must be valid pixeltable identifiers' in str(exc_info.value)
 
-    def test_insert_rows(self, reset_db: None) -> None:
+    def test_insert_rows(self, uses_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         with open(example, encoding='utf-8') as fp:
             data = json.loads(fp.read())
@@ -76,7 +78,7 @@ class TestImport:
         t2.insert(data)
         assert t2.count() == 8
 
-    def test_import_json(self, reset_db: None) -> None:
+    def test_import_json(self, uses_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
 
@@ -96,7 +98,28 @@ class TestImport:
         t2 = pxt.io.import_json('jeopardy', jeopardy)
         assert t2.count() == 10000
 
-    def test_insert_json(self, reset_db: None) -> None:
+    @pytest.mark.parametrize(
+        'source',
+        [
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/example.json',
+            's3://pxt-test/pytest-resources/example.json',
+        ],
+    )
+    def test_import_json_from_remote(self, uses_db: None, source: str) -> None:
+        if source.startswith('s3://'):
+            ensure_s3_pytest_resources_access()
+        tab = pxt.create_table('from_remote_json', source=source, source_format='json')
+        assert tab.count() == 4
+        assert tab._get_schema() == {
+            'name': ts.StringType(nullable=True),
+            'human': ts.BoolType(nullable=True),
+            'parents': ts.JsonType(nullable=True),
+            'age': ts.FloatType(nullable=True),
+            'metadata': ts.JsonType(nullable=True),
+            'children': ts.IntType(nullable=True),
+        }
+
+    def test_insert_json(self, uses_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         jeopardy = 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/json/jeopardy.json'
 

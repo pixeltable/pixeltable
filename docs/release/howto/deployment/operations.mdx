@@ -50,6 +50,36 @@ table.add_computed_column(
 errors = table.where(table.analysis.errortype != None).collect()
 ```
 
+## Testing Transformations Before Deployment
+
+When you add a computed column, Pixeltable executes it immediately for all existing rows. For expensive operations (LLM calls, model inference), validate your logic on a sample first using `select()`; nothing is stored until you commit with `add_computed_column()`.
+
+```python
+# 1. Test transformation on sample rows (nothing stored)
+table.select(
+    table.text,
+    summary=summarize_with_llm(table.text)
+).head(3)  # Only processes 3 rows
+
+# 2. Once satisfied, persist to table (processes all rows)
+table.add_computed_column(summary=summarize_with_llm(table.text))
+```
+
+This "iterate-then-add" workflow lets you catch errors early without wasting API calls or compute on your full dataset.
+
+<Tip>
+**Pro tip:** Save expressions as variables to guarantee identical logic in both steps:
+```python
+summary_expr = summarize_with_llm(table.text)
+table.select(table.text, summary=summary_expr).head(3)  # Test
+table.add_computed_column(summary=summary_expr)          # Commit
+```
+</Tip>
+
+<Card title="Full Tutorial" icon="flask" href="/howto/cookbooks/core/dev-iterative-workflow">
+  Step-by-step guide with examples for built-in functions, expressions, and custom UDFs
+</Card>
+
 ## Schema Evolution
 
 | Operation Type | Examples | Impact |
@@ -63,7 +93,7 @@ errors = table.where(table.analysis.errortype != None).collect()
 import pixeltable as pxt
 import config
 
-docs_table = pxt.get_table(f'{config.APP_NAMESPACE}.documents')
+docs_table = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
 docs_table.add_computed_column(
     embedding=embed_model(docs_table.document),
     if_exists='ignore'  # No-op if column exists
@@ -118,7 +148,7 @@ CMD python setup_pixeltable.py && uvicorn app:app --host 0.0.0.0
 ```python
 # Per-user isolation via namespaces
 pxt.create_dir(f"user_{user_id}", if_exists='ignore')
-user_table = pxt.create_table(f"user_{user_id}.chat_history", schema={...})
+user_table = pxt.create_table(f"user_{user_id}/chat_history", schema={...})
 ```
 
 ### High Availability Constraints
@@ -132,6 +162,30 @@ user_table = pxt.create_table(f"user_{user_id}.chat_history", schema={...})
 <Warning>
 **Single-Writer Limitation:** Pixeltable's storage layer uses an embedded PostgreSQL instance. **Only one process can write to `~/.pixeltable/pgdata` at a time**.
 </Warning>
+
+## Troubleshooting
+
+### Reset Database (Development Only)
+
+To completely reset Pixeltable's local state during development:
+
+```bash
+# Stop all Pixeltable processes first, then:
+rm -rf ~/.pixeltable/pgdata ~/.pixeltable/media ~/.pixeltable/file_cache
+```
+
+<Warning>
+**This deletes all data.** Only use in development. For production, use backups and `table.revert()` or snapshots instead.
+</Warning>
+
+### Common Issues
+
+| Symptom | Cause | Solution |
+|---------|-------|----------|
+| "Cannot connect to database" | Stale lock file | Remove `~/.pixeltable/pgdata/postmaster.pid` if no process is running |
+| Slow first query | File cache miss | Files download on first access; subsequent queries are fast |
+| "Table not found" | Wrong namespace | Check `pxt.list_tables()` and verify `config.APP_NAMESPACE` |
+| OOM on large media | Full file loaded to memory | Use iterators (`FrameIterator`, `DocumentSplitter`) to process incrementally |
 
 ### Environment Separation
 

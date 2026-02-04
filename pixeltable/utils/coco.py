@@ -64,11 +64,10 @@ def write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
     images_dir.mkdir()
 
     images: list[dict[str, Any]] = []
-    img_id = -1
     annotations: list[dict[str, Any]] = []
     ann_id = -1
     categories: set[Any] = set()
-    for input_row in query._exec():
+    for img_id, input_row in enumerate(query._exec()):
         if input_dict_slot_idx == -1:
             input_dict_expr = query._select_list_exprs[0]
             input_dict_slot_idx = input_dict_expr.slot_idx
@@ -83,9 +82,6 @@ def write_coco_dataset(query: pxt.Query, dest_path: Path) -> Path:
         else:
             input_dict = input_row[input_dict_slot_idx]
             _verify_input_dict(input_dict)
-
-        # create image record
-        img_id += 1
 
         # get a local path for the image
         img = input_dict['image']

@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import pandas as pd
@@ -58,8 +58,38 @@ class ConstantImgIterator(ComponentIterator):
         self.next_frame_idx = pos
 
 
+class ErrorIterator(ComponentIterator):
+    def __init__(self, n: int, error_idx: int):
+        self.n = n
+        self.error_idx = error_idx
+        self.output_iter = self.__iter__()
+
+    @classmethod
+    def input_schema(cls) -> dict[str, ts.ColumnType]:
+        return {'n': ts.IntType(), 'error_idx': ts.IntType()}
+
+    @classmethod
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        return {'f': ts.FloatType()}, []
+
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        for i in range(self.n):
+            if i == self.error_idx:
+                raise ValueError
+            yield {'f': float(i)}
+
+    def __next__(self) -> dict[str, Any]:
+        return next(self.output_iter)
+
+    def close(self) -> None:
+        pass
+
+    def set_pos(self, pos: int, **kwargs: Any) -> None:
+        pass
+
+
 class TestComponentView:
-    def test_basic(self, reset_db: None) -> None:
+    def test_basic(self, uses_db: None) -> None:
         # create video table
         schema = {'video': pxt.Video, 'angle': pxt.Int, 'other_angle': pxt.Int}
         video_t = pxt.create_table('video_tbl', schema)
@@ -108,7 +138,7 @@ class TestComponentView:
         assert len(result) > 0
         assert np.all(result['frame_idx'] == pd.Series(range(len(result))))
 
-    def test_add_column(self, reset_db: None) -> None:
+    def test_add_column(self, uses_db: None) -> None:
         # create video table
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         video_filepaths = get_test_video_files()
@@ -127,7 +157,7 @@ class TestComponentView:
         with pytest.raises(pxt.Error, match='Duplicate column name: annotation'):
             view_t.add_column(annotation=pxt.Required[pxt.Json])
 
-    def test_update(self, reset_db: None) -> None:
+    def test_update(self, uses_db: None) -> None:
         # create video table
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view with manually updated column
@@ -172,7 +202,7 @@ class TestComponentView:
         assert 'must be nullable' in str(excinfo.value)
 
     @pytest.mark.parametrize('has_column,has_filter', [(False, False), (True, False), (False, True), (True, True)])
-    def test_snapshot(self, has_column: bool, has_filter: bool, reset_db: None) -> None:
+    def test_snapshot(self, has_column: bool, has_filter: bool, uses_db: None) -> None:
         for reload_md in [False, True]:
             reload_catalog()
             self.run_snapshot_test(has_column=has_column, has_filter=has_filter, reload_md=reload_md)
@@ -257,7 +287,7 @@ class TestComponentView:
         pxt.drop_table(view_path)
         pxt.drop_table(base_path)
 
-    def test_chained_views(self, reset_db: None) -> None:
+    def test_chained_views(self, uses_db: None) -> None:
         """Component view followed by a standard view"""
         # create video table
         schema = {'video': pxt.Video, 'int1': pxt.Int, 'int2': pxt.Int}
@@ -366,3 +396,20 @@ class TestComponentView:
         assert status.num_rows == 1 + v2.where(v2.video == video_url).count()
         assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
         check_view()
+
+    def test_create_view_error(self, uses_db: None) -> None:
+        t = pxt.create_table('test', {'i': pxt.Int})
+        status = t.insert({'i': i} for i in range(100))
+        assert status.num_excs == 0
+
+        # view creation fails with an exception
+        with pytest.raises(pxt.Error, match='aborted'):
+            _ = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=50))
+
+        # the view metadata got cleaned up
+        assert 'view' not in pxt.list_tables()
+        with pytest.raises(pxt.Error, match='does not exist'):
+            _ = pxt.get_table('view')
+
+        # the second attempt succeeds
+        _ = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=100))

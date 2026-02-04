@@ -169,6 +169,12 @@ class FrameIterator(ComponentIterator):
 
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        fps = kwargs.get('fps')
+        num_frames = kwargs.get('num_frames')
+        keyframes_only = kwargs.get('keyframes_only')
+        if int(fps is not None) + int(num_frames is not None) + int(keyframes_only is not None) > 1:
+            raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
+
         attrs: dict[str, ts.ColumnType]
         fps = kwargs.get('fps')
         if fps is not None and (not isinstance(fps, (int, float)) or fps < 0.0):
@@ -267,7 +273,7 @@ class FrameIterator(ComponentIterator):
         seek_time: float
         if 'pos_msec' in kwargs:
             self.video_idx = kwargs['pos_frame']
-            seek_time = kwargs['pos_msec'] / 1000.0 + self.video_start_time
+            seek_time = kwargs['pos_msec'] / 1000.0
         else:
             assert 'frame_attrs' in kwargs
             self.video_idx = kwargs['frame_attrs']['index']
@@ -276,8 +282,9 @@ class FrameIterator(ComponentIterator):
         assert isinstance(self.video_idx, int)
         assert isinstance(seek_time, float)
 
-        seek_pts = math.floor(seek_time / self.video_time_base)
-        self.container.seek(seek_pts, backward=True, stream=self.container.streams.video[0])
+        # Subtlety: The offset passed in to seek() is not the pts, but rather the pts adjusted for the video start time.
+        seek_offset = math.floor((seek_time - self.video_start_time) / self.video_time_base)
+        self.container.seek(seek_offset, backward=True, stream=self.container.streams.video[0])
 
         self.cur_frame = self.next_frame()
         while self.cur_frame is not None and float(self.cur_frame.pts * self.video_time_base) < seek_time - 1e-3:

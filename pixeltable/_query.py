@@ -24,7 +24,6 @@ from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
 
 if TYPE_CHECKING:
-    import torch
     import torch.utils.data
 
 __all__ = ['Query']
