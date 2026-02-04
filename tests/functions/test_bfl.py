@@ -92,9 +92,7 @@ class TestBfl:
             )
         )
 
-        validate_update_status(
-            t.insert(image=img, mask=mask, prompt='Fill with a beautiful pattern'), expected_rows=1
-        )
+        validate_update_status(t.insert(image=img, mask=mask, prompt='Fill with a beautiful pattern'), expected_rows=1)
 
         result = t.collect()
         assert result['filled'][0] is not None
@@ -115,9 +113,7 @@ class TestBfl:
             )
         )
 
-        validate_update_status(
-            t.insert(image=str(TEST_IMAGE_PATH), prompt='Continue the scene'), expected_rows=1
-        )
+        validate_update_status(t.insert(image=str(TEST_IMAGE_PATH), prompt='Continue the scene'), expected_rows=1)
 
         result = t.collect()
         assert result['expanded'][0] is not None
