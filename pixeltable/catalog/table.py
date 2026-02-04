@@ -572,7 +572,7 @@ class Table(SchemaObject):
         Adds an ordinary (non-computed) column to the table.
 
         Args:
-            kwargs: Exactly one keyword argument of the form `col_name=col_type`.
+            kwargs: Exactly one keyword argument of the form `col_name=col_type` or `col_name=col_spec_dict`.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -592,7 +592,11 @@ class Table(SchemaObject):
 
             >>> tbl.add_column(new_col=pxt.Int)
 
-            Alternatively, this can also be expressed as:
+            Add a column with column metadata using a dict:
+
+            >>> tbl.add_column(img_col={'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'})
+
+            Alternatively, simple columns can also be expressed using `add_columns`:
 
             >>> tbl.add_columns({'new_col': pxt.Int})
         """
@@ -603,7 +607,7 @@ class Table(SchemaObject):
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
             )
         col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
+        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
             raise excs.Error(
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
             )
