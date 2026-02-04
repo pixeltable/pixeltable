@@ -265,6 +265,7 @@ def create_view(
             the base table.
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the view.
+        custom_metadata: Optional user-defined JSON metadata to associate with the view.
         media_validation: Media validation policy for the view.
 
             - `'on_read'`: validate media files at query time
@@ -398,6 +399,7 @@ def create_snapshot(
             the base table.
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the snapshot.
+        custom_metadata: Optional user-defined JSON metadata to associate with the snapshot.
         media_validation: Media validation policy for the snapshot.
 
             - `'on_read'`: validate media files at query time

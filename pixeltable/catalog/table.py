@@ -1906,7 +1906,7 @@ class Table(SchemaObject):
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
 
     def _format_custom_metadata(
-        self, metadata: Any, max_elements: int = 5, max_character_limit: int = 80, indent: int = 4, interpose: int = 10
+        self, metadata: Any, max_elements: int = 5, max_character_limit: int = 100, indent: int = 4, interpose: int = 10
     ) -> str:
         indent = ' ' * indent
         if isinstance(metadata, dict):
@@ -1930,6 +1930,16 @@ class Table(SchemaObject):
             result += '\n}'
 
             return result
+        elif isinstance(metadata, list):
+            result = json.dumps(metadata)
+            if len(result) > max_character_limit:
+                result = result[: max_character_limit - interpose] + ' ... ' + result[-interpose:]
+            return result
+        elif isinstance(metadata, str):
+            result = metadata
+            if len(metadata) > max_character_limit:
+                result = metadata[: max_character_limit - interpose] + ' ... ' + metadata[-interpose:]
+            return f'"{result}"'
         else:
             result = str(metadata)
             if len(result) > max_character_limit:
