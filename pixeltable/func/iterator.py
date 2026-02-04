@@ -1,10 +1,9 @@
 import abc
 import collections.abc
-import importlib
 import inspect
-from textwrap import dedent
 import typing
 from dataclasses import dataclass
+from textwrap import dedent
 from types import MethodType
 from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar, overload
 
@@ -244,6 +243,7 @@ class GeneratingFunction:
     def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunction':
         it = GeneratingFunction.__new__(GeneratingFunction)
         it.decorated_callable = iterator_cls
+        it.fqn = f'{iterator_cls.__module__}.{iterator_cls.__qualname__}'
         it.signature = Signature.create(iterator_cls, return_type=ts.JsonType())
         it.py_sig = inspect.signature(iterator_cls)
 
@@ -317,7 +317,7 @@ class InvalidGeneratingFunction(GeneratingFunction):
     def call_output_schema(self, bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
         raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
 
-    def validate(self, bound_args: dict[str, Any]) -> None:
+    def _validate(self, bound_args: dict[str, Any]) -> None:
         raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
 
     def as_dict(self) -> dict[str, Any]:

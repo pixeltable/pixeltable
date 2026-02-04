@@ -1,14 +1,14 @@
 import re
+import warnings
 from textwrap import dedent
 from typing import Any, Iterator, TypedDict
-import warnings
 
 import numpy as np
 import pytest
 
 import pixeltable as pxt
-from pixeltable import func
 import pixeltable.functions as pxtf
+from pixeltable import func
 from tests.utils import ReloadTester, reload_catalog
 
 
@@ -373,7 +373,9 @@ class TestIterator:
 
             assert list(t.head()) == [{'c1': 5}]
             if has_view:
-                assert list(v.head()) == [{'acol': None, 'c1': 5, 'pos': i, 'icol': i, 'scol': f'prefix {i}'} for i in range(5)]
+                assert list(v.head()) == [
+                    {'acol': None, 'c1': 5, 'pos': i, 'icol': i, 'scol': f'prefix {i}'} for i in range(5)
+                ]
 
             # Ensure that inserting or updating raises an error if there is an invalid column
             if validation_error is None:
@@ -447,7 +449,9 @@ class TestIterator:
 
         mimic(iter_version_3)
         if as_kwarg:
-            reload_and_validate_table(validation_error=signature_error.format(params='(c: pxt.Int, prefix: pxt.String)'))
+            reload_and_validate_table(
+                validation_error=signature_error.format(params='(c: pxt.Int, prefix: pxt.String)')
+            )
         else:
             reload_and_validate_table()
 
@@ -468,7 +472,7 @@ class TestIterator:
         class NarrowRow(TypedDict):
             icol: int
             scol: str
-            acol: pxt.Array[np.float32, (3, 512)] | None = None
+            acol: pxt.Array[np.float32, (3, 512)] | None
 
         @pxt.iterator
         def iter_version_5(a: int, prefix: int = 8) -> Iterator[NarrowRow]:
@@ -528,18 +532,18 @@ class TestIterator:
         # Make the function into a non-UDF
         tests.test_iterator.evolving_iterator = lambda x: x  # type: ignore[assignment]
         validation_error = (
-            "The iterator `tests.test_iterator.evolving_iterator` cannot be located, because\n"
-            "the symbol `tests.test_iterator.evolving_iterator` is no longer a Pixeltable iterator. "
-            "(Was the `@pxt.iterator` decorator removed?)"
+            'The iterator `tests.test_iterator.evolving_iterator` cannot be located, because\n'
+            'the symbol `tests.test_iterator.evolving_iterator` is no longer a Pixeltable iterator. '
+            '(Was the `@pxt.iterator` decorator removed?)'
         )
         reload_and_validate_table(validation_error=validation_error)
 
         # Remove the function entirely
         del tests.test_iterator.evolving_iterator
         validation_error = (
-            "The iterator `tests.test_iterator.evolving_iterator` cannot be located, because\n"
-            "the symbol `tests.test_iterator.evolving_iterator` no longer exists. "
-            "(Was the iterator moved or renamed?)"
+            'The iterator `tests.test_iterator.evolving_iterator` cannot be located, because\n'
+            'the symbol `tests.test_iterator.evolving_iterator` no longer exists. '
+            '(Was the iterator moved or renamed?)'
         )
         reload_and_validate_table(validation_error=validation_error)
 
