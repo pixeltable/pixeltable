@@ -37,7 +37,6 @@ class TestVideo:
 
     def create_and_insert(self, stored: bool | None, paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
         base_t, view_t = self.create_tbls()
-        _ = ObjectOps.count(view_t._id, default_output_dest=True)
 
         view_t.add_computed_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)

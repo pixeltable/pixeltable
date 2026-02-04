@@ -34,7 +34,7 @@ def _openrouter_client() -> 'openai.AsyncOpenAI':
     return Env.get().get_client('openrouter')
 
 
-@pxt.udf(resource_pool='request-rate:openrouter')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:openrouter')
 async def chat_completions(
     messages: list,
     *,
