@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 import numpy as np
+import tenacity
 
 import pixeltable as pxt
 from pixeltable import type_system as ts
@@ -69,7 +70,31 @@ def _is_reasoning_model(model: str) -> bool:
     return model.startswith('gpt-5') or 'reasoning' in model.lower()
 
 
-@pxt.udf
+def _should_retry(exc: BaseException) -> bool:
+    """Determine if an exception should trigger a retry."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        # Retry on rate limit (429) and server errors (5xx)
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
+    # Retry on connection errors
+    return isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
+
+
+@tenacity.retry(
+    retry=tenacity.retry_if_exception(_should_retry),
+    wait=tenacity.wait_random_exponential(multiplier=1, max=60),
+    stop=tenacity.stop_after_attempt(5),
+    reraise=True,
+)
+async def _make_request(
+    client: httpx.AsyncClient, url: str, headers: dict[str, str], payload: dict[str, Any], timeout: float = 60.0
+) -> dict[str, Any]:
+    """Make an HTTP request with retry logic for transient errors."""
+    response = await client.post(url, headers=headers, json=payload, timeout=timeout)
+    response.raise_for_status()
+    return response.json()
+
+
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:fabric:chat')
 async def chat_completions(
     messages: list[dict], *, model: str, api_version: str | None = None, model_kwargs: dict[str, Any] | None = None
 ) -> dict:
@@ -87,9 +112,10 @@ async def chat_completions(
     - `gpt-4.1`
     - `gpt-4.1-mini`
 
-    Rate limiting:
-    Azure OpenAI handles rate limiting automatically. If rate limits are exceeded, the API will return
-    429 errors. Consider implementing retry logic in your application if needed.
+    Request throttling:
+    Applies the rate limit set in the config (section `fabric.rate_limits`, key `chat`). If no rate
+    limit is configured, uses a default of 600 RPM. Automatic retry with exponential backoff is applied
+    for rate limit (429) and server errors (5xx).
 
     __Requirements:__
 
@@ -173,16 +199,14 @@ async def chat_completions(
         payload.setdefault('max_tokens', 4000)
         payload.setdefault('temperature', 0.0)
 
-    # Make request
+    # Make request with retry logic
     headers = {'Authorization': auth_header, 'Content-Type': 'application/json'}
 
     async with httpx.AsyncClient() as client:
-        response = await client.post(url, headers=headers, json=payload, timeout=60.0)
-        response.raise_for_status()
-        return response.json()
+        return await _make_request(client, url, headers, payload)
 
 
-@pxt.udf(batch_size=32)
+@pxt.udf(batch_size=32, resource_pool='request-rate:fabric:embeddings')
 async def embeddings(
     input: Batch[str],
     *,
@@ -204,9 +228,10 @@ async def embeddings(
     - `text-embedding-3-small`
     - `text-embedding-3-large`
 
-    Batching and rate limiting:
-    Batches up to 32 inputs per request for efficiency. Azure OpenAI handles rate limiting automatically.
-    If rate limits are exceeded, the API will return 429 errors.
+    Request throttling:
+    Applies the rate limit set in the config (section `fabric.rate_limits`, key `embeddings`). If no rate
+    limit is configured, uses a default of 600 RPM. Batches up to 32 inputs per request for efficiency.
+    Automatic retry with exponential backoff is applied for rate limit (429) and server errors (5xx).
 
     __Requirements:__
 
@@ -253,13 +278,11 @@ async def embeddings(
     payload: dict[str, Any] = {'input': list(input)}
     payload.update(model_kwargs)
 
-    # Make request
+    # Make request with retry logic
     headers = {'Authorization': auth_header, 'Content-Type': 'application/json'}
 
     async with httpx.AsyncClient() as client:
-        response = await client.post(url, headers=headers, json=payload, timeout=60.0)
-        response.raise_for_status()
-        data = response.json()
+        data = await _make_request(client, url, headers, payload)
 
     # Return embeddings as numpy arrays (same format as OpenAI)
     return [np.array(item['embedding'], dtype=np.float64) for item in data['data']]
