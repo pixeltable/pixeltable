@@ -23,12 +23,12 @@ from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    from synapse.ml.fabric.service_discovery import FabricEnvConfig
+    from synapse.ml.fabric.service_discovery import FabricEnvConfig  # type: ignore[import-not-found]
 
-_logger = logging.getLogger("pixeltable")
+_logger = logging.getLogger('pixeltable')
 
 
-def _get_fabric_config() -> tuple["FabricEnvConfig", str]:
+def _get_fabric_config() -> tuple['FabricEnvConfig', str]:
     """Get Fabric environment configuration and auth header.
 
     Returns:
@@ -39,12 +39,12 @@ def _get_fabric_config() -> tuple["FabricEnvConfig", str]:
     """
     try:
         from synapse.ml.fabric.service_discovery import get_fabric_env_config
-        from synapse.ml.fabric.token_utils import TokenUtils
+        from synapse.ml.fabric.token_utils import TokenUtils  # type: ignore[import-not-found]
     except ImportError as e:
         raise ImportError(
-            "Microsoft Fabric SDK packages are required to use Fabric integration. "
-            "These packages are only available in Microsoft Fabric notebook environments. "
-            "Please ensure you are running in a Fabric environment."
+            'Microsoft Fabric SDK packages are required to use Fabric integration. '
+            'These packages are only available in Microsoft Fabric notebook environments. '
+            'Please ensure you are running in a Fabric environment.'
         ) from e
 
     fabric_env_config = get_fabric_env_config().fabric_env_config
@@ -66,16 +66,12 @@ def _is_reasoning_model(model: str) -> bool:
         bool: True if the model is a reasoning model.
     """
     # Future-proof: handles gpt-5, gpt-5-turbo, etc.
-    return model.startswith("gpt-5") or "reasoning" in model.lower()
+    return model.startswith('gpt-5') or 'reasoning' in model.lower()
 
 
 @pxt.udf
 async def chat_completions(
-    messages: list[dict],
-    *,
-    model: str,
-    api_version: str | None = None,
-    model_kwargs: dict[str, Any] | None = None,
+    messages: list[dict], *, model: str, api_version: str | None = None, model_kwargs: dict[str, Any] | None = None
 ) -> dict:
     """
     Creates a model response for the given chat conversation using Azure OpenAI in Fabric.
@@ -145,45 +141,40 @@ async def chat_completions(
 
     # Determine API version based on model type if not specified
     if api_version is None:
-        api_version = (
-            "2025-04-01-preview" if _is_reasoning_model(model) else "2024-02-15-preview"
-        )
+        api_version = '2025-04-01-preview' if _is_reasoning_model(model) else '2024-02-15-preview'
 
     # Build URL
     url = (
-        f"{fabric_env_config.ml_workload_endpoint}cognitive/openai/openai/deployments/"
-        f"{model}/chat/completions?api-version={api_version}"
+        f'{fabric_env_config.ml_workload_endpoint}cognitive/openai/openai/deployments/'
+        f'{model}/chat/completions?api-version={api_version}'
     )
 
     # Build payload
-    payload: dict[str, Any] = {"messages": messages}
+    payload: dict[str, Any] = {'messages': messages}
 
     # Handle reasoning vs standard models
     if _is_reasoning_model(model):
         # Reasoning models use max_completion_tokens, no temperature
         # Extract max_tokens if present and convert to max_completion_tokens
-        if "max_tokens" in model_kwargs:
-            payload["max_completion_tokens"] = model_kwargs.pop("max_tokens")
-        elif "max_completion_tokens" in model_kwargs:
-            payload["max_completion_tokens"] = model_kwargs.pop("max_completion_tokens")
+        if 'max_tokens' in model_kwargs:
+            payload['max_completion_tokens'] = model_kwargs.pop('max_tokens')
+        elif 'max_completion_tokens' in model_kwargs:
+            payload['max_completion_tokens'] = model_kwargs.pop('max_completion_tokens')
         else:
-            payload["max_completion_tokens"] = 4000
+            payload['max_completion_tokens'] = 4000
 
         # Add remaining kwargs (excluding temperature and n)
         for k, v in model_kwargs.items():
-            if k not in ("temperature", "n"):
+            if k not in ('temperature', 'n'):
                 payload[k] = v
     else:
         # Standard models support all parameters
         payload.update(model_kwargs)
-        payload.setdefault("max_tokens", 4000)
-        payload.setdefault("temperature", 0.0)
+        payload.setdefault('max_tokens', 4000)
+        payload.setdefault('temperature', 0.0)
 
     # Make request
-    headers = {
-        "Authorization": auth_header,
-        "Content-Type": "application/json",
-    }
+    headers = {'Authorization': auth_header, 'Content-Type': 'application/json'}
 
     async with httpx.AsyncClient() as client:
         response = await client.post(url, headers=headers, json=payload, timeout=60.0)
@@ -195,8 +186,8 @@ async def chat_completions(
 async def embeddings(
     input: Batch[str],
     *,
-    model: str = "text-embedding-ada-002",
-    api_version: str = "2024-02-15-preview",
+    model: str = 'text-embedding-ada-002',
+    api_version: str = '2024-02-15-preview',
     model_kwargs: dict[str, Any] | None = None,
 ) -> Batch[pxt.Array[(None,), pxt.Float]]:
     """
@@ -247,26 +238,23 @@ async def embeddings(
     if model_kwargs is None:
         model_kwargs = {}
 
-    _logger.debug(f"embeddings: batch_size={len(input)}")
+    _logger.debug(f'embeddings: batch_size={len(input)}')
 
     # Get Fabric config and auth
     fabric_env_config, auth_header = _get_fabric_config()
 
     # Build URL
     url = (
-        f"{fabric_env_config.ml_workload_endpoint}cognitive/openai/openai/deployments/"
-        f"{model}/embeddings?api-version={api_version}"
+        f'{fabric_env_config.ml_workload_endpoint}cognitive/openai/openai/deployments/'
+        f'{model}/embeddings?api-version={api_version}'
     )
 
     # Build payload
-    payload: dict[str, Any] = {"input": list(input)}
+    payload: dict[str, Any] = {'input': list(input)}
     payload.update(model_kwargs)
 
     # Make request
-    headers = {
-        "Authorization": auth_header,
-        "Content-Type": "application/json",
-    }
+    headers = {'Authorization': auth_header, 'Content-Type': 'application/json'}
 
     async with httpx.AsyncClient() as client:
         response = await client.post(url, headers=headers, json=payload, timeout=60.0)
@@ -274,25 +262,23 @@ async def embeddings(
         data = response.json()
 
     # Return embeddings as numpy arrays (same format as OpenAI)
-    return [np.array(item["embedding"], dtype=np.float64) for item in data["data"]]
+    return [np.array(item['embedding'], dtype=np.float64) for item in data['data']]
 
 
 @embeddings.conditional_return_type
-def _(
-    model: str = "text-embedding-ada-002", model_kwargs: dict[str, Any] | None = None
-) -> ts.ArrayType:
+def _(model: str = 'text-embedding-ada-002', model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
     """Determine the return type based on the model."""
     # Known embedding dimensions for common models
     embedding_dimensions = {
-        "text-embedding-ada-002": 1536,
-        "text-embedding-3-small": 1536,
-        "text-embedding-3-large": 3072,
+        'text-embedding-ada-002': 1536,
+        'text-embedding-3-small': 1536,
+        'text-embedding-3-large': 3072,
     }
 
     # Check if dimensions are specified in model_kwargs
     dimensions = None
     if model_kwargs is not None:
-        dimensions = model_kwargs.get("dimensions")
+        dimensions = model_kwargs.get('dimensions')
 
     # If not specified, use known dimensions for the model
     if dimensions is None:
