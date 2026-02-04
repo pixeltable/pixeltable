@@ -12,7 +12,7 @@ TEST_IMAGE_PATH = TESTS_DIR / 'data' / 'images' / 'sewing-threads.heic'
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestBfl:
-    def test_generate(self, reset_db: None) -> None:
+    def test_generate(self, uses_db: None) -> None:
         """Test text-to-image generation with and without optional parameters."""
         skip_test_if_no_client('bfl')
         from pixeltable.functions.bfl import generate
@@ -43,7 +43,7 @@ class TestBfl:
         assert result['image_with_opts'][0].width == 512
         assert result['image_with_opts'][0].height == 512
 
-    def test_edit(self, reset_db: None) -> None:
+    def test_edit(self, uses_db: None) -> None:
         """Test image editing with and without optional parameters."""
         skip_test_if_no_client('bfl')
         from pixeltable.functions.bfl import edit
@@ -66,7 +66,7 @@ class TestBfl:
         assert result['edited'][0] is not None
         assert result['edited_with_opts'][0] is not None
 
-    def test_fill(self, reset_db: None) -> None:
+    def test_fill(self, uses_db: None) -> None:
         """Test inpainting with and without optional parameters."""
         skip_test_if_no_client('bfl')
         from pixeltable.functions.bfl import fill
@@ -100,7 +100,7 @@ class TestBfl:
         assert result['filled'][0] is not None
         assert result['filled_with_opts'][0] is not None
 
-    def test_expand(self, reset_db: None) -> None:
+    def test_expand(self, uses_db: None) -> None:
         """Test outpainting with different expansion configurations."""
         skip_test_if_no_client('bfl')
         from pixeltable.functions.bfl import expand
