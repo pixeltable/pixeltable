@@ -38,24 +38,34 @@ _logger = logging.getLogger('pixeltable')
 def _(api_key: str, base_url: str | None = None, api_version: str | None = None) -> 'openai.AsyncOpenAI':
     import openai
 
-    max_connections = Config.get().get_int_value('openai.max_connections') or 1000
-    max_keepalive_connections = Config.get().get_int_value('openai.max_keepalive_connections') or 100
+    max_connections = Config.get().get_int_value('openai.max_connections') or 2000
+    max_keepalive_connections = Config.get().get_int_value('openai.max_keepalive_connections') or None
+    read_timeout = Config.get().get_float_value('openai.read_timeout') or 120.0
+    write_timeout = Config.get().get_float_value('openai.write_timeout') or 5.0
     set_file_descriptor_limit(max_connections * 2)
     default_query = None if api_version is None else {'api-version': api_version}
 
+    # TODO(PXT-1013): once there's enough confidence in this HTTP client configuration, we should apply it to other
+    # clients.
     # Pixeltable scheduler's retry logic takes into account the rate limit-related response headers, so in theory we can
     # benefit from disabling retries in the OpenAI client (max_retries=0). However to do that, we need to get smarter
     # about idempotency keys and possibly more.
+    http_limits = httpx.Limits(max_keepalive_connections=max_keepalive_connections, max_connections=max_connections)
+    # Connect and pool timeouts should be unset because requests can spend an unbounded time waiting in the queue.
+    # Note: the clock starts ticking for the connect timeout when the request enters the queue, not when it is put on
+    # the wire.
+    http_timeouts = httpx.Timeout(connect=None, read=read_timeout, write=write_timeout, pool=None)
+    _logger.debug(f'Initializing AsyncOpenAI client with httpx limits: {http_limits} and timeouts: {http_timeouts}')
     return openai.AsyncOpenAI(
         api_key=api_key,
         base_url=base_url,
         default_query=default_query,
-        # recommended to increase limits for async client to avoid connection errors
         http_client=httpx.AsyncClient(
-            limits=httpx.Limits(max_keepalive_connections=max_keepalive_connections, max_connections=max_connections),
+            limits=http_limits,
             # HTTP1 tends to perform better on this kind of workloads
             http2=False,
             http1=True,
+            timeout=http_timeouts,
         ),
     )
 
@@ -224,7 +234,7 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
 # Audio Endpoints
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, Any] | None = None) -> pxt.Audio:
     """
     Generates audio from the input text.
@@ -399,7 +409,7 @@ def _chat_completions_get_request_resources(
     return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def chat_completions(
     messages: list,
     *,
@@ -514,7 +524,7 @@ def _vision_get_request_resources(
     return {'requests': 1, 'tokens': int(total_tokens)}
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def vision(
     prompt: str,
     image: PIL.Image.Image,
@@ -682,7 +692,7 @@ def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
 # Images Endpoints
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def image_generations(
     prompt: str, *, model: str = 'dall-e-2', model_kwargs: dict[str, Any] | None = None
 ) -> PIL.Image.Image:
@@ -749,7 +759,7 @@ def _(model_kwargs: dict[str, Any] | None = None) -> ts.ImageType:
 # Moderations Endpoints
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
     """
     Classifies if text is potentially harmful.
