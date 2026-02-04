@@ -3006,3 +3006,17 @@ class TestTable:
             pxt.Error, match="Cannot drop column 'c2' because it is the last remaining column in this table"
         ):
             t.drop_column('c2')
+
+    def test_add_columns_with_metadata(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.String})
+
+        # invalid metadata parameters are rejected
+        with pytest.raises(pxt.Error, match="media_validation must be one of: \['on_read', 'on_write']"):
+            t.add_columns({'non_existing_col1': {'type': pxt.Image, 'media_validation': 'on_error'}})
+        with pytest.raises(pxt.Error, match="'stored' must be a bool; got <class 'float'>"):
+            t.add_columns({'non_existing_col1': {'type': pxt.Image, 'stored': float}})
+
+        # valid metadata parameters are accepted
+        t.add_columns({'c3': {'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'}})
+
+        
