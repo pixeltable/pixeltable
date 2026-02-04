@@ -11,8 +11,8 @@ import asyncio
 import atexit
 import logging
 import re
-from io import BytesIO
 from collections.abc import Mapping
+from io import BytesIO
 from typing import Literal
 
 import aiohttp
