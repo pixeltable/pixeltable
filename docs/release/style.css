@@ -166,6 +166,13 @@ article a,
   border-bottom-color: var(--kandinsky-yellow);
 }
 
+/* Tab titles should be bold */
+[data-selector="tab"],
+[role="tab"],
+button[role="tab"] {
+  font-weight: 600 !important;
+}
+
 /* ============================================
    LINKS - Kandinsky blue/yellow hover
    ============================================ */
@@ -195,69 +202,190 @@ article a,
 }
 
 /* ============================================
+   HIDE POWERED BY MINTLIFY (if allowed by plan)
+   ============================================ */
+
+a[href*="mintlify.com"][href*="poweredBy"],
+footer a[href*="mintlify"] {
+  display: none !important;
+}
+
+/* ============================================
+   BREADCRUMBS / EYEBROW - Kandinsky colors
+   ============================================ */
+
+/* Light mode - blue breadcrumb links */
+.breadcrumb-item a,
+.breadcrumb-list a,
+[class*="breadcrumb"] a {
+  color: var(--kandinsky-blue) !important;
+}
+
+.breadcrumb-item a:hover,
+.breadcrumb-list a:hover,
+[class*="breadcrumb"] a:hover {
+  color: var(--kandinsky-blue-hover) !important;
+}
+
+/* Dark mode - yellow breadcrumb links */
+.dark .breadcrumb-item a,
+.dark .breadcrumb-list a,
+.dark [class*="breadcrumb"] a {
+  color: var(--kandinsky-yellow) !important;
+}
+
+.dark .breadcrumb-item a:hover,
+.dark .breadcrumb-list a:hover,
+.dark [class*="breadcrumb"] a:hover {
+  color: #f5c842 !important;
+}
+
+/* ============================================
    CALLOUTS - Override Mintlify's default colors
    ============================================ */
 
 /* General callout styling */
-.callout {
+.callout,
+[class*="callout"],
+[data-callout] {
   border-radius: 12px !important;
 }
 
-/* Light mode - all tip/emerald callouts use subtle blue */
+/* Light mode - Tip callouts use subtle blue instead of green */
 .callout[class*="emerald"],
-.callout.bg-emerald-50\/50 {
-  background: rgba(2, 42, 89, 0.04) !important;
+.callout[class*="green"],
+[class*="bg-emerald"],
+[class*="border-emerald"],
+[data-callout="tip"],
+div[class*="emerald-50"],
+div[class*="emerald-100"],
+div[class*="emerald-200"] {
+  background: #f8fafc !important;
   border-color: rgba(2, 42, 89, 0.15) !important;
 }
 
-.callout[class*="emerald"] svg {
+/* Ensure callout text is normal color, not muted */
+[class*="bg-emerald"] p,
+[class*="bg-emerald"] span:not([class*="font-"]),
+div[class*="emerald-50"] p,
+div[class*="emerald-100"] p {
+  color: #374151 !important;
+}
+
+.callout[class*="emerald"] svg,
+.callout[class*="green"] svg,
+[class*="bg-emerald"] svg,
+[data-callout="tip"] svg,
+div[class*="emerald-50"] svg {
   color: #022A59 !important;
 }
 
-/* Dark mode - use subtle blue tint, not harsh yellow */
-.dark .callout[class*="emerald"],
-.dark .callout.bg-emerald-50\/50 {
-  background: rgba(125, 168, 239, 0.08) !important;
-  border-color: rgba(125, 168, 239, 0.2) !important;
+/* Override emerald text color for icons only */
+svg[class*="text-emerald"],
+[class*="text-emerald"] > svg {
+  color: #022A59 !important;
 }
 
-.dark .callout[class*="emerald"] svg {
+/* Reset text color inside emerald callouts - override the green text */
+[class*="bg-emerald"] [class*="text-emerald"],
+[class*="bg-emerald"] span[class*="text-emerald"],
+[class*="bg-emerald"] p[class*="text-emerald"],
+div[class*="emerald-50"] [class*="text-emerald"],
+div[class*="emerald-100"] [class*="text-emerald"] {
+  color: inherit !important;
+}
+
+/* Dark mode - use solid dark blue-tinted background */
+.dark .callout[class*="emerald"],
+.dark .callout[class*="green"],
+.dark [class*="bg-emerald"],
+.dark [class*="border-emerald"],
+.dark [data-callout="tip"],
+.dark div[class*="emerald-50"],
+.dark div[class*="emerald-100"],
+.dark div[class*="emerald-200"] {
+  background: #0f1729 !important;
+  border-color: rgba(125, 168, 239, 0.25) !important;
+}
+
+/* Ensure callout text is normal color in dark mode */
+.dark [class*="bg-emerald"] p,
+.dark [class*="bg-emerald"] span:not([class*="font-"]),
+.dark div[class*="emerald-50"] p,
+.dark div[class*="emerald-100"] p {
+  color: #e5e7eb !important;
+}
+
+.dark .callout[class*="emerald"] svg,
+.dark .callout[class*="green"] svg,
+.dark [class*="bg-emerald"] svg,
+.dark [data-callout="tip"] svg,
+.dark div[class*="emerald-50"] svg {
   color: #7DA8EF !important;
 }
 
+/* Override emerald text color for icons only in dark mode */
+.dark svg[class*="text-emerald"],
+.dark [class*="text-emerald"] > svg {
+  color: #7DA8EF !important;
+}
+
+/* Reset text color inside emerald callouts in dark mode */
+.dark [class*="bg-emerald"] [class*="text-emerald"],
+.dark [class*="bg-emerald"] span[class*="text-emerald"],
+.dark [class*="bg-emerald"] p[class*="text-emerald"],
+.dark div[class*="emerald-50"] [class*="text-emerald"],
+.dark div[class*="emerald-100"] [class*="text-emerald"] {
+  color: inherit !important;
+}
+
 /* Blue callouts (Note, Info) */
-.callout[class*="blue"] {
+.callout[class*="blue"],
+[data-callout="note"],
+[data-callout="info"] {
   background: rgba(2, 42, 89, 0.04) !important;
   border-color: rgba(2, 42, 89, 0.15) !important;
 }
 
-.callout[class*="blue"] svg {
+.callout[class*="blue"] svg,
+[data-callout="note"] svg,
+[data-callout="info"] svg {
   color: #022A59 !important;
 }
 
-.dark .callout[class*="blue"] {
+.dark .callout[class*="blue"],
+.dark [data-callout="note"],
+.dark [data-callout="info"] {
   background: rgba(125, 168, 239, 0.08) !important;
   border-color: rgba(125, 168, 239, 0.2) !important;
 }
 
-.dark .callout[class*="blue"] svg {
+.dark .callout[class*="blue"] svg,
+.dark [data-callout="note"] svg,
+.dark [data-callout="info"] svg {
   color: #7DA8EF !important;
 }
 
 /* Red/amber callouts (Warning, Danger) */
 .callout[class*="red"],
-.callout[class*="amber"] {
+.callout[class*="amber"],
+[data-callout="warning"],
+[data-callout="danger"] {
   background: rgba(220, 36, 4, 0.05) !important;
   border-color: rgba(220, 36, 4, 0.2) !important;
 }
 
 .callout[class*="red"] svg,
-.callout[class*="amber"] svg {
+.callout[class*="amber"] svg,
+[data-callout="warning"] svg,
+[data-callout="danger"] svg {
   color: #DC2404 !important;
 }
 
 .dark .callout[class*="red"],
-.dark .callout[class*="amber"] {
+.dark .callout[class*="amber"],
+.dark [data-callout="warning"],
+.dark [data-callout="danger"] {
   background: rgba(220, 36, 4, 0.1) !important;
   border-color: rgba(220, 36, 4, 0.25) !important;
 }
@@ -291,4 +419,69 @@ article a,
 
 .dark [data-selector="step"]::before {
   background: var(--kandinsky-yellow);
+}
+
+/* Step titles should be bold */
+[data-selector="step"] h3,
+[data-selector="step"] [class*="font-medium"],
+[data-selector="step"] > div:first-child,
+.steps h3,
+.steps [class*="title"],
+[class*="step"] h3,
+[class*="Step"] h3 {
+  font-weight: 700 !important;
+}
+
+/* ============================================
+   SIDEBAR GROUP TITLES - Kandinsky accent
+   ============================================ */
+
+/* Light mode - Blue titles for sidebar group headers */
+#sidebar [class*="uppercase"],
+#sidebar [class*="tracking-wide"],
+nav[id="sidebar"] > div > div > div > span,
+#sidebar span.text-xs,
+#sidebar .text-sm.font-semibold:not(a),
+aside span[class*="font-"]:not(a):first-child {
+  color: var(--kandinsky-blue) !important;
+  font-weight: 600 !important;
+}
+
+/* Dark mode - Yellow titles */
+.dark #sidebar [class*="uppercase"],
+.dark #sidebar [class*="tracking-wide"],
+.dark nav[id="sidebar"] > div > div > div > span,
+.dark #sidebar span.text-xs,
+.dark #sidebar .text-sm.font-semibold:not(a),
+.dark aside span[class*="font-"]:not(a):first-child {
+  color: var(--kandinsky-yellow) !important;
+}
+
+/* ============================================
+   NOTEBOOK OUTPUTS - Fix dark mode visibility
+   ============================================ */
+
+/* Override inline color: black on notebook output pre tags in dark mode */
+.dark pre[style*="color: black"],
+.dark pre[style*="color:black"] {
+  color: #e5e5e5 !important;
+}
+
+/* Also handle spans inside pre tags with inline black color */
+.dark pre[style*="color: black"] *,
+.dark pre[style*="color:black"] *,
+.dark pre span[style*="color: black"],
+.dark pre span[style*="color:black"] {
+  color: #e5e5e5 !important;
+}
+
+/* Generic fix for any element with inline black color in notebook outputs */
+.dark #content pre,
+.dark #content-area pre {
+  color: #e5e5e5 !important;
+}
+
+.dark #content pre *,
+.dark #content-area pre * {
+  color: inherit !important;
 }

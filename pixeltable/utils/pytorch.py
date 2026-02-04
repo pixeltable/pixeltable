@@ -6,7 +6,6 @@ from typing import Any, Iterator, Sequence
 
 import numpy as np
 import PIL.Image
-import torch
 import torch.utils.data
 import torchvision  # type: ignore[import-untyped]
 from pyarrow import parquet

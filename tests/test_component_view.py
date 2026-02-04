@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Iterator
 
 import numpy as np
 import pandas as pd
@@ -6,6 +6,7 @@ import PIL
 import pytest
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable.functions.video import frame_iterator
 from pixeltable.iterators import ComponentIterator
@@ -56,6 +57,36 @@ class ConstantImgIterator(ComponentIterator):
         if pos == self.next_frame_idx:
             return
         self.next_frame_idx = pos
+
+
+class ErrorIterator(ComponentIterator):
+    def __init__(self, n: int, error_idx: int):
+        self.n = n
+        self.error_idx = error_idx
+        self.output_iter = self.__iter__()
+
+    @classmethod
+    def input_schema(cls) -> dict[str, ts.ColumnType]:
+        return {'n': ts.IntType(), 'error_idx': ts.IntType()}
+
+    @classmethod
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        return {'f': ts.FloatType()}, []
+
+    def __iter__(self) -> Iterator[dict[str, Any]]:
+        for i in range(self.n):
+            if i == self.error_idx:
+                raise ValueError
+            yield {'f': float(i)}
+
+    def __next__(self) -> dict[str, Any]:
+        return next(self.output_iter)
+
+    def close(self) -> None:
+        pass
+
+    def set_pos(self, pos: int, **kwargs: Any) -> None:
+        pass
 
 
 class TestComponentView:
@@ -126,6 +157,34 @@ class TestComponentView:
 
         with pytest.raises(pxt.Error, match='Duplicate column name: annotation'):
             view_t.add_column(annotation=pxt.Required[pxt.Json])
+
+    def test_nondeterministic(self, uses_db: None) -> None:
+        """Test that a nondeterministic expr in a view column is recomputed for each row"""
+        video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
+        video_filepaths = get_test_video_files()
+        # Scenario 1: additional_columns
+        view_t = pxt.create_view(
+            'test_view1',
+            video_t,
+            iterator=frame_iterator(video_t.video, fps=1),
+            additional_columns={'id': pxtf.uuid.uuid4()},
+        )
+
+        rows = [{'video': p} for p in video_filepaths]
+        status = video_t.insert(rows)
+        assert status.num_excs == 0
+        assert status.num_rows > len(video_filepaths)
+        res = view_t.select(view_t.id).collect()
+        assert len(res) > 0 and len(set(res['id'])) == len(res)
+
+        # Scenario 2: add_computed_column()
+        view_t = pxt.create_view('test_view2', video_t, iterator=frame_iterator(video_t.video, fps=1))
+        view_t.add_computed_column(id=pxtf.uuid.uuid4())
+        status = video_t.insert(rows)
+        assert status.num_excs == 0
+        assert status.num_rows > len(video_filepaths)
+        res = view_t.select(view_t.id).collect()
+        assert len(res) > 0 and len(set(res['id'])) == len(res)
 
     def test_update(self, uses_db: None) -> None:
         # create video table
@@ -366,3 +425,20 @@ class TestComponentView:
         assert status.num_rows == 1 + v2.where(v2.video == video_url).count()
         assert sorted(str.split('.')[1] for str in status.updated_cols) == ['img4', 'int2', 'int6', 'int7']
         check_view()
+
+    def test_create_view_error(self, uses_db: None) -> None:
+        t = pxt.create_table('test', {'i': pxt.Int})
+        status = t.insert({'i': i} for i in range(100))
+        assert status.num_excs == 0
+
+        # view creation fails with an exception
+        with pytest.raises(pxt.Error, match='aborted'):
+            _ = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=50))
+
+        # the view metadata got cleaned up
+        assert 'view' not in pxt.list_tables()
+        with pytest.raises(pxt.Error, match='does not exist'):
+            _ = pxt.get_table('view')
+
+        # the second attempt succeeds
+        _ = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=100))
