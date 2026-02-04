@@ -3026,3 +3026,39 @@ class TestTable:
         assert 'c3' in t.columns()
         assert t.c3.col.stored == True
         assert str(t.c3.col._media_validation) == 'MediaValidation.ON_WRITE'
+
+    def test_add_column_with_metadata(self, uses_db: None) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.String})
+
+        # invalid metadata parameters are rejected
+        with pytest.raises(pxt.Error, match=r"media_validation must be one of: \['on_read', 'on_write']"):
+            t.add_column(non_existing_col1={'type': pxt.Image, 'media_validation': 'on_error'})
+        with pytest.raises(pxt.Error, match="'stored' must be a bool; got <class 'float'>"):
+            t.add_column(non_existing_col1={'type': pxt.Image, 'stored': float})
+        with pytest.raises(pxt.Error, match="invalid key 'invalid_key'"):
+            t.add_column(non_existing_col1={'type': pxt.Image, 'invalid_key': 'value'})
+        with pytest.raises(pxt.Error, match="'type' or 'value' must be specified"):
+            t.add_column(non_existing_col1={'stored': True})
+
+        # valid metadata parameters are accepted
+        t.add_column(c3={'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'})
+
+        # verify column was added correctly
+        assert 'c3' in t.columns()
+        assert t.c3.col.stored == True
+        assert str(t.c3.col._media_validation) == 'MediaValidation.ON_WRITE'
+
+        # add another column with on_read validation
+        t.add_column(c4={'type': pxt.Video, 'media_validation': 'on_read'})
+        assert 'c4' in t.columns()
+        assert str(t.c4.col._media_validation) == 'MediaValidation.ON_READ'
+
+        # make sure this metadata is persisted
+        reload_catalog()
+
+        t = pxt.get_table('tbl')
+        assert 'c3' in t.columns()
+        assert t.c3.col.stored == True
+        assert str(t.c3.col._media_validation) == 'MediaValidation.ON_WRITE'
+        assert 'c4' in t.columns()
+        assert str(t.c4.col._media_validation) == 'MediaValidation.ON_READ'
