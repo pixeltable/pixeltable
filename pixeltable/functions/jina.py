@@ -171,12 +171,12 @@ async def embeddings(
 def _(model: str, dimensions: int | None) -> ts.ArrayType:
     # If dimensions is explicitly specified, use it
     if dimensions is not None:
-        return ts.ArrayType((dimensions,), dtype=np.float32, nullable=False)
+        return ts.ArrayType((dimensions,), dtype=np.dtype(np.float32), nullable=False)
     # Otherwise, look up the default for this model
     dim = _embedding_dimensions_cache.get(model)
     if dim is None:
-        return ts.ArrayType((None,), dtype=np.float32, nullable=False)
-    return ts.ArrayType((dim,), dtype=np.float32, nullable=False)
+        return ts.ArrayType((None,), dtype=np.dtype(np.float32), nullable=False)
+    return ts.ArrayType((dim,), dtype=np.dtype(np.float32), nullable=False)
 
 
 @pxt.udf(resource_pool='request-rate:jina')
@@ -205,7 +205,7 @@ async def rerank(
         A dictionary containing:
 
         - `results`: List of reranking results with `index` and `relevance_score`
-          (and `document` if `return_documents=True`)
+            (and `document` if `return_documents=True`)
         - `usage`: Token usage information
 
     Examples:

@@ -8,7 +8,7 @@ from ..utils import rerun, skip_test_if_no_client, validate_update_status
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestJina:
-    def test_embeddings(self, reset_db: None) -> None:
+    def test_embeddings(self, uses_db: None) -> None:
         """Test basic embedding generation."""
         skip_test_if_no_client('jina')
         from pixeltable.functions.jina import embeddings
@@ -20,7 +20,7 @@ class TestJina:
         res = t.select(t.embed).collect()
         assert res['embed'][0].shape == (1024,)  # jina-embeddings-v3 produces 1024-dim embeddings
 
-    def test_embeddings_with_dimensions(self, reset_db: None) -> None:
+    def test_embeddings_with_dimensions(self, uses_db: None) -> None:
         """Test embedding generation with custom dimensions."""
         skip_test_if_no_client('jina')
         from pixeltable.functions.jina import embeddings
@@ -35,7 +35,7 @@ class TestJina:
         res = t.select(t.embed).collect()
         assert res['embed'][0].shape == (512,)
 
-    def test_embeddings_index(self, reset_db: None) -> None:
+    def test_embeddings_index(self, uses_db: None) -> None:
         """Test using Jina embeddings with an embedding index."""
         skip_test_if_no_client('jina')
         from pixeltable.functions.jina import embeddings
@@ -68,7 +68,7 @@ class TestJina:
         # The ML-related text should be ranked first
         assert 'machine learning' in results['text'][0].lower()
 
-    def test_rerank(self, reset_db: None) -> None:
+    def test_rerank(self, uses_db: None) -> None:
         """Test document reranking."""
         skip_test_if_no_client('jina')
         from pixeltable.functions.jina import rerank
