@@ -597,6 +597,18 @@ def skip_test_if_no_aws_credentials() -> None:
         pytest.skip(str(exc))
 
 
+_S3_PYTEST_RESOURCES = 's3://pxt-test/pytest-resources'
+
+
+def ensure_s3_pytest_resources_access() -> None:
+    """Skip if s3://pxt-test/pytest-resources is not reachable (no creds or no access)."""
+    skip_test_if_not_installed('boto3')
+    try:
+        ObjectOps.validate_destination(_S3_PYTEST_RESOURCES)
+    except Exception as exc:
+        pytest.skip(f'S3 bucket not reachable or not configured: {exc}')
+
+
 def validate_update_status(status: pxt.UpdateStatus, expected_rows: int | None = None) -> None:
     assert status.num_excs == 0
     if expected_rows is not None:
