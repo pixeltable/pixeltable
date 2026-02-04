@@ -3008,7 +3008,8 @@ class TestTable:
         ):
             t.drop_column('c2')
 
-    def test_add_columns_with_metadata(self, uses_db: None) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_add_columns_with_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.String})
 
         # invalid metadata parameters are rejected
@@ -3021,14 +3022,15 @@ class TestTable:
         t.add_columns({'c3': {'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'}})
 
         # make sure this metadata is persisted
-        reload_catalog()
+        reload_catalog(do_reload_catalog)
 
         t = pxt.get_table('tbl')
         assert 'c3' in t.columns()
         assert t.c3.col.stored
         assert t.c3.col.media_validation == MediaValidation.ON_WRITE
 
-    def test_add_column_with_metadata(self, uses_db: None) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_add_column_with_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.String})
 
         # invalid metadata parameters are rejected
@@ -3055,7 +3057,7 @@ class TestTable:
         assert t.c4.col.media_validation == MediaValidation.ON_READ
 
         # make sure this metadata is persisted
-        reload_catalog()
+        reload_catalog(do_reload_catalog)
 
         t = pxt.get_table('tbl')
         assert 'c3' in t.columns()
