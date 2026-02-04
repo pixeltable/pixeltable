@@ -17,7 +17,6 @@ import pytest
 from jsonschema.exceptions import ValidationError
 
 import pixeltable as pxt
-from pixeltable.catalog.globals import MediaValidation
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable.env import Env
