@@ -529,6 +529,15 @@ class Table(SchemaObject):
             ...     'new_col_2': pxt.String,
             ... }
             ... tbl.add_columns(schema)
+
+            It is also possible to specify column metadata using a dict:
+
+            >>> tbl = pxt.get_table('my_table')
+            ... schema = {
+            ...     'new_col_1': {'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'},
+            ...     'new_col_2': pxt.String,
+            ... }
+            ... tbl.add_columns(schema)
         """
         from pixeltable.catalog import Catalog
 
@@ -572,7 +581,12 @@ class Table(SchemaObject):
         Adds an ordinary (non-computed) column to the table.
 
         Args:
-            kwargs: Exactly one keyword argument of the form `col_name=col_type` or `col_name=col_spec_dict`.
+            kwargs: Exactly one keyword argument of the form `col_name=col_type` or `col_name=col_spec_dict`,
+                where `col_spec_dict` is a dict with keys:
+
+                - `'type'` (required): The column type (e.g., `pxt.Image`).
+                - `'stored'`: Whether to store the column data (bool, default varies by type).
+                - `'media_validation'`: When to validate media; `'on_read'` or `'on_write'`.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -596,9 +610,11 @@ class Table(SchemaObject):
 
             >>> tbl.add_column(img_col={'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'})
 
-            Alternatively, simple columns can also be expressed using `add_columns`:
+            Alternatively, these can also be expressed using `add_columns`:
 
             >>> tbl.add_columns({'new_col': pxt.Int})
+
+            >>> tbl.add_columns({'img_col': {'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'}})
         """
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:
