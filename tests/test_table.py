@@ -17,6 +17,7 @@ import pytest
 from jsonschema.exceptions import ValidationError
 
 import pixeltable as pxt
+from pixeltable.catalog.globals import MediaValidation
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
 from pixeltable.env import Env
@@ -3024,8 +3025,8 @@ class TestTable:
 
         t = pxt.get_table('tbl')
         assert 'c3' in t.columns()
-        assert t.c3.col.stored == True
-        assert str(t.c3.col._media_validation) == 'MediaValidation.ON_WRITE'
+        assert t.c3.col.stored
+        assert t.c3.col.media_validation == MediaValidation.ON_WRITE
 
     def test_add_column_with_metadata(self, uses_db: None) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.String})
@@ -3045,20 +3046,20 @@ class TestTable:
 
         # verify column was added correctly
         assert 'c3' in t.columns()
-        assert t.c3.col.stored == True
-        assert str(t.c3.col._media_validation) == 'MediaValidation.ON_WRITE'
+        assert t.c3.col.stored
+        assert t.c3.col.media_validation == MediaValidation.ON_WRITE
 
         # add another column with on_read validation
         t.add_column(c4={'type': pxt.Video, 'media_validation': 'on_read'})
         assert 'c4' in t.columns()
-        assert str(t.c4.col._media_validation) == 'MediaValidation.ON_READ'
+        assert t.c4.col.media_validation == MediaValidation.ON_READ
 
         # make sure this metadata is persisted
         reload_catalog()
 
         t = pxt.get_table('tbl')
         assert 'c3' in t.columns()
-        assert t.c3.col.stored == True
-        assert str(t.c3.col._media_validation) == 'MediaValidation.ON_WRITE'
+        assert t.c3.col.stored
+        assert t.c3.col.media_validation == MediaValidation.ON_WRITE
         assert 'c4' in t.columns()
-        assert str(t.c4.col._media_validation) == 'MediaValidation.ON_READ'
+        assert t.c4.col.media_validation == MediaValidation.ON_READ
