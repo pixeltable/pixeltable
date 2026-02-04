@@ -3,6 +3,7 @@ from textwrap import dedent
 from typing import Any, Iterator, TypedDict
 import warnings
 
+import numpy as np
 import pytest
 
 import pixeltable as pxt
@@ -14,12 +15,13 @@ from tests.utils import ReloadTester, reload_catalog
 class MyRow(TypedDict):
     icol: int
     scol: str
+    acol: pxt.Array[np.float32, (None, 512)] | None
 
 
 @pxt.iterator
 def simple_iterator(x: int, str_text: str = 'string') -> Iterator[MyRow]:
     for i in range(x):
-        yield MyRow(icol=i, scol=f'{str_text} {i}')
+        yield MyRow(icol=i, scol=f'{str_text} {i}', acol=None)
 
 
 @simple_iterator.validate
@@ -46,7 +48,7 @@ class class_based_iterator(pxt.PxtIterator[MyRow]):
     def __next__(self) -> MyRow:
         if self.current >= self.x:
             raise StopIteration
-        result = MyRow(icol=self.current, scol=f'{self.str_text} {self.current}')
+        result = MyRow(icol=self.current, scol=f'{self.str_text} {self.current}', acol=None)
         self.current += 1
         return result
 
@@ -75,7 +77,7 @@ class iterator_with_seek(pxt.PxtIterator[MyRow]):
     def __next__(self) -> MyRow:
         if self.current >= self.x:
             raise StopIteration
-        result = MyRow(icol=self.current, scol=f'{self.str_text} {self.current}')
+        result = MyRow(icol=self.current, scol=f'{self.str_text} {self.current}', acol=None)
         self.current += 1
         return result
 
@@ -104,16 +106,16 @@ class TestIterator:
             t.insert([{'input': 3}, {'input': 5}])
             rs = reload_tester.run_query(v.order_by(v.input, v.pos))
             assert list(rs) == [
-                {'input': 2, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
-                {'input': 2, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
-                {'input': 3, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
-                {'input': 3, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
-                {'input': 3, 'pos': 2, 'icol': 2, 'scol': 'string 2'},
-                {'input': 5, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
-                {'input': 5, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
-                {'input': 5, 'pos': 2, 'icol': 2, 'scol': 'string 2'},
-                {'input': 5, 'pos': 3, 'icol': 3, 'scol': 'string 3'},
-                {'input': 5, 'pos': 4, 'icol': 4, 'scol': 'string 4'},
+                {'acol': None, 'input': 2, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
+                {'acol': None, 'input': 2, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
+                {'acol': None, 'input': 3, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
+                {'acol': None, 'input': 3, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
+                {'acol': None, 'input': 3, 'pos': 2, 'icol': 2, 'scol': 'string 2'},
+                {'acol': None, 'input': 5, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
+                {'acol': None, 'input': 5, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
+                {'acol': None, 'input': 5, 'pos': 2, 'icol': 2, 'scol': 'string 2'},
+                {'acol': None, 'input': 5, 'pos': 3, 'icol': 3, 'scol': 'string 3'},
+                {'acol': None, 'input': 5, 'pos': 4, 'icol': 4, 'scol': 'string 4'},
             ]
 
             # Test that the iterator-specific validator works at insertion time
@@ -333,7 +335,7 @@ class TestIterator:
                 yield from []
 
     @pytest.mark.parametrize('as_kwarg', [False, True])
-    def test_iterator_evolution(self, as_kwarg: bool, uses_db: None) -> None:
+    def test_evolving_iterator(self, as_kwarg: bool, uses_db: None) -> None:
         """
         Tests that code changes to iterators that are backward-compatible with the code pattern in view
         are accepted by Pixeltable.
@@ -361,28 +363,17 @@ class TestIterator:
                 it.decorated_callable, it.unstored_cols, 'tests.test_iterator.evolving_iterator'
             )
 
-        def reload_and_validate_table(validation_error: str | None = None) -> None:
+        def reload_and_validate_table(validation_error: str | None = None, has_view: bool = True) -> None:
             reload_catalog()
 
-            t: pxt.Table
-            v: pxt.Table
-            # Ensure a warning is generated when the table is accessed, if appropriate
-            if validation_error is None:
-                with warnings.catch_warnings():  # Ensure no warning is displayed
-                    warnings.simplefilter('error', pxt.PixeltableWarning)
-                    t = pxt.get_table('test')
-                    v = pxt.get_table('view')
-            else:
-                with pytest.warns(pxt.PixeltableWarning, match=warning_regex(validation_error)):
-                    t = pxt.get_table('test')
-                    v = pxt.get_table('view')
-                with warnings.catch_warnings():  # Ensure the warning is only displayed once
-                    warnings.simplefilter('error', pxt.PixeltableWarning)
-                    _ = pxt.get_table('test')
-                    _ = pxt.get_table('view')
+            # t and v should load without warnings
+            t = pxt.get_table('test')
+            if has_view:
+                v = pxt.get_table('view')
 
             assert list(t.head()) == [{'c1': 5}]
-            assert list(v.head()) == [{'c1': 5, 'pos': i, 'icol': i, 'scol': f'prefix {i}'} for i in range(5)]
+            if has_view:
+                assert list(v.head()) == [{'acol': None, 'c1': 5, 'pos': i, 'icol': i, 'scol': f'prefix {i}'} for i in range(5)]
 
             # Ensure that inserting or updating raises an error if there is an invalid column
             if validation_error is None:
@@ -390,73 +381,48 @@ class TestIterator:
                     warnings.simplefilter('error', pxt.PixeltableWarning)
                     t.insert(c1=6)
                     t.where(t.c1 == 6).update({'c1': 7})
-                    t.where(t.c1 == 5).delete()
-            # else:
-            #     with pytest.raises(pxt.Error, match=insert_error_regex(validation_error)):
-            #         t.insert(c1='abc')
-            #     with pytest.raises(pxt.Error, match=update_error_regex(validation_error)):
-            #         t.where(t.c1 == 'xyz').update({'c1': 'def'})
+                    t.where(t.c1 == 7).delete()
+            else:
+                with pytest.raises(pxt.Error, match=error_regex(validation_error)):
+                    t.insert(c1=6)
+                # TODO: Check for error on update, once update plans are working for iterator views
 
-        def warning_regex(msg: str) -> str:
-            regex = '\n'.join(
-                [
-                    re.escape("The computed column 'result' in table 'test' is no longer valid."),
-                    re.escape(msg),
-                    re.escape(
-                        'You can continue to query existing data from this column, '
-                        'but evaluating it on new data will raise an error.'
-                    ),
-                ]
-            )
-            return '(?s)' + regex
-
-        def insert_error_regex(msg: str) -> str:
+        def error_regex(msg: str) -> str:
             regex = '\n'.join(
                 [
                     re.escape(
-                        "Data cannot be inserted into the Table 'test',\n"
-                        "because the column 'result' is currently invalid:"
+                        "Data cannot be updated in the View 'view',\n"
+                        "because the iterator defined on 'view' is currently invalid:"
                     ),
                     re.escape(msg),
                 ]
             )
             return '(?s)' + regex
 
-        def update_error_regex(msg: str) -> str:
-            regex = '.*'.join(
-                [
-                    re.escape(
-                        "Data cannot be updated in the Table 'test',\nbecause the column 'result' is currently invalid:"
-                    ),
-                    re.escape(msg),
-                ]
-            )
-            return '(?s)' + regex
-
-        db_params = '(a: pxt.String | None)' if as_kwarg else '(pxt.String | None)'
+        db_params = '(a: pxt.Int | None)' if as_kwarg else '(pxt.Int | None)'
         signature_error = dedent(
             f"""
-            The signature stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
+            The signature stored in the database for a call to `tests.test_iterator.evolving_iterator` no longer
             matches its signature as currently defined in the code. This probably means that the
-            code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
-            Signature of UDF call in the database: {db_params} -> pxt.Array[float32] | None
-            Signature of UDF as currently defined in code: {{params}} -> pxt.Array[float32] | None
+            code for `tests.test_iterator.evolving_iterator` has changed in a backward-incompatible way.
+            Signature of iterator in the database: {db_params} -> ...
+            Signature of iterator as currently defined in code: {{params}} -> ...
             """
         ).strip()
-        return_type_error = dedent(
+        output_schema_mismatch_error = dedent(
             """
-            The return type stored in the database for a UDF call to 'tests.test_function.evolving_udf' no longer
-            matches its return type as currently defined in the code. This probably means that the
-            code for 'tests.test_function.evolving_udf' has changed in a backward-incompatible way.
-            Return type of UDF call in the database: Array[float32] | None
-            Return type of UDF as currently defined in code: {return_type}
+            The output schema stored in the database for a call to `tests.test_iterator.evolving_iterator` no longer
+            matches its output schema as currently defined in the code. This probably means that the
+            code for `tests.test_iterator.evolving_iterator` has changed in a backward-incompatible way.
+            The type of output field 'acol' is incompatible
+            (expected `pxt.Array[(None, 512), float32] | None`; got `{return_type}`).
             """
         ).strip()
 
         @pxt.iterator
         def iter_base_version(a: int, prefix: str = 'prefix') -> Iterator[MyRow]:
             for i in range(a):
-                yield MyRow(icol=i, scol=f'{prefix} {i}')
+                yield MyRow(icol=i, scol=f'{prefix} {i}', acol=None)
 
         mimic(iter_base_version)
         if as_kwarg:
@@ -468,10 +434,118 @@ class TestIterator:
         @pxt.iterator
         def iter_version_2(a: int, prefix: int = 8) -> Iterator[MyRow]:
             for i in range(a):
-                yield MyRow(icol=i, scol=f'{prefix} {i}')
+                yield MyRow(icol=i, scol=f'{prefix} {i}', acol=None)
 
         mimic(iter_version_2)
         reload_and_validate_table()
+
+        # Rename the parameter; this works only if the iterator was invoked with a positional argument
+        @pxt.iterator
+        def iter_version_3(c: int, prefix: str = 'prefix') -> Iterator[MyRow]:
+            for i in range(c):
+                yield MyRow(icol=i, scol=f'{prefix} {i}', acol=None)
+
+        mimic(iter_version_3)
+        if as_kwarg:
+            reload_and_validate_table(validation_error=signature_error.format(params='(c: pxt.Int, prefix: pxt.String)'))
+        else:
+            reload_and_validate_table()
+
+        # Change the parameter from fixed to variadic; this works only if the iterator was invoked with a positional
+        # argument
+        # @pxt.iterator
+        # def iter_version_4(*a: int, prefix: str = 'prefix') -> Iterator[MyRow]:
+        #     for i in range(a[0]):
+        #         yield MyRow(icol=i, scol=f'{prefix} {i}', acol=None)
+
+        # mimic(iter_version_4)
+        # if as_kwarg:
+        #     reload_and_validate_table(validation_error=signature_error.format(params='(*a)'))
+        # else:
+        #     reload_and_validate_table()
+
+        # Narrow the type of an output column; this works in all cases
+        class NarrowRow(TypedDict):
+            icol: int
+            scol: str
+            acol: pxt.Array[np.float32, (3, 512)] | None = None
+
+        @pxt.iterator
+        def iter_version_5(a: int, prefix: int = 8) -> Iterator[NarrowRow]:
+            for i in range(a):
+                yield NarrowRow(icol=i, scol=f'{prefix} {i}', acol=None)
+
+        mimic(iter_version_5)
+        reload_and_validate_table()
+
+        # Change the type of the parameter to something incompatible; this fails in all cases
+        @pxt.iterator
+        def iter_version_6(a: str, prefix: str = 'prefix') -> Iterator[MyRow]:
+            for i in range(5):
+                yield MyRow(icol=i, scol=f'{prefix} {i}', acol=None)
+
+        mimic(iter_version_6)
+        reload_and_validate_table(validation_error=signature_error.format(params='(a: pxt.String, prefix: pxt.String)'))
+
+        # Widen the return type; this fails in all cases
+        class WideRow(TypedDict):
+            icol: int
+            scol: str
+            acol: pxt.Array | None
+
+        @pxt.iterator
+        def iter_version_7(a: int, prefix: str = 'prefix') -> Iterator[WideRow]:
+            for i in range(a):
+                yield WideRow(icol=i, scol=f'{prefix} {i}', acol=None)
+
+        mimic(iter_version_7)
+        reload_and_validate_table(validation_error=output_schema_mismatch_error.format(return_type='pxt.Array | None'))
+
+        # Add a poison parameter; this works only if the UDF was invoked with a keyword argument
+        @pxt.iterator
+        def iter_version_8(c: str = '', a: int = 11, prefix: str = 'prefix') -> Iterator[MyRow]:
+            for i in range(a):
+                yield MyRow(icol=i, scol=f'{prefix} {i}', acol=None)
+
+        mimic(iter_version_8)
+        if as_kwarg:
+            reload_and_validate_table()
+        else:
+            reload_and_validate_table(
+                validation_error=signature_error.format(params='(c: pxt.String, a: pxt.Int, prefix: pxt.String)')
+            )
+
+        # Widen a parameter type; this works in all cases
+        # (This also tests scalar -> JSON parameter widening)
+        @pxt.iterator
+        def iter_version_9(a: pxt.Json, prefix: str = 'prefix') -> Iterator[MyRow]:
+            for i in range(a):
+                yield MyRow(icol=i, scol=f'{prefix} {i}', acol=None)
+
+        mimic(iter_version_9)
+        reload_and_validate_table()
+
+        # Make the function into a non-UDF
+        tests.test_iterator.evolving_iterator = lambda x: x  # type: ignore[assignment]
+        validation_error = (
+            "The iterator `tests.test_iterator.evolving_iterator` cannot be located, because\n"
+            "the symbol `tests.test_iterator.evolving_iterator` is no longer a Pixeltable iterator. "
+            "(Was the `@pxt.iterator` decorator removed?)"
+        )
+        reload_and_validate_table(validation_error=validation_error)
+
+        # Remove the function entirely
+        del tests.test_iterator.evolving_iterator
+        validation_error = (
+            "The iterator `tests.test_iterator.evolving_iterator` cannot be located, because\n"
+            "the symbol `tests.test_iterator.evolving_iterator` no longer exists. "
+            "(Was the iterator moved or renamed?)"
+        )
+        reload_and_validate_table(validation_error=validation_error)
+
+        # Now drop the view with the broken iterator and make sure the table is still usable
+        pxt.drop_table('view')
+        reload_and_validate_table(has_view=False)
 
 
 evolving_iterator: func.GeneratingFunction | None = None

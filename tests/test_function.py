@@ -936,7 +936,7 @@ class TestFunction:
         else:
             reload_and_validate_table()
 
-        # Change the parameter from fixed to variable; this works only if the UDF was invoked with a positional
+        # Change the parameter from fixed to variadic; this works only if the UDF was invoked with a positional
         # argument
         @pxt.udf(_force_stored=True)
         def udf_version_4(*a: str) -> pxt.Array[pxt.Float] | None:

@@ -204,17 +204,20 @@ class GeneratingFunction:
                 )
             return {name: ts.ColumnType.from_python_type(type_) for name, type_ in output_schema.items()}
 
+    def bind_to_signature(self, args: list['exprs.Expr'], kwargs: dict[str, 'exprs.Expr']) -> dict[str, 'exprs.Expr']:
+        try:
+            bound_args = self.py_sig.bind(*args, **kwargs).arguments
+        except TypeError as exc:
+            raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
+        self.signature.validate_args(bound_args, context=f'in iterator `{self.fqn}`')
+        return bound_args
+
     def __call__(self, *args: Any, **kwargs: Any) -> 'GeneratingFunctionCall':
         args = [exprs.Expr.from_object(arg) for arg in args]
         kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
 
         # Promptly validate args and kwargs, as much as possible at this stage.
-        try:
-            bound_args = self.py_sig.bind(*args, **kwargs).arguments
-        except TypeError as exc:
-            raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
-
-        self.signature.validate_args(bound_args, context=f'in iterator `{self.fqn}`')
+        bound_args = self.bind_to_signature(args, kwargs)
 
         # Build the dict of literal args for validation and output schema determination
         literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
@@ -287,11 +290,11 @@ class GeneratingFunction:
             return InvalidGeneratingFunction(
                 fqn,
                 d,
-                f'the symbol {fqn!r} is no longer a Pixeltable iterator. (Was the `@pxt.iterator` decorator removed?)',
+                f'the symbol `{fqn}` is no longer a Pixeltable iterator. (Was the `@pxt.iterator` decorator removed?)',
             )
         except (AttributeError, ImportError):
             return InvalidGeneratingFunction(
-                fqn, d, f'the symbol {fqn!r} no longer exists. (Was the iterator moved or renamed?)'
+                fqn, d, f'the symbol `{fqn}` no longer exists. (Was the iterator moved or renamed?)'
             )
 
 
@@ -360,7 +363,7 @@ class GeneratingFunctionCall:
         it = GeneratingFunction.from_dict(d['fn'])
         args = [exprs.Expr.from_dict(arg_dict) for arg_dict in d['args']]
         kwargs = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['kwargs'].items()}
-        outputs = None
+        outputs: dict[str, IteratorOutput] | None = None
         validation_error = None
 
         if d['outputs'] is not None:
@@ -376,19 +379,19 @@ class GeneratingFunctionCall:
 
         # Bind args and kwargs against the latest version of the iterator defined as in code.
         try:
-            bound_args = it.py_sig.bind(*args, **kwargs).arguments
-        except TypeError:
+            bound_args = it.bind_to_signature(args, kwargs)
+        except excs.Error:
             args_str = [f'pxt.{arg.col_type}' for arg in args]
             args_str.extend(f'{name}: pxt.{arg.col_type}' for name, arg in kwargs.items())
             call_signature_str = f'({", ".join(args_str)}) -> ...'
             fn_signature_str = str(it.signature).removesuffix('pxt.Json') + '...'
             validation_error = dedent(
                 f"""
-                The signature stored in the database for an iterator call to `{it.fqn}` no longer
+                The signature stored in the database for a call to `{it.fqn}` no longer
                 matches its signature as currently defined in the code. This probably means that the
                 code for `{it.fqn}` has changed in a backward-incompatible way.
-                Signature of UDF call in the database: {call_signature_str}
-                Signature of UDF as currently defined in code: {fn_signature_str}
+                Signature of iterator in the database: {call_signature_str}
+                Signature of iterator as currently defined in code: {fn_signature_str}
                 """
             ).strip()
             return cls(it, args, kwargs, {}, outputs, validation_error)
@@ -412,8 +415,29 @@ class GeneratingFunctionCall:
                 for name, col_type in output_schema.items()
             }
         else:
-            # TODO: Validate call_output_schema against stored outputs
-            pass
+            # Validate call_output_schema against stored outputs
+            for output in outputs.values():
+                if output.orig_name not in output_schema:
+                    # TODO: should we in fact allow this, and just put Nones in the column, to allow for
+                    #     "deprecated" output columns?
+                    validation_error = dedent(
+                        f"""
+                        The output schema stored in the database for a call to `{it.fqn}` no longer
+                        matches its output schema as currently defined in the code. This probably means that the
+                        code for `{it.fqn}` has changed in a backward-incompatible way.
+                        The output field {output.orig_name!r} is no longer present in the output schema.
+                        """
+                    ).strip()
+                elif not output.col_type.is_supertype_of(output_schema[output.orig_name]):
+                    validation_error = dedent(
+                        f"""
+                        The output schema stored in the database for a call to `{it.fqn}` no longer
+                        matches its output schema as currently defined in the code. This probably means that the
+                        code for `{it.fqn}` has changed in a backward-incompatible way.
+                        The type of output field {output.orig_name!r} is incompatible
+                        (expected `pxt.{output.col_type}`; got `pxt.{output_schema[output.orig_name]}`).
+                        """
+                    ).strip()
 
         return cls(it, args, kwargs, bound_args, outputs, validation_error)
 
