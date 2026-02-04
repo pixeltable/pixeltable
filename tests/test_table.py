@@ -3007,7 +3007,7 @@ class TestTable:
         ):
             t.drop_column('c2')
 
-    def test_add_columns_with_metadata(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
+    def test_add_columns_with_metadata(self, uses_db: None) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.String})
 
         # invalid metadata parameters are rejected
@@ -3018,3 +3018,11 @@ class TestTable:
 
         # valid metadata parameters are accepted
         t.add_columns({'c3': {'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'}})
+
+        # make sure this metadata is persisted
+        reload_catalog()
+
+        t = pxt.get_table('tbl')
+        assert 'c3' in t.columns()
+        assert t.c3.col.stored == True
+        assert str(t.c3.col._media_validation) == 'MediaValidation.ON_WRITE'
