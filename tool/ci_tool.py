@@ -93,18 +93,19 @@ def generate_matrix(args: argparse.Namespace) -> None:
         # can be hit-or-miss)
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
-        # tests_table.py only, against CockroachDB backend
         if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
-            configs.append(
+            cockroach_tests = ('tests/test_table.py', 'tests/test_index.py')
+            configs.extend([
                 MatrixConfig(
-                    'cockroach',
+                    f'cockroach-{path.split("/")[-1].removesuffix(".py")}',
                     'py',
                     'ubuntu-24.04',
                     '3.10',
-                    pytest_options='--reruns 2 tests/test_table.py tests/test_index.py',
+                    pytest_options=f'--reruns 2 {path}',
                     pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
                 )
-            )
+                for path in cockroach_tests
+            ])
 
         # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
         # different test runs don't interfere with each other and any stale data is easy to clean up.
