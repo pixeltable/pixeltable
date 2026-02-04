@@ -18,6 +18,7 @@ import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
+    ColumnSpec,
     EmbeddingIndexParams,
     IndexMetadata,
     TableMetadata,
@@ -491,7 +492,7 @@ class Table(SchemaObject):
 
     def add_columns(
         self,
-        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias],
+        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
@@ -580,14 +581,14 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: ts.ColumnType | builtins.type | _GenericAlias | exprs.Expr,
+        **kwargs: ts.ColumnType | builtins.type | _GenericAlias | ColumnSpec,
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
 
         Args:
             kwargs: Exactly one keyword argument of the form `col_name=col_type` or `col_name=col_spec_dict`,
-                where `col_spec_dict` is a dict with keys:
+                where `col_spec_dict` is a TypedDict with keys:
 
                 - `'type'` (required): The column type (e.g., `pxt.Image`).
                 - `'stored'`: Whether to store the column data (bool, default varies by type).
@@ -734,7 +735,7 @@ class Table(SchemaObject):
             return result
 
     @classmethod
-    def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
+    def _validate_column_spec(cls, name: str, spec: dict[str, Any] | ColumnSpec) -> None:
         """Check integrity of user-supplied Column spec
 
         We unfortunately can't use something like jsonschema for validation, because this isn't strictly a JSON schema
@@ -770,7 +771,9 @@ class Table(SchemaObject):
             raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
 
     @classmethod
-    def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
+    def _create_columns(
+        cls, schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias | ColumnSpec | exprs.Expr]
+    ) -> list[Column]:
         """Construct list of Columns, given schema"""
         columns: list[Column] = []
         for name, spec in schema.items():

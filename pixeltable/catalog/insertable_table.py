@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import builtins
 import enum
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Literal, Sequence, cast, overload
+from typing import TYPE_CHECKING, Any, Literal, Sequence, _GenericAlias, cast, overload  # type: ignore[attr-defined]
 from uuid import UUID
 
 import pydantic
@@ -11,6 +12,7 @@ import pydantic_core
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
+from pixeltable.catalog.table_metadata import ColumnSpec
 from pixeltable.env import Env
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.pydantic import is_json_convertible
@@ -68,7 +70,7 @@ class InsertableTable(Table):
     def _create(
         cls,
         name: str,
-        schema: dict[str, ts.ColumnType],
+        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias | ColumnSpec | exprs.Expr],
         primary_key: list[str],
         num_retained_versions: int,
         comment: str,

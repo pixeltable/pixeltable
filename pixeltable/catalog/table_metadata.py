@@ -1,5 +1,10 @@
+import builtins
 import datetime
 from typing import Literal, TypedDict
+
+from pixeltable import exprs, type_system as ts
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 
 class ColumnMetadata(TypedDict):
@@ -99,3 +104,27 @@ class VersionMetadata(TypedDict):
     """The number of errors encountered during this version."""
     schema_change: str | None
     """A description of the schema change that occurred in this version, if any."""
+
+
+ColumnSpec = TypedDict(
+    'ColumnSpec',
+    {
+        'type': ts.ColumnType | builtins.type | _GenericAlias,
+        'value': exprs.Expr,
+        'primary_key': bool,
+        'stored': bool,
+        'media_validation': Literal['on_read', 'on_write'],
+        'destination': str,
+    },
+    total=False,
+)
+ColumnSpec.__doc__ = """Specification for adding a column to a table.
+
+Fields:
+    type: The column type (e.g., `pxt.Image`, `str`). Required unless `value` is specified.
+    value: A Pixeltable expression for computed columns. Mutually exclusive with `type`.
+    primary_key: Whether this column is part of the primary key. Defaults to `False`.
+    stored: Whether to store the column data. Defaults vary by column type.
+    media_validation: When to validate media; `'on_read'` or `'on_write'`.
+    destination: An object store reference for persisting computed files. Only applicable for computed columns.
+"""
