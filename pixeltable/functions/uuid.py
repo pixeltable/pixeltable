@@ -79,7 +79,7 @@ def _uuid7() -> uuid.UUID:
     return uuid.UUID(int=int_uuid_7)
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 def uuid4() -> uuid.UUID:
     """
     Generate a random UUID (version 4).
@@ -94,7 +94,7 @@ def _() -> sql.ColumnElement:
     return sql.func.gen_random_uuid()  # Generates uuid version 4
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 def uuid7() -> uuid.UUID:
     """
     Generate a time-based UUID.

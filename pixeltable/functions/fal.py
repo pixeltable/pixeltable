@@ -26,7 +26,7 @@ def _fal_client() -> 'fal_client.AsyncClient':
     return Env.get().get_client('fal')
 
 
-@pxt.udf(resource_pool='request-rate:fal')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:fal')
 async def run(input: dict[str, Any], *, app: str) -> pxt.Json:
     """
     Run a model on fal.ai.

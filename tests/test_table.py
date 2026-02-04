@@ -11,7 +11,6 @@ from typing import Any, Literal, _GenericAlias, cast  # type: ignore[attr-define
 import av
 import numpy as np
 import pandas as pd
-import PIL
 import PIL.Image
 import pydantic
 import pytest
@@ -236,13 +235,13 @@ class TestTable:
             _ = pxt.create_table('dir1', schema)
         assert 'is an existing' in str(exc_info.value)
         assert len(tbl.select().collect()) == 1
-        for _ie in ['ignore', 'replace', 'replace_force']:
+        for ie in ('ignore', 'replace', 'replace_force'):
             with pytest.raises(pxt.Error) as exc_info:
-                pxt.create_table('dir1', schema, if_exists=_ie)  # type: ignore[arg-type]
+                pxt.create_table('dir1', schema, if_exists=ie)
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a table' in err_msg
-            assert len(tbl.select().collect()) == 1, f'with if_exists={_ie}'
-            assert 'dir1' in pxt.list_dirs(), f'with if_exists={_ie}'
+            assert len(tbl.select().collect()) == 1, f'with if_exists={ie}'
+            assert 'dir1' in pxt.list_dirs(), f'with if_exists={ie}'
 
         # sanity check persistence
         _ = reload_tester.run_query(tbl.select())

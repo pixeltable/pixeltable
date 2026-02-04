@@ -78,7 +78,7 @@ class ComponentIterationNode(ExecNode):
         return True
 
     def __populate_output_row(self, output_row: exprs.DataRow, pos: int, component_dict: dict) -> None:
-        pk = output_row.pk[:-1] + (pos,) + output_row.pk[-1:]
+        pk = (*output_row.pk[:-1], pos, output_row.pk[-1])
         output_row.set_pk(pk)
         # validate component_dict fields and copy them to their respective slots in output_row.
         # if the column names differ from the component_dict keys, the remapping occurs here.
