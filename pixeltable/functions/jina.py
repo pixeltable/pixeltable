@@ -115,7 +115,7 @@ async def embeddings(
 
     Request throttling:
     Applies the rate limit set in the config (section `jina`, key `rate_limit`). If no rate
-    limit is configured, uses a default of 500 RPM.
+    limit is configured, uses a default of 600 RPM.
 
     Args:
         input: The text to embed.
@@ -171,12 +171,12 @@ async def embeddings(
 def _(model: str, dimensions: int | None) -> ts.ArrayType:
     # If dimensions is explicitly specified, use it
     if dimensions is not None:
-        return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
+        return ts.ArrayType((dimensions,), dtype=np.float32, nullable=False)
     # Otherwise, look up the default for this model
     dim = _embedding_dimensions_cache.get(model)
     if dim is None:
-        return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
-    return ts.ArrayType((dim,), dtype=ts.FloatType(), nullable=False)
+        return ts.ArrayType((None,), dtype=np.float32, nullable=False)
+    return ts.ArrayType((dim,), dtype=np.float32, nullable=False)
 
 
 @pxt.udf(resource_pool='request-rate:jina')
@@ -191,7 +191,7 @@ async def rerank(
 
     Request throttling:
     Applies the rate limit set in the config (section `jina`, key `rate_limit`). If no rate
-    limit is configured, uses a default of 500 RPM.
+    limit is configured, uses a default of 600 RPM.
 
     Args:
         query: The query string to rank documents against.
@@ -203,8 +203,9 @@ async def rerank(
 
     Returns:
         A dictionary containing:
+
         - `results`: List of reranking results with `index` and `relevance_score`
-            (and `document` if `return_documents=True`)
+          (and `document` if `return_documents=True`)
         - `usage`: Token usage information
 
     Examples:
