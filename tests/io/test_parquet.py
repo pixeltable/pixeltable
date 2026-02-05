@@ -1,6 +1,7 @@
 import datetime
 import pathlib
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -11,6 +12,7 @@ from ..utils import (
     get_image_files,
     make_test_arrow_table,
     skip_test_if_not_installed,
+    validate_update_status,
 )
 
 
@@ -297,3 +299,44 @@ class TestParquet:
 
         # Test that we can reimport the image (it will come back as bytes)
         _ = pxt.io.import_parquet('imported_image', parquet_path=str(export_path))
+
+    def validate_parquet_files(self, path: pathlib.Path, rows: list[dict]) -> None:
+        """Validate that the parquet files in the directory match the rows."""
+        from pyarrow import parquet
+
+        from pixeltable.utils.arrow import to_pydict
+
+        pq_table = parquet.read_table(str(path))
+        assert pq_table.num_rows == len(rows)
+
+        col_names = list(rows[0].keys())
+        assert set(pq_table.column_names) == set(col_names)
+
+        pydict = to_pydict(pq_table)
+        for col_name in col_names:
+            for i, row in enumerate(rows):
+                expected = row[col_name]
+                actual = pydict[col_name][i]
+                if isinstance(expected, np.ndarray):
+                    assert np.array_equal(actual, expected), f'Row {i}, column {col_name}: arrays differ'
+                else:
+                    assert actual == expected, f'Row {i}, column {col_name}: {actual} != {expected}'
+
+    def test_export_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        t = pxt.create_table('test_array1', {'a1': pxt.Array[(10, 10), np.int64]})
+        rows = [{'a1': np.ones((10, 10), dtype=np.int64) * i} for i in range(1000)]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        export_path = tmp_path / 'export.pq'
+        pxt.io.export_parquet(t, export_path)
+        self.validate_parquet_files(export_path, rows)
+
+    def test_export_ragged_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        t = pxt.create_table('test_array1', {'a1': pxt.Array[(None, None), np.int64]})
+        rng = np.random.default_rng(0)
+        rows = [{'a1': np.ones((rng.integers(1, 10) + 1, rng.integers(1, 10) + 1), dtype=np.int64) * i} for i in range(1000)]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        export_path = tmp_path / 'export.pq'
+        pxt.io.export_parquet(t, export_path)
+        self.validate_parquet_files(export_path, rows)

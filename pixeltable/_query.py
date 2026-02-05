@@ -1434,6 +1434,7 @@ class Query:
             assert dest_path.is_dir()
         else:
             with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
-                export_parquet(self, dest_path, inline_images=True)
+                # we need the metadata for PixeltablePytorchDataset
+                export_parquet(self, dest_path, inline_images=True, _write_md=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)
