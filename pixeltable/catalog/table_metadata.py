@@ -1,5 +1,6 @@
 import builtins
 import datetime
+from pathlib import Path
 from typing import Literal, TypedDict
 
 from pixeltable import exprs, type_system as ts
@@ -112,7 +113,7 @@ ColumnSpec = TypedDict(
         'primary_key': bool,
         'stored': bool,
         'media_validation': Literal['on_read', 'on_write'],
-        'destination': str,
+        'destination': str | Path,
     },
     total=False,
 )

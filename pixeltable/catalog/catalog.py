@@ -7,7 +7,7 @@ import random
 import time
 from collections import defaultdict
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
 from uuid import UUID
 
 import psycopg
@@ -1202,7 +1202,7 @@ class Catalog:
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: 'SampleClause' | None,
-        additional_columns: dict[str, type | ColumnSpec] | None,
+        additional_columns: Mapping[str, type | ColumnSpec] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         iterator: tuple[type[ComponentIterator], dict[str, Any]] | None,

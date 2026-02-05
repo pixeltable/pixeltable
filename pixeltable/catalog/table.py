@@ -697,7 +697,7 @@ class Table(SchemaObject):
             if not is_valid_identifier(col_name):
                 raise excs.Error(f'Invalid column name: {col_name}')
 
-            col_schema: dict[str, Any] = {'value': spec}
+            col_schema: ColumnSpec = {'value': spec}
             if stored is not None:
                 col_schema['stored'] = stored
 
