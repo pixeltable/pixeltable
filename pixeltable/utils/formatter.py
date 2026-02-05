@@ -268,3 +268,30 @@ class Formatter:
         # if mime is None, the attribute string would not be valid html.
         mime_attr = f'type="{mime}"' if mime is not None else ''
         return f'<source src="{src_url}" {mime_attr} />'
+
+    @classmethod
+    def format_custom_metadata(
+        cls, metadata: Any, max_elements: int = 5, max_character_limit: int = 100, indent: int = 4, interpose: int = 10
+    ) -> str:
+        indent = ' ' * indent
+        if isinstance(metadata, dict):
+            items = list(metadata.items())[:max_elements]
+            parts = []
+            for key, value in items:
+                value_str = json.dumps(value)
+
+                if len(value_str) > max_character_limit:
+                    value_str = value_str[: max_character_limit - interpose] + ' ... ' + value_str[-interpose:]
+
+                parts.append(f'{indent}"{key}": {value_str}')
+            result = '{\n' + ',\n'.join(parts)
+            if len(metadata) > max_elements:
+                result += f',\n{indent}... ({len(metadata) - max_elements} more)'
+            result += '\n}'
+
+            return result
+        else:
+            result = json.dumps(metadata)
+            if len(result) > max_character_limit:
+                result = result[: max_character_limit - interpose] + ' ... ' + result[-interpose:]
+            return result

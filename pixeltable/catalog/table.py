@@ -25,6 +25,7 @@ from pixeltable.catalog.table_metadata import (
 )
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
+from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.object_stores import ObjectOps
 
 from ..exprs import ColumnRef
@@ -384,7 +385,7 @@ class Table(SchemaObject):
             if self._get_comment():
                 helper.append(f'COMMENT: {self._get_comment()}')
             if self._get_custom_metadata():
-                helper.append(f'CUSTOM METADATA: {self._format_custom_metadata(self._get_custom_metadata())}')
+                helper.append(f'CUSTOM METADATA: {Formatter.format_custom_metadata(self._get_custom_metadata())}')
             return helper
 
     def _col_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
@@ -1904,29 +1905,3 @@ class Table(SchemaObject):
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a replica.')
         if self._tbl_version_path.is_snapshot():
             raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
-
-    def _format_custom_metadata(
-        self, metadata: Any, max_elements: int = 5, max_character_limit: int = 100, indent: int = 4, interpose: int = 10
-    ) -> str:
-        indent = ' ' * indent
-        if isinstance(metadata, dict):
-            items = list(metadata.items())[:max_elements]
-            parts = []
-            for key, value in items:
-                value_str = json.dumps(value)
-
-                if len(value_str) > max_character_limit:
-                    value_str = value_str[: max_character_limit - interpose] + ' ... ' + value_str[-interpose:]
-
-                parts.append(f'{indent}"{key}": {value_str}')
-            result = '{\n' + ',\n'.join(parts)
-            if len(metadata) > max_elements:
-                result += f',\n{indent}... ({len(metadata) - max_elements} more)'
-            result += '\n}'
-
-            return result
-        else:
-            result = json.dumps(metadata)
-            if len(result) > max_character_limit:
-                result = result[: max_character_limit - interpose] + ' ... ' + result[-interpose:]
-            return result
