@@ -105,14 +105,22 @@ def to_pxt_schema(
     return pxt_schema
 
 
-def _to_record_batch(column_vals: dict[str, list[Any]], schema: pa.Schema) -> pa.RecordBatch:
+def _to_record_batch(
+    column_vals: dict[str, list[Any]], schema: pa.Schema, pxt_schema: dict[str, ts.ColumnType]
+) -> pa.RecordBatch:
     import pyarrow as pa
 
     pa_arrays: list[pa.Array] = []
     for field in schema:
+        assert field.name in pxt_schema
+        pxt_type = pxt_schema[field.name]
         if isinstance(field.type, pa.FixedShapeTensorType):
             stacked_arr = np.stack(column_vals[field.name])
             pa_arrays.append(pa.FixedShapeTensorArray.from_numpy_ndarray(stacked_arr))
+        elif pxt_type.is_array_type() and isinstance(field.type, pa.ListType):
+            # convert ragged arrays to nested lists
+            list_col_vals = [val.tolist() for val in column_vals[field.name]]
+            pa_arrays.append(pa.array(list_col_vals))
         else:
             pa_array = cast(pa.Array, pa.array(column_vals[field.name]))
             pa_arrays.append(pa_array)
@@ -209,7 +217,7 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                         col_name: json_batch_size[col_name] // num_batch_rows for col_name in json_batch_size
                     }
                 create_arrow_schema()
-                record_batch = _to_record_batch(batch_columns, arrow_schema)
+                record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
                 yield record_batch
                 batch_columns = {k: [] for k in query.schema}
                 current_byte_estimate = 0
@@ -220,20 +228,27 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
 
     if num_batch_rows > 0:
         create_arrow_schema()
-        record_batch = _to_record_batch(batch_columns, arrow_schema)
+        record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
         yield record_batch
 
 
 def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
-    """Convert a RecordBatch to a dictionary of lists, unlike pa.lib.RecordBatch.to_pydict,
-    this function will not convert numpy arrays to lists, and will preserve the original numpy dtype.
+    """Convert a RecordBatch to a dictionary of lists
+
+    FixedShapeTensor columns are converted to numpy arrays with the correct shape.
     """
     out: dict[str, list | np.ndarray] = {}
     for k, name in enumerate(batch.schema.names):
         col = batch.column(k)
         if isinstance(col.type, pa.FixedShapeTensorType):
-            # treat array columns as numpy arrays to easily preserve numpy type
-            out[name] = col.to_numpy(zero_copy_only=False)
+            # we want a list of ndarrays of the correct shape
+            col_array: pa.Array
+            if isinstance(col, pa.ChunkedArray):
+                col_array = col.combine_chunks()
+            else:
+                assert isinstance(col, pa.Array)
+                col_array = col
+            out[name] = list(col_array.to_numpy_ndarray())
         else:
             # for the rest, use pydict to preserve python types
             out[name] = col.to_pylist()

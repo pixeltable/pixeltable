@@ -17,7 +17,35 @@ from ..utils import (
 
 
 class TestParquet:
-    def test_import_parquet_examples(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def validate_parquet_files(self, path: pathlib.Path, rows: list[dict]) -> None:
+        """Validate that the parquet files in the directory match the rows."""
+        from pyarrow import parquet
+
+        from pixeltable.utils.arrow import to_pydict
+
+        pq_table = parquet.read_table(str(path))
+        assert pq_table.num_rows == len(rows)
+
+        col_names = list(rows[0].keys())
+        assert set(pq_table.column_names) == set(col_names)
+
+        pydict = to_pydict(pq_table)
+        for col_name in col_names:
+            for i, row in enumerate(rows):
+                expected = row[col_name]
+                actual = pydict[col_name][i]
+                if isinstance(expected, np.ndarray):
+                    array_val: np.ndarray
+                    if isinstance(actual, np.ndarray):
+                        array_val = actual
+                    else:
+                        assert isinstance(actual, list)
+                        array_val = np.array(actual)
+                    assert np.array_equal(array_val, expected), f'Row {i}, column {col_name}: arrays differ'
+                else:
+                    assert actual == expected, f'Row {i}, column {col_name}: {actual} != {expected}'
+
+    def test_import_examples(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
 
         pdts = []
@@ -73,7 +101,7 @@ class TestParquet:
             's3://pxt-test/pytest-resources/alltypes_plain.parquet',
         ],
     )
-    def test_import_parquet_from_remote(self, uses_db: None, source: str) -> None:
+    def test_import_from_remote(self, uses_db: None, source: str) -> None:
         skip_test_if_not_installed('pyarrow')
         if source.startswith('s3://'):
             ensure_s3_pytest_resources_access()
@@ -100,7 +128,7 @@ class TestParquet:
         assert r1['bigint_col'] == 10 and r1['double_col'] == 10.1
         assert abs(r1['float_col'] - 1.1) < 1e-5  # float32 precision
 
-    def test_import_parquet(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_import(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
@@ -137,7 +165,7 @@ class TestParquet:
                 else:
                     assert val == arrow_tup[col]
 
-    def test_insert_parquet(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_insert(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
 
         parquet_dir = tmp_path / 'test_data'
@@ -150,7 +178,7 @@ class TestParquet:
         tab.insert(str(parquet_dir), source_format='parquet')
         assert tab.count() == len1 * 2
 
-    def test_export_parquet_simple(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_simple(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         from zoneinfo import ZoneInfo
 
@@ -231,7 +259,7 @@ class TestParquet:
         assert it.select(it.c3).collect() == t.where(t.c1 == 1).select(t.c3).collect()
         assert it.select(it.c4).collect() == t.where(t.c1 == 1).select(t.c4).collect()
 
-    def test_export_parquet(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
@@ -283,16 +311,15 @@ class TestParquet:
         #   So the schema and value of that column differ.
         #
 
-    def test_export_parquet_image(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_image(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
 
         tab = pxt.create_table('test_image', {'c1': pxt.Image})
         tab.insert([{'c1': get_image_files()[0]}])
 
         export_path = tmp_path / 'exported_image.parquet'
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match="Cannot export image column 'c1'") as exc_info:
             pxt.io.export_parquet(tab.select(), export_path)
-        assert 'Cannot export Query with image columns' in str(exc_info.value)
 
         pxt.io.export_parquet(tab.select(), export_path, inline_images=True)
         assert export_path.exists()
@@ -300,43 +327,30 @@ class TestParquet:
         # Test that we can reimport the image (it will come back as bytes)
         _ = pxt.io.import_parquet('imported_image', parquet_path=str(export_path))
 
-    def validate_parquet_files(self, path: pathlib.Path, rows: list[dict]) -> None:
-        """Validate that the parquet files in the directory match the rows."""
-        from pyarrow import parquet
-
-        from pixeltable.utils.arrow import to_pydict
-
-        pq_table = parquet.read_table(str(path))
-        assert pq_table.num_rows == len(rows)
-
-        col_names = list(rows[0].keys())
-        assert set(pq_table.column_names) == set(col_names)
-
-        pydict = to_pydict(pq_table)
-        for col_name in col_names:
-            for i, row in enumerate(rows):
-                expected = row[col_name]
-                actual = pydict[col_name][i]
-                if isinstance(expected, np.ndarray):
-                    assert np.array_equal(actual, expected), f'Row {i}, column {col_name}: arrays differ'
-                else:
-                    assert actual == expected, f'Row {i}, column {col_name}: {actual} != {expected}'
-
     def test_export_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        t = pxt.create_table('test_array1', {'a1': pxt.Array[(10, 10), np.int64]})
-        rows = [{'a1': np.ones((10, 10), dtype=np.int64) * i} for i in range(1000)]
+        t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})
+        rows = [{'idx': i, 'a1': np.ones((10, 10), dtype=np.int64) * i} for i in range(1000)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
         export_path = tmp_path / 'export.pq'
-        pxt.io.export_parquet(t, export_path)
+        pxt.io.export_parquet(t.order_by(t.idx), export_path)
         self.validate_parquet_files(export_path, rows)
 
     def test_export_ragged_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        t = pxt.create_table('test_array1', {'a1': pxt.Array[(None, None), np.int64]})
+        t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(None, None), np.int64]})
         rng = np.random.default_rng(0)
-        rows = [{'a1': np.ones((rng.integers(1, 10) + 1, rng.integers(1, 10) + 1), dtype=np.int64) * i} for i in range(1000)]
+        rows = [
+            {'idx': i, 'a1': np.ones((rng.integers(1, 10) + 1, rng.integers(1, 10) + 1), dtype=np.int64) * i}
+            for i in range(1000)
+        ]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
         export_path = tmp_path / 'export.pq'
-        pxt.io.export_parquet(t, export_path)
+        pxt.io.export_parquet(t.order_by(t.idx), export_path)
         self.validate_parquet_files(export_path, rows)
+
+        with pytest.raises(pxt.Error, match='Cannot export array column'):
+            u = pxt.create_table('test_array2', {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})
+            validate_update_status(u.insert(rows), expected_rows=len(rows))
+            export_path = tmp_path / 'error.pq'
+            pxt.io.export_parquet(u.order_by(u.idx), export_path)
