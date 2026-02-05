@@ -1275,7 +1275,7 @@ class TestView:
         assert v1.get_metadata()['comment'] == 'This is a test view.'
 
         # check that raw object JSON comments are rejected
-        with pytest.raises(pxt.Error, match='Comment must be a string'):
+        with pytest.raises(pxt.Error, match='`comment` must be a string'):
             pxt.create_view('tbl_view_invalid', t, comment={'comment': 'This is a test view.'})  # type: ignore[arg-type]
 
     def test_view_custom_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:

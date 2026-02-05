@@ -201,7 +201,7 @@ def create_table(
         )
 
     if not isinstance(comment, str):
-        raise excs.Error('Comment must be a string')
+        raise excs.Error('`comment` must be a string')
 
     try:
         json.dumps(custom_metadata)
@@ -348,7 +348,7 @@ def create_view(
                 )
 
     if not isinstance(comment, str):
-        raise excs.Error('Comment must be a string')
+        raise excs.Error('`comment` must be a string')
 
     try:
         json.dumps(custom_metadata)

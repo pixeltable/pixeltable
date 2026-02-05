@@ -426,7 +426,7 @@ class TestSnapshot:
         assert s1.get_metadata()['comment'] == 'This is a test snapshot.'
 
         # check that raw object JSON comments are rejected
-        with pytest.raises(pxt.Error, match='Comment must be a string'):
+        with pytest.raises(pxt.Error, match='`comment` must be a string'):
             pxt.create_snapshot(
                 'tbl_snapshot_invalid',
                 t,
