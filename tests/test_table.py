@@ -3013,17 +3013,27 @@ class TestTable:
         ):
             t.drop_column('c2')
 
-    def test_table_comment(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_table_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
         t = pxt.create_table('tbl', {'c': pxt.Int}, comment='This is a test table.')
+        assert t.get_metadata()['comment'] == 'This is a test table.'
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
         assert t.get_metadata()['comment'] == 'This is a test table.'
 
         # check that raw object JSON comments are rejected
         with pytest.raises(pxt.Error, match='`comment` must be a string'):
             pxt.create_table('tbl_invalid', {'c': pxt.Int}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
 
-    def test_table_custom_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_table_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table('tbl', {'c': pxt.Int}, custom_metadata=custom_metadata)
+        assert t.get_metadata()['custom_metadata'] == custom_metadata
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
         assert t.get_metadata()['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected
