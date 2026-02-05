@@ -1913,7 +1913,12 @@ class Table(SchemaObject):
             items = list(metadata.items())[:max_elements]
             parts = []
             for key, value in items:
-                value_str = json.dumps(value)
+                if isinstance(value, str):
+                    value_str = f'"{value}"'
+                elif isinstance(value, (dict, list)):
+                    value_str = json.dumps(value)
+                else:
+                    value_str = str(value)
 
                 if len(value_str) > max_character_limit:
                     value_str = value_str[: max_character_limit - interpose] + ' ... ' + value_str[-interpose:]
@@ -1925,8 +1930,18 @@ class Table(SchemaObject):
             result += '\n}'
 
             return result
-        else:
+        elif isinstance(metadata, list):
             result = json.dumps(metadata)
+            if len(result) > max_character_limit:
+                result = result[: max_character_limit - interpose] + ' ... ' + result[-interpose:]
+            return result
+        elif isinstance(metadata, str):
+            result = metadata
+            if len(metadata) > max_character_limit:
+                result = metadata[: max_character_limit - interpose] + ' ... ' + metadata[-interpose:]
+            return f'"{result}"'
+        else:
+            result = str(metadata)
             if len(result) > max_character_limit:
                 result = result[: max_character_limit - interpose] + ' ... ' + result[-interpose:]
             return result

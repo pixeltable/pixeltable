@@ -3026,7 +3026,7 @@ class TestTable:
         assert t.get_metadata()['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected
-        with pytest.raises(pxt.Error):
+        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})
 
     def test_format_custom_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
