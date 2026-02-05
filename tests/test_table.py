@@ -2801,7 +2801,7 @@ class TestTable:
             External Store         Type
                    project  MockProject
 
-            COMMENT: This is an intriguing table comment."""
+            Comment: This is an intriguing table comment."""
         )
         _ = v2._repr_html_()  # TODO: Is there a good way to test this output?
 
@@ -2827,7 +2827,7 @@ class TestTable:
             External Store         Type
                    project  MockProject
 
-            COMMENT: This is an intriguing table comment."""
+            Comment: This is an intriguing table comment."""
         )
 
         # test case: snapshot of base table
