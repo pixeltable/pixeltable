@@ -7,7 +7,6 @@ from textwrap import dedent
 from types import MethodType
 from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar, overload
 
-from deprecated import deprecated
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
