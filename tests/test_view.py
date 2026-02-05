@@ -1268,21 +1268,29 @@ class TestView:
         pxt.drop_table('my_view_1')
         pxt.drop_table('my_tbl')
 
-    def test_view_comment(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_view_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
         t = pxt.create_table('tbl', {'c': pxt.Int})
         v1 = pxt.create_view('tbl_view', t, comment='This is a test view.')
+        assert v1.get_metadata()['comment'] == 'This is a test view.'
 
+        reload_catalog(do_reload_catalog)
+        v1 = pxt.get_table('tbl_view')
         assert v1.get_metadata()['comment'] == 'This is a test view.'
 
         # check that raw object JSON comments are rejected
         with pytest.raises(pxt.Error, match='`comment` must be a string'):
             pxt.create_view('tbl_view_invalid', t, comment={'comment': 'This is a test view.'})  # type: ignore[arg-type]
 
-    def test_view_custom_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_view_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
         t = pxt.create_table('tbl', {'c': pxt.Int})
         v1 = pxt.create_view('tbl_view', t, custom_metadata=custom_metadata)
+        assert v1.get_metadata()['custom_metadata'] == custom_metadata
 
+        reload_catalog(do_reload_catalog)
+        v1 = pxt.get_table('tbl_view')
         assert v1.get_metadata()['custom_metadata'] == custom_metadata
 
         # check that invalid JSON user metadata are rejected
