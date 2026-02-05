@@ -25,7 +25,6 @@ from pixeltable.func import Batch
 from pixeltable.functions.video import frame_iterator
 from pixeltable.io.external_store import MockProject
 from pixeltable.utils.filecache import FileCache
-from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (

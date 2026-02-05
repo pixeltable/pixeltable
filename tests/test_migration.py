@@ -318,7 +318,6 @@ class TestMigration:
                 for col_md in table_md['column_md'].values():
                     assert col_md['is_pk'] is not None
 
-
     @classmethod
     def _verify_v45(cls) -> None:
         t = pxt.get_table('base_table')
@@ -343,7 +342,8 @@ class TestMigration:
         # Verify comment and custom_metadata for view_of_views
         assert vv.get_metadata()['comment'] == 'This is a test view of views.'
         assert vv.get_metadata()['custom_metadata'] == {'view_of_views_key': 'view_of_views_value'}
-    
+
+
 @pxt.udf(batch_size=4)
 def replacement_batched_udf(strings: Batch[str], *, upper: bool = True) -> Batch[pxt.String]:
     return [string.upper() if upper else string.lower() for string in strings]
