@@ -3040,7 +3040,7 @@ class TestTable:
         with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})
 
-    def test_summarize_json(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    def test_summarize_json(self, uses_db: None) -> None:
         # Test dict formatting
         result = Formatter.summarize_json({'key1': 'value1', 'key2': 2})
         assert '"key1": "value1"' in result
