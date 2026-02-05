@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import builtins
 import enum
 import logging
 import time
-from typing import TYPE_CHECKING, Any, Literal, Sequence, _GenericAlias, cast, overload  # type: ignore[attr-defined]
+from typing import TYPE_CHECKING, Any, Literal, Sequence, cast, overload
 from uuid import UUID
 
 import pydantic
@@ -70,7 +69,7 @@ class InsertableTable(Table):
     def _create(
         cls,
         name: str,
-        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias | ColumnSpec | exprs.Expr],
+        schema: dict[str, ColumnSpec],
         primary_key: list[str],
         num_retained_versions: int,
         comment: str,

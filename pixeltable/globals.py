@@ -12,6 +12,7 @@ from pandas.io.formats.style import Styler
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, share, type_system as ts
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
+from pixeltable.catalog.table_metadata import ColumnSpec
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
@@ -48,7 +49,7 @@ def init(config_overrides: dict[str, Any] | None = None) -> None:
 
 def create_table(
     path: str,
-    schema: dict[str, Any] | None = None,
+    schema: dict[str, ColumnSpec] | None = None,
     *,
     source: TableDataSource | None = None,
     source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
@@ -225,7 +226,7 @@ def create_view(
     path: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: dict[str, Any] | None = None,
+    additional_columns: dict[str, ColumnSpec] | None = None,
     is_snapshot: bool = False,
     create_default_idxs: bool = False,
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
@@ -354,7 +355,7 @@ def create_snapshot(
     path_str: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: dict[str, Any] | None = None,
+    additional_columns: dict[str, ColumnSpec] | None = None,
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',

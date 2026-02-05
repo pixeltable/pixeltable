@@ -492,7 +492,7 @@ class Table(SchemaObject):
 
     def add_columns(
         self,
-        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias | ColumnSpec],
+        schema: dict[str, ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
@@ -581,7 +581,7 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: ts.ColumnType | builtins.type | _GenericAlias | ColumnSpec,
+        **kwargs: ColumnSpec,
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
@@ -772,7 +772,7 @@ class Table(SchemaObject):
 
     @classmethod
     def _create_columns(
-        cls, schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias | ColumnSpec | exprs.Expr]
+        cls, schema: dict[str, ColumnSpec]
     ) -> list[Column]:
         """Construct list of Columns, given schema"""
         columns: list[Column] = []

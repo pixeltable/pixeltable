@@ -4,8 +4,6 @@ from typing import Literal, TypedDict
 
 from pixeltable import exprs, type_system as ts
 
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
 
 class ColumnMetadata(TypedDict):
     """Metadata for a column of a Pixeltable table."""
@@ -106,10 +104,10 @@ class VersionMetadata(TypedDict):
     """A description of the schema change that occurred in this version, if any."""
 
 
-ColumnSpec = TypedDict(
-    'ColumnSpec',
+ColumnOptions = TypedDict(
+    'ColumnOptions',
     {
-        'type': ts.ColumnType | builtins.type | _GenericAlias,
+        'type': ts.ColumnType | builtins.type,
         'value': exprs.Expr,
         'primary_key': bool,
         'stored': bool,
@@ -118,7 +116,7 @@ ColumnSpec = TypedDict(
     },
     total=False,
 )
-ColumnSpec.__doc__ = """Specification for adding a column to a table.
+ColumnOptions.__doc__ = """Optional metadata for a column specification.
 
 Fields:
     type: The column type (e.g., `pxt.Image`, `str`). Required unless `value` is specified.
@@ -127,4 +125,14 @@ Fields:
     stored: Whether to store the column data. Defaults vary by column type.
     media_validation: When to validate media; `'on_read'` or `'on_write'`.
     destination: An object store reference for persisting computed files. Only applicable for computed columns.
+"""
+
+ColumnSpec = ts.ColumnType | builtins.type | ColumnOptions | exprs.Expr
+"""A column specification for use in a schema dict.
+
+Can be one of:
+    - A Pixeltable type (e.g., `pxt.Int`, `pxt.Image`)
+    - A Python type (e.g., `str`, `int`, `float`)
+    - A `ColumnOptions` dict with metadata (e.g., `{'type': pxt.Image, 'stored': True}`)
+    - A Pixeltable expression for computed columns
 """

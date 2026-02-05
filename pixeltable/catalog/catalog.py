@@ -14,6 +14,7 @@ import psycopg
 import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
 
+from pixeltable.catalog.table_metadata import ColumnSpec
 import pixeltable.index as index
 from pixeltable import exceptions as excs
 from pixeltable.env import Env
@@ -1143,7 +1144,7 @@ class Catalog:
     def create_table(
         self,
         path: Path,
-        schema: dict[str, Any],
+        schema: dict[str, ColumnSpec],
         if_exists: IfExistsParam,
         primary_key: list[str] | None,
         num_retained_versions: int,
@@ -1201,7 +1202,7 @@ class Catalog:
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: 'SampleClause' | None,
-        additional_columns: dict[str, Any] | None,
+        additional_columns: dict[str, ColumnSpec] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         iterator: tuple[type[ComponentIterator], dict[str, Any]] | None,
