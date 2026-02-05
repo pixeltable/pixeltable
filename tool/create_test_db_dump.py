@@ -160,7 +160,7 @@ class Dumper:
             'c10': pxt.Video,
             'c11': pxt.Document,
         }
-        t = pxt.create_table('base_table', schema, primary_key='c2')
+        t = pxt.create_table('base_table', schema, primary_key='c2', comment='This is a test table.', custom_metadata={'key': 'value'})
 
         num_rows = 20
         d1 = {
@@ -214,14 +214,17 @@ class Dumper:
         pxt.create_dir('views')
 
         # simple view
-        v = pxt.create_view('views.view', t.where(t.c2 < 50))
+        v = pxt.create_view('views.view', t.where(t.c2 < 50), comment='This is a test view.', custom_metadata={'view_key': 'view_value'})
         self.__add_expr_columns(v, 'view')
 
         # snapshot
         _ = pxt.create_snapshot('views.snapshot', t.where(t.c2 >= 75))
 
+        # non-pure snapshot (a snapshot with additional columns which thus requires being physically stored)
+        _ = pxt.create_snapshot('views.snapshot_non_pure', t.where(t.c2 >= 75), additional_columns={'c9': t.c2 * 2}, comment='This is a test snapshot.', custom_metadata={'snapshot_key': 'snapshot_value'})
+
         # view of views
-        vv = pxt.create_view('views.view_of_views', v.where(t.c2 >= 25))
+        vv = pxt.create_view('views.view_of_views', v.where(t.c2 >= 25), comment='This is a test view of views.', custom_metadata={'view_of_views_key': 'view_of_views_value'})
         self.__add_expr_columns(vv, 'view_of_views')
 
         # empty view
