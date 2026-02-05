@@ -246,6 +246,7 @@ class GeneratingFunction:
         it.fqn = f'{iterator_cls.__module__}.{iterator_cls.__qualname__}'
         it.signature = Signature.create(iterator_cls, return_type=ts.JsonType())
         it.py_sig = inspect.signature(iterator_cls)
+        it.unstored_cols = []
 
         def call_output_schema(bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
             schema, _ = iterator_cls.output_schema(**bound_kwargs)

@@ -336,7 +336,9 @@ def create_view(
     if isinstance(iterator, tuple):
         iterator_cls, iterator_args = iterator
         it = func.GeneratingFunction._retrofit(iterator_cls)
-        iterator = it([], iterator_args)
+        iterator = it(**iterator_args)
+    elif iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
+        raise excs.Error('The specified `iterator` is not a valid Pixeltable iterator')
 
     return Catalog.get().create_view(
         path_obj,

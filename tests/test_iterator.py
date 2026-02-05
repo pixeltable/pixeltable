@@ -8,7 +8,8 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable import func
+from pixeltable import func, type_system as ts
+from pixeltable.iterators.base import ComponentIterator
 from tests.utils import ReloadTester, reload_catalog
 
 
@@ -94,6 +95,42 @@ class iterator_with_seek(pxt.PxtIterator[MyRow]):
             raise pxt.Error('Parameter `str_text` must be a constant.')
         if not bound_args['str_text'].isidentifier():
             raise pxt.Error('Parameter `str_text` must be a valid identifier.')
+
+
+class CustomLegacyIterator(ComponentIterator):
+    input_text: str
+    expand_by: int
+    idx: int
+
+    @classmethod
+    def input_schema(cls, *args: Any, **kwargs: Any) -> dict[str, ts.ColumnType]:
+        return {'text': ts.StringType(), 'expand_by': ts.IntType()}
+
+    @classmethod
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        return {'output_text': ts.StringType(), 'unstored_text': ts.StringType()}, ['unstored_text']
+
+    def __init__(self, text: str, expand_by: int) -> None:
+        self.input_text = text
+        self.expand_by = expand_by
+        self.idx = 0
+
+    def __next__(self) -> dict[str, Any]:
+        if self.idx >= self.expand_by:
+            raise StopIteration
+        result = {
+            'output_text': f'stored {self.input_text} {self.idx}',
+            'unstored_text': f'unstored {self.input_text} {self.idx}',
+        }
+        self.idx += 1
+        return result
+
+    def close(self) -> None:
+        pass
+
+    def set_pos(self, pos: int, **kwargs: Any) -> None:
+        assert 0 <= pos < self.expand_by
+        self.idx = pos
 
 
 class TestIterator:
@@ -550,6 +587,24 @@ class TestIterator:
         # Now drop the view with the broken iterator and make sure the table is still usable
         pxt.drop_table('view')
         reload_and_validate_table(has_view=False)
+
+    def test_retrofit(self, uses_db: None) -> None:
+        """
+        Tests that legacy iterators defined as subclasses of ComponentIterator can be retrofitted
+        into the new GeneratingFunction-based iterator system.
+        """
+        t = pxt.create_table('test', schema={'input': pxt.String})
+        t.insert([{'input': 'balloon'}])
+        v = pxt.create_view(
+            'view_legacy_iterator', t, iterator=CustomLegacyIterator.create(text=t.input, expand_by=4)
+        )
+        rs = v.order_by(v.input, v.pos).collect()
+        assert list(rs) == [
+            {'input': 'balloon', 'pos': 0, 'output_text': 'stored balloon 0', 'unstored_text': 'unstored balloon 0'},
+            {'input': 'balloon', 'pos': 1, 'output_text': 'stored balloon 1', 'unstored_text': 'unstored balloon 1'},
+            {'input': 'balloon', 'pos': 2, 'output_text': 'stored balloon 2', 'unstored_text': 'unstored balloon 2'},
+            {'input': 'balloon', 'pos': 3, 'output_text': 'stored balloon 3', 'unstored_text': 'unstored balloon 3'},
+        ]
 
 
 evolving_iterator: func.GeneratingFunction | None = None
