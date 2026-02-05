@@ -3,7 +3,7 @@ from __future__ import annotations
 import dataclasses
 import enum
 from textwrap import dedent
-from typing import Any, Iterable, Literal, Sequence, cast
+from typing import Any, ClassVar, Iterable, Literal, Sequence, cast
 from uuid import UUID
 
 import sqlalchemy as sql
@@ -103,7 +103,7 @@ class SampleClause:
     stratify_exprs: list[exprs.Expr] | None
 
     # The version of the hashing algorithm used for ordering and fractional sampling.
-    CURRENT_VERSION = 1
+    CURRENT_VERSION: ClassVar[int] = 1
 
     def __post_init__(self) -> None:
         # If no version was provided, provide the default version
@@ -824,16 +824,16 @@ class Planner:
         # 1. materialize exprs computed from the base that are needed for stored view columns
         # 2. if it's an iterator view, expand the base rows into component rows
         # 3. materialize stored view columns that haven't been produced by step 1
-        base_output_exprs = [e for e in row_builder.default_eval_ctx.exprs if e.is_bound_by([view.base])]
-        view_output_exprs = [
-            e
-            for e in row_builder.default_eval_ctx.target_exprs
-            if e.is_bound_by([view]) and not e.is_bound_by([view.base])
-        ]
+        base_output_exprs = exprs.ExprSet(
+            # e.is_deterministic: we cannot evaluate calls to nondeterministic functions before the iterator
+            # expansion, otherwise we'll see invalid duplicates
+            [e for e in row_builder.default_eval_ctx.exprs if e.is_bound_by([view.base]) and e.is_deterministic]
+        )
+        view_output_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if e not in base_output_exprs]
 
         # Create a new analyzer reflecting exactly what is required from the base table
         base_analyzer = Analyzer(
-            from_clause, base_output_exprs, where_clause=target.predicate, sample_clause=target.sample_clause
+            from_clause, list(base_output_exprs), where_clause=target.predicate, sample_clause=target.sample_clause
         )
         base_eval_ctx = row_builder.create_eval_ctx(base_analyzer.all_exprs)
         plan = cls._create_query_plan(

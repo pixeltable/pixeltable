@@ -29,7 +29,7 @@ def _groq_client() -> 'groq.AsyncGroq':
     return Env.get().get_client('groq')
 
 
-@pxt.udf(resource_pool='request-rate:groq')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:groq')
 async def chat_completions(
     messages: list[dict[str, str]],
     *,

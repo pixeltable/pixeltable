@@ -61,7 +61,7 @@ class GeminiRateLimitsInfo(env.RateLimitsInfo):
         return None
 
 
-@pxt.udf()
+@pxt.udf(is_deterministic=False)
 async def generate_content(
     contents: pxt.Json,
     *,
@@ -161,7 +161,7 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
-@pxt.udf()
+@pxt.udf(is_deterministic=False)
 async def generate_images(
     prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx | None = None
 ) -> PIL.Image.Image:
@@ -209,7 +209,7 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
-@pxt.udf()
+@pxt.udf(is_deterministic=False)
 async def generate_videos(
     prompt: str | None = None,
     image: PIL.Image.Image | None = None,

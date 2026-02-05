@@ -27,7 +27,7 @@ def _fireworks_client() -> 'fireworks.client.Fireworks':
     return env.Env.get().get_client('fireworks')
 
 
-@pxt.udf(resource_pool='request-rate:fireworks')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:fireworks')
 async def chat_completions(
     messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> dict:
