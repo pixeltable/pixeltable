@@ -1,27 +1,35 @@
 from __future__ import annotations
 
-import logging
 import warnings
+from keyword import iskeyword as is_python_keyword
+from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
+
+from pixeltable import catalog
+from pixeltable.type_system import ColumnType
+from pixeltable.utils.object_stores import ObjectOps
+
+from .globals import _POS_COLUMN_NAME
+
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
+import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
 from pixeltable.metadata import schema
 
-from .globals import MediaValidation, QColumnId, is_valid_identifier
+from .globals import MediaValidation, QColumnId, is_system_column_name, is_valid_identifier
 
 if TYPE_CHECKING:
     from .table_version import TableVersion
     from .table_version_handle import ColumnHandle, TableVersionHandle
     from .table_version_path import TableVersionPath
-
-_logger = logging.getLogger('pixeltable')
 
 
 class Column:
@@ -82,7 +90,7 @@ class Column:
         schema_version_add: int | None = None,
         schema_version_drop: int | None = None,
         sa_col_type: sql.types.TypeEngine | None = None,
-        stores_cellmd: bool | None = None,
+        stores_cellmd: bool = False,
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
         destination: str | None = None,
@@ -122,13 +130,7 @@ class Column:
         self._media_validation = media_validation
         self.schema_version_add = schema_version_add
         self.schema_version_drop = schema_version_drop
-
-        if stores_cellmd is not None:
-            self.stores_cellmd = stores_cellmd
-        else:
-            self.stores_cellmd = stored and (
-                self.is_computed or self.col_type.is_media_type() or self.col_type.supports_file_offloading()
-            )
+        self.stores_cellmd = stores_cellmd
 
         # column in the stored table for the values of this Column
         self.sa_col = None
@@ -137,6 +139,249 @@ class Column:
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
         self._explicit_destination = destination
+
+    @classmethod
+    def instantiate_cols(cls, tbl_version: TableVersion) -> list[Column]:
+        """Instantiates and returns Column objects based on the metadata of the given TableVersion.
+
+        Args:
+            tbl_version: the TableVersion being initialized
+        """
+        val_col_idxs: dict[int, index.IndexBase] = {}  # value column id -> index
+        undo_col_idxs: dict[int, index.IndexBase] = {}  # undo column id -> index
+        for md in tbl_version.tbl_md.index_md.values():
+            cls_name = md.class_fqn.rsplit('.', 1)[-1]
+            idx_cls = getattr(index, cls_name)
+            idx = idx_cls.from_dict(md.init_args)
+            val_col_idxs[md.index_val_col_id] = idx
+            undo_col_idxs[md.index_val_undo_col_id] = idx
+
+        # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
+        # point backward.
+        sorted_column_md = sorted(tbl_version.tbl_md.column_md.values(), key=lambda item: item.id)
+        cols = []
+        for col_md in sorted_column_md:
+            col_type = ts.ColumnType.from_dict(col_md.col_type)
+            schema_col_md = tbl_version.schema_version_md.columns.get(col_md.id)
+            media_val = (
+                MediaValidation[schema_col_md.media_validation.upper()]
+                if schema_col_md is not None and schema_col_md.media_validation is not None
+                else None
+            )
+
+            sa_col_type: sql.types.TypeEngine | None = None
+            if col_md.id in val_col_idxs:
+                # index value column
+                idx = val_col_idxs[col_md.id]
+                sa_col_type = idx.get_index_sa_type(col_type)
+            elif col_md.id in undo_col_idxs:
+                # index undo column
+                idx = undo_col_idxs[col_md.id]
+                sa_col_type = idx.get_index_sa_type(col_type)
+
+            col = cls(
+                col_id=col_md.id,
+                name=schema_col_md.name if schema_col_md is not None else None,
+                col_type=col_type,
+                is_pk=col_md.is_pk,
+                is_iterator_col=tbl_version.is_component_view and col_md.id < tbl_version.num_iterator_cols + 1,
+                stored=col_md.stored,
+                media_validation=media_val,
+                sa_col_type=sa_col_type,
+                schema_version_add=col_md.schema_version_add,
+                schema_version_drop=col_md.schema_version_drop,
+                stores_cellmd=col_md.stores_cellmd,
+                value_expr_dict=col_md.value_expr,
+                tbl_handle=tbl_version.handle,
+                destination=col_md.destination,
+            )
+            cols.append(col)
+
+        return cols
+
+    @classmethod
+    def create_index_columns(
+        cls,
+        tbl_handle: TableVersionHandle,
+        col: Column,
+        idx: index.IndexBase,
+        val_col_id: int,
+        undo_col_id: int,
+        schema_version: int,
+    ) -> tuple[Column, Column]:
+        """Create value and undo columns for a brand new index.
+        Args:
+            tbl_handle: the parent table
+            col: the column for which the index is being created
+            idx: the index that is being created
+            val_col_id: the column id for the index value column
+            undo_col_id: the column id for the index undo column
+            schema_version: the schema version in which the index is being created
+        Returns:
+            A tuple containing the value column and the undo column.
+        """
+        value_expr = idx.create_value_expr(col)
+        val_col = cls(
+            col_id=val_col_id,
+            name=None,
+            computed_with=value_expr,
+            sa_col_type=idx.get_index_sa_type(value_expr.col_type),
+            stored=True,
+            stores_cellmd=idx.records_value_errors(),
+            schema_version_add=schema_version,
+            schema_version_drop=None,
+        )
+        val_col.col_type = val_col.col_type.copy(nullable=True)
+        val_col.tbl_handle = tbl_handle
+
+        undo_col = cls(
+            col_id=undo_col_id,
+            name=None,
+            col_type=val_col.col_type,
+            sa_col_type=val_col.sa_col_type,
+            stored=True,
+            stores_cellmd=False,
+            schema_version_add=schema_version,
+            schema_version_drop=None,
+        )
+        undo_col.col_type = undo_col.col_type.copy(nullable=True)
+        undo_col.tbl_handle = tbl_handle
+        return val_col, undo_col
+
+    @classmethod
+    def create_column(cls, name: str, spec: Any) -> Column:
+        """Creates a brand new Column based on the provided spec"""
+        col_type: ts.ColumnType | None = None
+        value_expr: exprs.Expr | None = None
+        primary_key: bool = False
+        media_validation: catalog.MediaValidation | None = None
+        stored: bool = True
+        destination: str | None = None
+
+        if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
+            col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
+        elif isinstance(spec, exprs.Expr):
+            # create copy so we can modify it
+            value_expr = spec.copy()
+            value_expr.bind_rel_paths()
+        elif isinstance(spec, dict):
+            cls._validate_column_spec(name, spec)
+            if 'type' in spec:
+                col_type = ts.ColumnType.normalize_type(spec['type'], nullable_default=True, allow_builtin_types=False)
+            value_expr = spec.get('value')
+            if value_expr is not None and isinstance(value_expr, exprs.Expr):
+                # create copy so we can modify it
+                value_expr = value_expr.copy()
+                value_expr.bind_rel_paths()
+            stored = spec.get('stored', True)
+            primary_key = spec.get('primary_key', False)
+            media_validation_str = spec.get('media_validation')
+            media_validation = (
+                catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
+            )
+            destination = spec.get('destination')
+        else:
+            raise excs.Error(f'Invalid spec for column {name!r}: {type(spec)}')
+
+        stores_cellmd = stored and (
+            value_expr is not None or col_type.is_media_type() or col_type.supports_file_offloading()
+        )
+        column = cls(
+            name,
+            col_type=col_type,
+            computed_with=value_expr,
+            stored=stored,
+            is_pk=primary_key,
+            media_validation=media_validation,
+            destination=destination,
+            stores_cellmd=stores_cellmd,
+        )
+        # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
+        # media destination, it gets validated at this time.
+        ObjectOps.validate_destination(column.destination, column.name)
+        return column
+
+    @classmethod
+    def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
+        """Check integrity of user-supplied Column spec
+
+        We unfortunately can't use something like jsonschema for validation, because this isn't strictly a JSON schema
+        (on account of containing Python Callables or Exprs).
+        """
+        assert isinstance(spec, dict)
+        valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
+        for k in spec:
+            if k not in valid_keys:
+                raise excs.Error(f'Column {name!r}: invalid key {k!r}')
+
+        if 'type' not in spec and 'value' not in spec:
+            raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
+
+        if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
+            raise excs.Error(f"Column {name!r}: 'type' must be a type or ColumnType; got {spec['type']}")
+
+        if 'value' in spec:
+            value_expr = exprs.Expr.from_object(spec['value'])
+            if value_expr is None:
+                raise excs.Error(f"Column {name!r}: 'value' must be a Pixeltable expression.")
+            if 'type' in spec:
+                raise excs.Error(f"Column {name!r}: 'type' is redundant if 'value' is specified")
+
+        if 'media_validation' in spec:
+            _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name!r}: media_validation')
+
+        if 'stored' in spec and not isinstance(spec['stored'], bool):
+            raise excs.Error(f"Column {name!r}: 'stored' must be a bool; got {spec['stored']}")
+
+        d = spec.get('destination')
+        if d is not None and not isinstance(d, (str, Path)):
+            raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
+
+    @classmethod
+    def create_iterator_columns(cls, output_dict: dict[str, ColumnType], unstored_cols: list[str]) -> list[Column]:
+        """
+        Creates iterator columns for a brand new component view.
+
+        Args:
+            output_dict (dict[str, ColumnType]): output columns of the iterator
+            unstored_cols (list[str]): list of unstored column names of the iterator
+
+        Returns:
+            list[Column]: iterator columns
+        """
+        iterator_cols = [cls(_POS_COLUMN_NAME, ts.IntType(), is_iterator_col=True, stored=False)]
+        for col_name, col_type in output_dict.items():
+            stored = col_name not in unstored_cols
+            stores_cellmd = stored and (col_type.is_media_type() or col_type.supports_file_offloading())
+            col = cls(col_name, col_type, is_iterator_col=True, stored=stored, stores_cellmd=stores_cellmd)
+            iterator_cols.append(col)
+        return iterator_cols
+
+    @classmethod
+    def create_stored_proxy_column(cls, col: Column) -> Column:
+        """Creates a proxy column for the specified column."""
+        from pixeltable import exprs
+
+        assert col.col_type.is_media_type() and not (col.is_stored and col.is_computed)
+        proxy_col = cls(
+            name=None,
+            # Force images in the proxy column to be materialized inside the media store, in a normalized format.
+            # TODO(aaron-siegel): This is a temporary solution and it will be replaced by a proper `destination`
+            #   parameter for computed columns. Among other things, this solution does not work for video or audio.
+            #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
+            computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
+            stored=True,
+            stores_cellmd=True,
+        )
+        return proxy_col
+
+    @classmethod
+    def validate_name(cls, name: str) -> None:
+        """Check that a name is usable as a pixeltable column name"""
+        if is_system_column_name(name) or is_python_keyword(name):
+            raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
+        if not is_valid_identifier(name):
+            raise excs.Error(f'Invalid column name: {name}')
 
     def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
@@ -149,6 +394,7 @@ class Column:
             schema_version_drop=self.schema_version_drop,
             value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             stored=self.stored,
+            stores_cellmd=self.stores_cellmd,
             destination=self._explicit_destination,
         )
         if pos is None:
@@ -160,6 +406,23 @@ class Column:
             media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
         )
         return col_md, sch_md
+
+    def verify(self) -> None:
+        """Check integrity of user-supplied Column"""
+        if self.name is None:
+            return
+        Column.validate_name(self.name)
+        if self.stored is False and not self.is_computed:
+            raise excs.Error(f'Column {self.name!r}: `stored={self.stored}` only applies to computed columns')
+        if self.stored is False and self.has_window_fn_call():
+            raise excs.Error(
+                (
+                    f'Column {self.name!r}: `stored={self.stored}` is not valid for image columns computed with a '
+                    f'streaming function'
+                )
+            )
+        if self._explicit_destination is not None and not (self.stored and self.is_computed):
+            raise excs.Error(f'Column {self.name!r}: `destination` property only applies to stored computed columns')
 
     def init_value_expr(self, tvp: 'TableVersionPath' | None) -> None:
         """
