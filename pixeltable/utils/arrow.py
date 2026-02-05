@@ -248,7 +248,7 @@ def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
             else:
                 assert isinstance(col, pa.Array)
                 col_array = col
-            out[name] = list(col_array.to_numpy_ndarray())
+            out[name] = list(cast(pa.FixedShapeTensorArray, col_array).to_numpy_ndarray())
         else:
             # for the rest, use pydict to preserve python types
             out[name] = col.to_pylist()

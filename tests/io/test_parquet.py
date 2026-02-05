@@ -318,7 +318,7 @@ class TestParquet:
         tab.insert([{'c1': get_image_files()[0]}])
 
         export_path = tmp_path / 'exported_image.parquet'
-        with pytest.raises(pxt.Error, match="Cannot export image column 'c1'") as exc_info:
+        with pytest.raises(pxt.Error, match="Cannot export image column 'c1'"):
             pxt.io.export_parquet(tab.select(), export_path)
 
         pxt.io.export_parquet(tab.select(), export_path, inline_images=True)
@@ -328,7 +328,7 @@ class TestParquet:
         _ = pxt.io.import_parquet('imported_image', parquet_path=str(export_path))
 
     def test_export_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})
+        t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})  # type: ignore[misc]
         rows = [{'idx': i, 'a1': np.ones((10, 10), dtype=np.int64) * i} for i in range(1000)]
         validate_update_status(t.insert(rows), expected_rows=len(rows))
 
@@ -337,7 +337,7 @@ class TestParquet:
         self.validate_parquet_files(export_path, rows)
 
     def test_export_ragged_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(None, None), np.int64]})
+        t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(None, None), np.int64]})  # type: ignore[misc]
         rng = np.random.default_rng(0)
         rows = [
             {'idx': i, 'a1': np.ones((rng.integers(1, 10) + 1, rng.integers(1, 10) + 1), dtype=np.int64) * i}
@@ -350,7 +350,7 @@ class TestParquet:
         self.validate_parquet_files(export_path, rows)
 
         with pytest.raises(pxt.Error, match='Cannot export array column'):
-            u = pxt.create_table('test_array2', {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})
+            u = pxt.create_table('test_array2', {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})  # type: ignore[misc]
             validate_update_status(u.insert(rows), expected_rows=len(rows))
             export_path = tmp_path / 'error.pq'
             pxt.io.export_parquet(u.order_by(u.idx), export_path)

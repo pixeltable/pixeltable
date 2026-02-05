@@ -4,10 +4,11 @@ import json
 import logging
 import typing
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from pixeltable.catalog import Catalog
 from pixeltable.env import Env
 from pixeltable.utils.transactional_directory import transactional_directory
@@ -72,7 +73,7 @@ def export_parquet(
     for col_name, col_type in query.schema.items():
         if col_type.is_image_type() and not inline_images:
             raise excs.Error(f'Cannot export image column {col_name!r} with `inline_images=False`')
-        if col_type.is_array_type() and col_type.shape is None:
+        if col_type.is_array_type() and cast(ts.ArrayType, col_type).shape is None:
             raise excs.Error(f'Cannot export array column {col_name!r} with unknown shape')
 
     # store the changes atomically
