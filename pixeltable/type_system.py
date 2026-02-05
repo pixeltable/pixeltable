@@ -12,6 +12,8 @@ import uuid
 from pathlib import Path
 from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
 
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+
 import av
 import jsonschema.protocols
 import jsonschema.validators
@@ -300,7 +302,7 @@ class ColumnType:
     @classmethod
     def from_python_type(
         cls,
-        t: type,
+        t: type | _GenericAlias,
         nullable_default: bool = False,
         allow_builtin_types: bool = True,
         infer_pydantic_json: bool = False,
@@ -430,7 +432,7 @@ class ColumnType:
         return cls.from_python_type(py_type) if py_type is not None else None
 
     @classmethod
-    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> type | None:
+    def __json_schema_to_py_type(cls, schema: dict[str, Any]) -> type | _GenericAlias | None:
         if 'type' in schema:
             if schema['type'] == 'null':
                 return type(None)

@@ -6,7 +6,7 @@ import random
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Literal, cast  # type: ignore[attr-defined]
+from typing import Any, Literal, cast
 
 import av
 import numpy as np
@@ -466,7 +466,7 @@ class TestTable:
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.create_table('validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})
+            _ = pxt.create_table('validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})  # type: ignore[typeddict-item]
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
     def test_validate_on_read(self, uses_db: None, reload_tester: ReloadTester) -> None:
@@ -870,7 +870,7 @@ class TestTable:
             'json_col': pxt.Json,
             'req_json_col': pxt.Required[pxt.Json],
             'array_col': pxt.Array[(5, None, 3), pxt.Int],  # type: ignore[misc]
-            'req_array_col': pxt.Required[pxt.Array[(5, None, 3), pxt.Int]],  # type: ignore[misc]
+            'req_array_col': pxt.Required[pxt.Array[(5, None, 3), pxt.Int]],  # type: ignore[dict-item, misc]
             'gen_array_col': pxt.Array[pxt.Float],  # type: ignore[misc]
             'req_gen_array_col': pxt.Required[pxt.Array[pxt.Float]],
             'full_gen_array_col': pxt.Array,
@@ -878,7 +878,7 @@ class TestTable:
             'img_col': pxt.Image,
             'req_img_col': pxt.Required[pxt.Image],
             'spec_img_col': pxt.Image[(300, 300), 'RGB'],  # type: ignore[misc]
-            'req_spec_img_col': pxt.Required[pxt.Image[(300, 300), 'RGB']],  # type: ignore[misc]
+            'req_spec_img_col': pxt.Required[pxt.Image[(300, 300), 'RGB']],  # type: ignore[dict-item, misc]
             'video_col': pxt.Video,
             'req_video_col': pxt.Required[pxt.Video],
             'audio_col': pxt.Audio,
@@ -1147,7 +1147,7 @@ class TestTable:
         assert "'type' or 'value' must be specified" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'xyz': pxt.Int}})
+            pxt.create_table('test', {'c1': {'xyz': pxt.Int}})  # type: ignore[dict-item]
         assert "invalid key 'xyz'" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -1155,15 +1155,15 @@ class TestTable:
         assert "'type' or 'value' must be specified" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'type': 'string'}})
+            pxt.create_table('test', {'c1': {'type': 'string'}})  # type: ignore[typeddict-item]
         assert 'must be a type or ColumnType' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'value': 1, 'type': pxt.String}})
+            pxt.create_table('test', {'c1': {'value': 1, 'type': pxt.String}})  # type: ignore[typeddict-item]
         assert "'type' is redundant" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'value': pytest}})
+            pxt.create_table('test', {'c1': {'value': pytest}})  # type: ignore[typeddict-item]
         assert "Column 'c1': 'value' must be a Pixeltable expression" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -1171,7 +1171,7 @@ class TestTable:
             def f() -> float:
                 return 1.0
 
-            pxt.create_table('test', {'c1': {'value': f}})
+            pxt.create_table('test', {'c1': {'value': f}})  # type: ignore[typeddict-item]
         assert "Column 'c1': 'value' must be a Pixeltable expression" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:

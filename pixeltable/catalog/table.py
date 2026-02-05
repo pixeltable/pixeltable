@@ -628,7 +628,7 @@ class Table(SchemaObject):
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
             )
         col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, ColumnSpec)):
+        if not isinstance(col_type, (ts.ColumnType, type, dict)):
             raise excs.Error(
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
             )
@@ -788,7 +788,7 @@ class Table(SchemaObject):
                 # create copy so we can modify it
                 value_expr = spec.copy()
                 value_expr.bind_rel_paths()
-            elif isinstance(spec, ColumnSpec):
+            elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
                 if 'type' in spec:
                     col_type = ts.ColumnType.normalize_type(
