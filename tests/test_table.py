@@ -26,6 +26,7 @@ from pixeltable.func import Batch
 from pixeltable.functions.video import frame_iterator
 from pixeltable.io.external_store import MockProject
 from pixeltable.utils.filecache import FileCache
+from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -3030,54 +3031,52 @@ class TestTable:
             pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})
 
     def test_format_custom_metadata(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        t = pxt.create_table('tbl', {'c': pxt.Int})
-
         # Test dict formatting
-        result = t._format_custom_metadata({'key1': 'value1', 'key2': 2})
+        result = Formatter.format_custom_metadata({'key1': 'value1', 'key2': 2})
         assert '"key1": "value1"' in result
         assert '"key2": 2' in result
         assert result.startswith('{')
         assert result.endswith('}')
 
         # Test dict with nested structures
-        result = t._format_custom_metadata({'nested': {'a': 1}, 'list': [1, 2, 3]})
+        result = Formatter.format_custom_metadata({'nested': {'a': 1}, 'list': [1, 2, 3]})
         assert '"nested": {"a": 1}' in result
         assert '"list": [1, 2, 3]' in result
 
         # Test truncation of large dicts (more than max_elements)
         large_dict = {f'key{i}': f'value{i}' for i in range(10)}
-        result = t._format_custom_metadata(large_dict, max_elements=3)
+        result = Formatter.format_custom_metadata(large_dict, max_elements=3)
         assert '... (7 more)' in result
 
         # Test truncation of long values
         long_value = 'x' * 200
-        result = t._format_custom_metadata({'key': long_value}, max_character_limit=50)
+        result = Formatter.format_custom_metadata({'key': long_value}, max_character_limit=50)
         assert ' ... ' in result
         assert len(result) < 200
 
         # Test list formatting
-        result = t._format_custom_metadata([1, 2, 3, 4, 5])
+        result = Formatter.format_custom_metadata([1, 2, 3, 4, 5])
         assert result == '[1, 2, 3, 4, 5]'
 
         # Test long list truncation
         long_list = list(range(100))
-        result = t._format_custom_metadata(long_list, max_character_limit=50)
+        result = Formatter.format_custom_metadata(long_list, max_character_limit=50)
         assert ' ... ' in result
 
         # Test string formatting
-        result = t._format_custom_metadata('simple string')
+        result = Formatter.format_custom_metadata('simple string')
         assert result == '"simple string"'
 
         # Test long string truncation
         long_string = 'y' * 200
-        result = t._format_custom_metadata(long_string, max_character_limit=50)
+        result = Formatter.format_custom_metadata(long_string, max_character_limit=50)
         assert ' ... ' in result
         assert result.startswith('"')
         assert result.endswith('"')
 
         # Test other types (int, float)
-        result = t._format_custom_metadata(42)
+        result = Formatter.format_custom_metadata(42)
         assert result == '42'
 
-        result = t._format_custom_metadata(3.14)
+        result = Formatter.format_custom_metadata(3.14)
         assert result == '3.14'
