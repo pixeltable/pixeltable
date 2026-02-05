@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import warnings
-from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
@@ -236,15 +235,10 @@ class Column:
                 )
             if not self._value_expr.is_valid and self._is_computed_column:
                 message = (
-                    dedent(
-                        f"""
-                        The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
-                        {{validation_error}}
-                        You can continue to query existing data from this column, but evaluating it on new data will
-                        raise an error."""
-                    )
-                    .strip()
-                    .format(validation_error=self._value_expr.validation_error)
+                    f'The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.\n'
+                    f'{self._value_expr.validation_error}\n'
+                    'You can continue to query existing data from this column, '
+                    'but evaluating it on new data will raise an error.'
                 )
                 warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
 

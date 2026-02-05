@@ -99,7 +99,7 @@ class View(Table):
             for col in columns_from_additional_columns:
                 if col.has_default_value:
                     raise excs.Error(
-                        f"Column {col.name!r}: Default values are not supported for snapshot additional columns."
+                        f'Column {col.name!r}: Default values are not supported for snapshot additional columns.'
                     )
         columns = select_list_columns + columns_from_additional_columns
         cls._verify_schema(columns)

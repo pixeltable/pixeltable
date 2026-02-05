@@ -419,8 +419,4 @@ class TestSnapshot:
         t = pxt.create_table('base_tbl', {'c1': pxt.Int}, if_exists='replace')
         t.insert([{'c1': 1}])
         with pytest.raises(pxt.Error, match='Default values are not supported for snapshot additional columns'):
-            pxt.create_snapshot(
-                'snap1',
-                t,
-                additional_columns={'s1_int': {'type': pxt.Int, 'default': 100}},
-            )
+            pxt.create_snapshot('snap1', t, additional_columns={'s1_int': {'type': pxt.Int, 'default': 100}})

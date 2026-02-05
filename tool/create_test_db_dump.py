@@ -18,18 +18,8 @@ from pixeltable import functions as pxtf, metadata, type_system as ts
 from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
-from pixeltable.type_system import (
-    ArrayType,
-    BinaryType,
-    BoolType,
-    FloatType,
-    ImageType,
-    IntType,
-    JsonType,
-    StringType,
-    TimestampType,
-)
 from pixeltable.iterators.base import ComponentIterator
+from pixeltable.type_system import ArrayType, BinaryType, BoolType, FloatType, IntType, JsonType, StringType
 
 _logger = logging.getLogger('pixeltable')
 
