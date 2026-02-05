@@ -24,6 +24,7 @@ def _skip_if_not_fabric() -> None:
         pytest.skip(f'Not running in Fabric environment: {e}')
 
 
+@pytest.mark.skip(reason='Requires Microsoft Fabric environment with synapse-ml-fabric SDK')
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestFabric:
