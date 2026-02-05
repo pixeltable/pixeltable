@@ -41,7 +41,7 @@ class MatrixConfig(NamedTuple):
 
 
 BASIC_PLATFORMS = ('ubuntu-24.04', 'macos-15', 'windows-2022')
-EXPENSIVE_PLATFORMS = ('ubuntu-x64-t4',)
+EXPENSIVE_PLATFORMS = ('ubuntu-small-t4',)
 ALTERNATIVE_PLATFORMS = ('ubuntu-24.04-arm', 'macos-15-intel')
 
 
@@ -79,7 +79,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
         for os in (
             # Same as BASIC_PLATFORMS, but upgrade the Ubuntu VM for non-PR triggers.
             # This is part of a gradual transition to using larger runners for merge queue.
-            'ubuntu-24.04' if trigger == 'pull_request' else 'ubuntu-24.04-medium',
+            'ubuntu-24.04' if trigger == 'pull_request' else 'ubuntu-medium',
             'macos-15',
             'windows-2022',
         )
