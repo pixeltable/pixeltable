@@ -221,7 +221,7 @@ class Dumper:
         _ = pxt.create_snapshot('views.snapshot', t.where(t.c2 >= 75))
 
         # non-pure snapshot (a snapshot with additional columns which thus requires being physically stored)
-        _ = pxt.create_snapshot('views.snapshot_non_pure', t.where(t.c2 >= 75), additional_columns={'c9': t.c2 * 2}, comment='This is a test snapshot.', custom_metadata={'snapshot_key': 'snapshot_value'})
+        _ = pxt.create_snapshot('views.snapshot_non_pure', t.where(t.c2 >= 75), additional_columns={'s1': t.c2 * 2}, comment='This is a test snapshot.', custom_metadata={'snapshot_key': 'snapshot_value'})
 
         # view of views
         vv = pxt.create_view('views.view_of_views', v.where(t.c2 >= 25), comment='This is a test view of views.', custom_metadata={'view_of_views_key': 'view_of_views_value'})
