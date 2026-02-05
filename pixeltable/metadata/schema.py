@@ -351,6 +351,7 @@ class SchemaVersionMd:
     # stores column.MediaValiation.name.lower()
     media_validation: str
     additional_md: dict[str, Any]  # deprecated
+    # user-defined metadata - must be a valid JSON-serializable object
     custom_metadata: Any = None
 
 
