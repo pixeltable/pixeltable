@@ -358,7 +358,7 @@ def create_snapshot(
     base: catalog.Table | Query,
     *,
     additional_columns: dict[str, Any] | None = None,
-    iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
+    iterator: func.GeneratingFunctionCall | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -406,20 +406,20 @@ def create_snapshot(
         Create a snapshot `my_snapshot` of a table `my_table`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... snapshot = pxt.create_snapshot('my_snapshot', tbl)
+        >>> snapshot = pxt.create_snapshot('my_snapshot', tbl)
 
         Create a snapshot `my_snapshot` of a view `my_view` with additional int column `col3`,
         if `my_snapshot` does not already exist:
 
         >>> view = pxt.get_table('my_view')
-        ... snapshot = pxt.create_snapshot(
+        >>> snapshot = pxt.create_snapshot(
         ...     'my_snapshot', view, additional_columns={'col3': pxt.Int}, if_exists='ignore'
         ... )
 
         Create a snapshot `my_snapshot` on a table `my_table`, and replace any existing snapshot named `my_snapshot`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... snapshot = pxt.create_snapshot('my_snapshot', tbl, if_exists='replace_force')
+        >>> snapshot = pxt.create_snapshot('my_snapshot', tbl, if_exists='replace_force')
     """
     return create_view(
         path_str,
