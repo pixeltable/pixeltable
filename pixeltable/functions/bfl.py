@@ -55,8 +55,8 @@ class _BflClient:
         # Don't set base_url because polling_url and image URLs are absolute
         return aiohttp.ClientSession()
 
-    @staticmethod
-    def _handle_rate_limit(headers: Mapping[str, str], context: str) -> BflRateLimitedError:
+    @classmethod
+    def _handle_rate_limit(cls, headers: Mapping[str, str], context: str) -> BflRateLimitedError:
         """Handle 429 rate limit response and return appropriate error."""
         retry_after_seconds = None
         retry_after_header = headers.get('Retry-After')

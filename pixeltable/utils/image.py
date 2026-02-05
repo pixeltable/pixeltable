@@ -12,6 +12,6 @@ def default_format(img: PIL.Image.Image) -> str:
 
 def to_base64(image: PIL.Image.Image, format: str | None = None) -> str:
     buffer = BytesIO()
-    image.save(buffer, format=format or image.format)
+    image.save(buffer, format=format or default_format(image))
     image_bytes = buffer.getvalue()
     return base64.b64encode(image_bytes).decode('utf-8')
