@@ -95,7 +95,8 @@ def create_table(
             table.
         num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
-        custom_metadata: Optional user-defined JSON metadata to associate with the table.
+        custom_metadata: Optional user-defined metadata to associate with the table. Must be a valid JSON-serializable
+            object [str, int, float, bool, dict, list].
         media_validation: Media validation policy for the table.
 
             - `'on_read'`: validate media files at query time
