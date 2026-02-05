@@ -83,12 +83,12 @@ class TestFormatter:
         # Test truncation of large dicts (more than max_elements)
         large_dict = {f'key{i}': f'value{i}' for i in range(10)}
         result = Formatter.summarize_json(large_dict, max_elements=3)
-        assert '... (7 more)' in result
+        assert '[...] (7 more)' in result
 
         # Test truncation of long values
         long_value = 'x' * 200
         result = Formatter.summarize_json({'key': long_value}, max_character_limit=50)
-        assert ' ... ' in result
+        assert '[...] ' in result
         assert len(result) < 200
 
         # Test list formatting
@@ -98,7 +98,7 @@ class TestFormatter:
         # Test long list truncation
         long_list = list(range(100))
         result = Formatter.summarize_json(long_list, max_character_limit=50)
-        assert ' ... ' in result
+        assert '[...] ' in result
 
         # Test string formatting
         result = Formatter.summarize_json('simple string')
@@ -107,7 +107,7 @@ class TestFormatter:
         # Test long string truncation
         long_string = 'y' * 200
         result = Formatter.summarize_json(long_string, max_character_limit=50)
-        assert ' ... ' in result
+        assert '[...] ' in result
         assert result.startswith('"')
         assert result.endswith('"')
 

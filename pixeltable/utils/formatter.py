@@ -281,17 +281,17 @@ class Formatter:
                 value_str = json.dumps(value)
 
                 if len(value_str) > max_character_limit:
-                    value_str = value_str[: max_character_limit - interpose] + ' ... ' + value_str[-interpose:]
+                    value_str = value_str[: max_character_limit - interpose] + ' [...] ' + value_str[-interpose:]
 
                 parts.append(f'{indent}"{key}": {value_str}')
             result = '{\n' + ',\n'.join(parts)
             if len(metadata) > max_elements:
-                result += f',\n{indent}... ({len(metadata) - max_elements} more)'
+                result += f',\n{indent}[...] ({len(metadata) - max_elements} more)'
             result += '\n}'
 
             return result
         else:
             result = json.dumps(metadata)
             if len(result) > max_character_limit:
-                result = result[: max_character_limit - interpose] + ' ... ' + result[-interpose:]
+                result = result[: max_character_limit - interpose] + ' [...] ' + result[-interpose:]
             return result

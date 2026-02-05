@@ -383,9 +383,9 @@ class Table(SchemaObject):
             if not stores.empty:
                 helper.append(stores)
             if self._get_comment():
-                helper.append(f'COMMENT: {self._get_comment()}')
+                helper.append(f'Comment: {self._get_comment()}')
             if self._get_custom_metadata():
-                helper.append(f'CUSTOM METADATA: {Formatter.summarize_json(self._get_custom_metadata())}')
+                helper.append(f'Custom Metadata: {Formatter.summarize_json(self._get_custom_metadata())}')
             return helper
 
     def _col_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
