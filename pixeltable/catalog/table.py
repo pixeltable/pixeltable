@@ -7,7 +7,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 from uuid import UUID
 
 import pandas as pd
@@ -44,9 +44,6 @@ from .schema_object import SchemaObject
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .update_status import UpdateStatus
-
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
 
 if TYPE_CHECKING:
     import torch.utils.data
@@ -492,7 +489,7 @@ class Table(SchemaObject):
 
     def add_columns(
         self,
-        schema: dict[str, ColumnSpec],
+        schema: Mapping[str, type | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
@@ -553,7 +550,7 @@ class Table(SchemaObject):
             self.__check_mutable('add columns to')
 
             # make a copy of schema so del operations below don't modify the caller's dict
-            schema = schema.copy()
+            schema = dict(schema)
 
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
@@ -581,7 +578,7 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: ColumnSpec,
+        **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
@@ -631,7 +628,7 @@ class Table(SchemaObject):
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
             )
         col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
+        if not isinstance(col_type, (ts.ColumnType, type, ColumnSpec)):
             raise excs.Error(
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
             )
@@ -735,13 +732,15 @@ class Table(SchemaObject):
             return result
 
     @classmethod
-    def _validate_column_spec(cls, name: str, spec: dict[str, Any] | ColumnSpec) -> None:
+    def _validate_column_spec(cls, name: str, spec: ColumnSpec) -> None:
         """Check integrity of user-supplied Column spec
 
         We unfortunately can't use something like jsonschema for validation, because this isn't strictly a JSON schema
         (on account of containing Python Callables or Exprs).
         """
         assert isinstance(spec, dict)
+
+        # TODO: this code could be made cleaner now that spec is a TypedDict
         valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
         for k in spec:
             if k not in valid_keys:
@@ -750,7 +749,7 @@ class Table(SchemaObject):
         if 'type' not in spec and 'value' not in spec:
             raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
 
-        if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
+        if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type)):
             raise excs.Error(f"Column {name!r}: 'type' must be a type or ColumnType; got {spec['type']}")
 
         if 'value' in spec:
@@ -771,9 +770,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
 
     @classmethod
-    def _create_columns(
-        cls, schema: dict[str, ColumnSpec]
-    ) -> list[Column]:
+    def _create_columns(cls, schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> list[Column]:
         """Construct list of Columns, given schema"""
         columns: list[Column] = []
         for name, spec in schema.items():
@@ -784,13 +781,14 @@ class Table(SchemaObject):
             stored = True
             destination: str | None = None
 
-            if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
+            # TODO: Should we fully deprecate passing ts.ColumnType here?
+            if isinstance(spec, (ts.ColumnType, type)):
                 col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it
                 value_expr = spec.copy()
                 value_expr.bind_rel_paths()
-            elif isinstance(spec, dict):
+            elif isinstance(spec, ColumnSpec):
                 cls._validate_column_spec(name, spec)
                 if 'type' in spec:
                     col_type = ts.ColumnType.normalize_type(

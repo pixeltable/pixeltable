@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
 
 import pandas as pd
 import pydantic
@@ -49,7 +49,7 @@ def init(config_overrides: dict[str, Any] | None = None) -> None:
 
 def create_table(
     path: str,
-    schema: dict[str, ColumnSpec] | None = None,
+    schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     *,
     source: TableDataSource | None = None,
     source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
@@ -226,7 +226,7 @@ def create_view(
     path: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: dict[str, ColumnSpec] | None = None,
+    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     is_snapshot: bool = False,
     create_default_idxs: bool = False,
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
@@ -355,7 +355,7 @@ def create_snapshot(
     path_str: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: dict[str, ColumnSpec] | None = None,
+    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',

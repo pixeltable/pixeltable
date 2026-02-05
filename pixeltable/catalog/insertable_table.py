@@ -69,7 +69,7 @@ class InsertableTable(Table):
     def _create(
         cls,
         name: str,
-        schema: dict[str, ColumnSpec],
+        schema: dict[str, type | ColumnSpec],
         primary_key: list[str],
         num_retained_versions: int,
         comment: str,

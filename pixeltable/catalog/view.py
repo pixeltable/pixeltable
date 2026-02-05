@@ -9,6 +9,7 @@ import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
+from pixeltable.catalog.table_metadata import ColumnSpec
 from pixeltable.iterators import ComponentIterator
 
 from .column import Column
@@ -74,7 +75,7 @@ class View(Table):
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
-        additional_columns: dict[str, Any],
+        additional_columns: dict[str, type | ColumnSpec],
         predicate: 'exprs.Expr' | None,
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,

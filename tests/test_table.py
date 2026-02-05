@@ -6,7 +6,7 @@ import random
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Literal, _GenericAlias, cast  # type: ignore[attr-defined]
+from typing import Any, Literal, cast  # type: ignore[attr-defined]
 
 import av
 import numpy as np
@@ -850,7 +850,7 @@ class TestTable:
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
     def test_schema_types(self, uses_db: None) -> None:
-        test_columns: dict[str, type | _GenericAlias] = {
+        test_columns: dict[str, type] = {
             'str_col': pxt.String,
             'req_str_col': pxt.Required[pxt.String],
             'int_col': pxt.Int,
