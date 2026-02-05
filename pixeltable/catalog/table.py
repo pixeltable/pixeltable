@@ -163,7 +163,7 @@ class Table(SchemaObject):
             version_created=datetime.datetime.fromtimestamp(tv.created_at, tz=datetime.timezone.utc),
             schema_version=tvp.schema_version(),
             comment=self._get_comment(),
-            custom_metadata=self._get_custom_metadata(),
+            custom_metadata=self._get_custom_metadata().deepcopy(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
             base=None,
         )
@@ -1913,12 +1913,7 @@ class Table(SchemaObject):
             items = list(metadata.items())[:max_elements]
             parts = []
             for key, value in items:
-                if isinstance(value, str):
-                    value_str = f'"{value}"'
-                elif isinstance(value, (dict, list)):
-                    value_str = json.dumps(value)
-                else:
-                    value_str = str(value)
+                value_str = json.dumps(value)
 
                 if len(value_str) > max_character_limit:
                     value_str = value_str[: max_character_limit - interpose] + ' ... ' + value_str[-interpose:]
@@ -1930,18 +1925,8 @@ class Table(SchemaObject):
             result += '\n}'
 
             return result
-        elif isinstance(metadata, list):
-            result = json.dumps(metadata)
-            if len(result) > max_character_limit:
-                result = result[: max_character_limit - interpose] + ' ... ' + result[-interpose:]
-            return result
-        elif isinstance(metadata, str):
-            result = metadata
-            if len(metadata) > max_character_limit:
-                result = metadata[: max_character_limit - interpose] + ' ... ' + metadata[-interpose:]
-            return f'"{result}"'
         else:
-            result = str(metadata)
+            result = json.dumps(metadata)
             if len(result) > max_character_limit:
                 result = result[: max_character_limit - interpose] + ' ... ' + result[-interpose:]
             return result
