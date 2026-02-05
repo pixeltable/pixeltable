@@ -156,7 +156,7 @@ def fetch_url(url: str, allow_local_file: bool = False) -> Path:
     if len(parsed.scheme) <= 1:
         # local file path (len(parsed.scheme) == 1 implies a Windows path with drive letter)
         assert allow_local_file
-        return Path(url)
+        return Path(url).expanduser()
 
     path: Path | None = None
     if parsed.path:
@@ -175,3 +175,34 @@ def fetch_url(url: str, allow_local_file: bool = False) -> Path:
     _logger.debug(f'Downloaded {url} to {tmp_path}')
 
     return tmp_path
+
+
+def parse_duration_str(duration_str: str) -> float | None:
+    """Parses the string representing a duration.
+
+    Returns the number of seconds or None if the input cannot be parsed.
+
+    Real life examples of header values from OpenAI that can be parsed:
+    * '1m33.792s'
+    * '857ms'
+    * '0s'
+    * '47.874s'
+    * '156h58m48.601s'
+    """
+    if duration_str is None or duration_str.strip() == '':
+        return None
+    units = {
+        86400: r'(\d+)d',  # days
+        3600: r'(\d+)h',  # hours
+        60: r'(\d+)m(?:[^s]|$)',  # minutes
+        1: r'([\d.]+)s',  # seconds
+        0.001: r'(\d+)ms',  # millis
+    }
+    seconds = None
+    for unit_value, pattern in units.items():
+        match = re.search(pattern, duration_str)
+        if match:
+            seconds = seconds or 0.0
+            seconds += float(match.group(1)) * unit_value
+    _logger.debug(f'Parsed duration header value "{duration_str}" into {seconds} seconds')
+    return seconds

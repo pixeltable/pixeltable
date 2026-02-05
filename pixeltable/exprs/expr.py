@@ -144,6 +144,13 @@ class Expr(abc.ABC):
     def is_valid(self) -> bool:
         return self.validation_error is None
 
+    @property
+    def is_deterministic(self) -> bool:
+        """
+        Returns False if this expression's value can change even if all of its dependencies are unchanged.
+        """
+        return all(c.is_deterministic for c in self.components)
+
     def equals(self, other: Expr) -> bool:
         """
         Subclass-specific comparison. Implemented as a function because __eq__() is needed to construct Comparisons.
@@ -192,7 +199,7 @@ class Expr(abc.ABC):
             return False
         return all(a[i].equals(b[i]) for i in range(len(a)))
 
-    def copy(self: T) -> T:
+    def copy(self) -> Self:
         """
         Creates a copy that can be evaluated separately: it doesn't share any eval context (slot_idx)
         but shares everything else (catalog objects, etc.)

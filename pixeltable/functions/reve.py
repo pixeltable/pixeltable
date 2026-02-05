@@ -129,7 +129,7 @@ def _client() -> _ReveClient:
 # currently communicate rate limit information in responses. Therefore neither of the currently implemented limiting
 # strategies is a perfect match, but "request-rate" is the closest. Reve does not currently enforce the rate limits,
 # but when it does, we can revisit this choice.
-@pxt.udf(resource_pool='request-rate:reve')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
 async def create(prompt: str, *, aspect_ratio: str | None = None, version: str | None = None) -> PIL.Image.Image:
     """
     Creates an image from a text prompt.
@@ -162,7 +162,7 @@ async def create(prompt: str, *, aspect_ratio: str | None = None, version: str |
     return result
 
 
-@pxt.udf(resource_pool='request-rate:reve')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
 async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | None = None) -> PIL.Image.Image:
     """
     Edits images based on a text prompt.
@@ -196,7 +196,7 @@ async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | 
     return result
 
 
-@pxt.udf(resource_pool='request-rate:reve')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
 async def remix(
     prompt: str, images: list[PIL.Image.Image], *, aspect_ratio: str | None = None, version: str | None = None
 ) -> PIL.Image.Image:

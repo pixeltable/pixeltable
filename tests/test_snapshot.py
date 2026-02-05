@@ -166,12 +166,12 @@ class TestSnapshot:
         _ = pxt.create_table('not_snapshot', {'c1': pxt.String}, if_exists='ignore')
         with pytest.raises(pxt.Error, match='is an existing'):
             pxt.create_snapshot('not_snapshot', t)
-        for _ie in ['ignore', 'replace', 'replace_force']:
+        for ie in ('ignore', 'replace', 'replace_force'):
             with pytest.raises(pxt.Error) as exc_info:
-                pxt.create_snapshot('not_snapshot', t, if_exists=_ie)  # type: ignore[arg-type]
+                pxt.create_snapshot('not_snapshot', t, if_exists=ie)
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a snapshot' in err_msg
-            assert 'not_snapshot' in pxt.list_tables(), f'with if_exists={_ie}'
+            assert 'not_snapshot' in pxt.list_tables(), f'with if_exists={ie}'
 
     def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter while creating a snapshot."""

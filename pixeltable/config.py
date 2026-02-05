@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -133,6 +134,9 @@ class Config:
                 if value.lower() not in ('true', 'false'):
                     raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}")
                 return value.lower() == 'true'  # type: ignore[return-value]
+            if (expected_type is dict or expected_type is list) and isinstance(value, str):
+                # Treat a string as a JSON-serialized dict or list
+                value = json.loads(value)
             return expected_type(value)  # type: ignore[call-arg]
         except (ValueError, TypeError) as exc:
             raise excs.Error(f"Invalid value for configuration parameter '{section}.{key}': {value}") from exc
@@ -189,6 +193,8 @@ KNOWN_CONFIG_OPTIONS = {
         'max_connections': 'Maximum number of concurrent OpenAI API connections that can be established',
         'max_keepalive_connections': 'Maximum number of keep-alive connections in the pool.'
         ' Must not exceed max_connections.',
+        'read_timeout': 'HTTP read timeout',
+        'write_timeout': 'HTTP write timeout',
     },
     'openrouter': {
         'api_key': 'OpenRouter API key',
@@ -197,7 +203,7 @@ KNOWN_CONFIG_OPTIONS = {
         'rate_limit': 'Rate limit for OpenRouter API requests',
     },
     'replicate': {'api_token': 'Replicate API token'},
-    'runwayml': {'api_key': 'RunwayML API key'},
+    'runwayml': {'api_secret': 'RunwayML API secret'},
     'together': {
         'api_key': 'Together API key',
         'rate_limits': 'Per-model category rate limits for Together API requests',
