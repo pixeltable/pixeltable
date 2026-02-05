@@ -3,7 +3,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, Iterator
 
-from pixeltable.func import GeneratingFunctionCall
+from deprecated import deprecated
+
+from pixeltable.func import GeneratingFunction, GeneratingFunctionCall
+from pixeltable.func.iterator import ITERATOR_GUIDE_URL
 from pixeltable.type_system import ColumnType
 
 
@@ -49,12 +52,12 @@ class ComponentIterator(ABC):
         pass
 
     @classmethod
-    def create(cls, **kwargs: Any) -> GeneratingFunctionCall | tuple[type[ComponentIterator], dict[str, Any]]:
-        # TODO: This is still needed for compatibility with existing user-defined iterators; it will become deprecated
-        #     when the new decorator pattern is introduced for iterators
-        return cls._create(**kwargs)
-
-    @classmethod
-    def _create(cls, **kwargs: Any) -> GeneratingFunctionCall | tuple[type[ComponentIterator], dict[str, Any]]:
-        # create() variant that can be called by subclasses without generating a deprecation warning.
-        return cls, kwargs
+    @deprecated(
+        'The `ComponentIterator` class is deprecated; please use the `@pxt.iterator` decorator instead.\n'
+        f'For details see: {ITERATOR_GUIDE_URL}',
+        version='0.5.17',
+    )
+    def create(cls, **kwargs: Any) -> GeneratingFunctionCall:
+        # Use GeneratingFunction._retrofit() for backward compatibility with legacy iterator pattern
+        it = GeneratingFunction._retrofit(cls)
+        return it(**kwargs)

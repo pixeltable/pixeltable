@@ -7,6 +7,7 @@ from textwrap import dedent
 from types import MethodType
 from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar, overload
 
+from deprecated import deprecated
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
@@ -17,6 +18,8 @@ from .signature import Signature
 if TYPE_CHECKING:
     from pixeltable.iterators.base import ComponentIterator
 
+
+ITERATOR_GUIDE_URL = 'https://docs.pixeltable.com/howto/cookbooks/core/custom-iterators'
 
 # We'd like to say bound=dict, but mypy inexplicably doesn't understand that a TypedDict is a dict (!)
 T = TypeVar('T')
@@ -240,6 +243,11 @@ class GeneratingFunction:
         return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs, validation_error=None)
 
     @classmethod
+    @deprecated(
+        'The `ComponentIterator` class is deprecated; please use the `@pxt.iterator` decorator instead.\n'
+        f'For details see: {ITERATOR_GUIDE_URL}',
+        version='0.5.17',
+    )
     def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunction':
         it = GeneratingFunction.__new__(GeneratingFunction)
         it.decorated_callable = iterator_cls

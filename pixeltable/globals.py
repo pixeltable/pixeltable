@@ -228,7 +228,7 @@ def create_view(
     additional_columns: dict[str, Any] | None = None,
     is_snapshot: bool = False,
     create_default_idxs: bool = False,
-    iterator: func.GeneratingFunctionCall | tuple[type[ComponentIterator], dict[str, Any]] | None = None,
+    iterator: func.GeneratingFunctionCall | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
@@ -281,19 +281,19 @@ def create_view(
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
+        >>> view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
 
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10,
         and if it not already exist. Otherwise, get the existing view named `my_view`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10), if_exists='ignore')
+        >>> view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10), if_exists='ignore')
 
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 100,
         and replace any existing view named `my_view`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
+        >>> view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
     """
     if is_snapshot and create_default_idxs is True:
         raise excs.Error('Cannot create default indexes on a snapshot')
@@ -333,11 +333,7 @@ def create_view(
                     f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
                 )
 
-    if isinstance(iterator, tuple):
-        iterator_cls, iterator_args = iterator
-        it = func.GeneratingFunction._retrofit(iterator_cls)
-        iterator = it(**iterator_args)
-    elif iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
+    if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
         raise excs.Error('The specified `iterator` is not a valid Pixeltable iterator')
 
     return Catalog.get().create_view(

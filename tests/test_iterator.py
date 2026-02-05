@@ -595,9 +595,10 @@ class TestIterator:
         """
         t = pxt.create_table('test', schema={'input': pxt.String})
         t.insert([{'input': 'balloon'}])
-        v = pxt.create_view(
-            'view_legacy_iterator', t, iterator=CustomLegacyIterator.create(text=t.input, expand_by=4)
-        )
+        with pytest.warns(DeprecationWarning, match=r'The `ComponentIterator` class is deprecated'):
+            v = pxt.create_view(
+                'view_legacy_iterator', t, iterator=CustomLegacyIterator.create(text=t.input, expand_by=4)
+            )
         rs = v.order_by(v.input, v.pos).collect()
         assert list(rs) == [
             {'input': 'balloon', 'pos': 0, 'output_text': 'stored balloon 0', 'unstored_text': 'unstored balloon 0'},
