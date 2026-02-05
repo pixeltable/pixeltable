@@ -1027,6 +1027,37 @@ class TestVideo:
         with pytest.raises(pxt.Error, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')):
             t.select(t.video.overlay_text('Test', box=True, box_border=[-5, 10])).collect()
 
+    @pytest.mark.parametrize('encoder_args', [None, {'crf': '18'}])
+    def test_crop(self, uses_db: None, tmp_path: Path, encoder_args: dict[str, Any] | None) -> None:
+        t = pxt.create_table('crop_test', {'video': pxt.Video})
+        videos = get_video_files()
+        validate_update_status(t.insert({'video': f} for f in videos), expected_rows=len(videos))
+
+        crop = t.video.crop(x=0, y=0, w=160, h=80, video_encoder_args=encoder_args)
+        result = t.select(md=t.video.get_metadata(), cropped=crop, cropped_md=crop.get_metadata()).collect()
+        # validate output dimensions
+        assert all(md['streams'][0]['width'] == 160 for md in result['cropped_md'])
+        assert all(md['streams'][0]['height'] == 80 for md in result['cropped_md'])
+
+        # insert cropped videos to verify they're valid
+        t.insert(({'video': row['cropped']} for row in result), on_error='abort')
+
+    def test_crop_errors(self, uses_db: None, tmp_path: Path) -> None:
+        t = pxt.create_table('crop_test', {'video': pxt.Video})
+        t.insert({'video': f} for f in get_video_files())
+
+        with pytest.raises(pxt.Error, match='x must be non-negative'):
+            t.select(t.video.crop(x=-1, y=0, w=100, h=100)).collect()
+
+        with pytest.raises(pxt.Error, match='y must be non-negative'):
+            t.select(t.video.crop(x=0, y=-1, w=100, h=100)).collect()
+
+        with pytest.raises(pxt.Error, match='w must be positive'):
+            t.select(t.video.crop(x=0, y=0, w=0, h=100)).collect()
+
+        with pytest.raises(pxt.Error, match='h must be positive'):
+            t.select(t.video.crop(x=0, y=0, w=100, h=0)).collect()
+
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
     def test_with_audio(self, uses_db: None) -> None:
         from pixeltable.functions.video import with_audio
