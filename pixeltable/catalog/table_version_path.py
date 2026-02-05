@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 from typing import Any
 from uuid import UUID
@@ -155,7 +156,7 @@ class TableVersionPath:
 
     def custom_metadata(self) -> Any:
         self.refresh_cached_md()
-        return self._cached_tbl_version.custom_metadata
+        return copy.deepcopy(self._cached_tbl_version.custom_metadata)
 
     def num_retained_versions(self) -> int:
         self.refresh_cached_md()

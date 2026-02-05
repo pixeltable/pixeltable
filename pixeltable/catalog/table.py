@@ -163,7 +163,7 @@ class Table(SchemaObject):
             version_created=datetime.datetime.fromtimestamp(tv.created_at, tz=datetime.timezone.utc),
             schema_version=tvp.schema_version(),
             comment=self._get_comment(),
-            custom_metadata=self._get_custom_metadata().deepcopy(),
+            custom_metadata=self._get_custom_metadata(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
             base=None,
         )
