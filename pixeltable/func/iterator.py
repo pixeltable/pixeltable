@@ -243,11 +243,6 @@ class GeneratingFunction:
         return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs, validation_error=None)
 
     @classmethod
-    @deprecated(
-        'The `ComponentIterator` class is deprecated; please use the `@pxt.iterator` decorator instead.\n'
-        f'For details see: {ITERATOR_GUIDE_URL}',
-        version='0.5.17',
-    )
     def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunction':
         it = GeneratingFunction.__new__(GeneratingFunction)
         it.decorated_callable = iterator_cls

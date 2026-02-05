@@ -15,7 +15,6 @@ from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
-from pixeltable.iterators import ComponentIterator
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
