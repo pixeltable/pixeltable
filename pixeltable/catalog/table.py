@@ -385,7 +385,7 @@ class Table(SchemaObject):
             if self._get_comment():
                 helper.append(f'COMMENT: {self._get_comment()}')
             if self._get_custom_metadata():
-                helper.append(f'CUSTOM METADATA: {Formatter.format_custom_metadata(self._get_custom_metadata())}')
+                helper.append(f'CUSTOM METADATA: {Formatter.summarize_json(self._get_custom_metadata())}')
             return helper
 
     def _col_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:

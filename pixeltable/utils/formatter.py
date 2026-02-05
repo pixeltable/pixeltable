@@ -270,7 +270,7 @@ class Formatter:
         return f'<source src="{src_url}" {mime_attr} />'
 
     @classmethod
-    def format_custom_metadata(
+    def summarize_json(
         cls, metadata: Any, max_elements: int = 5, max_character_limit: int = 100, indent: int = 4, interpose: int = 10
     ) -> str:
         indent = ' ' * indent
