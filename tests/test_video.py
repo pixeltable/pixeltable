@@ -31,9 +31,7 @@ class TestVideo:
         pxt.drop_table(base_name, if_not_exists='ignore')
         base_t = pxt.create_table(base_name, {'video': pxt.Video})
         iterator = legacy_frame_iterator if use_legacy_schema else frame_iterator
-        view_t = pxt.create_view(
-            view_name, base_t, iterator=iterator(base_t.video, fps=1)
-        )
+        view_t = pxt.create_view(view_name, base_t, iterator=iterator(base_t.video, fps=1))
         return base_t, view_t
 
     def create_and_insert(self, stored: bool | None, paths: list[str]) -> tuple[pxt.Table, pxt.Table]:

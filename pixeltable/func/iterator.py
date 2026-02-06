@@ -45,6 +45,9 @@ class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
     @abc.abstractmethod
     def __next__(self) -> T: ...
 
+    def close(self) -> None:
+        pass
+
     def seek(self, pos: int, **kwargs: Any) -> None:
         raise NotImplementedError()
 

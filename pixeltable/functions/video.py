@@ -19,7 +19,7 @@ from av.container import InputContainer
 
 import pixeltable as pxt
 import pixeltable.utils.av as av_utils
-from pixeltable import exceptions as excs, type_system as ts
+from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
@@ -1555,12 +1555,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
     cur_frame: av.VideoFrame | None
 
     def __init__(
-        self,
-        video: pxt.Video,
-        *,
-        fps: float | None = None,
-        num_frames: int | None = None,
-        keyframes_only: bool = False,
+        self, video: pxt.Video, *, fps: float | None = None, num_frames: int | None = None, keyframes_only: bool = False
     ) -> None:
         video_path = Path(video)
         assert video_path.exists() and video_path.is_file()
@@ -1676,7 +1671,7 @@ class frame_iterator(pxt.PxtIterator[Frame]):
                     'key_frame': self.cur_frame.key_frame,
                     'pict_type': self.cur_frame.pict_type,
                     'interlaced_frame': self.cur_frame.interlaced_frame,
-                }
+                },
             }
 
             self.cur_frame = next_frame
@@ -1741,17 +1736,12 @@ class LegacyFrame(TypedDict):
 
 @pxt.iterator(unstored_cols=['frame'])
 class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame]):
-    underlying: Iterator[dict[str, Any]]
+    underlying: pxt.PxtIterator[Frame]
 
     def __init__(
-        self,
-        video: pxt.Video,
-        *,
-        fps: float | None = None,
-        num_frames: int | None = None,
-        keyframes_only: bool = False
+        self, video: pxt.Video, *, fps: float | None = None, num_frames: int | None = None, keyframes_only: bool = False
     ) -> None:
-        self.underlying = frame_iterator.decorated_callable(
+        self.underlying = frame_iterator.decorated_callable(  # type: ignore[attr-defined]
             video=video, fps=fps, num_frames=num_frames, keyframes_only=keyframes_only
         )
 
@@ -1760,8 +1750,8 @@ class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame]):
         frame_attrs = item['frame_attrs']
         result: LegacyFrame = {
             'frame': item['frame'],
-            'frame_idx': self.underlying.pos,
-            'pos_msec': (frame_attrs['time'] - self.underlying.video_start_time) * 1000.0,
+            'frame_idx': self.underlying.pos,  # type: ignore[attr-defined]
+            'pos_msec': (frame_attrs['time'] - self.underlying.video_start_time) * 1000.0,  # type: ignore[attr-defined]
             'pos_frame': frame_attrs['index'],
         }
         return result
@@ -1774,7 +1764,7 @@ class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame]):
 
     @classmethod
     def validate(cls, bound_args: dict[str, Any]) -> None:
-        frame_iterator.decorated_callable.validate(bound_args)
+        frame_iterator.decorated_callable.validate(bound_args)  # type: ignore[attr-defined]
 
 
 class VideoSegment(TypedDict):
