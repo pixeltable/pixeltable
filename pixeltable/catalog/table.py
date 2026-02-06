@@ -502,12 +502,15 @@ class Table(SchemaObject):
         The format of the `schema` argument is a dict mapping column names to their types.
 
         Args:
-            schema: A dictionary mapping column names to a `col_type` or a `col_spec_dict`
-                where `col_spec_dict` is a dict with keys:
+            schema: A dictionary mapping column names to a `type` or a `ColumnSpec` dict,
+                where `ColumnSpec` is a dict with keys:
 
                 - `'type'` (required): The column type (e.g., `pxt.Image`).
+                - `'value'`: A Pixeltable expression for computed columns. Mutually exclusive with `'type'`.
+                - `'primary_key'`: Whether this column is part of the primary key (bool)
                 - `'stored'`: Whether to store the column data (bool, default varies by type).
                 - `'media_validation'`: When to validate media; `'on_read'` or `'on_write'`.
+                - `'destination'`: An optional object store reference (str or Path) for computed columns.
             if_exists: Determines the behavior if a column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
