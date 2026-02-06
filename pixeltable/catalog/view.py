@@ -79,6 +79,7 @@ class View(Table):
         create_default_idxs: bool,
         num_retained_versions: int,
         comment: str,
+        custom_metadata: Any,
         media_validation: MediaValidation,
         iterator_call: func.GeneratingFunctionCall | None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
@@ -177,6 +178,7 @@ class View(Table):
             columns,
             num_retained_versions,
             comment,
+            custom_metadata,
             media_validation=media_validation,
             view_md=view_md,
             create_default_idxs=create_default_idxs,
