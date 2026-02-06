@@ -73,6 +73,7 @@ class InsertableTable(Table):
         primary_key: list[str],
         num_retained_versions: int,
         comment: str,
+        custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
     ) -> tuple[TableVersionMd, list[TableOp]]:
@@ -95,6 +96,7 @@ class InsertableTable(Table):
             columns,
             num_retained_versions,
             comment,
+            custom_metadata,
             media_validation,
             create_default_idxs=create_default_idxs,
             view_md=None,
