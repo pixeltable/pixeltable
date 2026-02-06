@@ -326,6 +326,8 @@ known-first-party = ["pixeltable"]
 split-on-trailing-comma = false
 
 [tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 74
 line-ending = "lf"
 quote-style = "single"
 skip-magic-trailing-comma = true
