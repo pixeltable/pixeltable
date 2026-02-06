@@ -38,7 +38,7 @@ def _update_table_md(table_md: dict, table_id: UUID) -> None:
         elif column_md['id'] in idx_undo_cols:
             stores_cellmd = False
         else:
-            stored = column_md.get('stored', False)
+            stored = column_md['stored']
             computed = column_md.get('value_expr', None) is not None
             col_type_cls = column_md['col_type']['_classname']
             is_media_type = col_type_cls in _MEDIA_TYPE_CLASSES
