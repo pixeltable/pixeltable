@@ -13,6 +13,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
+from pixeltable.functions.array import identity
 from pixeltable.functions.huggingface import clip
 
 from .utils import (
@@ -985,7 +986,6 @@ class TestIndex:
     def test_array_column_embedding_index(
         self, uses_db: None, e5_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
-        """Single table with computed embedding, float32 vec, and float64 vec64; all support similarity search."""
         skip_test_if_not_installed('transformers')
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
         vecs = [e5_embed.exec([s], {}) for s in texts]
@@ -998,28 +998,37 @@ class TestIndex:
                 'text': pxt.String,
                 'vec': pxt.Array[(dim,), np.float32],  # type: ignore[misc]
                 'vec64': pxt.Array[(dim,), np.float64],  # type: ignore[misc]
+                'vec_array_f32': pxt.Array[(dim,), np.float32],  # type: ignore[misc]
             },
             if_exists='replace',
         )
         validate_update_status(
-            t.insert([
-                {'id': i, 'text': s, 'vec': vecs[i], 'vec64': vecs64[i]}
-                for i, s in enumerate(texts)
-            ]),
+            t.insert(
+                [
+                    {'id': i, 'text': s, 'vec': vecs[i], 'vec64': vecs64[i], 'vec_array_f32': vecs[i]}
+                    for i, s in enumerate(texts)
+                ]
+            ),
             expected_rows=3,
         )
         t.add_computed_column(embedding=e5_embed(t.text))
         t.add_embedding_index(
             'embedding', idx_name='emb_computed', embedding=e5_embed, metric='cosine', precision='fp32'
         )
-        t.add_embedding_index('vec', idx_name='emb_stored', embedding=e5_embed, metric='cosine', precision='fp32')
-        t.add_embedding_index('vec64', idx_name='emb_stored64', embedding=e5_embed, metric='cosine', precision='fp32')
+        # f32 precomputed embedding with string embedding function
+        t.add_embedding_index('vec', idx_name='emb_stored', string_embed=e5_embed, metric='cosine', precision='fp32')
+        # f64 precomputed embedding column with string embedding function
+        t.add_embedding_index(
+            'vec64', idx_name='emb_stored64', string_embed=e5_embed, metric='cosine', precision='fp32'
+        )
+        # Array column with array embedding function
+        t.add_embedding_index(
+            'vec_array_f32', idx_name='emb_array_f32', array_embed=identity, metric='cosine', precision='fp32'
+        )
         best = 'a cat sitting on a mat'
-        for col_name, idx_name in [
-            ('embedding', 'emb_computed'),
-            ('vec', 'emb_stored'),
-            ('vec64', 'emb_stored64'),
-        ]:
+        best_vec = e5_embed.exec([best], {})
+        # Test string similarity on computed column and array columns with string embedding function
+        for col_name, idx_name in [('embedding', 'emb_computed'), ('vec', 'emb_stored'), ('vec64', 'emb_stored64')]:
             col = getattr(t, col_name)
             sim = col.similarity(string='a cat', idx=idx_name)
             query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
@@ -1030,6 +1039,17 @@ class TestIndex:
             assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
                 f'{col_name}: similarity scores must be descending; got {sim_vals}'
             )
+        # Search by vector (array modality)
+        col = t.vec_array_f32
+        sim = col.similarity(array=best_vec, idx='emb_array_f32')
+        query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
+        res = reload_tester.run_query(query)
+        assert len(res) == 3
+        assert res[0]['text'] == best
+        sim_vals = [r['sim'] for r in res]
+        assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
+            f'vec_array_f32: similarity scores must be descending; got {sim_vals}'
+        )
         reload_tester.run_reload_test()
 
     @staticmethod

@@ -4,6 +4,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, Sequence, cast
 from uuid import UUID
 
+import numpy as np
 import PIL.Image
 import sqlalchemy as sql
 
@@ -180,6 +181,7 @@ class ColumnRef(Expr):
         image: str | PIL.Image.Image | None = None,
         audio: str | None = None,
         video: str | None = None,
+        array: np.ndarray | list[float] | None = None,
         idx: str | None = None,
     ) -> Expr:
         from .similarity_expr import SimilarityExpr
@@ -191,18 +193,23 @@ class ColumnRef(Expr):
                 '  .similarity(string=...)\n'
                 '  .similarity(image=...)\n'
                 '  .similarity(audio=...)\n'
-                '  .similarity(video=...)',
+                '  .similarity(video=...)\n'
+                '  .similarity(array=...)',
                 DeprecationWarning,
                 stacklevel=2,
             )
 
-        arg_count = (string is not None) + (image is not None) + (audio is not None) + (video is not None)
+        arg_count = (
+            (string is not None) + (image is not None) + (audio is not None) + (video is not None) + (array is not None)
+        )
 
         if item is not None and arg_count != 0:
             raise excs.Error('similarity(): `item` is deprecated and cannot be used together with modality arguments')
 
         if arg_count > 1:
-            raise excs.Error('similarity(): expected exactly one of string=..., image=..., audio=..., video=...')
+            raise excs.Error(
+                'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., array=...'
+            )
 
         expr: Expr
 
@@ -270,6 +277,26 @@ class ColumnRef(Expr):
                     )
                 video_path = fetch_url(video, allow_local_file=True)
                 expr = Literal(str(video_path), ts.VideoType())
+
+        if array is not None:
+            if isinstance(array, Expr):
+                if not array.col_type.is_array_type():
+                    raise excs.Error(f'similarity(array=...): expected `Array`; got `{array.col_type}`')
+                expr = array
+            else:
+                if not isinstance(array, (list, np.ndarray)):
+                    raise excs.Error(
+                        f'similarity(array=...): expected `list`, `numpy.ndarray`, or array `Expr`; '
+                        f'got `{type(array).__name__}`'
+                    )
+                arr = np.asarray(array)
+                if arr.ndim != 1:
+                    raise excs.Error(f'similarity(array=...): expected 1-dimensional array; got shape {arr.shape}')
+                # Validate dtype is float (any float type: float16, float32, float64)
+                if not np.issubdtype(arr.dtype, np.floating):
+                    raise excs.Error(f'similarity(array=...): expected float array; got dtype {arr.dtype}')
+                col_type = ts.ColumnType.infer_literal_type(arr)
+                expr = Literal(arr, col_type=col_type)
 
         return SimilarityExpr(self, expr, idx_name=idx)
 
