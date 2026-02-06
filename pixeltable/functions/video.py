@@ -1736,6 +1736,9 @@ class LegacyFrame(TypedDict):
 
 @pxt.iterator(unstored_cols=['frame'])
 class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame]):
+    # A retrofitted implementation of the legacy frame iterator interface, with output schema `frame_idx`, `pos_msec`,
+    # and `pos_frame` (instead of `frame_attrs`). It wraps the new `frame_iterator` and dervies the legacy outputs from
+    # `frame_attrs`.
     underlying: pxt.PxtIterator[Frame]
 
     def __init__(
@@ -1750,7 +1753,8 @@ class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame]):
         frame_attrs = item['frame_attrs']
         result: LegacyFrame = {
             'frame': item['frame'],
-            'frame_idx': self.underlying.pos,  # type: ignore[attr-defined]
+            # frame_idx == pos, but `pos` has already been incremented in the underlying, since we just called `next()`
+            'frame_idx': self.underlying.pos - 1,  # type: ignore[attr-defined]
             'pos_msec': (frame_attrs['time'] - self.underlying.video_start_time) * 1000.0,  # type: ignore[attr-defined]
             'pos_frame': frame_attrs['index'],
         }
