@@ -45,6 +45,9 @@ from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
 from .update_status import UpdateStatus
 
+from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
+
+
 if TYPE_CHECKING:
     import torch.utils.data
 
@@ -628,7 +631,7 @@ class Table(SchemaObject):
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
             )
         col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, dict)):
+        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
             raise excs.Error(
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
             )
@@ -701,8 +704,7 @@ class Table(SchemaObject):
             if stored is not None:
                 col_schema['stored'] = stored
 
-            if destination is not None:
-                col_schema['destination'] = str(destination)
+            col_schema['destination'] = destination
 
             # Raise an error if the column expression refers to a column error property
             if isinstance(spec, exprs.Expr):
@@ -749,7 +751,7 @@ class Table(SchemaObject):
         if 'type' not in spec and 'value' not in spec:
             raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
 
-        if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type)):
+        if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
             raise excs.Error(f"Column {name!r}: 'type' must be a type or ColumnType; got {spec['type']}")
 
         if 'value' in spec:
@@ -782,7 +784,7 @@ class Table(SchemaObject):
             destination: str | Path | None = None
 
             # TODO: Should we fully deprecate passing ts.ColumnType here?
-            if isinstance(spec, (ts.ColumnType, type)):
+            if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
                 col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
             elif isinstance(spec, exprs.Expr):
                 # create copy so we can modify it

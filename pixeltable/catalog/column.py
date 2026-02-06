@@ -137,9 +137,11 @@ class Column:
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
-        self._explicit_destination = None
-        if destination is not None:
-            self._explicit_destination = str(destination)
+
+        if isinstance(destination, Path):
+            destination = str(destination)
+        else:
+            self._explicit_destination = destination
 
     def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
