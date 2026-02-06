@@ -7,7 +7,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-from pixeltable.functions.video import frame_iterator
+from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
 
 from .utils import assert_resultset_eq, get_test_video_files, reload_catalog, validate_update_status
 
@@ -80,9 +80,7 @@ class TestComponentView:
         assert 'argument type Int does not match parameter type Video' in str(excinfo.value)
 
         # create frame view
-        view_t = pxt.create_view(
-            'test_view', video_t, iterator=frame_iterator(video_t.video, fps=1, use_legacy_schema=True)
-        )
+        view_t = pxt.create_view('test_view', video_t, iterator=legacy_frame_iterator(video_t.video, fps=1))
         # computed column that references a column from the base
         view_t.add_computed_column(angle2=view_t.angle + 1)
         # computed column that references an unstored and a stored computed view column
