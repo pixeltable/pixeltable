@@ -65,16 +65,18 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
                 case 'pixeltable.iterators.string.StringSplitter':
                     iterator_class_fqn = 'pixeltable.functions.string.string_splitter'
                 case 'pixeltable.iterators.video.FrameIterator':
-                    iterator_class_fqn = 'pixeltable.functions.video.frame_iterator'
                     # 'all_frame_attrs' was replaced by 'use_legacy_schema'
                     afa_expr = kwargs.pop('all_frame_attrs', None)
                     if afa_expr is None:
-                        kwargs['use_legacy_schema'] = {'_classname': 'Literal', 'val': True}
+                        use_legacy_schema = True
                     else:
                         assert afa_expr['_classname'] == 'Literal'
                         assert isinstance(afa_expr['val'], bool)
-                        afa_expr['val'] = not afa_expr['val']
-                        kwargs['use_legacy_schema'] = afa_expr
+                        use_legacy_schema = not afa_expr['val']
+                    if use_legacy_schema:
+                        iterator_class_fqn = 'pixeltable.functions.video.legacy_frame_iterator'
+                    else:
+                        iterator_class_fqn = 'pixeltable.functions.video.frame_iterator'
                 case 'pixeltable.iterators.video.VideoSplitter':
                     iterator_class_fqn = 'pixeltable.functions.video.video_splitter'
 

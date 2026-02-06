@@ -260,7 +260,7 @@ class Dumper:
         # Various iterators
         pxt.create_view('string_splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))
         pxt.create_view('tile_iterator', t, iterator=pxtf.image.tile_iterator(t.c8, (64, 64), overlap=(16, 16)))
-        pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.frame_iterator(t.c10, fps=1, use_legacy_schema=True))
+        pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.legacy_frame_iterator(t.c10, fps=1))
         pxt.create_view('frame_iterator_2', t, iterator=pxtf.video.frame_iterator(t.c10, num_frames=5))
         pxt.create_view('frame_iterator_3', t, iterator=pxtf.video.frame_iterator(t.c10, keyframes_only=True))
         pxt.create_view(

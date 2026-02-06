@@ -1463,8 +1463,24 @@ def _scene_detect(video: str, fps: float, detector: 'SceneDetector') -> list[dic
         return scenes
 
 
+class FrameAttrs(TypedDict):
+    index: int
+    pts: int
+    dts: int | None
+    time: float
+    is_corrupt: bool
+    key_frame: bool
+    pict_type: int
+    interlaced_frame: bool
+
+
+class Frame(TypedDict):
+    frame: pxt.Image
+    frame_attrs: FrameAttrs
+
+
 @pxt.iterator(unstored_cols=['frame'])
-class frame_iterator(pxt.PxtIterator):
+class frame_iterator(pxt.PxtIterator[Frame]):
     """
     Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be specified. If `fps`
     is specified, then frames will be extracted at the specified rate (frames per second). If `num_frames` is specified,
@@ -1489,23 +1505,13 @@ class frame_iterator(pxt.PxtIterator):
             * `pict_type` (`int`): The picture type of the frame
             * `interlaced_frame` (`bool`): `True` if the frame is interlaced
 
-    If `use_legacy_schema=True`, then `frame_attrs` will be omitted, and the following columns will be provided
-    instead:
-
-    - `frame` (`pxt.Image`): The extracted video frame
-    - `frame_idx` (`int`): The index of the frame in the video stream
-    - `pos_msec` (`float`): The timestamp of the frame in milliseconds
-    - `pos_frame` (`int`): The position of the frame in the video stream
-
     Args:
         fps: Number of frames to extract per second of video. This may be a fractional value, such as 0.5.
-            If omitted or set to 0.0, or if greater than the native framerate of the video,
+            If omitted, or if greater than the native framerate of the video,
             then the framerate of the video will be used (all frames will be extracted).
         num_frames: Exact number of frames to extract. The frames will be spaced as evenly as possible. If
             `num_frames` is greater than the number of frames in the video, all frames will be extracted.
         keyframes_only: If True, only extract keyframes.
-        use_legacy_schema: For backward compatibility. If `True`, then uses the alternative output schema
-            as described above.
 
     Examples:
         All these examples assume an existing table `tbl` with a column `video` of type `pxt.Video`.
@@ -1532,7 +1538,6 @@ class frame_iterator(pxt.PxtIterator):
     fps: float | None
     num_frames: int | None
     keyframes_only: bool
-    all_frame_attrs: bool
 
     # Video info
     container: InputContainer
@@ -1556,11 +1561,7 @@ class frame_iterator(pxt.PxtIterator):
         fps: float | None = None,
         num_frames: int | None = None,
         keyframes_only: bool = False,
-        use_legacy_schema: bool = False,
     ) -> None:
-        if fps == 0.0:
-            fps = None  # treat 0.0 as unspecified
-
         video_path = Path(video)
         assert video_path.exists() and video_path.is_file()
         self.video_path = video_path
@@ -1568,7 +1569,6 @@ class frame_iterator(pxt.PxtIterator):
         self.fps = fps
         self.num_frames = num_frames
         self.keyframes_only = keyframes_only
-        self.all_frame_attrs = not use_legacy_schema
 
         self.video_time_base = self.container.streams.video[0].time_base
 
@@ -1625,7 +1625,7 @@ class frame_iterator(pxt.PxtIterator):
         except EOFError:
             return None
 
-    def __next__(self) -> dict[str, Any]:
+    def __next__(self) -> Frame:
         while True:
             if self.cur_frame is None:
                 raise StopIteration
@@ -1663,11 +1663,11 @@ class frame_iterator(pxt.PxtIterator):
                         self.video_idx += 1
                         continue
 
-            img = self.cur_frame.to_image()
-            assert isinstance(img, PIL.Image.Image)
-            result: dict[str, Any] = {'frame': img}
-            if self.all_frame_attrs:
-                attrs = {
+            image = self.cur_frame.to_image()
+            assert isinstance(image, PIL.Image.Image)
+            result: Frame = {
+                'frame': image,
+                'frame_attrs': {
                     'index': self.video_idx,
                     'pts': cur_frame_pts,
                     'dts': self.cur_frame.dts,
@@ -1677,10 +1677,7 @@ class frame_iterator(pxt.PxtIterator):
                     'pict_type': self.cur_frame.pict_type,
                     'interlaced_frame': self.cur_frame.interlaced_frame,
                 }
-                result['frame_attrs'] = attrs
-            else:
-                pos_msec = float(cur_frame_pts * self.video_time_base * 1000 - self.video_start_time)
-                result.update({'frame_idx': self.pos, 'pos_msec': pos_msec, 'pos_frame': self.video_idx})
+            }
 
             self.cur_frame = next_frame
             self.video_idx += 1
@@ -1731,17 +1728,53 @@ class frame_iterator(pxt.PxtIterator):
         keyframes_only = bound_args.get('keyframes_only', False)
         if int(fps is not None) + int(num_frames is not None) + int(keyframes_only) > 1:
             raise excs.Error('At most one of `fps`, `num_frames` or `keyframes_only` may be specified')
-        if fps is not None and (not isinstance(fps, (int, float)) or fps < 0.0):
-            raise excs.Error('`fps` must be a non-negative number')
+        if fps is not None and (not isinstance(fps, (int, float)) or fps <= 0.0):
+            raise excs.Error('`fps` must be a positive number')
+
+
+class LegacyFrame(TypedDict):
+    frame: pxt.Image
+    frame_idx: int
+    pos_msec: float
+    pos_frame: int
+
+
+@pxt.iterator(unstored_cols=['frame'])
+class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame]):
+    underlying: Iterator[dict[str, Any]]
+
+    def __init__(
+        self,
+        video: pxt.Video,
+        *,
+        fps: float | None = None,
+        num_frames: int | None = None,
+        keyframes_only: bool = False
+    ) -> None:
+        self.underlying = frame_iterator.decorated_callable(
+            video=video, fps=fps, num_frames=num_frames, keyframes_only=keyframes_only
+        )
+
+    def __next__(self) -> LegacyFrame:
+        item: Frame = next(self.underlying)
+        frame_attrs = item['frame_attrs']
+        result: LegacyFrame = {
+            'frame': item['frame'],
+            'frame_idx': self.underlying.pos,
+            'pos_msec': (frame_attrs['time'] - self.underlying.video_start_time) * 1000.0,
+            'pos_frame': frame_attrs['index'],
+        }
+        return result
+
+    def close(self) -> None:
+        self.underlying.close()
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        self.underlying.seek(pos, **kwargs)
 
     @classmethod
-    def conditional_output_schema(cls, bound_args: dict[str, Any]) -> dict[str, type]:
-        attrs: dict[str, type]
-        if bound_args.get('use_legacy_schema'):
-            attrs = {'frame_idx': ts.Int, 'pos_msec': ts.Float, 'pos_frame': ts.Int}
-        else:
-            attrs = {'frame_attrs': ts.Json}
-        return {**attrs, 'frame': ts.Image}
+    def validate(cls, bound_args: dict[str, Any]) -> None:
+        frame_iterator.decorated_callable.validate(bound_args)
 
 
 class VideoSegment(TypedDict):

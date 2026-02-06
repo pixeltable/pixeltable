@@ -10,7 +10,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
-from pixeltable.functions.video import frame_iterator, video_splitter
+from pixeltable.functions.video import frame_iterator, legacy_frame_iterator, video_splitter
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -30,8 +30,9 @@ class TestVideo:
         pxt.drop_table(view_name, if_not_exists='ignore')
         pxt.drop_table(base_name, if_not_exists='ignore')
         base_t = pxt.create_table(base_name, {'video': pxt.Video})
+        iterator = legacy_frame_iterator if use_legacy_schema else frame_iterator
         view_t = pxt.create_view(
-            view_name, base_t, iterator=frame_iterator(base_t.video, fps=1, use_legacy_schema=use_legacy_schema)
+            view_name, base_t, iterator=iterator(base_t.video, fps=1)
         )
         return base_t, view_t
 
@@ -133,13 +134,10 @@ class TestVideo:
         for p in get_video_files():
             for kwargs in (
                 {},
-                {'use_legacy_schema': True},
                 {'fps': 0.5},
                 {'fps': 3},
-                {'fps': 3, 'use_legacy_schema': True},
                 {'fps': 1000},
                 {'num_frames': 10},
-                {'num_frames': 10, 'use_legacy_schema': True},
                 {'num_frames': 50},
                 {'num_frames': 10000},
             ):
@@ -166,7 +164,7 @@ class TestVideo:
 
         # Test keyframes_only=True extracts all keyframes
         keyframes = pxt.create_view('keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True))
-        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=0))
+        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=None))
 
         videos.insert(video=path)
 
