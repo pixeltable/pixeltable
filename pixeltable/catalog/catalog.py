@@ -1148,6 +1148,7 @@ class Catalog:
         primary_key: list[str] | None,
         num_retained_versions: int,
         comment: str,
+        custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
     ) -> tuple[Table, bool]:
@@ -1177,6 +1178,7 @@ class Catalog:
                 primary_key=primary_key,
                 num_retained_versions=num_retained_versions,
                 comment=comment,
+                custom_metadata=custom_metadata,
                 media_validation=media_validation,
                 create_default_idxs=create_default_idxs,
             )
@@ -1207,6 +1209,7 @@ class Catalog:
         iterator: tuple[type[ComponentIterator], dict[str, Any]] | None,
         num_retained_versions: int,
         comment: str,
+        custom_metadata: Any,
         media_validation: MediaValidation,
         if_exists: IfExistsParam,
     ) -> Table:
@@ -1250,6 +1253,7 @@ class Catalog:
                 iterator_args=iterator_args,
                 num_retained_versions=num_retained_versions,
                 comment=comment,
+                custom_metadata=custom_metadata,
                 media_validation=media_validation,
             )
             tbl_id = UUID(md.tbl_md.tbl_id)

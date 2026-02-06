@@ -25,6 +25,7 @@ from pixeltable.catalog.table_metadata import (
 )
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
+from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.object_stores import ObjectOps
 
 from ..exprs import ColumnRef
@@ -163,6 +164,7 @@ class Table(SchemaObject):
             version_created=datetime.datetime.fromtimestamp(tv.created_at, tz=datetime.timezone.utc),
             schema_version=tvp.schema_version(),
             comment=self._get_comment(),
+            custom_metadata=self._get_custom_metadata(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
             base=None,
         )
@@ -349,6 +351,9 @@ class Table(SchemaObject):
     def _get_comment(self) -> str:
         return self._tbl_version_path.comment()
 
+    def _get_custom_metadata(self) -> Any:
+        return self._tbl_version_path.custom_metadata()
+
     def _get_num_retained_versions(self) -> int:
         return self._tbl_version_path.num_retained_versions()
 
@@ -378,7 +383,9 @@ class Table(SchemaObject):
             if not stores.empty:
                 helper.append(stores)
             if self._get_comment():
-                helper.append(f'COMMENT: {self._get_comment()}')
+                helper.append(f'Comment: {self._get_comment()}')
+            if self._get_custom_metadata():
+                helper.append(f'Custom Metadata: {Formatter.summarize_json(self._get_custom_metadata())}')
             return helper
 
     def _col_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
