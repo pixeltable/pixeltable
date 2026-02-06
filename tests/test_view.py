@@ -149,7 +149,7 @@ class TestView:
 
         with pytest.raises(pxt.Error) as exc_info:
             _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
-        assert "invalid value for column 'v1'" in str(exc_info.value).lower()
+        assert "invalid spec for column 'v1'" in str(exc_info.value).lower()
 
     def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test if_exists parameter of create_view API"""
