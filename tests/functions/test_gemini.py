@@ -72,7 +72,7 @@ class TestGemini:
 
         def make_table(tools: pxt.Tools, tool_choice: pxt.ToolChoice) -> pxt.Table:
             t = pxt.create_table('test_tbl', {'prompt': pxt.String}, if_exists='replace')
-            t.add_computed_column(response=gemini.generate_content(t.prompt, model='gemini-2.0-flash', tools=tools))
+            t.add_computed_column(response=gemini.generate_content(t.prompt, model='gemini-2.5-flash', tools=tools))
             t.add_computed_column(tool_calls=gemini.invoke_tools(tools, t.response))
             return t
 

@@ -555,7 +555,7 @@ t.add_computed_column(tool_results=invoke_tools(tools, t.llm_response))
     ```python
     from pixeltable.functions.gemini import generate_content
     t.add_computed_column(
-        text=generate_content(contents=t.prompt, model='gemini-2.0-flash').text
+        text=generate_content(contents=t.prompt, model='gemini-2.5-flash').text
     )
     ```
     <Card title="Gemini Guide" href="/howto/providers/working-with-gemini" />
