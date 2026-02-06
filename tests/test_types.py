@@ -169,10 +169,10 @@ class TestTypes:
                 "Image[(100, 200), 'RGB']",
             ),
             Image['RGB']: (ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),  # type: ignore[misc]
-            Literal['a', 'b', 'c']: (StringType(nullable=False), 'String'),
-            Literal[1, 2, 3]: (IntType(nullable=False), 'Int'),
-            Literal[1, 2.0, 3]: (FloatType(nullable=False), 'Float'),
-            Literal['a', 'b', None]: (StringType(nullable=True), 'String'),  # noqa: PYI061
+            Literal['a', 'b', 'c']: (StringType(nullable=False), 'String'),  # type: ignore[dict-item]
+            Literal[1, 2, 3]: (IntType(nullable=False), 'Int'),  # type: ignore[dict-item]
+            Literal[1, 2.0, 3]: (FloatType(nullable=False), 'Float'),  # type: ignore[dict-item]
+            Literal['a', 'b', None]: (StringType(nullable=True), 'String'),  # type: ignore[dict-item]  # noqa: PYI061
         }
         for py_type, (pxt_type, string) in test_cases.items():
             print(py_type)

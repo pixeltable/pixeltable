@@ -148,7 +148,7 @@ class TestView:
         assert status.num_rows == 30  # 20 in the base table, 10 in test_view_alt
 
         with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
+            _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})  # type: ignore[dict-item]
         assert "invalid value for column 'v1'" in str(exc_info.value).lower()
 
     def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
@@ -514,7 +514,7 @@ class TestView:
             'ud2': {'value': t.d2, 'stored': False},
         }
 
-        v1 = pxt.create_view('v1', t, additional_columns=add_schema1)
+        v1 = pxt.create_view('v1', t, additional_columns=add_schema1)  # type: ignore[arg-type]
         v1_res = v1.select(
             v1.uc1, v1.uc2, v1.uc3, v1.uc4, v1.uc5, v1.uc6, v1.uc7, v1.uc8, v1.ud1, v1.uc10, v1.ud2
         ).head(5)
@@ -537,7 +537,7 @@ class TestView:
             'vd2': {'value': v1.ud2, 'stored': False},
         }
 
-        v2 = pxt.create_view('v2', v1, additional_columns=add_schema2)
+        v2 = pxt.create_view('v2', v1, additional_columns=add_schema2)  # type: ignore[arg-type]
         v2_res = v2.select(
             v2.vc1, v2.vc2, v2.vc3, v2.vc4, v2.vc5, v2.vc6, v2.vc7, v2.vc8, v2.vd1, v2.vc10, v2.vd2
         ).head(5)
@@ -551,7 +551,7 @@ class TestView:
 
         global test_unstored_base_val  # noqa: PLW0603
         test_unstored_base_val = 1000
-        v3 = pxt.create_view('v3', v2, additional_columns=add_schema3)
+        v3 = pxt.create_view('v3', v2, additional_columns=add_schema3)  # type: ignore[arg-type]
 
         test_unstored_base_val = 2000
         v3_res = v3.select(v3.wc2a, v3.wc2b).head(5)
@@ -579,7 +579,7 @@ class TestView:
             'int4': pxt.Int,  # TODO: add default
         }
         logger.debug('******************* CREATE V1')
-        v1 = pxt.create_view('v1', t, additional_columns=v1_schema)
+        v1 = pxt.create_view('v1', t, additional_columns=v1_schema)  # type: ignore[arg-type]
         v1.update({'int4': 1})
         _ = v1.select(v1.img2.width, v1.img2.height).collect()
 
@@ -592,7 +592,7 @@ class TestView:
             }
         }
         logger.debug('******************* CREATE V2')
-        v2 = pxt.create_view('v2', v1.where(v1.int1 < 10), additional_columns=v2_schema)
+        v2 = pxt.create_view('v2', v1.where(v1.int1 < 10), additional_columns=v2_schema)  # type: ignore[arg-type]
 
         def check_views() -> None:
             assert_resultset_eq(
@@ -638,7 +638,9 @@ class TestView:
         # Note that v1.c3 overrides t.c3, but both are accessible
         schema = {'v1': {'value': t.c2, 'stored': True}}
         v1 = pxt.create_view(
-            'test_view1', t.select(t.c2, t.c2 + 99, foo=t.c2, bar=t.c2 + 27, c3=t.c3 * 2), additional_columns=schema
+            'test_view1',
+            t.select(t.c2, t.c2 + 99, foo=t.c2, bar=t.c2 + 27, c3=t.c3 * 2),
+            additional_columns=schema,  # type: ignore[arg-type]
         )
         res = v1.select().limit(5).collect()
         assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1']

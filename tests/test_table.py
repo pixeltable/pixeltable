@@ -19,6 +19,7 @@ from jsonschema.exceptions import ValidationError
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
+from pixeltable.catalog.table_metadata import ColumnSpec
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
@@ -444,14 +445,20 @@ class TestTable:
             )
 
     def test_media_validation(self, uses_db: None) -> None:
-        tbl_schema = {'img': {'type': pxt.Image, 'media_validation': 'on_write'}, 'video': pxt.Video}
+        tbl_schema: dict[str, ColumnSpec | type] = {
+            'img': {'type': pxt.Image, 'media_validation': 'on_write'},
+            'video': pxt.Video,
+        }
         t = pxt.create_table('test', tbl_schema, media_validation='on_read')
         assert t.get_metadata()['media_validation'] == 'on_read'
         assert t.img.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
         # table default applies
         assert t.video.col.media_validation == pxt.catalog.MediaValidation.ON_READ
 
-        v_schema = {'doc': {'type': pxt.Document, 'media_validation': 'on_read'}, 'audio': pxt.Audio}
+        v_schema: dict[str, ColumnSpec | type] = {
+            'doc': {'type': pxt.Document, 'media_validation': 'on_read'},
+            'audio': pxt.Audio,
+        }
         v = pxt.create_view('test_view', t, additional_columns=v_schema, media_validation='on_write')
         assert v.get_metadata()['media_validation'] == 'on_write'
         assert v.doc.col.media_validation == pxt.catalog.MediaValidation.ON_READ
@@ -1175,7 +1182,7 @@ class TestTable:
         assert "Column 'c1': 'value' must be a Pixeltable expression" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'type': pxt.String, 'stored': 'true'}})
+            pxt.create_table('test', {'c1': {'type': pxt.String, 'stored': 'true'}})  # type: ignore[typeddict-item]
         assert "'stored' must be a bool" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -1522,12 +1529,12 @@ class TestTable:
         assert status.num_excs == 0
 
     def test_insert(self, uses_db: None) -> None:
-        schema = {
+        schema: dict[str, type] = {
             'c1': pxt.Required[pxt.String],
             'c2': pxt.Required[pxt.Int],
             'c3': pxt.Required[pxt.Float],
             'c4': pxt.Required[pxt.Bool],
-            'c5': pxt.Required[pxt.Array[(2, 3), pxt.Int]],  # type: ignore[misc]
+            'c5': pxt.Required[pxt.Array[(2, 3), pxt.Int]],  # type: ignore[misc, dict-item]
             'c6': pxt.Required[pxt.Json],
             'c7': pxt.Required[pxt.Image],
             'c8': pxt.Required[pxt.Video],

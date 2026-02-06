@@ -187,7 +187,7 @@ def create_table(
         data_source.src_schema_overrides = src_schema_overrides
         data_source.src_pk = primary_key
         data_source.infer_schema()
-        schema = data_source.pxt_schema
+        schema = data_source.pxt_schema  # type: ignore[assignment]
         primary_key = data_source.pxt_pk
         is_direct_query = data_source.is_direct_query()
     else:

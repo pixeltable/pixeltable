@@ -1202,7 +1202,7 @@ class Catalog:
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: 'SampleClause' | None,
-        additional_columns: Mapping[str, type | ColumnSpec] | None,
+        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         iterator: tuple[type[ComponentIterator], dict[str, Any]] | None,

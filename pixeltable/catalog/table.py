@@ -702,7 +702,7 @@ class Table(SchemaObject):
                 col_schema['stored'] = stored
 
             if destination is not None:
-                col_schema['destination'] = destination
+                col_schema['destination'] = str(destination)
 
             # Raise an error if the column expression refers to a column error property
             if isinstance(spec, exprs.Expr):
@@ -779,7 +779,7 @@ class Table(SchemaObject):
             primary_key: bool = False
             media_validation: catalog.MediaValidation | None = None
             stored = True
-            destination: str | None = None
+            destination: str | Path | None = None
 
             # TODO: Should we fully deprecate passing ts.ColumnType here?
             if isinstance(spec, (ts.ColumnType, type)):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, List, Literal
+from typing import TYPE_CHECKING, Any, List, Literal, Mapping
 from uuid import UUID
 
 import pixeltable.exceptions as excs
@@ -75,7 +75,7 @@ class View(Table):
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
-        additional_columns: dict[str, type | ColumnSpec],
+        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr],
         predicate: 'exprs.Expr' | None,
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,
