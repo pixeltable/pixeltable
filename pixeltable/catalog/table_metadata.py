@@ -110,7 +110,7 @@ class VersionMetadata(TypedDict):
 class ColumnSpec(TypedDict, total=False):
     """Column specification, a dictionary representation of a column's schema."""
 
-    type: ts.ColumnType | builtins.type
+    type: type
     """The column type (e.g., `pxt.Image`, `str`). Required unless `value` is specified."""
     value: exprs.Expr
     """A Pixeltable expression for computed columns. Mutually exclusive with `type`."""
