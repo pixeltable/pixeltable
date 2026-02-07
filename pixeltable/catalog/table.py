@@ -762,7 +762,7 @@ class Table(SchemaObject):
             raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
 
         if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
-            raise excs.Error(f"Column {name!r}: 'type' must be a type or ColumnType; got {spec['type']}")
+            raise excs.Error(f"Column {name!r}: 'type' must be a type; got {spec['type']}")
 
         if 'value' in spec:
             value_expr = exprs.Expr.from_object(spec['value'])
