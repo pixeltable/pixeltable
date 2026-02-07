@@ -100,7 +100,8 @@ class smooth_reframe(pxt.Aggregator):
     forward so the camera holds steady.
 
     Args:
-        fps: Frames per second for the output video.
+        fps: Frames per second for the output video. Should match the ``fps`` used in
+            ``frame_iterator`` so the output plays at real-time speed.
         target_width: Output video width in pixels.
         target_height: Output video height in pixels.
         margin_factor: Scale factor applied to each bounding box before smoothing (e.g. 1.3 = 30 %
@@ -114,24 +115,15 @@ class smooth_reframe(pxt.Aggregator):
         A video at the requested resolution with the subject kept in frame.
 
     Examples:
-        Given a frame view ``fv`` with per-frame detections, reframe all frames into a 9:16 video:
+        Given a frame view ``fv`` (extracted at 5 fps) with per-frame detections, reframe into a
+        9:16 video that tracks the subject:
 
         >>> fv.select(
-        ...     smooth_reframe(
-        ...         fv.frame, fv.bbox, fps=30,
-        ...         target_width=1080, target_height=1920,
-        ...     )
-        ... ).collect()
+        ...     smooth_reframe(fv.pos, fv.frame, fv.bbox)
+        ... ).group_by(base_tbl).collect()
 
-        With gentler smoothing and tighter framing:
-
-        >>> fv.select(
-        ...     smooth_reframe(
-        ...         fv.frame, fv.bbox, fps=30,
-        ...         target_width=1080, target_height=1920,
-        ...         margin_factor=1.1, smoothing=0.98,
-        ...     )
-        ... ).collect()
+        The default output is 1080x1920 at 5 fps — matching a typical ``frame_iterator(fps=5)``
+        extraction rate so the video plays at real-time speed.
     """
 
     container: av.container.OutputContainer | None
@@ -139,7 +131,7 @@ class smooth_reframe(pxt.Aggregator):
 
     def __init__(
         self,
-        fps: int = 25,
+        fps: int = 5,
         target_width: int = 1080,
         target_height: int = 1920,
         margin_factor: float = 1.3,
