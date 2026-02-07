@@ -148,7 +148,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: release
+          ref: ci-experiments
       - name: Set up tmate session
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
         uses: mxschmitt/action-tmate@v3
