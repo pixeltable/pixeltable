@@ -449,6 +449,284 @@ def mode(self: PIL.Image.Image) -> str:
     return self.mode
 
 
+# =============================================================================
+# Bounding Box Utilities
+# =============================================================================
+
+
+@pxt.udf
+def expand_bbox(
+    bbox: tuple[int, int, int, int], img_width: int, img_height: int, *, padding: int = 0, margin_factor: float = 1.0
+) -> tuple[int, int, int, int]:
+    """
+    Expand a bounding box by a scale factor and/or pixel padding, clamped to image bounds.
+
+    The bounding box uses PIL convention: ``(left, upper, right, lower)``. When ``margin_factor`` is greater
+    than 1.0 the box is scaled outward from its centre. When ``padding`` is non-zero that many pixels are
+    added on every side. Both may be combined: the scale factor is applied first, then padding is added.
+
+    Args:
+        bbox: Bounding box as ``(left, upper, right, lower)``.
+        img_width: Width of the source image in pixels.
+        img_height: Height of the source image in pixels.
+        padding: Pixels to add on every side of the box after scaling.
+        margin_factor: Scale factor applied around the box centre. ``1.0`` = unchanged, ``1.3`` = 30% larger.
+
+    Returns:
+        Expanded bounding box as ``(left, upper, right, lower)``, clamped to image bounds.
+
+    Examples:
+        Expand a detection box by 30% before cropping:
+
+        ```python
+        t.add_computed_column(
+            padded=expand_bbox(t.bbox, t.image.width, t.image.height, margin_factor=1.3)
+        )
+        t.add_computed_column(cropped=t.image.crop(t.padded))
+        ```
+
+        Add 20 pixels of uniform padding:
+
+        ```python
+        t.add_computed_column(
+            padded=expand_bbox(t.bbox, t.image.width, t.image.height, padding=20)
+        )
+        ```
+    """
+    x1, y1, x2, y2 = bbox
+
+    if margin_factor != 1.0:
+        if margin_factor <= 0:
+            raise ValueError(f'margin_factor must be positive, got {margin_factor}')
+        cx = (x1 + x2) / 2.0
+        cy = (y1 + y2) / 2.0
+        half_w = (x2 - x1) * margin_factor / 2.0
+        half_h = (y2 - y1) * margin_factor / 2.0
+        x1 = round(cx - half_w)
+        y1 = round(cy - half_h)
+        x2 = round(cx + half_w)
+        y2 = round(cy + half_h)
+
+    if padding != 0:
+        x1 -= padding
+        y1 -= padding
+        x2 += padding
+        y2 += padding
+
+    x1 = max(0, min(x1, img_width))
+    y1 = max(0, min(y1, img_height))
+    x2 = max(0, min(x2, img_width))
+    y2 = max(0, min(y2, img_height))
+
+    return (x1, y1, x2, y2)
+
+
+@pxt.udf
+def rescale_bbox(
+    bbox: tuple[int, int, int, int], from_size: tuple[int, int], to_size: tuple[int, int]
+) -> tuple[int, int, int, int]:
+    """
+    Rescale bounding box coordinates proportionally after an image resize.
+
+    Use this to keep detection data aligned with an image after calling ``resize()``.
+
+    Args:
+        bbox: Bounding box as ``(left, upper, right, lower)``.
+        from_size: Original image dimensions as ``(width, height)``.
+        to_size: New image dimensions as ``(width, height)``.
+
+    Returns:
+        Rescaled bounding box as ``(left, upper, right, lower)``.
+
+    Examples:
+        Keep a detection box aligned after resizing:
+
+        ```python
+        t.add_computed_column(resized=t.image.resize((640, 480)))
+        t.add_computed_column(
+            resized_bbox=rescale_bbox(t.bbox, [t.image.width, t.image.height], (640, 480))
+        )
+        ```
+    """
+    x1, y1, x2, y2 = bbox
+    orig_w, orig_h = from_size
+    new_w, new_h = to_size
+
+    if orig_w == 0 or orig_h == 0:
+        raise ValueError('Original image dimensions must be non-zero.')
+
+    scale_x = new_w / orig_w
+    scale_y = new_h / orig_h
+
+    return (round(x1 * scale_x), round(y1 * scale_y), round(x2 * scale_x), round(y2 * scale_y))
+
+
+@pxt.udf
+def offset_bbox(
+    bbox: tuple[int, int, int, int], crop_box: tuple[int, int, int, int]
+) -> tuple[int, int, int, int] | None:
+    """
+    Translate bounding box coordinates into a cropped image's coordinate space.
+
+    After cropping an image, detection bounding boxes still reference the *original* pixel
+    coordinates. This function offsets and clips the box so it aligns with the cropped image.
+    Returns ``None`` if the bounding box falls entirely outside the crop region.
+
+    Args:
+        bbox: Bounding box as ``(left, upper, right, lower)`` in original image coordinates.
+        crop_box: Crop region as ``(left, upper, right, lower)`` that was passed to ``crop()``.
+
+    Returns:
+        Bounding box in the cropped image's coordinate space, or ``None`` if fully outside.
+
+    Examples:
+        Keep a detection box aligned after cropping:
+
+        ```python
+        t.add_computed_column(cropped=t.image.crop(t.crop_region))
+        t.add_computed_column(cropped_bbox=offset_bbox(t.bbox, t.crop_region))
+        ```
+    """
+    bx1, by1, bx2, by2 = bbox
+    cx1, cy1, cx2, cy2 = crop_box
+
+    nx1 = bx1 - cx1
+    ny1 = by1 - cy1
+    nx2 = bx2 - cx1
+    ny2 = by2 - cy1
+
+    crop_w = cx2 - cx1
+    crop_h = cy2 - cy1
+
+    nx1 = max(0, min(nx1, crop_w))
+    ny1 = max(0, min(ny1, crop_h))
+    nx2 = max(0, min(nx2, crop_w))
+    ny2 = max(0, min(ny2, crop_h))
+
+    if nx1 >= nx2 or ny1 >= ny2:
+        return None
+
+    return (nx1, ny1, nx2, ny2)
+
+
+@pxt.udf
+def fit_bbox_to_aspect(
+    bbox: tuple[int, int, int, int], frame_width: int, frame_height: int, *, aspect_ratio: str
+) -> tuple[int, int, int, int]:
+    """
+    Compute a crop region that contains a bounding box and matches a target aspect ratio.
+
+    The returned region is centred on the bounding box, expanded to satisfy the requested
+    aspect ratio, and clamped to the frame bounds. This is the building block for
+    aspect-ratio-aware cropping of images and videos: compute the box here, then pass it
+    to ``image.crop()`` or ``video.crop()``.
+
+    Args:
+        bbox: Subject bounding box as ``(left, upper, right, lower)``.
+        frame_width: Width of the source frame in pixels.
+        frame_height: Height of the source frame in pixels.
+        aspect_ratio: Target aspect ratio as a string, e.g. ``'9:16'``, ``'16:9'``, ``'1:1'``.
+
+    Returns:
+        Crop region as ``(left, upper, right, lower)`` matching the target aspect ratio.
+
+    Examples:
+        Compute a 9:16 crop around a detected subject, then crop the image:
+
+        ```python
+        t.add_computed_column(
+            crop_9x16=fit_bbox_to_aspect(
+                t.bbox, t.image.width, t.image.height, aspect_ratio='9:16'
+            )
+        )
+        t.add_computed_column(cropped=t.image.crop(t.crop_9x16))
+        ```
+
+        Generate multiple aspect ratios from the same detection:
+
+        ```python
+        t.add_computed_column(
+            crop_16x9=fit_bbox_to_aspect(
+                t.bbox, t.image.width, t.image.height, aspect_ratio='16:9'
+            )
+        )
+        t.add_computed_column(
+            crop_1x1=fit_bbox_to_aspect(
+                t.bbox, t.image.width, t.image.height, aspect_ratio='1:1'
+            )
+        )
+        ```
+    """
+    if ':' in aspect_ratio:
+        parts = aspect_ratio.split(':')
+    elif 'x' in aspect_ratio.lower():
+        parts = aspect_ratio.lower().split('x')
+    else:
+        raise ValueError(f"Invalid aspect_ratio format '{aspect_ratio}'. Use 'W:H' (e.g. '9:16').")
+
+    if len(parts) != 2:
+        raise ValueError(f"Invalid aspect_ratio format '{aspect_ratio}'. Expected two numbers separated by ':'.")
+
+    try:
+        ar_w = float(parts[0])
+        ar_h = float(parts[1])
+    except ValueError as e:
+        raise ValueError(f"Non-numeric values in aspect_ratio '{aspect_ratio}'.") from e
+
+    if ar_h == 0:
+        raise ValueError('Height component of aspect_ratio cannot be zero.')
+
+    target = ar_w / ar_h
+
+    x1, y1, x2, y2 = bbox
+    roi_w = float(x2 - x1)
+    roi_h = float(y2 - y1)
+    if roi_w < 1 or roi_h < 1:
+        raise ValueError('Bounding box must have non-zero dimensions.')
+
+    cx = (x1 + x2) / 2.0
+    cy = (y1 + y2) / 2.0
+
+    # Expand the smaller dimension to match the target aspect ratio
+    if (roi_w / roi_h) < target:
+        new_w = roi_h * target
+        new_h = roi_h
+    else:
+        new_w = roi_w
+        new_h = roi_w / target
+
+    # Constrain to frame bounds
+    if new_w > frame_width:
+        new_w = float(frame_width)
+        new_h = new_w / target
+    if new_h > frame_height:
+        new_h = float(frame_height)
+        new_w = new_h * target
+
+    # Centre the crop region on the subject
+    c_x1 = cx - new_w / 2
+    c_y1 = cy - new_h / 2
+    c_x2 = cx + new_w / 2
+    c_y2 = cy + new_h / 2
+
+    # Shift to stay within frame
+    if c_x1 < 0:
+        c_x2 -= c_x1
+        c_x1 = 0.0
+    elif c_x2 > frame_width:
+        c_x1 -= c_x2 - frame_width
+        c_x2 = float(frame_width)
+
+    if c_y1 < 0:
+        c_y2 -= c_y1
+        c_y1 = 0.0
+    elif c_y2 > frame_height:
+        c_y1 -= c_y2 - frame_height
+        c_y2 = float(frame_height)
+
+    return (round(c_x1), round(c_y1), round(c_x2), round(c_y2))
+
+
 def tile_iterator(
     image: Any, tile_size: tuple[int, int], *, overlap: tuple[int, int] = (0, 0)
 ) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:

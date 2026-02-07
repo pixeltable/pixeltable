@@ -1081,6 +1081,30 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='audio_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
 
+    # =========================================================================
+    # PXT-966: video crop
+    # =========================================================================
+
+    def test_video_crop(self, uses_db: None, tmp_path: Path) -> None:
+        """Spatial crop of a video using ffmpeg."""
+        video_path = generate_test_video(tmp_path, duration=1.0, size='640x360')
+        t = pxt.create_table('test_crop', {'video': pxt.Video})
+        t.add_computed_column(cropped=t.video.crop((100, 50, 540, 310)))
+        status = t.insert(video=video_path)
+        assert status.num_excs == 0
+        row = t.select(t.cropped).collect()[0]
+        assert row['cropped'] is not None
+
+    def test_video_crop_with_target_size(self, uses_db: None, tmp_path: Path) -> None:
+        """Crop + resize to exact target resolution."""
+        video_path = generate_test_video(tmp_path, duration=1.0, size='640x360')
+        t = pxt.create_table('test_crop_resize', {'video': pxt.Video})
+        t.add_computed_column(cropped=t.video.crop((100, 0, 325, 360), target_size=(1080, 1920)))
+        status = t.insert(video=video_path)
+        assert status.num_excs == 0
+        row = t.select(t.cropped).collect()[0]
+        assert row['cropped'] is not None
+
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')
         video_filepaths = get_video_files()

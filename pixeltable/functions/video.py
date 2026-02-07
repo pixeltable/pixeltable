@@ -871,6 +871,78 @@ def overlay_text(
         _handle_ffmpeg_error(e)
 
 
+@pxt.udf(is_method=True)
+def crop(video: pxt.Video, box: tuple[int, int, int, int], *, target_size: tuple[int, int] | None = None) -> pxt.Video:
+    """
+    Spatially crop a video to a rectangular region, optionally resizing the result to a target resolution.
+
+    The crop region is specified as ``(left, upper, right, lower)`` in pixel coordinates, matching
+    the PIL convention used by ``image.crop()``.  When ``target_size`` is given the cropped region
+    is scaled to that exact resolution; aspect ratio is preserved automatically when the crop box
+    already matches the target proportions (see ``image.fit_bbox_to_aspect``).
+
+    __Requirements:__
+
+    - ``ffmpeg`` needs to be installed and in PATH
+
+    Args:
+        video: Input video to crop.
+        box: Crop region as ``(left, upper, right, lower)`` in pixel coordinates.
+        target_size: Optional target resolution as ``(width, height)``.  If specified the cropped
+            region is resized to this resolution.
+
+    Returns:
+        A new cropped (and optionally resized) video.
+
+    Examples:
+        Crop a video to a fixed region:
+
+        >>> tbl.select(tbl.video.crop((100, 50, 740, 1330))).collect()
+
+        Crop around a detected subject at 9:16 and resize to 1080x1920:
+
+        >>> from pixeltable.functions.image import fit_bbox_to_aspect
+        >>> tbl.add_computed_column(
+        ...     crop_box=fit_bbox_to_aspect(
+        ...         tbl.bbox, tbl.first_frame.width, tbl.first_frame.height, aspect_ratio='9:16'
+        ...     )
+        ... )
+        >>> tbl.add_computed_column(
+        ...     cropped=tbl.video.crop(tbl.crop_box, target_size=(1080, 1920))
+        ... )
+    """
+    Env.get().require_binary('ffmpeg')
+
+    x1, y1, x2, y2 = box
+    w = x2 - x1
+    h = y2 - y1
+    if w <= 0 or h <= 0:
+        raise pxt.Error(f'Crop box must have positive dimensions, got width={w}, height={h}')
+
+    vf_parts: list[str] = [f'crop={w}:{h}:{x1}:{y1}']
+
+    if target_size is not None:
+        tw, th = target_size
+        if tw <= 0 or th <= 0:
+            raise pxt.Error(f'target_size must have positive dimensions, got {target_size}')
+        vf_parts.append(f'scale={tw}:{th}')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+
+    cmd = ['ffmpeg', '-i', str(video), '-vf', ','.join(vf_parts), '-c:a', 'copy', '-loglevel', 'error', output_path]
+    _logger.debug(f'crop(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = pathlib.Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg crop failed: {stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
 def _create_drawtext_params(
     text: str,
     font: str | None,
