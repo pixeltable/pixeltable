@@ -131,7 +131,7 @@ class smooth_reframe(pxt.Aggregator):
 
     def __init__(
         self,
-        fps: int = 5,
+        fps: int = 15,
         target_width: int = 1080,
         target_height: int = 1920,
         margin_factor: float = 1.3,
