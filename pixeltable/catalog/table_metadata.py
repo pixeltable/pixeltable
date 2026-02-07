@@ -1,7 +1,7 @@
 import builtins
 import datetime
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 from pixeltable import exprs, type_system as ts
 
