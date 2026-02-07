@@ -597,12 +597,15 @@ class Table(SchemaObject):
         Adds an ordinary (non-computed) column to the table.
 
         Args:
-            kwargs: Exactly one keyword argument of the form `col_name=col_type` or `col_name=col_spec_dict`,
+            kwargs: Exactly one keyword argument of the form `col_name=type` or `col_name=col_spec_dict`,
                 where `col_spec_dict` is a TypedDict with keys:
 
                 - `'type'` (required): The column type (e.g., `pxt.Image`).
+                - `'value'`: A Pixeltable expression for computed columns. Mutually exclusive with `'type'`.
+                - `'primary_key'`: Whether this column is part of the primary key (bool)
                 - `'stored'`: Whether to store the column data (bool, default varies by type).
                 - `'media_validation'`: When to validate media; `'on_read'` or `'on_write'`.
+                - `'destination'`: An optional object store reference (str or Path) for computed columns.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
