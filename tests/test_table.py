@@ -3076,6 +3076,7 @@ class TestTable:
         assert 'c4' in t.columns()
         assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'
 
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_table_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
         t = pxt.create_table('tbl', {'c': pxt.Int}, comment='This is a test table.')
         assert t.get_metadata()['comment'] == 'This is a test table.'
