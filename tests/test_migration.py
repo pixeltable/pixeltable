@@ -25,7 +25,16 @@ from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
 
 from .conftest import clean_db
-from .utils import reload_catalog, rerun, skip_test_if_not_installed, validate_update_status
+from .utils import (
+    SAMPLE_IMAGE_URL,
+    get_audio_files,
+    get_documents,
+    get_video_files,
+    reload_catalog,
+    rerun,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 _logger = logging.getLogger('pixeltable')
 
@@ -110,11 +119,13 @@ class TestMigration:
             if old_version >= 17:
                 self._run_v17_tests()
             if old_version >= 19:
-                self._run_v19_tests()
+                self._run_v19_tests(old_version)
             if old_version >= 30:
                 self._run_v30_tests()
             if old_version >= 33:
                 self._verify_v33()
+            if old_version >= 45:
+                self._verify_v45()
             # self._verify_v24(old_version)
 
             pxt.drop_table('sample_table', force=True)
@@ -224,16 +235,17 @@ class TestMigration:
         assert t.base_table_image_rot.col.handle in store1.stored_proxies
 
     @classmethod
-    def _run_v19_tests(cls) -> None:
+    def _run_v19_tests(cls, version: int) -> None:
+        assert version >= 19
         t = pxt.get_table('base_table')
-        status = t.insert(
-            c1='test string 21',
-            c1n='test string 21',
-            c2=21,
-            c3=21.0,
-            c4=True,
-            c5=datetime.now(),
-            c6={
+        row = {
+            'c1': 'test string 21',
+            'c1n': 'test string 21',
+            'c2': 21,
+            'c3': 21.0,
+            'c4': True,
+            'c5': datetime.now(),
+            'c6': {
                 'f1': 'test string 21',
                 'f2': 21,
                 'f3': float(21.0),
@@ -241,8 +253,14 @@ class TestMigration:
                 'f5': [1.0, 2.0, 3.0, 4.0],
                 'f6': {'f7': 'test string 2', 'f8': [1.0, 2.0, 3.0, 4.0]},
             },
-            c7=[],
-        )
+            'c7': [],
+            'c8': SAMPLE_IMAGE_URL,
+        }
+        if version >= 45:
+            row['c9'] = get_audio_files()[0]
+            row['c10'] = get_video_files()[0]
+            row['c11'] = get_documents()[0]
+        status = t.insert([row])
         validate_update_status(status)
         inline_list_mixed = (
             t.where(t.c2 == 21).select(t.base_table_inline_list_mixed).head(1)['base_table_inline_list_mixed'][0]
@@ -299,6 +317,31 @@ class TestMigration:
                 table_md = row[0]
                 for col_md in table_md['column_md'].values():
                     assert col_md['is_pk'] is not None
+
+    @classmethod
+    def _verify_v45(cls) -> None:
+        t = pxt.get_table('base_table')
+        v = pxt.get_table('views.view')
+        s = pxt.get_table('views.snapshot_non_pure')
+        vv = pxt.get_table('views.view_of_views')
+
+        # Verify comment and custom_metadata for base_table
+        assert t.get_metadata()['comment'] == 'This is a test table.'
+        assert t.get_metadata()['custom_metadata'] == {'key': 'value'}
+
+        # Verify comment and custom_metadata for view
+        assert v.get_metadata()['comment'] == 'This is a test view.'
+        assert v.get_metadata()['custom_metadata'] == {'view_key': 'view_value'}
+
+        # Verify comment and custom_metadata for snapshot_non_pure
+        assert s.get_metadata()['comment'] == 'This is a test snapshot.'
+        assert s.get_metadata()['custom_metadata'] == {'snapshot_key': 'snapshot_value'}
+        # Verify the additional column in the non-pure snapshot
+        assert 's1' in s.columns()
+
+        # Verify comment and custom_metadata for view_of_views
+        assert vv.get_metadata()['comment'] == 'This is a test view of views.'
+        assert vv.get_metadata()['custom_metadata'] == {'view_of_views_key': 'view_of_views_value'}
 
 
 @pxt.udf(batch_size=4)

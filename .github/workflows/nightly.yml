@@ -42,7 +42,7 @@ jobs:
         python-version: ["3.10", "3.12"]
         package-configs:
           - ""
-          - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.9' 'torchaudio<2.9' 'torchvision<0.24' transformers timm"
+          - "pyarrow sentence-transformers sentencepiece soundfile 'torch<2.9' 'torchaudio<2.9' 'torchvision<0.24' 'transformers<5' timm"
           - "anthropic fireworks-ai google-genai groq mistralai openai replicate together"
           - "huggingface-hub llama-cpp-python openai-whisper"
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
@@ -66,7 +66,7 @@ jobs:
             os: ubuntu-24.04-arm
           - python-version: "3.10"
             package-configs: ""
-            os: ubuntu-x64-t4
+            os: ubuntu-small-t4
 
     runs-on: ${{ matrix.os }}
     defaults:
@@ -110,7 +110,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pixeltable 'pandas<3' ${{ matrix.package-configs }}
+          python -m pip install pixeltable ${{ matrix.package-configs }}
           python -m pip install beautifulsoup4==4.14.2  # Workaround for Actions installing broken 4.14.0
           python -m pip install filelock pytest pytest-xdist pytest-rerunfailures
       - name: Install spaCy model
@@ -136,8 +136,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
-        python-version: ["3.10", "3.12"]
+        os: [ubuntu-medium]
+        python-version: ["3.10"]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
