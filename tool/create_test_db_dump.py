@@ -6,9 +6,11 @@ import pathlib
 import subprocess
 import sys
 import time
+import uuid
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pixeltable_pgserver
 import toml
 
@@ -159,6 +161,11 @@ class Dumper:
             'c9': pxt.Audio,
             'c10': pxt.Video,
             'c11': pxt.Document,
+            'c12': pxt.Array[np.float64, (10,)],  # type: ignore[misc]
+            'c13': pxt.UUID,
+            'c14': pxt.Date,
+            'c15': pxt.Timestamp,
+            'c16': pxt.Binary,
         }
         t = pxt.create_table(
             'base_table', schema, primary_key='c2', comment='This is a test table.', custom_metadata={'key': 'value'}
@@ -206,6 +213,11 @@ class Dumper:
                 'c9': SAMPLE_AUDIO_URLS[i] if i < len(SAMPLE_AUDIO_URLS) else None,
                 'c10': SAMPLE_VIDEO_URLS[i] if i < len(SAMPLE_VIDEO_URLS) else None,
                 'c11': SAMPLE_DOCUMENT_URLS[i] if i < len(SAMPLE_DOCUMENT_URLS) else None,
+                'c12': np.zeros((10,), dtype=np.float64),
+                'c13': uuid.UUID('a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6'),
+                'c14': datetime.date(2026, 2, 6),
+                'c15': datetime.datetime(2026, 2, 6, tzinfo=ZoneInfo('UTC')),
+                'c16': b'Hello World!' if i < num_rows / 2 else None,
             }
             for i in range(num_rows)
         ]
@@ -425,6 +437,17 @@ class Dumper:
 
         add_computed_column('sim_output', q2(t.c1))
 
+        add_computed_column('c12_udf_with_array_literal', udf_with_array_literal(t.c12), stored=True)
+        add_computed_column('c13_expr_with_uuid_literal', test_udf_with_default_uuid(), stored=True)
+        add_computed_column('c14_expr_with_date_literal', pxtf.date.isocalendar(datetime.date(2026, 2, 6)), stored=True)
+        add_computed_column(
+            'c15_expr_with_timestamp_literal',
+            pxtf.timestamp.posix_timestamp(t.c15)
+            - pxtf.timestamp.posix_timestamp(datetime.datetime(2026, 1, 1, tzinfo=ZoneInfo('UTC'))),
+            stored=True,
+        )
+        add_computed_column('c16_expr_with_binary_literal', b'hello'.decode('utf-8'), stored=True)
+
 
 @pxt.udf(_force_stored=True)
 def test_udf_stored(n: int) -> int:
@@ -434,6 +457,24 @@ def test_udf_stored(n: int) -> int:
 @pxt.udf(batch_size=4, _force_stored=True)
 def test_udf_stored_batched(strings: Batch[str], *, upper: bool = True) -> Batch[str]:
     return [string.upper() if upper else string.lower() for string in strings]
+
+
+_DEFAULT_B = np.ones(10, dtype=np.float64)
+
+
+@pxt.udf(_force_stored=True)
+def udf_with_array_literal(
+    a: pxt.Array[np.float64, (10,)], b: pxt.Array[np.float64, (10,)] = _DEFAULT_B
+) -> pxt.Array[np.float64, (10,)]:
+    return a + b
+
+
+_DEFAULT_UUID = uuid.UUID('d2bf8589-dd71-4b2e-8d8f-9a64094673fe')
+
+
+@pxt.udf(_force_stored=True)
+def test_udf_with_default_uuid(uuid: pxt.UUID = _DEFAULT_UUID) -> str:
+    return str(uuid)
 
 
 def main() -> None:
