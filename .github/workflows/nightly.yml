@@ -136,8 +136,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
-        python-version: ["3.10", "3.12"]
+        os: [ubuntu-medium]
+        python-version: ["3.10"]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
