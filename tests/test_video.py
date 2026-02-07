@@ -23,6 +23,13 @@ from .utils import (
 )
 
 
+@pxt.udf
+def _fake_drifting_bbox(frame_idx: int) -> tuple[int, int, int, int]:
+    """Simulate a bounding box drifting left-to-right across a 640px-wide frame."""
+    cx = min(100 + frame_idx * 30, 540)
+    return (cx - 50, 80, cx + 50, 280)
+
+
 class TestVideo:
     def create_tbls(
         self, base_name: str = 'video_tbl', view_name: str = 'frame_view', all_frame_attrs: bool = True
@@ -1104,6 +1111,29 @@ class TestVideo:
         assert status.num_excs == 0
         row = t.select(t.cropped).collect()[0]
         assert row['cropped'] is not None
+
+    def test_smooth_reframe(self, uses_db: None, tmp_path: Path) -> None:
+        """Smooth tracking crop via the smooth_reframe UDA."""
+        from pixeltable.functions.video import smooth_reframe
+
+        video_path = generate_test_video(tmp_path, duration=1.0, size='640x360', fps=10)
+        base = pxt.create_table('test_reframe', {'video': pxt.Video})
+        fv = pxt.create_view('test_reframe_frames', base, iterator=frame_iterator(base.video, fps=10))
+
+        # Simulate a bounding box that drifts across frames
+        fv.add_computed_column(bbox=_fake_drifting_bbox(fv.frame_idx))
+
+        status = base.insert(video=video_path)
+        assert status.num_excs == 0
+
+        # Use default init params (fps=25, target 1080x1920) — explicit kwargs
+        # are passed through to update() by the framework, so we rely on defaults.
+        result = fv.select(smooth_reframe(fv.pos, fv.frame, fv.bbox)).group_by(base).collect()
+        assert len(result) == 1
+        row = result[0]
+        # The result dict has a single key for the aggregate expression
+        video_val = next(iter(row.values()))
+        assert video_val is not None  # got a video back
 
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')

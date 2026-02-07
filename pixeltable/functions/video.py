@@ -86,6 +86,177 @@ class make_video(pxt.Aggregator):
         return str(self.out_file)
 
 
+@pxt.uda(requires_order_by=True)
+class smooth_reframe(pxt.Aggregator):
+    """
+    Aggregate function that creates a reframed video by smoothly tracking a subject across frames.
+
+    Receives ``(frame, bbox)`` pairs in order. For each frame, the bounding box centre and zoom
+    level are smoothed using exponential moving averages, the frame is cropped around the smoothed
+    position, and the crop is resized to the target resolution. The result is a video that
+    follows the subject without jarring jumps.
+
+    When a frame has no detection (``bbox`` is None), the previous smoothed position is carried
+    forward so the camera holds steady.
+
+    Args:
+        fps: Frames per second for the output video.
+        target_width: Output video width in pixels.
+        target_height: Output video height in pixels.
+        margin_factor: Scale factor applied to each bounding box before smoothing (e.g. 1.3 = 30 %
+            extra room around the subject).
+        smoothing: Exponential smoothing factor for both centre and scale (0 to 1).  Higher values
+            produce a smoother but more sluggish camera; lower values track faster but jitter more.
+        max_zoom_rate: Maximum per-frame zoom change ratio (e.g. 1.05 = ±5 % per frame).  Prevents
+            abrupt zoom jumps when the detection size changes suddenly.
+
+    Returns:
+        A video at the requested resolution with the subject kept in frame.
+
+    Examples:
+        Given a frame view ``fv`` with per-frame detections, reframe all frames into a 9:16 video:
+
+        >>> fv.select(
+        ...     smooth_reframe(
+        ...         fv.frame, fv.bbox, fps=30,
+        ...         target_width=1080, target_height=1920,
+        ...     )
+        ... ).collect()
+
+        With gentler smoothing and tighter framing:
+
+        >>> fv.select(
+        ...     smooth_reframe(
+        ...         fv.frame, fv.bbox, fps=30,
+        ...         target_width=1080, target_height=1920,
+        ...         margin_factor=1.1, smoothing=0.98,
+        ...     )
+        ... ).collect()
+    """
+
+    container: av.container.OutputContainer | None
+    stream: av.VideoStream | None
+
+    def __init__(
+        self,
+        fps: int = 25,
+        target_width: int = 1080,
+        target_height: int = 1920,
+        margin_factor: float = 1.3,
+        smoothing: float = 0.95,
+        max_zoom_rate: float = 1.05,
+    ):
+        self.container = None
+        self.stream = None
+        self.fps = fps
+        self.target_width = target_width
+        self.target_height = target_height
+        self.margin_factor = margin_factor
+        self.smoothing = smoothing
+        self.max_zoom_rate = max_zoom_rate
+        # Smoothing state — initialised on first frame with a detection
+        self.smooth_cx: float | None = None
+        self.smooth_cy: float | None = None
+        self.smooth_scale: float = 1.0
+        self.source_width: int = 0
+        self.source_height: int = 0
+
+    def update(self, frame: PIL.Image.Image, bbox: tuple[int, int, int, int] | None) -> None:
+        if frame is None:
+            return
+
+        src_w, src_h = frame.size
+        self.source_width = src_w
+        self.source_height = src_h
+
+        # --- Initialise writer on first frame ---
+        if self.container is None:
+            self.out_file = TempStore.create_path(extension='.mp4')
+            self.container = av.open(str(self.out_file), mode='w')
+            self.stream = self.container.add_stream('h264', rate=self.fps)
+            self.stream.pix_fmt = 'yuv420p'
+            self.stream.width = self.target_width
+            self.stream.height = self.target_height
+
+        # --- Compute raw centre and size from detection ---
+        if bbox is not None:
+            x1, y1, x2, y2 = bbox
+            raw_cx = (x1 + x2) / 2.0
+            raw_cy = (y1 + y2) / 2.0
+            box_w = (x2 - x1) * self.margin_factor
+            box_h = (y2 - y1) * self.margin_factor
+
+            # Instantaneous scale: fit the (expanded) detection into the target resolution
+            scale_w = self.target_width / max(box_w, 1)
+            scale_h = self.target_height / max(box_h, 1)
+            raw_scale = min(scale_w, scale_h)
+        else:
+            # No detection — hold previous position
+            raw_cx = self.smooth_cx if self.smooth_cx is not None else src_w / 2.0
+            raw_cy = self.smooth_cy if self.smooth_cy is not None else src_h / 2.0
+            raw_scale = self.smooth_scale
+
+        # --- Initialise smoothing state on first detection ---
+        if self.smooth_cx is None:
+            self.smooth_cx = raw_cx
+            self.smooth_cy = raw_cy
+            self.smooth_scale = raw_scale
+        else:
+            # Smooth centre
+            alpha = self.smoothing
+            self.smooth_cx = alpha * self.smooth_cx + (1 - alpha) * raw_cx
+            self.smooth_cy = alpha * self.smooth_cy + (1 - alpha) * raw_cy
+
+            # Clamp + smooth scale
+            lo = self.smooth_scale / self.max_zoom_rate
+            hi = self.smooth_scale * self.max_zoom_rate
+            clamped = max(lo, min(raw_scale, hi))
+            self.smooth_scale = alpha * self.smooth_scale + (1 - alpha) * clamped
+
+        # --- Compute crop region in source pixel space ---
+        half_w = (self.target_width / 2.0) / self.smooth_scale
+        half_h = (self.target_height / 2.0) / self.smooth_scale
+
+        cx, cy = self.smooth_cx, self.smooth_cy
+
+        crop_x1 = cx - half_w
+        crop_y1 = cy - half_h
+        crop_x2 = cx + half_w
+        crop_y2 = cy + half_h
+
+        # Shift to stay within bounds
+        if crop_x1 < 0:
+            crop_x2 -= crop_x1
+            crop_x1 = 0.0
+        elif crop_x2 > src_w:
+            crop_x1 -= crop_x2 - src_w
+            crop_x2 = float(src_w)
+        if crop_y1 < 0:
+            crop_y2 -= crop_y1
+            crop_y1 = 0.0
+        elif crop_y2 > src_h:
+            crop_y1 -= crop_y2 - src_h
+            crop_y2 = float(src_h)
+
+        box = (round(crop_x1), round(crop_y1), round(crop_x2), round(crop_y2))
+
+        # --- Crop, resize, write ---
+        cropped = frame.crop(box)
+        resized = cropped.resize((self.target_width, self.target_height), PIL.Image.LANCZOS)
+
+        av_frame = av.VideoFrame.from_ndarray(np.array(resized.convert('RGB')), format='rgb24')
+        for packet in self.stream.encode(av_frame):
+            self.container.mux(packet)
+
+    def value(self) -> pxt.Video | None:
+        if self.container is None:
+            return None
+        for packet in self.stream.encode():
+            self.container.mux(packet)
+        self.container.close()
+        return str(self.out_file)
+
+
 @pxt.udf(is_method=True)
 def extract_audio(
     video_path: pxt.Video, stream_idx: int = 0, format: str = 'wav', codec: str | None = None
