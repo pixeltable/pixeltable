@@ -416,9 +416,9 @@ class TestIndex:
         # cannot use if_exists to ignore or replace an existing index
         # that is not an embedding (like, default btree indexes).
         assert indexes[0]['_name'] == 'idx0'
-        for _ie in ['ignore', 'replace', 'replace_force']:
+        for ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(pxt.Error, match='not an embedding index'):
-                t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=_ie)  # type: ignore[arg-type]
+                t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=ie)  # type: ignore[arg-type]
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
         assert indexes[0]['_name'] == 'idx0'
@@ -461,7 +461,7 @@ class TestIndex:
         # create table with fewer rows to speed up testing
         schema = {'pkey': ts.IntType(nullable=False), 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
         tbl_name = 'update_test'
-        img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
+        img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')  # type: ignore[arg-type]
         img_t.insert(new_rows)
         print(img_t.head())
 
