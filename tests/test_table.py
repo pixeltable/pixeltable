@@ -1167,7 +1167,7 @@ class TestTable:
 
         with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': {'type': 'string'}})  # type: ignore[typeddict-item]
-        assert 'must be a type or ColumnType' in str(exc_info.value)
+        assert 'must be a type' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
             pxt.create_table('test', {'c1': {'value': 1, 'type': pxt.String}})  # type: ignore[typeddict-item]

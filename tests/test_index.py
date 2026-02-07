@@ -4,7 +4,7 @@ import random
 import string
 import sys
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
 import PIL.Image
@@ -416,9 +416,9 @@ class TestIndex:
         # cannot use if_exists to ignore or replace an existing index
         # that is not an embedding (like, default btree indexes).
         assert indexes[0]['_name'] == 'idx0'
-        for ie in ('ignore', 'replace', 'replace_force'):
+        for _ie in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(pxt.Error, match='not an embedding index'):
-                t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=ie)
+                t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=_ie)  # type: ignore[arg-type]
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
         assert indexes[0]['_name'] == 'idx0'
@@ -459,7 +459,7 @@ class TestIndex:
             new_rows.append(row)
 
         # create table with fewer rows to speed up testing
-        schema = {'pkey': pxt.Int, 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        schema = {'pkey': ts.IntType(nullable=False), 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
         tbl_name = 'update_test'
         img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
         img_t.insert(new_rows)
@@ -839,7 +839,7 @@ class TestIndex:
         with pytest.raises(pxt.Error, match='is not a valid embedding: it returns an array of invalid length 0'):
             test_tbl.add_embedding_index(test_tbl.c1, embedding=TestIndex.dummy_embedding.using(n=0), precision='fp16')
 
-    def run_btree_test(self, data: list, data_type: type) -> pxt.Table:
+    def run_btree_test(self, data: list, data_type: type | _GenericAlias) -> pxt.Table:
         t = pxt.create_table('btree_test', {'data': data_type})
         num_rows = len(data)
         rows = [{'data': value} for value in data]
