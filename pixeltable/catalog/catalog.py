@@ -1144,7 +1144,7 @@ class Catalog:
     def create_table(
         self,
         path: Path,
-        schema: dict[str, type | ColumnSpec],
+        schema: dict[str, type | ColumnSpec | exprs.Expr],
         if_exists: IfExistsParam,
         primary_key: list[str] | None,
         num_retained_versions: int,
