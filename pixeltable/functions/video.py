@@ -206,9 +206,20 @@ class smooth_reframe(pxt.Aggregator):
             self.smooth_scale = alpha * self.smooth_scale + (1 - alpha) * clamped
 
         # --- Compute crop region in source pixel space ---
-        half_w = (self.target_width / 2.0) / self.smooth_scale
-        half_h = (self.target_height / 2.0) / self.smooth_scale
+        target_aspect = self.target_width / self.target_height
+        crop_w = self.target_width / self.smooth_scale
+        crop_h = self.target_height / self.smooth_scale
 
+        # Constrain crop to fit within the source frame while preserving aspect ratio
+        if crop_w > src_w:
+            crop_w = float(src_w)
+            crop_h = crop_w / target_aspect
+        if crop_h > src_h:
+            crop_h = float(src_h)
+            crop_w = crop_h * target_aspect
+
+        half_w = crop_w / 2.0
+        half_h = crop_h / 2.0
         cx, cy = self.smooth_cx, self.smooth_cy
 
         crop_x1 = cx - half_w
