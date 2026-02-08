@@ -26,7 +26,7 @@ from pixeltable.utils.object_stores import ObjectOps
 
 from ..func.globals import resolve_symbol
 from .column import Column
-from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
@@ -1804,10 +1804,6 @@ class TableVersion:
         # the iterator columns directly follow the pos column
         return self.is_component_view and col.id > 0 and col.id < self.num_iterator_cols + 1
 
-    def is_system_column(self, col: Column) -> bool:
-        """Return True if column was created by Pixeltable"""
-        return col.name == _POS_COLUMN_NAME and self.is_component_view
-
     def iterator_columns(self) -> list[Column]:
         """Return all iterator-produced columns"""
         return self.cols[1 : self.num_iterator_cols + 1]
@@ -1816,10 +1812,6 @@ class TableVersion:
         if self.is_component_view:
             return InlineDict(self.iterator_call.bound_args).copy()
         return None
-
-    def user_columns(self) -> list[Column]:
-        """Return all non-system columns"""
-        return [c for c in self.cols if not self.is_system_column(c)]
 
     def primary_key_columns(self) -> list[Column]:
         """Return all non-system columns"""

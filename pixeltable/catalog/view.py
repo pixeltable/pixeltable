@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
 from typing import TYPE_CHECKING, Any, List, Literal
 from uuid import UUID
@@ -8,6 +9,7 @@ import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
+from pixeltable.func.iterator import IteratorOutput
 
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
@@ -129,24 +131,26 @@ class View(Table):
                 )
 
         if iterator_call is not None:
-            # prepend pos and output_schema columns to cols:
-            # a component view exposes the pos column of its rowid;
-            # we create that column here, so it gets assigned a column id;
-            # stored=False: it is not stored separately (it's already stored as part of the rowid)
-            iterator_cols = [Column(_POS_COLUMN_NAME, ts.IntType(), is_iterator_col=True, stored=False)]
-            iterator_cols.extend(
-                [
-                    Column(name, output_info.col_type, is_iterator_col=True, stored=(output_info.is_stored))
-                    for name, output_info in iterator_call.outputs.items()
-                ]
-            )
+            assert _POS_COLUMN_NAME in iterator_call.outputs
+            known_col_names = {col.name for col in columns}
+            if include_base_columns:
+                known_col_names.update(col.name for col in base.columns())
+            if any(name in known_col_names for name in iterator_call.outputs):
+                # One or more output column names from the iterator call conflict with existing column names.
+                # Rename the output column names as necessary to avoid conflicts.
+                updated_outputs: dict[str, IteratorOutput] = {}
+                for col_name, output_info in iterator_call.outputs.items():
+                    unique_name = cls.__get_unique_column_name(col_name, known_col_names)
+                    if unique_name != col_name:
+                        known_col_names.add(unique_name)
+                    updated_outputs[unique_name] = output_info
+                iterator_call = dataclasses.replace(iterator_call, outputs=updated_outputs)
 
-            iterator_col_names = {col.name for col in iterator_cols}
-            for col in columns:
-                if col.name in iterator_col_names:
-                    raise excs.Error(
-                        f'Duplicate name: column {col.name!r} is already present in the iterator output schema'
-                    )
+            iterator_cols = [
+                Column(name, output_info.col_type, is_iterator_col=True, stored=(output_info.is_stored))
+                for name, output_info in iterator_call.outputs.items()
+            ]
+
             columns = iterator_cols + columns
 
         iterator_args_expr: exprs.Expr = InlineDict(iterator_call.bound_args) if iterator_call is not None else None
@@ -203,6 +207,20 @@ class View(Table):
                 ),
             ]
             return md, ops
+
+    @classmethod
+    def __get_unique_column_name(cls, base_name: str, existing_names: set[str]) -> str:
+        """Returns a unique column name based on the given base name and the set of existing names."""
+        if base_name not in existing_names:
+            return base_name
+
+        i = 1
+        new_name = f'{base_name}_{i}'
+        while new_name in existing_names:
+            i += 1
+            new_name = f'{base_name}_{i}'
+
+        return new_name
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:

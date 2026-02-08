@@ -432,7 +432,7 @@ class Catalog:
 
             except (Exception, KeyboardInterrupt) as e:
                 has_exc = True
-                _logger.debug(f'Caught {e.__class__}')
+                _logger.debug(f'Caught {e.__class__}: {e}', exc_info=True)
                 raise
 
             finally:

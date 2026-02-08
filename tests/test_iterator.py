@@ -169,6 +169,39 @@ class TestIterator:
 
         reload_tester.run_reload_test()
 
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_iterator_column_renames(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', schema={'pos': pxt.String, 'input': pxt.Int, 'scol': pxt.Float})
+        t.insert([{'pos': 'a', 'input': 5, 'scol': 1.0}, {'pos': 'b', 'input': 3, 'scol': 2.0}])
+        v = pxt.create_view('view', t, iterator=simple_iterator(t.input))
+        # Try adding a "second round" of iteration
+        vv = pxt.create_view('view2', v, iterator=simple_iterator(v.icol))
+
+        reload_catalog(do_reload_catalog)
+
+        assert v._get_schema() == {
+            'pos_1': ts.IntType(),
+            'icol': ts.IntType(),
+            'scol_1': ts.StringType(),
+            'acol': ts.ArrayType((None, 512), ts.FloatType(), nullable=True),
+            'input': ts.IntType(nullable=True),
+            'pos': ts.StringType(nullable=True),
+            'scol': ts.FloatType(nullable=True),
+        }
+        assert vv._get_schema() == {
+            'pos_2': ts.IntType(),
+            'icol_1': ts.IntType(),
+            'scol_2': ts.StringType(),
+            'acol_1': ts.ArrayType((None, 512), ts.FloatType(), nullable=True),
+            'pos_1': ts.IntType(),
+            'icol': ts.IntType(),
+            'scol_1': ts.StringType(),
+            'acol': ts.ArrayType((None, 512), ts.FloatType(), nullable=True),
+            'input': ts.IntType(nullable=True),
+            'pos': ts.StringType(nullable=True),
+            'scol': ts.FloatType(nullable=True),
+        }
+
     def test_iterator_errors(self, uses_db: None) -> None:
         # Error: class not a subclass of PxtIterator
         with pytest.raises(
@@ -369,6 +402,16 @@ class TestIterator:
 
             @pxt.iterator('unexpected_arg')  # type: ignore[call-overload]
             def unexpected_arg_iterator(x: int) -> Iterator[MyRow]:
+                yield from []
+
+        # Error: use of reserved column name
+        with pytest.raises(pxt.Error, match=r"'pos' is reserved and cannot be the name of an iterator output."):
+
+            class PosRow(TypedDict):
+                pos: int
+
+            @pxt.iterator
+            def reserved_pos_iterator(x: int) -> Iterator[PosRow]:
                 yield from []
 
     @pytest.mark.parametrize('as_kwarg', [False, True])

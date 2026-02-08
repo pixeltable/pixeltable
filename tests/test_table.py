@@ -149,9 +149,6 @@ class TestTable:
         with pytest.raises(pxt.Error, match='Versioned path not allowed here: test2:120'):
             pxt.drop_table('test2:120')
 
-        with pytest.raises(pxt.Error, match="'pos' is a reserved name in Pixeltable"):
-            pxt.create_table('bad_col_name', {'pos': pxt.Int})
-
         with pytest.raises(pxt.Error, match="'add_column' is a reserved name in Pixeltable"):
             pxt.create_table('test', {'add_column': pxt.Int})
 
@@ -2187,10 +2184,6 @@ class TestTable:
         with pytest.raises(pxt.Error) as exc_info:
             _ = t.add_column(add2=pxt.Int, add3=pxt.String)
         assert 'requires exactly one keyword argument' in str(exc_info.value).lower()
-
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = t.add_column(pos=pxt.String)
-        assert "'pos' is a reserved name in pixeltable" in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as excs_info:
             _ = t.add_column(add_column=pxt.Int)

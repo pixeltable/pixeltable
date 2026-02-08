@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar, ove
 from typing_extensions import Self
 
 from pixeltable import exceptions as excs, exprs, type_system as ts
+from pixeltable.catalog.globals import _POS_COLUMN_NAME
 from pixeltable.func.globals import resolve_symbol
 
 from .signature import Signature
@@ -29,6 +30,10 @@ class IteratorOutput:
     orig_name: str
     is_stored: bool
     col_type: ts.ColumnType
+
+    @property
+    def is_pos_column(self) -> bool:
+        return self.orig_name == _POS_COLUMN_NAME
 
     def as_dict(self) -> dict[str, Any]:
         return {'orig_name': self.orig_name, 'is_stored': self.is_stored, 'col_type': self.col_type.as_dict()}
@@ -181,6 +186,8 @@ class GeneratingFunction:
         annotations = output_schema_type.__annotations__.items()
         self._default_output_schema = {}
         for name, type_ in annotations:
+            if name == _POS_COLUMN_NAME:
+                raise excs.Error(f'{_POS_COLUMN_NAME!r} is reserved and cannot be the name of an iterator output.')
             col_type = ts.ColumnType.from_python_type(type_)
             if col_type is None:
                 raise excs.Error(
@@ -237,10 +244,16 @@ class GeneratingFunction:
 
         output_schema = self.call_output_schema(literal_args)
 
-        outputs = {
-            name: IteratorOutput(orig_name=name, is_stored=(name not in self.unstored_cols), col_type=col_type)
-            for name, col_type in output_schema.items()
-        }
+        # a component view exposes the pos column of its rowid;
+        # we create that column here, so it gets assigned a column id;
+        # stored=False: it is not stored separately (it's already stored as part of the rowid)
+        outputs = {_POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())}
+        outputs.update(
+            {
+                name: IteratorOutput(orig_name=name, is_stored=(name not in self.unstored_cols), col_type=col_type)
+                for name, col_type in output_schema.items()
+            }
+        )
 
         return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs, validation_error=None)
 
@@ -417,12 +430,20 @@ class GeneratingFunctionCall:
             else:
                 unstored_cols = it.unstored_cols
             outputs = {
-                name: IteratorOutput(orig_name=name, is_stored=(name in unstored_cols), col_type=col_type)
-                for name, col_type in output_schema.items()
+                _POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())
             }
+            outputs.update(
+                {
+                    name: IteratorOutput(orig_name=name, is_stored=(name in unstored_cols), col_type=col_type)
+                    for name, col_type in output_schema.items()
+                }
+            )
         else:
             # Validate call_output_schema against stored outputs
+            assert any(output.is_pos_column for output in outputs.values())
             for output in outputs.values():
+                if output.is_pos_column:
+                    continue  # the pos column is not represented explicitly in the output schema
                 if output.orig_name not in output_schema:
                     # TODO: should we in fact allow this, and just put Nones in the column, to allow for
                     #     "deprecated" output columns?

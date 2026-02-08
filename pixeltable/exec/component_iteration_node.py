@@ -83,6 +83,8 @@ class ComponentIterationNode(ExecNode):
         # validate component_dict fields and copy them to their respective slots in output_row.
         # if the column names differ from the component_dict keys, the remapping occurs here.
         for name, output_info in self.iterator_call.outputs.items():
+            if output_info.is_pos_column:
+                continue  # this is taken care of as part of the pk
             if output_info.orig_name not in component_dict:
                 raise excs.Error(
                     f'Invalid output from iterator `{self.iterator_call.it.fqn}`: '

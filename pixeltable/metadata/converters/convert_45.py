@@ -42,6 +42,11 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
                         kwargs['min_segment_duration'] = kwargs.pop('min_chunk_duration_sec')
                     # For `audio_splitter`, output columns were renamed in v46, so we explicitly emit them here.
                     outputs = {
+                        'pos': {
+                            'orig_name': 'pos',
+                            'is_stored': True,
+                            'col_type': {'nullable': False, '_classname': 'IntType'},
+                        },
                         'audio_chunk': {
                             'orig_name': 'audio_segment',
                             'is_stored': True,

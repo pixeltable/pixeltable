@@ -69,11 +69,6 @@ class TestComponentView:
         video_t = pxt.create_table('video_tbl', schema)
         video_filepaths = get_test_video_files()
 
-        # cannot add 'pos' column
-        with pytest.raises(pxt.Error) as excinfo:
-            video_t.add_column(pos=pxt.Int)
-        assert 'reserved' in str(excinfo.value)
-
         # bad parameter type
         with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view('test_view', video_t, iterator=frame_iterator(1, fps=1))
