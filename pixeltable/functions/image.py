@@ -92,24 +92,156 @@ def _(self: Expr, mode: str) -> ts.ColumnType:
 
 # Image.crop()
 @pxt.udf(is_method=True)
-def crop(self: PIL.Image.Image, box: tuple[int, int, int, int]) -> PIL.Image.Image:
+def crop(
+    self: PIL.Image.Image,
+    box: tuple[int, int, int, int],
+    *,
+    margin_factor: float = 1.0,
+    padding: int = 0,
+    aspect_ratio: str | None = None,
+) -> PIL.Image.Image:
     """
-    Return a rectangular region from the image. The box is a 4-tuple defining the left, upper, right, and lower pixel
-    coordinates.
+    Return a rectangular region from the image.
 
-    Equivalent to
-    [`PIL.Image.Image.crop()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.crop)
+    When called with just a ``box``, behaves identically to
+    [`PIL.Image.Image.crop()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.crop).
+
+    The optional parameters let you expand the box and/or fit it to a target aspect ratio
+    before cropping — all in a single call:
+
+    - ``margin_factor`` scales the box outward from its centre (e.g. ``1.3`` = 30 % larger).
+    - ``padding`` adds that many pixels on every side.
+    - ``aspect_ratio`` expands the box to match the given ratio (e.g. ``'9:16'``), centred on the
+      original box and clamped to image bounds.
+
+    When multiple parameters are provided they are applied in order: scale → pad → fit to aspect.
+
+    Args:
+        box: Bounding box as ``(left, upper, right, lower)``.
+        margin_factor: Scale factor around the box centre. ``1.0`` = unchanged.
+        padding: Pixels to add on every side after scaling.
+        aspect_ratio: Target aspect ratio as ``'W:H'`` (e.g. ``'9:16'``, ``'1:1'``).
+
+    Examples:
+        Plain crop (same as PIL):
+
+        ```python
+        t.select(t.image.crop((10, 10, 200, 200))).collect()
+        ```
+
+        Crop with 30 % margin around a detection:
+
+        ```python
+        t.add_computed_column(cropped=t.image.crop(t.bbox, margin_factor=1.3))
+        ```
+
+        Crop to 9:16 around a detection with padding:
+
+        ```python
+        t.add_computed_column(
+            cropped=t.image.crop(t.bbox, padding=20, aspect_ratio='9:16')
+        )
+        ```
     """
-    return self.crop(box)
+    img_w, img_h = self.size
+
+    x1, y1, x2, y2 = box
+
+    # --- expand ---
+    if margin_factor != 1.0 or padding != 0:
+        if margin_factor != 1.0:
+            cx = (x1 + x2) / 2.0
+            cy = (y1 + y2) / 2.0
+            half_w = (x2 - x1) * margin_factor / 2.0
+            half_h = (y2 - y1) * margin_factor / 2.0
+            x1 = round(cx - half_w)
+            y1 = round(cy - half_h)
+            x2 = round(cx + half_w)
+            y2 = round(cy + half_h)
+        if padding != 0:
+            x1 -= padding
+            y1 -= padding
+            x2 += padding
+            y2 += padding
+        x1 = max(0, min(x1, img_w))
+        y1 = max(0, min(y1, img_h))
+        x2 = max(0, min(x2, img_w))
+        y2 = max(0, min(y2, img_h))
+
+    # --- fit to aspect ratio ---
+    if aspect_ratio is not None:
+        if ':' in aspect_ratio:
+            parts = aspect_ratio.split(':')
+        elif 'x' in aspect_ratio.lower():
+            parts = aspect_ratio.lower().split('x')
+        else:
+            raise ValueError(f"Invalid aspect_ratio '{aspect_ratio}'. Use 'W:H'.")
+        ar_w, ar_h = float(parts[0]), float(parts[1])
+        target = ar_w / ar_h
+
+        roi_w = float(x2 - x1)
+        roi_h = float(y2 - y1)
+        cx = (x1 + x2) / 2.0
+        cy = (y1 + y2) / 2.0
+
+        if (roi_w / max(roi_h, 1)) < target:
+            new_w = roi_h * target
+            new_h = roi_h
+        else:
+            new_w = roi_w
+            new_h = roi_w / target
+
+        if new_w > img_w:
+            new_w = float(img_w)
+            new_h = new_w / target
+        if new_h > img_h:
+            new_h = float(img_h)
+            new_w = new_h * target
+
+        x1 = cx - new_w / 2
+        y1 = cy - new_h / 2
+        x2 = cx + new_w / 2
+        y2 = cy + new_h / 2
+
+        if x1 < 0:
+            x2 -= x1
+            x1 = 0.0
+        elif x2 > img_w:
+            x1 -= x2 - img_w
+            x2 = float(img_w)
+        if y1 < 0:
+            y2 -= y1
+            y1 = 0.0
+        elif y2 > img_h:
+            y1 -= y2 - img_h
+            y2 = float(img_h)
+
+        x1, y1, x2, y2 = round(x1), round(y1), round(x2), round(y2)
+
+    return self.crop((x1, y1, x2, y2))
 
 
 @crop.conditional_return_type
-def _(self: Expr, box: tuple[int, int, int, int]) -> ts.ColumnType:
+def _(
+    self: Expr,
+    box: tuple[int, int, int, int],
+    margin_factor: float = 1.0,
+    padding: int = 0,
+    aspect_ratio: str | None = None,
+) -> ts.ColumnType:
     input_type = self.col_type
     assert isinstance(input_type, ts.ImageType)
-    if (isinstance(box, (list, tuple))) and len(box) == 4 and all(isinstance(x, int) for x in box):
+    # Can only compute static size for plain crop (no expand/aspect)
+    if (
+        margin_factor == 1.0
+        and padding == 0
+        and aspect_ratio is None
+        and isinstance(box, (list, tuple))
+        and len(box) == 4
+        and all(isinstance(x, int) for x in box)
+    ):
         return ts.ImageType(size=(box[2] - box[0], box[3] - box[1]), mode=input_type.mode, nullable=input_type.nullable)
-    return ts.ImageType(mode=input_type.mode, nullable=input_type.nullable)  # we can't compute the size statically
+    return ts.ImageType(mode=input_type.mode, nullable=input_type.nullable)
 
 
 # Image.getchannel()

@@ -1046,14 +1046,21 @@ def overlay_text(
 
 
 @pxt.udf(is_method=True)
-def crop(video: pxt.Video, box: tuple[int, int, int, int], *, target_size: tuple[int, int] | None = None) -> pxt.Video:
+def crop(
+    video: pxt.Video,
+    box: tuple[int, int, int, int],
+    *,
+    margin_factor: float = 1.0,
+    padding: int = 0,
+    aspect_ratio: str | None = None,
+    target_size: tuple[int, int] | None = None,
+) -> pxt.Video:
     """
     Spatially crop a video to a rectangular region, optionally resizing the result to a target resolution.
 
-    The crop region is specified as ``(left, upper, right, lower)`` in pixel coordinates, matching
-    the PIL convention used by ``image.crop()``.  When ``target_size`` is given the cropped region
-    is scaled to that exact resolution; aspect ratio is preserved automatically when the crop box
-    already matches the target proportions (see ``image.fit_bbox_to_aspect``).
+    Mirrors the parameter interface of ``image.crop()``: you can expand the box with ``margin_factor``
+    or ``padding``, and fit it to a target ``aspect_ratio`` — all in one call.  When ``target_size``
+    is given the cropped region is scaled to that exact resolution.
 
     __Requirements:__
 
@@ -1062,8 +1069,11 @@ def crop(video: pxt.Video, box: tuple[int, int, int, int], *, target_size: tuple
     Args:
         video: Input video to crop.
         box: Crop region as ``(left, upper, right, lower)`` in pixel coordinates.
-        target_size: Optional target resolution as ``(width, height)``.  If specified the cropped
-            region is resized to this resolution.
+        margin_factor: Scale factor around the box centre (e.g. ``1.3`` = 30 % larger).
+        padding: Pixels to add on every side after scaling.
+        aspect_ratio: Target aspect ratio as ``'W:H'`` (e.g. ``'9:16'``). The box is expanded and
+            centred to match, clamped to video frame bounds.
+        target_size: Optional target resolution as ``(width, height)``.
 
     Returns:
         A new cropped (and optionally resized) video.
@@ -1073,21 +1083,93 @@ def crop(video: pxt.Video, box: tuple[int, int, int, int], *, target_size: tuple
 
         >>> tbl.select(tbl.video.crop((100, 50, 740, 1330))).collect()
 
-        Crop around a detected subject at 9:16 and resize to 1080x1920:
+        Crop around a detected subject at 9:16 with 30 % margin, resized to 1080x1920:
 
-        >>> from pixeltable.functions.image import fit_bbox_to_aspect
         >>> tbl.add_computed_column(
-        ...     crop_box=fit_bbox_to_aspect(
-        ...         tbl.bbox, tbl.first_frame.width, tbl.first_frame.height, aspect_ratio='9:16'
+        ...     cropped=tbl.video.crop(
+        ...         tbl.bbox, margin_factor=1.3, aspect_ratio='9:16', target_size=(1080, 1920)
         ...     )
-        ... )
-        >>> tbl.add_computed_column(
-        ...     cropped=tbl.video.crop(tbl.crop_box, target_size=(1080, 1920))
         ... )
     """
     Env.get().require_binary('ffmpeg')
 
     x1, y1, x2, y2 = box
+
+    # Get video dimensions for margin/aspect computations
+    if margin_factor != 1.0 or padding != 0 or aspect_ratio is not None:
+        md = av_utils.get_metadata(video)
+        video_stream = next((s for s in md['streams'] if s['type'] == 'video'), None)
+        if video_stream is None:
+            raise pxt.Error('Video has no video stream')
+        vid_w, vid_h = video_stream['width'], video_stream['height']
+
+        # --- expand ---
+        if margin_factor != 1.0:
+            cx = (x1 + x2) / 2.0
+            cy = (y1 + y2) / 2.0
+            half_w = (x2 - x1) * margin_factor / 2.0
+            half_h = (y2 - y1) * margin_factor / 2.0
+            x1 = round(cx - half_w)
+            y1 = round(cy - half_h)
+            x2 = round(cx + half_w)
+            y2 = round(cy + half_h)
+        if padding != 0:
+            x1 -= padding
+            y1 -= padding
+            x2 += padding
+            y2 += padding
+        x1 = max(0, min(x1, vid_w))
+        y1 = max(0, min(y1, vid_h))
+        x2 = max(0, min(x2, vid_w))
+        y2 = max(0, min(y2, vid_h))
+
+        # --- fit to aspect ratio ---
+        if aspect_ratio is not None:
+            if ':' in aspect_ratio:
+                parts = aspect_ratio.split(':')
+            elif 'x' in aspect_ratio.lower():
+                parts = aspect_ratio.lower().split('x')
+            else:
+                raise pxt.Error(f"Invalid aspect_ratio '{aspect_ratio}'. Use 'W:H'.")
+            target = float(parts[0]) / float(parts[1])
+
+            roi_w = float(x2 - x1)
+            roi_h = float(y2 - y1)
+            fcx = (x1 + x2) / 2.0
+            fcy = (y1 + y2) / 2.0
+
+            if (roi_w / max(roi_h, 1)) < target:
+                new_w = roi_h * target
+                new_h = roi_h
+            else:
+                new_w = roi_w
+                new_h = roi_w / target
+            if new_w > vid_w:
+                new_w = float(vid_w)
+                new_h = new_w / target
+            if new_h > vid_h:
+                new_h = float(vid_h)
+                new_w = new_h * target
+
+            x1f = fcx - new_w / 2
+            y1f = fcy - new_h / 2
+            x2f = fcx + new_w / 2
+            y2f = fcy + new_h / 2
+            if x1f < 0:
+                x2f -= x1f
+                x1f = 0.0
+            elif x2f > vid_w:
+                x1f -= x2f - vid_w
+                x2f = float(vid_w)
+            if y1f < 0:
+                y2f -= y1f
+                y1f = 0.0
+            elif y2f > vid_h:
+                y1f -= y2f - vid_h
+                y2f = float(vid_h)
+
+            x1, y1, x2, y2 = round(x1f), round(y1f), round(x2f), round(y2f)
+
     w = x2 - x1
     h = y2 - y1
     if w <= 0 or h <= 0:
