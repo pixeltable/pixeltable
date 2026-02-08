@@ -11,12 +11,14 @@ from typing import Any, BinaryIO, Literal
 import requests
 from requests.adapters import HTTPAdapter
 from rich.progress import BarColumn, DownloadColumn, Progress, TaskID, TransferSpeedColumn
+from typing_extensions import Self
 from urllib3.util.retry import Retry
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.catalog import Catalog
 from pixeltable.catalog.table_version import TableVersionMd
+from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.utils import sha256sum
 from pixeltable.utils.local_store import TempStore
@@ -51,7 +53,7 @@ class _ProgressFileReader:
             self.progress.update(self.task_id, advance=len(data))
         return data
 
-    def __enter__(self) -> '_ProgressFileReader':
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(
@@ -345,6 +347,12 @@ def list_table_versions(table_uri: str) -> list[dict[str, Any]]:
 def _api_headers() -> dict[str, str]:
     headers = {'Content-Type': 'application/json'}
     api_key = Env.get().pxt_api_key
-    if api_key is not None:
-        headers['X-api-key'] = api_key
+    if api_key is None:
+        raise excs.Error(
+            'A Pixeltable API key is required to use this feature. '
+            'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
+            f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
+            'For details, see https://docs.pixeltable.com/platform/configuration'
+        )
+    headers['X-api-key'] = api_key
     return headers

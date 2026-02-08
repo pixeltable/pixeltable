@@ -20,10 +20,10 @@ if TYPE_CHECKING:
 
 
 @register_client('runwayml')
-def _(api_key: str) -> 'AsyncRunwayML':
+def _(api_secret: str) -> 'AsyncRunwayML':
     from runwayml import AsyncRunwayML
 
-    return AsyncRunwayML(api_key=api_key)
+    return AsyncRunwayML(api_key=api_secret)
 
 
 def _runwayml_client() -> 'AsyncRunwayML':
@@ -51,7 +51,7 @@ def _serialize_result(obj: Any) -> Any:
     return obj
 
 
-@pxt.udf(resource_pool='request-rate:runwayml')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:runwayml')
 async def text_to_image(
     prompt_text: str,
     reference_images: list[PIL.Image.Image],
@@ -114,7 +114,7 @@ async def text_to_image(
     return _serialize_result(result.to_dict())
 
 
-@pxt.udf(resource_pool='request-rate:runwayml')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:runwayml')
 async def text_to_video(
     prompt_text: str,
     model: str,
@@ -169,7 +169,7 @@ async def text_to_video(
     return _serialize_result(result.to_dict())
 
 
-@pxt.udf(resource_pool='request-rate:runwayml')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:runwayml')
 async def image_to_video(
     prompt_image: PIL.Image.Image,
     model: str,
@@ -235,7 +235,7 @@ async def image_to_video(
     return _serialize_result(result.to_dict())
 
 
-@pxt.udf(resource_pool='request-rate:runwayml')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:runwayml')
 async def video_to_video(
     video_uri: str,
     prompt_text: str,

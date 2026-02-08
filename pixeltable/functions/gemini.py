@@ -56,12 +56,12 @@ class GeminiRateLimitsInfo(env.RateLimitsInfo):
                     if detail_dict.get('@type') == 'type.googleapis.com/google.rpc.RetryInfo':
                         delay = parse_duration_str(detail_dict['retryDelay'])
                         return delay
-            except (AttributeError, KeyError):
+            except (AttributeError, KeyError, TypeError):
                 return exponential_backoff(attempt)
         return None
 
 
-@pxt.udf()
+@pxt.udf(is_deterministic=False)
 async def generate_content(
     contents: pxt.Json,
     *,
@@ -161,7 +161,7 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
-@pxt.udf()
+@pxt.udf(is_deterministic=False)
 async def generate_images(
     prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx | None = None
 ) -> PIL.Image.Image:
@@ -209,7 +209,7 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
-@pxt.udf()
+@pxt.udf(is_deterministic=False)
 async def generate_videos(
     prompt: str | None = None,
     image: PIL.Image.Image | None = None,
