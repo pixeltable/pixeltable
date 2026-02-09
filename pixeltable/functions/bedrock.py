@@ -46,7 +46,7 @@ _embedding_dimensions: dict[str, int] = {
 }
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def converse(
     messages: list[dict[str, Any]],
     *,
@@ -121,7 +121,7 @@ async def converse(
     return await asyncio.to_thread(_bedrock_client().converse, **kwargs)
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def invoke_model(
     body: dict,
     *,

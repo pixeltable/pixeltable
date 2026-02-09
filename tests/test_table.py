@@ -11,7 +11,6 @@ from typing import Any, Literal, _GenericAlias, cast  # type: ignore[attr-define
 import av
 import numpy as np
 import pandas as pd
-import PIL
 import PIL.Image
 import pydantic
 import pytest
@@ -236,13 +235,13 @@ class TestTable:
             _ = pxt.create_table('dir1', schema)
         assert 'is an existing' in str(exc_info.value)
         assert len(tbl.select().collect()) == 1
-        for _ie in ['ignore', 'replace', 'replace_force']:
+        for ie in ('ignore', 'replace', 'replace_force'):
             with pytest.raises(pxt.Error) as exc_info:
-                pxt.create_table('dir1', schema, if_exists=_ie)  # type: ignore[arg-type]
+                pxt.create_table('dir1', schema, if_exists=ie)
             err_msg = str(exc_info.value).lower()
             assert 'already exists' in err_msg and 'is not a table' in err_msg
-            assert len(tbl.select().collect()) == 1, f'with if_exists={_ie}'
-            assert 'dir1' in pxt.list_dirs(), f'with if_exists={_ie}'
+            assert len(tbl.select().collect()) == 1, f'with if_exists={ie}'
+            assert 'dir1' in pxt.list_dirs(), f'with if_exists={ie}'
 
         # sanity check persistence
         _ = reload_tester.run_query(tbl.select())
@@ -328,6 +327,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': tbl_path,
                     'schema_version': 0,
+                    'custom_metadata': None,
                     'version': 0,
                 },
                 tbl.get_metadata(),
@@ -371,6 +371,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': view_path,
                     'schema_version': 1,
+                    'custom_metadata': None,
                     'version': 1,
                 },
                 view.get_metadata(),
@@ -400,6 +401,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': puresnap_path,
                     'schema_version': 0,
+                    'custom_metadata': None,
                     'version': 0,
                 },
                 puresnap.get_metadata(),
@@ -439,6 +441,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': snap_path,
                     'schema_version': 0,
+                    'custom_metadata': None,
                     'version': 0,
                 },
                 snap.get_metadata(),
@@ -2798,7 +2801,7 @@ class TestTable:
             External Store         Type
                    project  MockProject
 
-            COMMENT: This is an intriguing table comment."""
+            Comment: This is an intriguing table comment."""
         )
         _ = v2._repr_html_()  # TODO: Is there a good way to test this output?
 
@@ -2824,7 +2827,7 @@ class TestTable:
             External Store         Type
                    project  MockProject
 
-            COMMENT: This is an intriguing table comment."""
+            Comment: This is an intriguing table comment."""
         )
 
         # test case: snapshot of base table
@@ -3007,3 +3010,30 @@ class TestTable:
             pxt.Error, match="Cannot drop column 'c2' because it is the last remaining column in this table"
         ):
             t.drop_column('c2')
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_table_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': pxt.Int}, comment='This is a test table.')
+        assert t.get_metadata()['comment'] == 'This is a test table.'
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['comment'] == 'This is a test table.'
+
+        # check that raw object JSON comments are rejected
+        with pytest.raises(pxt.Error, match='`comment` must be a string'):
+            pxt.create_table('tbl_invalid', {'c': pxt.Int}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_table_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': pxt.Int}, custom_metadata=custom_metadata)
+        assert t.get_metadata()['custom_metadata'] == custom_metadata
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['custom_metadata'] == custom_metadata
+
+        # check that invalid JSON user metadata are rejected
+        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
+            pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})

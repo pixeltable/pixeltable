@@ -367,6 +367,8 @@ class SchemaVersionMd:
     # stores column.MediaValidation.name.lower()
     media_validation: str
     additional_md: dict[str, Any]  # deprecated
+    # user-defined metadata - must be a valid JSON-serializable object
+    custom_metadata: Any = None
 
 
 # versioning: each table schema change results in a new record

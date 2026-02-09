@@ -1,4 +1,3 @@
-import http
 import http.server
 import logging
 import pathlib

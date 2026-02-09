@@ -160,7 +160,9 @@ class Dumper:
             'c10': pxt.Video,
             'c11': pxt.Document,
         }
-        t = pxt.create_table('base_table', schema, primary_key='c2')
+        t = pxt.create_table(
+            'base_table', schema, primary_key='c2', comment='This is a test table.', custom_metadata={'key': 'value'}
+        )
 
         num_rows = 20
         d1 = {
@@ -214,14 +216,30 @@ class Dumper:
         pxt.create_dir('views')
 
         # simple view
-        v = pxt.create_view('views.view', t.where(t.c2 < 50))
+        v = pxt.create_view(
+            'views.view', t.where(t.c2 < 50), comment='This is a test view.', custom_metadata={'view_key': 'view_value'}
+        )
         self.__add_expr_columns(v, 'view')
 
         # snapshot
         _ = pxt.create_snapshot('views.snapshot', t.where(t.c2 >= 75))
 
+        # non-pure snapshot (a snapshot with additional columns which thus requires being physically stored)
+        _ = pxt.create_snapshot(
+            'views.snapshot_non_pure',
+            t.where(t.c2 >= 75),
+            additional_columns={'s1': t.c2 * 2},
+            comment='This is a test snapshot.',
+            custom_metadata={'snapshot_key': 'snapshot_value'},
+        )
+
         # view of views
-        vv = pxt.create_view('views.view_of_views', v.where(t.c2 >= 25))
+        vv = pxt.create_view(
+            'views.view_of_views',
+            v.where(t.c2 >= 25),
+            comment='This is a test view of views.',
+            custom_metadata={'view_of_views_key': 'view_of_views_value'},
+        )
         self.__add_expr_columns(vv, 'view_of_views')
 
         # empty view
@@ -258,8 +276,6 @@ class Dumper:
         assert t.base_table_image_rot.col.handle in project.stored_proxies
 
         # Various iterators
-        # TODO: audio_splitter and video_splitter won't work here because they produce local files as output,
-        #     so the dumps won't be portable - how to test this?
         pxt.create_view('string_splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))
         pxt.create_view('tile_iterator', t, iterator=pxtf.image.tile_iterator(t.c8, (64, 64), overlap=(16, 16)))
         pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.frame_iterator(t.c10, fps=1))
@@ -269,6 +285,30 @@ class Dumper:
         pxt.create_view('frame_iterator_3', t, iterator=pxtf.video.frame_iterator(t.c10, keyframes_only=True))
         pxt.create_view(
             'document_splitter', t, iterator=pxtf.document.document_splitter(t.c11, 'page', elements=['text'])
+        )
+        # audio_splitter and video_splitter produce local files as output, so we can't include any outputs here
+        # (the dumps won't be portable). But we can create filter views with no output, and that at least tests
+        # that the iterator metadata survives the migration. By choosing an appropriate filter we ensure that
+        # the insert statement in test_migration.py *does* produce data, providing further validation.
+        # TODO: "Bundling" local media files with the db dumps would increase test coverage.
+        pxt.create_view(
+            'audio_splitter',
+            t.where(t.c2 >= len(SAMPLE_AUDIO_URLS)),
+            iterator=pxtf.audio.audio_splitter(
+                t.c9, chunk_duration_sec=10.0, overlap_sec=1.0, min_chunk_duration_sec=5.0
+            ),
+        )
+        pxt.create_view(
+            'video_splitter',
+            t.where(t.c2 >= len(SAMPLE_VIDEO_URLS)),
+            iterator=pxtf.video.video_splitter(
+                t.c10, duration=10.0, overlap=1.0, min_segment_duration=5.0, mode='fast'
+            ),
+        )
+        pxt.create_view(
+            'video_splitter_2',
+            t.where(t.c2 >= len(SAMPLE_VIDEO_URLS)),
+            iterator=pxtf.video.video_splitter(t.c10, segment_times=[3.0, 6.0], mode='accurate'),
         )
         # Use a qualified references to CustomIterator so that it doesn't get persisted as __main__.CustomIterator
         pxt.create_view(

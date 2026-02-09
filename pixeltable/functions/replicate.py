@@ -26,7 +26,7 @@ def _replicate_client() -> 'replicate.Client':
     return Env.get().get_client('replicate')
 
 
-@pxt.udf(resource_pool='request-rate:replicate')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:replicate')
 async def run(input: dict[str, Any], *, ref: str) -> pxt.Json:
     """
     Run a model on Replicate.

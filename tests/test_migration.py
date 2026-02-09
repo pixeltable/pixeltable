@@ -128,6 +128,7 @@ class TestMigration:
                 self._verify_v33()
             if old_version >= 45:
                 self._verify_v45()
+                self._verify_v45_column_md()
 
             pxt.drop_table('sample_table', force=True)
 
@@ -318,7 +319,7 @@ class TestMigration:
                     assert column_md['is_pk'] is not None
 
     @classmethod
-    def _verify_v45(cls) -> None:
+    def _verify_v45_column_md(cls) -> None:
         unexpected_table_md_col_keys = {'col_type', 'is_pk', 'value_expr', 'destination'}
         required_table_schema_version_col_keys = {'col_type', 'is_pk'}
         with Env.get().engine.begin() as conn:
@@ -342,6 +343,31 @@ class TestMigration:
         _convert_table_and_versions(table_md, schema_version_md)
         assert table_md == table_md_expected
         assert schema_version_md == schema_version_md_expected
+
+    @classmethod
+    def _verify_v45(cls) -> None:
+        t = pxt.get_table('base_table')
+        v = pxt.get_table('views.view')
+        s = pxt.get_table('views.snapshot_non_pure')
+        vv = pxt.get_table('views.view_of_views')
+
+        # Verify comment and custom_metadata for base_table
+        assert t.get_metadata()['comment'] == 'This is a test table.'
+        assert t.get_metadata()['custom_metadata'] == {'key': 'value'}
+
+        # Verify comment and custom_metadata for view
+        assert v.get_metadata()['comment'] == 'This is a test view.'
+        assert v.get_metadata()['custom_metadata'] == {'view_key': 'view_value'}
+
+        # Verify comment and custom_metadata for snapshot_non_pure
+        assert s.get_metadata()['comment'] == 'This is a test snapshot.'
+        assert s.get_metadata()['custom_metadata'] == {'snapshot_key': 'snapshot_value'}
+        # Verify the additional column in the non-pure snapshot
+        assert 's1' in s.columns()
+
+        # Verify comment and custom_metadata for view_of_views
+        assert vv.get_metadata()['comment'] == 'This is a test view of views.'
+        assert vv.get_metadata()['custom_metadata'] == {'view_of_views_key': 'view_of_views_value'}
 
 
 @pxt.udf(batch_size=4)
