@@ -617,6 +617,7 @@ class TableVersion:
                 value_expr_dict=col_md.value_expr,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
+                custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
             )
 
             self.cols.append(col)

@@ -23,6 +23,8 @@ class ColumnMetadata(TypedDict):
     """Name of the table where this column was originally defined.
 
     If the current table is a view, then `defined_in` may differ from the current table name."""
+    custom_metadata: Any
+    """User-defined JSON metadata for this column, if any."""
 
 
 class EmbeddingIndexParams(TypedDict):

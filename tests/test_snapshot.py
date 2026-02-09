@@ -453,3 +453,18 @@ class TestSnapshot:
             pxt.create_snapshot(
                 'tbl_snapshot_invalid', t, additional_columns={'d': pxt.Int}, custom_metadata={'key': set}
             )
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_snapshot_column_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': pxt.Int})
+        s = pxt.create_snapshot('tbl_snapshot', t, additional_columns={'d': {'type': pxt.Int, 'custom_metadata': custom_metadata}})
+        assert s.get_metadata()['columns']['d']['custom_metadata'] == custom_metadata
+
+        reload_catalog(do_reload_catalog)
+        s = pxt.get_table('tbl_snapshot')
+        assert s.get_metadata()['columns']['d']['custom_metadata'] == custom_metadata
+
+        # check that invalid JSON user metadata are rejected for columns
+        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
+            pxt.create_snapshot('tbl_snapshot_invalid', t, additional_columns={'d': {'type': pxt.Int, 'custom_metadata': {'key': set}}})
