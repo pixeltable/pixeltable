@@ -10,7 +10,6 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.catalog import Catalog
-from pixeltable.env import Env
 from pixeltable.utils.transactional_directory import transactional_directory
 
 if typing.TYPE_CHECKING:
@@ -59,7 +58,6 @@ def export_parquet(
                         If False, will raise an error if the Query has any image column.
                         Default False.
     """
-    Env.get().require_package('pyarrow')
     import pyarrow as pa
 
     from pixeltable.utils.arrow import to_record_batches

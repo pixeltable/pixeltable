@@ -3,9 +3,11 @@ import pathlib
 
 import numpy as np
 import pandas as pd
+import pyarrow.parquet as pa_parquet
 import pytest
 
 import pixeltable as pxt
+from pixeltable.utils.arrow import to_pydict
 
 from ..utils import (
     ensure_s3_pytest_resources_access,
@@ -16,35 +18,32 @@ from ..utils import (
 )
 
 
-class TestParquet:
-    def validate_parquet_files(self, path: pathlib.Path, rows: list[dict]) -> None:
-        """Validate that the parquet files in the directory match the rows."""
-        from pyarrow import parquet
+def validate_parquet_files(path: pathlib.Path, rows: list[dict]) -> None:
+    """Validate that the parquet files in the directory match the rows."""
+    pq_table = pa_parquet.read_table(str(path))
+    assert pq_table.num_rows == len(rows)
 
-        from pixeltable.utils.arrow import to_pydict
+    col_names = list(rows[0].keys())
+    assert set(pq_table.column_names) == set(col_names)
 
-        pq_table = parquet.read_table(str(path))
-        assert pq_table.num_rows == len(rows)
-
-        col_names = list(rows[0].keys())
-        assert set(pq_table.column_names) == set(col_names)
-
-        pydict = to_pydict(pq_table)
-        for col_name in col_names:
-            for i, row in enumerate(rows):
-                expected = row[col_name]
-                actual = pydict[col_name][i]
-                if isinstance(expected, np.ndarray):
-                    array_val: np.ndarray
-                    if isinstance(actual, np.ndarray):
-                        array_val = actual
-                    else:
-                        assert isinstance(actual, list)
-                        array_val = np.array(actual)
-                    assert np.array_equal(array_val, expected), f'Row {i}, column {col_name}: arrays differ'
+    pydict = to_pydict(pq_table)
+    for col_name in col_names:
+        for i, row in enumerate(rows):
+            expected = row[col_name]
+            actual = pydict[col_name][i]
+            if isinstance(expected, np.ndarray):
+                array_val: np.ndarray
+                if isinstance(actual, np.ndarray):
+                    array_val = actual
                 else:
-                    assert actual == expected, f'Row {i}, column {col_name}: {actual} != {expected}'
+                    assert isinstance(actual, list)
+                    array_val = np.array(actual)
+                assert np.array_equal(array_val, expected), f'Row {i}, column {col_name}: arrays differ'
+            else:
+                assert actual == expected, f'Row {i}, column {col_name}: {actual} != {expected}'
 
+
+class TestParquet:
     def test_import_examples(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
 
@@ -334,7 +333,7 @@ class TestParquet:
 
         export_path = tmp_path / 'export.pq'
         pxt.io.export_parquet(t.order_by(t.idx), export_path)
-        self.validate_parquet_files(export_path, rows)
+        validate_parquet_files(export_path, rows)
 
     def test_export_ragged_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(None, None), np.int64]})  # type: ignore[misc]
@@ -347,7 +346,7 @@ class TestParquet:
 
         export_path = tmp_path / 'export.pq'
         pxt.io.export_parquet(t.order_by(t.idx), export_path)
-        self.validate_parquet_files(export_path, rows)
+        validate_parquet_files(export_path, rows)
 
         with pytest.raises(pxt.Error, match='Cannot export array column'):
             u = pxt.create_table('test_array2', {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})  # type: ignore[misc]

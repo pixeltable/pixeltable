@@ -242,13 +242,9 @@ def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
         col = batch.column(k)
         if isinstance(col.type, pa.FixedShapeTensorType):
             # we want a list of ndarrays of the correct shape
-            col_array: pa.Array
             if isinstance(col, pa.ChunkedArray):
-                col_array = col.combine_chunks()
-            else:
-                assert isinstance(col, pa.Array)
-                col_array = col
-            out[name] = list(cast(pa.FixedShapeTensorArray, col_array).to_numpy_ndarray())
+                col = col.combine_chunks()
+            out[name] = list(cast(pa.FixedShapeTensorArray, col).to_numpy_ndarray())
         else:
             # for the rest, use pydict to preserve python types
             out[name] = col.to_pylist()
