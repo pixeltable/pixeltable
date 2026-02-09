@@ -44,7 +44,7 @@ def validate_parquet_files(path: pathlib.Path, rows: list[dict]) -> None:
 
 
 class TestParquet:
-    def test_import_examples(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_import_parquet_examples(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
 
         pdts = []
@@ -100,7 +100,7 @@ class TestParquet:
             's3://pxt-test/pytest-resources/alltypes_plain.parquet',
         ],
     )
-    def test_import_from_remote(self, uses_db: None, source: str) -> None:
+    def test_import_parquet_from_remote(self, uses_db: None, source: str) -> None:
         skip_test_if_not_installed('pyarrow')
         if source.startswith('s3://'):
             ensure_s3_pytest_resources_access()
@@ -127,7 +127,7 @@ class TestParquet:
         assert r1['bigint_col'] == 10 and r1['double_col'] == 10.1
         assert abs(r1['float_col'] - 1.1) < 1e-5  # float32 precision
 
-    def test_import(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_import_parquet(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
@@ -164,7 +164,7 @@ class TestParquet:
                 else:
                     assert val == arrow_tup[col]
 
-    def test_insert(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_insert_parquet(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
 
         parquet_dir = tmp_path / 'test_data'
@@ -177,7 +177,7 @@ class TestParquet:
         tab.insert(str(parquet_dir), source_format='parquet')
         assert tab.count() == len1 * 2
 
-    def test_export_simple(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_parquet_simple(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         from zoneinfo import ZoneInfo
 
@@ -258,7 +258,7 @@ class TestParquet:
         assert it.select(it.c3).collect() == t.where(t.c1 == 1).select(t.c3).collect()
         assert it.select(it.c4).collect() == t.where(t.c1 == 1).select(t.c4).collect()
 
-    def test_export(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_parquet(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
         import pyarrow as pa
         from pyarrow import parquet
@@ -310,7 +310,7 @@ class TestParquet:
         #   So the schema and value of that column differ.
         #
 
-    def test_export_image(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+    def test_export_parquet_image(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         skip_test_if_not_installed('pyarrow')
 
         tab = pxt.create_table('test_image', {'c1': pxt.Image})
