@@ -351,7 +351,7 @@ class VideoSplitter(ComponentIterator):
         assert (duration is not None) != (segment_times is not None)
         if duration is not None:
             assert duration > 0.0
-            assert duration >= min_segment_duration
+            assert min_segment_duration is None or duration >= min_segment_duration
             assert overlap is None or overlap < duration
 
         video_path = Path(video)
