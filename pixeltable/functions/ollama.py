@@ -32,7 +32,7 @@ def _ollama_client() -> 'ollama.Client | None':
         return None
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 def generate(
     prompt: str,
     *,
@@ -79,7 +79,7 @@ def generate(
     ).dict()  # type: ignore[call-overload]
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 def chat(
     messages: list[dict],
     *,
