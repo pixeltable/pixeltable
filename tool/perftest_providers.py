@@ -81,7 +81,7 @@ def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:
         'gemini': ProviderConfig(
             prompt_udf=create_simple_prompt,
             udf=pxtf.gemini.generate_content,
-            default_model='gemini-2.0-flash',
+            default_model='gemini-2.5-flash',
             kwargs={
                 'config': GenerateContentConfigDict(
                     candidate_count=3,
@@ -91,8 +91,6 @@ def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:
                     top_p=0.95,
                     top_k=40,
                     response_mime_type='text/plain',
-                    presence_penalty=0.6,
-                    frequency_penalty=0.6,
                 )
             },
         ),
