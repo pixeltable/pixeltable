@@ -85,30 +85,33 @@ class Literal(Expr):
     def _as_dict(self) -> dict:
         # For some types, we need to explicitly record their type, because JSON does not know
         # how to interpret them unambiguously
+        encode_col_type = True
         if self.col_type.is_timestamp_type():
             assert isinstance(self.val, datetime.datetime)
             assert self.val.tzinfo == datetime.timezone.utc  # Must be UTC in a literal
             # Convert to ISO format in UTC (in keeping with the principle: all timestamps are
             # stored as UTC in the database)
             encoded_val = self.val.isoformat()
-            return {'val': encoded_val, 'val_t': self.col_type.as_dict(), **super()._as_dict()}
         elif self.col_type.is_date_type():
             assert isinstance(self.val, datetime.date)
             encoded_val = self.val.isoformat()
-            return {'val': encoded_val, 'val_t': self.col_type.as_dict(), **super()._as_dict()}
         elif self.col_type.is_uuid_type():
             assert isinstance(self.val, uuid.UUID)
             encoded_val = str(self.val)
-            return {'val': encoded_val, 'val_t': self.col_type.as_dict(), **super()._as_dict()}
         elif self.col_type.is_binary_type():
             assert isinstance(self.val, bytes)
             encoded_val = base64.b64encode(self.val).decode('utf-8')
-            return {'val': encoded_val, 'val_t': self.col_type.as_dict(), **super()._as_dict()}
         elif self.col_type.is_array_type():
             assert isinstance(self.val, np.ndarray)
-            return {'val': self.val.tolist(), 'val_t': self.col_type.as_dict(), **super()._as_dict()}
+            encoded_val = self.val.tolist()
         else:
-            return {'val': self.val, **super()._as_dict()}
+            encode_col_type = False
+            encoded_val = self.val
+
+        res = {'val': encoded_val, **super()._as_dict()}
+        if encode_col_type:
+            res.update({'val_t': self.col_type.as_dict()})
+        return res
 
     def as_literal(self) -> Literal | None:
         return self
