@@ -472,7 +472,7 @@ def test_udf_stored_batched(strings: Batch[str], *, upper: bool = True) -> Batch
 _DEFAULT_B = np.ones(10, dtype=np.float64)
 
 
-@pxt.udf(_force_stored=True)
+@pxt.udf()
 def udf_with_array_literal(
     a: pxt.Array[np.float64, (10,)], b: pxt.Array[np.float64, (10,)] = _DEFAULT_B
 ) -> pxt.Array[np.float64, (10,)]:
@@ -482,7 +482,7 @@ def udf_with_array_literal(
 _DEFAULT_UUID = uuid.UUID('d2bf8589-dd71-4b2e-8d8f-9a64094673fe')
 
 
-@pxt.udf(_force_stored=True)
+@pxt.udf()
 def test_udf_with_default_uuid(uuid: pxt.UUID = _DEFAULT_UUID) -> str:
     return str(uuid)
 
