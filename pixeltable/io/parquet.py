@@ -4,10 +4,11 @@ import json
 import logging
 import typing
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
+import pixeltable.type_system as ts
 from pixeltable.catalog import Catalog
 from pixeltable.utils.transactional_directory import transactional_directory
 
@@ -22,12 +23,10 @@ def export_parquet(
     parquet_path: Path,
     partition_size_bytes: int = 100_000_000,
     inline_images: bool = False,
+    _write_md: bool = False,
 ) -> None:
     """
     Exports a query result or table to one or more Parquet files. Requires pyarrow to be installed.
-
-    It additionally writes the pixeltable metadata in a json file, which would otherwise
-    not be available in the parquet format.
 
     Pixeltable column types are mapped to Parquet types as follows:
 
@@ -41,7 +40,9 @@ def export_parquet(
     - Binary: binary
     - Image: binary (when `inline_images=True`)
     - Audio, Video, Document: string (file paths)
-    - Array: fixed_shape_tensor
+    - Array (requires shape to be known):
+        - fixed_shape_tensor for fixed-shape arrays
+        - list for ragged arrays (one or more dimensions are None)
     - Json: struct
 
         - Schema is inferred from data via `pyarrow.infer_type()`
@@ -67,15 +68,19 @@ def export_parquet(
     else:
         query = table_or_query
 
-    if not inline_images and any(col_type.is_image_type() for col_type in query.schema.values()):
-        raise excs.Error('Cannot export Query with image columns when inline_images is False')
+    for col_name, col_type in query.schema.items():
+        if col_type.is_image_type() and not inline_images:
+            raise excs.Error(f'Cannot export image column {col_name!r} with `inline_images=False`')
+        if col_type.is_array_type() and cast(ts.ArrayType, col_type).shape is None:
+            raise excs.Error(f'Cannot export array column {col_name!r} with unknown shape')
 
     # store the changes atomically
     with transactional_directory(parquet_path) as temp_path:
-        # dump metadata json file so we can inspect what was the source of the parquet file later on.
-        json.dump(query.as_dict(), (temp_path / '.pixeltable.json').open('w'))
-        type_dict = {k: v.as_dict() for k, v in query.schema.items()}
-        json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
+        if _write_md:
+            json.dump(query.as_dict(), (temp_path / '.pixeltable.json').open('w'))
+            type_dict = {k: v.as_dict() for k, v in query.schema.items()}
+            json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
+
         batch_num = 0
         with Catalog.get().begin_xact(for_write=False):
             for record_batch in to_record_batches(query, partition_size_bytes):
