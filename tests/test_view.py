@@ -7,6 +7,8 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.catalog import Catalog
+from pixeltable.catalog.table_metadata import ColumnSpec
+from pixeltable.exprs import expr
 from pixeltable.func import Batch
 
 from .utils import (
@@ -499,7 +501,7 @@ class TestView:
         t_res = t.select(t.c1, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c8, t.d1, t.c10, t.d2).head(5)
         print(t_res)
 
-        add_schema1 = {
+        add_schema1: dict[str, ColumnSpec] = {
             'uc1': {'value': t.c1, 'stored': False},
             'uc1n': {'value': t.c1n, 'stored': False},
             'uc2': {'value': t.c2, 'stored': False},
@@ -514,7 +516,7 @@ class TestView:
             'ud2': {'value': t.d2, 'stored': False},
         }
 
-        v1 = pxt.create_view('v1', t, additional_columns=add_schema1)  # type: ignore[arg-type]
+        v1 = pxt.create_view('v1', t, additional_columns=add_schema1)
         v1_res = v1.select(
             v1.uc1, v1.uc2, v1.uc3, v1.uc4, v1.uc5, v1.uc6, v1.uc7, v1.uc8, v1.ud1, v1.uc10, v1.ud2
         ).head(5)
@@ -522,7 +524,7 @@ class TestView:
 
         assert_resultset_eq(v1_res, t_res, compare_col_names=False)
 
-        add_schema2 = {
+        add_schema2: dict[str, ColumnSpec] = {
             'vc1': {'value': v1.uc1, 'stored': False},
             'vc1n': {'value': v1.uc1n, 'stored': False},
             'vc2': {'value': v1.uc2, 'stored': False},
@@ -537,21 +539,21 @@ class TestView:
             'vd2': {'value': v1.ud2, 'stored': False},
         }
 
-        v2 = pxt.create_view('v2', v1, additional_columns=add_schema2)  # type: ignore[arg-type]
+        v2 = pxt.create_view('v2', v1, additional_columns=add_schema2)
         v2_res = v2.select(
             v2.vc1, v2.vc2, v2.vc3, v2.vc4, v2.vc5, v2.vc6, v2.vc7, v2.vc8, v2.vd1, v2.vc10, v2.vd2
         ).head(5)
         print(v2_res)
         assert_resultset_eq(v2_res, t_res, compare_col_names=False)
 
-        add_schema3 = {
+        add_schema3: dict[str, ColumnSpec] = {
             'wc2a': {'value': add_unstored_base_val(v2.vc2), 'stored': True},
             'wc2b': {'value': add_unstored_base_val(v2.vc2), 'stored': False},
         }
 
         global test_unstored_base_val  # noqa: PLW0603
         test_unstored_base_val = 1000
-        v3 = pxt.create_view('v3', v2, additional_columns=add_schema3)  # type: ignore[arg-type]
+        v3 = pxt.create_view('v3', v2, additional_columns=add_schema3)
 
         test_unstored_base_val = 2000
         v3_res = v3.select(v3.wc2a, v3.wc2b).head(5)
@@ -573,18 +575,18 @@ class TestView:
         t.insert(rows)
 
         # view with unstored column that depends on int1 and a manually updated column (int4)
-        v1_schema = {
+        v1_schema: dict[str, ColumnSpec | type | expr.Expr] = {
             'img2': {'value': t.img.crop([t.int1, t.int1, width, height]), 'stored': False},
             'int3': t.int1 * 2,
             'int4': pxt.Int,  # TODO: add default
         }
         logger.debug('******************* CREATE V1')
-        v1 = pxt.create_view('v1', t, additional_columns=v1_schema)  # type: ignore[arg-type]
+        v1 = pxt.create_view('v1', t, additional_columns=v1_schema)
         v1.update({'int4': 1})
         _ = v1.select(v1.img2.width, v1.img2.height).collect()
 
         # view with stored column that depends on t and view1
-        v2_schema = {
+        v2_schema: dict[str, ColumnSpec] = {
             'img3': {
                 # use the actual width and height of the image (not 100, which will pad the image)
                 'value': v1.img2.crop([t.int1 + t.int2, v1.int3 + v1.int4, v1.img2.width, v1.img2.height]),
@@ -592,7 +594,7 @@ class TestView:
             }
         }
         logger.debug('******************* CREATE V2')
-        v2 = pxt.create_view('v2', v1.where(v1.int1 < 10), additional_columns=v2_schema)  # type: ignore[arg-type]
+        v2 = pxt.create_view('v2', v1.where(v1.int1 < 10), additional_columns=v2_schema)
 
         def check_views() -> None:
             assert_resultset_eq(
@@ -636,11 +638,9 @@ class TestView:
         t = self.create_tbl()
 
         # Note that v1.c3 overrides t.c3, but both are accessible
-        schema = {'v1': {'value': t.c2, 'stored': True}}
+        schema: dict[str, ColumnSpec] = {'v1': {'value': t.c2, 'stored': True}}
         v1 = pxt.create_view(
-            'test_view1',
-            t.select(t.c2, t.c2 + 99, foo=t.c2, bar=t.c2 + 27, c3=t.c3 * 2),
-            additional_columns=schema,  # type: ignore[arg-type]
+            'test_view1', t.select(t.c2, t.c2 + 99, foo=t.c2, bar=t.c2 + 27, c3=t.c3 * 2), additional_columns=schema
         )
         res = v1.select().limit(5).collect()
         assert res._col_names == ['c2', 'col_1', 'foo', 'bar', 'c3', 'v1']
