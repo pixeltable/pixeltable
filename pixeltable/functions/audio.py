@@ -149,7 +149,9 @@ def audio_splitter(
         >>> pxt.create_view(
         ...     'audio_chunks',
         ...     tbl,
-        ...     iterator=audio_splitter(tbl.audio, chunk_duration_sec=30.0, overlap_sec=5.0)
+        ...     iterator=audio_splitter(
+        ...         tbl.audio, chunk_duration_sec=30.0, overlap_sec=5.0
+        ...     ),
         ... )
     """
     kwargs: dict[str, Any] = {}

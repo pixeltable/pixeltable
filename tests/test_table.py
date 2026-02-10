@@ -2389,15 +2389,15 @@ class TestTable:
         # if_exists='replace' replaces the column if it has no dependents
         t.add_columns({'c1': pxt.Int, 'non_existing_col2': pxt.String}, if_exists='replace')
         assert 'c1' in t.columns()
-        assert t.select(t.c1).collect()[0] == {'c1': None}
+        assert t.select(t.c1).order_by(t.c1).collect()[0] == {'c1': None}
         assert 'non_existing_col2' in t.columns()
         before_cnames = t.columns()
 
         t.add_computed_column(c1=10, if_exists='replace')
         assert set(t.columns()) == set(before_cnames)
         assert 'c1' in t.columns()
-        assert t.select(t.c1).collect()[0] != orig_res[0]
-        assert t.select(t.c1).collect()[0] == {'c1': 10}
+        assert t.select(t.c1).order_by(t.c1).collect()[0] != orig_res[0]
+        assert t.select(t.c1).order_by(t.c1).collect()[0] == {'c1': 10}
 
         # revert restores the state back wrt the underlying persistence.
         # so it will revert the add_column operation and drop the column
@@ -2408,12 +2408,12 @@ class TestTable:
         t.add_computed_column(c1=10)
         assert set(t.columns()) == set(before_cnames)
         assert 'c1' in t.columns()
-        assert t.select(t.c1).collect()[0] == {'c1': 10}
+        assert t.select(t.c1).order_by(t.c1).collect()[0] == {'c1': 10}
 
         t.add_computed_column(c1=t.c2 + t.c3, if_exists='replace')
         assert set(t.columns()) == set(before_cnames)
         assert 'c1' in t.columns()
-        assert t.select(t.c1).collect()[0] != {'c1': 10}
+        assert t.select(t.c1).order_by(t.c1).collect()[0] != {'c1': 10}
         assert (
             t.select().order_by(t.c1).collect()[0]['c1']
             == t.select().order_by(t.c1).collect()[0]['c2'] + t.select().order_by(t.c1).collect()[0]['c3']
@@ -2426,13 +2426,13 @@ class TestTable:
         error_msg = str(exc_info.value).lower()
         assert 'already exists' in error_msg and 'has dependents' in error_msg
         assert 'c1' in t.columns()
-        assert t.select(t.c1).collect()[0] != {'c1': 10}
+        assert t.select(t.c1).order_by(t.c1).collect()[0] != {'c1': 10}
         assert (
             t.select().order_by(t.c1).collect()[0]['c1']
             == t.select().order_by(t.c1).collect()[0]['c2'] + t.select().order_by(t.c1).collect()[0]['c3']
         )
 
-        _ = reload_tester.run_query(t.select(t.c1))
+        _ = reload_tester.run_query(t.select(t.c1).order_by(t.c1))
 
         reload_tester.run_reload_test()
 
