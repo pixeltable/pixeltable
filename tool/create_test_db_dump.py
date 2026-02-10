@@ -447,7 +447,7 @@ class Dumper:
 
         add_computed_column('sim_output', q2(t.c1))
 
-        add_computed_column('c12_udf_with_array_literal', udf_with_array_literal(t.c12), stored=True)
+        add_computed_column('c12_udf_with_array_literal', test_udf_with_array_literal(t.c12), stored=True)
         add_computed_column('c13_expr_with_uuid_literal', test_udf_with_default_uuid(), stored=True)
         add_computed_column('c14_expr_with_date_literal', pxtf.date.isocalendar(datetime.date(2026, 2, 6)), stored=True)
         add_computed_column(
@@ -473,7 +473,7 @@ _DEFAULT_B = np.ones(10, dtype=np.float64)
 
 
 @pxt.udf()
-def udf_with_array_literal(
+def test_udf_with_array_literal(
     a: pxt.Array[np.float64, (10,)], b: pxt.Array[np.float64, (10,)] = _DEFAULT_B
 ) -> pxt.Array[np.float64, (10,)]:
     return a + b
