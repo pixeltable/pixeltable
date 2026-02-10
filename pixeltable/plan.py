@@ -18,16 +18,6 @@ def _is_agg_fn_call(e: exprs.Expr) -> bool:
     return isinstance(e, exprs.FunctionCall) and e.is_agg_fn_call and not e.is_window_fn_call
 
 
-def _dedupe_col_refs(candidates: Iterable[exprs.Expr]) -> list[exprs.ColumnRef]:
-    seen: set[int] = set()
-    out: list[exprs.ColumnRef] = []
-    for e in candidates:
-        if isinstance(e, exprs.ColumnRef) and e.id not in seen:
-            seen.add(e.id)
-            out.append(e)
-    return out
-
-
 def _get_combined_ordering(
     o1: list[tuple[exprs.Expr, bool]], o2: list[tuple[exprs.Expr, bool]]
 ) -> list[tuple[exprs.Expr, bool]]:
@@ -608,22 +598,14 @@ class Planner:
         def binary_filter(e: exprs.Expr) -> bool:
             return isinstance(e, exprs.ColumnRef) and e.col.col_type.is_binary_type()
 
-        # materialization_only=True: skip components that don't need materialization (e.g. SimilarityExpr.components[0])
-        json_candidates = list(
-            exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False, materialization_only=True)
+        json_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=json_filter, traverse_matches=False))
+        json_refs = [e for e in json_candidates if isinstance(e, exprs.ColumnRef)]
+        array_candidates = list(exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False))
+        array_refs = [e for e in array_candidates if isinstance(e, exprs.ColumnRef)]
+        binary_refs = list(
+            exprs.Expr.list_subexprs(expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False)
         )
-        json_refs = _dedupe_col_refs(json_candidates)
-        array_candidates = list(
-            exprs.Expr.list_subexprs(expr_list, filter=array_filter, traverse_matches=False, materialization_only=True)
-        )
-        array_refs = _dedupe_col_refs(array_candidates)
-        binary_candidates = list(
-            exprs.Expr.list_subexprs(
-                expr_list, exprs.ColumnRef, filter=binary_filter, traverse_matches=False, materialization_only=True
-            )
-        )
-        binary_refs = _dedupe_col_refs(binary_candidates)
-        if json_refs or array_refs or binary_refs:
+        if len(json_refs) > 0 or len(array_refs) > 0 or len(binary_refs) > 0:
             return exec.CellReconstructionNode(json_refs, array_refs, binary_refs, input.row_builder, input=input)
         else:
             return input
