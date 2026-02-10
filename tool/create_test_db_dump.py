@@ -447,16 +447,16 @@ class Dumper:
 
         add_computed_column('sim_output', q2(t.c1))
 
-        add_computed_column('c12_udf_with_array_literal', test_udf_with_array_literal(t.c12), stored=True)
-        add_computed_column('c13_expr_with_uuid_literal', test_udf_with_default_uuid(), stored=True)
-        add_computed_column('c14_expr_with_date_literal', pxtf.date.isocalendar(datetime.date(2026, 2, 6)), stored=True)
+        add_computed_column('expr_with_array_literal', test_udf_with_array_literal(t.c12), stored=True)
+        add_computed_column('expr_with_uuid_literal', test_udf_with_default_uuid(), stored=True)
+        add_computed_column('expr_with_date_literal', pxtf.date.isocalendar(datetime.date(2026, 2, 6)), stored=True)
         add_computed_column(
-            'c5_expr_with_timestamp_literal',
+            'expr_with_timestamp_literal',
             pxtf.timestamp.posix_timestamp(t.c5)
             - pxtf.timestamp.posix_timestamp(datetime.datetime(2026, 1, 1, tzinfo=ZoneInfo('UTC'))),
             stored=True,
         )
-        add_computed_column('c16_expr_with_binary_literal', b'hello'.decode('utf-8'), stored=True)
+        add_computed_column('expr_with_binary_literal', b'hello'.decode('utf-8'), stored=True)
 
 
 @pxt.udf(_force_stored=True)
