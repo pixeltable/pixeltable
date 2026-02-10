@@ -107,7 +107,10 @@ class VersionMetadata(TypedDict):
 
 
 class ColumnSpec(TypedDict, total=False):
-    """Column specification, a dictionary representation of a column's schema. Only required fields are `type` or `value` and they are mutually exclusive."""
+    """
+    Column specification, a dictionary representation of a column's schema. 
+    Exactly one of `type` or `value` must be included in the dictionary.
+    """
 
     type: type
     """The column type (e.g., `pxt.Image`, `str`). Required unless `value` is specified."""
