@@ -447,15 +447,16 @@ class Dumper:
 
         add_computed_column('sim_output', q2(t.c1))
 
-        add_computed_column('expr_with_array_literal', test_udf_with_array_literal(t.c12))
-        add_computed_column('expr_with_uuid_literal', test_udf_with_default_uuid())
-        add_computed_column('expr_with_date_literal', pxtf.date.isocalendar(datetime.date(2026, 2, 6)))
+        add_computed_column('expr_with_array_literals', test_array_udf(t.c12, np.zeros(10, dtype=np.float64)))
         add_computed_column(
-            'expr_with_timestamp_literal',
-            pxtf.timestamp.posix_timestamp(t.c5)
-            - pxtf.timestamp.posix_timestamp(datetime.datetime(2026, 1, 1, tzinfo=ZoneInfo('UTC'))),
+            'expr_with_uuid_literals', test_uuid_udf(t.c13, uuid.UUID('00000000-0000-0000-0000-000000000000'))
         )
-        add_computed_column('expr_with_binary_literal', b'hello')
+        add_computed_column('expr_with_date_literals', test_date_udf(t.c14, datetime.date(2026, 2, 10)))
+        add_computed_column(
+            'expr_with_ts_literals',
+            test_timestamp_udf(t.c5, datetime.datetime(2026, 2, 10, 21, 15, tzinfo=ZoneInfo('UTC'))),
+        )
+        add_computed_column('expr_with_bin_literals', test_binary_udf(t.c16, b'\xca\xfe'))
 
 
 @pxt.udf(_force_stored=True)
@@ -468,22 +469,38 @@ def test_udf_stored_batched(strings: Batch[str], *, upper: bool = True) -> Batch
     return [string.upper() if upper else string.lower() for string in strings]
 
 
-_DEFAULT_B = np.ones(10, dtype=np.float64)
+_DEFAULT_DATE = datetime.date(2026, 2, 10)
+_DEFAULT_TIMESTAMP = datetime.datetime(2026, 2, 10, 21, 15, 0, tzinfo=ZoneInfo('UTC'))
+_DEFAULT_BINARY = b'\xde\xad\xbe\xef'
+_DEFAULT_ARRAY = np.ones(10, dtype=np.float64)
+_DEFAULT_UUID = uuid.UUID('deadbeef-cafe-beef-beef-deadfacedead')
 
 
 @pxt.udf()
-def test_udf_with_array_literal(
-    a: pxt.Array[np.float64, (10,)], b: pxt.Array[np.float64, (10,)] = _DEFAULT_B
+def test_date_udf(date1: pxt.Date, date2: pxt.Date, date3: pxt.Date = _DEFAULT_DATE) -> int:
+    return date1.toordinal() + date2.toordinal() + date3.toordinal()
+
+
+@pxt.udf()
+def test_timestamp_udf(ts1: pxt.Timestamp, ts2: pxt.Timestamp, ts3: pxt.Timestamp = _DEFAULT_TIMESTAMP) -> float:
+    return ts1.timestamp() + ts2.timestamp() + ts3.timestamp()
+
+
+@pxt.udf()
+def test_binary_udf(b1: bytes, b2: bytes, b3: bytes = _DEFAULT_BINARY) -> bytes:
+    return bytes(a ^ b ^ c for a, b, c in zip(b1, b2, b3))
+
+
+@pxt.udf()
+def test_array_udf(
+    a: pxt.Array[np.float64, (10,)], b: pxt.Array[np.float64, (10,)], c: pxt.Array[np.float64, (10,)] = _DEFAULT_ARRAY
 ) -> pxt.Array[np.float64, (10,)]:
-    return a + b
-
-
-_DEFAULT_UUID = uuid.UUID('d2bf8589-dd71-4b2e-8d8f-9a64094673fe')
+    return a + b + c
 
 
 @pxt.udf()
-def test_udf_with_default_uuid(uuid: pxt.UUID = _DEFAULT_UUID) -> str:
-    return str(uuid)
+def test_uuid_udf(uuid1: pxt.UUID, uuid2: pxt.UUID, uuid3: pxt.UUID = _DEFAULT_UUID) -> str:
+    return str(uuid1) + str(uuid2) + str(uuid3)
 
 
 def main() -> None:
