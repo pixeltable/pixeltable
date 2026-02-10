@@ -1038,7 +1038,7 @@ class TableVersion:
             with Env.get().report_progress():
                 try:
                     plan.ctx.title = self.display_str()
-                    excs_per_col = self.store_tbl.populate_column(col, plan, on_error == 'abort')
+                    excs_per_col = self.store_tbl.write_column(col, plan, on_error == 'abort')
                 except sql_exc.DBAPIError as exc:
                     Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
                     # If it wasn't converted, re-raise as a generic Pixeltable error
