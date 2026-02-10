@@ -18,7 +18,6 @@ import pixeltable as pxt
 from pixeltable import catalog, env, exceptions as excs, exprs, index, type_system as ts
 from pixeltable.catalog.table_metadata import (
     ColumnMetadata,
-    ColumnSpec,
     EmbeddingIndexParams,
     IndexMetadata,
     TableMetadata,
@@ -26,6 +25,7 @@ from pixeltable.catalog.table_metadata import (
 )
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
+from pixeltable.types import ColumnSpec
 from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.object_stores import ObjectOps
 

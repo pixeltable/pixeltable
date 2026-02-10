@@ -16,10 +16,10 @@ import sqlalchemy.exc as sql_exc
 
 import pixeltable.index as index
 from pixeltable import exceptions as excs
-from pixeltable.catalog.table_metadata import ColumnSpec
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
+from pixeltable.types import ColumnSpec
 from pixeltable.utils.exception_handler import run_cleanup
 
 from .column import Column

@@ -11,8 +11,8 @@ import pydantic_core
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
-from pixeltable.catalog.table_metadata import ColumnSpec
 from pixeltable.env import Env
+from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.pydantic import is_json_convertible
 

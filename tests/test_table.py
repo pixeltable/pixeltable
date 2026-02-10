@@ -19,12 +19,12 @@ from jsonschema.exceptions import ValidationError
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 import pixeltable.type_system as ts
-from pixeltable.catalog.table_metadata import ColumnSpec
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.functions.video import frame_iterator
 from pixeltable.io.external_store import MockProject
+from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
 

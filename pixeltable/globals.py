@@ -13,11 +13,11 @@ from pandas.io.formats.style import Styler
 from pixeltable import Query, catalog, exceptions as excs, exprs, func, share, type_system as ts
 from pixeltable.catalog import Catalog, TableVersionPath
 from pixeltable.catalog.insertable_table import OnErrorParameter
-from pixeltable.catalog.table_metadata import ColumnSpec
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.iterators import ComponentIterator
+from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]

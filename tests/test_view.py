@@ -7,9 +7,9 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.catalog import Catalog
-from pixeltable.catalog.table_metadata import ColumnSpec
 from pixeltable.exprs import expr
 from pixeltable.func import Batch
+from pixeltable.types import ColumnSpec
 
 from .utils import (
     ReloadTester,

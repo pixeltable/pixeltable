@@ -9,8 +9,8 @@ import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
-from pixeltable.catalog.table_metadata import ColumnSpec
 from pixeltable.iterators import ComponentIterator
+from pixeltable.types import ColumnSpec
 
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
