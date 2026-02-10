@@ -159,7 +159,7 @@ class Column:
         # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
         # point backward.
         sorted_column_md = sorted(tbl_version.tbl_md.column_md.values(), key=lambda item: item.id)
-        cols = []
+        cols: list[Column] = []
         for col_md in sorted_column_md:
             col_type = ts.ColumnType.from_dict(col_md.col_type)
             schema_col_md = tbl_version.schema_version_md.columns.get(col_md.id)
