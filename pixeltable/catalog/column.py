@@ -416,10 +416,8 @@ class Column:
             raise excs.Error(f'Column {self.name!r}: `stored={self.stored}` only applies to computed columns')
         if self.stored is False and self.has_window_fn_call():
             raise excs.Error(
-                (
-                    f'Column {self.name!r}: `stored={self.stored}` is not valid for image columns computed with a '
-                    f'streaming function'
-                )
+                f'Column {self.name!r}: `stored={self.stored}` is not valid for image columns computed with a'
+                f' streaming function'
             )
         if self._explicit_destination is not None and not (self.stored and self.is_computed):
             raise excs.Error(f'Column {self.name!r}: `destination` property only applies to stored computed columns')
