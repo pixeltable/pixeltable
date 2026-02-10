@@ -95,15 +95,15 @@ class Literal(Expr):
         elif self.col_type.is_date_type():
             assert isinstance(self.val, datetime.date)
             encoded_val = self.val.isoformat()
-            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
+            return {'val': encoded_val, 'val_t': self.col_type.as_dict(), **super()._as_dict()}
         elif self.col_type.is_uuid_type():
             assert isinstance(self.val, uuid.UUID)
             encoded_val = str(self.val)
-            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
+            return {'val': encoded_val, 'val_t': self.col_type.as_dict(), **super()._as_dict()}
         elif self.col_type.is_binary_type():
             assert isinstance(self.val, bytes)
             encoded_val = base64.b64encode(self.val).decode('utf-8')
-            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
+            return {'val': encoded_val, 'val_t': self.col_type.as_dict(), **super()._as_dict()}
         elif self.col_type.is_array_type():
             assert isinstance(self.val, np.ndarray)
             return {'val': self.val.tolist(), 'val_t': self.col_type.as_dict(), **super()._as_dict()}
@@ -118,22 +118,28 @@ class Literal(Expr):
         assert 'val' in d
         if 'val_t' in d:
             val_t = d['val_t']
-            if val_t == ts.ColumnType.Type.DATE.name:
+            if isinstance(val_t, dict) and val_t.get('_classname', None) == 'DateType':
+                col_type = ts.ColumnType.from_dict(val_t)
+                assert col_type.is_date_type()
                 dt = datetime.date.fromisoformat(d['val'])
-                return cls(dt)
+                return cls(dt, col_type)
             elif isinstance(val_t, dict) and val_t.get('_classname', None) == 'TimestampType':
                 col_type = ts.ColumnType.from_dict(val_t)
                 assert col_type.is_timestamp_type()
                 dt = datetime.datetime.fromisoformat(d['val'])
                 assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
                 return cls(dt, col_type)
-            elif val_t == ts.ColumnType.Type.UUID.name:
+            elif isinstance(val_t, dict) and val_t.get('_classname', None) == 'UUIDType':
+                col_type = ts.ColumnType.from_dict(val_t)
+                assert col_type.is_uuid_type()
                 uuid_val = uuid.UUID(d['val'])
-                return cls(uuid_val)
-            elif val_t == ts.ColumnType.Type.BINARY.name:
+                return cls(uuid_val, col_type)
+            elif isinstance(val_t, dict) and val_t.get('_classname', None) == 'BinaryType':
+                col_type = ts.ColumnType.from_dict(val_t)
+                assert col_type.is_binary_type()
                 assert isinstance(d['val'], str)
                 bytes_val = base64.b64decode(d['val'].encode('utf-8'))
-                return cls(bytes_val)
+                return cls(bytes_val, col_type)
             elif isinstance(val_t, dict) and val_t.get('_classname', None) == 'ArrayType':
                 col_type = ts.ColumnType.from_dict(val_t)
                 assert col_type.is_array_type()
