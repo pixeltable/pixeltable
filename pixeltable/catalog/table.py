@@ -134,6 +134,7 @@ class Table(SchemaObject):
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
                 defined_in=col.get_tbl().name,
                 custom_metadata=col.custom_metadata,
+                comment=col.comment,
             )
 
         indices = tv.idxs_by_name.values()
@@ -720,7 +721,7 @@ class Table(SchemaObject):
         (on account of containing Python Callables or Exprs).
         """
         assert isinstance(spec, dict)
-        valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination', 'custom_metadata'}
+        valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination', 'custom_metadata', 'comment'}
         for k in spec:
             if k not in valid_keys:
                 raise excs.Error(f'Column {name!r}: invalid key {k!r}')
@@ -743,6 +744,9 @@ class Table(SchemaObject):
 
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f"Column {name!r}: 'stored' must be a bool; got {spec['stored']}")
+
+        if 'comment' in spec and not isinstance(spec['comment'], str):
+            raise excs.Error(f"Column {name!r}: 'comment' must be a string; got {spec['comment']}")
 
         d = spec.get('destination')
         if d is not None and not isinstance(d, (str, Path)):
@@ -769,6 +773,7 @@ class Table(SchemaObject):
             stored = True
             destination: str | None = None
             custom_metadata: Any = None
+            comment: str = ''
 
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
                 col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
@@ -795,6 +800,8 @@ class Table(SchemaObject):
                 )
                 destination = spec.get('destination')
                 custom_metadata = spec.get('custom_metadata')
+                if 'comment' in spec:
+                    comment = spec.get('comment')
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
@@ -807,6 +814,7 @@ class Table(SchemaObject):
                 media_validation=media_validation,
                 destination=destination,
                 custom_metadata=custom_metadata,
+                comment=comment,
             )
             # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
             # media destination, it gets validated at this time.

@@ -472,3 +472,23 @@ class TestSnapshot:
             pxt.create_snapshot(
                 'tbl_snapshot_invalid', t, additional_columns={'d': {'type': pxt.Int, 'custom_metadata': {'key': set}}}
             )
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_snapshot_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': pxt.Int})
+        s = pxt.create_snapshot(
+            'tbl_snapshot', t, additional_columns={'d': {'type': pxt.Int, 'comment': 'This is a test column.'}}
+        )
+        assert s.get_metadata()['columns']['d']['comment'] == 'This is a test column.'
+
+        reload_catalog(do_reload_catalog)
+        s = pxt.get_table('tbl_snapshot')
+        assert s.get_metadata()['columns']['d']['comment'] == 'This is a test column.'
+
+        # check that raw object JSON comments are rejected for columns
+        with pytest.raises(pxt.Error, match="'comment' must be a string"):
+            pxt.create_snapshot(
+                'tbl_snapshot_invalid',
+                t,
+                additional_columns={'d': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[arg-type]
+            )

@@ -3056,3 +3056,19 @@ class TestTable:
         # check that invalid JSON user metadata are rejected for columns
         with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'custom_metadata': {'key': set}}})
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': {'type': pxt.Int, 'comment': 'This is a test column.'}})
+        assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
+
+        # check that raw object JSON comments are rejected for columns
+        with pytest.raises(pxt.Error, match="'comment' must be a string"):
+            pxt.create_table(
+                'tbl_invalid',
+                {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[arg-type]
+            )

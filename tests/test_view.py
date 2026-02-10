@@ -1316,3 +1316,23 @@ class TestView:
             pxt.create_view(
                 'tbl_view_invalid', t, additional_columns={'v1': {'type': pxt.Int, 'custom_metadata': {'key': set}}}
             )
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_view_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': pxt.Int})
+        v = pxt.create_view(
+            'tbl_view', t, additional_columns={'v1': {'type': pxt.Int, 'comment': 'This is a test column.'}}
+        )
+        assert v.get_metadata()['columns']['v1']['comment'] == 'This is a test column.'
+
+        reload_catalog(do_reload_catalog)
+        v = pxt.get_table('tbl_view')
+        assert v.get_metadata()['columns']['v1']['comment'] == 'This is a test column.'
+
+        # check that raw object JSON comments are rejected for columns
+        with pytest.raises(pxt.Error, match="'comment' must be a string"):
+            pxt.create_view(
+                'tbl_view_invalid',
+                t,
+                additional_columns={'v1': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[arg-type]
+            )
