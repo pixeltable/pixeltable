@@ -20,10 +20,17 @@ def _(engine: sql.engine.Engine) -> None:
 def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | None:
     if not isinstance(value, dict):
         return None
-    if 'val' not in value or value.get('val_t', None) != 'ARRAY':
+    if 'val' not in value or 'val_t' not in value:
         return None
-    array = np.array(value['val'])
-    col_type = ts.ArrayType.from_literal(array)
-    assert col_type is not None, array
-    value['val_t'] = col_type.as_dict()
-    return key, value
+    match value['val_t']:
+        case 'ARRAY':
+            array = np.array(value['val'])
+            col_type = ts.ArrayType.from_literal(array)
+            assert col_type is not None, array
+            value['val_t'] = col_type.as_dict()
+            return key, value
+        case 'TIMESTAMP':
+            value['val_t'] = {'_classname': 'TimestampType', 'nullable': False}
+            return key, value
+        case _:
+            return None

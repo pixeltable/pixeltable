@@ -91,7 +91,7 @@ class Literal(Expr):
             # Convert to ISO format in UTC (in keeping with the principle: all timestamps are
             # stored as UTC in the database)
             encoded_val = self.val.isoformat()
-            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
+            return {'val': encoded_val, 'val_t': self.col_type.as_dict(), **super()._as_dict()}
         elif self.col_type.is_date_type():
             assert isinstance(self.val, datetime.date)
             encoded_val = self.val.isoformat()
@@ -121,10 +121,12 @@ class Literal(Expr):
             if val_t == ts.ColumnType.Type.DATE.name:
                 dt = datetime.date.fromisoformat(d['val'])
                 return cls(dt)
-            elif val_t == ts.ColumnType.Type.TIMESTAMP.name:
+            elif isinstance(val_t, dict) and val_t.get('_classname', None) == 'TimestampType':
+                col_type = ts.ColumnType.from_dict(val_t)
+                assert col_type.is_timestamp_type()
                 dt = datetime.datetime.fromisoformat(d['val'])
                 assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
-                return cls(dt)
+                return cls(dt, col_type)
             elif val_t == ts.ColumnType.Type.UUID.name:
                 uuid_val = uuid.UUID(d['val'])
                 return cls(uuid_val)
