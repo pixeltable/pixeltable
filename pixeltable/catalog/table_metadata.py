@@ -123,4 +123,9 @@ class ColumnSpec(TypedDict, total=False):
     media_validation: Literal['on_read', 'on_write']
     """When to validate media; `'on_read'` or `'on_write'`."""
     destination: str | Path
-    """An object store reference for persisting computed files. Only applicable for computed columns."""
+    """
+    Destination for storing computed output files. Only applicable for computed columns.
+    Can be:
+        - A local pathname (such as `path/to/outputs/`), or  
+        - The URI of an object store (such as `s3://my-bucket/outputs/`).  
+    """
