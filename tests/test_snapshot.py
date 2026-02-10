@@ -490,5 +490,5 @@ class TestSnapshot:
             pxt.create_snapshot(
                 'tbl_snapshot_invalid',
                 t,
-                additional_columns={'d': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[arg-type]
+                additional_columns={'d': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},
             )
