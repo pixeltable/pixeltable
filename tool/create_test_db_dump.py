@@ -164,7 +164,6 @@ class Dumper:
             'c12': pxt.Array[np.float64, (10,)],  # type: ignore[misc]
             'c13': pxt.UUID,
             'c14': pxt.Date,
-            'c15': pxt.Timestamp,
             'c16': pxt.Binary,
             'c17': pxt.Array,
             'c18': pxt.Array[(2, None), np.str_],  # type: ignore[misc]
@@ -226,7 +225,6 @@ class Dumper:
                 'c12': np.zeros((10,), dtype=np.float64),
                 'c13': uuid.UUID('a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6'),
                 'c14': datetime.date(2026, 2, 6),
-                'c15': datetime.datetime(2026, 2, 6, tzinfo=ZoneInfo('UTC')),
                 'c16': b'Hello World!' if i < num_rows / 2 else None,
                 'c17': c17_data[i % len(c17_data)] if i < 10 else None,
                 'c18': np.zeros((2, 2 + (i % 3)), np.str_) if i < 7 else None,
@@ -453,8 +451,8 @@ class Dumper:
         add_computed_column('c13_expr_with_uuid_literal', test_udf_with_default_uuid(), stored=True)
         add_computed_column('c14_expr_with_date_literal', pxtf.date.isocalendar(datetime.date(2026, 2, 6)), stored=True)
         add_computed_column(
-            'c15_expr_with_timestamp_literal',
-            pxtf.timestamp.posix_timestamp(t.c15)
+            'c5_expr_with_timestamp_literal',
+            pxtf.timestamp.posix_timestamp(t.c5)
             - pxtf.timestamp.posix_timestamp(datetime.datetime(2026, 1, 1, tzinfo=ZoneInfo('UTC'))),
             stored=True,
         )
