@@ -30,7 +30,7 @@ def _mistralai_client() -> 'mistralai.Mistral':
     return Env.get().get_client('mistral')
 
 
-@pxt.udf(resource_pool='request-rate:mistral')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:mistral')
 async def chat_completions(
     messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> dict:
@@ -76,7 +76,7 @@ async def chat_completions(
     return result.dict()
 
 
-@pxt.udf(resource_pool='request-rate:mistral')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:mistral')
 async def fim_completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
     Fill-in-the-middle Completion API.

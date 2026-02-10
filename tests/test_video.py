@@ -37,7 +37,6 @@ class TestVideo:
 
     def create_and_insert(self, stored: bool | None, paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
         base_t, view_t = self.create_tbls()
-        _ = ObjectOps.count(view_t._id, default_output_dest=True)
 
         view_t.add_computed_column(transform=view_t.frame.rotate(90), stored=stored)
         base_t.insert({'video': p} for p in paths)
@@ -642,7 +641,7 @@ class TestVideo:
         base: pxt.Table,
         segments_view: pxt.Table,
         overlap: float | None,
-        min_segment_duration: float,
+        min_segment_duration: float | None,
         expected_durations: list[float] | None = None,
         eps: float = 0.0,  # epsilon used in pytest.approx()
     ) -> None:
@@ -650,6 +649,8 @@ class TestVideo:
         s = segments_view
         if overlap is None:
             overlap = 0.0
+        if min_segment_duration is None:
+            min_segment_duration = 0.0
 
         # we cannot directly verify the number of segments, because they can diverge from the target duration;
         res = t.select(t.video, time_base=t.video.get_metadata().streams[0].time_base).collect()
@@ -714,7 +715,7 @@ class TestVideo:
         video_filepaths = get_video_files(include_mpgs=False)
         overlaps = [0.0, 1.0, 4.0] if mode == 'fast' else [None]
         eps = 0.1 if mode == 'fast' else 0.0
-        for min_segment_duration in [0.0, segment_duration]:
+        for min_segment_duration in [None, 0.0, segment_duration]:
             for overlap in overlaps:
                 t = pxt.create_table('videos', {'video': pxt.Video})
                 t.insert([{'video': p} for p in video_filepaths])
@@ -784,9 +785,7 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='overlap cannot be specified with segment_times'):
             _ = pxt.create_view('s', t, iterator=video_splitter(t.video, segment_times=[1, 2], overlap=1))
 
-    @pytest.mark.skipif(
-        os.environ.get('PXTTEST_CI_OS') == 'ubuntu-x64-t4', reason='Fonts not available on t4 CI instances'
-    )
+    @pytest.mark.skipif('t4' in os.environ.get('PXTTEST_CI_OS', ''), reason='Fonts not available on t4 CI instances')
     def test_overlay_text(self, uses_db: None, tmp_path: Path) -> None:
         t = pxt.create_table('videos', {'video': pxt.Video})
         t.add_computed_column(clip_5s=t.video.clip(start_time=0, duration=5))
