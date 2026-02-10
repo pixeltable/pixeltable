@@ -455,7 +455,7 @@ class Dumper:
             pxtf.timestamp.posix_timestamp(t.c5)
             - pxtf.timestamp.posix_timestamp(datetime.datetime(2026, 1, 1, tzinfo=ZoneInfo('UTC'))),
         )
-        add_computed_column('expr_with_binary_literal', b'hello'.decode('utf-8'))
+        add_computed_column('expr_with_binary_literal', b'hello')
 
 
 @pxt.udf(_force_stored=True)
