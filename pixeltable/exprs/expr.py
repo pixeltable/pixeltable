@@ -592,7 +592,7 @@ class Expr(abc.ABC):
         reason='apply() is deprecated and will be removed in a future version. '
         'Please define a UDF and use that instead.\n'
         'For details, see: https://docs.pixeltable.com/platform/udfs-in-pixeltable',
-        version='0.5.18',
+        version='0.5.17',
         category=excs.PixeltableDeprecationWarning,
     )
     def apply(
