@@ -65,7 +65,7 @@ def upgrade_md(engine: sql.engine.Engine) -> None:
                 'This Pixeltable database was created with a newer Pixeltable version '
                 f'than the one currently installed ({pxt.__version__}).\n'
                 'Please update to the latest Pixeltable version by running: pip install --upgrade pixeltable'
-            )
+            , excs.BAD_REQUEST)
         if md_version == VERSION:
             return
         while md_version < VERSION:

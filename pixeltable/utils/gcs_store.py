@@ -265,7 +265,7 @@ class GCSStore(ObjectStoreBase):
     def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
         """Create a presigned URL for downloading an object from GCS."""
         if not soa.has_object:
-            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}', excs.BAD_REQUEST)
 
         gcs_client = self.client()
         bucket = gcs_client.bucket(soa.container)
@@ -280,16 +280,16 @@ class GCSStore(ObjectStoreBase):
         if isinstance(e, NotFound):
             if ignore_404:
                 return
-            raise excs.Error(f'Bucket or object {bucket_name} not found during {operation}: {str(e)!r}')
+            raise excs.Error(f'Bucket or object {bucket_name} not found during {operation}: {str(e)!r}', excs.NOT_FOUND)
         elif isinstance(e, Forbidden):
-            raise excs.Error(f'Access denied to bucket {bucket_name} during {operation}: {str(e)!r}')
+            raise excs.Error(f'Access denied to bucket {bucket_name} during {operation}: {str(e)!r}', excs.BAD_REQUEST)
         elif isinstance(e, GoogleAPIError):
             # Handle other Google API errors
             error_message = str(e)
             if 'Precondition' in error_message:
-                raise excs.Error(f'Precondition failed for bucket {bucket_name} during {operation}: {error_message}')
+                raise excs.Error(f'Precondition failed for bucket {bucket_name} during {operation}: {error_message}', excs.BAD_REQUEST)
             else:
-                raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_message}')
+                raise excs.Error(f'Error during {operation} in bucket {bucket_name}: {error_message}', excs.BAD_REQUEST)
         else:
             # Generic error handling
-            raise excs.Error(f'Unexpected error during {operation} in bucket {bucket_name}: {str(e)!r}')
+            raise excs.Error(f'Unexpected error during {operation} in bucket {bucket_name}: {str(e)!r}', excs.BAD_REQUEST)

@@ -427,7 +427,7 @@ class TableRestorer:
             raise excs.Error(
                 f'Pixeltable metadata version mismatch: {pxt_md_version} != {metadata.VERSION}.\n'
                 'Please upgrade Pixeltable to use this dataset: pip install -U pixeltable'
-            )
+            , excs.INTERNAL_SERVER_ERROR)
         # Convert tables metadata from dict to list of TableVersionMd
         tbl_md = [schema.md_from_dict(TableVersionMd, t) for t in self.bundle_md['md']]
 
@@ -589,7 +589,7 @@ class TableRestorer:
                 raise excs.Error(
                     'Data corruption error: '
                     'the replica data are inconsistent with data retrieved from a previous replica.'
-                )
+                , excs.INTERNAL_SERVER_ERROR)
 
         _logger.debug(f'Verified data integrity between {store_sa_tbl_name!r} and {temp_sa_tbl_name!r}.')
 

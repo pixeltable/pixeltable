@@ -475,7 +475,7 @@ class Table(SchemaObject):
         for new_col_name in new_col_names:
             if new_col_name in existing_col_names:
                 if if_exists == IfExistsParam.ERROR:
-                    raise excs.Error(f'Duplicate column name: {new_col_name}')
+                    raise excs.Error(f'Duplicate column name: {new_col_name}', excs.BAD_REQUEST)
                 elif if_exists == IfExistsParam.IGNORE:
                     cols_to_ignore.append(new_col_name)
                 elif if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE):
@@ -483,7 +483,7 @@ class Table(SchemaObject):
                         # for views, it is possible that the existing column
                         # is a base table column; in that case, we should not
                         # drop/replace that column. Continue to raise error.
-                        raise excs.Error(f'Column {new_col_name!r} is a base table column. Cannot replace it.')
+                        raise excs.Error(f'Column {new_col_name!r} is a base table column. Cannot replace it.', excs.BAD_REQUEST)
                     col = self._tbl_version.get().cols_by_name[new_col_name]
                     # cannot drop a column with dependents; so reject
                     # replace directive if column has dependents.
@@ -491,7 +491,7 @@ class Table(SchemaObject):
                         raise excs.Error(
                             f'Column {new_col_name!r} already exists and has dependents. '
                             f'Cannot {if_exists.name.lower()} it.'
-                        )
+                        , excs.BAD_REQUEST)
                     self.drop_column(new_col_name)
                     assert new_col_name not in self._tbl_version.get().cols_by_name
         return cols_to_ignore
@@ -606,12 +606,12 @@ class Table(SchemaObject):
             raise excs.Error(
                 f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
-            )
+            , excs.BAD_REQUEST)
         col_type = next(iter(kwargs.values()))
         if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
             raise excs.Error(
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
-            )
+            , excs.BAD_REQUEST)
         return self.add_columns(kwargs, if_exists=if_exists)
 
     def add_computed_column(
@@ -672,10 +672,10 @@ class Table(SchemaObject):
                     f'add_computed_column() requires exactly one keyword argument of the form '
                     '`col_name=col_type` or `col_name=expression`; '
                     f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
-                )
+                , excs.BAD_REQUEST)
             col_name, spec = next(iter(kwargs.items()))
             if not is_valid_identifier(col_name):
-                raise excs.Error(f'Invalid column name: {col_name}')
+                raise excs.Error(f'Invalid column name: {col_name}', excs.BAD_REQUEST)
 
             col_schema: dict[str, Any] = {'value': spec}
             if stored is not None:
@@ -691,7 +691,7 @@ class Table(SchemaObject):
                         raise excs.Error(
                             f'Use of a reference to the {e.prop.name.lower()!r} property of another column '
                             f'is not allowed in a computed column.'
-                        )
+                        , excs.BAD_REQUEST)
 
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
@@ -722,30 +722,30 @@ class Table(SchemaObject):
         valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
         for k in spec:
             if k not in valid_keys:
-                raise excs.Error(f'Column {name!r}: invalid key {k!r}')
+                raise excs.Error(f'Column {name!r}: invalid key {k!r}', excs.BAD_REQUEST)
 
         if 'type' not in spec and 'value' not in spec:
-            raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
+            raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified", excs.BAD_REQUEST)
 
         if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
-            raise excs.Error(f"Column {name!r}: 'type' must be a type or ColumnType; got {spec['type']}")
+            raise excs.Error(f"Column {name!r}: 'type' must be a type or ColumnType; got {spec['type']}", excs.BAD_REQUEST)
 
         if 'value' in spec:
             value_expr = exprs.Expr.from_object(spec['value'])
             if value_expr is None:
-                raise excs.Error(f"Column {name!r}: 'value' must be a Pixeltable expression.")
+                raise excs.Error(f"Column {name!r}: 'value' must be a Pixeltable expression.", excs.BAD_REQUEST)
             if 'type' in spec:
-                raise excs.Error(f"Column {name!r}: 'type' is redundant if 'value' is specified")
+                raise excs.Error(f"Column {name!r}: 'type' is redundant if 'value' is specified", excs.BAD_REQUEST)
 
         if 'media_validation' in spec:
             _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name!r}: media_validation')
 
         if 'stored' in spec and not isinstance(spec['stored'], bool):
-            raise excs.Error(f"Column {name!r}: 'stored' must be a bool; got {spec['stored']}")
+            raise excs.Error(f"Column {name!r}: 'stored' must be a bool; got {spec['stored']}", excs.BAD_REQUEST)
 
         d = spec.get('destination')
         if d is not None and not isinstance(d, (str, Path)):
-            raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
+            raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}', excs.BAD_REQUEST)
 
     @classmethod
     def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
@@ -784,7 +784,7 @@ class Table(SchemaObject):
                 )
                 destination = spec.get('destination')
             else:
-                raise excs.Error(f'Invalid value for column {name!r}')
+                raise excs.Error(f'Invalid value for column {name!r}', excs.BAD_REQUEST)
 
             column = Column(
                 name,
@@ -806,25 +806,25 @@ class Table(SchemaObject):
     def validate_column_name(cls, name: str) -> None:
         """Check that a name is usable as a pixeltable column name"""
         if is_system_column_name(name) or is_python_keyword(name):
-            raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
+            raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.', excs.BAD_REQUEST)
         if not is_valid_identifier(name):
-            raise excs.Error(f'Invalid column name: {name}')
+            raise excs.Error(f'Invalid column name: {name}', excs.BAD_REQUEST)
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
         cls.validate_column_name(col.name)
         if col.stored is False and not col.is_computed:
-            raise excs.Error(f'Column {col.name!r}: `stored={col.stored}` only applies to computed columns')
+            raise excs.Error(f'Column {col.name!r}: `stored={col.stored}` only applies to computed columns', excs.BAD_REQUEST)
         if col.stored is False and col.has_window_fn_call():
             raise excs.Error(
                 (
                     f'Column {col.name!r}: `stored={col.stored}` is not valid for image columns computed with a '
                     f'streaming function'
                 )
-            )
+            , excs.BAD_REQUEST)
         if col._explicit_destination is not None and not (col.stored and col.is_computed):
-            raise excs.Error(f'Column {col.name!r}: `destination` property only applies to stored computed columns')
+            raise excs.Error(f'Column {col.name!r}: `destination` property only applies to stored computed columns', excs.BAD_REQUEST)
 
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:
@@ -876,29 +876,29 @@ class Table(SchemaObject):
                 col = self._tbl_version_path.get_column(column)
                 if col is None:
                     if if_not_exists_ == IfNotExistsParam.ERROR:
-                        raise excs.Error(f'Unknown column: {column}')
+                        raise excs.Error(f'Unknown column: {column}', excs.NOT_FOUND)
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
                 if col.get_tbl().id != self._tbl_version_path.tbl_id:
-                    raise excs.Error(f'Cannot drop base table column {col.name!r}')
+                    raise excs.Error(f'Cannot drop base table column {col.name!r}', excs.BAD_REQUEST)
                 col = self._tbl_version.get().cols_by_name[column]
             else:
                 exists = self._tbl_version_path.has_column(column.col)
                 if not exists:
                     if if_not_exists_ == IfNotExistsParam.ERROR:
-                        raise excs.Error(f'Unknown column: {column.col.qualified_name}')
+                        raise excs.Error(f'Unknown column: {column.col.qualified_name}', excs.NOT_FOUND)
                     assert if_not_exists_ == IfNotExistsParam.IGNORE
                     return
                 col = column.col
                 if col.get_tbl().id != self._tbl_version_path.tbl_id:
-                    raise excs.Error(f'Cannot drop base table column {col.name!r}')
+                    raise excs.Error(f'Cannot drop base table column {col.name!r}', excs.BAD_REQUEST)
 
             dependent_user_cols = [c for c in cat.get_column_dependents(col.get_tbl().id, col.id) if c.name is not None]
             if len(dependent_user_cols) > 0:
                 raise excs.Error(
                     f'Cannot drop column {col.name!r} because the following columns depend on it:\n'
                     f'{", ".join(c.name for c in dependent_user_cols)}'
-                )
+                , excs.BAD_REQUEST)
 
             views = self._get_views(recursive=True, mutable_only=True)
 
@@ -918,7 +918,7 @@ class Table(SchemaObject):
                 )
                 raise excs.Error(
                     f'Cannot drop column {col.name!r} because the following views depend on it:\n{dependent_views_str}'
-                )
+                , excs.BAD_REQUEST)
 
             # See if this column has a dependent store. We need to look through all stores in all
             # (transitive) views of this table.
@@ -937,13 +937,13 @@ class Table(SchemaObject):
                 raise excs.Error(
                     f'Cannot drop column {col.name!r} because the following external stores depend on it:\n'
                     f'{", ".join(dependent_store_names)}'
-                )
+                , excs.BAD_REQUEST)
             all_columns = self.columns()
             if len(all_columns) == 1 and col.name == all_columns[0]:
                 raise excs.Error(
                     f'Cannot drop column {col.name!r} because it is the last remaining column in this table.'
                     f' Tables must have at least one column.'
-                )
+                , excs.BAD_REQUEST)
 
             self._tbl_version.get().drop_column(col)
 
@@ -1083,11 +1083,11 @@ class Table(SchemaObject):
                 # An index with the same name already exists.
                 # Handle it according to if_exists.
                 if if_exists_ == IfExistsParam.ERROR:
-                    raise excs.Error(f'Duplicate index name: {idx_name}')
+                    raise excs.Error(f'Duplicate index name: {idx_name}', excs.BAD_REQUEST)
                 if not isinstance(self._tbl_version.get().idxs_by_name[idx_name].idx, index.EmbeddingIndex):
                     raise excs.Error(
                         f'Index {idx_name!r} is not an embedding index. Cannot {if_exists_.name.lower()} it.'
-                    )
+                    , excs.BAD_REQUEST)
                 if if_exists_ == IfExistsParam.IGNORE:
                     return
                 assert if_exists_ in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
@@ -1161,7 +1161,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         if (column is None) == (idx_name is None):
-            raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
+            raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided", excs.BAD_REQUEST)
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             col: Column = None
@@ -1177,14 +1177,14 @@ class Table(SchemaObject):
         if isinstance(column, str):
             col = self._tbl_version_path.get_column(column)
             if col is None:
-                raise excs.Error(f'Unknown column: {column}')
+                raise excs.Error(f'Unknown column: {column}', excs.NOT_FOUND)
         elif isinstance(column, ColumnRef):
             exists = self._tbl_version_path.has_column(column.col)
             if not exists:
-                raise excs.Error(f'Unknown column: {column.col.qualified_name}')
+                raise excs.Error(f'Unknown column: {column.col.qualified_name}', excs.NOT_FOUND)
             col = column.col
         else:
-            raise excs.Error(f'Invalid column parameter type: {type(column)}')
+            raise excs.Error(f'Invalid column parameter type: {type(column)}', excs.BAD_REQUEST)
         return col
 
     def drop_index(
@@ -1240,7 +1240,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import Catalog
 
         if (column is None) == (idx_name is None):
-            raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
+            raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided", excs.BAD_REQUEST)
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
             col: Column = None
@@ -1267,7 +1267,7 @@ class Table(SchemaObject):
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
             if idx_name not in self._tbl_version.get().idxs_by_name:
                 if if_not_exists_ == IfNotExistsParam.ERROR:
-                    raise excs.Error(f'Index {idx_name!r} does not exist')
+                    raise excs.Error(f'Index {idx_name!r} does not exist', excs.NOT_FOUND)
                 assert if_not_exists_ == IfNotExistsParam.IGNORE
                 return
             idx_info = self._tbl_version.get().idxs_by_name[idx_name]
@@ -1276,18 +1276,18 @@ class Table(SchemaObject):
                 raise excs.Error(
                     f'Column {col.name!r}: '
                     f'cannot drop index from column that belongs to base table {col.get_tbl().name!r}'
-                )
+                , excs.BAD_REQUEST)
             idx_info_list = [info for info in self._tbl_version.get().idxs_by_name.values() if info.col.id == col.id]
             if _idx_class is not None:
                 idx_info_list = [info for info in idx_info_list if isinstance(info.idx, _idx_class)]
             if len(idx_info_list) == 0:
                 if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
                 if if_not_exists_ == IfNotExistsParam.ERROR:
-                    raise excs.Error(f'Column {col.name!r} does not have an index')
+                    raise excs.Error(f'Column {col.name!r} does not have an index', excs.NOT_FOUND)
                 assert if_not_exists_ == IfNotExistsParam.IGNORE
                 return
             if len(idx_info_list) > 1:
-                raise excs.Error(f'Column {col.name!r} has multiple indices; specify `idx_name` explicitly to drop one')
+                raise excs.Error(f'Column {col.name!r} has multiple indices; specify `idx_name` explicitly to drop one', excs.BAD_REQUEST)
             idx_info = idx_info_list[0]
 
         # Find out if anything depends on this index
@@ -1299,7 +1299,7 @@ class Table(SchemaObject):
             raise excs.Error(
                 f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'
                 f'{", ".join(c.name for c in dependent_user_cols)}'
-            )
+            , excs.BAD_REQUEST)
         self._tbl_version.get().drop_index(idx_info.id)
 
     @overload
@@ -1503,7 +1503,7 @@ class Table(SchemaObject):
             has_rowid = _ROWID_COLUMN_NAME in rows[0]
             rowids: list[tuple[int, ...]] = []
             if len(pk_col_names) == 0 and not has_rowid:
-                raise excs.Error('Table must have primary key for batch update')
+                raise excs.Error('Table must have primary key for batch update', excs.BAD_REQUEST)
 
             for row_spec in rows:
                 col_vals = self._tbl_version.get()._validate_update_spec(
@@ -1519,7 +1519,7 @@ class Table(SchemaObject):
                         missing_cols = pk_col_names - {col.name for col in col_vals}
                         raise excs.Error(
                             f'Primary key column(s) {", ".join(repr(c) for c in missing_cols)} missing in {row_spec}'
-                        )
+                        , excs.BAD_REQUEST)
                 row_updates.append(col_vals)
 
             result = self._tbl_version.get().batch_update(
@@ -1574,9 +1574,9 @@ class Table(SchemaObject):
         with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('recompute columns of')
             if len(columns) == 0:
-                raise excs.Error('At least one column must be specified to recompute')
+                raise excs.Error('At least one column must be specified to recompute', excs.BAD_REQUEST)
             if errors_only and len(columns) > 1:
-                raise excs.Error('Cannot use errors_only=True with multiple columns')
+                raise excs.Error('Cannot use errors_only=True with multiple columns', excs.BAD_REQUEST)
 
             col_names: list[str] = []
             for column in columns:
@@ -1585,22 +1585,22 @@ class Table(SchemaObject):
                 if isinstance(column, str):
                     col = self._tbl_version_path.get_column(column)
                     if col is None:
-                        raise excs.Error(f'Unknown column: {column}')
+                        raise excs.Error(f'Unknown column: {column}', excs.NOT_FOUND)
                     col_name = column
                 else:
                     assert isinstance(column, ColumnRef)
                     col = column.col
                     if not self._tbl_version_path.has_column(col):
-                        raise excs.Error(f'Unknown column: {col.name}')
+                        raise excs.Error(f'Unknown column: {col.name}', excs.NOT_FOUND)
                     col_name = col.name
                 if not col.is_computed:
-                    raise excs.Error(f'Column {col_name!r} is not a computed column')
+                    raise excs.Error(f'Column {col_name!r} is not a computed column', excs.BAD_REQUEST)
                 if col.get_tbl().id != self._tbl_version_path.tbl_id:
-                    raise excs.Error(f'Cannot recompute column of a base: {col_name}')
+                    raise excs.Error(f'Cannot recompute column of a base: {col_name}', excs.BAD_REQUEST)
                 col_names.append(col_name)
 
             if where is not None and not where.is_bound_by([self._tbl_version_path]):
-                raise excs.Error(f'`where` predicate ({where}) is not bound by {self._display_str()}')
+                raise excs.Error(f'`where` predicate ({where}) is not bound by {self._display_str()}', excs.BAD_REQUEST)
 
             result = self._tbl_version.get().recompute_columns(
                 col_names, where=where, errors_only=errors_only, cascade=cascade
@@ -1645,13 +1645,13 @@ class Table(SchemaObject):
         tbl_version = self._tbl_version_path.tbl_version.get()
 
         if tbl_version.is_replica:
-            raise excs.Error(f'push(): Cannot push replica table {self._name!r}. (Did you mean `pull()`?)')
+            raise excs.Error(f'push(): Cannot push replica table {self._name!r}. (Did you mean `pull()`?)', excs.BAD_REQUEST)
 
         if pxt_uri is None:
             raise excs.Error(
                 f'push(): Table {self._name!r} has not yet been published to Pixeltable Cloud. '
                 'To publish it, use `pxt.publish()` instead.'
-            )
+            , excs.BAD_REQUEST)
 
         if isinstance(self, catalog.View) and self._is_anonymous_snapshot():
             raise excs.Error(
@@ -1659,7 +1659,7 @@ class Table(SchemaObject):
                 'To push the latest version instead:\n'
                 f'  t = pxt.get_table({self._name!r})\n'
                 f'  t.push()'
-            )
+            , excs.BAD_REQUEST)
 
         if self._tbl_version is None:
             # Named snapshots never have new versions to push.
@@ -1683,7 +1683,7 @@ class Table(SchemaObject):
         if not tbl_version.is_replica or pxt_uri is None:
             raise excs.Error(
                 f'pull(): Table {self._name!r} is not a replica of a Pixeltable Cloud table (nothing to `pull()`).'
-            )
+            , excs.BAD_REQUEST)
 
         if isinstance(self, catalog.View) and self._is_anonymous_snapshot():
             raise excs.Error(
@@ -1691,7 +1691,7 @@ class Table(SchemaObject):
                 'To pull the latest version instead:\n'
                 f'  t = pxt.get_table({self._name!r})\n'
                 f'  t.pull()'
-            )
+            , excs.BAD_REQUEST)
 
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
         parsed_uri = PxtUri(uri=pxt_uri)
@@ -1712,7 +1712,7 @@ class Table(SchemaObject):
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
             self.__check_mutable('link an external store to')
             if store.name in self.external_stores():
-                raise excs.Error(f'Table {self._name!r} already has an external store with that name: {store.name}')
+                raise excs.Error(f'Table {self._name!r} already has an external store with that name: {store.name}', excs.BAD_REQUEST)
             _logger.info(f'Linking external store {store.name!r} to table {self._name!r}.')
 
             store.link(self._tbl_version.get())  # might call tbl_version.add_columns()
@@ -1749,7 +1749,7 @@ class Table(SchemaObject):
             if not ignore_errors:
                 for store_name in stores:
                     if store_name not in all_stores:
-                        raise excs.Error(f'Table {self._name!r} has no external store with that name: {store_name}')
+                        raise excs.Error(f'Table {self._name!r} has no external store with that name: {store_name}', excs.NOT_FOUND)
 
             for store_name in stores:
                 store = self._tbl_version.get().external_stores[store_name]
@@ -1790,7 +1790,7 @@ class Table(SchemaObject):
 
             for store in stores:
                 if store not in all_stores:
-                    raise excs.Error(f'Table {self._name!r} has no external store with that name: {store}')
+                    raise excs.Error(f'Table {self._name!r} has no external store with that name: {store}', excs.NOT_FOUND)
 
             sync_status = UpdateStatus()
             for store in stores:
@@ -1834,7 +1834,7 @@ class Table(SchemaObject):
         if n is None:
             n = 1_000_000_000
         if not isinstance(n, int) or n < 1:
-            raise excs.Error(f'Invalid value for `n`: {n}')
+            raise excs.Error(f'Invalid value for `n`: {n}', excs.BAD_REQUEST)
 
         # Retrieve the table history components from the catalog
         tbl_id = self._id
@@ -1905,6 +1905,6 @@ class Table(SchemaObject):
 
     def __check_mutable(self, op_descr: str) -> None:
         if self._tbl_version_path.is_replica():
-            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a replica.')
+            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a replica.', excs.BAD_REQUEST)
         if self._tbl_version_path.is_snapshot():
-            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.')
+            raise excs.Error(f'{self._display_str()}: Cannot {op_descr} a snapshot.', excs.BAD_REQUEST)

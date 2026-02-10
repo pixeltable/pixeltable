@@ -120,7 +120,7 @@ def retry_loop(
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
                             time.sleep(random.uniform(0.1, 0.5))
                         else:
-                            raise excs.Error(f'Serialization retry limit ({_MAX_RETRIES}) exceeded') from e
+                            raise excs.Error(f'Serialization retry limit ({_MAX_RETRIES}) exceeded', excs.RETRYABLE) from e
                     else:
                         raise
                 except Exception as e:
@@ -490,7 +490,7 @@ class Catalog:
             # the table got dropped in the middle of the operation
             tbl_name = tbl.get().name
             _logger.debug(f'Exception: undefined table {tbl_name!r}: Caught {type(e.orig)}: {e!r}')
-            raise excs.Error(f'Table was dropped: {tbl_name}') from None
+            raise excs.Error(f'Table was dropped: {tbl_name}', excs.NOT_FOUND) from None
         elif (
             # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
             #     which is supposed to be deadlock-free.
@@ -519,7 +519,7 @@ class Catalog:
                 'That Pixeltable operation could not be completed because it conflicted with another '
                 'operation that was run on a different process.\n'
                 'Please re-run the operation.'
-            ) from raise_from
+            , excs.RETRYABLE) from raise_from
 
     @property
     def in_write_xact(self) -> bool:
@@ -599,7 +599,7 @@ class Catalog:
         row = conn.execute(q).one_or_none()
         if row is None:
             if raise_if_not_exists:
-                raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
+                raise excs.Error(self._dropped_tbl_error_msg(tbl_id), excs.NOT_FOUND)
             return None  # nothing to lock
         tbl_md = schema.md_from_dict(schema.TableMd, row.md)
         if for_write and tbl_md.is_mutable:
@@ -637,7 +637,7 @@ class Catalog:
                 # TODO: handle replicas
                 exc = self._finalize_pending_ops(tbl_id)
                 if exc is not None:
-                    raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
+                    raise excs.Error(f'Table operation was aborted with\n{exc!s}', excs.INTERNAL_SERVER_ERROR) from exc
             finally:
                 self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
 
@@ -1019,9 +1019,9 @@ class Catalog:
             if dir is None:
                 # Dir does not exist; raise an appropriate error.
                 if add_dir_path is not None or add_name is not None:
-                    raise excs.Error(f'Directory {p!r} does not exist. Create it first with:\npxt.create_dir({p!r})')
+                    raise excs.Error(f'Directory {p!r} does not exist. Create it first with:\npxt.create_dir({p!r})', excs.NOT_FOUND)
                 elif raise_if_not_exists:
-                    raise excs.Error(f'Directory {p!r} does not exist.')
+                    raise excs.Error(f'Directory {p!r} does not exist.', excs.NOT_FOUND)
                 else:
                     return None, None, None  # parent dir does not exist; nothing to do
             if p == add_dir_path:
@@ -1034,17 +1034,17 @@ class Catalog:
             add_obj = self._get_dir_entry(add_dir.id, add_name, lock_entry=True)
             if add_obj is not None and raise_if_exists:
                 add_path = add_dir_path.append(add_name)
-                raise excs.Error(f'Path {add_path!r} already exists.')
+                raise excs.Error(f'Path {add_path!r} already exists.', excs.BAD_REQUEST)
 
         drop_obj: SchemaObject | None = None
         if drop_dir is not None:
             drop_path = drop_dir_path.append(drop_name)
             drop_obj = self._get_dir_entry(drop_dir.id, drop_name, lock_entry=True)
             if drop_obj is None and raise_if_not_exists:
-                raise excs.Error(f'Path {drop_path!r} does not exist.')
+                raise excs.Error(f'Path {drop_path!r} does not exist.', excs.NOT_FOUND)
             if drop_obj is not None and drop_expected is not None and not isinstance(drop_obj, drop_expected):
                 expected_name = 'table' if drop_expected is Table else 'directory'
-                raise excs.Error(f'{drop_path!r} needs to be a {expected_name} but is a {drop_obj._display_name()}')
+                raise excs.Error(f'{drop_path!r} needs to be a {expected_name} but is a {drop_obj._display_name()}', excs.BAD_REQUEST)
 
         add_dir_obj = Dir(add_dir.id, add_dir.parent_id, add_dir.md['name']) if add_dir is not None else None
         return add_obj, add_dir_obj, drop_obj
@@ -1105,28 +1105,28 @@ class Catalog:
         if path.is_root:
             # the root dir
             if expected is not None and expected is not Dir:
-                raise excs.Error(f'{path!r} needs to be a table but is a dir')
+                raise excs.Error(f'{path!r} needs to be a table but is a dir', excs.BAD_REQUEST)
             dir = self._get_dir(path, lock_dir=lock_obj)
             if dir is None:
-                raise excs.Error(f'Unknown user: {Env.get().user}')
+                raise excs.Error(f'Unknown user: {Env.get().user}', excs.NOT_FOUND)
             return Dir(dir.id, dir.parent_id, dir.md['name'])
 
         parent_path = path.parent
         parent_dir = self._get_dir(parent_path, lock_dir=lock_parent)
         if parent_dir is None:
             if raise_if_not_exists:
-                raise excs.Error(f'Directory {parent_path!r} does not exist.')
+                raise excs.Error(f'Directory {parent_path!r} does not exist.', excs.NOT_FOUND)
             else:
                 return None
         obj = self._get_dir_entry(parent_dir.id, path.name, path.version, lock_entry=lock_obj)
 
         if obj is None and raise_if_not_exists:
-            raise excs.Error(f'Path {path!r} does not exist.')
+            raise excs.Error(f'Path {path!r} does not exist.', excs.NOT_FOUND)
         elif obj is not None and raise_if_exists:
-            raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}.')
+            raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}.', excs.BAD_REQUEST)
         elif obj is not None and expected is not None and not isinstance(obj, expected):
             expected_name = 'table' if expected is Table else 'directory'
-            raise excs.Error(f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.')
+            raise excs.Error(f'{path!r} needs to be a {expected_name} but is a {obj._display_name()}.', excs.BAD_REQUEST)
         return obj
 
     def get_table_by_id(
@@ -1321,7 +1321,7 @@ class Catalog:
             raise excs.Error(
                 f'An attempt was made to create a replica table at {path!r}, '
                 'but a different table already exists at that location.'
-            )
+            , excs.BAD_REQUEST)
 
         # Ensure that the system directory exists.
         self.__ensure_system_dir_exists()
@@ -1335,7 +1335,7 @@ class Catalog:
                 raise excs.Error(
                     f'That table has already been replicated as {existing_path!r}.\n'
                     f'Drop the existing replica if you wish to re-create it.'
-                )
+                , excs.BAD_REQUEST)
 
         # Now store the metadata for this replica's proper ancestors. If one or more proper ancestors
         # do not yet exist in the store, they will be created as anonymous system tables.
@@ -1426,7 +1426,7 @@ class Catalog:
                 'in its original form.\n'
                 'If this is intentional, you must first drop the existing base table:\n'
                 f'  pxt.drop_table({str(path)!r})'
-            )
+            , excs.BAD_REQUEST)
         elif md.tbl_md.current_version > existing_md_row.md['current_version']:
             # New metadata is more recent than the metadata currently stored in the DB; we'll update the record
             # in place in the DB.
@@ -1459,7 +1459,7 @@ class Catalog:
                     f'The version metadata for the replica {path!r}:{md.version_md.version} is inconsistent with '
                     'the metadata recorded from a prior replica.\n'
                     'This is likely due to data corruption in the replicated table.'
-                )
+                , excs.BAD_REQUEST)
             if existing_version_md.is_fragment and not md.version_md.is_fragment:
                 # This version exists in the DB as a fragment, but we're importing a complete copy of the same version;
                 # set the is_fragment flag to False in the DB.
@@ -1484,7 +1484,7 @@ class Catalog:
                     f'The schema version metadata for the replica {path!r}:{md.schema_version_md.schema_version} '
                     'is inconsistent with the metadata recorded from a prior replica.\n'
                     'This is likely due to data corruption in the replicated table.'
-                )
+                , excs.BAD_REQUEST)
 
         self.write_tbl_md(UUID(tbl_id), None, new_tbl_md, new_version_md, new_schema_version_md)
 
@@ -1624,7 +1624,7 @@ class Catalog:
                     )
                 else:
                     msg = f'{tbl._display_str()} has dependents.'
-                raise excs.Error(msg)
+                raise excs.Error(msg, excs.BAD_REQUEST)
 
         # if this is a mutable view of a mutable base, advance the base's view_sn
         if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
@@ -1757,7 +1757,7 @@ class Catalog:
             q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(dir_id=dir_id))
             num_tbls = conn.execute(q).scalar()
             if num_subdirs + num_tbls > 0:
-                raise excs.Error(f'Directory {dir_path!r} is not empty.')
+                raise excs.Error(f'Directory {dir_path!r} is not empty.', excs.BAD_REQUEST)
 
         # drop existing subdirs
         self._acquire_dir_xlock(dir_id=dir_id)
@@ -1784,7 +1784,7 @@ class Catalog:
         q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
         tbl_count = conn.execute(q).scalar()
         if tbl_count == 0:
-            raise excs.Error(self._dropped_tbl_error_msg(tbl_id))
+            raise excs.Error(self._dropped_tbl_error_msg(tbl_id), excs.NOT_FOUND)
         q = (
             sql.select(schema.Table.id)
             .where(schema.Table.md['view_md']['base_versions'][0][0].astext == tbl_id.hex)
@@ -1823,7 +1823,7 @@ class Catalog:
                 q = sql.select(schema.Table.md).where(where_clause)
                 row = conn.execute(q).one_or_none()
                 if row is None:
-                    raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
+                    raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id), excs.NOT_FOUND)
 
                 reload = False
 
@@ -1832,7 +1832,7 @@ class Catalog:
                     q = sql.select(schema.Table.md).where(where_clause)
                     row = conn.execute(q).one_or_none()
                     if row is None:
-                        raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
+                        raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id), excs.NOT_FOUND)
                     current_version, view_sn = row.md['current_version'], row.md['view_sn']
                     if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
                         _logger.debug(
@@ -1859,7 +1859,7 @@ class Catalog:
                     )
                     row = conn.execute(q).one_or_none()
                     if row is None:
-                        raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
+                        raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id), excs.NOT_FOUND)
                     version = row.md['version']
                     if version != tv.version:  # TODO: How will view_sn work for replicas?
                         _logger.debug(
@@ -2071,7 +2071,7 @@ class Catalog:
                 # This can happen if an ancestor version is garbage collected; it can also happen in
                 # rare circumstances involving table versions created specifically with Pixeltable 0.4.3.
                 _logger.info(f'Ancestor {ancestor_id} not found for table {tbl_id}:{version}')
-                raise excs.Error('The specified table version is no longer valid and cannot be retrieved.')
+                raise excs.Error('The specified table version is no longer valid and cannot be retrieved.', excs.NOT_FOUND)
             ancestor_version_record = _unpack_row(row, [schema.TableVersion])[0]
             ancestor_version_md = schema.md_from_dict(schema.VersionMd, ancestor_version_record.md)
             assert ancestor_version_md.created_at <= created_at
@@ -2218,7 +2218,7 @@ class Catalog:
 
         row = conn.execute(q).one_or_none()
         if row is None:
-            raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
+            raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id), excs.NOT_FOUND)
         tbl_record, version_record, schema_version_record = _unpack_row(
             row, [schema.Table, schema.TableVersion, schema.TableSchemaVersion]
         )
@@ -2472,7 +2472,7 @@ class Catalog:
         if check_pending_ops:
             # if we care about pending ops, we also care whether the table is in the process of getting dropped
             if tbl_md.pending_stmt == schema.TableStatement.DROP_TABLE:
-                raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
+                raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id), excs.NOT_FOUND)
 
             pending_ops_q = (
                 sql.select(sql.func.count())
@@ -2568,7 +2568,7 @@ class Catalog:
         obj, _, _ = self._prepare_dir_op(add_dir_path=path.parent, add_name=path.name)
 
         if if_exists == IfExistsParam.ERROR and obj is not None:
-            raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}')
+            raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}', excs.BAD_REQUEST)
         else:
             is_snapshot = isinstance(obj, View) and obj._tbl_version_path.is_snapshot()
             if obj is not None and (not isinstance(obj, expected_obj_type) or (expected_snapshot and not is_snapshot)):
@@ -2582,7 +2582,7 @@ class Catalog:
                     raise AssertionError()
                 raise excs.Error(
                     f'Path {path!r} already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
-                )
+                , excs.BAD_REQUEST)
 
         if obj is None:
             return None
@@ -2597,7 +2597,7 @@ class Catalog:
             if obj._id in tuple(version.id for version in base.get_tbl_versions()):
                 raise excs.Error(
                     "Cannot use if_exists='replace' with the same name as one of the view's own ancestors."
-                )
+                , excs.BAD_REQUEST)
 
         # drop the existing schema object
         if isinstance(obj, Dir):
@@ -2606,7 +2606,7 @@ class Catalog:
                 raise excs.Error(
                     f'Directory {path!r} already exists and is not empty. '
                     'Use `if_exists="replace_force"` to replace it.'
-                )
+                , excs.BAD_REQUEST)
             self._drop_dir(obj._id, path, force=True)
         else:
             assert isinstance(obj, Table)

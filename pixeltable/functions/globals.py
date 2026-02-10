@@ -283,7 +283,7 @@ def map(expr: exprs.Expr, fn: Callable[[exprs.Expr], Any]) -> exprs.Expr:
         raise excs.Error(
             'Failed to evaluate map function. '
             '(The `fn` argument to `map()` must produce a valid Pixeltable expression.)'
-        ) from e
+        , excs.BAD_REQUEST) from e
     return exprs.JsonMapper(expr, target_expr)
 
 

@@ -52,9 +52,9 @@ def create_chat_completion(
         model_kwargs = {}
 
     if (model_path is None) == (repo_id is None):
-        raise excs.Error('Exactly one of `model_path` or `repo_id` must be provided.')
+        raise excs.Error('Exactly one of `model_path` or `repo_id` must be provided.', excs.BAD_REQUEST)
     if (repo_id is None) and (repo_filename is not None):
-        raise excs.Error('`repo_filename` can only be provided along with `repo_id`.')
+        raise excs.Error('`repo_filename` can only be provided along with `repo_id`.', excs.BAD_REQUEST)
 
     n_gpu_layers = -1 if _is_gpu_available() else 0  # 0 = CPU only, -1 = offload all layers to GPU
 

@@ -42,7 +42,7 @@ class CallableFunction(Function):
         assert len(signatures) > 0
         assert len(signatures) == len(py_fns)
         if self_path is None and len(signatures) > 1:
-            raise excs.Error('Multiple signatures are only allowed for module UDFs (not locally defined UDFs)')
+            raise excs.Error('Multiple signatures are only allowed for module UDFs (not locally defined UDFs)', excs.BAD_REQUEST)
         self.py_fns = py_fns
         self.self_name = self_name
         self.batch_size = batch_size
@@ -158,13 +158,13 @@ class CallableFunction(Function):
 
     def overload(self, fn: Callable) -> CallableFunction:
         if self.self_path is None:
-            raise excs.Error('`overload` can only be used with module UDFs (not locally defined UDFs)')
+            raise excs.Error('`overload` can only be used with module UDFs (not locally defined UDFs)', excs.BAD_REQUEST)
         if self.is_method or self.is_property:
-            raise excs.Error('`overload` cannot be used with `is_method` or `is_property`')
+            raise excs.Error('`overload` cannot be used with `is_method` or `is_property`', excs.BAD_REQUEST)
         if self._has_resolved_fns:
-            raise excs.Error('New `overload` not allowed after the UDF has already been called')
+            raise excs.Error('New `overload` not allowed after the UDF has already been called', excs.BAD_REQUEST)
         if self._conditional_return_type is not None:
-            raise excs.Error('New `overload` not allowed after a conditional return type has been specified')
+            raise excs.Error('New `overload` not allowed after a conditional return type has been specified', excs.BAD_REQUEST)
         sig = Signature.create(fn)
         self.signatures.append(sig)
         self.py_fns.append(fn)

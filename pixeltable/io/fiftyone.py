@@ -50,9 +50,9 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             if isinstance(exprs_, dict):
                 for label_name, expr in exprs_.items():
                     if not label_name.isidentifier():
-                        raise excs.Error(f'Invalid label name: {label_name}')
+                        raise excs.Error(f'Invalid label name: {label_name}', excs.BAD_REQUEST)
                     if label_name in self.__labels:
-                        raise excs.Error(f'Duplicate label name: {label_name}')
+                        raise excs.Error(f'Duplicate label name: {label_name}', excs.BAD_REQUEST)
                     self.__labels[label_name] = (expr, label_cls)
 
         # Now add the remaining labels, assigning unused default names.
@@ -133,7 +133,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
         if not isinstance(data, list) or any('label' not in entry for entry in data):
             raise excs.Error(
                 f"Invalid classifications data: {data}\n(Expected a list of dicts, each containing a 'label' key)"
-            )
+            , excs.BAD_REQUEST)
         return [fo.Classification(label=entry['label'], confidence=entry.get('confidence')) for entry in data]
 
     def __as_fo_detections(self, data: list) -> list[fo.Detections]:
@@ -141,7 +141,7 @@ class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter):
             raise excs.Error(
                 f'Invalid detections data: {data}\n'
                 "(Expected a list of dicts, each containing a 'label' and 'bounding_box' key)"
-            )
+            , excs.BAD_REQUEST)
         return [
             fo.Detection(label=entry['label'], bounding_box=entry['bounding_box'], confidence=entry.get('confidence'))
             for entry in data

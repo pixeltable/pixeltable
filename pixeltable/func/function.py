@@ -164,12 +164,12 @@ class Function(ABC):
 
         for i, expr in enumerate(args):
             if expr is None:
-                raise excs.Error(f'Argument {i + 1} in call to {self.self_path!r} is not a valid Pixeltable expression')
+                raise excs.Error(f'Argument {i + 1} in call to {self.self_path!r} is not a valid Pixeltable expression', excs.BAD_REQUEST)
         for param_name, expr in kwargs.items():
             if expr is None:
                 raise excs.Error(
                     f'Argument {param_name!r} in call to {self.self_path!r} is not a valid Pixeltable expression'
-                )
+                , excs.BAD_REQUEST)
 
         resolved_fn, bound_args = self._bind_to_matching_signature(args, kwargs)
         return_type = resolved_fn.call_return_type(bound_args)
@@ -195,7 +195,7 @@ class Function(ABC):
                 result = i
                 break
             if result == -1:
-                raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
+                raise excs.Error(f'Function {self.name!r} has no matching signature for arguments', excs.BAD_REQUEST)
         assert result >= 0
         assert bound_args is not None
         return self._resolved_fns[result], bound_args
@@ -220,7 +220,7 @@ class Function(ABC):
         if rp_kwargs is None:
             # TODO: What to do in this case? An example where this can happen is if model_id is not a constant
             #   in a call to one of the OpenAI endpoints.
-            raise excs.Error('Could not determine resource pool')
+            raise excs.Error('Could not determine resource pool', excs.INTERNAL_SERVER_ERROR)
         return self._resource_pool(**rp_kwargs)
 
     def call_return_type(self, bound_args: dict[str, 'exprs.Expr']) -> ts.ColumnType:
@@ -346,7 +346,7 @@ class Function(ABC):
                 except (TypeError, excs.Error):
                     continue
             if len(templates) == 0:
-                raise excs.Error(f'Function {self.name!r} has no matching signature for arguments')
+                raise excs.Error(f'Function {self.name!r} has no matching signature for arguments', excs.BAD_REQUEST)
             return ExprTemplateFunction(templates)
 
     def _bind_and_create_template(self, kwargs: dict[str, Any]) -> 'ExprTemplate':
@@ -360,13 +360,13 @@ class Function(ABC):
         bindings: dict[str, exprs.Expr] = {}
         for k, v in kwargs.items():
             if k not in self.signature.parameters:
-                raise excs.Error(f'Unknown parameter: {k}')
+                raise excs.Error(f'Unknown parameter: {k}', excs.NOT_FOUND)
             param = self.signature.parameters[k]
             expr = exprs.Expr.from_object(v)
             if not isinstance(expr, exprs.Literal):
-                raise excs.Error(f'Expected a constant value for parameter {k!r} in call to .using()')
+                raise excs.Error(f'Expected a constant value for parameter {k!r} in call to .using()', excs.BAD_REQUEST)
             if not param.col_type.is_supertype_of(expr.col_type):
-                raise excs.Error(f'Expected type `{param.col_type}` for parameter {k!r}; got `{expr.col_type}`')
+                raise excs.Error(f'Expected type `{param.col_type}` for parameter {k!r}; got `{expr.col_type}`', excs.BAD_REQUEST)
             bindings[k] = expr
 
         residual_params = [p for p in self.signature.parameters.values() if p.name not in bindings]

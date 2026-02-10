@@ -46,7 +46,7 @@ class SimilarityExpr(Expr):
             raise excs.Error(
                 f'Embedding index {idx_info.name!r} on column {idx_info.col.name!r} does not have {article} '
                 f'{type_str} embedding and does not support {type_str} queries'
-            )
+            , excs.NOT_FOUND)
         self.id = self._create_id()
 
     def __repr__(self) -> str:
@@ -63,7 +63,7 @@ class SimilarityExpr(Expr):
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
         if not isinstance(self.components[1], Literal):
-            raise excs.Error('similarity(): requires a value, not an expression')
+            raise excs.Error('similarity(): requires a value, not an expression', excs.BAD_REQUEST)
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info.idx.similarity_clause(idx_info.val_col, self.components[1])
@@ -73,7 +73,7 @@ class SimilarityExpr(Expr):
 
         # check for a literal here, instead of the c'tor: needed for ExprTemplateFunctions
         if not isinstance(self.components[1], Literal):
-            raise excs.Error('similarity(): requires a value, not an expression')
+            raise excs.Error('similarity(): requires a value, not an expression', excs.BAD_REQUEST)
         idx_info = self._resolve_idx()
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info.idx.order_by_clause(idx_info.val_col, self.components[1], is_asc)
@@ -84,13 +84,13 @@ class SimilarityExpr(Expr):
         # resolve idx_id
         col_ref = self.components[0]
         if self.idx_id not in col_ref.tbl.get().idxs:
-            raise excs.Error(f'Index {self.idx_name!r} not found')
+            raise excs.Error(f'Index {self.idx_name!r} not found', excs.NOT_FOUND)
         idx_info = col_ref.tbl.get().idxs[self.idx_id]
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        raise excs.Error('similarity(): cannot be used in a computed column')
+        raise excs.Error('similarity(): cannot be used in a computed column', excs.BAD_REQUEST)
 
     def _as_dict(self) -> dict:
         return {'idx_name': self.idx_name, **super()._as_dict()}

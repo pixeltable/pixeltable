@@ -74,7 +74,7 @@ class ExprTemplateFunction(Function):
                 # TODO: use the available param_expr.col_type
                 arg_expr = exprs.Expr.from_object(arg)
                 if arg_expr is None:
-                    raise excs.Error(f'{self.self_name}(): cannot convert argument {arg} to a Pixeltable expression')
+                    raise excs.Error(f'{self.self_name}(): cannot convert argument {arg} to a Pixeltable expression', excs.BAD_REQUEST)
             else:
                 arg_expr = arg
             arg_exprs[param_expr] = arg_expr

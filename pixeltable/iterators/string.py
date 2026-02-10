@@ -18,7 +18,7 @@ class StringSplitter(ComponentIterator):
 
     def __init__(self, text: str, *, separators: str, spacy_model: str = 'en_core_web_sm') -> None:
         if separators != 'sentence':
-            raise excs.Error('Only `sentence` separators are currently supported.')
+            raise excs.Error('Only `sentence` separators are currently supported.', excs.BAD_REQUEST)
         self._text = text
         self._spacy_model = get_spacy_model(spacy_model)
         self.doc = self._spacy_model(self._text)
@@ -41,7 +41,7 @@ class StringSplitter(ComponentIterator):
     @classmethod
     def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
         if kwargs.get('separators') != 'sentence':
-            raise excs.Error('Only `sentence` separators are currently supported.')
+            raise excs.Error('Only `sentence` separators are currently supported.', excs.BAD_REQUEST)
 
         # Validate spaCy model
         _ = get_spacy_model(kwargs.get('spacy_model', 'en_core_web_sm'))

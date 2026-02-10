@@ -415,7 +415,7 @@ class ObjectOps:
         error_col_name = f'Column {col_name!r}: ' if col_name is not None else ''
         raise excs.Error(
             f'{error_col_name}`destination` must be a valid reference to a supported destination, got {dest!r}'
-        )
+        , excs.BAD_REQUEST)
 
     @classmethod
     def validate_destination(cls, dest: str | Path | None, col_name: str | None = None) -> str:
@@ -432,13 +432,13 @@ class ObjectOps:
         if isinstance(dest, Path):
             dest = str(dest)
         if dest is not None and not isinstance(dest, str):
-            raise excs.Error(f'{error_col_str}: `destination` must be a string or path; got {dest!r}')
+            raise excs.Error(f'{error_col_str}: `destination` must be a string or path; got {dest!r}', excs.BAD_REQUEST)
 
         # Specific checks for storage backends
         store = cls.get_store(dest, False, col_name)
         dest2 = store.validate(error_col_str)
         if dest2 is None:
-            raise excs.Error(f'{error_col_str}: `destination` must be a supported destination; got {dest!r}')
+            raise excs.Error(f'{error_col_str}: `destination` must be a supported destination; got {dest!r}', excs.BAD_REQUEST)
         return dest2
 
     @classmethod
@@ -569,7 +569,7 @@ class HTTPStore(ObjectStoreBase):
             The HTTP URL as-is since it's already servable
         """
         if not soa.has_object:
-            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}', excs.BAD_REQUEST)
 
         # Construct the full HTTP URL from the StorageObjectAddress
         return f'{soa.scheme}://{soa.account_extension}/{soa.key}'

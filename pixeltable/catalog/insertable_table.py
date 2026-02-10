@@ -81,13 +81,13 @@ class InsertableTable(Table):
         column_names = [col.name for col in columns]
         for pk_col in primary_key:
             if pk_col not in column_names:
-                raise excs.Error(f'Primary key column {pk_col!r} not found in table schema.')
+                raise excs.Error(f'Primary key column {pk_col!r} not found in table schema.', excs.NOT_FOUND)
             col = columns[column_names.index(pk_col)]
             if col.col_type.nullable:
                 raise excs.Error(
                     f'Primary key column {pk_col!r} cannot be nullable. '
                     f'Declare it as `Required` instead: `pxt.Required[pxt.{col.col_type._to_base_str()}]`'
-                )
+                , excs.BAD_REQUEST)
             col.is_pk = True
 
         md = TableVersion.create_initial_md(
@@ -140,7 +140,7 @@ class InsertableTable(Table):
         from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
-            raise excs.Error('Cannot insert an empty sequence.')
+            raise excs.Error('Cannot insert an empty sequence.', excs.BAD_REQUEST)
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
@@ -214,7 +214,7 @@ class InsertableTable(Table):
             try:
                 pxt_rows.append(row.model_dump(mode='json'))
             except pydantic_core.PydanticSerializationError as e:
-                raise excs.Error(f'Row {i}: error serializing pydantic model to JSON:\n{e}') from e
+                raise excs.Error(f'Row {i}: error serializing pydantic model to JSON:\n{e}', excs.BAD_REQUEST) from e
 
         # explicitly check that all required columns are present and non-None in the rows,
         # because we ignore nullability when validating the pydantic model
@@ -223,10 +223,10 @@ class InsertableTable(Table):
             if type(rows[i]) is not model_class:
                 raise excs.Error(
                     f'Expected an instance of `{model_class.__name__}`; got `{type(rows[i]).__name__}` (in row {i})'
-                )
+                , excs.BAD_REQUEST)
             for col_name in reqd_col_names:
                 if pxt_row.get(col_name) is None:
-                    raise excs.Error(f'Missing required column {col_name!r} in row {i}')
+                    raise excs.Error(f'Missing required column {col_name!r} in row {i}', excs.BAD_REQUEST)
 
         status = self._tbl_version.get().insert(
             rows=pxt_rows, query=None, print_stats=print_stats, fail_on_exception=fail_on_exception
@@ -254,20 +254,20 @@ class InsertableTable(Table):
         if missing_required:
             raise excs.Error(
                 f'Pydantic model `{model.__name__}` is missing required columns: ' + ', '.join(missing_required)
-            )
+            , excs.BAD_REQUEST)
 
         computed_in_model = computed_cols & model_field_names
         if computed_in_model:
             raise excs.Error(
                 f'Pydantic model `{model.__name__}` has fields for computed columns: ' + ', '.join(computed_in_model)
-            )
+            , excs.BAD_REQUEST)
 
         # validate type compatibility
         common_fields = model_field_names & set(schema.keys())
         if len(common_fields) == 0:
             raise excs.Error(
                 f'Pydantic model `{model.__name__}` has no fields that map to columns in table {self._name!r}'
-            )
+            , excs.BAD_REQUEST)
         for field_name in common_fields:
             pxt_col_type = schema[field_name]
             model_field = model_fields[field_name]
@@ -280,7 +280,7 @@ class InsertableTable(Table):
             if inferred_pxt_type is None:
                 raise excs.Error(
                     f'Pydantic model `{model.__name__}`: cannot infer Pixeltable type for column {field_name!r}'
-                )
+                , excs.BAD_REQUEST)
 
             if pxt_col_type.is_media_type():
                 # media types require file paths, either as str or Path
@@ -288,13 +288,13 @@ class InsertableTable(Table):
                     raise excs.Error(
                         f'Column {field_name!r} requires a `str` or `Path` field in `{model.__name__}`, but it is '
                         f'`{model_type.__name__}`'
-                    )
+                    , excs.BAD_REQUEST)
             else:
                 if not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
                     raise excs.Error(
                         f'Pydantic model `{model.__name__}` has incompatible type `{model_type.__name__}` '
                         f'for column {field_name!r} (of Pixeltable type `{pxt_col_type}`)'
-                    )
+                    , excs.BAD_REQUEST)
 
                 if (
                     isinstance(model_type, type)
@@ -304,7 +304,7 @@ class InsertableTable(Table):
                     raise excs.Error(
                         f'Pydantic model `{model.__name__}` has field {field_name!r} with nested model '
                         f'`{model_type.__name__}`, which is not JSON-convertible'
-                    )
+                    , excs.BAD_REQUEST)
 
     def delete(self, where: 'exprs.Expr' | None = None) -> UpdateStatus:
         """Delete rows in this table.

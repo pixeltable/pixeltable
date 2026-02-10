@@ -171,10 +171,10 @@ def create_table(
     from pixeltable.io.utils import normalize_primary_key_parameter
 
     if (schema is None) == (source is None):
-        raise excs.Error('Either a `schema` or a `source` must be provided (but not both)')
+        raise excs.Error('Either a `schema` or a `source` must be provided (but not both)', excs.BAD_REQUEST)
 
     if schema is not None and (len(schema) == 0 or not isinstance(schema, dict)):
-        raise excs.Error('`schema` must be a non-empty dictionary')
+        raise excs.Error('`schema` must be a non-empty dictionary', excs.BAD_REQUEST)
 
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
@@ -188,7 +188,7 @@ def create_table(
                 ' Please replicate the table locally first using `pxt.replicate()`:\n'
                 "replica_tbl = pxt.replicate('pxt://path/to/remote_table', 'local_replica_name')\n"
                 "pxt.create_table('new_table_name', source=replica_tbl)"
-            )
+            , excs.BAD_REQUEST)
         tds = UnkTableDataConduit(source, source_format=source_format, extra_fields=extra_args)
         tds.check_source_format()
         data_source = tds.specialize()
@@ -197,7 +197,7 @@ def create_table(
             for col_name, py_type in schema_overrides.items():
                 col_type = ts.ColumnType.normalize_type(py_type, nullable_default=True, allow_builtin_types=False)
                 if col_type is None:
-                    raise excs.Error(f'Invalid type for column {col_name!r} in `schema_overrides`: {py_type}')
+                    raise excs.Error(f'Invalid type for column {col_name!r} in `schema_overrides`: {py_type}', excs.BAD_REQUEST)
                 src_schema_overrides[col_name] = col_type
         data_source.src_schema_overrides = src_schema_overrides
         data_source.src_pk = primary_key
@@ -211,7 +211,7 @@ def create_table(
     if len(schema) == 0 or not isinstance(schema, dict):
         raise excs.Error(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
-        )
+        , excs.BAD_REQUEST)
 
     if not isinstance(comment, str):
         raise excs.Error('`comment` must be a string')
@@ -327,7 +327,7 @@ def create_view(
         ... )
     """
     if is_snapshot and create_default_idxs is True:
-        raise excs.Error('Cannot create default indexes on a snapshot')
+        raise excs.Error('Cannot create default indexes on a snapshot', excs.BAD_REQUEST)
     tbl_version_path: TableVersionPath
     select_list: list[tuple[exprs.Expr, str | None]] | None = None
     where: exprs.Expr | None = None
@@ -341,13 +341,13 @@ def create_view(
         sample_clause = base.sample_clause
         select_list = base.select_list
         if sample_clause is not None and not is_snapshot and not sample_clause.is_repeatable:
-            raise excs.Error('Non-snapshot views cannot be created with non-fractional or stratified sampling')
+            raise excs.Error('Non-snapshot views cannot be created with non-fractional or stratified sampling', excs.BAD_REQUEST)
     else:
-        raise excs.Error('`base` must be an instance of `Table` or `Query`')
+        raise excs.Error('`base` must be an instance of `Table` or `Query`', excs.BAD_REQUEST)
     assert isinstance(base, (catalog.Table, Query))
 
     if tbl_version_path.is_replica():
-        raise excs.Error('Cannot create a view or snapshot on top of a replica')
+        raise excs.Error('Cannot create a view or snapshot on top of a replica', excs.BAD_REQUEST)
 
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
@@ -362,7 +362,7 @@ def create_view(
                 raise excs.Error(
                     f'Column {col_name!r} already exists in the base table '
                     f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
-                )
+                , excs.BAD_REQUEST)
 
     if not isinstance(comment, str):
         raise excs.Error('`comment` must be a string')
@@ -501,7 +501,7 @@ def publish(
             - `'private'`: Only the host organization can access.
     """
     if not destination_uri.startswith('pxt://'):
-        raise excs.Error("`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
+        raise excs.Error("`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'", excs.BAD_REQUEST)
 
     if isinstance(source, str):
         source = get_table(source)
@@ -525,7 +525,7 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
         A handle to the newly created local replica table.
     """
     if not remote_uri.startswith('pxt://'):
-        raise excs.Error("`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
+        raise excs.Error("`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'", excs.BAD_REQUEST)
 
     return share.pull_replica(local_path, remote_uri)
 
@@ -607,13 +607,13 @@ def move(
     """
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     if if_exists_ not in (catalog.IfExistsParam.ERROR, catalog.IfExistsParam.IGNORE):
-        raise excs.Error("`if_exists` must be one of 'error' or 'ignore'")
+        raise excs.Error("`if_exists` must be one of 'error' or 'ignore'", excs.BAD_REQUEST)
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     if path == new_path:
-        raise excs.Error('move(): source and destination cannot be identical')
+        raise excs.Error('move(): source and destination cannot be identical', excs.BAD_REQUEST)
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.is_ancestor(new_path_obj):
-        raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
+        raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory', excs.BAD_REQUEST)
     Catalog.get().move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
@@ -669,7 +669,7 @@ def drop_table(
     if tbl_path.startswith('pxt://'):
         # Remote table
         if force:
-            raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
+            raise excs.Error('Cannot use `force=True` with a cloud replica URI.', excs.BAD_REQUEST)
         # TODO: Handle if_not_exists properly
         share.delete_replica(tbl_path)
     else:
@@ -1046,7 +1046,7 @@ def tool(fn: func.Function, name: str | None = None, description: str | None = N
         A `Tool` instance that can be passed to an LLM tool-calling API.
     """
     if isinstance(fn, func.AggregateFunction):
-        raise excs.Error('Aggregator UDFs cannot be used as tools')
+        raise excs.Error('Aggregator UDFs cannot be used as tools', excs.BAD_REQUEST)
 
     return func.tools.Tool(fn=fn, name=name, description=description)
 

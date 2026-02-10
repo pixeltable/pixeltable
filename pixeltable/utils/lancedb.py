@@ -48,7 +48,7 @@ def export_lancedb(
     from pixeltable.utils.arrow import to_record_batches
 
     if if_exists not in ('error', 'overwrite', 'append'):
-        raise excs.Error("export_lancedb(): 'if_exists' must be one of: ['error', 'overwrite', 'append']")
+        raise excs.Error("export_lancedb(): 'if_exists' must be one of: ['error', 'overwrite', 'append']", excs.BAD_REQUEST)
 
     query: pxt.Query
     if isinstance(table_or_query, pxt.catalog.Table):
@@ -59,7 +59,7 @@ def export_lancedb(
     db_exists = False
     if db_uri.exists():
         if not db_uri.is_dir():
-            raise excs.Error(f"export_lancedb(): '{db_uri!s}' exists and is not a directory")
+            raise excs.Error(f"export_lancedb(): '{db_uri!s}' exists and is not a directory", excs.INTERNAL_SERVER_ERROR)
         db_exists = True
 
     try:
@@ -68,7 +68,7 @@ def export_lancedb(
         try:
             lance_tbl = db.open_table(table_name)
             if if_exists == 'error':
-                raise excs.Error(f'export_lancedb(): table {table_name!r} already exists in {db_uri!r}')
+                raise excs.Error(f'export_lancedb(): table {table_name!r} already exists in {db_uri!r}', excs.BAD_REQUEST)
         except ValueError:
             # table doesn't exist
             pass

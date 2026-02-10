@@ -100,7 +100,7 @@ def push_replica(
             Catalog.get().update_additional_md(src_tbl._id, {'pxt_uri': existing_table_uri})
         return existing_table_uri
     if response.status_code != 200:
-        raise excs.Error(f'Error publishing {src_tbl._display_name()}: {response.text}')
+        raise excs.Error(f'Error publishing {src_tbl._display_name()}: {response.text}', excs.BAD_REQUEST)
     publish_response = PublishResponse.model_validate(response.json())
 
     _logger.debug(f'Received PublishResponse: {publish_response}')
@@ -118,7 +118,7 @@ def push_replica(
     elif parsed_location.scheme == 'https':
         _upload_to_presigned_url(file_path=bundle, url=parsed_location.geturl())
     else:
-        raise excs.Error(f'Unsupported destination: {destination_uri}')
+        raise excs.Error(f'Unsupported destination: {destination_uri}', excs.BAD_REQUEST)
 
     Env.get().console_logger.info('Finalizing replica ...')
     # Use preview data from packager's bundle_md (set during package())
@@ -136,7 +136,7 @@ def push_replica(
         PIXELTABLE_API_URL, data=finalize_request.model_dump_json(), headers=_api_headers()
     )
     if finalize_response_json.status_code != 200:
-        raise excs.Error(f'Error finalizing {src_tbl._display_name()}: {finalize_response_json.text}')
+        raise excs.Error(f'Error finalizing {src_tbl._display_name()}: {finalize_response_json.text}', excs.BAD_REQUEST)
 
     finalize_response = FinalizeResponse.model_validate(finalize_response_json.json())
     confirmed_tbl_uri = finalize_response.confirmed_table_uri
@@ -175,7 +175,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
     clone_request = ReplicateRequest(table_uri=parsed_uri)
     response = requests.post(PIXELTABLE_API_URL, data=clone_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
-        raise excs.Error(f'Error cloning replica: {response.text}')
+        raise excs.Error(f'Error cloning replica: {response.text}', excs.BAD_REQUEST)
     clone_response = ReplicateResponse.model_validate(response.json())
 
     # Prevalidate destination path for replication. We do this before downloading the bundle so that we avoid
@@ -189,7 +189,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
             raise excs.Error(
                 f'An attempt was made to create a replica table at {dest_path!r}, '
                 'but a different table already exists at that location.'
-            )
+            , excs.BAD_REQUEST)
         known_versions = tuple(v['version'] for v in t.get_versions())
         if clone_response.md[0].version_md.version in known_versions:
             Env.get().console_logger.info(f'Replica {dest_path!r} is already up to date with source: {src_tbl_uri}')
@@ -205,7 +205,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
         bundle_path = TempStore.create_path()
         _download_from_presigned_url(url=parsed_location.geturl(), output_path=bundle_path)
     else:
-        raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}')
+        raise excs.Error(f'Unexpected response from server: unsupported bundle uri: {bundle_uri}', excs.BAD_REQUEST)
 
     pxt_uri = str(clone_response.table_uri)
     md_list = [dataclasses.asdict(md) for md in clone_response.md]
@@ -329,7 +329,7 @@ def delete_replica(dest_path: str, version: int | None = None) -> None:
     delete_request = DeleteRequest(table_uri=PxtUri(uri=dest_path), version=version)
     response = requests.post(PIXELTABLE_API_URL, data=delete_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
-        raise excs.Error(f'Error deleting replica: {response.text}')
+        raise excs.Error(f'Error deleting replica: {response.text}', excs.BAD_REQUEST)
     DeleteResponse.model_validate(response.json())
     Env.get().console_logger.info(f'Deleted replica at: {dest_path}')
 
@@ -339,7 +339,7 @@ def list_table_versions(table_uri: str) -> list[dict[str, Any]]:
     request_json = {'operation_type': 'list_table_versions', 'table_uri': {'uri': table_uri}}
     response = requests.post(PIXELTABLE_API_URL, data=json.dumps(request_json), headers=_api_headers())
     if response.status_code != 200:
-        raise excs.Error(f'Error listing table versions: {response.text}')
+        raise excs.Error(f'Error listing table versions: {response.text}', excs.BAD_REQUEST)
     response_data = response.json()
     return response_data.get('versions', [])
 
