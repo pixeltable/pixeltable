@@ -4,7 +4,7 @@ import random
 import string
 import sys
 from pathlib import Path
-from typing import Any, Literal, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Literal, Required, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
 import PIL.Image
@@ -416,9 +416,9 @@ class TestIndex:
         # cannot use if_exists to ignore or replace an existing index
         # that is not an embedding (like, default btree indexes).
         assert indexes[0]['_name'] == 'idx0'
-        for ie in ['ignore', 'replace', 'replace_force']:
+        for ie in ('ignore', 'replace', 'replace_force'):
             with pytest.raises(pxt.Error, match='not an embedding index'):
-                t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=ie)  # type: ignore[arg-type]
+                t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=ie)
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
         assert indexes[0]['_name'] == 'idx0'
@@ -459,9 +459,9 @@ class TestIndex:
             new_rows.append(row)
 
         # create table with fewer rows to speed up testing
-        schema = {'pkey': ts.IntType(nullable=False), 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        schema = {'pkey': Required[pxt.Int], 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
         tbl_name = 'update_test'
-        img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')  # type: ignore[arg-type]
+        img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
         img_t.insert(new_rows)
         print(img_t.head())
 

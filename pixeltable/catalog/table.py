@@ -547,7 +547,11 @@ class Table(SchemaObject):
 
             >>> tbl = pxt.get_table('my_table')
             ... schema = {
-            ...     'new_col_1': {'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'},
+            ...     'new_col_1': {
+            ...         'type': pxt.Image,
+            ...         'stored': True,
+            ...         'media_validation': 'on_write',
+            ...     },
             ...     'new_col_2': pxt.String,
             ... }
             ... tbl.add_columns(schema)
@@ -624,7 +628,13 @@ class Table(SchemaObject):
 
             Add a column with column metadata using a dict:
 
-            >>> tbl.add_column(img_col={'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'})
+            >>> tbl.add_column(
+            ...     img_col={
+            ...         'type': pxt.Image,
+            ...         'stored': True,
+            ...         'media_validation': 'on_write',
+            ...     }
+            ... )
 
             Alternatively, simple column insertions can be expressed using `add_columns`:
 
@@ -632,7 +642,15 @@ class Table(SchemaObject):
 
             As well as with column metadata:
 
-            >>> tbl.add_columns({'img_col': {'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'}})
+            >>> tbl.add_columns(
+            ...     {
+            ...         'img_col': {
+            ...             'type': pxt.Image,
+            ...             'stored': True,
+            ...             'media_validation': 'on_write',
+            ...         }
+            ...     }
+            ... )
         """
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:

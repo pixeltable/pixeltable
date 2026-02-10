@@ -116,7 +116,7 @@ class TestTypes:
 
     def test_from_python_type(self, init_env: None) -> None:
         # Test cases: map of python_type to expected (pxt_type, str(pxt_type))
-        test_cases: dict[type, tuple[ColumnType, str]] = {
+        test_cases: dict[Any, tuple[ColumnType, str]] = {
             # Builtin and standard types
             str: (StringType(nullable=False), 'String'),
             int: (IntType(nullable=False), 'Int'),
@@ -169,10 +169,10 @@ class TestTypes:
                 "Image[(100, 200), 'RGB']",
             ),
             Image['RGB']: (ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),  # type: ignore[misc]
-            Literal['a', 'b', 'c']: (StringType(nullable=False), 'String'),  # type: ignore[dict-item]
-            Literal[1, 2, 3]: (IntType(nullable=False), 'Int'),  # type: ignore[dict-item]
-            Literal[1, 2.0, 3]: (FloatType(nullable=False), 'Float'),  # type: ignore[dict-item]
-            Literal['a', 'b', None]: (StringType(nullable=True), 'String'),  # type: ignore[dict-item]  # noqa: PYI061
+            Literal['a', 'b', 'c']: (StringType(nullable=False), 'String'),
+            Literal[1, 2, 3]: (IntType(nullable=False), 'Int'),
+            Literal[1, 2.0, 3]: (FloatType(nullable=False), 'Float'),
+            Literal['a', 'b', None]: (StringType(nullable=True), 'String'),  # noqa: PYI061
         }
         for py_type, (pxt_type, string) in test_cases.items():
             print(py_type)
