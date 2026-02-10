@@ -420,3 +420,44 @@ class TestSnapshot:
         t.insert([{'c1': 1}])
         with pytest.raises(pxt.Error, match='Default values are not supported for snapshot additional columns'):
             pxt.create_snapshot('snap1', t, additional_columns={'s1_int': {'type': pxt.Int, 'default': 100}})
+
+    # TODO: Currently, comments and custom_metadata are not persisted for pure snapshots.
+    # Should we consider snapshots as non-pure when these are provided?
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_snapshot_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': pxt.Int})
+        s1 = pxt.create_snapshot(
+            'tbl_snapshot', t, additional_columns={'d': pxt.Int}, comment='This is a test snapshot.'
+        )
+        assert s1.get_metadata()['comment'] == 'This is a test snapshot.'
+
+        reload_catalog(do_reload_catalog)
+        s1 = pxt.get_table('tbl_snapshot')
+        assert s1.get_metadata()['comment'] == 'This is a test snapshot.'
+
+        # check that raw object JSON comments are rejected
+        with pytest.raises(pxt.Error, match='`comment` must be a string'):
+            pxt.create_snapshot(
+                'tbl_snapshot_invalid',
+                t,
+                additional_columns={'d': pxt.Int},
+                comment={'comment': 'This is a test snapshot.'},  # type: ignore[arg-type]
+            )
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_snapshot_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': pxt.Int})
+        s1 = pxt.create_snapshot('tbl_snapshot', t, additional_columns={'d': pxt.Int}, custom_metadata=custom_metadata)
+        assert s1.get_metadata()['custom_metadata'] == custom_metadata
+
+        reload_catalog(do_reload_catalog)
+        s1 = pxt.get_table('tbl_snapshot')
+        assert s1.get_metadata()['custom_metadata'] == custom_metadata
+
+        # check that invalid JSON user metadata are rejected
+        with pytest.raises(pxt.Error):
+            pxt.create_snapshot(
+                'tbl_snapshot_invalid', t, additional_columns={'d': pxt.Int}, custom_metadata={'key': set}
+            )
+

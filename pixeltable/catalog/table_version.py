@@ -299,6 +299,7 @@ class TableVersion:
         cols: list[Column],
         num_retained_versions: int,
         comment: str,
+        custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
         view_md: schema.ViewMd | None = None,
@@ -396,6 +397,7 @@ class TableVersion:
             columns=schema_col_md,
             num_retained_versions=num_retained_versions,
             comment=comment,
+            custom_metadata=custom_metadata,
             media_validation=media_validation.name.lower(),
             additional_md={},
         )
@@ -1734,6 +1736,10 @@ class TableVersion:
     def comment(self, c: str) -> None:
         assert self.effective_version is None
         self._schema_version_md.comment = c
+
+    @property
+    def custom_metadata(self) -> Any:
+        return self._schema_version_md.custom_metadata
 
     @property
     def num_retained_versions(self) -> int:

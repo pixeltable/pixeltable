@@ -224,6 +224,7 @@
                       "sdk/latest/gemini",
                       "sdk/latest/groq",
                       "sdk/latest/huggingface",
+                      "sdk/latest/jina",
                       "sdk/latest/llama_cpp",
                       "sdk/latest/mistralai",
                       "sdk/latest/ollama",

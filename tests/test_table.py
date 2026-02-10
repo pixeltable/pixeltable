@@ -328,6 +328,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': tbl_path,
                     'schema_version': 0,
+                    'custom_metadata': None,
                     'version': 0,
                 },
                 tbl.get_metadata(),
@@ -371,6 +372,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': view_path,
                     'schema_version': 1,
+                    'custom_metadata': None,
                     'version': 1,
                 },
                 view.get_metadata(),
@@ -400,6 +402,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': puresnap_path,
                     'schema_version': 0,
+                    'custom_metadata': None,
                     'version': 0,
                 },
                 puresnap.get_metadata(),
@@ -439,6 +442,7 @@ class TestTable:
                     'media_validation': media_val,
                     'path': snap_path,
                     'schema_version': 0,
+                    'custom_metadata': None,
                     'version': 0,
                 },
                 snap.get_metadata(),
@@ -2798,7 +2802,7 @@ class TestTable:
             External Store         Type
                    project  MockProject
 
-            COMMENT: This is an intriguing table comment."""
+            Comment: This is an intriguing table comment."""
         )
         _ = v2._repr_html_()  # TODO: Is there a good way to test this output?
 
@@ -2824,7 +2828,7 @@ class TestTable:
             External Store         Type
                    project  MockProject
 
-            COMMENT: This is an intriguing table comment."""
+            Comment: This is an intriguing table comment."""
         )
 
         # test case: snapshot of base table
@@ -3143,3 +3147,30 @@ class TestTable:
         reload_tester.run_query(t0.select())
         reload_tester.run_query(t.select())
         reload_tester.run_reload_test()
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_table_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': pxt.Int}, comment='This is a test table.')
+        assert t.get_metadata()['comment'] == 'This is a test table.'
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['comment'] == 'This is a test table.'
+
+        # check that raw object JSON comments are rejected
+        with pytest.raises(pxt.Error, match='`comment` must be a string'):
+            pxt.create_table('tbl_invalid', {'c': pxt.Int}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_table_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': pxt.Int}, custom_metadata=custom_metadata)
+        assert t.get_metadata()['custom_metadata'] == custom_metadata
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['custom_metadata'] == custom_metadata
+
+        # check that invalid JSON user metadata are rejected
+        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
+            pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})
