@@ -924,7 +924,9 @@ class Query:
             Use the above Query grouped by genre to count the number of
             books for each 'genre':
 
-            >>> query = book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
+            >>> query = (
+            ...     book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
+            ... )
 
             Use the above Query grouped by genre to the total price of
             books for each 'genre':
@@ -984,7 +986,11 @@ class Query:
 
             Select unique locations (street, city) in the state of `CA`
 
-            >>> results = addresses.select(addresses.street, addresses.city).where(addresses.state == 'CA').distinct()
+            >>> results = (
+            ...     addresses.select(addresses.street, addresses.city)
+            ...     .where(addresses.state == 'CA')
+            ...     .distinct()
+            ... )
         """
         exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
         return self.group_by(*exps)

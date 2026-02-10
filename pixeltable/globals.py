@@ -127,21 +127,33 @@ def create_table(
     Examples:
         Create a table with an int and a string column:
 
-        >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String})
+        >>> tbl = pxt.create_table(
+        ...     'my_table', schema={'col1': pxt.Int, 'col2': pxt.String}
+        ... )
 
         Create a table from a select statement over an existing table `orig_table` (this will create a new table
         containing the exact contents of the query):
 
         >>> tbl1 = pxt.get_table('orig_table')
-        ... tbl2 = pxt.create_table('new_table', tbl1.where(tbl1.col1 < 10).select(tbl1.col2))
+        ... tbl2 = pxt.create_table(
+        ...     'new_table', tbl1.where(tbl1.col1 < 10).select(tbl1.col2)
+        ... )
 
         Create a table if it does not already exist, otherwise get the existing table:
 
-        >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String}, if_exists='ignore')
+        >>> tbl = pxt.create_table(
+        ...     'my_table',
+        ...     schema={'col1': pxt.Int, 'col2': pxt.String},
+        ...     if_exists='ignore',
+        ... )
 
         Create a table with an int and a float column, and replace any existing table:
 
-        >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.Float}, if_exists='replace')
+        >>> tbl = pxt.create_table(
+        ...     'my_table',
+        ...     schema={'col1': pxt.Int, 'col2': pxt.Float},
+        ...     if_exists='replace',
+        ... )
 
         Create a table from a CSV file:
 
@@ -152,7 +164,7 @@ def create_table(
         >>> tbl = pxt.create_table(
         ...     'my_table',
         ...     schema={'id': pxt.functions.uuid.uuid4(), 'data': pxt.String},
-        ...     primary_key=['id']
+        ...     primary_key=['id'],
         ... )
     """
     from pixeltable.io.table_data_conduit import UnkTableDataConduit
@@ -302,13 +314,17 @@ def create_view(
         and if it not already exist. Otherwise, get the existing view named `my_view`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10), if_exists='ignore')
+        ... view = pxt.create_view(
+        ...     'my_view', tbl.where(tbl.col1 > 10), if_exists='ignore'
+        ... )
 
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 100,
         and replace any existing view named `my_view`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
+        ... view = pxt.create_view(
+        ...     'my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force'
+        ... )
     """
     if is_snapshot and create_default_idxs is True:
         raise excs.Error('Cannot create default indexes on a snapshot')
@@ -436,13 +452,18 @@ def create_snapshot(
 
         >>> view = pxt.get_table('my_view')
         ... snapshot = pxt.create_snapshot(
-        ...     'my_snapshot', view, additional_columns={'col3': pxt.Int}, if_exists='ignore'
+        ...     'my_snapshot',
+        ...     view,
+        ...     additional_columns={'col3': pxt.Int},
+        ...     if_exists='ignore',
         ... )
 
         Create a snapshot `my_snapshot` on a table `my_table`, and replace any existing snapshot named `my_snapshot`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... snapshot = pxt.create_snapshot('my_snapshot', tbl, if_exists='replace_force')
+        ... snapshot = pxt.create_snapshot(
+        ...     'my_snapshot', tbl, if_exists='replace_force'
+        ... )
     """
     return create_view(
         path_str,
@@ -1000,7 +1021,10 @@ def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
 
         >>> tools = pxt.tools(
         ...     stock_price,
-        ...     pxt.tool(weather_quote, description='Returns information about the weather in a particular location.'),
+        ...     pxt.tool(
+        ...         weather_quote,
+        ...         description='Returns information about the weather in a particular location.',
+        ...     ),
         ...     pxt.tool(traffic_quote, name='traffic_conditions'),
         ... )
     """

@@ -50,7 +50,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
     Examples:
         >>> @pxt.udf
         ... def my_function(x: int) -> int:
-        ...    return x + 1
+        ...     return x + 1
     """
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
         # Decorator invoked without parentheses: @pxt.udf
