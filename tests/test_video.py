@@ -635,7 +635,7 @@ class TestVideo:
         base: pxt.Table,
         segments_view: pxt.Table,
         overlap: float | None,
-        min_segment_duration: float,
+        min_segment_duration: float | None,
         expected_durations: list[float] | None = None,
         eps: float = 0.0,  # epsilon used in pytest.approx()
     ) -> None:
@@ -643,6 +643,8 @@ class TestVideo:
         s = segments_view
         if overlap is None:
             overlap = 0.0
+        if min_segment_duration is None:
+            min_segment_duration = 0.0
 
         # we cannot directly verify the number of segments, because they can diverge from the target duration;
         res = t.select(t.video, time_base=t.video.get_metadata().streams[0].time_base).collect()
@@ -707,7 +709,7 @@ class TestVideo:
         video_filepaths = get_video_files(include_mpgs=False)
         overlaps = [0.0, 1.0, 4.0] if mode == 'fast' else [None]
         eps = 0.1 if mode == 'fast' else 0.0
-        for min_segment_duration in [0.0, segment_duration]:
+        for min_segment_duration in [None, 0.0, segment_duration]:
             for overlap in overlaps:
                 t = pxt.create_table('videos', {'video': pxt.Video})
                 t.insert([{'video': p} for p in video_filepaths])
