@@ -4,7 +4,7 @@ import random
 import string
 import sys
 from pathlib import Path
-from typing import Any, Literal, Required, _GenericAlias  # type: ignore[attr-defined]
+from typing import Any, Literal, _GenericAlias  # type: ignore[attr-defined]
 
 import numpy as np
 import PIL.Image
@@ -459,7 +459,7 @@ class TestIndex:
             new_rows.append(row)
 
         # create table with fewer rows to speed up testing
-        schema = {'pkey': Required[pxt.Int], 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        schema = {'pkey': pxt.Required[pxt.Int], 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
         tbl_name = 'update_test'
         img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
         img_t.insert(new_rows)
