@@ -11,7 +11,7 @@ import sqlalchemy as sql
 from pixeltable import env, exceptions as excs, type_system as ts
 from pixeltable.metadata import schema
 
-from .function import Function
+from .function import Function, InvalidFunction
 
 _logger = logging.getLogger('pixeltable')
 
@@ -179,7 +179,16 @@ class FunctionRegistry:
             md = schema.md_from_dict(schema.FunctionMd, row[0])
             func_module = importlib.import_module(self.__module__.rsplit('.', 1)[0])
             func_class = getattr(func_module, md.class_name)
-            instance = func_class.from_store(md.name, md.md, row[1])
+            try:
+                instance = func_class.from_store(md.name, md.md, row[1])
+            except Exception as e:
+                error_msg = (
+                    f'the locally defined UDF {md.name!r} could not be deserialized. This probably means the UDF was\n'
+                    'defined in a notebook (or other interactive environment), and the environment of the notebook\n'
+                    'has changed since the UDF was defined.'
+                )
+                _logger.warning('Failed to deserialize locally defined UDF %r (%s): %s', md.name, id, e, exc_info=True)
+                return InvalidFunction(md.name, {'id': id}, error_msg)
             self.stored_fns_by_id[id] = instance
             return instance
 
