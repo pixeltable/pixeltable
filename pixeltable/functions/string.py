@@ -846,7 +846,7 @@ def string_splitter(text: str, separators: str, *, spacy_model: str = 'en_core_w
         >>> pxt.create_view(
         ...     'sentence_chunks',
         ...     tbl,
-        ...     iterator=string_splitter(tbl.text, separators='sentence')
+        ...     iterator=string_splitter(tbl.text, separators='sentence'),
         ... )
     """
     spacy_model_ = get_spacy_model(spacy_model)

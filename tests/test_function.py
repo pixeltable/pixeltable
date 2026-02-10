@@ -1,4 +1,5 @@
 import re
+import subprocess
 import typing
 import warnings
 from datetime import datetime
@@ -1312,6 +1313,11 @@ class TestFunction:
         assert set(res['plus_one']) == {2, 3, None}
 
         assert len(t.where(t.col_2.match('def')).collect()) == 1
+
+    def test_udf_in_global_namespace(self, uses_db: None) -> None:
+        process = subprocess.run(('python', 'tests/script_with_udf.py'), check=False, capture_output=True, text=True)
+        assert process.returncode != 0  # The script should fail with an appropriate error message
+        assert "Defining the UDF 'inline_udf' directly in the global namespace of a Python script" in process.stderr
 
 
 @pxt.udf

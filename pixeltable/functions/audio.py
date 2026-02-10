@@ -168,7 +168,7 @@ class audio_splitter(pxt.PxtIterator[AudioSegment]):
         >>> pxt.create_view(
         ...     'audio_segments',
         ...     tbl,
-        ...     iterator=audio_splitter(tbl.audio, duration=30.0, overlap=5.0)
+        ...     iterator=audio_splitter(tbl.audio, duration=30.0, overlap=5.0),
         ... )
     """
 

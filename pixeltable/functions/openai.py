@@ -265,7 +265,9 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, 
         Add a computed column that applies the model `tts-1` to an existing Pixeltable column `tbl.text`
         of the table `tbl`:
 
-        >>> tbl.add_computed_column(audio=speech(tbl.text, model='tts-1', voice='nova'))
+        >>> tbl.add_computed_column(
+        ...     audio=speech(tbl.text, model='tts-1', voice='nova')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -306,7 +308,11 @@ async def transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: dict[str
         Add a computed column that applies the model `whisper-1` to an existing Pixeltable column `tbl.audio`
         of the table `tbl`:
 
-        >>> tbl.add_computed_column(transcription=transcriptions(tbl.audio, model='whisper-1', language='en'))
+        >>> tbl.add_computed_column(
+        ...     transcription=transcriptions(
+        ...         tbl.audio, model='whisper-1', language='en'
+        ...     )
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -345,7 +351,9 @@ async def translations(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, 
         Add a computed column that applies the model `whisper-1` to an existing Pixeltable column `tbl.audio`
         of the table `tbl`:
 
-        >>> tbl.add_computed_column(translation=translations(tbl.audio, model='whisper-1', language='en'))
+        >>> tbl.add_computed_column(
+        ...     translation=translations(tbl.audio, model='whisper-1', language='en')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -448,9 +456,11 @@ async def chat_completions(
 
         >>> messages = [
         ...     {'role': 'system', 'content': 'You are a helpful assistant.'},
-        ...     {'role': 'user', 'content': tbl.prompt}
+        ...     {'role': 'user', 'content': tbl.prompt},
         ... ]
-        >>> tbl.add_computed_column(response=chat_completions(messages, model='gpt-4o-mini'))
+        >>> tbl.add_computed_column(
+        ...     response=chat_completions(messages, model='gpt-4o-mini')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -559,7 +569,11 @@ async def vision(
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.image`
         of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=vision("What's in this image?", tbl.image, model='gpt-4o-mini'))
+        >>> tbl.add_computed_column(
+        ...     response=vision(
+        ...         "What's in this image?", tbl.image, model='gpt-4o-mini'
+        ...     )
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -651,11 +665,15 @@ async def embeddings(
         Add a computed column that applies the model `text-embedding-3-small` to an existing
         Pixeltable column `tbl.text` of the table `tbl`:
 
-        >>> tbl.add_computed_column(embed=embeddings(tbl.text, model='text-embedding-3-small'))
+        >>> tbl.add_computed_column(
+        ...     embed=embeddings(tbl.text, model='text-embedding-3-small')
+        ... )
 
         Add an embedding index to an existing column `text`, using the model `text-embedding-3-small`:
 
-        >>> tbl.add_embedding_index(embedding=embeddings.using(model='text-embedding-3-small'))
+        >>> tbl.add_embedding_index(
+        ...     embedding=embeddings.using(model='text-embedding-3-small')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -723,7 +741,9 @@ async def image_generations(
         Add a computed column that applies the model `dall-e-2` to an existing
         Pixeltable column `tbl.text` of the table `tbl`:
 
-        >>> tbl.add_computed_column(gen_image=image_generations(tbl.text, model='dall-e-2'))
+        >>> tbl.add_computed_column(
+        ...     gen_image=image_generations(tbl.text, model='dall-e-2')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -788,7 +808,9 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
         Add a computed column that applies the model `text-moderation-stable` to an existing
         Pixeltable column `tbl.input` of the table `tbl`:
 
-        >>> tbl.add_computed_column(moderations=moderations(tbl.text, model='text-moderation-stable'))
+        >>> tbl.add_computed_column(
+        ...     moderations=moderations(tbl.text, model='text-moderation-stable')
+        ... )
     """
     result = await _openai_client().moderations.create(input=input, model=model)
     return result.dict()

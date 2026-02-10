@@ -484,7 +484,9 @@ class tile_iterator(pxt.PxtIterator[Tile]):
         >>> pxt.create_view(
         ...     'image_tiles',
         ...     tbl,
-        ...     iterator=tile_iterator(tbl.img, tile_size=(256, 256), overlap=(32, 32))
+        ...     iterator=tile_iterator(
+        ...         tbl.img, tile_size=(256, 256), overlap=(32, 32)
+        ...     ),
         ... )
     """
 

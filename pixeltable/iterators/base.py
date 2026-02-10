@@ -5,6 +5,7 @@ from typing import Any, Iterator
 
 from deprecated import deprecated
 
+from pixeltable import exceptions as excs
 from pixeltable.func import GeneratingFunction, GeneratingFunctionCall
 from pixeltable.func.iterator import ITERATOR_GUIDE_URL
 from pixeltable.type_system import ColumnType
@@ -55,7 +56,8 @@ class ComponentIterator(ABC):
     @deprecated(
         'The `ComponentIterator` class is deprecated; please use the `@pxt.iterator` decorator instead.\n'
         f'For details see: {ITERATOR_GUIDE_URL}',
-        version='0.5.17',
+        version='0.5.18',
+        category=excs.PixeltableDeprecationWarning,
     )
     def create(cls, **kwargs: Any) -> GeneratingFunctionCall:
         # Use GeneratingFunction._retrofit() for backward compatibility with legacy iterator pattern

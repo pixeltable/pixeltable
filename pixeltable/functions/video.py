@@ -408,7 +408,7 @@ def segment_video(
         ...     segment_paths=tbl.video.segment_video(
         ...         duration=10,
         ...         video_encoder='libx264',
-        ...         video_encoder_args={'crf': 23, 'preset': 'slow'}
+        ...         video_encoder_args={'crf': 23, 'preset': 'slow'},
         ...     )
         ... ).collect()
 
@@ -416,9 +416,7 @@ def segment_video(
 
         >>> duration = tbl.video.get_duration()
         >>> tbl.select(
-        ...     segment_paths=tbl.video.segment_video(
-        ...         segment_times=[duration / 2]
-        ...     )
+        ...     segment_paths=tbl.video.segment_video(segment_times=[duration / 2])
         ... ).collect()
     """
     Env.get().require_binary('ffmpeg')
@@ -650,9 +648,7 @@ def with_audio(
 
         >>> tbl.select(
         ...     tbl.video.with_audio(
-        ...         tbl.music_track,
-        ...         video_start_time=5.0,
-        ...         audio_start_time=5.0
+        ...         tbl.music_track, video_start_time=5.0, audio_start_time=5.0
         ...     )
         ... ).collect()
 
@@ -664,7 +660,7 @@ def with_audio(
         ...         video_start_time=30.0,
         ...         video_duration=10.0,
         ...         audio_start_time=15.0,
-        ...         audio_duration=10.0
+        ...         audio_duration=10.0,
         ...     )
         ... ).collect()
     """
@@ -795,7 +791,7 @@ def overlay_text(
         ...         box_border=[6, 14],
         ...         horizontal_margin=10,
         ...         vertical_align='bottom',
-        ...         vertical_margin=70
+        ...         vertical_margin=70,
         ...     )
         ... ).collect()
 
@@ -809,7 +805,7 @@ def overlay_text(
         ...         box=True,
         ...         box_color='black',
         ...         box_opacity=0.6,
-        ...         box_border=[20, 10]
+        ...         box_border=[20, 10],
         ...     )
         ... ).collect()
     """
@@ -996,15 +992,14 @@ def scene_detect_adaptive(
 
         Detect more scenes by lowering the threshold:
 
-        >>> tbl.select(tbl.video.scene_detect_adaptive(adaptive_threshold=1.5)).collect()
+        >>> tbl.select(
+        ...     tbl.video.scene_detect_adaptive(adaptive_threshold=1.5)
+        ... ).collect()
 
         Use luminance-only detection with a longer minimum scene length:
 
         >>> tbl.select(
-        ...     tbl.video.scene_detect_adaptive(
-        ...         luma_only=True,
-        ...         min_scene_len=30
-        ...     )
+        ...     tbl.video.scene_detect_adaptive(luma_only=True, min_scene_len=30)
         ... ).collect()
 
         Add scene cuts as a computed column:
@@ -1106,9 +1101,7 @@ def scene_detect_content(
 
         >>> tbl.select(
         ...     tbl.video.scene_detect_content(
-        ...         delta_edges=1.0,
-        ...         delta_hue=0.5,
-        ...         delta_sat=0.5
+        ...         delta_edges=1.0, delta_hue=0.5, delta_sat=0.5
         ...     )
         ... ).collect()
 
@@ -1206,9 +1199,7 @@ def scene_detect_threshold(
         Add final scene boundary:
 
         >>> tbl.select(
-        ...     tbl.video.scene_detect_threshold(
-        ...         add_final_scene=True
-        ...     )
+        ...     tbl.video.scene_detect_threshold(add_final_scene=True)
         ... ).collect()
 
         Add fade transitions as a computed column:
@@ -1288,11 +1279,7 @@ def scene_detect_histogram(
 
         Use with a longer minimum scene length:
 
-        >>> tbl.select(
-        ...     tbl.video.scene_detect_histogram(
-        ...         min_scene_len=30
-        ...     )
-        ... ).collect()
+        >>> tbl.select(tbl.video.scene_detect_histogram(min_scene_len=30)).collect()
 
         Add scene cuts as a computed column:
 
@@ -1373,18 +1360,11 @@ def scene_detect_hash(
 
         Use for fast processing with lower frame rate:
 
-        >>> tbl.select(
-        ...     tbl.video.scene_detect_hash(
-        ...         fps=1.0,
-        ...         threshold=0.4
-        ...     )
-        ... ).collect()
+        >>> tbl.select(tbl.video.scene_detect_hash(fps=1.0, threshold=0.4)).collect()
 
         Add scene cuts as a computed column:
 
-        >>> tbl.add_computed_column(
-        ...     scene_cuts=tbl.video.scene_detect_hash()
-        ... )
+        >>> tbl.add_computed_column(scene_cuts=tbl.video.scene_detect_hash())
     """
     Env.get().require_package('scenedetect')
     from scenedetect.detectors import HashDetector
@@ -1522,15 +1502,23 @@ class frame_iterator(pxt.PxtIterator[Frame]):
 
         Create a view that extracts only keyframes from all videos:
 
-        >>> pxt.create_view('keyframes', tbl, iterator=frame_iterator(tbl.video, keyframes_only=True))
+        >>> pxt.create_view(
+        ...     'keyframes',
+        ...     tbl,
+        ...     iterator=frame_iterator(tbl.video, keyframes_only=True),
+        ... )
 
         Create a view that extracts frames from all videos at a rate of 1 frame per second:
 
-        >>> pxt.create_view('one_fps_frames', tbl, iterator=frame_iterator(tbl.video, fps=1.0))
+        >>> pxt.create_view(
+        ...     'one_fps_frames', tbl, iterator=frame_iterator(tbl.video, fps=1.0)
+        ... )
 
         Create a view that extracts exactly 10 frames from each video:
 
-        >>> pxt.create_view('ten_frames', tbl, iterator=frame_iterator(tbl.video, num_frames=10))
+        >>> pxt.create_view(
+        ...     'ten_frames', tbl, iterator=frame_iterator(tbl.video, num_frames=10)
+        ... )
     """
 
     # Input parameters
@@ -1816,17 +1804,29 @@ def video_splitter(
 
         Create a view that splits each video into 10-second segments:
 
-        >>> pxt.create_view('ten_second_segments', tbl, iterator=video_splitter(tbl.video, duration=10.0))
+        >>> pxt.create_view(
+        ...     'ten_second_segments',
+        ...     tbl,
+        ...     iterator=video_splitter(tbl.video, duration=10.0),
+        ... )
 
         Create a view that splits each video into segments at specified fixed times:
 
         >>> split_times = [5.0, 15.0, 30.0]
-        >>> pxt.create_view('custom_segments', tbl, iterator=video_splitter(tbl.video, segment_times=split_times))
+        >>> pxt.create_view(
+        ...     'custom_segments',
+        ...     tbl,
+        ...     iterator=video_splitter(tbl.video, segment_times=split_times),
+        ... )
 
         Create a view that splits each video into segments at times specified by a column `split_times` of type
         `pxt.Json`, containing a list of timestamps in seconds:
 
-        >>> pxt.create_view('custom_segments', tbl, iterator=video_splitter(tbl.video, segment_times=tbl.split_times))
+        >>> pxt.create_view(
+        ...     'custom_segments',
+        ...     tbl,
+        ...     iterator=video_splitter(tbl.video, segment_times=tbl.split_times),
+        ... )
     """
     # Input parameters
     assert (duration is None) != (segment_times is None)
