@@ -7,7 +7,9 @@ import pixeltable as pxt
 from pixeltable.functions import vision as pxtv
 
 t = pxt.get_table(...)
-t.select(pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)).collect()
+t.select(
+    pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)
+).collect()
 ```
 """
 
@@ -188,11 +190,14 @@ def eval_detections(
         {
             'min_iou': float,  # The value of `min_iou` used for the detections
             'class': int,  # The label class
-            'tp': list[int],  # List of 1's and 0's indicating true positives for each
-                              # predicted bounding box of this class
-            'fp': list[int],  # List of 1's and 0's indicating false positives for each
-                              # predicted bounding box of this class; `fp[n] == 1 - tp[n]`
-            'scores': list[float],  # List of predicted scores for each bounding box of this class
+            # List of 1's and 0's indicating true positives for each
+            # predicted bounding box of this class
+            'tp': list[int],
+            # List of 1's and 0's indicating false positives for each
+            # predicted bounding box of this class; `fp[n] == 1 - tp[n]`
+            'fp': list[int],
+            # List of predicted scores for each bounding box of this class
+            'scores': list[float],
             'num_gts': int,  # Number of ground truth bounding boxes of this class
         }
         ```

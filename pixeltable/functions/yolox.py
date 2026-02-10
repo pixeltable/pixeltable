@@ -38,7 +38,9 @@ def yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0
         Add a computed column that applies the model `yolox_m` to an existing
         Pixeltable column `tbl.image` of the table `tbl`:
 
-        >>> tbl.add_computed_column(detections=yolox(tbl.image, model_id='yolox_m', threshold=0.8))
+        >>> tbl.add_computed_column(
+        ...     detections=yolox(tbl.image, model_id='yolox_m', threshold=0.8)
+        ... )
     """
     Env.get().require_package('yolox')
     import torch
@@ -67,7 +69,9 @@ def yolo_to_coco(detections: dict) -> list:
         Add a computed column that converts the output `tbl.detections` to COCO format, where `tbl.image`
         is the image for which detections were computed:
 
-        >>> tbl.add_computed_column(detections=yolox(tbl.image, model_id='yolox_m', threshold=0.8))
+        >>> tbl.add_computed_column(
+        ...     detections=yolox(tbl.image, model_id='yolox_m', threshold=0.8)
+        ... )
         ... tbl.add_computed_column(detections_coco=yolo_to_coco(tbl.detections))
     """
     bboxes, labels = detections['bboxes'], detections['labels']

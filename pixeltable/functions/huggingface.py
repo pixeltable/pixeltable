@@ -52,7 +52,11 @@ def sentence_transformer(
         Add a computed column that applies the model `all-mpnet-base-2` to an existing Pixeltable column `tbl.sentence`
         of the table `tbl`:
 
-        >>> tbl.add_computed_column(result=sentence_transformer(tbl.sentence, model_id='all-mpnet-base-v2'))
+        >>> tbl.add_computed_column(
+        ...     result=sentence_transformer(
+        ...         tbl.sentence, model_id='all-mpnet-base-v2'
+        ...     )
+        ... )
     """
     env.Env.get().require_package('sentence_transformers')
     device = resolve_torch_device('auto')
@@ -98,9 +102,11 @@ def cross_encoder(sentences1: Batch[str], sentences2: Batch[str], *, model_id: s
         Add a computed column that applies the model `ms-marco-MiniLM-L-4-v2` to the sentences in
         columns `tbl.sentence1` and `tbl.sentence2`:
 
-        >>> tbl.add_computed_column(result=sentence_transformer(
-        ...     tbl.sentence1, tbl.sentence2, model_id='ms-marco-MiniLM-L-4-v2'
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     result=sentence_transformer(
+        ...         tbl.sentence1, tbl.sentence2, model_id='ms-marco-MiniLM-L-4-v2'
+        ...     )
+        ... )
     """
     env.Env.get().require_package('sentence_transformers')
     device = resolve_torch_device('auto')
@@ -219,11 +225,17 @@ def detr_for_object_detection(
 
             ```python
             {
-                'scores': [0.99, 0.999],  # list of confidence scores for each detected object
-                'labels': [25, 25],  # list of COCO class labels for each detected object
-                'label_text': ['giraffe', 'giraffe'],  # corresponding text names of class labels
-                'boxes': [[51.942, 356.174, 181.481, 413.975], [383.225, 58.66, 605.64, 361.346]]
-                    # list of bounding boxes for each detected object, as [x1, y1, x2, y2]
+                # list of confidence scores for each detected object
+                'scores': [0.99, 0.999],
+                # list of COCO class labels for each detected object
+                'labels': [25, 25],
+                # corresponding text names of class labels
+                'label_text': ['giraffe', 'giraffe'],
+                # list of bounding boxes for each detected object, as [x1, y1, x2, y2]
+                'boxes': [
+                    [51.942, 356.174, 181.481, 413.975],
+                    [383.225, 58.66, 605.64, 361.346],
+                ],
             }
             ```
 
@@ -231,11 +243,11 @@ def detr_for_object_detection(
         Add a computed column that applies the model `facebook/detr-resnet-50` to an existing
         Pixeltable column `image` of the table `tbl`:
 
-        >>> tbl.add_computed_column(detections=detr_for_object_detection(
-        ...     tbl.image,
-        ...     model_id='facebook/detr-resnet-50',
-        ...     threshold=0.8
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     detections=detr_for_object_detection(
+        ...         tbl.image, model_id='facebook/detr-resnet-50', threshold=0.8
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -293,10 +305,10 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
                         'label_id': 0,  # class label index
                         'label_text': 'person',  # human-readable class name
                         'score': 0.98,  # confidence score
-                        'was_fused': False  # whether segment was fused from multiple instances
+                        'was_fused': False,  # whether segment was fused from multiple instances
                     },
-                    ...
-                ]
+                    ...,
+                ],
             }
             ```
 
@@ -304,11 +316,13 @@ def detr_for_segmentation(image: Batch[PIL.Image.Image], *, model_id: str, thres
         Add a computed column that applies the model `facebook/detr-resnet-50-panoptic` to an existing
         Pixeltable column `image` of the table `tbl`:
 
-        >>> tbl.add_computed_column(segmentation=detr_for_segmentation(
-        ...     tbl.image,
-        ...     model_id='facebook/detr-resnet-50-panoptic',
-        ...     threshold=0.5
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     segmentation=detr_for_segmentation(
+        ...         tbl.image,
+        ...         model_id='facebook/detr-resnet-50-panoptic',
+        ...         threshold=0.5,
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('timm')
@@ -384,11 +398,11 @@ def vit_for_image_classification(
         Add a computed column that applies the model `google/vit-base-patch16-224` to an existing
         Pixeltable column `image` of the table `tbl`, returning the 10 most likely classes for each image:
 
-        >>> tbl.add_computed_column(image_class=vit_for_image_classification(
-        ...     tbl.image,
-        ...     model_id='google/vit-base-patch16-224',
-        ...     top_k=10
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     image_class=vit_for_image_classification(
+        ...         tbl.image, model_id='google/vit-base-patch16-224', top_k=10
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -443,19 +457,22 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
         Add a computed column that applies the model `facebook/s2t-small-librispeech-asr` to an existing
         Pixeltable column `audio` of the table `tbl`:
 
-        >>> tbl.add_computed_column(transcription=speech2text_for_conditional_generation(
-        ...     tbl.audio,
-        ...     model_id='facebook/s2t-small-librispeech-asr'
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     transcription=speech2text_for_conditional_generation(
+        ...         tbl.audio, model_id='facebook/s2t-small-librispeech-asr'
+        ...     )
+        ... )
 
         Add a computed column that applies the model `facebook/s2t-medium-mustc-multilingual-st` to an existing
         Pixeltable column `audio` of the table `tbl`, translating the audio to French:
 
-        >>> tbl.add_computed_column(translation=speech2text_for_conditional_generation(
-        ...     tbl.audio,
-        ...     model_id='facebook/s2t-medium-mustc-multilingual-st',
-        ...     language='fr'
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     translation=speech2text_for_conditional_generation(
+        ...         tbl.audio,
+        ...         model_id='facebook/s2t-medium-mustc-multilingual-st',
+        ...         language='fr',
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('torchaudio')
@@ -520,7 +537,9 @@ def detr_to_coco(image: PIL.Image.Image, detr_info: dict[str, Any]) -> dict[str,
         Add a computed column that converts the output `tbl.detections` to COCO format, where `tbl.image`
         is the image for which detections were computed:
 
-        >>> tbl.add_computed_column(detections_coco=detr_to_coco(tbl.image, tbl.detections))
+        >>> tbl.add_computed_column(
+        ...     detections_coco=detr_to_coco(tbl.image, tbl.detections)
+        ... )
     """
     bboxes, labels = detr_info['boxes'], detr_info['labels']
     annotations = [
@@ -554,11 +573,13 @@ def text_generation(text: str, *, model_id: str, model_kwargs: dict[str, Any] | 
     Examples:
         Add a computed column that generates text completions using the `Qwen/Qwen3-0.6B` model:
 
-        >>> tbl.add_computed_column(completion=text_generation(
-        ...     tbl.prompt,
-        ...     model_id='Qwen/Qwen3-0.6B',
-        ...     model_kwargs={'temperature': 0.5, 'max_length': 150}
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     completion=text_generation(
+        ...         tbl.prompt,
+        ...         model_id='Qwen/Qwen3-0.6B',
+        ...         model_kwargs={'temperature': 0.5, 'max_length': 150},
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -605,10 +626,12 @@ def text_classification(text: Batch[str], *, model_id: str, top_k: int = 5) -> B
     Examples:
         Add a computed column for sentiment analysis:
 
-        >>> tbl.add_computed_column(sentiment=text_classification(
-        ...     tbl.review_text,
-        ...     model_id='cardiffnlp/twitter-roberta-base-sentiment-latest'
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     sentiment=text_classification(
+        ...         tbl.review_text,
+        ...         model_id='cardiffnlp/twitter-roberta-base-sentiment-latest',
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -668,11 +691,13 @@ def image_captioning(
         Add a computed column `caption` to an existing table `tbl` that generates captions using the
         `Salesforce/blip-image-captioning-base` model:
 
-        >>> tbl.add_computed_column(caption=image_captioning(
-        ...     tbl.image,
-        ...     model_id='Salesforce/blip-image-captioning-base',
-        ...     model_kwargs={'max_length': 30}
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     caption=image_captioning(
+        ...         tbl.image,
+        ...         model_id='Salesforce/blip-image-captioning-base',
+        ...         model_kwargs={'max_length': 30},
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -715,11 +740,13 @@ def summarization(text: Batch[str], *, model_id: str, model_kwargs: dict[str, An
     Examples:
         Add a computed column that summarizes documents:
 
-        >>> tbl.add_computed_column(summary=text_summarization(
-        ...     tbl.document_text,
-        ...     model_id='facebook/bart-large-cnn',
-        ...     max_length=100
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     summary=text_summarization(
+        ...         tbl.document_text,
+        ...         model_id='facebook/bart-large-cnn',
+        ...         max_length=100,
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -763,10 +790,12 @@ def token_classification(
     Examples:
         Add a computed column that extracts named entities:
 
-        >>> tbl.add_computed_column(entities=token_classification(
-        ...     tbl.text,
-        ...     model_id='dbmdz/bert-large-cased-finetuned-conll03-english'
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     entities=token_classification(
+        ...         tbl.text,
+        ...         model_id='dbmdz/bert-large-cased-finetuned-conll03-english',
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -902,11 +931,13 @@ def question_answering(context: str, question: str, *, model_id: str) -> dict[st
     Examples:
         Add a computed column that answers questions based on document context:
 
-        >>> tbl.add_computed_column(answer=question_answering(
-        ...     tbl.document_text,
-        ...     tbl.question,
-        ...     model_id='deepset/roberta-base-squad2'
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     answer=question_answering(
+        ...         tbl.document_text,
+        ...         tbl.question,
+        ...         model_id='deepset/roberta-base-squad2',
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -974,12 +1005,14 @@ def translation(
     Examples:
         Add a computed column that translates text:
 
-        >>> tbl.add_computed_column(french_text=translation(
-        ...     tbl.english_text,
-        ...     model_id='Helsinki-NLP/opus-mt-en-fr',
-        ...     src_lang='en',
-        ...     target_lang='fr'
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     french_text=translation(
+        ...         tbl.english_text,
+        ...         model_id='Helsinki-NLP/opus-mt-en-fr',
+        ...         src_lang='en',
+        ...         target_lang='fr',
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     device = resolve_torch_device('auto')
@@ -1053,13 +1086,15 @@ def text_to_image(
     Examples:
         Add a computed column that generates images from text prompts:
 
-        >>> tbl.add_computed_column(generated_image=text_to_image(
-        ...     tbl.prompt,
-        ...     model_id='stable-diffusion-v1.5/stable-diffusion-v1-5',
-        ...     height=512,
-        ...     width=512,
-        ...     model_kwargs={'num_inference_steps': 25},
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     generated_image=text_to_image(
+        ...         tbl.prompt,
+        ...         model_id='stable-diffusion-v1.5/stable-diffusion-v1-5',
+        ...         height=512,
+        ...         width=512,
+        ...         model_kwargs={'num_inference_steps': 25},
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('diffusers')
@@ -1127,11 +1162,11 @@ def text_to_speech(text: str, *, model_id: str, speaker_id: int | None = None, v
     Examples:
         Add a computed column that converts text to speech:
 
-        >>> tbl.add_computed_column(audio=text_to_speech(
-        ...     tbl.text_content,
-        ...     model_id='microsoft/speecht5_tts',
-        ...     speaker_id=0
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     audio=text_to_speech(
+        ...         tbl.text_content, model_id='microsoft/speecht5_tts', speaker_id=0
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('datasets')
@@ -1247,20 +1282,24 @@ def image_to_image(
     Examples:
         Add a computed column that transforms images based on prompts:
 
-        >>> tbl.add_computed_column(transformed=image_to_image(
-        ...     tbl.source_image,
-        ...     tbl.transformation_prompt,
-        ...     model_id='stable-diffusion-v1-5/stable-diffusion-v1-5'
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     transformed=image_to_image(
+        ...         tbl.source_image,
+        ...         tbl.transformation_prompt,
+        ...         model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
+        ...     )
+        ... )
 
         With custom transformation strength:
 
-        >>> tbl.add_computed_column(transformed=image_to_image(
-        ...     tbl.source_image,
-        ...     tbl.transformation_prompt,
-        ...     model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
-        ...     model_kwargs={'strength': 0.75, 'num_inference_steps': 50}
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     transformed=image_to_image(
+        ...         tbl.source_image,
+        ...         tbl.transformation_prompt,
+        ...         model_id='stable-diffusion-v1-5/stable-diffusion-v1-5',
+        ...         model_kwargs={'strength': 0.75, 'num_inference_steps': 50},
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('diffusers')
@@ -1342,18 +1381,20 @@ def automatic_speech_recognition(
     Examples:
         Add a computed column that transcribes audio files:
 
-        >>> tbl.add_computed_column(transcription=automatic_speech_recognition(
-        ...     tbl.audio_file,
-        ...     model_id='openai/whisper-tiny.en'  # Recommended
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     transcription=automatic_speech_recognition(
+        ...         tbl.audio_file,
+        ...         model_id='openai/whisper-tiny.en',  # Recommended
+        ...     )
+        ... )
 
         Transcribe with language specification:
 
-        >>> tbl.add_computed_column(transcription=automatic_speech_recognition(
-        ...     tbl.audio_file,
-        ...     model_id='facebook/mms-1b-all',
-        ...     language='en'
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     transcription=automatic_speech_recognition(
+        ...         tbl.audio_file, model_id='facebook/mms-1b-all', language='en'
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('torchaudio')
@@ -1486,12 +1527,14 @@ def image_to_video(
     Examples:
         Add a computed column that creates videos from images:
 
-        >>> tbl.add_computed_column(video=image_to_video(
-        ...     tbl.input_image,
-        ...     model_id='stabilityai/stable-video-diffusion-img2vid-xt',
-        ...     num_frames=25,
-        ...     fps=7
-        ... ))
+        >>> tbl.add_computed_column(
+        ...     video=image_to_video(
+        ...         tbl.input_image,
+        ...         model_id='stabilityai/stable-video-diffusion-img2vid-xt',
+        ...         num_frames=25,
+        ...         fps=7,
+        ...     )
+        ... )
     """
     env.Env.get().require_package('transformers')
     env.Env.get().require_package('diffusers')
