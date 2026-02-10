@@ -1294,13 +1294,6 @@ class Catalog:
         # force a reload in order to see the new columns/idxs
         self._clear_tv_cache(TableVersionKey(tbl.tbl_id, None, None))
         self._roll_forward()
-
-        # Populate default values for columns that were just added to existing rows
-        # This needs to happen after ops are finalized and columns are added to the store table
-        with self.begin_xact(tbl_id=tbl.tbl_id, for_write=True):
-            tv = self.get_tbl_version(TableVersionKey(tbl.tbl_id, None, None), validate_initialized=True)
-            tv._populate_default_values(cols)
-
         tbl.clear_cached_md()  # force reload of metadata
 
     def _clear_tv_cache(self, key: TableVersionKey) -> None:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import logging
 import sys
 import time
 from typing import TYPE_CHECKING, Any, Iterable, NamedTuple, Sequence, TypeVar
@@ -17,8 +16,6 @@ from pixeltable.utils.misc import non_none_dict_factory
 from .data_row import DataRow
 from .expr import Expr, ExprScope
 from .expr_set import ExprSet
-
-_logger = logging.getLogger('pixeltable')
 
 if TYPE_CHECKING:
     from .column_ref import ColumnRef
@@ -532,7 +529,6 @@ class RowBuilder:
                         md = dataclasses.asdict(data_row.cell_md[col.id], dict_factory=non_none_dict_factory)
                         assert len(md) > 0
                         table_row.append(md)
-                # slot_idx is None when values come from stored data rather than expression evaluation
                 if slot_idx is not None and data_row.has_exc(slot_idx):
                     num_excs += 1
                     if cols_with_excs is not None:

@@ -460,4 +460,3 @@ class TestSnapshot:
             pxt.create_snapshot(
                 'tbl_snapshot_invalid', t, additional_columns={'d': pxt.Int}, custom_metadata={'key': set}
             )
-

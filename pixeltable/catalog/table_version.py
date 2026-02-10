@@ -40,6 +40,7 @@ from .tbl_ops import (
     DropStoreTableOp,
     LoadViewOp,
     OpStatus,
+    SetColumnValueOp,
     TableOp,
 )
 from .update_status import RowCountStats, UpdateStatus
@@ -446,6 +447,11 @@ class TableVersion:
             for col_id in op.column_ids:
                 with Env.get().begin_xact():
                     self.store_tbl.add_column(self.cols_by_id[col_id])
+
+        elif isinstance(op, SetColumnValueOp):
+            cols = [self.cols_by_id[col_id] for col_id in op.column_ids]
+            with Env.get().begin_xact():
+                self._populate_default_values(cols)
 
         elif isinstance(op, DeleteTableMediaFilesOp):
             self.delete_media()
@@ -922,12 +928,14 @@ class TableVersion:
             idx_ids.append(self._create_index_md(col, val_col, undo_col, idx_name=None, idx=idx))
 
         id_str = str(self.id)
+        has_default_cols = any(col.has_default_value for col in cols)
+        num_ops = 5 if has_default_cols else 4
         tbl_ops = [
-            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=4, needs_xact=True, status=OpStatus.PENDING),
+            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=num_ops, needs_xact=True, status=OpStatus.PENDING),
             CreateColumnMdOp(
                 tbl_id=id_str,
                 op_sn=1,
-                num_ops=4,
+                num_ops=num_ops,
                 needs_xact=True,
                 status=OpStatus.PENDING,
                 column_ids=[col.id for col in all_cols],
@@ -935,15 +943,26 @@ class TableVersion:
             CreateStoreColumnsOp(
                 tbl_id=id_str,
                 op_sn=2,
-                num_ops=4,
+                num_ops=num_ops,
                 needs_xact=False,
                 status=OpStatus.PENDING,
                 column_ids=[col.id for col in all_cols],
             ),
             CreateStoreIdxsOp(
-                tbl_id=id_str, op_sn=3, num_ops=4, needs_xact=False, status=OpStatus.PENDING, idx_ids=idx_ids
+                tbl_id=id_str, op_sn=3, num_ops=num_ops, needs_xact=False, status=OpStatus.PENDING, idx_ids=idx_ids
             ),
         ]
+        if has_default_cols:
+            tbl_ops.append(
+                SetColumnValueOp(
+                    tbl_id=id_str,
+                    op_sn=4,
+                    num_ops=num_ops,
+                    needs_xact=False,
+                    status=OpStatus.PENDING,
+                    column_ids=[col.id for col in cols],
+                )
+            )
         return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops
 
     def add_columns(
@@ -1103,7 +1122,7 @@ class TableVersion:
 
         # Set all default value columns
         for col in default_value_cols:
-            col.init_value_expr(None)  # idempotent: no-op if already initialized
+            col.init_value_expr(None)
             assert col.has_default_value, f'Column {col.name!r} should have default value'
             assert col.value_expr is not None, f'Column {col.name!r} value_expr should be initialized'
             assert isinstance(col.value_expr, exprs.Literal), (

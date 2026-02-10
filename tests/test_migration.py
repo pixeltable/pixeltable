@@ -321,19 +321,6 @@ class TestMigration:
                     assert col_md['is_pk'] is not None
 
     @classmethod
-    def _verify_v46(cls) -> None:
-        """Verify that is_computed_column flag is set correctly after migration from v45 to v46."""
-        with Env.get().engine.begin() as conn:
-            for row in conn.execute(sql.select(Table.md)):
-                table_md = row[0]
-                for col_md in table_md['column_md'].values():
-                    # Columns with value_expr should have is_computed_column=True (they are computed columns)
-                    if col_md.get('value_expr') is not None:
-                        assert col_md.get('is_computed_column') is True, (
-                            f'Column with value_expr should have is_computed_column=True, '
-                            f'but got {col_md.get("is_computed_column")}'
-                        )
-
     def _verify_v45(cls) -> None:
         t = pxt.get_table('base_table')
         v = pxt.get_table('views.view')
@@ -357,6 +344,20 @@ class TestMigration:
         # Verify comment and custom_metadata for view_of_views
         assert vv.get_metadata()['comment'] == 'This is a test view of views.'
         assert vv.get_metadata()['custom_metadata'] == {'view_of_views_key': 'view_of_views_value'}
+
+    @classmethod
+    def _verify_v46(cls) -> None:
+        """Verify that is_computed_column flag is set correctly after migration from v45 to v46."""
+        with Env.get().engine.begin() as conn:
+            for row in conn.execute(sql.select(Table.md)):
+                table_md = row[0]
+                for col_md in table_md['column_md'].values():
+                    # After v46, any column with a value_expr must explicitly set the is_computed_column flag
+                    # (True for computed columns, False for default-valued columns).
+                    if col_md.get('value_expr') is not None:
+                        assert col_md.get('is_computed_column') is not None, (
+                            'Column with value_expr must set is_computed_column flag'
+                        )
 
 
 @pxt.udf(batch_size=4)

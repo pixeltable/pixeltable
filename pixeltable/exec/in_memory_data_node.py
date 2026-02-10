@@ -67,7 +67,7 @@ class InMemoryDataNode(ExecNode):
                 col = col_info.col
                 # If value is None and column has a default, use the default value
                 if val is None and col.has_default_value:
-                    col.init_value_expr(None)  # idempotent: no-op if already initialized
+                    col.init_value_expr(None)
                     assert col.value_expr is not None and isinstance(col.value_expr, exprs.Literal), (
                         f'Column {col.name!r} has default value but value_expr is not a Literal'
                     )

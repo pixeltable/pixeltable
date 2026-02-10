@@ -235,9 +235,9 @@ class Dumper:
         v = pxt.create_view(
             'views.view',
             t.where(t.c2 < 50),
-	    comment='This is a test view.',
+            comment='This is a test view.',
             custom_metadata={'view_key': 'view_value'},
-            additional_columns={'view_default_int': {'type': IntType(), 'default': 100}}
+            additional_columns={'view_default_int': {'type': IntType(), 'default': 100}},
         )
         self.__add_expr_columns(v, 'view')
 
