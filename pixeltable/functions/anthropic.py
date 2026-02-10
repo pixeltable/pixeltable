@@ -193,7 +193,9 @@ async def messages(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response=messages(msgs, model='claude-3-5-sonnet-20241022'))
+        ... tbl.add_computed_column(
+        ...     response=messages(msgs, model='claude-3-5-sonnet-20241022')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}

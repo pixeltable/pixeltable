@@ -148,9 +148,7 @@ async def create(prompt: str, *, aspect_ratio: str | None = None, version: str |
     Examples:
         Add a computed column with generated square images to a table with text prompts:
 
-        >>> t.add_computed_column(
-        ...     img=reve.create(t.prompt, aspect_ratio='1:1')
-        ... )
+        >>> t.add_computed_column(img=reve.create(t.prompt, aspect_ratio='1:1'))
     """
     payload = {'prompt': prompt}
     if aspect_ratio is not None:
@@ -184,7 +182,7 @@ async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | 
         >>> t.add_computed_column(
         ...     catalog_img=reve.edit(
         ...         t.product_img,
-        ...         'Remove background and distractions from the product picture, improve lighting.'
+        ...         'Remove background and distractions from the product picture, improve lighting.',
         ...     )
         ... )
     """

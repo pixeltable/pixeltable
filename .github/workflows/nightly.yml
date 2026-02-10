@@ -66,7 +66,7 @@ jobs:
             os: ubuntu-24.04-arm
           - python-version: "3.10"
             package-configs: ""
-            os: ubuntu-x64-t4
+            os: ubuntu-small-t4
 
     runs-on: ${{ matrix.os }}
     defaults:

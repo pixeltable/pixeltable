@@ -39,8 +39,7 @@ class sum(func.Aggregator, typing.Generic[T]):
         assigning the name `'category_total'` to the new column:
 
         >>> tbl.group_by(tbl.category).select(
-        ...     tbl.category,
-        ...     category_total=pxt.functions.sum(tbl.value)
+        ...     tbl.category, category_total=pxt.functions.sum(tbl.value)
         ... ).collect()
     """
 
@@ -91,8 +90,7 @@ class count(func.Aggregator, typing.Generic[T]):
         for each category, assigning the name `'category_count'` to the new column:
 
         >>> tbl.group_by(tbl.category).select(
-        ...     tbl.category,
-        ...     category_count=pxt.functions.count(tbl.value)
+        ...     tbl.category, category_count=pxt.functions.count(tbl.value)
         ... ).collect()
     """
 
@@ -135,8 +133,7 @@ class min(func.Aggregator, typing.Generic[T]):
         assigning the name `'category_min'` to the new column:
 
         >>> tbl.group_by(tbl.category).select(
-        ...     tbl.category,
-        ...     category_min=pxt.functions.min(tbl.value)
+        ...     tbl.category, category_min=pxt.functions.min(tbl.value)
         ... ).collect()
     """
 
@@ -188,8 +185,7 @@ class max(func.Aggregator, typing.Generic[T]):
         assigning the name `'category_max'` to the new column:
 
         >>> tbl.group_by(tbl.category).select(
-        ...     tbl.category,
-        ...     category_max=pxt.functions.max(tbl.value)
+        ...     tbl.category, category_max=pxt.functions.max(tbl.value)
         ... ).collect()
     """
 
@@ -236,8 +232,7 @@ class mean(func.Aggregator, typing.Generic[T]):
         assigning the name `'category_mean'` to the new column:
 
         >>> tbl.group_by(tbl.category).select(
-        ...     tbl.category,
-        ...     category_mean=pxt.functions.mean(tbl.value)
+        ...     tbl.category, category_mean=pxt.functions.mean(tbl.value)
         ... ).collect()
     """
 

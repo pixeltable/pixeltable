@@ -14,10 +14,10 @@ name: tests
 #   - Minimal Pixeltable with Python 3.10 on ubuntu-24.04-arm and macos-15-intel.
 #
 # On a weekly schedule, all of the above configurations are run (against branch 'main'), and additionally:
-#   - Python 3.10 on ubuntu-x64-t4 (equipped with an NVIDIA T4 GPU).
+#   - Python 3.10 on ubuntu-t4 (equipped with an NVIDIA T4 GPU).
 #
 # A workflow_dispatch trigger will emulate the merge queue tests by default, but can be optionally
-#     selected to run all configurations including ubuntu-x64-t4.
+#     selected to run all configurations including ubuntu-t4.
 #
 # Github Actions secrets are unavailable on PRs; hence any tests that require API keys will be skipped.
 # Secrets are available on all other triggers.
@@ -76,6 +76,7 @@ env:
   GOOGLE_APPLICATION_CREDENTIALS: '/tmp/gcs-key.json'
   GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
   HF_AUTH_TOKEN: ${{ secrets.HF_AUTH_TOKEN }}
+  JINA_API_KEY: ${{ secrets.JINA_API_KEY }}
   MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
