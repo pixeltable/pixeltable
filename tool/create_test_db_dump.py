@@ -166,6 +166,8 @@ class Dumper:
             'c14': pxt.Date,
             'c15': pxt.Timestamp,
             'c16': pxt.Binary,
+            'c17': pxt.Array,
+            'c18': pxt.Array[(2, None), np.str_],  # type: ignore[misc]
         }
         t = pxt.create_table(
             'base_table', schema, primary_key='c2', comment='This is a test table.', custom_metadata={'key': 'value'}
@@ -199,6 +201,14 @@ class Dumper:
             for i in range(num_rows)
         ]
         c7_data = [d2] * num_rows
+
+        c17_data = [
+            np.zeros((1,), dtype=np.float64),
+            np.ones((2, 2), dtype=np.bool_),
+            np.ones((3,), dtype=np.str_),
+            np.array(0),
+        ]
+
         rows = [
             {
                 'c1': c1_data[i],
@@ -218,6 +228,8 @@ class Dumper:
                 'c14': datetime.date(2026, 2, 6),
                 'c15': datetime.datetime(2026, 2, 6, tzinfo=ZoneInfo('UTC')),
                 'c16': b'Hello World!' if i < num_rows / 2 else None,
+                'c17': c17_data[i % len(c17_data)] if i < 10 else None,
+                'c18': np.zeros((2, 2 + (i % 3)), np.str_) if i < 7 else None,
             }
             for i in range(num_rows)
         ]
