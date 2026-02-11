@@ -1,7 +1,8 @@
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
-from pixeltable import exprs
+if TYPE_CHECKING:
+    from pixeltable import exprs
 
 """Types used for type annotations across the Pixeltable codebase."""
 
@@ -14,7 +15,7 @@ class ColumnSpec(TypedDict, total=False):
 
     type: type
     """The column type (e.g., `pxt.Image`, `str`). Required unless `value` is specified."""
-    value: exprs.Expr
+    value: 'exprs.Expr'
     """A Pixeltable expression for computed columns. Mutually exclusive with `type`."""
     primary_key: bool
     """Whether this column is part of the primary key. Defaults to `False`."""
@@ -26,7 +27,7 @@ class ColumnSpec(TypedDict, total=False):
     """
     Destination for storing computed output files. Only applicable for computed columns.
     Can be:
-    
+
         - A local pathname (such as `path/to/outputs/`), or
         - The URI of an object store (such as `s3://my-bucket/outputs/`).
     """
