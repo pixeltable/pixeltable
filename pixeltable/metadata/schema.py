@@ -332,7 +332,8 @@ class SchemaColumn:
     # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
     # stores column.MediaValiation.name.lower()
     media_validation: str | None
-    comment: str
+    # TODO: in the future we should have default comment be None
+    comment: str = ''
     # user-defined metadata - must be a valid JSON-serializable object
     custom_metadata: Any = None
 
