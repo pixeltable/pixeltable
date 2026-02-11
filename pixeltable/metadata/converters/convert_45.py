@@ -11,8 +11,11 @@ from pixeltable.metadata.converters.util import convert_table_md
 @register_converter(version=45)
 def _(engine: sql.engine.Engine) -> None:
     """
-    Before: Array literals simply had 'ARRAY' as their type indicator.
-    After: Array literals are accompanied by the full type info, including dtype.
+    Updates how Literal types are serialized.
+
+    E.g. before: {'val': [[...], [...]], 'val_t': 'ARRAY', '_classname': 'Literal'}
+    After: {'val': [[...], [...]], 'val_t': {'_classname': 'ArrayType', 'nullable': False, 'shape': [2, 3],
+           'numpy_dtype': 'int64'}, '_classname': 'Literal'}
     """
     convert_table_md(engine, substitution_fn=_substitution_fn)
 
