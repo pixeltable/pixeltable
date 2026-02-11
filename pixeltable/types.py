@@ -1,10 +1,10 @@
+"""Types used for type annotations across the Pixeltable codebase."""
+
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
 
 if TYPE_CHECKING:
     from pixeltable import exprs
-
-"""Types used for type annotations across the Pixeltable codebase."""
 
 
 class ColumnSpec(TypedDict, total=False):
