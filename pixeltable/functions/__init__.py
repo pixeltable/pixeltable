@@ -15,6 +15,7 @@ from . import (
     date,
     deepseek,
     document,
+    fabric,
     fal,
     fireworks,
     gemini,

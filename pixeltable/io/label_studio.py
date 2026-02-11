@@ -106,7 +106,7 @@ class LabelStudioProject(Project):
         Always contains a single entry:
 
         ```
-        {"annotations": ts.JsonType(nullable=True)}
+        {'annotations': ts.JsonType(nullable=True)}
         ```
         """
         return {ANNOTATIONS_COLUMN: ts.JsonType(nullable=True)}

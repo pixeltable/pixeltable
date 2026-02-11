@@ -91,11 +91,15 @@ async def embeddings(
         Add a computed column that applies the model `voyage-3.5` to an existing
         Pixeltable column `tbl.text` of the table `tbl`:
 
-        >>> tbl.add_computed_column(embed=embeddings(tbl.text, model='voyage-3.5', input_type='document'))
+        >>> tbl.add_computed_column(
+        ...     embed=embeddings(tbl.text, model='voyage-3.5', input_type='document')
+        ... )
 
         Add an embedding index to an existing column `text`, using the model `voyage-3.5`:
 
-        >>> tbl.add_embedding_index('text', string_embed=embeddings.using(model='voyage-3.5'))
+        >>> tbl.add_embedding_index(
+        ...     'text', string_embed=embeddings.using(model='voyage-3.5')
+        ... )
     """
     cl = _voyageai_client()
 
@@ -174,13 +178,20 @@ async def rerank(
         >>>
         >>> @pxt.query
         ... def get_candidates(query_text: str):
-        ...     sim = docs.text.similarity(query_text, embed=embeddings.using(model='voyage-3.5'))
+        ...     sim = docs.text.similarity(
+        ...         query_text, embed=embeddings.using(model='voyage-3.5')
+        ...     )
         ...     return docs.order_by(sim, asc=False).limit(20).select(docs.text)
         >>>
         >>> queries = pxt.create_table('queries', {'query': pxt.String})
         >>> queries.add_computed_column(candidates=get_candidates(queries.query))
         >>> queries.add_computed_column(
-        ...     reranked=rerank(queries.query, queries.candidates.text, model='rerank-2.5', top_k=5)
+        ...     reranked=rerank(
+        ...         queries.query,
+        ...         queries.candidates.text,
+        ...         model='rerank-2.5',
+        ...         top_k=5,
+        ...     )
         ... )
     """
     cl = _voyageai_client()
@@ -237,11 +248,16 @@ async def multimodal_embed(
 
         Add an embedding index for column `description`:
 
-        >>> tbl.add_embedding_index('description', string_embed=multimodal_embed.using(model='voyage-multimodal-3'))
+        >>> tbl.add_embedding_index(
+        ...     'description',
+        ...     string_embed=multimodal_embed.using(model='voyage-multimodal-3'),
+        ... )
 
         Embed an image column `img`:
 
-        >>> tbl.add_computed_column(embed=multimodal_embed(tbl.img, input_type='document'))
+        >>> tbl.add_computed_column(
+        ...     embed=multimodal_embed(tbl.img, input_type='document')
+        ... )
     """
     cl = _voyageai_client()
 

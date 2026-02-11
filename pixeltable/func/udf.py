@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import sys
 from typing import TYPE_CHECKING, Any, Callable, Sequence, overload
 
 import pixeltable.exceptions as excs
@@ -50,12 +51,12 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
     Examples:
         >>> @pxt.udf
         ... def my_function(x: int) -> int:
-        ...    return x + 1
+        ...     return x + 1
     """
     if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
         # Decorator invoked without parentheses: @pxt.udf
         # Simply call make_function with defaults.
-        return make_function(decorated_fn=args[0])
+        return make_function(decorated_fn=args[0], from_decorator=True)
 
     elif len(args) == 1 and isinstance(args[0], catalog.Table):
         # pxt.udf() called explicitly on a Table
@@ -92,6 +93,7 @@ def udf(*args, **kwargs):  # type: ignore[no-untyped-def]
                 resource_pool=resource_pool,
                 type_substitutions=type_substitutions,
                 force_stored=force_stored,
+                from_decorator=True,
             )
 
         return decorator
@@ -110,6 +112,7 @@ def make_function(
     type_substitutions: Sequence[dict] | None = None,
     function_name: str | None = None,
     force_stored: bool = False,
+    from_decorator: bool = False,
 ) -> CallableFunction:
     """
     Constructs a `CallableFunction` from the specified parameters.
@@ -117,6 +120,7 @@ def make_function(
     will be used only for its signature, with execution delegated to
     `substitute_fn`.
     """
+    defined_in_script = False
     # Obtain function_path from decorated_fn when appropriate
     if force_stored:
         # force storing the function in the db
@@ -124,6 +128,11 @@ def make_function(
     elif decorated_fn.__module__ != '__main__' and decorated_fn.__name__.isidentifier():
         function_path = f'{decorated_fn.__module__}.{decorated_fn.__qualname__}'
     else:
+        # Check that we came here through a decorator, and that we're not in an interactive environment
+        # or notebook. The `from_decorator` check is necessary because of the apply() function.
+        # TODO: When apply() goes away, remove the `from_decorator` check.
+        if from_decorator and not hasattr(sys, 'ps1'):
+            defined_in_script = True
         function_path = None
 
     # Derive function_name, if not specified explicitly
@@ -132,6 +141,13 @@ def make_function(
 
     # Display name to use for error messages
     errmsg_name = function_name if function_path is None else function_path
+
+    if defined_in_script:
+        raise excs.Error(
+            f'Defining the UDF {errmsg_name!r} directly in the global namespace of a Python script\n'
+            f'is not allowed. To fix this error, move the UDF {errmsg_name!r} into a named module\n'
+            '(a .py file other than your script), then import that module into your script.'
+        )
 
     signatures: list[Signature]
     if type_substitutions is None:

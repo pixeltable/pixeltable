@@ -4,9 +4,11 @@ import os
 import platform
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from typing import Any
 
+import numpy as np
 import pixeltable_pgserver
 import pytest
 import sqlalchemy as sql
@@ -124,6 +126,8 @@ class TestMigration:
                 self._run_v30_tests()
             if old_version >= 33:
                 self._verify_v33()
+            if old_version >= 45:
+                self._verify_v45()
             # self._verify_v24(old_version)
 
             pxt.drop_table('sample_table', force=True)
@@ -258,6 +262,12 @@ class TestMigration:
             row['c9'] = get_audio_files()[0]
             row['c10'] = get_video_files()[0]
             row['c11'] = get_documents()[0]
+            row['c12'] = np.zeros((10,), dtype=np.float64)
+            row['c13'] = uuid.uuid4()
+            row['c14'] = datetime.now().date()
+            row['c16'] = b'\xca\xfe'
+            row['c17'] = np.ones((1, 2, 3), dtype=np.bool_)
+            row['c18'] = np.zeros((2, 10), dtype=np.str_)
         status = t.insert([row])
         validate_update_status(status)
         inline_list_mixed = (
@@ -315,6 +325,31 @@ class TestMigration:
                 table_md = row[0]
                 for col_md in table_md['column_md'].values():
                     assert col_md['is_pk'] is not None
+
+    @classmethod
+    def _verify_v45(cls) -> None:
+        t = pxt.get_table('base_table')
+        v = pxt.get_table('views.view')
+        s = pxt.get_table('views.snapshot_non_pure')
+        vv = pxt.get_table('views.view_of_views')
+
+        # Verify comment and custom_metadata for base_table
+        assert t.get_metadata()['comment'] == 'This is a test table.'
+        assert t.get_metadata()['custom_metadata'] == {'key': 'value'}
+
+        # Verify comment and custom_metadata for view
+        assert v.get_metadata()['comment'] == 'This is a test view.'
+        assert v.get_metadata()['custom_metadata'] == {'view_key': 'view_value'}
+
+        # Verify comment and custom_metadata for snapshot_non_pure
+        assert s.get_metadata()['comment'] == 'This is a test snapshot.'
+        assert s.get_metadata()['custom_metadata'] == {'snapshot_key': 'snapshot_value'}
+        # Verify the additional column in the non-pure snapshot
+        assert 's1' in s.columns()
+
+        # Verify comment and custom_metadata for view_of_views
+        assert vv.get_metadata()['comment'] == 'This is a test view of views.'
+        assert vv.get_metadata()['custom_metadata'] == {'view_of_views_key': 'view_of_views_value'}
 
 
 @pxt.udf(batch_size=4)

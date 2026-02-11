@@ -51,7 +51,7 @@ PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
 }
 
 
-def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> ts.ColumnType | None:
+def to_pxt_type(arrow_type: pa.DataType, nullable: bool) -> ts.ColumnType | None:
     """Convert a pyarrow DataType to a pixeltable ColumnType if one is defined.
     Returns None if no conversion is currently implemented.
     """
@@ -63,7 +63,7 @@ def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> ts.ColumnType
         pt = PA_TO_PXT_TYPES[arrow_type]
         return pt.copy(nullable=nullable) if pt is not None else None
     elif isinstance(arrow_type, pa.FixedShapeTensorType):
-        dtype = to_pixeltable_type(arrow_type.value_type, nullable)
+        dtype = to_pxt_type(arrow_type.value_type, nullable)
         if dtype is None:
             return None
         return ts.ArrayType(shape=tuple(arrow_type.shape), dtype=dtype, nullable=nullable)
@@ -71,14 +71,23 @@ def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> ts.ColumnType
         return None
 
 
-def to_arrow_type(pixeltable_type: ts.ColumnType) -> pa.DataType | None:
+def to_arrow_type(pxt_type: ts.ColumnType) -> pa.DataType | None:
     """Convert a pixeltable DataType to a pyarrow datatype if one is defined.
     Returns None if no conversion is currently implemented.
     """
-    if pixeltable_type.__class__ in PXT_TO_PA_TYPES:
-        return PXT_TO_PA_TYPES[pixeltable_type.__class__]
-    elif isinstance(pixeltable_type, ts.ArrayType):
-        return pa.fixed_shape_tensor(pa.from_numpy_dtype(pixeltable_type.dtype), pixeltable_type.shape)
+    if pxt_type.__class__ in PXT_TO_PA_TYPES:
+        return PXT_TO_PA_TYPES[pxt_type.__class__]
+    elif isinstance(pxt_type, ts.ArrayType):
+        shape = pxt_type.shape
+        assert shape is not None
+        if any(d is None for d in shape):
+            # we need to map this to a nested list of the dtype
+            arrow_type = pa.from_numpy_dtype(pxt_type.dtype)
+            for _ in shape:
+                arrow_type = pa.list_(arrow_type)
+            return arrow_type
+
+        return pa.fixed_shape_tensor(pa.from_numpy_dtype(pxt_type.dtype), pxt_type.shape)
     else:
         return None
 
@@ -88,7 +97,7 @@ def to_pxt_schema(
 ) -> dict[str, ts.ColumnType]:
     """Convert a pyarrow Schema to a schema using pyarrow names and pixeltable types."""
     pxt_schema = {
-        field.name: to_pixeltable_type(field.type, field.name not in primary_key)
+        field.name: to_pxt_type(field.type, field.name not in primary_key)
         if field.name not in schema_overrides
         else schema_overrides[field.name]
         for field in arrow_schema
@@ -96,14 +105,22 @@ def to_pxt_schema(
     return pxt_schema
 
 
-def _to_record_batch(column_vals: dict[str, list[Any]], schema: pa.Schema) -> pa.RecordBatch:
+def _to_record_batch(
+    column_vals: dict[str, list[Any]], schema: pa.Schema, pxt_schema: dict[str, ts.ColumnType]
+) -> pa.RecordBatch:
     import pyarrow as pa
 
     pa_arrays: list[pa.Array] = []
     for field in schema:
+        assert field.name in pxt_schema
+        pxt_type = pxt_schema[field.name]
         if isinstance(field.type, pa.FixedShapeTensorType):
             stacked_arr = np.stack(column_vals[field.name])
             pa_arrays.append(pa.FixedShapeTensorArray.from_numpy_ndarray(stacked_arr))
+        elif pxt_type.is_array_type() and isinstance(field.type, pa.ListType):
+            # convert ragged arrays to nested lists
+            list_col_vals = [val.tolist() for val in column_vals[field.name]]
+            pa_arrays.append(pa.array(list_col_vals))
         else:
             pa_array = cast(pa.Array, pa.array(column_vals[field.name]))
             pa_arrays.append(pa_array)
@@ -200,7 +217,7 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
                         col_name: json_batch_size[col_name] // num_batch_rows for col_name in json_batch_size
                     }
                 create_arrow_schema()
-                record_batch = _to_record_batch(batch_columns, arrow_schema)
+                record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
                 yield record_batch
                 batch_columns = {k: [] for k in query.schema}
                 current_byte_estimate = 0
@@ -211,20 +228,23 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
 
     if num_batch_rows > 0:
         create_arrow_schema()
-        record_batch = _to_record_batch(batch_columns, arrow_schema)
+        record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
         yield record_batch
 
 
 def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
-    """Convert a RecordBatch to a dictionary of lists, unlike pa.lib.RecordBatch.to_pydict,
-    this function will not convert numpy arrays to lists, and will preserve the original numpy dtype.
+    """Convert a RecordBatch to a dictionary of lists
+
+    FixedShapeTensor columns are converted to numpy arrays with the correct shape.
     """
     out: dict[str, list | np.ndarray] = {}
     for k, name in enumerate(batch.schema.names):
         col = batch.column(k)
         if isinstance(col.type, pa.FixedShapeTensorType):
-            # treat array columns as numpy arrays to easily preserve numpy type
-            out[name] = col.to_numpy(zero_copy_only=False)
+            # we want a list of ndarrays of the correct shape
+            if isinstance(col, pa.ChunkedArray):
+                col = col.combine_chunks()
+            out[name] = list(cast(pa.FixedShapeTensorArray, col).to_numpy_ndarray())
         else:
             # for the rest, use pydict to preserve python types
             out[name] = col.to_pylist()

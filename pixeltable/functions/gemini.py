@@ -98,7 +98,9 @@ async def generate_content(
         Add a computed column that applies the model `gemini-2.5-flash`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-2.5-flash'))
+        >>> tbl.add_computed_column(
+        ...     response=generate_content(tbl.prompt, model='gemini-2.5-flash')
+        ... )
 
         Add a computed column that applies the model `gemini-2.5-flash` for image understanding
     """
@@ -191,7 +193,9 @@ async def generate_images(
         Add a computed column that applies the model `imagen-4.0-generate-001`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_images(tbl.prompt, model='imagen-4.0-generate-001'))
+        >>> tbl.add_computed_column(
+        ...     response=generate_images(tbl.prompt, model='imagen-4.0-generate-001')
+        ... )
     """
     env.Env.get().require_package('google.genai')
     from google.genai.types import GenerateImagesConfig
@@ -247,7 +251,9 @@ async def generate_videos(
         Add a computed column that applies the model `veo-3.0-generate-001`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_videos(tbl.prompt, model='veo-3.0-generate-001'))
+        >>> tbl.add_computed_column(
+        ...     response=generate_videos(tbl.prompt, model='veo-3.0-generate-001')
+        ... )
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types

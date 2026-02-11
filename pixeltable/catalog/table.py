@@ -25,6 +25,7 @@ from pixeltable.catalog.table_metadata import (
 )
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
+from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.object_stores import ObjectOps
 
 from ..exprs import ColumnRef
@@ -163,6 +164,7 @@ class Table(SchemaObject):
             version_created=datetime.datetime.fromtimestamp(tv.created_at, tz=datetime.timezone.utc),
             schema_version=tvp.schema_version(),
             comment=self._get_comment(),
+            custom_metadata=self._get_custom_metadata(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
             base=None,
         )
@@ -349,6 +351,9 @@ class Table(SchemaObject):
     def _get_comment(self) -> str:
         return self._tbl_version_path.comment()
 
+    def _get_custom_metadata(self) -> Any:
+        return self._tbl_version_path.custom_metadata()
+
     def _get_num_retained_versions(self) -> int:
         return self._tbl_version_path.num_retained_versions()
 
@@ -378,7 +383,9 @@ class Table(SchemaObject):
             if not stores.empty:
                 helper.append(stores)
             if self._get_comment():
-                helper.append(f'COMMENT: {self._get_comment()}')
+                helper.append(f'Comment: {self._get_comment()}')
+            if self._get_custom_metadata():
+                helper.append(f'Custom Metadata: {Formatter.summarize_json(self._get_custom_metadata())}')
             return helper
 
     def _col_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
@@ -524,10 +531,7 @@ class Table(SchemaObject):
             Add multiple columns to the table `my_table`:
 
             >>> tbl = pxt.get_table('my_table')
-            ... schema = {
-            ...     'new_col_1': pxt.Int,
-            ...     'new_col_2': pxt.String,
-            ... }
+            ... schema = {'new_col_1': pxt.Int, 'new_col_2': pxt.String}
             ... tbl.add_columns(schema)
         """
         from pixeltable.catalog import Catalog
@@ -585,7 +589,7 @@ class Table(SchemaObject):
             Information about the execution status of the operation.
 
         Raises:
-            Error: If the column name is invalid, or already exists and `if_exists='erorr'`,
+            Error: If the column name is invalid, or already exists and `if_exists='error'`,
                 or `if_exists='replace*'` but the column has dependents or is a basetable column.
 
         Examples:
@@ -1036,7 +1040,9 @@ class Table(SchemaObject):
 
             Once the index is created, similarity lookups can be performed using the `similarity` pseudo-function:
 
-            >>> sim = tbl.img.similarity(image='/path/to/my-image.jpg')  # can also be a URL or a PIL image
+            >>> sim = tbl.img.similarity(
+            ...     image='/path/to/my-image.jpg'  # can also be a URL or a PIL image
+            ... )
             >>> tbl.select(tbl.img, sim).order_by(sim, asc=False).limit(5)
 
             If the embedding UDF is a multimodal embedding (supporting more than one data type), then lookups may be
@@ -1055,10 +1061,7 @@ class Table(SchemaObject):
             product as the distance metric, and with a specific name:
 
             >>> tbl.add_embedding_index(
-            ...     tbl.img,
-            ...     idx_name='ip_idx',
-            ...     embedding=embedding_fn,
-            ...     metric='ip'
+            ...     tbl.img, idx_name='ip_idx', embedding=embedding_fn, metric='ip'
             ... )
 
             Add an index using separately specified string and image embeddings:
@@ -1066,7 +1069,7 @@ class Table(SchemaObject):
             >>> tbl.add_embedding_index(
             ...     tbl.img,
             ...     string_embed=string_embedding_fn,
-            ...     image_embed=image_embedding_fn
+            ...     image_embed=image_embedding_fn,
             ... )
         """
         from pixeltable.catalog import Catalog
@@ -1403,6 +1406,7 @@ class Table(SchemaObject):
             ...     a: int
             ...     b: int
             ...
+            ...
             ... models = [MyModel(a=1, b=2), MyModel(a=3, b=4)]
             ... tbl.insert(models)
         """
@@ -1469,15 +1473,21 @@ class Table(SchemaObject):
             If either row does not exist, this raises an error:
 
             >>> tbl.batch_update(
-            ...     [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 2, 'name': 'Bob', 'age': 40}]
+            ...     [
+            ...         {'id': 1, 'name': 'Alice', 'age': 30},
+            ...         {'id': 2, 'name': 'Bob', 'age': 40},
+            ...     ]
             ... )
 
             Update the `name` and `age` columns for the row with `id` 1 (assuming `id` is the primary key) and insert
             the row with new `id` 3 (assuming this key does not exist):
 
             >>> tbl.batch_update(
-            ...     [{'id': 1, 'name': 'Alice', 'age': 30}, {'id': 3, 'name': 'Bob', 'age': 40}],
-            ...     if_not_exists='insert'
+            ...     [
+            ...         {'id': 1, 'name': 'Alice', 'age': 30},
+            ...         {'id': 3, 'name': 'Bob', 'age': 40},
+            ...     ],
+            ...     if_not_exists='insert',
             ... )
         """
         from pixeltable.catalog import Catalog

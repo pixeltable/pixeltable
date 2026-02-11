@@ -838,7 +838,7 @@ def string_splitter(
         >>> pxt.create_view(
         ...     'sentence_chunks',
         ...     tbl,
-        ...     iterator=string_splitter(tbl.text, separators='sentence')
+        ...     iterator=string_splitter(tbl.text, separators='sentence'),
         ... )
     """
     return pxt.iterators.string.StringSplitter._create(text=text, separators=separators)
