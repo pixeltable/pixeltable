@@ -26,6 +26,7 @@ import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
 from pixeltable.catalog import Catalog
 from pixeltable.env import Env
+from pixeltable.iterators import ComponentIterator
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
 from pixeltable.utils.object_stores import ObjectOps
@@ -784,3 +785,37 @@ IN_CI = bool(os.environ.get('PXTTEST_IN_CI'))
 
 # The OS id (e.g., 'unbuntu-latest') on which the tests are running in CI, or None if not in CI.
 CI_OS = os.environ.get('PXTTEST_CI_OS')
+
+
+# A simple iterator for testing
+class DummyIterator(ComponentIterator):
+    def __init__(self, input: int):
+        self.input = input
+        self.count = 0
+
+    @classmethod
+    def input_schema(cls) -> dict[str, ts.ColumnType]:
+        return {'input': ts.IntType()}
+
+    @classmethod
+    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
+        return {'out1': ts.StringType(), 'out2': ts.IntType()}, []
+
+    def __next__(self) -> dict[str, Any]:
+        while True:
+            if self.count > min(self.input, 10):
+                raise StopIteration
+            result = {'out1': f'str{self.count}', 'out2': self.count}
+            self.count += 1
+            return result
+
+    def close(self) -> None:
+        pass
+
+    def set_pos(self, pos: int, **kwargs: Any) -> None:
+        raise AssertionError()
+
+
+# Exists for the sake of a different name
+class DummyIterator2(DummyIterator):
+    pass
