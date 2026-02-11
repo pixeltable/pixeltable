@@ -11,6 +11,8 @@ class _Descriptor:
     show_index: bool
     show_header: bool
     styler: Styler | None = None
+    # When set, a horizontal separator line is inserted after the rows at these indexes.
+    separator_idxs: list[int] | None = None
 
 
 class DescriptionHelper:
@@ -36,8 +38,9 @@ class DescriptionHelper:
         show_index: bool = False,
         show_header: bool = True,
         styler: Styler | None = None,
+        separator_idxs: list[int] | None = None,
     ) -> None:
-        self.__descriptors.append(_Descriptor(descriptor, show_index, show_header, styler))
+        self.__descriptors.append(_Descriptor(descriptor, show_index, show_header, styler, separator_idxs))
 
     def to_string(self) -> str:
         blocks = [self.__render_text(descriptor) for descriptor in self.__descriptors]
@@ -61,7 +64,25 @@ class DescriptionHelper:
                 df = df.copy()
                 df.index = [''] * len(df)  # type: ignore[assignment]
             # max_colwidth=50 is the identical default that Pandas uses for a DataFrame's __repr__() output.
-            return df.to_string(header=descriptor.show_header, max_colwidth=50)
+            rendered = df.to_string(header=descriptor.show_header, max_colwidth=50)
+            if descriptor.separator_idxs:
+                rendered = cls.__insert_separators(rendered, descriptor)
+            return rendered
+
+    @classmethod
+    def __insert_separators(cls, rendered: str, descriptor: _Descriptor) -> str:
+        # Note: this can break if the DataFrame's repr changes
+        lines = rendered.split('\n')
+        header_lines = int(descriptor.show_header)  # 0 or 1
+        width = max(len(line) for line in lines)
+        separator_line = '-' * width
+        separator_idxs_set = set(descriptor.separator_idxs)
+        result = lines[:header_lines]
+        for i, line in enumerate(lines[header_lines:]):
+            result.append(line)
+            if i in separator_idxs_set:
+                result.append(separator_line)
+        return '\n'.join(result)
 
     @classmethod
     def __apply_styles(cls, descriptor: _Descriptor) -> Styler:
@@ -79,8 +100,18 @@ class DescriptionHelper:
             if styler is None:
                 styler = descriptor.body.style
             styler = styler.set_properties(None, **{'white-space': 'pre-wrap', 'text-align': 'left'}).set_table_styles(
-                [{'selector': 'th', 'props': [('text-align', 'left')]}]
+                [{'selector': 'th', 'props': [('text-align', 'left'), ('border-bottom', '2px solid #666')]}]
             )
+            if descriptor.separator_idxs:
+                separator_idxs_set = set(descriptor.separator_idxs)
+
+                def apply_borders(df: pd.DataFrame) -> pd.DataFrame:
+                    styles = pd.DataFrame('', index=df.index, columns=df.columns)
+                    for idx in separator_idxs_set:
+                        styles.iloc[idx, :] = 'border-bottom: 1px solid #bbb'
+                    return styles
+
+                styler = styler.apply(apply_borders, axis=None)
             if not descriptor.show_header:
                 styler = styler.hide(axis='columns')
             if not descriptor.show_index:
