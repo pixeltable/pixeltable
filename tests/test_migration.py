@@ -4,9 +4,11 @@ import os
 import platform
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from typing import Any
 
+import numpy as np
 import pixeltable_pgserver
 import pytest
 import sqlalchemy as sql
@@ -260,6 +262,12 @@ class TestMigration:
             row['c9'] = get_audio_files()[0]
             row['c10'] = get_video_files()[0]
             row['c11'] = get_documents()[0]
+            row['c12'] = np.zeros((10,), dtype=np.float64)
+            row['c13'] = uuid.uuid4()
+            row['c14'] = datetime.now().date()
+            row['c16'] = b'\xca\xfe'
+            row['c17'] = np.ones((1, 2, 3), dtype=np.bool_)
+            row['c18'] = np.zeros((2, 10), dtype=np.str_)
         status = t.insert([row])
         validate_update_status(status)
         inline_list_mixed = (
