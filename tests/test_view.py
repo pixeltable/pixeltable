@@ -912,6 +912,7 @@ class TestView:
                             'type_': type_,
                             'version_added': version_added,
                             'custom_metadata': None,
+                            'comment': '',
                         }
                         for name, (type_, version_added) in expected_schema.items()
                     },
@@ -1025,6 +1026,8 @@ class TestView:
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
+                            'custom_metadata': None,
+                            'comment': '',
                         }
                         for name, (type_, version_added, computed_with) in expected_schema.items()
                     },
@@ -1105,6 +1108,8 @@ class TestView:
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
+                            'custom_metadata': None,
+                            'comment': '',
                         }
                         for name, (type_, version_added, computed_with) in expected_schema.items()
                     },
