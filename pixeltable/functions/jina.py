@@ -140,12 +140,16 @@ async def embeddings(
         Add a computed column that applies jina-embeddings-v3 to an existing column:
 
         >>> tbl.add_computed_column(
-        ...     embed=jina.embeddings(tbl.text, model='jina-embeddings-v3', task='retrieval.passage')
+        ...     embed=jina.embeddings(
+        ...         tbl.text, model='jina-embeddings-v3', task='retrieval.passage'
+        ...     )
         ... )
 
         Add an embedding index:
 
-        >>> tbl.add_embedding_index('text', string_embed=jina.embeddings.using(model='jina-embeddings-v3'))
+        >>> tbl.add_embedding_index(
+        ...     'text', string_embed=jina.embeddings.using(model='jina-embeddings-v3')
+        ... )
     """
     cl = _client()
 
@@ -216,7 +220,7 @@ async def rerank(
         ...         tbl.query,
         ...         tbl.candidate_docs,
         ...         model='jina-reranker-v2-base-multilingual',
-        ...         top_n=5
+        ...         top_n=5,
         ...     )
         ... )
     """

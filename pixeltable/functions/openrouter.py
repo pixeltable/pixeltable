@@ -79,8 +79,7 @@ async def chat_completions(
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
         ...     response=chat_completions(
-        ...         messages,
-        ...         model='anthropic/claude-3.5-sonnet'
+        ...         messages, model='anthropic/claude-3.5-sonnet'
         ...     )
         ... )
 
@@ -90,7 +89,7 @@ async def chat_completions(
         ...     response=chat_completions(
         ...         messages,
         ...         model='anthropic/claude-3.5-sonnet',
-        ...         provider={'require_parameters': True, 'order': ['Anthropic']}
+        ...         provider={'require_parameters': True, 'order': ['Anthropic']},
         ...     )
         ... )
 
@@ -100,7 +99,7 @@ async def chat_completions(
         ...     response=chat_completions(
         ...         messages,
         ...         model='openai/gpt-4',
-        ...         transforms=['middle-out']  # Optimize for long contexts
+        ...         transforms=['middle-out'],  # Optimize for long contexts
         ...     )
         ... )
     """

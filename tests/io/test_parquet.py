@@ -1,17 +1,46 @@
 import datetime
 import pathlib
 
+import numpy as np
 import pandas as pd
+import pyarrow.parquet as pa_parquet
 import pytest
 
 import pixeltable as pxt
+from pixeltable.utils.arrow import to_pydict
 
 from ..utils import (
     ensure_s3_pytest_resources_access,
     get_image_files,
     make_test_arrow_table,
     skip_test_if_not_installed,
+    validate_update_status,
 )
+
+
+def validate_parquet_files(path: pathlib.Path, rows: list[dict]) -> None:
+    """Validate that the parquet files in the directory match the rows."""
+    pq_table = pa_parquet.read_table(str(path))
+    assert pq_table.num_rows == len(rows)
+
+    col_names = list(rows[0].keys())
+    assert set(pq_table.column_names) == set(col_names)
+
+    pydict = to_pydict(pq_table)
+    for col_name in col_names:
+        for i, row in enumerate(rows):
+            expected = row[col_name]
+            actual = pydict[col_name][i]
+            if isinstance(expected, np.ndarray):
+                array_val: np.ndarray
+                if isinstance(actual, np.ndarray):
+                    array_val = actual
+                else:
+                    assert isinstance(actual, list)
+                    array_val = np.array(actual)
+                assert np.array_equal(array_val, expected), f'Row {i}, column {col_name}: arrays differ'
+            else:
+                assert actual == expected, f'Row {i}, column {col_name}: {actual} != {expected}'
 
 
 class TestParquet:
@@ -288,12 +317,39 @@ class TestParquet:
         tab.insert([{'c1': get_image_files()[0]}])
 
         export_path = tmp_path / 'exported_image.parquet'
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match="Cannot export image column 'c1'"):
             pxt.io.export_parquet(tab.select(), export_path)
-        assert 'Cannot export Query with image columns' in str(exc_info.value)
 
         pxt.io.export_parquet(tab.select(), export_path, inline_images=True)
         assert export_path.exists()
 
         # Test that we can reimport the image (it will come back as bytes)
         _ = pxt.io.import_parquet('imported_image', parquet_path=str(export_path))
+
+    def test_export_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})  # type: ignore[misc]
+        rows = [{'idx': i, 'a1': np.ones((10, 10), dtype=np.int64) * i} for i in range(1000)]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        export_path = tmp_path / 'export.pq'
+        pxt.io.export_parquet(t.order_by(t.idx), export_path)
+        validate_parquet_files(export_path, rows)
+
+    def test_export_ragged_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(None, None), np.int64]})  # type: ignore[misc]
+        rng = np.random.default_rng(0)
+        rows = [
+            {'idx': i, 'a1': np.ones((rng.integers(1, 10) + 1, rng.integers(1, 10) + 1), dtype=np.int64) * i}
+            for i in range(1000)
+        ]
+        validate_update_status(t.insert(rows), expected_rows=len(rows))
+
+        export_path = tmp_path / 'export.pq'
+        pxt.io.export_parquet(t.order_by(t.idx), export_path)
+        validate_parquet_files(export_path, rows)
+
+        with pytest.raises(pxt.Error, match='Cannot export array column'):
+            u = pxt.create_table('test_array2', {'idx': pxt.Int, 'a1': pxt.Array[np.int64]})  # type: ignore[misc]
+            validate_update_status(u.insert(rows), expected_rows=len(rows))
+            export_path = tmp_path / 'error.pq'
+            pxt.io.export_parquet(u.order_by(u.idx), export_path)

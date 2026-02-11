@@ -6,6 +6,7 @@ import pathlib
 import subprocess
 import sys
 import time
+import uuid
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -19,6 +20,7 @@ from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
 from pixeltable.iterators.base import ComponentIterator
+from tool.udfs_for_db_dump import test_array_udf, test_binary_udf, test_date_udf, test_timestamp_udf, test_uuid_udf
 
 _logger = logging.getLogger('pixeltable')
 
@@ -160,7 +162,12 @@ class Dumper:
             'c9': pxt.Audio,
             'c10': pxt.Video,
             'c11': pxt.Document,
-            'c12': pxt.Array[np.float32, (10,)],  # type: ignore[misc]
+            'c12': pxt.Array[np.float64, (10,)],  # type: ignore[misc]
+            'c13': pxt.UUID,
+            'c14': pxt.Date,
+            'c16': pxt.Binary,
+            'c17': pxt.Array,
+            'c18': pxt.Array[(2, None), np.str_],  # type: ignore[misc]
         }
         t = pxt.create_table(
             'base_table', schema, primary_key='c2', comment='This is a test table.', custom_metadata={'key': 'value'}
@@ -194,6 +201,14 @@ class Dumper:
             for i in range(num_rows)
         ]
         c7_data = [d2] * num_rows
+
+        c17_data = [
+            np.zeros((1,), dtype=np.float64),
+            np.ones((2, 2), dtype=np.bool_),
+            np.ones((3,), dtype=np.str_),
+            np.array(0),
+        ]
+
         rows = [
             {
                 'c1': c1_data[i],
@@ -208,7 +223,12 @@ class Dumper:
                 'c9': SAMPLE_AUDIO_URLS[i] if i < len(SAMPLE_AUDIO_URLS) else None,
                 'c10': SAMPLE_VIDEO_URLS[i] if i < len(SAMPLE_VIDEO_URLS) else None,
                 'c11': SAMPLE_DOCUMENT_URLS[i] if i < len(SAMPLE_DOCUMENT_URLS) else None,
-                'c12': np.zeros((10,), dtype=np.float32),
+                'c12': np.zeros((10,), dtype=np.float64),
+                'c13': uuid.UUID('a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6'),
+                'c14': datetime.date(2026, 2, 6),
+                'c16': b'Hello World!' if i < num_rows / 2 else None,
+                'c17': c17_data[i % len(c17_data)] if i < 10 else None,
+                'c18': np.zeros((2, 2 + (i % 3)), np.str_) if i < 7 else None,
             }
             for i in range(num_rows)
         ]
@@ -422,12 +442,6 @@ class Dumper:
             return t.where(t.c2 < i).select(t.c1, t.c2)
 
         add_computed_column('query_output', q1(t.c2))
-        add_computed_column('c12_udf_with_array_literal_default', udf_with_array_literal(t.c12), stored=True)
-        add_computed_column(
-            'c12_udf_with_array_literal_nodefault',
-            udf_with_array_literal(t.c12, np.zeros((10,), dtype=np.float32)),
-            stored=True,
-        )
 
         @pxt.query
         def q2(s: str) -> pxt.Query:
@@ -435,6 +449,17 @@ class Dumper:
             return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
 
         add_computed_column('sim_output', q2(t.c1))
+
+        add_computed_column('expr_with_array_literals', test_array_udf(t.c12, np.zeros(10, dtype=np.float64)))
+        add_computed_column(
+            'expr_with_uuid_literals', test_uuid_udf(t.c13, uuid.UUID('00000000-0000-0000-0000-000000000000'))
+        )
+        add_computed_column('expr_with_date_literals', test_date_udf(t.c14, datetime.date(2026, 2, 10)))
+        add_computed_column(
+            'expr_with_ts_literals',
+            test_timestamp_udf(t.c5, datetime.datetime(2026, 2, 10, 21, 15, tzinfo=ZoneInfo('UTC'))),
+        )
+        add_computed_column('expr_with_bin_literals', test_binary_udf(t.c16, b'\xca\xfe'))
 
 
 @pxt.udf(_force_stored=True)
@@ -445,16 +470,6 @@ def test_udf_stored(n: int) -> int:
 @pxt.udf(batch_size=4, _force_stored=True)
 def test_udf_stored_batched(strings: Batch[str], *, upper: bool = True) -> Batch[str]:
     return [string.upper() if upper else string.lower() for string in strings]
-
-
-_DEFAULT_B = np.ones(10, dtype=np.float32)
-
-
-@pxt.udf(_force_stored=True)
-def udf_with_array_literal(
-    a: pxt.Array[np.float32, (10,)], b: pxt.Array[np.float32, (10,)] = _DEFAULT_B
-) -> pxt.Array[np.float32, (10,)]:
-    return a + b
 
 
 def main() -> None:
