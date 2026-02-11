@@ -51,14 +51,22 @@ def document_splitter(
 
         Create a view that splits all documents into chunks of up to 300 tokens:
 
-        >>> pxt.create_view('chunks', tbl, iterator=document_splitter(tbl.doc, separators='token_limit', limit=300))
+        >>> pxt.create_view(
+        ...     'chunks',
+        ...     tbl,
+        ...     iterator=document_splitter(
+        ...         tbl.doc, separators='token_limit', limit=300
+        ...     ),
+        ... )
 
         Create a view that splits all documents along sentence boundaries, including title and heading metadata:
 
         >>> pxt.create_view(
         ...     'sentence_chunks',
         ...     tbl,
-        ...     iterator=document_splitter(tbl.doc, separators='sentence', metadata='title,heading')
+        ...     iterator=document_splitter(
+        ...         tbl.doc, separators='sentence', metadata='title,heading'
+        ...     ),
         ... )
     """
 
