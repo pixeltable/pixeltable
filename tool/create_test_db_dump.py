@@ -15,7 +15,7 @@ import pixeltable_pgserver
 import toml
 
 import pixeltable as pxt
-from pixeltable import functions as pxtf, metadata, type_system as ts
+from pixeltable import func, functions as pxtf, metadata, type_system as ts
 from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
@@ -89,6 +89,20 @@ class CustomLegacyIterator(ComponentIterator):
         self.idx = pos
 
 
+_DEFAULT_DATE = datetime.date(2026, 2, 10)
+_DEFAULT_TIMESTAMP = datetime.datetime(2026, 2, 10, 21, 15, 0, tzinfo=ZoneInfo('UTC'))
+_DEFAULT_BINARY = b'\xde\xad\xbe\xef'
+_DEFAULT_ARRAY = np.ones(10, dtype=np.float64)
+_DEFAULT_UUID = uuid.UUID('deadbeef-cafe-beef-beef-deadfacedead')
+
+
+test_date_udf: func.CallableFunction | None = None
+test_timestamp_udf: func.CallableFunction | None = None
+test_binary_udf: func.CallableFunction | None = None
+test_array_udf: func.CallableFunction | None = None
+test_uuid_udf: func.CallableFunction | None = None
+
+
 class Dumper:
     def __init__(self, output_dir: str = 'target', db_name: str = 'pxtdump') -> None:
         if sys.version_info >= (3, 11):
@@ -144,9 +158,42 @@ class Dumper:
         with open(info_file, 'w', encoding='utf-8') as info:
             toml.dump(info_dict, info)
 
+    def _init_udfs(self) -> None:
+        def test_date_udf(date1: pxt.Date, date2: pxt.Date, date3: pxt.Date = _DEFAULT_DATE) -> int:
+            return date1.toordinal() + date2.toordinal() + date3.toordinal()
+
+        def test_timestamp_udf(
+            ts1: pxt.Timestamp, ts2: pxt.Timestamp, ts3: pxt.Timestamp = _DEFAULT_TIMESTAMP
+        ) -> float:
+            return ts1.timestamp() + ts2.timestamp() + ts3.timestamp()
+
+        def test_binary_udf(b1: bytes, b2: bytes, b3: bytes = _DEFAULT_BINARY) -> bytes:
+            return bytes(a ^ b ^ c for a, b, c in zip(b1, b2, b3))
+
+        def test_array_udf(
+            a: pxt.Array[np.float64, (10,)],
+            b: pxt.Array[np.float64, (10,)],
+            c: pxt.Array[np.float64, (10,)] = _DEFAULT_ARRAY,
+        ) -> pxt.Array[np.float64, (10,)]:
+            return a + b + c
+
+        def test_uuid_udf(uuid1: pxt.UUID, uuid2: pxt.UUID, uuid3: pxt.UUID = _DEFAULT_UUID) -> str:
+            return str(uuid1) + str(uuid2) + str(uuid3)
+
+        import tool.create_test_db_dump  # noqa: PLW0406
+        from pixeltable.func.udf import make_function
+
+        tool.create_test_db_dump.test_date_udf = make_function(test_date_udf)
+        tool.create_test_db_dump.test_timestamp_udf = make_function(test_timestamp_udf)
+        tool.create_test_db_dump.test_binary_udf = make_function(test_binary_udf)
+        tool.create_test_db_dump.test_array_udf = make_function(test_array_udf)
+        tool.create_test_db_dump.test_uuid_udf = make_function(test_uuid_udf)
+
     # Expression types, predicate types, embedding indices, views on views
     def create_tables(self) -> None:
         import tool.create_test_db_dump  # noqa: PLW0406  # we need a self-reference since this module is run as main
+
+        self._init_udfs()
 
         schema = {
             'c1': pxt.Required[pxt.String],
@@ -447,16 +494,25 @@ class Dumper:
 
         add_computed_column('sim_output', q2(t.c1))
 
-        add_computed_column('expr_with_array_literals', test_array_udf(t.c12, np.zeros(10, dtype=np.float64)))
+        import tool.create_test_db_dump  # noqa: PLW0406
+
         add_computed_column(
-            'expr_with_uuid_literals', test_uuid_udf(t.c13, uuid.UUID('00000000-0000-0000-0000-000000000000'))
+            'expr_with_array_literals', tool.create_test_db_dump.test_array_udf(t.c12, np.zeros(10, dtype=np.float64))
         )
-        add_computed_column('expr_with_date_literals', test_date_udf(t.c14, datetime.date(2026, 2, 10)))
+        add_computed_column(
+            'expr_with_uuid_literals',
+            tool.create_test_db_dump.test_uuid_udf(t.c13, uuid.UUID('00000000-0000-0000-0000-000000000000')),
+        )
+        add_computed_column(
+            'expr_with_date_literals', tool.create_test_db_dump.test_date_udf(t.c14, datetime.date(2026, 2, 10))
+        )
         add_computed_column(
             'expr_with_ts_literals',
-            test_timestamp_udf(t.c5, datetime.datetime(2026, 2, 10, 21, 15, tzinfo=ZoneInfo('UTC'))),
+            tool.create_test_db_dump.test_timestamp_udf(
+                t.c5, datetime.datetime(2026, 2, 10, 21, 15, tzinfo=ZoneInfo('UTC'))
+            ),
         )
-        add_computed_column('expr_with_bin_literals', test_binary_udf(t.c16, b'\xca\xfe'))
+        add_computed_column('expr_with_bin_literals', tool.create_test_db_dump.test_binary_udf(t.c16, b'\xca\xfe'))
 
 
 @pxt.udf(_force_stored=True)
@@ -467,40 +523,6 @@ def test_udf_stored(n: int) -> int:
 @pxt.udf(batch_size=4, _force_stored=True)
 def test_udf_stored_batched(strings: Batch[str], *, upper: bool = True) -> Batch[str]:
     return [string.upper() if upper else string.lower() for string in strings]
-
-
-_DEFAULT_DATE = datetime.date(2026, 2, 10)
-_DEFAULT_TIMESTAMP = datetime.datetime(2026, 2, 10, 21, 15, 0, tzinfo=ZoneInfo('UTC'))
-_DEFAULT_BINARY = b'\xde\xad\xbe\xef'
-_DEFAULT_ARRAY = np.ones(10, dtype=np.float64)
-_DEFAULT_UUID = uuid.UUID('deadbeef-cafe-beef-beef-deadfacedead')
-
-
-@pxt.udf()
-def test_date_udf(date1: pxt.Date, date2: pxt.Date, date3: pxt.Date = _DEFAULT_DATE) -> int:
-    return date1.toordinal() + date2.toordinal() + date3.toordinal()
-
-
-@pxt.udf()
-def test_timestamp_udf(ts1: pxt.Timestamp, ts2: pxt.Timestamp, ts3: pxt.Timestamp = _DEFAULT_TIMESTAMP) -> float:
-    return ts1.timestamp() + ts2.timestamp() + ts3.timestamp()
-
-
-@pxt.udf()
-def test_binary_udf(b1: bytes, b2: bytes, b3: bytes = _DEFAULT_BINARY) -> bytes:
-    return bytes(a ^ b ^ c for a, b, c in zip(b1, b2, b3))
-
-
-@pxt.udf()
-def test_array_udf(
-    a: pxt.Array[np.float64, (10,)], b: pxt.Array[np.float64, (10,)], c: pxt.Array[np.float64, (10,)] = _DEFAULT_ARRAY
-) -> pxt.Array[np.float64, (10,)]:
-    return a + b + c
-
-
-@pxt.udf()
-def test_uuid_udf(uuid1: pxt.UUID, uuid2: pxt.UUID, uuid3: pxt.UUID = _DEFAULT_UUID) -> str:
-    return str(uuid1) + str(uuid2) + str(uuid3)
 
 
 def main() -> None:
