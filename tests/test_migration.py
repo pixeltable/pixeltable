@@ -124,7 +124,9 @@ class TestMigration:
                 self._run_v30_tests()
             if old_version >= 33:
                 self._verify_v33()
-            if VERSION >= 46:
+            if old_version >= 45:
+                self._verify_v45()
+            if old_version >= 46:
                 self._verify_v46()
             # self._verify_v24(old_version)
 
@@ -317,6 +319,31 @@ class TestMigration:
                 table_md = row[0]
                 for col_md in table_md['column_md'].values():
                     assert col_md['is_pk'] is not None
+
+    @classmethod
+    def _verify_v45(cls) -> None:
+        t = pxt.get_table('base_table')
+        v = pxt.get_table('views.view')
+        s = pxt.get_table('views.snapshot_non_pure')
+        vv = pxt.get_table('views.view_of_views')
+
+        # Verify comment and custom_metadata for base_table
+        assert t.get_metadata()['comment'] == 'This is a test table.'
+        assert t.get_metadata()['custom_metadata'] == {'key': 'value'}
+
+        # Verify comment and custom_metadata for view
+        assert v.get_metadata()['comment'] == 'This is a test view.'
+        assert v.get_metadata()['custom_metadata'] == {'view_key': 'view_value'}
+
+        # Verify comment and custom_metadata for snapshot_non_pure
+        assert s.get_metadata()['comment'] == 'This is a test snapshot.'
+        assert s.get_metadata()['custom_metadata'] == {'snapshot_key': 'snapshot_value'}
+        # Verify the additional column in the non-pure snapshot
+        assert 's1' in s.columns()
+
+        # Verify comment and custom_metadata for view_of_views
+        assert vv.get_metadata()['comment'] == 'This is a test view of views.'
+        assert vv.get_metadata()['custom_metadata'] == {'view_of_views_key': 'view_of_views_value'}
 
     @classmethod
     def _verify_v46(cls) -> None:

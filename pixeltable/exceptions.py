@@ -46,3 +46,7 @@ class ExprEvalError(Exception):
 
 class PixeltableWarning(Warning):
     pass
+
+
+class PixeltableDeprecationWarning(DeprecationWarning, PixeltableWarning):
+    pass

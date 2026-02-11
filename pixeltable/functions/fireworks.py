@@ -60,7 +60,9 @@ async def chat_completions(
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
-        ...     response=chat_completions(messages, model='accounts/fireworks/models/mixtral-8x22b-instruct')
+        ...     response=chat_completions(
+        ...         messages, model='accounts/fireworks/models/mixtral-8x22b-instruct'
+        ...     )
         ... )
     """
     if model_kwargs is None:
