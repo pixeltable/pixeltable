@@ -389,15 +389,33 @@ class Table(SchemaObject):
             return helper
 
     def _col_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
-        return pd.DataFrame(
-            {
-                'Column Name': col.name,
-                'Type': col.col_type._to_str(as_schema=True),
-                'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
-            }
-            for col in self._tbl_version_path.columns()
-            if columns is None or col.name in columns
-        )
+        cols = [col for col in self._tbl_version_path.columns() if columns is None or col.name in columns]
+        col_descriptors = []
+        for col in cols:
+            if self._tbl_version is not None and col.get_tbl().key.tbl_id == self._tbl_version.key.tbl_id:
+                # This column originates in this table, not one of its base tables.
+                if (
+                    self._tbl_version.get().is_component_view and col.id == 0
+                ) or self._tbl_version.get().is_iterator_column(col):
+                    # This column originates from the iterator of this component view. Special "pos" columns also end up
+                    # here.
+                    source = self._tbl_version.get().iterator_cls.__name__
+                else:
+                    # Regular column defined in this table
+                    source = ''
+            else:
+                # This column is inherited from one of the base tables.
+                source = col.get_tbl().name
+
+            col_descriptors.append(
+                {
+                    'Column Name': col.name,
+                    'Type': col.col_type._to_str(as_schema=True),
+                    'Source': source,
+                    'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
+                }
+            )
+        return pd.DataFrame(col_descriptors)
 
     def _index_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
         from pixeltable import index
