@@ -306,14 +306,25 @@ class EmbeddingIndex(IndexBase):
                 f'it returns an array of invalid length {shape[0]}'
             )
 
-        # If column is an array type, validate shape compatibility (when both have known shapes)
-        if column is not None and isinstance(column.col_type, ts.ArrayType):
-            col_array_type = column.col_type
-            if col_array_type.shape is not None and shape[0] is not None and shape != col_array_type.shape:
+        # Deserialization when no column context is passed, skip column-specific validation.
+        if column is None:
+            return
+
+        # Indexing an array column with precomputed embeddings
+        if isinstance(column.col_type, ts.ArrayType):
+            col_shape = column.col_type.shape
+            if col_shape is None or len(col_shape) != 1 or col_shape[0] is None or col_shape[0] <= 0:
+                raise excs.Error(
+                    f'Column {column.name!r} must be a 1-dimensional array of a specific length for an embedding index.'
+                )
+            # If function also has fixed shape, it must match the column
+            if shape[0] is not None and shape != col_shape:
                 raise excs.Error(
                     f'The function `{embed_fn.name}` returns an array with shape {shape}, '
-                    f'but column {column.name!r} has shape {col_array_type.shape}'
+                    f'but column {column.name!r} has shape {col_shape}'
                 )
+        elif shape[0] is None:
+            raise excs.Error('Embedding function must return a 1-dimensional array of a specific length.')
 
     def as_dict(self) -> dict:
         d: dict[str, Any] = {'metric': self.metric.name.lower(), 'precision': self.precision.value}

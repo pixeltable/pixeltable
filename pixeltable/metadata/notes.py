@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    46: 'SimilarityExpr: migrate from indexed_col to tbl_version_key',
     45: 'Adds a new parameter "precision" to EmbeddingIndex',
     44: 'ArrayType dtype migration from pxt types to numpy dtypes',
     43: 'Changing tables.dir_id to nullable',

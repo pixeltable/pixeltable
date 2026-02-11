@@ -68,8 +68,7 @@ class TestIndex:
         t.drop_embedding_index(idx_name='img_idx1')
         with pytest.raises(pxt.Error) as exc_info:
             reload_tester.run_reload_test(clear=False)
-        # We now resolve indices by id only; the error message no longer contains the index name.
-        assert 'embedding index with id' in str(exc_info.value).lower()
+        assert 'img_idx1' in str(exc_info.value) and 'not found' in str(exc_info.value).lower()
 
         # After the query is serialized, dropping and recreating the index should work
         # on reload, because the index is available again even if it is not the exact
@@ -754,8 +753,8 @@ class TestIndex:
 
         with pytest.raises(
             pxt.Error,
-            match=r'The function `clip` is not a valid embedding: .*'
-            r'string, image, audio, video, or array parameter',
+            match=r'The function `clip` is not a valid embedding: '
+            'it must take a single string, image, audio, video, or array parameter',
         ):
             # no matching signature
             img_t.add_embedding_index('img', embedding=clip)

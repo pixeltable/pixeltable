@@ -124,6 +124,8 @@ class TestMigration:
                 self._run_v30_tests()
             if old_version >= 33:
                 self._verify_v33()
+            if VERSION >= 46:
+                self._verify_v46()
             # self._verify_v24(old_version)
 
             pxt.drop_table('sample_table', force=True)
@@ -315,6 +317,24 @@ class TestMigration:
                 table_md = row[0]
                 for col_md in table_md['column_md'].values():
                     assert col_md['is_pk'] is not None
+
+    @classmethod
+    def _verify_v46(cls) -> None:
+        def has_column_ref_in_similarity(value: Any) -> bool:
+            if isinstance(value, dict):
+                if value.get('_classname') == 'SimilarityExpr' and 'indexed_col' in value:
+                    return True
+                return any(has_column_ref_in_similarity(v) for v in value.values())
+            if isinstance(value, list):
+                return any(has_column_ref_in_similarity(v) for v in value)
+            return False
+
+        with Env.get().engine.begin() as conn:
+            for row in conn.execute(sql.select(Table.md)):
+                table_md = row[0]
+                assert not has_column_ref_in_similarity(table_md), (
+                    'Table metadata still contains SimilarityExpr with ColumnRef after v46 migration'
+                )
 
 
 @pxt.udf(batch_size=4)
