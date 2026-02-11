@@ -60,7 +60,6 @@ from .type_system import (
     Timestamp,
     Video,
 )
-from .types import ColumnSpec
 
 # This import must go last to avoid circular imports.
 from . import functions, io, iterators  # isort: skip

@@ -6,8 +6,8 @@ import PIL
 import pytest
 
 import pixeltable as pxt
+from pixeltable import exprs
 from pixeltable.catalog import Catalog
-from pixeltable.exprs import expr
 from pixeltable.func import Batch
 from pixeltable.types import ColumnSpec
 
@@ -575,7 +575,7 @@ class TestView:
         t.insert(rows)
 
         # view with unstored column that depends on int1 and a manually updated column (int4)
-        v1_schema: dict[str, ColumnSpec | type | expr.Expr] = {
+        v1_schema: dict[str, ColumnSpec | type | exprs.Expr] = {
             'img2': {'value': t.img.crop([t.int1, t.int1, width, height]), 'stored': False},
             'int3': t.int1 * 2,
             'int4': pxt.Int,  # TODO: add default
