@@ -140,8 +140,8 @@ class Column:
 
         if isinstance(destination, Path):
             destination = str(destination)
-        else:
-            self._explicit_destination = destination
+        
+        self._explicit_destination = destination
 
     def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
