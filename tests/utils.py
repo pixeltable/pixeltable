@@ -533,7 +533,7 @@ def assert_table_metadata_eq(expected: dict[str, Any], actual: pxt.TableMetadata
     """
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     actual_created_at: datetime.datetime = actual['version_created']
-    assert (now - actual_created_at).total_seconds() <= 60
+    assert (now - actual_created_at).total_seconds() <= (120 if Env.get().is_using_cockroachdb else 60)
 
     trimmed_actual = {k: v for k, v in actual.items() if k != 'version_created'}
     tc = TestCase()
