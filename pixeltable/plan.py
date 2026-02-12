@@ -12,6 +12,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
+from pixeltable.func.iterator import GeneratingFunctionCall
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -513,7 +514,7 @@ class Planner:
                 raise excs.Error(
                     dedent(
                         f"""
-                        Data cannot be {op_name} the table {tbl.name!r},
+                        Data cannot be {op_name} the {tbl.display_str()},
                         because the column {col.name!r} is currently invalid:
                         {{validation_error}}
                         """
@@ -521,6 +522,26 @@ class Planner:
                     .strip()
                     .format(validation_error=col.value_expr.validation_error)
                 )
+
+    @classmethod
+    def __check_valid_iterator(
+        cls, tbl: catalog.TableVersion, iterator: GeneratingFunctionCall | None, op_name: Literal['updated in']
+    ) -> None:
+        if iterator is None:
+            return
+
+        if not iterator.is_valid:
+            raise excs.Error(
+                dedent(
+                    f"""
+                    Data cannot be {op_name} the {tbl.display_str()},
+                    because the iterator defined on {tbl.name!r} is currently invalid:
+                    {{validation_error}}
+                    """
+                )
+                .strip()
+                .format(validation_error=iterator.validation_error)
+            )
 
     @classmethod
     def _cell_md_col_refs(cls, expr_list: Iterable[exprs.Expr]) -> list[exprs.ColumnRef]:
@@ -784,8 +805,11 @@ class Planner:
         #   the store
         target = view.tbl_version.get()  # the one we need to populate
         stored_cols = [c for c in target.cols_by_id.values() if c.is_stored]
+        cls.__check_valid_columns(target, stored_cols, 'updated in')
+        cls.__check_valid_iterator(target, target.iterator_call, 'updated in')
+
         # 2. for component views: iterator args
-        iterator_args = [target.iterator_args] if target.iterator_args is not None else []
+        iterator_args = [target.iterator_args_expr()] if target.is_component_view else []
 
         from_clause = FromClause(tbls=[view.base])
         base_analyzer = Analyzer(

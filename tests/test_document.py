@@ -131,7 +131,7 @@ class TestDocument:
 
         invalid_separators = ['page, sentence', 'paragraph, sentence', 'char_limit, sentence', 'token_limit, sentence']
         for sep in invalid_separators:
-            with pytest.raises(pxt.Error, match='Image elements are only supported for the "page" separator'):
+            with pytest.raises(pxt.Error, match="Image elements are only supported for the 'page' separator"):
                 _ = pxt.create_view(
                     'chunks', t, iterator=document_splitter(document=t.doc, separators=sep, elements=['image'])
                 )
