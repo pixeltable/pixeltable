@@ -12,7 +12,7 @@ from pixeltable import catalog, exprs, func
 from pixeltable.iterators import ComponentIterator
 
 from .column import Column
-from .globals import _POS_COLUMN_NAME, MediaValidation
+from .globals import MediaValidation
 from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
@@ -93,9 +93,11 @@ class View(Table):
         select_list_columns: List[Column] = []
         if not include_base_columns:
             r = cls.select_list_to_additional_columns(select_list)
-            select_list_columns = cls._create_columns(r)
+            select_list_columns = [Column.create_column(name, spec) for name, spec in r.items()]
 
-        columns_from_additional_columns = cls._create_columns(additional_columns)
+        columns_from_additional_columns = [
+            Column.create_column(name, spec) for name, spec in additional_columns.items()
+        ]
         columns = select_list_columns + columns_from_additional_columns
         cls._verify_schema(columns)
 
@@ -156,20 +158,13 @@ class View(Table):
             expr_args = {k: exprs.Expr.from_object(v) for k, v in bound_args.items()}
             sig.validate_args(expr_args, context=f'in iterator of type `{iterator_cls.__name__}`')
             literal_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in expr_args.items()}
+            output_dict, unstored_cols = iterator_cls.output_schema(**literal_args)
 
             # prepend pos and output_schema columns to cols:
             # a component view exposes the pos column of its rowid;
             # we create that column here, so it gets assigned a column id;
             # stored=False: it is not stored separately (it's already stored as part of the rowid)
-            iterator_cols = [Column(_POS_COLUMN_NAME, ts.IntType(), is_iterator_col=True, stored=False)]
-            output_dict, unstored_cols = iterator_cls.output_schema(**literal_args)
-            iterator_cols.extend(
-                [
-                    Column(col_name, col_type, is_iterator_col=True, stored=col_name not in unstored_cols)
-                    for col_name, col_type in output_dict.items()
-                ]
-            )
-
+            iterator_cols = Column.create_iterator_columns(output_dict, unstored_cols)
             iterator_col_names = {col.name for col in iterator_cols}
             for col in columns:
                 if col.name in iterator_col_names:
