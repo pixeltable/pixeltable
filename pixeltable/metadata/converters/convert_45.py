@@ -13,19 +13,22 @@ def _substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
         return None
     if v.get('_classname') != 'SimilarityExpr':
         return None
-    assert 'indexed_col' in v, 'SimilarityExpr must have indexed_col'
-    indexed_col = v['indexed_col']
-    assert isinstance(indexed_col, dict), 'SimilarityExpr migration: indexed_col must be serialized ColumnRef dict'
-    tbl_id = indexed_col['tbl_id']
-    tbl_version = indexed_col['tbl_version']
-    idx_name = v.get('idx_name')
-    assert idx_name is not None, (
-        'SimilarityExpr migration: dict with indexed_col must contain idx_name (format not corrupted)'
-    )
+    if 'tbl_version_key' in v: # already migrated
+        return None
+    assert 'components' in v
+    components = v['components']
+    assert len(components) == 2
+    col_ref_dict = components[0]
+    tbl_id = col_ref_dict['tbl_id']
+    tbl_version = col_ref_dict['tbl_version']
     tbl_version_key = {'id': tbl_id, 'effective_version': tbl_version, 'anchor_tbl_id': None}
-    new_d: dict[str, Any] = {kk: vv for kk, vv in v.items() if kk != 'indexed_col'}
+    # copy index name, class name etc
+    new_d: dict[str, Any] = {kk: vv for kk, vv in v.items() if kk != 'components'}
+    # Skip column ref from components
+    new_d['components'] = [components[1]]
     new_d['tbl_version_key'] = tbl_version_key
-    new_d['idx_name'] = idx_name
+    new_d['idx_name'] = v.get('idx_name')  # index name can be none or missing
+    new_d['_classname'] = 'SimilarityExpr'
     return (k, new_d)
 
 

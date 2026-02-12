@@ -110,10 +110,13 @@ class SimilarityExpr(Expr):
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> 'SimilarityExpr':
         assert len(components) == 1, f'SimilarityExpr expects 1 component (item), got {len(components)}'
-        # Legacy 'indexed_col' format is migrated by metadata convert_46.
+        # TODO remove
+        #if 'tbl_version_key' not in d:
+        #    assert len(components) == 2
+        #    assert isinstance(components[0], ColumnRef)
+        #    return cls(components[0], components[1], idx_name=idx_name)
         tbl_version_key = TableVersionKey.from_dict(d['tbl_version_key'])
         idx_name = d.get('idx_name')
-        assert idx_name is not None
         return cls._from_index_name(item=components[0], idx_name=idx_name, tbl_version_key=tbl_version_key)
 
     @classmethod

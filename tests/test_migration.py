@@ -349,7 +349,7 @@ class TestMigration:
     def _verify_v46(cls) -> None:
         def has_column_ref_in_similarity(value: Any) -> bool:
             if isinstance(value, dict):
-                if value.get('_classname') == 'SimilarityExpr' and 'indexed_col' in value:
+                if value.get('_classname') == 'SimilarityExpr' and 'table_version_key' not in value:
                     return True
                 return any(has_column_ref_in_similarity(v) for v in value.values())
             if isinstance(value, list):
