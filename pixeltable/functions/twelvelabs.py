@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the TwelveLabs API. In order to use them, you must
 first `pip install twelvelabs` and configure your TwelveLabs credentials, as described in
-the [Working with TwelveLabs](https://docs.pixeltable.com/notebooks/integrations/working-with-twelvelabs) tutorial.
+the [Working with TwelveLabs](https://docs.pixeltable.com/howto/providers/working-with-twelvelabs) tutorial.
 """
 
 from base64 import b64encode
@@ -52,7 +52,7 @@ async def embed(text: str, image: pxt.Image | None = None, *, model_name: str) -
 
     Args:
         model_name: The name of the model to use. Check
-            [the TwelveLabs documentation](https://docs.twelvelabs.io/v1.3/sdk-reference/python/create-text-image-and-audio-embeddings)
+            [the TwelveLabs documentation](https://docs.twelvelabs.io/v1.3/sdk-reference/python/create-embeddings-v-1/create-text-image-and-audio-embeddings)
             for available models.
         text: The text to embed.
         image: If specified, the embedding will be created from both the text and the image.
