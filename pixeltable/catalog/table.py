@@ -545,7 +545,7 @@ class Table(SchemaObject):
 
             >>> schema = {
             ...     'c1': {'type': pxt.String, 'default': 'empty'},
-            ...     'c2': {'type': pxt.Int, 'default': 0}
+            ...     'c2': {'type': pxt.Int, 'default': 0},
             ... }
             ... tbl.add_columns(schema)
         """

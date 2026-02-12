@@ -144,8 +144,8 @@ def create_table(
         ...     schema={
         ...         'id': pxt.Int,
         ...         'status': {'type': pxt.String, 'default': 'pending'},
-        ...         'count': {'type': pxt.Int, 'default': 0}
-        ...     }
+        ...         'count': {'type': pxt.Int, 'default': 0},
+        ...     },
         ... )
 
         Create a table from a select statement over an existing table `orig_table` (this will create a new table
