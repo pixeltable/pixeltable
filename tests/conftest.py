@@ -12,7 +12,7 @@ import sqlalchemy as sql
 import tenacity
 from _pytest.config import Config as PytestConfig, argparsing
 from filelock import FileLock
-from sqlalchemy import orm, text
+from sqlalchemy import text
 
 import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
@@ -20,8 +20,6 @@ from pixeltable.catalog import Catalog
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
-from pixeltable.metadata import SystemInfo, create_system_info
-from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
@@ -241,9 +239,9 @@ def clean_db(restore_md_tables: bool = True) -> None:
     engine = Env.get().engine
 
     # Get all known metadata table names from our ORM models
-    from pixeltable.metadata.schema import Base
+    from pixeltable.metadata.schema import base_metadata
 
-    md_table_names = set(Base.metadata.tables.keys())
+    md_table_names = set(base_metadata.tables.keys())
 
     reflected = sql.MetaData()
     reflected.reflect(engine)
