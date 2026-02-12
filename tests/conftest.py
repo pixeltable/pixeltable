@@ -20,6 +20,7 @@ from pixeltable.catalog import Catalog
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
+from pixeltable.metadata.schema import base_metadata
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
@@ -235,34 +236,33 @@ def _clear_hf_caches() -> None:
             )
 
 
+# Get all known metadata table names and cache them
+_MD_TABLE_NAMES = set(base_metadata.tables.keys())
+
+
 def clean_db(restore_md_tables: bool = True) -> None:
     engine = Env.get().engine
-
-    # Get all known metadata table names from our ORM models
-    from pixeltable.metadata.schema import base_metadata
-
-    md_table_names = set(base_metadata.tables.keys())
-
     reflected = sql.MetaData()
     reflected.reflect(engine)
 
-    data_tables = [t for t in reflected.tables.values() if t.name not in md_table_names]
-    existing_md_tables = [t for t in reflected.tables.values() if t.name in md_table_names]
+    data_tables = [t for t in reflected.tables.values() if t.name not in _MD_TABLE_NAMES]
+    existing_md_tables = [t for t in reflected.tables.values() if t.name in _MD_TABLE_NAMES]
 
     with engine.connect() as conn:
         # Drop data tables
-        for t in data_tables:
-            conn.execute(text(f'DROP TABLE IF EXISTS "{t.name}" CASCADE'))
+        if data_tables:
+            table_names = ', '.join(f'"{t.name}"' for t in data_tables)
+            conn.execute(text(f'DROP TABLE IF EXISTS {table_names} CASCADE'))
 
-        if restore_md_tables:
-            # Truncate existing metadata tables
-            for t in existing_md_tables:
-                conn.execute(text(f'TRUNCATE TABLE "{t.name}" CASCADE'))
-            conn.commit()
-        else:
-            for t in existing_md_tables:
-                conn.execute(text(f'DROP TABLE IF EXISTS "{t.name}" CASCADE'))
-            conn.commit()
+        if existing_md_tables:
+            table_names = ', '.join(f'"{t.name}"' for t in existing_md_tables)
+            if restore_md_tables:
+                # Truncate existing metadata tables
+                conn.execute(text(f'TRUNCATE TABLE {table_names} CASCADE'))
+            else:
+                # Drop existing metadata tables
+                conn.execute(text(f'DROP TABLE IF EXISTS {table_names} CASCADE'))
+        conn.commit()
 
 
 @pytest.fixture(scope='function')
