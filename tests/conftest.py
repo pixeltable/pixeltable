@@ -240,31 +240,31 @@ def _clear_hf_caches() -> None:
 def clean_db(restore_md_tables: bool = True) -> None:
     engine = Env.get().engine
 
-    # Drop all tables from the DB, including data tables. Dropping the data tables is necessary for certain tests,
-    # such as test_db_migration, that may lead to UUID collisions if interrupted.
-    sql_md = orm.declarative_base().metadata
-    sql_md.reflect(engine)
-    sql_md.drop_all(bind=engine)
+    # Get all known metadata table names from our ORM models
+    from pixeltable.metadata.schema import Base
 
-    # The following lines may be uncommented as a replacement for the above, if one wishes to drop only metadata
-    # tables for testing purposes.
-    # SystemInfo.__table__.drop(engine, checkfirst=True)
-    # TableSchemaVersion.__table__.drop(engine, checkfirst=True)
-    # TableVersion.__table__.drop(engine, checkfirst=True)
-    # Table.__table__.drop(engine, checkfirst=True)
-    # Function.__table__.drop(engine, checkfirst=True)
-    # Dir.__table__.drop(engine, checkfirst=True)
+    md_table_names = set(Base.metadata.tables.keys())
 
-    if restore_md_tables:
-        # Restore metadata tables and system info
-        Dir.__table__.create(engine)
-        Function.__table__.create(engine)
-        Table.__table__.create(engine)
-        TableVersion.__table__.create(engine)
-        TableSchemaVersion.__table__.create(engine)
-        PendingTableOp.__table__.create(engine)
-        SystemInfo.__table__.create(engine)
-        create_system_info(engine)
+    reflected = sql.MetaData()
+    reflected.reflect(engine)
+
+    data_tables = [t for t in reflected.tables.values() if t.name not in md_table_names]
+    existing_md_tables = [t for t in reflected.tables.values() if t.name in md_table_names]
+
+    with engine.connect() as conn:
+        # Drop data tables
+        for t in data_tables:
+            conn.execute(text(f'DROP TABLE IF EXISTS "{t.name}" CASCADE'))
+
+        if restore_md_tables:
+            # Truncate existing metadata tables
+            for t in existing_md_tables:
+                conn.execute(text(f'TRUNCATE TABLE "{t.name}" CASCADE'))
+            conn.commit()
+        else:
+            for t in existing_md_tables:
+                conn.execute(text(f'DROP TABLE IF EXISTS "{t.name}" CASCADE'))
+            conn.commit()
 
 
 @pytest.fixture(scope='function')
