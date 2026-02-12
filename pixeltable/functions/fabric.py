@@ -119,9 +119,11 @@ async def chat_completions(
         >>> from pixeltable.functions import fabric
         >>> messages = [
         ...     {'role': 'system', 'content': 'You are a helpful assistant.'},
-        ...     {'role': 'user', 'content': tbl.prompt}
+        ...     {'role': 'user', 'content': tbl.prompt},
         ... ]
-        >>> tbl.add_computed_column(response=fabric.chat_completions(messages, model='gpt-4.1'))
+        >>> tbl.add_computed_column(
+        ...     response=fabric.chat_completions(messages, model='gpt-4.1')
+        ... )
 
         Using a reasoning model (gpt-5):
 
@@ -129,7 +131,7 @@ async def chat_completions(
         ...     reasoning_response=fabric.chat_completions(
         ...         messages,
         ...         model='gpt-5',
-        ...         model_kwargs={'max_completion_tokens': 5000}
+        ...         model_kwargs={'max_completion_tokens': 5000},
         ...     )
         ... )
     """
@@ -233,7 +235,10 @@ async def embeddings(
 
         Add an embedding index to an existing column `text`:
 
-        >>> tbl.add_embedding_index('text', embedding=fabric.embeddings.using(model='text-embedding-ada-002'))
+        >>> tbl.add_embedding_index(
+        ...     'text',
+        ...     embedding=fabric.embeddings.using(model='text-embedding-ada-002'),
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
