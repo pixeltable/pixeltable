@@ -13,6 +13,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
+from pixeltable.functions.array import identity
 from pixeltable.functions.huggingface import clip
 
 from .utils import (
@@ -67,7 +68,7 @@ class TestIndex:
         t.drop_embedding_index(idx_name='img_idx1')
         with pytest.raises(pxt.Error) as exc_info:
             reload_tester.run_reload_test(clear=False)
-        assert "index 'img_idx1' not found" in str(exc_info.value).lower()
+        assert 'img_idx1' in str(exc_info.value) and 'not found' in str(exc_info.value).lower()
 
         # After the query is serialized, dropping and recreating the index should work
         # on reload, because the index is available again even if it is not the exact
@@ -721,7 +722,7 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             # no embedding function specified
             img_t.add_embedding_index('img')
-        assert '`embed`, `string_embed`, or `image_embed` must be specified' in str(exc_info.value)
+        assert '`embed`, `string_embed`, `image_embed`, or `array_embed` must be specified' in str(exc_info.value)
 
         with pytest.raises(pxt.Error, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."):
             # wrong column type
@@ -753,7 +754,7 @@ class TestIndex:
         with pytest.raises(
             pxt.Error,
             match=r'The function `clip` is not a valid embedding: '
-            'it must take a single string, image, audio, or video parameter',
+            'it must take a single string, image, audio, video, or array parameter',
         ):
             # no matching signature
             img_t.add_embedding_index('img', embedding=clip)
@@ -981,3 +982,88 @@ class TestIndex:
         sim = t.text.similarity(string='one')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
+
+    def test_array_column_embedding_index(
+        self, uses_db: None, e5_embed: pxt.Function, reload_tester: ReloadTester
+    ) -> None:
+        skip_test_if_not_installed('transformers')
+        texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
+        vecs = [e5_embed.exec([s], {}) for s in texts]
+        dim = len(vecs[0])
+        vecs64 = [v.astype(np.float64) for v in vecs]
+        t = pxt.create_table(
+            'array_embedding_test',
+            {
+                'id': pxt.Int,
+                'text': pxt.String,
+                'vec': pxt.Array[(dim,), np.float32],  # type: ignore[misc]
+                'vec64': pxt.Array[(dim,), np.float64],  # type: ignore[misc]
+                'vec_array_f32': pxt.Array[(dim,), np.float32],  # type: ignore[misc]
+            },
+            if_exists='replace',
+        )
+        validate_update_status(
+            t.insert(
+                [
+                    {'id': i, 'text': s, 'vec': vecs[i], 'vec64': vecs64[i], 'vec_array_f32': vecs[i]}
+                    for i, s in enumerate(texts)
+                ]
+            ),
+            expected_rows=3,
+        )
+        t.add_computed_column(embedding=e5_embed(t.text))
+        t.add_embedding_index(
+            'embedding', idx_name='emb_computed', embedding=e5_embed, metric='cosine', precision='fp32'
+        )
+        # f32 precomputed embedding with string embedding function
+        t.add_embedding_index('vec', idx_name='emb_stored', string_embed=e5_embed, metric='cosine', precision='fp32')
+        # f64 precomputed embedding column with string embedding function
+        t.add_embedding_index(
+            'vec64', idx_name='emb_stored64', string_embed=e5_embed, metric='cosine', precision='fp32'
+        )
+        # Array column with array embedding function
+        t.add_embedding_index(
+            'vec_array_f32', idx_name='emb_array_f32', array_embed=identity, metric='cosine', precision='fp32'
+        )
+        best = 'a cat sitting on a mat'
+        best_vec = e5_embed.exec([best], {})
+        # Test string similarity on computed column and array columns with string embedding function
+        for col_name, idx_name in [('embedding', 'emb_computed'), ('vec', 'emb_stored'), ('vec64', 'emb_stored64')]:
+            col = getattr(t, col_name)
+            sim = col.similarity(string='a cat', idx=idx_name)
+            query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
+            res = reload_tester.run_query(query)
+            assert len(res) == 3, col_name
+            assert res[0]['text'] == best, col_name
+            sim_vals = [r['sim'] for r in res]
+            assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
+                f'{col_name}: similarity scores must be descending; got {sim_vals}'
+            )
+        # Search by vector (array modality)
+        col = t.vec_array_f32
+        sim = col.similarity(array=best_vec, idx='emb_array_f32')
+        query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
+        res = reload_tester.run_query(query)
+        assert len(res) == 3
+        assert res[0]['text'] == best
+        sim_vals = [r['sim'] for r in res]
+        assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
+            f'vec_array_f32: similarity scores must be descending; got {sim_vals}'
+        )
+        reload_tester.run_reload_test()
+
+    @staticmethod
+    @pxt.udf
+    def _embed_wrong_shape(x: str) -> pxt.Array[(256,), np.float32]:
+        return np.zeros(256, dtype=np.float32)
+
+    def test_array_embedding_index_validation_errors(self, uses_db: None) -> None:
+        t = pxt.create_table(
+            'arr_val_test',
+            {'id': pxt.Int, 'vec': pxt.Array[(384,), np.float32]},  # type: ignore[misc]
+            if_exists='replace',
+        )
+        t.insert([{'id': 0, 'vec': np.zeros(384, dtype=np.float32)}])
+        with pytest.raises(pxt.Error) as exc_info:
+            t.add_embedding_index('vec', embedding=self._embed_wrong_shape)
+        assert 'shape' in str(exc_info.value).lower()
