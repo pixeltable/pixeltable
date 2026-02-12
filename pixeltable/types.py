@@ -1,4 +1,4 @@
-"""Types used for type annotations across the Pixeltable codebase."""
+"""User-facing types used for type annotations across the Pixeltable codebase."""
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, TypedDict
@@ -20,7 +20,7 @@ class ColumnSpec(TypedDict, total=False):
     primary_key: bool
     """Whether this column is part of the primary key. Defaults to `False`."""
     stored: bool
-    """Whether to store the column data. Defaults vary by column type."""
+    """Whether to store the column data. Defaults to `True`."""
     media_validation: Literal['on_read', 'on_write']
     """When to validate media; `'on_read'` or `'on_write'`."""
     destination: str | Path

@@ -509,8 +509,7 @@ class Table(SchemaObject):
         The format of the `schema` argument is a dict mapping column names to their types.
 
         Args:
-            schema: A dictionary mapping column names to a `type` or a
-                [`ColumnSpec`][pixeltable.ColumnSpec] TypedDict.
+            schema: A dictionary mapping column names to a `type` or a [`ColumnSpec`][pixeltable.ColumnSpec] dict.
             if_exists: Determines the behavior if a column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -592,7 +591,7 @@ class Table(SchemaObject):
 
         Args:
             kwargs: Exactly one keyword argument of the form `col_name=type` or `col_name=col_spec_dict`,
-                where `col_spec_dict` is a [`ColumnSpec`][pixeltable.ColumnSpec] TypedDict.
+                where `col_spec_dict` is a [`ColumnSpec`][pixeltable.ColumnSpec] dict.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -622,7 +621,7 @@ class Table(SchemaObject):
             ...     }
             ... )
 
-            Alternatively, simple column insertions can be expressed using `add_columns`:
+            Alternatively, adding a column can also be expressed using `add_columns`:
 
             >>> tbl.add_columns({'new_col': pxt.Int})
 
