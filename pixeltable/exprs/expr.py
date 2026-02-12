@@ -12,6 +12,7 @@ from uuid import UUID
 
 import numpy as np
 import sqlalchemy as sql
+from deprecated import deprecated
 from typing_extensions import Self, _AnnotatedAlias
 
 from pixeltable import catalog, exceptions as excs, func, type_system as ts
@@ -587,6 +588,13 @@ class Expr(abc.ABC):
             col_type = col_type.copy(nullable=False)
         return TypeCast(self, col_type)
 
+    @deprecated(
+        reason='apply() is deprecated and will be removed in a future version. '
+        'Please define a UDF and use that instead.\n'
+        'For details, see: https://docs.pixeltable.com/platform/udfs-in-pixeltable',
+        version='0.5.17',
+        category=excs.PixeltableDeprecationWarning,
+    )
     def apply(
         self, fn: Callable, *, col_type: ts.ColumnType | type | _AnnotatedAlias | None = None
     ) -> 'exprs.FunctionCall':
