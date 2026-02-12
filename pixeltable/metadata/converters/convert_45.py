@@ -13,7 +13,7 @@ def _substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
         return None
     if v.get('_classname') != 'SimilarityExpr':
         return None
-    if 'tbl_version_key' in v: # already migrated
+    if 'tbl_version_key' in v:  # already migrated
         return None
     assert 'components' in v
     components = v['components']

@@ -111,7 +111,7 @@ class SimilarityExpr(Expr):
     def _from_dict(cls, d: dict, components: list[Expr]) -> 'SimilarityExpr':
         assert len(components) == 1, f'SimilarityExpr expects 1 component (item), got {len(components)}'
         # TODO remove
-        #if 'tbl_version_key' not in d:
+        # if 'tbl_version_key' not in d:
         #    assert len(components) == 2
         #    assert isinstance(components[0], ColumnRef)
         #    return cls(components[0], components[1], idx_name=idx_name)
