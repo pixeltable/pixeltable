@@ -242,20 +242,19 @@ _MD_TABLE_NAMES = set(base_metadata.tables.keys())
 
 def clean_db(restore_md_tables: bool = True) -> None:
     engine = Env.get().engine
-    reflected = sql.MetaData()
-    reflected.reflect(engine)
-
-    data_tables = [t for t in reflected.tables.values() if t.name not in _MD_TABLE_NAMES]
-    existing_md_tables = [t for t in reflected.tables.values() if t.name in _MD_TABLE_NAMES]
+    inspector = sql.inspect(engine)
+    all_table_names = set(inspector.get_table_names())
+    data_table_names = all_table_names - _MD_TABLE_NAMES
+    existing_md_names = all_table_names & _MD_TABLE_NAMES
 
     with engine.connect() as conn:
         # Drop data tables
-        if data_tables:
-            table_names = ', '.join(f'"{t.name}"' for t in data_tables)
+        if data_table_names:
+            table_names = ', '.join(f'"{t}"' for t in data_table_names)
             conn.execute(text(f'DROP TABLE IF EXISTS {table_names} CASCADE'))
 
-        if existing_md_tables:
-            table_names = ', '.join(f'"{t.name}"' for t in existing_md_tables)
+        if existing_md_names:
+            table_names = ', '.join(f'"{t}"' for t in existing_md_names)
             if restore_md_tables:
                 # Truncate existing metadata tables
                 conn.execute(text(f'TRUNCATE TABLE {table_names} CASCADE'))
