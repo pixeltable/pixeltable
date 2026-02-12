@@ -256,8 +256,9 @@ markers = [
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)
-    'error:Use of similarity\(\):DeprecationWarning',
-    'error:create\(\) is deprecated:DeprecationWarning',
+    'error::pixeltable.exceptions.PixeltableDeprecationWarning',
+    # ignore 'apply() is deprecated' warning for now, until we remove its usage in our tests
+    'ignore:.*apply\(\) is deprecated:pixeltable.exceptions.PixeltableDeprecationWarning',
     "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
     "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning",
     "ignore:Pydantic V1 style `@root_validator` validators are deprecated.:DeprecationWarning",
@@ -326,6 +327,8 @@ known-first-party = ["pixeltable"]
 split-on-trailing-comma = false
 
 [tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 74
 line-ending = "lf"
 quote-style = "single"
 skip-magic-trailing-comma = true

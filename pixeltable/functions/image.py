@@ -471,7 +471,9 @@ def tile_iterator(
         >>> pxt.create_view(
         ...     'image_tiles',
         ...     tbl,
-        ...     iterator=image_tile_iterator(tbl.img, tile_size=(256, 256), overlap=(32, 32))
+        ...     iterator=image_tile_iterator(
+        ...         tbl.img, tile_size=(256, 256), overlap=(32, 32)
+        ...     ),
         ... )
     """
     kwargs: dict[str, Any] = {}
