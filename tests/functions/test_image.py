@@ -9,6 +9,27 @@ from ..utils import SAMPLE_IMAGE_URL
 
 
 class TestImage:
+    def test_image_resize_perf(self, img_tbl: pxt.Table) -> None:
+        import time
+
+        t = img_tbl
+        shape = (800, 800)
+
+        start_ts = time.time()
+        t.add_computed_column(resized_1=t.img.resize_multithread(shape))
+        dur = time.time() - start_ts
+        print(f'========= multithreaded resize took {dur:.2f} seconds ========')
+
+        start_ts = time.time()
+        t.add_computed_column(resized_2=t.img.resize_multiprocess(shape))
+        dur = time.time() - start_ts
+        print(f'========= multiprocessed resize took {dur:.2f} seconds ========')
+
+        start_ts = time.time()
+        t.add_computed_column(resized_3=t.img.resize(shape))
+        dur = time.time() - start_ts
+        print(f'========= singlethreaded resize took {dur:.2f} seconds ========')
+
     def test_image(self, img_tbl: pxt.Table) -> None:
         # mask_img = next(f for f in get_image_files() if f.endswith('n03888257_1389.JPEG'))
         t = img_tbl
