@@ -211,7 +211,7 @@ def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
 def create_img_tbl(name: str = 'test_img_tbl', num_rows: int = 0) -> pxt.Table:
     schema = {'img': pxt.Required[pxt.Image], 'category': pxt.Required[pxt.String], 'split': pxt.Required[pxt.String]}
     tbl = pxt.create_table(name, schema)
-    rows = read_data_file('imagenette2-160', 'manifest.csv', ['img'])
+    rows = read_data_file('large_imgs', 'manifest.csv', ['img'])
     if num_rows > 0:
         # select output_rows randomly in the hope of getting a good sample of the available categories
         rng = np.random.default_rng(17)

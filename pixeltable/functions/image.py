@@ -10,6 +10,8 @@ t.select(t.img_col.convert('L')).collect()
 ```
 """
 
+import asyncio
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import Any, Literal
 
 import PIL.Image
@@ -164,7 +166,35 @@ def point(self: PIL.Image.Image, lut: list[int], mode: str | None = None) -> PIL
     return self.point(lut, mode=mode)
 
 
-# Image.resize()
+_resize_executor = ThreadPoolExecutor(max_workers=12)
+
+
+@pxt.udf(is_method=True)
+async def resize_multithread(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
+    """
+    Return a resized copy of the image. The size parameter is a tuple containing the width and height of the new image.
+
+    Equivalent to
+    [`PIL.Image.Image.resize()`](https://pillow.readthedocs.io/en/stable/reference/Image.html#PIL.Image.Image.resize)
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_resize_executor, self.resize, tuple(size))  # type: ignore[arg-type]
+    # return await loop.run_in_executor(None, self.resize, tuple(size))  # type: ignore[arg-type]
+
+
+_resize_process_executor = ProcessPoolExecutor(max_workers=12)
+
+
+def _resize_image(img: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
+    return img.resize(size)
+
+
+@pxt.udf(is_method=True)
+async def resize_multiprocess(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(_resize_process_executor, _resize_image, self, tuple(size))
+
+
 @pxt.udf(is_method=True)
 def resize(self: PIL.Image.Image, size: tuple[int, int]) -> PIL.Image.Image:
     """
