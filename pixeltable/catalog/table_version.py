@@ -444,7 +444,7 @@ class TableVersion:
         elif isinstance(op, CreateStoreColumnsOp):
             for col_id in op.column_ids:
                 with Env.get().begin_xact():
-                    self.store_tbl.add_column(self.cols_by_id[col_id])
+                    self.store_tbl.add_column(self.cols_by_id[col_id], if_not_exists=True)
 
         elif isinstance(op, DeleteTableMediaFilesOp):
             self.delete_media()
@@ -468,9 +468,8 @@ class TableVersion:
                 self.store_tbl.drop()
 
         elif isinstance(op, CreateStoreIdxsOp):
-            for idx_id in op.idx_ids:
-                with Env.get().begin_xact():
-                    self.store_tbl.drop_index(idx_id)
+            # Indexes are dropped when the table is dropped
+            pass
 
         elif isinstance(op, LoadViewOp):
             # clear out any media files
@@ -491,7 +490,7 @@ class TableVersion:
         elif isinstance(op, CreateStoreColumnsOp):
             for col_id in op.column_ids:
                 with Env.get().begin_xact():
-                    self.store_tbl.drop_column(self.cols_by_id[col_id])
+                    self.store_tbl.drop_column(self.cols_by_id[col_id], if_exists=True)
 
         elif isinstance(op, (DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp)):
             # undo of physical deletion is currently not supported; see schema.TableStatement.can_abort()
@@ -1027,7 +1026,7 @@ class TableVersion:
                 self._tbl_md.column_md[col.id] = col_md
 
             if col.is_stored:
-                self.store_tbl.add_column(col)
+                self.store_tbl.add_column(col, if_not_exists=False)
 
             if not col.is_computed or not col.is_stored or row_count == 0:
                 continue
@@ -1546,7 +1545,7 @@ class TableVersion:
                 self._tbl_md.next_col_id = min(col.id for col in added_cols)
                 for col in added_cols:
                     if col.is_stored:
-                        self.store_tbl.drop_column(col)
+                        self.store_tbl.drop_column(col, if_exists=False)
                     del self._tbl_md.column_md[col.id]
 
             # remove newly-added indices from the lookup structures
