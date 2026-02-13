@@ -87,6 +87,13 @@ class CreateStoreColumnsOp(TableOp):
 
 
 @dataclasses.dataclass
+class SetColumnValueOp(TableOp):
+    """Set values for specified columns."""
+
+    column_ids: list[int]
+
+
+@dataclasses.dataclass
 class DeleteTableMediaFilesOp(TableOp):
     pass
 
