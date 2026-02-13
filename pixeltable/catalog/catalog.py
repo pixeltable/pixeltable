@@ -633,13 +633,10 @@ class Catalog:
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
         for tbl_id in self._roll_forward_ids:
-            try:
-                # TODO: handle replicas
-                exc = self._finalize_pending_ops(tbl_id)
-                if exc is not None:
-                    raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
-            finally:
-                self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
+            # TODO: handle replicas
+            exc = self._finalize_pending_ops(tbl_id)
+            if exc is not None:
+                raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """
@@ -754,6 +751,7 @@ class Catalog:
                         self.mark_modified_tvs(tv.handle)
 
                         if is_final_op:
+                            self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
                             status = conn.execute(reset_tbl_state_stmt)
                             status = conn.execute(delete_ops_stmt)
                             return exc
@@ -776,6 +774,7 @@ class Catalog:
                     tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
                 ) as conn:
                     if is_final_op:
+                        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
                         conn.execute(reset_tbl_state_stmt)
                         conn.execute(delete_ops_stmt)
                         return exc
@@ -813,6 +812,7 @@ class Catalog:
                     with self.begin_xact(
                         tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
                     ) as conn:
+                        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
                         stmt = (
                             sql.update(schema.Table)
                             .where(schema.Table.id == tbl_id)
@@ -1514,6 +1514,7 @@ class Catalog:
             .where(schema.Table.id == str(tbl_id))
             .values({schema.Table.additional_md: schema.Table.additional_md.op('||')(additional_md)})
         )
+        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
         result = conn.execute(q)
         assert result.rowcount == 1, result.rowcount
 
@@ -2391,6 +2392,7 @@ class Catalog:
             .where(schema.Table.id == tbl_id)
             .values(md=schema.Table.md.op('||')(version_updates))
         )
+        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
         status = conn.execute(update_stmt)
         assert status.rowcount == 1, status.rowcount
 
@@ -2419,6 +2421,7 @@ class Catalog:
         status = conn.execute(sql.delete(schema.TableVersion).where(schema.TableVersion.tbl_id == tbl_id))
         assert status.rowcount > 0
         _ = conn.execute(sql.delete(schema.PendingTableOp).where(schema.PendingTableOp.tbl_id == tbl_id))
+        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
         status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
         assert status.rowcount == 1, status.rowcount
 
