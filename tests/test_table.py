@@ -313,6 +313,8 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
+                            'comment': '',
                             'name': 'col',
                             'type_': 'String',
                             'version_added': 0,
@@ -343,6 +345,8 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
+                            'comment': '',
                             'name': 'col',
                             'type_': 'String',
                             'version_added': 0,
@@ -387,7 +391,9 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'comment': '',
                             'name': 'col',
+                            'custom_metadata': None,
                             'type_': 'String',
                             'version_added': 0,
                         }
@@ -417,7 +423,9 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
                             'name': 'col',
+                            'comment': '',
                             'type_': 'String',
                             'version_added': 0,
                         },
@@ -427,7 +435,9 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
                             'name': 'col2',
+                            'comment': '',
                             'type_': 'String',
                             'version_added': 0,
                         },
@@ -3037,3 +3047,30 @@ class TestTable:
         # check that invalid JSON user metadata are rejected
         with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_column_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': {'type': pxt.Int, 'custom_metadata': custom_metadata}})
+        assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
+
+        # check that invalid JSON user metadata are rejected for columns
+        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
+            pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'custom_metadata': {'key': set}}})
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': {'type': pxt.Int, 'comment': 'This is a test column.'}})
+        assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
+
+        # check that raw object JSON comments are rejected for columns
+        with pytest.raises(pxt.Error, match="'comment' must be a string"):
+            pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})
