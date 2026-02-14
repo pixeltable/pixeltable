@@ -14,6 +14,9 @@ this step-by-step. Here are some guidelines to keep in mind for your first contr
 * If it's your first or second contribution, it's easiest to start out by adding a new UDF or integration, rather than
     trying to improve some core Pixeltable feature or make changes to our process or workflow. Once you've become more
     familiar with Pixeltable engineering, you'll be able to contribute to those areas as well.
+* Please make an effort to ensure that your code and documentation conventions are consistent with those used elsewhere
+    in the Pixeltable codebase. (For example, if you are contributing a new integration in the pixeltable.functions
+    package, take some time to familiarize yourself with a few related modules in that package.)
 * Pixeltable adheres to rigorous coding and engineering standards. If you submit a PR, expect to see a healthy amount
     of commentary. We strive to ensure that every change or new feature is adequately tested, so it's advisable to
     include unit tests in the `tests` package alongside any code changes in the `pixeltable` package.
