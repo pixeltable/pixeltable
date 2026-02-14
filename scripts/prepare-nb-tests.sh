@@ -43,7 +43,7 @@ for notebook in $(find "$@" -name '*.ipynb' | grep -v .ipynb_checkpoints); do
 done
 
 rm "$TARGET_DIR/working-with-gemini.ipynb"  # Temporary
-rm "$TARGET_DIR/working-with-twelvelabs.ipynb"  # Temporary (rate limiting issues)
+rm "$TARGET_DIR/working-with-twelvelabs.ipynb"  # [PXT-1040] Temporary (rate limiting issues)
 rm "$TARGET_DIR/rag-operations.ipynb"  # Failing in CI for unknown reasons
 rm "$TARGET_DIR/video-generate-ai.ipynb"  # Expensive
 rm "$TARGET_DIR/img-image-to-image.ipynb"  # Expensive (downloads ~5GB model)
