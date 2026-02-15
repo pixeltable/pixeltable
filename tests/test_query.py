@@ -553,7 +553,7 @@ class TestQuery:
 
         # grouping_tbl
 
-        t2 = pxt.create_table('test_tbl_2', {'name': ts.StringType(), 'video': ts.VideoType()})
+        t2 = pxt.create_table('test_tbl_2', {'name': pxt.String, 'video': pxt.Video})
         v2 = pxt.create_view('test_view_2', t2, iterator=frame_iterator(t2.video, fps=1))
         with pytest.raises(pxt.Error) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
@@ -722,7 +722,7 @@ class TestQuery:
 
         from pixeltable.functions.yolox import yolo_to_coco, yolox
 
-        base_t = pxt.create_table('videos', {'video': ts.VideoType()})
+        base_t = pxt.create_table('videos', {'video': pxt.Video})
         view_t = pxt.create_view('frames', base_t, iterator=frame_iterator(base_t.video, fps=1))
         view_t.add_computed_column(detections=yolox(view_t.frame, model_id='yolox_m'))
         base_t.insert(video=get_video_files()[0])
