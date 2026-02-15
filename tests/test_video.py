@@ -1030,7 +1030,7 @@ class TestVideo:
             t.select(t.video.overlay_text('Test', box=True, box_border=[-5, 10])).collect()
 
     @pytest.mark.parametrize('encoder_args', [None, {'crf': '18'}])
-    def test_crop(self, uses_db: None, tmp_path: Path, encoder_args: dict[str, Any] | None) -> None:
+    def test_crop_x(self, uses_db: None, tmp_path: Path, encoder_args: dict[str, Any] | None) -> None:
         t = pxt.create_table('crop_test', {'video': pxt.Video})
         videos = get_video_files()
         validate_update_status(t.insert({'video': f} for f in videos), expected_rows=len(videos))
@@ -1059,6 +1059,98 @@ class TestVideo:
 
         with pytest.raises(pxt.Error, match='h must be positive'):
             t.select(t.video.crop(x=0, y=0, w=100, h=0)).collect()
+
+    @pytest.mark.parametrize(
+        'bbox_format,bbox',
+        [
+            ('xywh', [0, 0, 160, 80]),           # x, y, width, height
+            ('xyxy', [0, 0, 160, 80]),           # x1, y1, x2, y2
+            ('cxcywh', [80, 40, 160, 80]),       # center_x, center_y, width, height
+        ],
+    )
+    @pytest.mark.parametrize('encoder_args', [None, {'crf': '18'}])
+    def test_crop(
+        self,
+        uses_db: None,
+        tmp_path: Path,
+        bbox_format: Literal['xywh', 'xyxy', 'cxcywh'],
+        bbox: list[int],
+        encoder_args: dict[str, Any] | None,
+    ) -> None:
+        t = pxt.create_table('crop_test', {'video': pxt.Video})
+        videos = get_video_files()
+        validate_update_status(t.insert({'video': f} for f in videos), expected_rows=len(videos))
+
+        crop = t.video.crop(bbox, bbox_format=bbox_format, video_encoder_args=encoder_args)
+        result = t.select(md=t.video.get_metadata(), cropped=crop, cropped_md=crop.get_metadata()).collect()
+
+        # validate output dimensions
+        assert all(md['streams'][0]['width'] == 160 for md in result['cropped_md'])
+        assert all(md['streams'][0]['height'] == 80 for md in result['cropped_md'])
+
+        # insert cropped videos to verify they're valid
+        t.insert(({'video': row['cropped']} for row in result), on_error='abort')
+
+    def test_crop_with_column(self, uses_db: None) -> None:
+        """Test crop() with bbox values from a table column."""
+        t = pxt.create_table('crop_column_test', {'video': pxt.Video, 'bbox': pxt.Json})
+        videos = get_video_files()
+        validate_update_status(
+            t.insert({'video': f, 'bbox': [0, 0, 160, 80]} for f in videos),
+            expected_rows=len(videos),
+        )
+
+        # Test with bbox from column
+        result = t.select(
+            cropped=t.video.crop(t.bbox, bbox_format='xywh'),
+            cropped_md=t.video.crop(t.bbox, bbox_format='xywh').get_metadata(),
+        ).collect()
+
+        assert all(md['streams'][0]['width'] == 160 for md in result['cropped_md'])
+        assert all(md['streams'][0]['height'] == 80 for md in result['cropped_md'])
+
+    def test_crop_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('crop_error_test', {'video': pxt.Video})
+        t.insert({'video': f} for f in get_video_files()[:1])
+
+        # None bbox
+        with pytest.raises(pxt.Error, match='box must have exactly 4 elements'):
+            t.select(t.video.crop(None)).collect()
+
+        # Invalid box length
+        with pytest.raises(pxt.Error, match='box must have exactly 4 elements'):
+            t.select(t.video.crop([0, 0, 100])).collect()
+
+        with pytest.raises(pxt.Error, match='box must have exactly 4 elements'):
+            t.select(t.video.crop([0, 0, 100, 100, 50])).collect()
+
+        # Invalid box_format
+        with pytest.raises(pxt.Error, match="box_format must be"):
+            t.select(t.video.crop([0, 0, 100, 100], box_format='invalid')).collect()
+
+        # Negative x (xywh format)
+        with pytest.raises(pxt.Error, match='x must be non-negative'):
+            t.select(t.video.crop([-1, 0, 100, 100], box_format='xywh')).collect()
+
+        # Negative y (xywh format)
+        with pytest.raises(pxt.Error, match='y must be non-negative'):
+            t.select(t.video.crop([0, -1, 100, 100], box_format='xywh')).collect()
+
+        # Zero width (xywh format)
+        with pytest.raises(pxt.Error, match='width must be positive'):
+            t.select(t.video.crop([0, 0, 0, 100], box_format='xywh')).collect()
+
+        # Zero height (xywh format)
+        with pytest.raises(pxt.Error, match='height must be positive'):
+            t.select(t.video.crop([0, 0, 100, 0], box_format='xywh')).collect()
+
+        # Negative width from xyxy (x2 < x1)
+        with pytest.raises(pxt.Error, match='width must be positive'):
+            t.select(t.video.crop([100, 0, 50, 100], box_format='xyxy')).collect()
+
+        # Negative height from xyxy (y2 < y1)
+        with pytest.raises(pxt.Error, match='height must be positive'):
+            t.select(t.video.crop([0, 100, 100, 50], box_format='xyxy')).collect()
 
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
     def test_with_audio(self, uses_db: None) -> None:

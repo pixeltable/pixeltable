@@ -925,7 +925,7 @@ def _create_drawtext_params(
 
 
 @pxt.udf(is_method=True)
-def crop2(
+def crop(
     video: pxt.Video,
     bbox: list[int],
     *,
@@ -980,6 +980,8 @@ def crop2(
     """
     Env.get().require_binary('ffmpeg')
 
+    if bbox is None:
+        raise pxt.Error(f'bbox cannot be None')
     if len(bbox) != 4 or not all(isinstance(x, int) for x in bbox) or not all(x >= 0 for x in bbox):
         raise pxt.Error(f'bbox must have exactly 4 non-negative integers, got {bbox}')
     if format == 'xyxy' and (bbox[2] <= bbox[0] or bbox[3] <= bbox[1]):
@@ -1014,91 +1016,6 @@ def crop2(
         for k, v in video_encoder_args.items():
             cmd.extend([f'-{k}', str(v)])
     cmd.extend(['-loglevel', 'error', output_path])
-    _logger.debug(f'crop(): {" ".join(cmd)}')
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = pathlib.Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
-
-
-@pxt.udf(is_method=True)
-def crop(
-    video: pxt.Video,
-    *,
-    x: int,
-    y: int,
-    w: int,
-    h: int,
-    video_encoder: str | None = None,
-    video_encoder_args: dict[str, Any] | None = None,
-) -> pxt.Video:
-    """
-    Crop a rectangular region from a video using ffmpeg's crop filter.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        video: Input video file
-        x: X coordinate (horizontal offset) of the top-left corner of the crop region, in pixels. Must be >= 0.
-        y: Y coordinate (vertical offset) of the top-left corner of the crop region, in pixels. Must be >= 0.
-        w: Width of the crop region in pixels. Must be > 0.
-        h: Height of the crop region in pixels. Must be > 0.
-        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
-        video_encoder_args: Additional arguments to pass to the video encoder.
-
-    Returns:
-        New video containing only the specified rectangular region.
-
-    Examples:
-        Crop a 320x240 region starting at position (100, 50):
-
-        >>> tbl.select(tbl.video.crop(x=100, y=50, w=320, h=240)).collect()
-
-        Crop with a specific encoder and quality setting:
-
-        >>> tbl.select(
-        ...     tbl.video.crop(
-        ...         x=0, y=0, w=640, h=480,
-        ...         video_encoder='libx264',
-        ...         video_encoder_args={'crf': 18}
-        ...     )
-        ... ).collect()
-
-        Add a cropped version as a computed column:
-
-        >>> tbl.add_computed_column(
-        ...     cropped=tbl.video.crop(x=100, y=100, w=200, h=200)
-        ... )
-    """
-    Env.get().require_binary('ffmpeg')
-    if x < 0:
-        raise pxt.Error(f'x must be non-negative, got {x}')
-    if y < 0:
-        raise pxt.Error(f'y must be non-negative, got {y}')
-    if w <= 0:
-        raise pxt.Error(f'w must be positive, got {w}')
-    if h <= 0:
-        raise pxt.Error(f'h must be positive, got {h}')
-
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
-
-    output_path = str(TempStore.create_path(extension='.mp4'))
-
-    cmd = ['ffmpeg', '-i', str(video), '-vf', f'crop={w}:{h}:{x}:{y}', '-c:a', 'copy', '-c:v', video_encoder]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
-    cmd.extend(['-loglevel', 'error', output_path])
-
     _logger.debug(f'crop(): {" ".join(cmd)}')
 
     try:
