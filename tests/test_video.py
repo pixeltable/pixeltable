@@ -644,6 +644,7 @@ class TestVideo:
         min_segment_duration: float | None,
         expected_durations: list[float] | None = None,
         eps: float = 0.0,  # epsilon used in pytest.approx()
+        skip_segment_validation: bool = False,  # skip inserting segments into validation table
     ) -> None:
         t = base
         s = segments_view
@@ -698,11 +699,12 @@ class TestVideo:
             assert segments_md[-1]['segment_end'] == pytest.approx(video_durations[segments_md[-1]['video']], abs=0.1)
 
         # Verify segments are valid videos by inserting them into a table with validation
-        segments = s.select(url=s.video_segment.fileurl).collect()
-        if len(segments) > 0:
-            validation_t = pxt.create_table('segment_validation', {'segment': pxt.Video}, media_validation='on_write')
-            validation_t.insert([{'segment': row['url']} for row in segments], on_error='abort')
-            pxt.drop_table('segment_validation')
+        if not skip_segment_validation:
+            segments = s.select(url=s.video_segment.fileurl).collect()
+            if len(segments) > 0:
+                validation_t = pxt.create_table('segment_validation', {'segment': pxt.Video}, media_validation='on_write')
+                validation_t.insert([{'segment': row['url']} for row in segments], on_error='abort')
+                pxt.drop_table('segment_validation')
 
     # TODO: Not working with .mpg samples (PXT-987)
     @pytest.mark.parametrize(
@@ -732,6 +734,26 @@ class TestVideo:
                 )
                 self._validate_splitter_segments(t, s, overlap, min_segment_duration, eps=eps)
                 pxt.drop_table('videos', force=True)
+
+        # # For accurate mode, also test with a longer video that has irregular keyframes
+        # # to ensure segments match the requested duration
+        # if mode == 'accurate':
+        #     video_path = str(Path(__file__).parent.parent / 'clip-lx-halftime-show.mp4')
+        #     if Path(video_path).exists():
+        #         t = pxt.create_table('videos', {'video': pxt.Video})
+        #         t.insert([{'video': video_path}])
+        #         s = pxt.create_view(
+        #             'segments',
+        #             t,
+        #             iterator=video_splitter(t.video, duration=segment_duration, mode='accurate'),
+        #         )
+        #         expected_durations = [segment_duration] * 100
+        #         # Pass min_segment_duration=1.0 to skip video duration check (which accumulates drift)
+        #         # Skip segment validation to avoid timeout with many segments
+        #         self._validate_splitter_segments(
+        #             t, s, 0.0, 1.0, expected_durations=expected_durations, eps=0.2, skip_segment_validation=True
+        #         )
+        #         pxt.drop_table('videos', force=True)
 
     # TODO: Not working with .mpg samples (PXT-987)
     @pytest.mark.parametrize('segment_times,mode', [([6.0, 11.0, 16.0], 'fast'), ([6.0, 11.0, 16.0], 'accurate')])
