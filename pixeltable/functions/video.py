@@ -936,17 +936,14 @@ def crop(
     """
     Crop a rectangular region from a video using ffmpeg's crop filter.
 
-    This is a variant of `crop()` that accepts the crop region as a box in various formats,
-    making it easier to use with object detection outputs.
-
     __Requirements:__
 
     - `ffmpeg` needs to be installed and in PATH
 
     Args:
-        video: Input video file.
-        bbox: Crop region as a list of 4 integers. The interpretation depends on `bbox_format`.
-        bbox_format: Format of the box coordinates:
+        video: Input video.
+        bbox: Crop region as a list of 4 integers.
+        bbox_format: Format of the `bbox` coordinates:
 
             - `'xyxy'`: `[x1, y1, x2, y2]` where (x1, y1) is top-left and (x2, y2) is bottom-right
             - `'xywh'`: `[x, y, width, height]` where (x, y) is top-left corner
@@ -955,7 +952,7 @@ def crop(
         video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
-        New video containing the cropped region.
+        Video containing the cropped region.
 
     Examples:
         Crop using default xywh format:
@@ -980,11 +977,9 @@ def crop(
     """
     Env.get().require_binary('ffmpeg')
 
-    if bbox is None:
-        raise pxt.Error(f'bbox cannot be None')
     if len(bbox) != 4 or not all(isinstance(x, int) for x in bbox) or not all(x >= 0 for x in bbox):
         raise pxt.Error(f'bbox must have exactly 4 non-negative integers, got {bbox}')
-    if format == 'xyxy' and (bbox[2] <= bbox[0] or bbox[3] <= bbox[1]):
+    if bbox_format == 'xyxy' and (bbox[2] <= bbox[0] or bbox[3] <= bbox[1]):
         raise pxt.Error(f'x2 must be greater than x1 and y2 must be greater than y1 for xyxy format, got {bbox}')
 
     # normalize to xywh
