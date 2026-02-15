@@ -961,7 +961,9 @@ def crop(
 
         Crop using xyxy format (common in object detection):
 
-        >>> tbl.select(tbl.video.crop2([100, 50, 420, 290], bbox_format='xyxy')).collect()
+        >>> tbl.select(
+        ...     tbl.video.crop2([100, 50, 420, 290], bbox_format='xyxy')
+        ... ).collect()
 
         Crop using center format:
 
@@ -994,10 +996,9 @@ def crop(
     elif bbox_format == 'xywh':
         x, y, w, h = bbox
     elif bbox_format == 'cxcywh':
-        cx, cy, bw, bh = bbox
-        x = cx - bw // 2
-        y = cy - bh // 2
-        w, h = bw, bh
+        cx, cy, w, h = bbox
+        x = cx - w // 2
+        y = cy - h // 2
     else:
         raise pxt.Error(f"bbox_format must be one of ['xyxy', 'xywh', 'cxcywh'], got {bbox_format!r}")
 

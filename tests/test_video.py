@@ -1032,9 +1032,9 @@ class TestVideo:
     @pytest.mark.parametrize(
         'bbox_format,bbox',
         [
-            ('xywh', [0, 0, 160, 80]),           # x, y, width, height
-            ('xyxy', [0, 0, 160, 80]),           # x1, y1, x2, y2
-            ('cxcywh', [80, 40, 160, 80]),       # center_x, center_y, width, height
+            ('xywh', [0, 0, 160, 80]),  # x, y, width, height
+            ('xyxy', [0, 0, 160, 80]),  # x1, y1, x2, y2
+            ('cxcywh', [80, 40, 160, 80]),  # center_x, center_y, width, height
         ],
     )
     @pytest.mark.parametrize('encoder_args', [None, {'crf': '18'}])
@@ -1065,8 +1065,7 @@ class TestVideo:
         t = pxt.create_table('crop_column_test', {'video': pxt.Video, 'bbox': pxt.Json})
         videos = get_video_files()
         validate_update_status(
-            t.insert({'video': f, 'bbox': [0, 0, 160, 80]} for f in videos),
-            expected_rows=len(videos),
+            t.insert({'video': f, 'bbox': [0, 0, 160, 80]} for f in videos), expected_rows=len(videos)
         )
 
         # Test with bbox from column
@@ -1088,7 +1087,7 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
             t.select(t.video.crop([0, 0, 100, 100, 50])).collect()
 
-        with pytest.raises(pxt.Error, match="bbox_format must be one of"):
+        with pytest.raises(pxt.Error, match='bbox_format must be one of'):
             t.select(t.video.crop([0, 0, 100, 100], bbox_format='invalid')).collect()
 
         with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
