@@ -40,6 +40,7 @@ from . import (
     twelvelabs,
     uuid,
     video,
+    vllm,
     vision,
     voyageai,
     whisper,
