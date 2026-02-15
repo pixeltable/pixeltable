@@ -751,7 +751,6 @@ class Catalog:
                         self.mark_modified_tvs(tv.handle)
 
                         if is_final_op:
-                            self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
                             status = conn.execute(reset_tbl_state_stmt)
                             status = conn.execute(delete_ops_stmt)
                             return exc
@@ -774,7 +773,6 @@ class Catalog:
                     tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
                 ) as conn:
                     if is_final_op:
-                        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
                         conn.execute(reset_tbl_state_stmt)
                         conn.execute(delete_ops_stmt)
                         return exc
@@ -812,7 +810,6 @@ class Catalog:
                     with self.begin_xact(
                         tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
                     ) as conn:
-                        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
                         stmt = (
                             sql.update(schema.Table)
                             .where(schema.Table.id == tbl_id)
@@ -826,6 +823,8 @@ class Catalog:
                         f'finalize_pending_ops({tbl_id}:{tbl_version}): {"undo" if is_rollback else "exec"} of {op!s} '
                         f'caught {e}'
                     )
+            finally:
+                self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
 
             num_retries = 0
 
