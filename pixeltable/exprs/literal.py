@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import datetime
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import sqlalchemy as sql
@@ -85,54 +85,66 @@ class Literal(Expr):
     def _as_dict(self) -> dict:
         # For some types, we need to explicitly record their type, because JSON does not know
         # how to interpret them unambiguously
+        encode_col_type = True
         if self.col_type.is_timestamp_type():
             assert isinstance(self.val, datetime.datetime)
             assert self.val.tzinfo == datetime.timezone.utc  # Must be UTC in a literal
             # Convert to ISO format in UTC (in keeping with the principle: all timestamps are
             # stored as UTC in the database)
             encoded_val = self.val.isoformat()
-            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         elif self.col_type.is_date_type():
             assert isinstance(self.val, datetime.date)
             encoded_val = self.val.isoformat()
-            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         elif self.col_type.is_uuid_type():
             assert isinstance(self.val, uuid.UUID)
             encoded_val = str(self.val)
-            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         elif self.col_type.is_binary_type():
             assert isinstance(self.val, bytes)
             encoded_val = base64.b64encode(self.val).decode('utf-8')
-            return {'val': encoded_val, 'val_t': self.col_type._type.name, **super()._as_dict()}
         elif self.col_type.is_array_type():
             assert isinstance(self.val, np.ndarray)
-            return {'val': self.val.tolist(), 'val_t': self.col_type._type.name, **super()._as_dict()}
+            encoded_val = self.val.tolist()
         else:
-            return {'val': self.val, **super()._as_dict()}
+            encode_col_type = False
+            encoded_val = self.val
+
+        res = {'val': encoded_val, **super()._as_dict()}
+        if encode_col_type:
+            res.update({'val_t': self.col_type.as_dict()})
+        return res
 
     def as_literal(self) -> Literal | None:
         return self
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:
-        assert 'val' in d
-        if 'val_t' in d:
-            val_t = d['val_t']
-            if val_t == ts.ColumnType.Type.DATE.name:
-                dt = datetime.date.fromisoformat(d['val'])
-                return cls(dt)
-            elif val_t == ts.ColumnType.Type.TIMESTAMP.name:
-                dt = datetime.datetime.fromisoformat(d['val'])
-                assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
-                return cls(dt)
-            elif val_t == ts.ColumnType.Type.UUID.name:
-                uuid_val = uuid.UUID(d['val'])
-                return cls(uuid_val)
-            elif val_t == ts.ColumnType.Type.BINARY.name:
-                assert isinstance(d['val'], str)
-                bytes_val = base64.b64decode(d['val'].encode('utf-8'))
-                return cls(bytes_val)
-            elif val_t == ts.ColumnType.Type.ARRAY.name:
-                arrays = np.array(d['val'])
-                return cls(arrays)
-        return cls(d['val'])
+        val = d['val']
+        if 'val_t' not in d:
+            return cls(val)
+
+        val_t = d['val_t']
+        if not isinstance(val_t, dict) or '_classname' not in val_t:
+            raise ValueError(f'Unsupported or malformed literal type: {val_t}')
+        col_type = ts.ColumnType.from_dict(val_t)
+
+        if col_type.is_date_type():
+            dt = datetime.date.fromisoformat(val)
+            return cls(dt, col_type)
+        if col_type.is_timestamp_type():
+            dt = datetime.datetime.fromisoformat(val)
+            assert dt.tzinfo == datetime.timezone.utc  # Must be UTC in the database
+            return cls(dt, col_type)
+        if col_type.is_uuid_type():
+            return cls(uuid.UUID(val), col_type)
+        if col_type.is_binary_type():
+            assert isinstance(val, str)
+            bytes_val = base64.b64decode(val.encode('utf-8'))
+            return cls(bytes_val, col_type)
+        if col_type.is_array_type():
+            if TYPE_CHECKING:
+                assert isinstance(col_type, ts.ArrayType)
+            dtype = col_type.dtype  # possibly None
+            array = np.array(val, dtype=dtype)
+            return cls(array, col_type=col_type)
+
+        raise ValueError(f'Unsupported literal type: {col_type}')

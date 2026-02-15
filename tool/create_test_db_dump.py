@@ -234,7 +234,9 @@ class Dumper:
         ]
 
         self.__add_expr_columns(t, 'base_table')
-        t.insert(rows)
+        status = t.insert(rows)
+        assert status.num_excs == 0
+        assert status.num_rows == num_rows
 
         pxt.create_dir('views')
 
