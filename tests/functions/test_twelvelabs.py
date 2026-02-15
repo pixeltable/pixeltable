@@ -17,6 +17,7 @@ from ..utils import (
 
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
+@pytest.mark.skip('[PXT-1040] twelvelabs tests are broken on ci')
 class TestTwelveLabs:
     def test_embed_text(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
