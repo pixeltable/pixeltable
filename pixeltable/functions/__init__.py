@@ -41,6 +41,7 @@ from . import (
     uuid,
     video,
     vision,
+    vlmrun,
     voyageai,
     whisper,
     whisperx,
