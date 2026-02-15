@@ -640,7 +640,7 @@ class Catalog:
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """
-        Finalizes all pending ops for the given table.
+        Finalizes all pending ops for the given table, and clears the table version cache for that table.
 
         During tbl_state == ROLLFORWARD (error-free path):
         - executes all remaining pending ops in order op_sn and updates their status to COMPLETED
@@ -654,7 +654,7 @@ class Catalog:
         - this process starts with the first pending op, because it could have been partially executed
         - when done, deletes all table ops and resets tbl_state to LIVE
 
-        that exception.
+        If an exception occurred during finalization, that exception is returned.
         """
         num_retries = 0
         is_rollback = False
