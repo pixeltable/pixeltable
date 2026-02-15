@@ -161,6 +161,7 @@ class Catalog:
 
     Caching and invalidation of metadata:
     - Catalog caches TableVersion instances in order to avoid excessive metadata loading
+    - Any updates to the metadata need to include clearing/invalidating the metadata cache
     - for any specific table version (ie, combination of id and effective version) there can be only a single
       Tableversion instance in circulation; the reason is that each TV instance has its own store_tbl.sa_tbl, and
       mixing multiple instances of sqlalchemy Table objects in the same query (for the same underlying table) leads to
