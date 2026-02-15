@@ -209,8 +209,8 @@ def ffmpeg_segment_cmd(
 
     cmd.extend(
         [
-            #'-break_non_keyframes',
-            #'1',  # Allow splitting at non-keyframe boundaries for accurate duration
+            '-break_non_keyframes',
+            '1',  # Allow splitting at non-keyframe boundaries for accurate duration
             '-reset_timestamps',
             '1',  # Reset timestamps for each segment
             '-loglevel',
