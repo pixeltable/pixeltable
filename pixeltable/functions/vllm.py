@@ -8,9 +8,7 @@ supporting chat completions and text generation with HuggingFace models.
 from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
-from pixeltable import exprs
 from pixeltable.env import Env
-from pixeltable.func.tools import Tools
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -23,8 +21,6 @@ def chat_completions(
     *,
     model: str,
     model_kwargs: dict[str, Any] | None = None,
-    tools: list[dict[str, Any]] | None = None,
-    tool_choice: dict[str, Any] | None = None,
 ) -> dict:
     """
     Generate a chat completion from a list of messages using vLLM.
@@ -34,6 +30,10 @@ def chat_completions(
 
     For additional details, see the
     [vLLM documentation](https://docs.vllm.ai/en/stable/).
+
+    __Requirements:__
+
+    - `pip install vllm`
 
     Args:
         messages: A list of messages to generate a response for. Each message should be a dict
@@ -46,9 +46,6 @@ def chat_completions(
             [vLLM engine args documentation](https://docs.vllm.ai/en/stable/serving/engine_args.html)
             and
             [vLLM sampling params documentation](https://docs.vllm.ai/en/stable/dev/sampling_params.html).
-        tools: List of tools available to the model, following the OpenAI format. Each tool should
-            be a dict with `name`, `description`, and `parameters` keys.
-        tool_choice: Controls which (if any) tool is called by the model.
 
     Returns:
         A dict containing the chat completion result in OpenAI-compatible format:
@@ -111,10 +108,6 @@ def chat_completions(
     if sampling_params is not None:
         chat_kwargs['sampling_params'] = sampling_params
 
-    # Handle tools
-    if tools is not None:
-        chat_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
-
     outputs = llm.chat([messages], **chat_kwargs)
     output = outputs[0]
 
@@ -131,6 +124,10 @@ def generate(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = N
 
     For additional details, see the
     [vLLM documentation](https://docs.vllm.ai/en/stable/).
+
+    __Requirements:__
+
+    - `pip install vllm`
 
     Args:
         prompt: The text prompt to generate a completion for.
@@ -262,16 +259,6 @@ def _format_generate_response(output: Any, model: str) -> dict:
             'total_tokens': prompt_tokens + completion_tokens,
         },
     }
-
-
-def invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict:
-    """Converts a vLLM response dict to Pixeltable tool invocation format and calls `tools._invoke()`.
-
-    vLLM returns responses in OpenAI-compatible format, so this reuses the OpenAI tool call parser.
-    """
-    from .openai import _openai_response_to_pxt_tool_calls
-
-    return tools._invoke(_openai_response_to_pxt_tool_calls(response))
 
 
 _model_cache: dict[tuple, 'vllm.LLM'] = {}
