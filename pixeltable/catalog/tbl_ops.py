@@ -22,6 +22,19 @@ class OpStatus(Enum):
 
 @dataclasses.dataclass
 class TableOp:
+    """TableOp describes an isolated operation that needs to be performed on the table, typically as part of a schema
+    change, in order to unblock further user operations on the table.
+
+    TableOps are executed sequentially in order when the table state is ROLLFORWARD. If something goes wrong or the user
+    aborts, the table's state is changed to ROLLBACK, and the already completed TableOps are undone sequentially in
+    the reverse order.
+
+    If needs_xact is True, the op is executed, and its state is updated as part of a single store transaction.
+    Otherwise, the op is executed outside of the store transaction. Such operations (including undo) must be idempotent
+    and safe to execute concurrently, because multiple processes may attempt to make progress on the same TableOp
+    simultaneously.
+    """
+
     tbl_id: str  # uuid.UUID
     op_sn: int  # sequence number within the update operation; [0, num_ops)
     num_ops: int  # total number of ops forming the update operation

@@ -254,12 +254,6 @@ class StoreBase:
         stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
         self._exec_if_not_exists(str(stmt), wait_for_table=True)
 
-    def drop_index(self, idx_id: int) -> None:
-        """Drop If Exists for this index"""
-        idx_info = self.tbl_version.get().idxs[idx_id]
-        stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
-        self._exec_if_not_exists(str(stmt), wait_for_table=True)
-
     def validate(self) -> None:
         """Validate store table against self.table_version"""
         with Env.get().begin_xact() as conn:
@@ -290,16 +284,20 @@ class StoreBase:
             f'{sa_col.name} {col_type_str} {"NOT " if not sa_col.nullable else ""} NULL'
         )
 
-    def add_column(self, col: catalog.Column) -> None:
+    def add_column(self, col: catalog.Column, if_not_exists: bool) -> None:
         """Add column(s) to the store-resident table based on a catalog column"""
         assert col.is_stored
         conn = Env.get().conn
         col_type_str = col.sa_col_type.compile(dialect=conn.dialect)
-        s_txt = f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.store_name()} {col_type_str} NULL'
+        if_not_exists_operator = 'IF NOT EXISTS' if if_not_exists else ''
+        s_txt = (
+            f'ALTER TABLE {self._storage_name()} '
+            f'ADD COLUMN {if_not_exists_operator} {col.store_name()} {col_type_str} NULL'
+        )
         added_storage_cols = [col.store_name()]
         if col.stores_cellmd:
             cellmd_type_str = col.sa_cellmd_type().compile(dialect=conn.dialect)
-            s_txt += f' , ADD COLUMN {col.cellmd_store_name()} {cellmd_type_str} DEFAULT NULL'
+            s_txt += f' , ADD COLUMN {if_not_exists_operator} {col.cellmd_store_name()} {cellmd_type_str} DEFAULT NULL'
             added_storage_cols.append(col.cellmd_store_name())
 
         stmt = sql.text(s_txt)
@@ -308,11 +306,12 @@ class StoreBase:
         self.create_sa_tbl()
         _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
 
-    def drop_column(self, col: catalog.Column) -> None:
+    def drop_column(self, col: catalog.Column, if_exists: bool) -> None:
         """Execute Alter Table Drop Column statement"""
-        s_txt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.store_name()}'
+        if_exists_operator = 'IF EXISTS' if if_exists else ''
+        s_txt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {if_exists_operator} {col.store_name()}'
         if col.stores_cellmd:
-            s_txt += f' , DROP COLUMN {col.cellmd_store_name()}'
+            s_txt += f' , DROP COLUMN {if_exists_operator} {col.cellmd_store_name()}'
         stmt = sql.text(s_txt)
         log_stmt(_logger, stmt)
         Env.get().conn.execute(stmt)
