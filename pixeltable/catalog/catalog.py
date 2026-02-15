@@ -7,7 +7,7 @@ import random
 import time
 from collections import defaultdict
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Iterator, Literal, Mapping, TypeVar
 from uuid import UUID
 
 import psycopg
@@ -19,6 +19,7 @@ from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
+from pixeltable.types import ColumnSpec
 from pixeltable.utils.exception_handler import run_cleanup
 
 from .column import Column
@@ -1143,7 +1144,7 @@ class Catalog:
     def create_table(
         self,
         path: Path,
-        schema: dict[str, Any],
+        schema: dict[str, type | ColumnSpec | exprs.Expr],
         if_exists: IfExistsParam,
         primary_key: list[str] | None,
         num_retained_versions: int,
@@ -1203,7 +1204,7 @@ class Catalog:
         select_list: list[tuple[exprs.Expr, str | None]] | None,
         where: exprs.Expr | None,
         sample_clause: 'SampleClause' | None,
-        additional_columns: dict[str, Any] | None,
+        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         iterator: tuple[type[ComponentIterator], dict[str, Any]] | None,
