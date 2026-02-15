@@ -30,8 +30,7 @@ class TestVllm:
             output2=vllm.chat_completions(
                 t.messages,
                 model='Qwen/Qwen2.5-0.5B-Instruct',
-                model_kwargs={'max_model_len': 512},
-                sampling_kwargs={'max_tokens': 100, 'temperature': 0.7, 'top_p': 0.9, 'top_k': 20},
+                model_kwargs={'max_model_len': 512, 'max_tokens': 100, 'temperature': 0.7, 'top_p': 0.9, 'top_k': 20},
             )
         )
 
