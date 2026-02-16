@@ -7,7 +7,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, get_type_hints
 from uuid import UUID
 
 import pandas as pd
@@ -758,7 +758,7 @@ class Table(SchemaObject):
         assert isinstance(spec, dict)
 
         # TODO: this code could be made cleaner now that spec is a TypedDict
-        valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination', 'custom_metadata', 'comment'}
+        valid_keys = get_type_hints(ColumnSpec).keys()
         for k in spec:
             if k not in valid_keys:
                 raise excs.Error(f'Column {name!r}: invalid key {k!r}')

@@ -3138,4 +3138,4 @@ class TestTable:
 
         # check that raw object JSON comments are rejected for columns
         with pytest.raises(pxt.Error, match="'comment' must be a string"):
-            pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})
+            pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[typeddict-item]

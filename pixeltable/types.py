@@ -1,7 +1,7 @@
 """User-facing types used for type annotations across the Pixeltable codebase."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -31,3 +31,7 @@ class ColumnSpec(TypedDict, total=False):
         - A local pathname (such as `path/to/outputs/`), or
         - The URI of an object store (such as `s3://my-bucket/outputs/`).
     """
+    custom_metadata: Any
+    """User-defined metadata to associate with the column."""
+    comment: str
+    """User-defined comment for the column. Displayed in .describe() output."""
