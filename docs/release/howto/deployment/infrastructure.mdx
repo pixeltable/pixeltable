@@ -212,13 +212,9 @@ Unlike vector databases that require ingesting data into their own storage forma
 
 ```mermaid
 flowchart LR
-    S3["S3 / GCS / Azure\n(your files stay here)"]
-    PXT["Pixeltable"]
-    Meta["Metadata + Vectors\n+ Computed Results"]
-
-    S3 -. "reference\n(not copy)" .-> PXT
-    PXT --> Meta
-    PXT -. "lazy load\non access" .-> S3
+    S3[S3 / GCS / Azure] -. reference .-> PXT[Pixeltable]
+    PXT --> Meta[Computed Results]
+    PXT -. lazy load .-> S3
 ```
 
 This means:
