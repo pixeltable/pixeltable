@@ -208,7 +208,9 @@ async def generate(
         Generate with custom dimensions:
 
         >>> t.add_computed_column(
-        ...     image=bfl.generate(t.prompt, model='flux-2-pro', width=1920, height=1080)
+        ...     image=bfl.generate(
+        ...         t.prompt, model='flux-2-pro', width=1920, height=1080
+        ...     )
         ... )
 
         Generate with specific seed for reproducibility:
@@ -283,7 +285,7 @@ async def edit(
         ...     edited=bfl.edit(
         ...         'Change the background to a sunset beach',
         ...         t.original_image,
-        ...         model='flux-2-pro'
+        ...         model='flux-2-pro',
         ...     )
         ... )
 
@@ -294,7 +296,7 @@ async def edit(
         ...         'Combine the person from the first image with the background from the second',
         ...         t.person_image,
         ...         model='flux-kontext-pro',
-        ...         reference_images=[t.background_image]
+        ...         reference_images=[t.background_image],
         ...     )
         ... )
     """
@@ -371,7 +373,7 @@ async def fill(
         ...         'A beautiful garden with flowers',
         ...         t.original_image,
         ...         t.mask_image,
-        ...         model='flux-pro-1.0-fill'
+        ...         model='flux-pro-1.0-fill',
         ...     )
         ... )
     """
@@ -440,7 +442,7 @@ async def expand(
         ...         t.original_image,
         ...         model='flux-pro-1.0-expand',
         ...         left=256,
-        ...         right=256
+        ...         right=256,
         ...     )
         ... )
     """
