@@ -6,7 +6,7 @@ import random
 import re
 import uuid
 from pathlib import Path
-from typing import Any, Literal, _GenericAlias, cast  # type: ignore[attr-defined]
+from typing import Any, Literal, cast
 
 import av
 import numpy as np
@@ -24,6 +24,7 @@ from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
 from pixeltable.functions.video import frame_iterator
 from pixeltable.io.external_store import MockProject
+from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -458,14 +459,20 @@ class TestTable:
             )
 
     def test_media_validation(self, uses_db: None) -> None:
-        tbl_schema = {'img': {'type': pxt.Image, 'media_validation': 'on_write'}, 'video': pxt.Video}
+        tbl_schema: dict[str, ColumnSpec | type] = {
+            'img': {'type': pxt.Image, 'media_validation': 'on_write'},
+            'video': pxt.Video,
+        }
         t = pxt.create_table('test', tbl_schema, media_validation='on_read')
         assert t.get_metadata()['media_validation'] == 'on_read'
         assert t.img.col.media_validation == pxt.catalog.MediaValidation.ON_WRITE
         # table default applies
         assert t.video.col.media_validation == pxt.catalog.MediaValidation.ON_READ
 
-        v_schema = {'doc': {'type': pxt.Document, 'media_validation': 'on_read'}, 'audio': pxt.Audio}
+        v_schema: dict[str, ColumnSpec | type] = {
+            'doc': {'type': pxt.Document, 'media_validation': 'on_read'},
+            'audio': pxt.Audio,
+        }
         v = pxt.create_view('test_view', t, additional_columns=v_schema, media_validation='on_write')
         assert v.get_metadata()['media_validation'] == 'on_write'
         assert v.doc.col.media_validation == pxt.catalog.MediaValidation.ON_READ
@@ -480,7 +487,7 @@ class TestTable:
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.create_table('validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})
+            _ = pxt.create_table('validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})  # type: ignore[typeddict-item]
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
     def test_validate_on_read(self, uses_db: None, reload_tester: ReloadTester) -> None:
@@ -864,7 +871,7 @@ class TestTable:
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
     def test_schema_types(self, uses_db: None) -> None:
-        test_columns: dict[str, type | _GenericAlias] = {
+        test_columns: dict[str, type] = {
             'str_col': pxt.String,
             'req_str_col': pxt.Required[pxt.String],
             'int_col': pxt.Int,
@@ -884,7 +891,7 @@ class TestTable:
             'json_col': pxt.Json,
             'req_json_col': pxt.Required[pxt.Json],
             'array_col': pxt.Array[(5, None, 3), pxt.Int],  # type: ignore[misc]
-            'req_array_col': pxt.Required[pxt.Array[(5, None, 3), pxt.Int]],  # type: ignore[misc]
+            'req_array_col': pxt.Required[pxt.Array[(5, None, 3), pxt.Int]],  # type: ignore[dict-item, misc]
             'gen_array_col': pxt.Array[pxt.Float],  # type: ignore[misc]
             'req_gen_array_col': pxt.Required[pxt.Array[pxt.Float]],
             'full_gen_array_col': pxt.Array,
@@ -892,7 +899,7 @@ class TestTable:
             'img_col': pxt.Image,
             'req_img_col': pxt.Required[pxt.Image],
             'spec_img_col': pxt.Image[(300, 300), 'RGB'],  # type: ignore[misc]
-            'req_spec_img_col': pxt.Required[pxt.Image[(300, 300), 'RGB']],  # type: ignore[misc]
+            'req_spec_img_col': pxt.Required[pxt.Image[(300, 300), 'RGB']],  # type: ignore[dict-item, misc]
             'video_col': pxt.Video,
             'req_video_col': pxt.Required[pxt.Video],
             'audio_col': pxt.Audio,
@@ -1161,7 +1168,7 @@ class TestTable:
         assert "'type' or 'value' must be specified" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'xyz': pxt.Int}})
+            pxt.create_table('test', {'c1': {'xyz': pxt.Int}})  # type: ignore[dict-item]
         assert "invalid key 'xyz'" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -1169,15 +1176,15 @@ class TestTable:
         assert "'type' or 'value' must be specified" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'type': 'string'}})
-        assert 'must be a type or ColumnType' in str(exc_info.value)
+            pxt.create_table('test', {'c1': {'type': 'string'}})  # type: ignore[typeddict-item]
+        assert 'must be a type' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'value': 1, 'type': pxt.String}})
+            pxt.create_table('test', {'c1': {'value': 1, 'type': pxt.String}})  # type: ignore[typeddict-item]
         assert "'type' is redundant" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'value': pytest}})
+            pxt.create_table('test', {'c1': {'value': pytest}})  # type: ignore[typeddict-item]
         assert "Column 'c1': 'value' must be a Pixeltable expression" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -1185,11 +1192,11 @@ class TestTable:
             def f() -> float:
                 return 1.0
 
-            pxt.create_table('test', {'c1': {'value': f}})
+            pxt.create_table('test', {'c1': {'value': f}})  # type: ignore[typeddict-item]
         assert "Column 'c1': 'value' must be a Pixeltable expression" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'type': pxt.String, 'stored': 'true'}})
+            pxt.create_table('test', {'c1': {'type': pxt.String, 'stored': 'true'}})  # type: ignore[typeddict-item]
         assert "'stored' must be a bool" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -1536,12 +1543,12 @@ class TestTable:
         assert status.num_excs == 0
 
     def test_insert(self, uses_db: None) -> None:
-        schema = {
+        schema: dict[str, type] = {
             'c1': pxt.Required[pxt.String],
             'c2': pxt.Required[pxt.Int],
             'c3': pxt.Required[pxt.Float],
             'c4': pxt.Required[pxt.Bool],
-            'c5': pxt.Required[pxt.Array[(2, 3), pxt.Int]],  # type: ignore[misc]
+            'c5': pxt.Required[pxt.Array[(2, 3), pxt.Int]],  # type: ignore[misc, dict-item]
             'c6': pxt.Required[pxt.Json],
             'c7': pxt.Required[pxt.Image],
             'c8': pxt.Required[pxt.Video],
@@ -3020,6 +3027,64 @@ class TestTable:
             pxt.Error, match="Cannot drop column 'c2' because it is the last remaining column in this table"
         ):
             t.drop_column('c2')
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_add_columns_with_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.String})
+
+        # invalid metadata parameters are rejected
+        with pytest.raises(pxt.Error, match=r"media_validation must be one of: \['on_read', 'on_write']"):
+            t.add_columns({'non_existing_col1': {'type': pxt.Image, 'media_validation': 'on_error'}})  # type: ignore[typeddict-item]
+        with pytest.raises(pxt.Error, match="'stored' must be a bool; got <class 'float'>"):
+            t.add_columns({'non_existing_col1': {'type': pxt.Image, 'stored': float}})  # type: ignore[typeddict-item]
+
+        # valid metadata parameters are accepted
+        t.add_columns({'c3': {'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'}})
+
+        # make sure this metadata is persisted
+        reload_catalog(do_reload_catalog)
+
+        t = pxt.get_table('tbl')
+        assert 'c3' in t.columns()
+        assert t.get_metadata()['columns']['c3']['is_stored']
+        assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_add_column_with_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.String})
+
+        # invalid metadata parameters are rejected
+        with pytest.raises(pxt.Error, match=r"media_validation must be one of: \['on_read', 'on_write']"):
+            t.add_column(non_existing_col1={'type': pxt.Image, 'media_validation': 'on_error'})
+        with pytest.raises(pxt.Error, match="'stored' must be a bool; got <class 'float'>"):
+            t.add_column(non_existing_col1={'type': pxt.Image, 'stored': float})
+        with pytest.raises(pxt.Error, match="invalid key 'invalid_key'"):
+            t.add_column(non_existing_col1={'type': pxt.Image, 'invalid_key': 'value'})
+        with pytest.raises(pxt.Error, match="'type' or 'value' must be specified"):
+            t.add_column(non_existing_col1={'stored': True})
+
+        # valid metadata parameters are accepted
+        t.add_column(c3={'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'})
+
+        # verify column was added correctly
+        assert 'c3' in t.columns()
+        assert t.get_metadata()['columns']['c3']['is_stored']
+        assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
+
+        # add another column with on_read validation
+        t.add_column(c4={'type': pxt.Video, 'media_validation': 'on_read'})
+        assert 'c4' in t.columns()
+        assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'
+
+        # make sure this metadata is persisted
+        reload_catalog(do_reload_catalog)
+
+        t = pxt.get_table('tbl')
+        assert 'c3' in t.columns()
+        assert t.get_metadata()['columns']['c3']['is_stored']
+        assert t.get_metadata()['columns']['c3']['media_validation'] == 'on_write'
+        assert 'c4' in t.columns()
+        assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_table_comment(self, uses_db: None, do_reload_catalog: bool) -> None:

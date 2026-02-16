@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import warnings
+from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
@@ -87,7 +88,7 @@ class Column:
         stores_cellmd: bool | None = None,
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
-        destination: str | None = None,
+        destination: str | Path | None = None,
         comment: str = '',
         custom_metadata: Any = None,
     ):
@@ -140,6 +141,10 @@ class Column:
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
+
+        if isinstance(destination, Path):
+            destination = str(destination)
+
         self._explicit_destination = destination
 
         # user-defined metadata - stored but not used by Pixeltable itself
