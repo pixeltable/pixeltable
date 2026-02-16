@@ -206,6 +206,26 @@ file_cache_size_g = 50  # 50 GB cache
 ```
 </Tip>
 
+### References, Not Copies
+
+Unlike vector databases that require ingesting data into their own storage format, Pixeltable stores **references** to external files. Your original media stays in S3/GCS/Azure; only computed results (embeddings, metadata, generated media) are stored locally or in configured cloud buckets.
+
+```mermaid
+flowchart LR
+    S3["S3 / GCS / Azure\n(your files stay here)"]
+    PXT["Pixeltable"]
+    Meta["Metadata + Vectors\n+ Computed Results"]
+
+    S3 -. "reference\n(not copy)" .-> PXT
+    PXT --> Meta
+    PXT -. "lazy load\non access" .-> S3
+```
+
+This means:
+- **No data duplication** — you don't pay for storage twice.
+- **Schema changes don't require re-upload** — add a column, not a migration script.
+- **Works with existing storage** — point Pixeltable at your current buckets.
+
 **Deployment-Specific Storage Patterns:**
 
 *Approach 1 (Orchestration Layer):*
