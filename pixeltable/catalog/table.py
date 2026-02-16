@@ -397,6 +397,7 @@ class Table(SchemaObject):
                 'Column Name': col.name,
                 'Type': col.col_type._to_str(as_schema=True),
                 'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
+                'Comment': col.comment
             }
             for col in self._tbl_version_path.columns()
             if columns is None or col.name in columns
@@ -757,8 +758,8 @@ class Table(SchemaObject):
         """
         assert isinstance(spec, dict)
 
-        # TODO: this code could be made cleaner now that spec is a TypedDict
-        valid_keys = get_type_hints(ColumnSpec).keys()
+        # We cannot use get_type_hints() here since ColumnSpec doesn't import exprs outside of a TYPE_CHECKING block
+        valid_keys = ColumnSpec.__annotations__.keys()
         for k in spec:
             if k not in valid_keys:
                 raise excs.Error(f'Column {name!r}: invalid key {k!r}')

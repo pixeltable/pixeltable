@@ -34,4 +34,4 @@ class ColumnSpec(TypedDict, total=False):
     custom_metadata: Any
     """User-defined metadata to associate with the column."""
     comment: str
-    """User-defined comment for the column. Displayed in .describe() output."""
+    """Optional comment for the column. Displayed in .describe() output."""
