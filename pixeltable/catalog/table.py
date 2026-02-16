@@ -796,7 +796,7 @@ class Table(SchemaObject):
                 json.dumps(spec['custom_metadata'])
             except (TypeError, ValueError) as err:
                 raise excs.Error(
-                    f'Column {name!r}: `custom_metadata` must be JSON-serializable; got {spec["custom_metadata"]}'
+                    f'Column {name!r}: `custom_metadata` must be JSON-serializable; got Error: {err}'
                 ) from err
 
     @classmethod
