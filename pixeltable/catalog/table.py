@@ -7,7 +7,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, get_type_hints
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 from uuid import UUID
 
 import pandas as pd
@@ -397,7 +397,7 @@ class Table(SchemaObject):
                 'Column Name': col.name,
                 'Type': col.col_type._to_str(as_schema=True),
                 'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
-                'Comment': col.comment
+                'Comment': col.comment,
             }
             for col in self._tbl_version_path.columns()
             if columns is None or col.name in columns
