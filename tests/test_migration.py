@@ -337,6 +337,10 @@ class TestMigration:
         assert t.get_metadata()['comment'] == 'This is a test table.'
         assert t.get_metadata()['custom_metadata'] == {'key': 'value'}
 
+        # Verify column-level comment and custom_metadata
+        assert t.get_metadata()['columns']['c1n']['comment'] == 'Nullable version of c1'
+        assert t.get_metadata()['columns']['c8']['custom_metadata'] == {'source': 'test'}
+
         # Verify comment and custom_metadata for view
         assert v.get_metadata()['comment'] == 'This is a test view.'
         assert v.get_metadata()['custom_metadata'] == {'view_key': 'view_value'}
