@@ -78,6 +78,7 @@
           <outline text="class|pixeltable.UpdateStatus" />
           <outline text="class|pixeltable.VersionMetadata" />
         </outline>
+        <outline text="class|pixeltable.types.ColumnSpec" />
       </outline>
 
       <!-- Built-in Functions and Operators group -->

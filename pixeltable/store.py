@@ -317,8 +317,8 @@ class StoreBase:
         log_stmt(_logger, stmt)
         Env.get().conn.execute(stmt)
 
-    def load_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
-        """Update store column of a computed column with values produced by an execution plan
+    def write_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
+        """Populate store column of a computed column with values produced by an execution plan
 
         Returns:
             number of rows with exceptions

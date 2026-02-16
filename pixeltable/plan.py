@@ -1195,7 +1195,6 @@ class Planner:
         """Creates a plan for InsertableTable.add_column()
         Returns:
             plan: the plan to execute
-            value_expr slot idx for the plan output (for computed cols)
         """
         assert isinstance(tbl, catalog.TableVersionPath)
         row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[], tbl=tbl.tbl_version.get())

@@ -63,7 +63,7 @@ class TestFunction:
         print(_)
 
     def test_stored_udf(self, uses_db: None) -> None:
-        t = pxt.create_table('test', {'c1': ts.IntType(), 'c2': ts.FloatType()})
+        t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         status = t.insert(rows)
         assert status.num_rows == len(rows)

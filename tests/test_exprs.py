@@ -1072,7 +1072,7 @@ class TestExprs:
         _ = result._repr_html_()
 
     def test_ext_imgs(self, uses_db: None) -> None:
-        t = pxt.create_table('img_test', {'img': ts.ImageType()})
+        t = pxt.create_table('img_test', {'img': pxt.Image})
         img_urls = [
             'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
             'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000034.jpg',
