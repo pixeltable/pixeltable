@@ -2800,9 +2800,9 @@ class TestTable:
             """view 'test_subview' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
-            Column Name                            Type           Computed With
+            Column Name                            Type           Computed With                      Comment
               computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
-                     c1                Required[String]
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2829,9 +2829,9 @@ class TestTable:
             """snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
-            Column Name                            Type           Computed With
+            Column Name                            Type           Computed With                      Comment
               computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
-                     c1                Required[String]
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2853,8 +2853,8 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap2' (of 'test_tbl:2')
 
-            Column Name                            Type           Computed With
-                     c1                Required[String]
+            Column Name                            Type           Computed With                      Comment
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2871,9 +2871,9 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap3' (of 'test_tbl:2')
 
-            Column Name                            Type           Computed With
+            Column Name                            Type           Computed With                      Comment
               computed1                 Required[Float]                 c2 + c3
-                     c1                Required[String]
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2890,8 +2890,8 @@ class TestTable:
             'c1'
             (of table 'test_tbl')
 
-            Column Name              Type Computed With
-                     c1  Required[String]"""
+            Column Name              Type Computed With                      Comment
+                   c1  Required[String]                String column with no nulls"""
         )
         _ = v2.c1._repr_html_()
 

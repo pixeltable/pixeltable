@@ -149,8 +149,8 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
 
 def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
     schema = {
-        'c1': pxt.Required[pxt.String],
-        'c1n': pxt.String,
+        'c1': {'type': pxt.Required[pxt.String], 'comment': 'String column with no nulls'},
+        'c1n': {'type': pxt.String, 'custom_metadata': {'nullable': True}},
         'c2': pxt.Required[pxt.Int],
         'c3': pxt.Required[pxt.Float],
         'c4': pxt.Required[pxt.Bool],
