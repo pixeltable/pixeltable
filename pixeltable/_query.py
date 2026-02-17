@@ -1088,11 +1088,11 @@ class Query:
         if self.sample_clause is not None:
             raise excs.Error('limit() cannot be used with sample()')
 
-        limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()', range=(1, None))
+        limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
         offset_expr = None
         if offset is not None:
             offset_expr = self._convert_param_to_typed_expr(
-                offset, ts.IntType(nullable=False), False, 'offset', range=(0, None)
+                offset, ts.IntType(nullable=False), False, 'offset'
             )
 
         return Query(

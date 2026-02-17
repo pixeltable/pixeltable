@@ -280,8 +280,8 @@ class Table(SchemaObject):
         """Remove duplicate rows from table."""
         return self.select().distinct()
 
-    def limit(self, n: int) -> 'pxt.Query':
-        return self.select().limit(n)
+    def limit(self, n: int, offset: int | None = None) -> 'pxt.Query':
+        return self.select().limit(n, offset=offset)
 
     def sample(
         self,
