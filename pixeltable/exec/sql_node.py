@@ -107,6 +107,7 @@ class SqlNode(ExecNode):
 
     order_by_clause: OrderByClause
     limit: int | None
+    offset: int | None
 
     def __init__(
         self,
@@ -171,6 +172,7 @@ class SqlNode(ExecNode):
         self.py_filter_eval_ctx = None
         self.cte = None
         self.limit = None
+        self.offset = None
         self.where_clause = None
         self.where_clause_element = None
         self.order_by_clause = []
@@ -229,9 +231,12 @@ class SqlNode(ExecNode):
                 order_by_clause.append(self.sql_elements.get(e).desc() if asc is False else self.sql_elements.get(e))
         stmt = stmt.order_by(*order_by_clause)
 
-        if self.py_filter is None and self.limit is not None:
-            # if we don't have a Python filter, we can apply the limit to stmt
-            stmt = stmt.limit(self.limit)
+        if self.py_filter is None:
+            # if we don't have a Python filter, we can apply limit/offset to stmt
+            if self.limit is not None:
+                stmt = stmt.limit(self.limit)
+            if self.offset is not None:
+                stmt = stmt.offset(self.offset)
 
         return stmt
 
@@ -339,6 +344,9 @@ class SqlNode(ExecNode):
     def set_limit(self, limit: int) -> None:
         self.limit = limit
 
+    def set_offset(self, offset: int) -> None:
+        self.offset = offset
+
     def _log_explain(self, stmt: sql.Select) -> None:
         conn = Env.get().conn
         try:
@@ -432,12 +440,23 @@ class SqlNode(ExecNode):
                 output_row = output_batch.pop_row()
                 output_row.clear()
             else:
-                # reset output_row in order to add new one
-                output_row = None
+                # Row passed filter (or no filter)
                 num_rows_returned += 1
 
-            if self.limit is not None and num_rows_returned == self.limit:
-                break
+                # Check if we should skip this row due to offset
+                if self.offset is not None and num_rows_returned <= self.offset:
+                    # Skip this row - remove it from batch
+                    output_row = output_batch.pop_row()
+                    output_row.clear()
+                else:
+                    # Include this row in output
+                    output_row = None
+
+                    # Check if we've reached the limit (after offset)
+                    if self.limit is not None:
+                        num_rows_in_output = num_rows_returned - (self.offset if self.offset is not None else 0)
+                        if num_rows_in_output == self.limit:
+                            break
 
             if self.ctx.batch_size > 0 and len(output_batch) == self.ctx.batch_size:
                 _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')

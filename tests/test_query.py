@@ -367,6 +367,48 @@ class TestQuery:
         print(res)
         assert res[0]['get_val'][0]['foo'] == [2, 3, 4]
 
+    def test_pagination(self, test_tbl: pxt.Table) -> None:
+        """Test limit with offset for pagination"""
+        t = test_tbl
+
+        # Test basic offset
+        res = t.select(t.c2).order_by(t.c2).limit(5, offset=0).collect()
+        assert len(res) == 5
+        assert [row['c2'] for row in res] == list(range(5))
+
+        # Test pagination: skip first 5, get next 5
+        res = t.select(t.c2).order_by(t.c2).limit(5, offset=5).collect()
+        assert len(res) == 5
+        assert [row['c2'] for row in res] == list(range(5, 10))
+
+        # Test pagination: skip first 10, get next 5
+        res = t.select(t.c2).order_by(t.c2).limit(5, offset=10).collect()
+        assert len(res) == 5
+        assert [row['c2'] for row in res] == list(range(10, 15))
+
+        # Test offset larger than result set
+        total_rows = len(t.collect())
+        res = t.select(t.c2).limit(10, offset=total_rows).collect()
+        assert len(res) == 0
+
+        # Test offset with where clause
+        res = t.where(t.c2 >= 10).select(t.c2).order_by(t.c2).limit(5, offset=5).collect()
+        assert len(res) == 5
+        assert [row['c2'] for row in res] == list(range(15, 20))
+
+        # Test that offset=0 is equivalent to no offset
+        res_no_offset = t.select(t.c2).order_by(t.c2).limit(5).collect()
+        res_with_zero_offset = t.select(t.c2).order_by(t.c2).limit(5, offset=0).collect()
+        assert res_no_offset == res_with_zero_offset
+
+        # Test validation: offset must be non-negative
+        with pytest.raises(pxt.Error, match='offset.*must be >= 0'):
+            _ = t.limit(5, offset=-1).collect()
+
+        # Test validation: limit must be positive
+        with pytest.raises(pxt.Error, match='limit.*must be >= 1'):
+            _ = t.limit(0, offset=5).collect()
+
     def test_head_tail(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = t.head(10).to_pandas()

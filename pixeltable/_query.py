@@ -185,6 +185,7 @@ class Query:
     grouping_tbl: catalog.TableVersion | None
     order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
+    offset_val: exprs.Expr | None
     sample_clause: SampleClause | None
 
     def __init__(
@@ -196,6 +197,7 @@ class Query:
         grouping_tbl: catalog.TableVersion | None = None,
         order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,  # list[(expr, asc)]
         limit: exprs.Expr | None = None,
+        offset: exprs.Expr | None = None,
         sample_clause: SampleClause | None = None,
     ):
         self._from_clause = from_clause
@@ -216,6 +218,7 @@ class Query:
         self.grouping_tbl = grouping_tbl
         self.order_by_clause = copy.deepcopy(order_by_clause)
         self.limit_val = limit
+        self.offset_val = offset
         self.sample_clause = sample_clause
 
     @classmethod
@@ -275,6 +278,8 @@ class Query:
             all_exprs.extend([expr for expr, _ in self.order_by_clause])
         if self.limit_val is not None:
             all_exprs.append(self.limit_val)
+        if self.offset_val is not None:
+            all_exprs.append(self.offset_val)
         vars = exprs.Expr.list_subexprs(all_exprs, expr_class=exprs.Variable)
         unique_vars: dict[str, exprs.Variable] = {}
         for var in vars:
@@ -368,6 +373,7 @@ class Query:
             group_by_clause=group_by_clause,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
             sample_clause=self.sample_clause,
         )
 
@@ -457,6 +463,7 @@ class Query:
             else None
         )
         limit_val = copy.deepcopy(self.limit_val)
+        offset_val = copy.deepcopy(self.offset_val)
 
         var_exprs: dict[exprs.Expr, exprs.Expr] = {}
         vars = self._vars()
@@ -488,6 +495,10 @@ class Query:
             limit_val = limit_val.substitute(var_exprs)
             if limit_val is not None and not isinstance(limit_val, exprs.Literal):
                 raise excs.Error(f'limit(): parameter must be a constant; got: {limit_val}')
+        if offset_val is not None:
+            offset_val = offset_val.substitute(var_exprs)
+            if offset_val is not None and not isinstance(offset_val, exprs.Literal):
+                raise excs.Error(f'offset parameter must be a constant; got: {offset_val}')
 
         return Query(
             from_clause=self._from_clause,
@@ -497,6 +508,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=order_by_clause,
             limit=limit_val,
+            offset=offset_val,
         )
 
     def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
@@ -595,7 +607,10 @@ class Query:
             )
         if self.limit_val is not None:
             heading_vals.append('Limit')
-            info_vals.append(self.limit_val.display_str(inline=False))
+            limit_str = self.limit_val.display_str(inline=False)
+            if self.offset_val is not None:
+                limit_str += f',{self.offset_val.display_str(inline=False)}'
+            info_vals.append(limit_str)
         if self.sample_clause is not None:
             heading_vals.append('Sample')
             info_vals.append(self.sample_clause.display_str(inline=False))
@@ -705,6 +720,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
         )
 
     def where(self, pred: exprs.Expr) -> Query:
@@ -747,6 +763,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
         )
 
     def _create_join_predicate(
@@ -888,6 +905,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
         )
 
     def group_by(self, *grouping_items: Any) -> Query:
@@ -966,6 +984,7 @@ class Query:
             grouping_tbl=grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
         )
 
     def distinct(self) -> Query:
@@ -1040,21 +1059,42 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
         )
 
-    def limit(self, n: int) -> Query:
-        """Limit the number of rows in the Query.
+    def limit(self, n: int, offset: int | None = None) -> Query:
+        """Limit the number of rows in the Query, optionally skipping rows for pagination.
 
         Args:
             n: Number of rows to select.
+            offset: Number of rows to skip before returning results. Default is None (no offset).
 
         Returns:
             A new Query with the specified limited rows.
+
+        Examples:
+            Get the first 10 rows:
+
+            >>> t.limit(10).collect()
+
+            Get rows 11-20 (skip first 10, return next 10):
+
+            >>> t.limit(10, offset=10).collect()
+
+            Get rows 21-30 (page 3 with page size 10):
+
+            >>> t.limit(10, offset=20).collect()
         """
         if self.sample_clause is not None:
             raise excs.Error('limit() cannot be used with sample()')
 
-        limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
+        limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()', range=(1, None))
+        offset_expr = None
+        if offset is not None:
+            offset_expr = self._convert_param_to_typed_expr(
+                offset, ts.IntType(nullable=False), False, 'offset', range=(0, None)
+            )
+
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
@@ -1063,6 +1103,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=limit_expr,
+            offset=offset_expr,
         )
 
     def sample(
@@ -1179,6 +1220,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
             sample_clause=sample_clause,
         )
 
@@ -1311,6 +1353,7 @@ class Query:
             if self.order_by_clause is not None
             else None,
             'limit_val': self.limit_val.as_dict() if self.limit_val is not None else None,
+            'offset_val': self.offset_val.as_dict() if self.offset_val is not None else None,
             'sample_clause': self.sample_clause.as_dict() if self.sample_clause is not None else None,
         }
         return d
@@ -1338,6 +1381,7 @@ class Query:
                 else None
             )
             limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
+            offset_val = exprs.Expr.from_dict(d['offset_val']) if d.get('offset_val') is not None else None
             sample_clause = SampleClause.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
 
             return Query(
@@ -1348,6 +1392,7 @@ class Query:
                 grouping_tbl=grouping_tbl,
                 order_by_clause=order_by_clause,
                 limit=limit_val,
+                offset=offset_val,
                 sample_clause=sample_clause,
             )
 
