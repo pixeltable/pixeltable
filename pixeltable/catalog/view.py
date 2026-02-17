@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, List, Literal
+from typing import TYPE_CHECKING, Any, List, Literal, Mapping
 from uuid import UUID
 
 import pixeltable.exceptions as excs
@@ -10,6 +10,7 @@ import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
 from pixeltable.iterators import ComponentIterator
+from pixeltable.types import ColumnSpec
 
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
@@ -53,14 +54,16 @@ class View(Table):
         return 'table'
 
     @classmethod
-    def select_list_to_additional_columns(cls, select_list: list[tuple[exprs.Expr, str | None]]) -> dict[str, dict]:
+    def select_list_to_additional_columns(
+        cls, select_list: list[tuple[exprs.Expr, str | None]]
+    ) -> dict[str, ColumnSpec]:
         """Returns a list of columns in the same format as the additional_columns parameter of View.create.
         The source is the list of expressions from a select() statement on a Query.
         If the column is a ColumnRef, to a base table column, it is marked to not be stored.sy
         """
         from pixeltable._query import Query
 
-        r: dict[str, dict] = {}
+        r: dict[str, ColumnSpec] = {}
         exps, names = Query._normalize_select_list([], select_list)
         for expr, name in zip(exps, names):
             stored = not isinstance(expr, exprs.ColumnRef)
@@ -74,7 +77,7 @@ class View(Table):
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
-        additional_columns: dict[str, Any],
+        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr],
         predicate: 'exprs.Expr' | None,
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,

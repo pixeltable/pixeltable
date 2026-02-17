@@ -4,7 +4,7 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
 
 import pandas as pd
 import pydantic
@@ -17,6 +17,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.iterators import ComponentIterator
+from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -49,7 +50,7 @@ def init(config_overrides: dict[str, Any] | None = None) -> None:
 
 def create_table(
     path: str,
-    schema: dict[str, Any] | None = None,
+    schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     *,
     source: TableDataSource | None = None,
     source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
@@ -219,7 +220,7 @@ def create_table(
         data_source.src_schema_overrides = src_schema_overrides
         data_source.src_pk = primary_key
         data_source.infer_schema()
-        schema = data_source.pxt_schema
+        schema = data_source.pxt_schema  # type: ignore[assignment]
         primary_key = data_source.pxt_pk
         is_direct_query = data_source.is_direct_query()
     else:
@@ -267,7 +268,7 @@ def create_view(
     path: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: dict[str, Any] | None = None,
+    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     is_snapshot: bool = False,
     create_default_idxs: bool = False,
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
@@ -412,7 +413,7 @@ def create_snapshot(
     path_str: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: dict[str, Any] | None = None,
+    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
