@@ -271,7 +271,7 @@ class TestOpenai:
         ):
             validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
         result = t.collect()
-        assert 'broccoli' in result['response'][0]['choices'][0]['message']['content'].lower()
+        assert 'broccoli' in result['response'][0].lower()
         assert 'broccoli' in result['response_2'][0]['choices'][0]['message']['content'].lower()
 
     def test_embeddings(self, uses_db: None) -> None:

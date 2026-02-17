@@ -489,7 +489,23 @@ async def chat_completions(
         ...     {'role': 'system', 'content': 'You are a helpful assistant.'},
         ...     {'role': 'user', 'content': tbl.prompt},
         ... ]
-        >>> tbl.add_computed_column(
+        ... tbl.add_computed_column(
+        ...     response=chat_completions(messages, model='gpt-4o-mini')
+        ... )
+
+        You can also include images in the messages list by passing image data directly in the input dictionary, in
+        the `'image_url'` field of the message content, as in this example:
+
+        >>> messages = [
+        ...     {
+        ...         'role': 'user',
+        ...         'content': [
+        ...             {'type': 'text', 'text': "What's in this image?"},
+        ...             {'type': 'image_url', 'image_url': tbl.image},
+        ...         ],
+        ...     }
+        ... ]
+        ... tbl.add_computed_column(
         ...     response=chat_completions(messages, model='gpt-4o-mini')
         ... )
     """
@@ -556,7 +572,7 @@ async def vision(
     model: str,
     model_kwargs: dict[str, Any] | None = None,
     _runtime_ctx: env.RuntimeCtx | None = None,
-) -> dict:
+) -> str:
     """
     Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an image and
     prompt, and constructs a chat completion request that utilizes OpenAI vision.
@@ -577,7 +593,7 @@ async def vision(
         model: The model to use for OpenAI vision.
 
     Returns:
-        The response from the OpenAI vision API.
+        A dictionary containing the response and associated metadata.
 
     Examples:
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.image`
@@ -594,7 +610,8 @@ async def vision(
     messages = [
         {'role': 'user', 'content': [{'type': 'text', 'text': prompt}, {'type': 'image_url', 'image_url': image}]}
     ]
-    return await chat_completions.py_fn(messages, model=model, model_kwargs=model_kwargs, _runtime_ctx=_runtime_ctx)
+    response = await chat_completions.py_fn(messages, model=model, model_kwargs=model_kwargs, _runtime_ctx=_runtime_ctx)
+    return response['choices'][0]['message']['content']
 
 
 #####################################
@@ -715,7 +732,19 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
             parameters, see: <https://platform.openai.com/docs/api-reference/images/create>
 
     Returns:
-        The generated image.
+        A dictionary containing the generated image data. Images will be deserialized into `PIL.Image.Image` objects,
+        and the result dictionary will have the following form:
+        ```json
+        {
+            "created": 1234567890,
+            "data": [
+                PIL.Image.Image(...),
+                PIL.Image.Image(...),
+                ...
+            ],
+            "usage": <optional usage data, depending on model>
+        }
+        ```
 
     Examples:
         Add a computed column that applies the model `dall-e-2` to an existing
