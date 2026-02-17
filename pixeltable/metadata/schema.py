@@ -328,12 +328,10 @@ class SchemaColumn:
 
     pos: int
     name: str
-
     # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
     # stores column.MediaValiation.name.lower()
     media_validation: str | None
-    # TODO: in the future we should have default comment be None
-    comment: str = ''
+    comment: str | None = None
     # user-defined metadata - must be a valid JSON-serializable object
     custom_metadata: Any = None
 
@@ -349,7 +347,7 @@ class SchemaVersionMd:
     preceding_schema_version: int | None
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
     num_retained_versions: int
-    comment: str
+    comment: str | None
 
     # default validation strategy for any media column of this table
     # stores column.MediaValiation.name.lower()

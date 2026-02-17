@@ -297,7 +297,7 @@ class TableVersion:
         name: str,
         cols: list[Column],
         num_retained_versions: int,
-        comment: str,
+        comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
