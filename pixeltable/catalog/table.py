@@ -7,7 +7,7 @@ import json
 import logging
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 from uuid import UUID
 
 import pandas as pd
@@ -25,6 +25,7 @@ from pixeltable.catalog.table_metadata import (
 )
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
+from pixeltable.types import ColumnSpec
 from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.object_stores import ObjectOps
 
@@ -498,7 +499,7 @@ class Table(SchemaObject):
 
     def add_columns(
         self,
-        schema: dict[str, ts.ColumnType | builtins.type | _GenericAlias],
+        schema: Mapping[str, type | ColumnSpec],
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     ) -> UpdateStatus:
         """
@@ -508,7 +509,7 @@ class Table(SchemaObject):
         The format of the `schema` argument is a dict mapping column names to their types.
 
         Args:
-            schema: A dictionary mapping column names to types.
+            schema: A dictionary mapping column names to a `type` or a [`ColumnSpec`][pixeltable.ColumnSpec] dict.
             if_exists: Determines the behavior if a column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -533,6 +534,19 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... schema = {'new_col_1': pxt.Int, 'new_col_2': pxt.String}
             ... tbl.add_columns(schema)
+
+            It is also possible to specify column metadata using a dict:
+
+            >>> tbl = pxt.get_table('my_table')
+            ... schema = {
+            ...     'new_col_1': {
+            ...         'type': pxt.Image,
+            ...         'stored': True,
+            ...         'media_validation': 'on_write',
+            ...     },
+            ...     'new_col_2': pxt.String,
+            ... }
+            ... tbl.add_columns(schema)
         """
         from pixeltable.catalog import Catalog
 
@@ -540,24 +554,23 @@ class Table(SchemaObject):
         new_cols: list[Column]
         with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('add columns to')
-            col_schema = {
-                col_name: {'type': ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)}
-                for col_name, spec in schema.items()
-            }
+
+            # make a copy of schema so del operations below don't modify the caller's dict
+            schema = dict(schema)
 
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
-                list(col_schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
+                list(schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
             )
             # if all columns to be added already exist and user asked to ignore
             # existing columns, there's nothing to do.
             for cname in cols_to_ignore:
-                assert cname in col_schema
-                del col_schema[cname]
+                assert cname in schema
+                del schema[cname]
             result = UpdateStatus()
-            if len(col_schema) == 0:
+            if len(schema) == 0:
                 return result
-            new_cols = self._create_columns(col_schema)
+            new_cols = self._create_columns(schema)
             for new_col in new_cols:
                 self._verify_column(new_col)
 
@@ -571,13 +584,14 @@ class Table(SchemaObject):
         self,
         *,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
-        **kwargs: ts.ColumnType | builtins.type | _GenericAlias | exprs.Expr,
+        **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
         """
         Adds an ordinary (non-computed) column to the table.
 
         Args:
-            kwargs: Exactly one keyword argument of the form `col_name=col_type`.
+            kwargs: Exactly one keyword argument of the form `col_name=type` or `col_name=col_spec_dict`,
+                where `col_spec_dict` is a [`ColumnSpec`][pixeltable.ColumnSpec] dict.
             if_exists: Determines the behavior if the column already exists. Must be one of the following:
 
                 - `'error'`: an exception will be raised.
@@ -597,9 +611,31 @@ class Table(SchemaObject):
 
             >>> tbl.add_column(new_col=pxt.Int)
 
-            Alternatively, this can also be expressed as:
+            Add a column with column metadata using a dict:
+
+            >>> tbl.add_column(
+            ...     img_col={
+            ...         'type': pxt.Image,
+            ...         'stored': True,
+            ...         'media_validation': 'on_write',
+            ...     }
+            ... )
+
+            Alternatively, adding a column can also be expressed using `add_columns`:
 
             >>> tbl.add_columns({'new_col': pxt.Int})
+
+            As well as with column metadata:
+
+            >>> tbl.add_columns(
+            ...     {
+            ...         'img_col': {
+            ...             'type': pxt.Image,
+            ...             'stored': True,
+            ...             'media_validation': 'on_write',
+            ...         }
+            ...     }
+            ... )
         """
         # verify kwargs and construct column schema dict
         if len(kwargs) != 1:
@@ -608,7 +644,7 @@ class Table(SchemaObject):
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
             )
         col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias)):
+        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
             raise excs.Error(
                 'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
             )
@@ -677,12 +713,11 @@ class Table(SchemaObject):
             if not is_valid_identifier(col_name):
                 raise excs.Error(f'Invalid column name: {col_name}')
 
-            col_schema: dict[str, Any] = {'value': spec}
+            col_schema: ColumnSpec = {'value': spec}
             if stored is not None:
                 col_schema['stored'] = stored
 
-            if destination is not None:
-                col_schema['destination'] = destination
+            col_schema['destination'] = destination
 
             # Raise an error if the column expression refers to a column error property
             if isinstance(spec, exprs.Expr):
@@ -712,13 +747,15 @@ class Table(SchemaObject):
             return result
 
     @classmethod
-    def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
+    def _validate_column_spec(cls, name: str, spec: ColumnSpec) -> None:
         """Check integrity of user-supplied Column spec
 
         We unfortunately can't use something like jsonschema for validation, because this isn't strictly a JSON schema
         (on account of containing Python Callables or Exprs).
         """
         assert isinstance(spec, dict)
+
+        # TODO: this code could be made cleaner now that spec is a TypedDict
         valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
         for k in spec:
             if k not in valid_keys:
@@ -728,7 +765,7 @@ class Table(SchemaObject):
             raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
 
         if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
-            raise excs.Error(f"Column {name!r}: 'type' must be a type or ColumnType; got {spec['type']}")
+            raise excs.Error(f"Column {name!r}: 'type' must be a type; got {spec['type']}")
 
         if 'value' in spec:
             value_expr = exprs.Expr.from_object(spec['value'])
@@ -748,7 +785,7 @@ class Table(SchemaObject):
             raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
 
     @classmethod
-    def _create_columns(cls, schema: dict[str, Any]) -> list[Column]:
+    def _create_columns(cls, schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> list[Column]:
         """Construct list of Columns, given schema"""
         columns: list[Column] = []
         for name, spec in schema.items():
@@ -757,8 +794,9 @@ class Table(SchemaObject):
             primary_key: bool = False
             media_validation: catalog.MediaValidation | None = None
             stored = True
-            destination: str | None = None
+            destination: str | Path | None = None
 
+            # TODO: Should we fully deprecate passing ts.ColumnType here?
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
                 col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
             elif isinstance(spec, exprs.Expr):
