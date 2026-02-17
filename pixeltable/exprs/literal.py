@@ -83,9 +83,6 @@ class Literal(Expr):
         data_row[self.slot_idx] = self.val
 
     def _as_dict(self) -> dict:
-        # For some types, we need to explicitly record their type, because JSON does not know
-        # how to interpret them unambiguously
-        encode_col_type = True
         if self.col_type.is_timestamp_type():
             assert isinstance(self.val, datetime.datetime)
             assert self.val.tzinfo == datetime.timezone.utc  # Must be UTC in a literal
@@ -105,13 +102,8 @@ class Literal(Expr):
             assert isinstance(self.val, np.ndarray)
             encoded_val = self.val.tolist()
         else:
-            encode_col_type = False
             encoded_val = self.val
-
-        res = {'val': encoded_val, **super()._as_dict()}
-        if encode_col_type:
-            res.update({'val_t': self.col_type.as_dict()})
-        return res
+        return {'val': encoded_val, 'val_t': self.col_type.as_dict(), **super()._as_dict()}
 
     def as_literal(self) -> Literal | None:
         return self
@@ -119,9 +111,6 @@ class Literal(Expr):
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:
         val = d['val']
-        if 'val_t' not in d:
-            return cls(val)
-
         val_t = d['val_t']
         if not isinstance(val_t, dict) or '_classname' not in val_t:
             raise ValueError(f'Unsupported or malformed literal type: {val_t}')
@@ -146,5 +135,5 @@ class Literal(Expr):
             dtype = col_type.dtype  # possibly None
             array = np.array(val, dtype=dtype)
             return cls(array, col_type=col_type)
-
-        raise ValueError(f'Unsupported literal type: {col_type}')
+        # For all other types, val should already be in the right format
+        return cls(val, col_type)
