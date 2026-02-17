@@ -181,7 +181,7 @@ class ColumnRef(Expr):
         image: str | PIL.Image.Image | None = None,
         audio: str | None = None,
         video: str | None = None,
-        array: np.ndarray | list[float] | None = None,
+        array: np.ndarray | None = None,
         idx: str | None = None,
     ) -> Expr:
         from .similarity_expr import SimilarityExpr
@@ -284,9 +284,9 @@ class ColumnRef(Expr):
                     raise excs.Error(f'similarity(array=...): expected `Array`; got `{array.col_type}`')
                 expr = array
             else:
-                if not isinstance(array, (list, np.ndarray)):
+                if not isinstance(array, np.ndarray):
                     raise excs.Error(
-                        f'similarity(array=...): expected `list`, `numpy.ndarray`, or array `Expr`; '
+                        f'similarity(array=...): expected `numpy.ndarray`, or array `Expr`; '
                         f'got `{type(array).__name__}`'
                     )
                 arr = np.asarray(array)
@@ -298,7 +298,7 @@ class ColumnRef(Expr):
                 col_type = ts.ColumnType.infer_literal_type(arr)
                 expr = Literal(arr, col_type=col_type)
 
-        return SimilarityExpr(self, expr, idx_name=idx)
+        return SimilarityExpr(expr, col_ref=self, idx_name=idx)
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
         from pixeltable.index import EmbeddingIndex

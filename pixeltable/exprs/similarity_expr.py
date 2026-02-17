@@ -27,21 +27,52 @@ class SimilarityExpr(Expr):
     Resolved by index name so that drop + recreate under the same name still works.
     """
 
-    tbl_version_key: TableVersionKey
-    idx_name: str
+    table_version_key: TableVersionKey
+    idx_name: str | None = None  # index name could be optional
+    col_id: int | None = None  # used to find the first embedding index when index name is not provided
 
-    def _init_common(self, item: Expr, idx_name: str, tbl_version_key: TableVersionKey) -> None:
-        super().__init__(ts.FloatType())
-        self.components = [item]
-        self.idx_name = idx_name
-        self.tbl_version_key = tbl_version_key
-        self.id = self._create_id()
-
-    def __init__(self, col_ref: ColumnRef, item: Expr, idx_name: str | None = None):
+    def __init__(
+        self,
+        item: Expr,
+        col_ref: ColumnRef | None = None,
+        idx_name: str | None = None,
+        col_id: int | None = None,
+        table_version_key: TableVersionKey | None = None,
+    ) -> None:
         from pixeltable.index import EmbeddingIndex
 
+        super().__init__(ts.FloatType())
+        self.components = [item]
+        self.col_id = col_id
+        self.table_version_key = table_version_key
+        self.idx_name = idx_name
+
+        if col_ref is not None:
+            tv = col_ref.tbl.get()
+            column = col_ref.col
+            self.col_id = column.id
+            self.table_version_key = tv.key
+        else:
+            # During deserialization
+            assert self.table_version_key is not None
+            assert self.col_id is not None
+            tv = catalog.Catalog.get().get_tbl_version(
+                self.table_version_key, check_pending_ops=False, validate_initialized=False
+            )
+            column = tv.cols_by_id[self.col_id]
+            assert column is not None
+
         # determine index to use
-        idx_info = col_ref.tbl.get().get_idx(col_ref.col, idx_name, EmbeddingIndex)
+        if self.idx_name is None:
+            # Look up index by column
+            idx_info = tv.get_idx(column, idx_name, EmbeddingIndex)
+            self.idx_name = idx_info.name
+        else:
+            # Lookup index by name
+            idx_info = tv.idxs_by_name.get(idx_name)
+            if idx_info is None:
+                raise excs.Error(f'Index {idx_name!r} not found for column {column.name!r}')
+
         idx = idx_info.idx
         assert isinstance(idx, EmbeddingIndex)
 
@@ -52,7 +83,7 @@ class SimilarityExpr(Expr):
                 f'Embedding index {idx_info.name!r} on column {idx_info.col.name!r} does not have {article} '
                 f'{type_str} embedding and does not support {type_str} queries'
             )
-        self._init_common(item, idx_info.name, col_ref.tbl.get().key)
+        self.id = self._create_id()
 
     def __repr__(self) -> str:
         idx_info = self._resolve_idx()
@@ -62,7 +93,7 @@ class SimilarityExpr(Expr):
         return [*super()._id_attrs(), ('idx_name', self.idx_name)]
 
     def tbl_ids(self) -> set[UUID]:
-        return {self.tbl_version_key.tbl_id} | super().tbl_ids()
+        return {self.table_version_key.tbl_id} | super().tbl_ids()
 
     def default_column_name(self) -> str:
         return 'similarity'
@@ -90,9 +121,7 @@ class SimilarityExpr(Expr):
     def _resolve_idx(self) -> 'TableVersion.IndexInfo':
         from pixeltable.index import EmbeddingIndex
 
-        tbl_version = catalog.Catalog.get().get_tbl_version(self.tbl_version_key, validate_initialized=True)
-        if tbl_version is None or self.idx_name not in tbl_version.idxs_by_name:
-            raise excs.Error(f'Embedding index {self.idx_name!r} not found')
+        tbl_version = catalog.Catalog.get().get_tbl_version(self.table_version_key, validate_initialized=True)
         idx_info = tbl_version.idxs_by_name[self.idx_name]
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info
@@ -103,24 +132,18 @@ class SimilarityExpr(Expr):
     def _as_dict(self) -> dict:
         return {
             'idx_name': self.idx_name,
-            'tbl_version_key': self.tbl_version_key.as_dict(),
-            'components': [c.as_dict() for c in self.components],
+            'table_version_key': self.table_version_key.as_dict(),
+            'col_id': self.col_id,
+            **super()._as_dict(),
         }
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> 'SimilarityExpr':
-        assert len(components) == 1, f'SimilarityExpr expects 1 component (item), got {len(components)}'
-        # TODO remove
-        # if 'tbl_version_key' not in d:
-        #    assert len(components) == 2
-        #    assert isinstance(components[0], ColumnRef)
-        #    return cls(components[0], components[1], idx_name=idx_name)
-        tbl_version_key = TableVersionKey.from_dict(d['tbl_version_key'])
+        if len(components) == 2:
+            idx_name = d.get('idx_name')
+            assert isinstance(components[0], ColumnRef)
+            return cls(item=components[1], col_ref=components[0], idx_name=idx_name)
+        table_version_key = TableVersionKey.from_dict(d['table_version_key'])
         idx_name = d.get('idx_name')
-        return cls._from_index_name(item=components[0], idx_name=idx_name, tbl_version_key=tbl_version_key)
-
-    @classmethod
-    def _from_index_name(cls, *, item: Expr, idx_name: str, tbl_version_key: TableVersionKey) -> 'SimilarityExpr':
-        obj = cls.__new__(cls)
-        obj._init_common(item, idx_name, tbl_version_key)
-        return obj
+        col_id = d.get('col_id')
+        return cls(item=components[0], idx_name=idx_name, table_version_key=table_version_key, col_id=col_id)

@@ -13,7 +13,7 @@ def _substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
         return None
     if v.get('_classname') != 'SimilarityExpr':
         return None
-    if 'tbl_version_key' in v:  # already migrated
+    if 'table_version_key' in v:  # already migrated
         return None
     assert 'components' in v
     components = v['components']
@@ -21,14 +21,15 @@ def _substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     col_ref_dict = components[0]
     tbl_id = col_ref_dict['tbl_id']
     tbl_version = col_ref_dict['tbl_version']
-    tbl_version_key = {'id': tbl_id, 'effective_version': tbl_version, 'anchor_tbl_id': None}
+    table_version_key = {'id': tbl_id, 'effective_version': tbl_version, 'anchor_tbl_id': None}
     # copy index name, class name etc
     new_d: dict[str, Any] = {kk: vv for kk, vv in v.items() if kk != 'components'}
     # Skip column ref from components
     new_d['components'] = [components[1]]
-    new_d['tbl_version_key'] = tbl_version_key
-    new_d['idx_name'] = v.get('idx_name')  # index name can be none or missing
-    new_d['_classname'] = 'SimilarityExpr'
+    new_d['table_version_key'] = table_version_key
+    new_d['idx_name'] = v.get('idx_name')
+    new_d['col_id'] = col_ref_dict['col_id']
+    new_d['_classname'] = v['_classname']
     return (k, new_d)
 
 

@@ -19,6 +19,34 @@ def cast(expr: exprs.Expr, target_type: ts.ColumnType | type | _GenericAlias) ->
 T = typing.TypeVar('T')
 
 
+@func.udf(type_substitutions=tuple({T: t} for t in ts.ALL_PIXELTABLE_TYPES))
+def identity(x: T) -> T:
+    """
+    Identity function: returns the input value unchanged.
+
+    Works with any Pixeltable type. Commonly used as the embedding function for array columns
+    in embedding indexes to perform similarity search directly on precomputed embedding vectors.
+
+    Args:
+        x: The input value of any Pixeltable type.
+
+    Returns:
+        The input value unchanged.
+
+    Examples:
+        Create an embedding index on an array column containing pre-computed embedding vectors, using the identity
+        function to indicate the vectors should be used directly for similarity search:
+
+        >>> t.add_embedding_index(
+        ...     'precomputed_embeddings',
+        ...     idx_name='embeddings_cosine_idx',
+        ...     array_embed=pxt.functions.identity,
+        ...     metric='cosine',
+        ... )
+    """
+    return x
+
+
 @func.uda(allows_window=True, type_substitutions=({T: int | None}, {T: float | None}))  # type: ignore[misc]
 class sum(func.Aggregator, typing.Generic[T]):
     """

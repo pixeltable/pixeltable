@@ -13,7 +13,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
-from pixeltable.functions.array import identity
+from pixeltable.functions import identity
 from pixeltable.functions.huggingface import clip
 
 from .utils import (
@@ -66,9 +66,8 @@ class TestIndex:
         # After the query is serialized, dropping the index should raise an error
         # on reload, because the index is no longer available
         t.drop_embedding_index(idx_name='img_idx1')
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match=r'(?i).*img_idx1.*not found.*'):
             reload_tester.run_reload_test(clear=False)
-        assert 'img_idx1' in str(exc_info.value) and 'not found' in str(exc_info.value).lower()
 
         # After the query is serialized, dropping and recreating the index should work
         # on reload, because the index is available again even if it is not the exact
@@ -722,7 +721,10 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             # no embedding function specified
             img_t.add_embedding_index('img')
-        assert '`embed`, `string_embed`, `image_embed`, or `array_embed` must be specified' in str(exc_info.value)
+        assert (
+            '`embed`, `string_embed`, `image_embed`, `audio_embed`, `video_embed` or `array_embed` must be specified'
+            in str(exc_info.value)
+        )
 
         with pytest.raises(pxt.Error, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."):
             # wrong column type
@@ -1023,8 +1025,10 @@ class TestIndex:
         )
         # Array column with array embedding function
         t.add_embedding_index(
-            'vec_array_f32', idx_name='emb_array_f32', array_embed=identity, metric='cosine', precision='fp32'
+            'vec_array_f32', idx_name='emb_array_f32_cosine', array_embed=identity, metric='cosine', precision='fp32'
         )
+        # add another index but without array_embed
+        t.add_embedding_index('vec_array_f32', idx_name='emb_array_f32_l2', metric='l2', precision='fp32')
         best = 'a cat sitting on a mat'
         best_vec = e5_embed.exec([best], {})
         # Test string similarity on computed column and array columns with string embedding function
@@ -1037,19 +1041,19 @@ class TestIndex:
             assert res[0]['text'] == best, col_name
             sim_vals = [r['sim'] for r in res]
             assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
-                f'{col_name}: similarity scores must be descending; got {sim_vals}'
+                f'{col_name}:{idx_name}: similarity scores must be descending; got {sim_vals}'
             )
         # Search by vector (array modality)
-        col = t.vec_array_f32
-        sim = col.similarity(array=best_vec, idx='emb_array_f32')
-        query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
-        res = reload_tester.run_query(query)
-        assert len(res) == 3
-        assert res[0]['text'] == best
-        sim_vals = [r['sim'] for r in res]
-        assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
-            f'vec_array_f32: similarity scores must be descending; got {sim_vals}'
-        )
+        for idx_name in ('emb_array_f32_cosine', 'emb_array_f32_l2'):
+            sim = t.vec_array_f32.similarity(array=best_vec, idx=idx_name)
+            query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
+            res = reload_tester.run_query(query)
+            assert len(res) == 3
+            assert res[0]['text'] == best
+            sim_vals = [r['sim'] for r in res]
+            assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
+                f'vec_array_f32({idx_name}: similarity scores must be descending; got {sim_vals}'
+            )
         reload_tester.run_reload_test()
 
     @staticmethod

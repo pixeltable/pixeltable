@@ -68,9 +68,14 @@ class EmbeddingIndex(IndexBase):
         array_embed: func.Function | None = None,
         column: catalog.Column | None = None,  # Used for validation when the indexed column is an array.
     ):
-        if embed is None and string_embed is None and image_embed is None and array_embed is None:
+        if column is not None and isinstance(column.col_type, ts.ArrayType) and array_embed is None:
+            from pixeltable.functions import identity
+
+            array_embed = identity
+        if not any((embed, string_embed, image_embed, audio_embed, video_embed, array_embed)):
             raise excs.Error(
-                'At least one of `embed`, `string_embed`, `image_embed`, or `array_embed` must be specified'
+                'At least one of `embed`, `string_embed`, `image_embed`, `audio_embed`, `video_embed` '
+                'or `array_embed` must be specified'
             )
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
@@ -230,7 +235,8 @@ class EmbeddingIndex(IndexBase):
             return val_column.sa_col.max_inner_product(embedding) * neg_one
         else:
             assert self.metric == self.Metric.L2
-            return val_column.sa_col.l2_distance(embedding)
+            # Convert distance to similarity: similarity = 1 / (1 + distance)
+            return one / (one + val_column.sa_col.l2_distance(embedding))
 
     def order_by_clause(self, val_column: catalog.Column, item: exprs.Literal, is_asc: bool) -> sql.ColumnElement:
         """Create a ColumnElement that is used in an ORDER BY clause"""
@@ -295,16 +301,17 @@ class EmbeddingIndex(IndexBase):
             )
 
         shape = return_type.shape
-        if shape is None or len(shape) != 1:
-            raise excs.Error(
-                f'The function `{embed_fn.name}` is not a valid embedding: '
-                f'it must return a 1-dimensional array, but returns {return_type}'
-            )
-        if shape[0] is not None and shape[0] <= 0:
-            raise excs.Error(
-                f'The function `{embed_fn.name}` is not a valid embedding: '
-                f'it returns an array of invalid length {shape[0]}'
-            )
+        if embed_fn.name != 'identity':  # skip shape checks for identity function
+            if shape is None or len(shape) != 1:
+                raise excs.Error(
+                    f'The function `{embed_fn.name}` is not a valid embedding: '
+                    f'it must return a 1-dimensional array, but returns {return_type}'
+                )
+            if shape[0] is not None and shape[0] <= 0:
+                raise excs.Error(
+                    f'The function `{embed_fn.name}` is not a valid embedding: '
+                    f'it returns an array of invalid length {shape[0]}'
+                )
 
         # Deserialization when no column context is passed, skip column-specific validation.
         if column is None:
@@ -317,8 +324,8 @@ class EmbeddingIndex(IndexBase):
                 raise excs.Error(
                     f'Column {column.name!r} must be a 1-dimensional array of a specific length for an embedding index.'
                 )
-            # If function also has fixed shape, it must match the column
-            if shape[0] is not None and shape != col_shape:
+            # If function is not identity (with shape None) and has a fixed shape then it must match the column shape
+            if shape is not None and shape[0] is not None and shape != col_shape:
                 raise excs.Error(
                     f'The function `{embed_fn.name}` returns an array with shape {shape}, '
                     f'but column {column.name!r} has shape {col_shape}'
