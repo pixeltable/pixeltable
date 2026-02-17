@@ -63,10 +63,9 @@ class Table(SchemaObject):
     """
     A handle to a table, view, or snapshot. This class is the primary interface through which table operations
     (queries, insertions, updates, etc.) are performed in Pixeltable.
-
-    Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
-    FileCache.emit_eviction_warnings() at the end of the operation.
     """
+    # Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
+    # FileCache.emit_eviction_warnings() at the end of the operation.
 
     # the chain of TableVersions needed to run queries and supply metadata (eg, schema)
     _tbl_version_path: TableVersionPath
