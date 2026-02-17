@@ -328,19 +328,24 @@ class TestOpenai:
         from pixeltable.functions.openai import image_generations
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(img=image_generations(t.input))
+        t.add_computed_column(img=image_generations(t.input, model='dall-e-2'))
         # Test dall-e-2 options
         t.add_computed_column(
-            img_2=image_generations(t.input, model='dall-e-2', model_kwargs={'size': '512x512', 'user': 'pixeltable'})
+            img_2=image_generations(
+                t.input, model='dall-e-2', model_kwargs={'size': '512x512', 'user': 'pixeltable', 'n': 2}
+            )
         )
         # image size information was captured correctly
-        type_info = t._get_schema()
-        assert isinstance(type_info['img_2'], ts.ImageType)
-        assert type_info['img_2'].size == (512, 512)
+        # type_info = t._get_schema()
+        # assert isinstance(type_info['img_2'], ts.ImageType)
+        # assert type_info['img_2'].size == (512, 512)
 
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
-        assert t.collect()['img'][0].size == (1024, 1024)
-        assert t.collect()['img_2'][0].size == (512, 512)
+        assert t.collect()['img'][0]['data'][0].size == (1024, 1024)
+
+        # Also check that multiple images can be generated and returned in the same results dict
+        assert t.collect()['img_2'][0]['data'][0].size == (512, 512)
+        assert t.collect()['img_2'][0]['data'][1].size == (512, 512)
 
     @pytest.mark.expensive
     def test_table_udf_tools(self, uses_db: None) -> None:

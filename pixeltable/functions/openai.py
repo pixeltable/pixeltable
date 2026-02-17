@@ -693,9 +693,7 @@ def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
 
 
 @pxt.udf(is_deterministic=False)
-async def image_generations(
-    prompt: str, *, model: str = 'dall-e-2', model_kwargs: dict[str, Any] | None = None
-) -> PIL.Image.Image:
+async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
     Creates an image given a prompt.
 
@@ -730,31 +728,41 @@ async def image_generations(
     if model_kwargs is None:
         model_kwargs = {}
 
-    # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
-    result = await _openai_client().images.generate(
+    result_model = await _openai_client().images.generate(
         prompt=prompt, model=model, response_format='b64_json', **model_kwargs
     )
-    b64_str = result.data[0].b64_json
-    b64_bytes = base64.b64decode(b64_str)
-    img = PIL.Image.open(io.BytesIO(b64_bytes))
-    img.load()
-    return img
+
+    result = result_model.model_dump()
+
+    # Decode images in response
+    for i in range(len(result['data'])):
+        b64_str = result['data'][i]['b64_json']
+        if b64_str is None:
+            raise excs.Error('Image content is missing in the response.')
+        b64_bytes = base64.b64decode(b64_str)
+        img = PIL.Image.open(io.BytesIO(b64_bytes))
+        img.load()
+        result['data'][i] = img
+
+    return result
 
 
-@image_generations.conditional_return_type
-def _(model_kwargs: dict[str, Any] | None = None) -> ts.ImageType:
-    if model_kwargs is None or 'size' not in model_kwargs:
-        # default size is 1024x1024
-        return ts.ImageType(size=(1024, 1024))
-    size = model_kwargs['size']
-    x_pos = size.find('x')
-    if x_pos == -1:
-        return ts.ImageType()
-    try:
-        width, height = int(size[:x_pos]), int(size[x_pos + 1 :])
-    except ValueError:
-        return ts.ImageType()
-    return ts.ImageType(size=(width, height))
+# TODO: We can resurrect this logic once we have proper typed Json support.
+
+# @image_generations.conditional_return_type
+# def _(model_kwargs: dict[str, Any] | None = None) -> ts.ImageType:
+#     if model_kwargs is None or 'size' not in model_kwargs:
+#         # default size is 1024x1024
+#         return ts.ImageType(size=(1024, 1024))
+#     size = model_kwargs['size']
+#     x_pos = size.find('x')
+#     if x_pos == -1:
+#         return ts.ImageType()
+#     try:
+#         width, height = int(size[:x_pos]), int(size[x_pos + 1 :])
+#     except ValueError:
+#         return ts.ImageType()
+#     return ts.ImageType(size=(width, height))
 
 
 #####################################
