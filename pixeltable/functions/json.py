@@ -11,10 +11,27 @@ t.select(pxtf.json.make_list(t.json_col)).collect()
 ```
 """
 
+import json
 from typing import Any
 
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
+
+
+@pxt.udf
+def dumps(obj: pxt.Json) -> str:
+    """
+    Serialize a JSON object to a string.
+
+    Equivalent to [`json.dumps()`](https://docs.python.org/3/library/json.html#json.dumps).
+
+    Args:
+        obj: A JSON-serializable object (dict, list, or scalar).
+
+    Returns:
+        A JSON-formatted string.
+    """
+    return json.dumps(obj)
 
 
 @pxt.uda
