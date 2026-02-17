@@ -1073,17 +1073,15 @@ class Query:
             A new Query with the specified limited rows.
 
         Examples:
+            >>> query = t.select()
+
             Get the first 10 rows:
 
-            >>> t.limit(10).collect()
+            >>> query.limit(10).collect()
 
-            Get rows 11-20 (skip first 10, return next 10):
+            Get rows 21-30 (skip first 20, return next 10):
 
-            >>> t.limit(10, offset=10).collect()
-
-            Get rows 21-30 (page 3 with page size 10):
-
-            >>> t.limit(10, offset=20).collect()
+            >>> query.limit(10, offset=20).collect()
         """
         if self.sample_clause is not None:
             raise excs.Error('limit() cannot be used with sample()')

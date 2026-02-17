@@ -281,6 +281,24 @@ class Table(SchemaObject):
         return self.select().distinct()
 
     def limit(self, n: int, offset: int | None = None) -> 'pxt.Query':
+        """Select a limited number of rows from the Table, optionally skipping rows for pagination.
+
+        Args:
+            n: Number of rows to select.
+            offset: Number of rows to skip before returning results. Default is None (no offset).
+
+        Returns:
+            A Query with the specified limited rows.
+
+        Examples:
+            Get the first 10 rows:
+
+            >>> t.limit(10).collect()
+
+            Get rows 21-30 (skip first 20, return next 10):
+
+            >>> t.limit(10, offset=20).collect()
+        """
         return self.select().limit(n, offset=offset)
 
     def sample(
