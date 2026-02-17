@@ -68,7 +68,7 @@ def make_tbl(name: str = 'test', col_names: list[str] | None = None) -> pxt.Tabl
     schema: dict[str, ts.ColumnType] = {}
     for i, col_name in enumerate(col_names):
         schema[f'{col_name}'] = make_default_type(ts.ColumnType.Type(i % 5))
-    return pxt.create_table(name, schema)
+    return pxt.create_table(name, schema)  # type: ignore[arg-type]
 
 
 def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows: int = 10) -> list[dict[str, Any]]:
@@ -263,7 +263,7 @@ def create_scalars_tbl(num_rows: int, seed: int = 0, percent_nulls: int = 10) ->
         'c_string': ts.StringType(nullable=True),
         'c_timestamp': ts.TimestampType(nullable=True),
     }
-    tbl = pxt.create_table('scalars_tbl', schema)
+    tbl = pxt.create_table('scalars_tbl', schema)  # type: ignore[arg-type]
 
     example_rows: list[dict[str, Any]] = []
     str_chars = 'abcdefghijklmnopqrstuvwxyzab'
