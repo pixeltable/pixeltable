@@ -408,6 +408,23 @@ class TestQuery:
         assert len(res) == 5  # Only 5 rows left
         assert [row['id'] for row in res] == list(range(45, 50))
 
+        # Test pagination with Python filter (forces Python-side offset handling)
+        # Using a UDF that can't be converted to SQL
+        @pxt.udf(_force_stored=True)
+        def is_even_py(x: int) -> bool:
+            return x % 2 == 0
+
+        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(5, offset=5).collect()
+        assert len(res) == 5
+        assert [row['id'] for row in res] == [10, 12, 14, 16, 18]
+
+        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(10, offset=20).collect()
+        assert len(res) == 5  # Only 5 left
+        assert [row['id'] for row in res] == [40, 42, 44, 46, 48]
+
+        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(5, offset=25).collect()
+        assert len(res) == 0  # No more rows
+
     def test_head_tail(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = t.head(10).to_pandas()
