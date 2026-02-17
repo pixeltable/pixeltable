@@ -378,7 +378,7 @@ class SqlNode(ExecNode):
 
         output_batch = DataRowBatch(self.row_builder)
         output_row: exprs.DataRow | None = None
-        num_rows_returned = 0
+        num_rows_encountered = 0
         is_using_cockroachdb = Env.get().is_using_cockroachdb
         tzinfo = Env.get().default_time_zone
 
@@ -435,32 +435,36 @@ class SqlNode(ExecNode):
             if self.py_filter is not None:
                 # evaluate filter
                 self.row_builder.eval(output_row, self.py_filter_eval_ctx, profile=self.ctx.profile)
-            if self.py_filter is not None and not output_row[self.py_filter.slot_idx]:
-                # we re-use this row for the next sql row since it didn't pass the filter
-                output_row = output_batch.pop_row()
-                output_row.clear()
-            else:
-                # Row passed filter (or no filter)
-                num_rows_returned += 1
+                if not output_row[self.py_filter.slot_idx]:
+                    # didn't pass filter; re-use this row for the next sql row
+                    output_row = output_batch.pop_row()
+                    output_row.clear()
+                    continue
 
-                # Only apply offset/limit logic in Python if we have a Python filter
-                # (otherwise SQL already applied limit/offset)
-                if self.py_filter is not None:
-                    # Check if we should skip this row due to offset
-                    if self.offset is not None and num_rows_returned <= self.offset:
-                        # Skip this row - remove it from batch
-                        output_row = output_batch.pop_row()
-                        output_row.clear()
-                        continue
+            # Row passed filter (or no filter)
+            num_rows_encountered += 1
 
-                    # Check if we've reached the limit (after offset)
-                    if self.limit is not None:
-                        num_rows_in_output = num_rows_returned - (self.offset if self.offset is not None else 0)
-                        if num_rows_in_output == self.limit:
-                            break
+            # if we're using a Python filter, we need to apply offset/limit logic here. (with a SQL filter
+            # that logic has already been baked into the query)
+            if self.py_filter is not None:
+                # Check if we should skip this row due to offset
+                # TODO: Additional machinery (cursor caching) will be needed to make this efficient for repeated
+                #     offset queries
+                if self.offset is not None and num_rows_encountered <= self.offset:
+                    # Skip this row - remove it from batch
+                    output_row = output_batch.pop_row()
+                    output_row.clear()
+                    continue
 
-                # Include this row in output
-                output_row = None
+                # Check if we've reached the limit (after offset)
+                if self.limit is not None:
+                    num_rows_returned = num_rows_encountered - (self.offset or 0)
+                    assert num_rows_returned <= self.limit
+                    if num_rows_returned == self.limit:
+                        break
+
+            # Include this row in output
+            output_row = None
 
             if self.ctx.batch_size > 0 and len(output_batch) == self.ctx.batch_size:
                 _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
