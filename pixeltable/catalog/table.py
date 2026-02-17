@@ -546,9 +546,9 @@ class Table(SchemaObject):
             ...         'media_validation': 'on_write',
             ...     },
             ...     'new_col_2': {
-	    ...		'type': pxt.String,
-            ...		'default': 'empty'
-	    ...    }   
+                ...		    'type': pxt.String,
+            ...		    'default': 'empty'
+                ...     }
             ... }
             ... tbl.add_columns(schema)
         """
@@ -661,7 +661,7 @@ class Table(SchemaObject):
         elif isinstance(col_spec, (ts.ColumnType, type, _GenericAlias)):
             # Type format - with or without default
             if default is not None:
-                schema = {col_name: {'type': col_spec, 'default': default}}
+                schema = {col_name: ColumnSpec(type=col_spec, default=default)}
             else:
                 schema = kwargs
         else:

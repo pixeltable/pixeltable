@@ -1,7 +1,7 @@
 """User-facing types used for type annotations across the Pixeltable codebase."""
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 if TYPE_CHECKING:
     from pixeltable import exprs
@@ -30,4 +30,11 @@ class ColumnSpec(TypedDict, total=False):
 
         - A local pathname (such as `path/to/outputs/`), or
         - The URI of an object store (such as `s3://my-bucket/outputs/`).
+    """
+    default: Any
+    """
+    Default value for the column.
+
+        - Supported for scalar types (String, Int, Float, Bool, Timestamp, Date, UUID), simple JSON, Array, and Binary.
+        - Not supported for media types (Image, Video, Audio, Document).
     """
