@@ -1089,9 +1089,7 @@ class Query:
         limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
         offset_expr = None
         if offset is not None:
-            offset_expr = self._convert_param_to_typed_expr(
-                offset, ts.IntType(nullable=False), False, 'offset'
-            )
+            offset_expr = self._convert_param_to_typed_expr(offset, ts.IntType(nullable=False), False, 'offset')
 
         return Query(
             from_clause=self._from_clause,
