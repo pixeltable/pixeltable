@@ -27,7 +27,7 @@ def _fireworks_client() -> 'fireworks.client.Fireworks':
     return env.Env.get().get_client('fireworks')
 
 
-@pxt.udf(resource_pool='request-rate:fireworks')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:fireworks')
 async def chat_completions(
     messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> dict:
@@ -60,7 +60,9 @@ async def chat_completions(
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
-        ...     response=chat_completions(messages, model='accounts/fireworks/models/mixtral-8x22b-instruct')
+        ...     response=chat_completions(
+        ...         messages, model='accounts/fireworks/models/mixtral-8x22b-instruct'
+        ...     )
         ... )
     """
     if model_kwargs is None:

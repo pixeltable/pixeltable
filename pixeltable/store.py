@@ -254,6 +254,12 @@ class StoreBase:
         stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
         self._exec_if_not_exists(str(stmt), wait_for_table=True)
 
+    def drop_index(self, idx_id: int) -> None:
+        """Drop If Exists for this index"""
+        idx_info = self.tbl_version.get().idxs[idx_id]
+        stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
+        self._exec_if_not_exists(str(stmt), wait_for_table=True)
+
     def validate(self) -> None:
         """Validate store table against self.table_version"""
         with Env.get().begin_xact() as conn:
@@ -285,11 +291,7 @@ class StoreBase:
         )
 
     def add_column(self, col: catalog.Column) -> None:
-        """Add column(s) to the store-resident table based on a catalog column
-
-        Note that a computed catalog column will require two extra columns (for the computed value and for the error
-        message).
-        """
+        """Add column(s) to the store-resident table based on a catalog column"""
         assert col.is_stored
         conn = Env.get().conn
         col_type_str = col.sa_col_type.compile(dialect=conn.dialect)
@@ -315,8 +317,8 @@ class StoreBase:
         log_stmt(_logger, stmt)
         Env.get().conn.execute(stmt)
 
-    def load_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
-        """Update store column of a computed column with values produced by an execution plan
+    def write_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
+        """Populate store column of a computed column with values produced by an execution plan
 
         Returns:
             number of rows with exceptions

@@ -49,7 +49,7 @@ def _retry(fn: Callable[..., T]) -> Callable[..., T]:
     )(fn)
 
 
-@pxt.udf(resource_pool='request-rate:together:chat')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:together:chat')
 async def completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
     Generate completions based on a given prompt using a specified model.
@@ -78,7 +78,9 @@ async def completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] |
         Add a computed column that applies the model `mistralai/Mixtral-8x7B-v0.1` to an existing Pixeltable column
         `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1'))
+        >>> tbl.add_computed_column(
+        ...     response=completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -87,7 +89,7 @@ async def completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] |
     return result.dict()
 
 
-@pxt.udf(resource_pool='request-rate:together:chat')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:together:chat')
 async def chat_completions(
     messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> dict:
@@ -119,7 +121,11 @@ async def chat_completions(
         `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response=chat_completions(messages, model='mistralai/Mixtral-8x7B-v0.1'))
+        ... tbl.add_computed_column(
+        ...     response=chat_completions(
+        ...         messages, model='mistralai/Mixtral-8x7B-v0.1'
+        ...     )
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -167,7 +173,11 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
         Add a computed column that applies the model `togethercomputer/m2-bert-80M-8k-retrieval`
         to an existing Pixeltable column `tbl.text` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=embeddings(tbl.text, model='togethercomputer/m2-bert-80M-8k-retrieval'))
+        >>> tbl.add_computed_column(
+        ...     response=embeddings(
+        ...         tbl.text, model='togethercomputer/m2-bert-80M-8k-retrieval'
+        ...     )
+        ... )
     """
     result = await _together_client().embeddings.create(input=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
@@ -182,7 +192,7 @@ def _(model: str) -> ts.ArrayType:
     return ts.ArrayType((dimensions,), dtype=ts.FloatType())
 
 
-@pxt.udf(resource_pool='request-rate:together:images')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:together:images')
 async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> PIL.Image.Image:
     """
     Generate images based on a given prompt using a specified model.
@@ -212,7 +222,9 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> tbl.add_computed_column(
-        ...     response=image_generations(tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0')
+        ...     response=image_generations(
+        ...         tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0'
+        ...     )
         ... )
     """
     if model_kwargs is None:

@@ -66,7 +66,7 @@ dependencies = [
     "ftfy>=6.2.0",
     "pydantic>=2.7.4",
     "pyarrow>=19",
-    "pixeltable-pgserver==0.4.0",
+    "pixeltable-pgserver==0.5.0",
     "tzlocal>=5.0",
     "aiohttp>=3.10",
     "deprecated>=1.2.15",
@@ -94,6 +94,7 @@ default-groups = ["dev", "test"]
 override-dependencies = [
     "numpy>=2.2",  # Required because 'whisperx' hard-codes 'numpy<2.1'
     "sse-starlette>=2.0",  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
+    "ruff>=0.14"  # Required because 'fireworks-ai' hard-codes 'ruff<10'
 ]
 
 [tool.uv-dynamic-versioning]
@@ -105,6 +106,9 @@ bump = true
 dev = [
     "mypy>=1.16",
     "boto3-stubs==1.36.23",
+    "opentelemetry-api>=1.39.0",
+    "opentelemetry-sdk>=1.39.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.39.0",
     "pandas-stubs>=2.0",
     "pyarrow-stubs>=19",
     "types-beautifulsoup4>=4.2",
@@ -118,7 +122,7 @@ dev = [
     "types-sqlalchemy-utils~=1.1",
     "types-toml>=0.10",
     "types-tqdm~=4.64",
-    "ruff>=0.9.3,<0.10",
+    "ruff>=0.14",
     "notebook>=7.1.0,<8",
     "mkdocs>=1.6.0,<2",
     "mkdocs-material>=9.5.23,<10",
@@ -175,7 +179,10 @@ dev = [
     "voyageai>=0.3.5",
     "scenedetect>=0.6.0.1",
     "opentelemetry-exporter-otlp>=1.38.0",
+    "runwayml>=4.2.0",
     "ipywidgets>=8.0.0",
+    "mdformat>=1.0.0",
+    "nbqa>=1.9.1",
     "snowflake-sqlalchemy>=1.7.0",
 ]
 test = [
@@ -249,8 +256,9 @@ markers = [
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)
-    'error:Use of similarity\(\):DeprecationWarning',
-    'error:create\(\) is deprecated:DeprecationWarning',
+    'error::pixeltable.exceptions.PixeltableDeprecationWarning',
+    # ignore 'apply() is deprecated' warning for now, until we remove its usage in our tests
+    'ignore:.*apply\(\) is deprecated:pixeltable.exceptions.PixeltableDeprecationWarning',
     "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
     "ignore:Pydantic V1 style `@validator` validators are deprecated.:DeprecationWarning",
     "ignore:Pydantic V1 style `@root_validator` validators are deprecated.:DeprecationWarning",
@@ -303,6 +311,7 @@ ignore = [
     "PLW0108",  # Lambda may be unnecessary (gives false positives, e.g., for an arity-reducing lambda)
     "PLW3201",  # Dunder method has no special meaning (conflicts with _repr_html_)
     "PYI041",  # Use `float` instead of `int | float` (just seems like a questionable idea)
+    "RUF067",  # Allow __init__.py to contain code (we could revisit this later)
     "SIM105",  # Don't prefer `contextlib.suppress()`
     "SIM108",  # Don't prefer use of ternary if/else operator
     "TD002"  # Don't require author for TODOs
@@ -318,6 +327,8 @@ known-first-party = ["pixeltable"]
 split-on-trailing-comma = false
 
 [tool.ruff.format]
+docstring-code-format = true
+docstring-code-line-length = 74
 line-ending = "lf"
 quote-style = "single"
 skip-magic-trailing-comma = true

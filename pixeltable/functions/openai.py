@@ -24,6 +24,7 @@ from pixeltable import env, exprs, type_system as ts
 from pixeltable.config import Config
 from pixeltable.func import Batch, Tools
 from pixeltable.utils.code import local_public_names
+from pixeltable.utils.http import parse_duration_str
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.system import set_file_descriptor_limit
 
@@ -38,23 +39,33 @@ def _(api_key: str, base_url: str | None = None, api_version: str | None = None)
     import openai
 
     max_connections = Config.get().get_int_value('openai.max_connections') or 2000
-    max_keepalive_connections = Config.get().get_int_value('openai.max_keepalive_connections') or 100
+    max_keepalive_connections = Config.get().get_int_value('openai.max_keepalive_connections') or None
+    read_timeout = Config.get().get_float_value('openai.read_timeout') or 120.0
+    write_timeout = Config.get().get_float_value('openai.write_timeout') or 5.0
     set_file_descriptor_limit(max_connections * 2)
     default_query = None if api_version is None else {'api-version': api_version}
 
+    # TODO(PXT-1013): once there's enough confidence in this HTTP client configuration, we should apply it to other
+    # clients.
     # Pixeltable scheduler's retry logic takes into account the rate limit-related response headers, so in theory we can
     # benefit from disabling retries in the OpenAI client (max_retries=0). However to do that, we need to get smarter
     # about idempotency keys and possibly more.
+    http_limits = httpx.Limits(max_keepalive_connections=max_keepalive_connections, max_connections=max_connections)
+    # Connect and pool timeouts should be unset because requests can spend an unbounded time waiting in the queue.
+    # Note: the clock starts ticking for the connect timeout when the request enters the queue, not when it is put on
+    # the wire.
+    http_timeouts = httpx.Timeout(connect=None, read=read_timeout, write=write_timeout, pool=None)
+    _logger.debug(f'Initializing AsyncOpenAI client with httpx limits: {http_limits} and timeouts: {http_timeouts}')
     return openai.AsyncOpenAI(
         api_key=api_key,
         base_url=base_url,
         default_query=default_query,
-        # recommended to increase limits for async client to avoid connection errors
         http_client=httpx.AsyncClient(
-            limits=httpx.Limits(max_keepalive_connections=max_keepalive_connections, max_connections=max_connections),
+            limits=http_limits,
             # HTTP1 tends to perform better on this kind of workloads
             http2=False,
             http1=True,
+            timeout=http_timeouts,
         ),
     )
 
@@ -105,37 +116,6 @@ def _rate_limits_pool(model: str) -> str:
     return f'rate-limits:openai:{model}'
 
 
-def _parse_header_duration(duration_str: str) -> float | None:
-    """Parses the value of x-ratelimit-reset-* header into seconds.
-
-    Returns None if the input cannot be parsed.
-
-    Real life examples of header values:
-    * '1m33.792s'
-    * '857ms'
-    * '0s'
-    * '47.874s'
-    * '156h58m48.601s'
-    """
-    if duration_str is None or duration_str.strip() == '':
-        return None
-    units = {
-        86400: r'(\d+)d',  # days
-        3600: r'(\d+)h',  # hours
-        60: r'(\d+)m(?:[^s]|$)',  # minutes
-        1: r'([\d.]+)s',  # seconds
-        0.001: r'(\d+)ms',  # millis
-    }
-    seconds = None
-    for unit_value, pattern in units.items():
-        match = re.search(pattern, duration_str)
-        if match:
-            seconds = seconds or 0.0
-            seconds += float(match.group(1)) * unit_value
-    _logger.debug(f'Parsed duration header value "{duration_str}" into {seconds} seconds')
-    return seconds
-
-
 def _get_header_info(
     headers: httpx.Headers,
 ) -> tuple[tuple[int, int, datetime.datetime] | None, tuple[int, int, datetime.datetime] | None]:
@@ -184,7 +164,7 @@ def _get_resource_info(headers: httpx.Headers, resource: str) -> tuple[int, int,
     limit_str = headers.get(f'x-ratelimit-limit-{resource}')
     limit = int(limit_str) if limit_str is not None else None
     reset_str = headers.get(f'x-ratelimit-reset-{resource}')
-    reset_in_seconds = _parse_header_duration(reset_str) or 5.0  # Default to 5 seconds
+    reset_in_seconds = parse_duration_str(reset_str) or 5.0  # Default to 5 seconds
     reset_ts = datetime.datetime.now(tz=datetime.timezone.utc) + datetime.timedelta(seconds=reset_in_seconds)
     return (limit, remaining, reset_ts)
 
@@ -254,7 +234,7 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
 # Audio Endpoints
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, Any] | None = None) -> pxt.Audio:
     """
     Generates audio from the input text.
@@ -285,7 +265,9 @@ async def speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, 
         Add a computed column that applies the model `tts-1` to an existing Pixeltable column `tbl.text`
         of the table `tbl`:
 
-        >>> tbl.add_computed_column(audio=speech(tbl.text, model='tts-1', voice='nova'))
+        >>> tbl.add_computed_column(
+        ...     audio=speech(tbl.text, model='tts-1', voice='nova')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -326,7 +308,11 @@ async def transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: dict[str
         Add a computed column that applies the model `whisper-1` to an existing Pixeltable column `tbl.audio`
         of the table `tbl`:
 
-        >>> tbl.add_computed_column(transcription=transcriptions(tbl.audio, model='whisper-1', language='en'))
+        >>> tbl.add_computed_column(
+        ...     transcription=transcriptions(
+        ...         tbl.audio, model='whisper-1', language='en'
+        ...     )
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -365,7 +351,9 @@ async def translations(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, 
         Add a computed column that applies the model `whisper-1` to an existing Pixeltable column `tbl.audio`
         of the table `tbl`:
 
-        >>> tbl.add_computed_column(translation=translations(tbl.audio, model='whisper-1', language='en'))
+        >>> tbl.add_computed_column(
+        ...     translation=translations(tbl.audio, model='whisper-1', language='en')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -429,7 +417,7 @@ def _chat_completions_get_request_resources(
     return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def chat_completions(
     messages: list,
     *,
@@ -468,9 +456,11 @@ async def chat_completions(
 
         >>> messages = [
         ...     {'role': 'system', 'content': 'You are a helpful assistant.'},
-        ...     {'role': 'user', 'content': tbl.prompt}
+        ...     {'role': 'user', 'content': tbl.prompt},
         ... ]
-        >>> tbl.add_computed_column(response=chat_completions(messages, model='gpt-4o-mini'))
+        >>> tbl.add_computed_column(
+        ...     response=chat_completions(messages, model='gpt-4o-mini')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -544,7 +534,7 @@ def _vision_get_request_resources(
     return {'requests': 1, 'tokens': int(total_tokens)}
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def vision(
     prompt: str,
     image: PIL.Image.Image,
@@ -579,7 +569,11 @@ async def vision(
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.image`
         of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=vision("What's in this image?", tbl.image, model='gpt-4o-mini'))
+        >>> tbl.add_computed_column(
+        ...     response=vision(
+        ...         "What's in this image?", tbl.image, model='gpt-4o-mini'
+        ...     )
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -671,11 +665,15 @@ async def embeddings(
         Add a computed column that applies the model `text-embedding-3-small` to an existing
         Pixeltable column `tbl.text` of the table `tbl`:
 
-        >>> tbl.add_computed_column(embed=embeddings(tbl.text, model='text-embedding-3-small'))
+        >>> tbl.add_computed_column(
+        ...     embed=embeddings(tbl.text, model='text-embedding-3-small')
+        ... )
 
         Add an embedding index to an existing column `text`, using the model `text-embedding-3-small`:
 
-        >>> tbl.add_embedding_index(embedding=embeddings.using(model='text-embedding-3-small'))
+        >>> tbl.add_embedding_index(
+        ...     embedding=embeddings.using(model='text-embedding-3-small')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -712,7 +710,7 @@ def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
 # Images Endpoints
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def image_generations(
     prompt: str, *, model: str = 'dall-e-2', model_kwargs: dict[str, Any] | None = None
 ) -> PIL.Image.Image:
@@ -743,7 +741,9 @@ async def image_generations(
         Add a computed column that applies the model `dall-e-2` to an existing
         Pixeltable column `tbl.text` of the table `tbl`:
 
-        >>> tbl.add_computed_column(gen_image=image_generations(tbl.text, model='dall-e-2'))
+        >>> tbl.add_computed_column(
+        ...     gen_image=image_generations(tbl.text, model='dall-e-2')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -779,7 +779,7 @@ def _(model_kwargs: dict[str, Any] | None = None) -> ts.ImageType:
 # Moderations Endpoints
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict:
     """
     Classifies if text is potentially harmful.
@@ -808,7 +808,9 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
         Add a computed column that applies the model `text-moderation-stable` to an existing
         Pixeltable column `tbl.input` of the table `tbl`:
 
-        >>> tbl.add_computed_column(moderations=moderations(tbl.text, model='text-moderation-stable'))
+        >>> tbl.add_computed_column(
+        ...     moderations=moderations(tbl.text, model='text-moderation-stable')
+        ... )
     """
     result = await _openai_client().moderations.create(input=input, model=model)
     return result.dict()

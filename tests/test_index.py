@@ -175,7 +175,7 @@ class TestIndex:
 
         t.drop_embedding_index(column='img')
 
-    def test_query(self, reset_db: None, clip_embed: pxt.Function) -> None:
+    def test_query(self, uses_db: None, clip_embed: pxt.Function) -> None:
         skip_test_if_not_installed('transformers')
         queries = pxt.create_table('queries', {'query_text': pxt.String})
         query_rows = [
@@ -416,9 +416,9 @@ class TestIndex:
         # cannot use if_exists to ignore or replace an existing index
         # that is not an embedding (like, default btree indexes).
         assert indexes[0]['_name'] == 'idx0'
-        for _ie in ['ignore', 'replace', 'replace_force']:
+        for ie in ('ignore', 'replace', 'replace_force'):
             with pytest.raises(pxt.Error, match='not an embedding index'):
-                t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=_ie)  # type: ignore[arg-type]
+                t.add_embedding_index('img', idx_name='idx0', embedding=clip_embed, if_exists=ie)
         indexes = t._list_index_info_for_test()
         assert len(indexes) == initial_indexes + 3
         assert indexes[0]['_name'] == 'idx0'
@@ -459,7 +459,7 @@ class TestIndex:
             new_rows.append(row)
 
         # create table with fewer rows to speed up testing
-        schema = {'pkey': ts.IntType(nullable=False), 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        schema = {'pkey': pxt.Required[pxt.Int], 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
         tbl_name = 'update_test'
         img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
         img_t.insert(new_rows)
@@ -671,7 +671,7 @@ class TestIndex:
 
     @pytest.mark.skipif(platform.system() == 'Windows', reason='Segfaulting on Windows runners for unknown reasons')
     def test_view_indices(
-        self, reset_db: None, e5_embed: pxt.Function, all_mpnet_embed: pxt.Function, reload_tester: ReloadTester
+        self, uses_db: None, e5_embed: pxt.Function, all_mpnet_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
         skip_test_if_not_installed('sentence_transformers')
 
@@ -856,17 +856,17 @@ class TestIndex:
 
     BTREE_TEST_NUM_ROWS = 10001  # ~10k rows: incentivize Postgres to use the index
 
-    def test_int_btree(self, reset_db: None) -> None:
+    def test_int_btree(self, uses_db: None) -> None:
         random.seed(1)
         data = [random.randint(0, 2**63 - 1) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(data, pxt.Int)
 
-    def test_float_btree(self, reset_db: None) -> None:
+    def test_float_btree(self, uses_db: None) -> None:
         random.seed(1)
         data = [random.uniform(0, sys.float_info.max) for _ in range(self.BTREE_TEST_NUM_ROWS)]
         self.run_btree_test(data, pxt.Float)
 
-    def test_string_btree(self, reset_db: None) -> None:
+    def test_string_btree(self, uses_db: None) -> None:
         def create_random_str(n: int) -> str:
             chars = string.ascii_letters + string.digits
             return ''.join(random.choice(chars) for _ in range(n))
@@ -899,7 +899,7 @@ class TestIndex:
         assert t.where(t.data >= s).count() == 2
         assert t.where(t.data > s).count() == 1
 
-    def test_timestamp_btree(self, reset_db: None) -> None:
+    def test_timestamp_btree(self, uses_db: None) -> None:
         random.seed(1)
         start = datetime.datetime(2000, 1, 1)
         end = datetime.datetime(2020, 1, 1)
@@ -911,7 +911,7 @@ class TestIndex:
         ]
         self.run_btree_test(data, pxt.Timestamp)
 
-    def test_date_btree(self, reset_db: None) -> None:
+    def test_date_btree(self, uses_db: None) -> None:
         random.seed(1)
         start = datetime.date(2000, 1, 1)
         end = datetime.date(2100, 1, 1)
@@ -945,11 +945,7 @@ class TestIndex:
     @pytest.mark.parametrize('metric', ['l2', 'cosine', 'ip'])
     @pytest.mark.parametrize('precision', ['fp16', 'fp32'])
     def test_embedding_index_precision(
-        self,
-        reset_db: None,
-        reload_cat: bool,
-        metric: Literal['cosine', 'ip', 'l2'],
-        precision: Literal['fp16', 'fp32'],
+        self, uses_db: None, reload_cat: bool, metric: Literal['cosine', 'ip', 'l2'], precision: Literal['fp16', 'fp32']
     ) -> None:
         # Note: dummy embeddings produced by our test UDF are not normalized, so, strictly speaking, it cannot be
         # used with IP metric, however it appears to work fine anyway, and that's good enough for our test purpose.

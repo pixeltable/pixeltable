@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import inspect
 import logging
-from typing import TYPE_CHECKING, Any, List, Literal
+from typing import TYPE_CHECKING, Any, List, Literal, Mapping
 from uuid import UUID
 
 import pixeltable.exceptions as excs
@@ -10,6 +10,7 @@ import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
 from pixeltable import catalog, exprs, func
 from pixeltable.iterators import ComponentIterator
+from pixeltable.types import ColumnSpec
 
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
@@ -17,7 +18,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import CreateStoreTableOp, LoadViewOp, TableOp
+from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, LoadViewOp, OpStatus, TableOp
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -53,14 +54,16 @@ class View(Table):
         return 'table'
 
     @classmethod
-    def select_list_to_additional_columns(cls, select_list: list[tuple[exprs.Expr, str | None]]) -> dict[str, dict]:
+    def select_list_to_additional_columns(
+        cls, select_list: list[tuple[exprs.Expr, str | None]]
+    ) -> dict[str, ColumnSpec]:
         """Returns a list of columns in the same format as the additional_columns parameter of View.create.
         The source is the list of expressions from a select() statement on a Query.
         If the column is a ColumnRef, to a base table column, it is marked to not be stored.sy
         """
         from pixeltable._query import Query
 
-        r: dict[str, dict] = {}
+        r: dict[str, ColumnSpec] = {}
         exps, names = Query._normalize_select_list([], select_list)
         for expr, name in zip(exps, names):
             stored = not isinstance(expr, exprs.ColumnRef)
@@ -74,13 +77,14 @@ class View(Table):
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,
-        additional_columns: dict[str, Any],
+        additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr],
         predicate: 'exprs.Expr' | None,
         sample_clause: 'SampleClause' | None,
         is_snapshot: bool,
         create_default_idxs: bool,
         num_retained_versions: int,
         comment: str,
+        custom_metadata: Any,
         media_validation: MediaValidation,
         iterator_cls: type[ComponentIterator] | None,
         iterator_args: dict | None,
@@ -210,6 +214,7 @@ class View(Table):
             columns,
             num_retained_versions,
             comment,
+            custom_metadata,
             media_validation=media_validation,
             view_md=view_md,
             create_default_idxs=create_default_idxs,
@@ -222,11 +227,15 @@ class View(Table):
             key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = [
-                TableOp(
-                    tbl_id=tbl_id, op_sn=0, num_ops=2, needs_xact=False, create_store_table_op=CreateStoreTableOp()
-                ),
-                TableOp(
-                    tbl_id=tbl_id, op_sn=1, num_ops=2, needs_xact=True, load_view_op=LoadViewOp(view_path.as_dict())
+                CreateTableMdOp(tbl_id=tbl_id, op_sn=0, num_ops=3, needs_xact=True, status=OpStatus.PENDING),
+                CreateStoreTableOp(tbl_id=tbl_id, op_sn=1, num_ops=3, needs_xact=False, status=OpStatus.PENDING),
+                LoadViewOp(
+                    tbl_id=tbl_id,
+                    op_sn=2,
+                    num_ops=3,
+                    needs_xact=True,
+                    status=OpStatus.PENDING,
+                    view_path=view_path.as_dict(),
                 ),
             ]
             return md, ops

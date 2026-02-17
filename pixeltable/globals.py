@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
 
 import pandas as pd
 import pydantic
@@ -16,6 +17,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.iterators import ComponentIterator
+from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -48,7 +50,7 @@ def init(config_overrides: dict[str, Any] | None = None) -> None:
 
 def create_table(
     path: str,
-    schema: dict[str, Any] | None = None,
+    schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     *,
     source: TableDataSource | None = None,
     source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
@@ -58,6 +60,7 @@ def create_table(
     primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     extra_args: dict[str, Any] | None = None,  # Additional arguments to data source provider
@@ -71,7 +74,7 @@ def create_table(
     source format and/or schema can be specified directly via the `source_format` and `schema_overrides` parameters.
 
     Args:
-        path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir.my_subdir.my_table'`.
+        path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir/my_subdir/my_table'`.
         schema: Schema for the new table, mapping column names to Pixeltable types.
         source: A data source (file, URL, Table, Query, or list of rows) to import from.
         source_format: Must be used in conjunction with a `source`.
@@ -93,6 +96,8 @@ def create_table(
             table.
         num_retained_versions: Number of versions of the table to retain.
         comment: An optional comment; its meaning is user-defined.
+        custom_metadata: Optional user-defined metadata to associate with the table. Must be a valid JSON-serializable
+            object [str, int, float, bool, dict, list].
         media_validation: Media validation policy for the table.
 
             - `'on_read'`: validate media files at query time
@@ -123,21 +128,33 @@ def create_table(
     Examples:
         Create a table with an int and a string column:
 
-        >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String})
+        >>> tbl = pxt.create_table(
+        ...     'my_table', schema={'col1': pxt.Int, 'col2': pxt.String}
+        ... )
 
         Create a table from a select statement over an existing table `orig_table` (this will create a new table
         containing the exact contents of the query):
 
         >>> tbl1 = pxt.get_table('orig_table')
-        ... tbl2 = pxt.create_table('new_table', tbl1.where(tbl1.col1 < 10).select(tbl1.col2))
+        ... tbl2 = pxt.create_table(
+        ...     'new_table', tbl1.where(tbl1.col1 < 10).select(tbl1.col2)
+        ... )
 
         Create a table if it does not already exist, otherwise get the existing table:
 
-        >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.String}, if_exists='ignore')
+        >>> tbl = pxt.create_table(
+        ...     'my_table',
+        ...     schema={'col1': pxt.Int, 'col2': pxt.String},
+        ...     if_exists='ignore',
+        ... )
 
         Create a table with an int and a float column, and replace any existing table:
 
-        >>> tbl = pxt.create_table('my_table', schema={'col1': pxt.Int, 'col2': pxt.Float}, if_exists='replace')
+        >>> tbl = pxt.create_table(
+        ...     'my_table',
+        ...     schema={'col1': pxt.Int, 'col2': pxt.Float},
+        ...     if_exists='replace',
+        ... )
 
         Create a table from a CSV file:
 
@@ -148,7 +165,7 @@ def create_table(
         >>> tbl = pxt.create_table(
         ...     'my_table',
         ...     schema={'id': pxt.functions.uuid.uuid4(), 'data': pxt.String},
-        ...     primary_key=['id']
+        ...     primary_key=['id'],
         ... )
     """
     from pixeltable.io.table_data_conduit import UnkTableDataConduit
@@ -186,7 +203,7 @@ def create_table(
         data_source.src_schema_overrides = src_schema_overrides
         data_source.src_pk = primary_key
         data_source.infer_schema()
-        schema = data_source.pxt_schema
+        schema = data_source.pxt_schema  # type: ignore[assignment]
         primary_key = data_source.pxt_pk
         is_direct_query = data_source.is_direct_query()
     else:
@@ -197,12 +214,21 @@ def create_table(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
         )
 
+    if not isinstance(comment, str):
+        raise excs.Error('`comment` must be a string')
+
+    try:
+        json.dumps(custom_metadata)
+    except (TypeError, ValueError) as err:
+        raise excs.Error('`custom_metadata` must be JSON-serializable') from err
+
     tbl, was_created = Catalog.get().create_table(
         path_obj,
         schema,
         if_exists=if_exists_,
         primary_key=primary_key,
         comment=comment,
+        custom_metadata=custom_metadata,
         media_validation=media_validation_,
         num_retained_versions=num_retained_versions,
         create_default_idxs=create_default_idxs,
@@ -225,12 +251,13 @@ def create_view(
     path: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: dict[str, Any] | None = None,
+    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     is_snapshot: bool = False,
     create_default_idxs: bool = False,
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> catalog.Table | None:
@@ -238,7 +265,7 @@ def create_view(
 
     Args:
         path: A name for the view; can be either a simple name such as `my_view`, or a pathname such as
-            `dir1.my_view`.
+            `dir1/my_view`.
         base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`Query`][pixeltable.Query] to
             base the view on.
         additional_columns: If specified, will add these columns to the view once it is created. The format
@@ -252,6 +279,7 @@ def create_view(
             the base table.
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the view.
+        custom_metadata: Optional user-defined JSON metadata to associate with the view.
         media_validation: Media validation policy for the view.
 
             - `'on_read'`: validate media files at query time
@@ -287,13 +315,17 @@ def create_view(
         and if it not already exist. Otherwise, get the existing view named `my_view`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10), if_exists='ignore')
+        ... view = pxt.create_view(
+        ...     'my_view', tbl.where(tbl.col1 > 10), if_exists='ignore'
+        ... )
 
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 100,
         and replace any existing view named `my_view`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force')
+        ... view = pxt.create_view(
+        ...     'my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force'
+        ... )
     """
     if is_snapshot and create_default_idxs is True:
         raise excs.Error('Cannot create default indexes on a snapshot')
@@ -333,6 +365,14 @@ def create_view(
                     f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
                 )
 
+    if not isinstance(comment, str):
+        raise excs.Error('`comment` must be a string')
+
+    try:
+        json.dumps(custom_metadata)
+    except (TypeError, ValueError) as err:
+        raise excs.Error('`custom_metadata` must be JSON-serializable') from err
+
     return Catalog.get().create_view(
         path_obj,
         tbl_version_path,
@@ -345,6 +385,7 @@ def create_view(
         iterator=iterator,
         num_retained_versions=num_retained_versions,
         comment=comment,
+        custom_metadata=custom_metadata,
         media_validation=media_validation_,
         if_exists=if_exists_,
     )
@@ -354,10 +395,11 @@ def create_snapshot(
     path_str: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: dict[str, Any] | None = None,
+    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
     num_retained_versions: int = 10,
     comment: str = '',
+    custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
 ) -> catalog.Table | None:
@@ -365,7 +407,7 @@ def create_snapshot(
 
     Args:
         path_str: A name for the snapshot; can be either a simple name such as `my_snapshot`, or a pathname such as
-            `dir1.my_snapshot`.
+            `dir1/my_snapshot`.
         base: [`Table`][pixeltable.Table] (i.e., table or view or snapshot) or [`Query`][pixeltable.Query] to
             base the snapshot on.
         additional_columns: If specified, will add these columns to the snapshot once it is created. The format
@@ -375,6 +417,7 @@ def create_snapshot(
             the base table.
         num_retained_versions: Number of versions of the view to retain.
         comment: Optional comment for the snapshot.
+        custom_metadata: Optional user-defined JSON metadata to associate with the snapshot.
         media_validation: Media validation policy for the snapshot.
 
             - `'on_read'`: validate media files at query time
@@ -410,13 +453,18 @@ def create_snapshot(
 
         >>> view = pxt.get_table('my_view')
         ... snapshot = pxt.create_snapshot(
-        ...     'my_snapshot', view, additional_columns={'col3': pxt.Int}, if_exists='ignore'
+        ...     'my_snapshot',
+        ...     view,
+        ...     additional_columns={'col3': pxt.Int},
+        ...     if_exists='ignore',
         ... )
 
         Create a snapshot `my_snapshot` on a table `my_table`, and replace any existing snapshot named `my_snapshot`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... snapshot = pxt.create_snapshot('my_snapshot', tbl, if_exists='replace_force')
+        ... snapshot = pxt.create_snapshot(
+        ...     'my_snapshot', tbl, if_exists='replace_force'
+        ... )
     """
     return create_view(
         path_str,
@@ -426,6 +474,7 @@ def create_snapshot(
         is_snapshot=True,
         num_retained_versions=num_retained_versions,
         comment=comment,
+        custom_metadata=custom_metadata,
         media_validation=media_validation,
         if_exists=if_exists,
     )
@@ -470,7 +519,7 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     Args:
         remote_uri: Remote URI of the table to be replicated, such as `'pxt://org_name/my_dir/my_table'` or
             `'pxt://org_name/my_dir/my_table:5'` (with version 5).
-        local_path: Local table path where the replica will be created, such as `'my_new_dir.my_new_tbl'`. It can be
+        local_path: Local table path where the replica will be created, such as `'my_new_dir/my_new_tbl'`. It can be
             the same or different from the cloud table name.
 
     Returns:
@@ -506,7 +555,7 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
 
         For a table in a subdirectory:
 
-        >>> tbl = pxt.get_table('subdir.my_table')
+        >>> tbl = pxt.get_table('subdir/my_table')
 
         Handles to views and snapshots are retrieved in the same way:
 
@@ -551,11 +600,11 @@ def move(
     Examples:
         Move a table to a different directory:
 
-        >>>> pxt.move('dir1.my_table', 'dir2.my_table')
+        >>>> pxt.move('dir1/my_table', 'dir2/my_table')
 
         Rename a table:
 
-        >>>> pxt.move('dir1.my_table', 'dir1.new_name')
+        >>>> pxt.move('dir1/my_table', 'dir1/new_name')
     """
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     if if_exists_ not in (catalog.IfExistsParam.ERROR, catalog.IfExistsParam.IGNORE):
@@ -594,17 +643,17 @@ def drop_table(
 
     Examples:
         Drop a table by its fully qualified name:
-        >>> pxt.drop_table('subdir.my_table')
+        >>> pxt.drop_table('subdir/my_table')
 
         Drop a table by its handle:
-        >>> t = pxt.get_table('subdir.my_table')
+        >>> t = pxt.get_table('subdir/my_table')
         ... pxt.drop_table(t)
 
         Drop a table if it exists, otherwise do nothing:
-        >>> pxt.drop_table('subdir.my_table', if_not_exists='ignore')
+        >>> pxt.drop_table('subdir/my_table', if_not_exists='ignore')
 
         Drop a table and all its dependents:
-        >>> pxt.drop_table('subdir.my_table', force=True)
+        >>> pxt.drop_table('subdir/my_table', force=True)
     """
     tbl_path: str
     if isinstance(table, catalog.Table):
@@ -670,7 +719,7 @@ def _assemble_dir_contents(
     for name, entry in catalog_entries.items():
         if name.startswith('_'):
             continue  # Skip system paths
-        path = f'{dir_path}.{name}' if len(dir_path) > 0 else name
+        path = f'{dir_path}/{name}' if len(dir_path) > 0 else name
         if entry.dir is not None:
             dirs.append(path)
             if entry.dir_entries is not None:
@@ -746,11 +795,11 @@ def create_dir(
 
         Create a subdirectory:
 
-        >>> pxt.create_dir('my_dir.sub_dir')
+        >>> pxt.create_dir('my_dir/sub_dir')
 
         Create a subdirectory only if it does not already exist, otherwise do nothing:
 
-        >>> pxt.create_dir('my_dir.sub_dir', if_exists='ignore')
+        >>> pxt.create_dir('my_dir/sub_dir', if_exists='ignore')
 
         Create a directory and replace if it already exists:
 
@@ -758,7 +807,7 @@ def create_dir(
 
         Create a subdirectory along with its ancestors:
 
-        >>> pxt.create_dir('parent1.parent2.sub_dir', parents=True)
+        >>> pxt.create_dir('parent1/parent2/sub_dir', parents=True)
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
@@ -792,11 +841,11 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
 
         Remove a subdirectory:
 
-        >>> pxt.drop_dir('my_dir.sub_dir')
+        >>> pxt.drop_dir('my_dir/sub_dir')
 
         Remove an existing directory if it is empty, but do nothing if it does not exist:
 
-        >>> pxt.drop_dir('my_dir.sub_dir', if_not_exists='ignore')
+        >>> pxt.drop_dir('my_dir/sub_dir', if_not_exists='ignore')
 
         Remove an existing directory and all its contents:
 
@@ -882,11 +931,11 @@ def _extract_paths(
         matches = [name for name, entry in dir_entries.items() if entry.table is not None]
 
     # Filter out system paths
-    matches = [name for name in matches if catalog.is_valid_identifier(name)]
+    matches = [name for name in matches if catalog.is_valid_identifier(name, allow_hyphens=True)]
     result = [parent.append(name) for name in matches]
 
     for name, entry in dir_entries.items():
-        if len(entry.dir_entries) > 0 and catalog.is_valid_identifier(name):
+        if len(entry.dir_entries) > 0 and catalog.is_valid_identifier(name, allow_hyphens=True):
             result.extend(_extract_paths(entry.dir_entries, parent=parent.append(name), entry_type=entry_type))
     return result
 
@@ -906,7 +955,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
 
     Examples:
         >>> cl.list_dirs('my_dir', recursive=True)
-        ['my_dir', 'my_dir.sub_dir1']
+        ['my_dir', 'my_dir/sub_dir1']
     """
     path_obj = catalog.Path.parse(path, allow_empty_path=True)  # validate format
     cat = Catalog.get()
@@ -973,7 +1022,10 @@ def tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools:
 
         >>> tools = pxt.tools(
         ...     stock_price,
-        ...     pxt.tool(weather_quote, description='Returns information about the weather in a particular location.'),
+        ...     pxt.tool(
+        ...         weather_quote,
+        ...         description='Returns information about the weather in a particular location.',
+        ...     ),
         ...     pxt.tool(traffic_quote, name='traffic_conditions'),
         ... )
     """
@@ -1016,6 +1068,15 @@ def configure_logging(
 
 def array(elements: Iterable) -> exprs.Expr:
     return exprs.Expr.from_array(elements)
+
+
+def home() -> Path:
+    """Get the path to the user's home directory in Pixeltable.
+
+    Returns:
+        The path to the user's home directory.
+    """
+    return Config.get().home
 
 
 class DirContents(TypedDict):

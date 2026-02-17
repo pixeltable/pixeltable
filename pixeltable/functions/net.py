@@ -39,7 +39,7 @@ def presigned_url(uri: str, expiration_seconds: int) -> str:
 
         >>> tbl.select(
         ...     original_url=tbl.video.fileurl,
-        ...     presigned_url=pxtf.net.presigned_url(tbl.video.fileurl, 3600)
+        ...     presigned_url=pxtf.net.presigned_url(tbl.video.fileurl, 3600),
         ... ).collect()
     """
     if not uri:

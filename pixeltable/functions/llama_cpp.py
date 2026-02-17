@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     import llama_cpp
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 def create_chat_completion(
     messages: list[dict],
     *,

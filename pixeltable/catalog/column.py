@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import warnings
+from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
@@ -85,7 +86,7 @@ class Column:
         stores_cellmd: bool | None = None,
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
-        destination: str | None = None,
+        destination: str | Path | None = None,
     ):
         if name is not None and not is_valid_identifier(name):
             raise excs.Error(f'Invalid column name: {name}')
@@ -136,6 +137,10 @@ class Column:
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
+
+        if isinstance(destination, Path):
+            destination = str(destination)
+
         self._explicit_destination = destination
 
     def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:

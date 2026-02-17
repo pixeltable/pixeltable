@@ -132,7 +132,7 @@ class TestQuery:
         with pytest.raises(pxt.Error, match=r'where\(\) clause already specified'):
             _ = t.select(t.c2).where(t.c2 <= 10).where(t.c2 <= 20).count()
 
-    def test_join(self, reset_db: None) -> None:
+    def test_join(self, uses_db: None) -> None:
         num_rows = 1000
         t1, t2, t3 = self.create_join_tbls(num_rows)
         # inner join
@@ -192,7 +192,7 @@ class TestQuery:
         pd_df = res.to_pandas()
         # TODO: verify result
 
-    def test_join_errors(self, reset_db: None) -> None:
+    def test_join_errors(self, uses_db: None) -> None:
         t1, t2, t3 = self.create_join_tbls(1000)
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -452,7 +452,7 @@ class TestQuery:
         res = t.select(1.0).where(t.c2 < 10).collect()
         assert res[next(iter(res.schema.keys()))] == [1.0] * 10
 
-    def test_html_media_url(self, reset_db: None) -> None:
+    def test_html_media_url(self, uses_db: None) -> None:
         tab = pxt.create_table('test_html_repr', {'video': pxt.Video, 'audio': pxt.Audio, 'doc': pxt.Document})
 
         pdf_doc = next(f for f in get_documents() if f.endswith('.pdf'))
@@ -553,7 +553,7 @@ class TestQuery:
 
         # grouping_tbl
 
-        t2 = pxt.create_table('test_tbl_2', {'name': ts.StringType(), 'video': ts.VideoType()})
+        t2 = pxt.create_table('test_tbl_2', {'name': pxt.String, 'video': pxt.Video})
         v2 = pxt.create_view('test_view_2', t2, iterator=frame_iterator(t2.video, fps=1))
         with pytest.raises(pxt.Error) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
@@ -716,13 +716,13 @@ class TestQuery:
         assert isinstance(ds4, PixeltablePytorchDataset)
         assert ds4.path != ds3.path, 'different select list, hence different path should be used'
 
-    def test_to_coco(self, reset_db: None) -> None:
+    def test_to_coco(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
         from pycocotools.coco import COCO
 
         from pixeltable.functions.yolox import yolo_to_coco, yolox
 
-        base_t = pxt.create_table('videos', {'video': ts.VideoType()})
+        base_t = pxt.create_table('videos', {'video': pxt.Video})
         view_t = pxt.create_view('frames', base_t, iterator=frame_iterator(base_t.video, fps=1))
         view_t.add_computed_column(detections=yolox(view_t.frame, model_id='yolox_m'))
         base_t.insert(video=get_video_files()[0])
@@ -753,7 +753,7 @@ class TestQuery:
             _ = view_t.select(view_t.detections).to_coco_dataset()
         assert 'missing key "image"' in str(exc_info.value).lower()
 
-    def test_distinct(self, reset_db: None, reload_tester: ReloadTester) -> None:
+    def test_distinct(self, uses_db: None, reload_tester: ReloadTester) -> None:
         schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp, 'c5': pxt.Json}
         t = pxt.create_table('test_distinct', schema)
         results = t.distinct().collect()
@@ -846,7 +846,7 @@ class TestQuery:
         assert 'c3' in results.schema
         assert 'c4' in results.schema
 
-    def test_to_pydantic(self, reset_db: None) -> None:
+    def test_to_pydantic(self, uses_db: None) -> None:
         class TestModel(pydantic.BaseModel):
             i: int
             s: str

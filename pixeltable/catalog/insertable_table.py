@@ -12,6 +12,7 @@ import pydantic_core
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
+from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.pydantic import is_json_convertible
 
@@ -20,7 +21,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import CreateStoreTableOp, TableOp
+from .tbl_ops import CreateStoreTableOp, CreateTableMdOp, OpStatus, TableOp
 from .update_status import UpdateStatus
 
 if TYPE_CHECKING:
@@ -68,10 +69,11 @@ class InsertableTable(Table):
     def _create(
         cls,
         name: str,
-        schema: dict[str, ts.ColumnType],
+        schema: dict[str, type | ColumnSpec | exprs.Expr],
         primary_key: list[str],
         num_retained_versions: int,
         comment: str,
+        custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
     ) -> tuple[TableVersionMd, list[TableOp]]:
@@ -94,19 +96,15 @@ class InsertableTable(Table):
             columns,
             num_retained_versions,
             comment,
+            custom_metadata,
             media_validation,
             create_default_idxs=create_default_idxs,
             view_md=None,
         )
 
         ops = [
-            TableOp(
-                tbl_id=md.tbl_md.tbl_id,
-                op_sn=0,
-                num_ops=1,
-                needs_xact=False,
-                create_store_table_op=CreateStoreTableOp(),
-            )
+            CreateTableMdOp(tbl_id=md.tbl_md.tbl_id, op_sn=0, num_ops=2, needs_xact=True, status=OpStatus.PENDING),
+            CreateStoreTableOp(tbl_id=md.tbl_md.tbl_id, op_sn=1, num_ops=2, needs_xact=False, status=OpStatus.PENDING),
         ]
         return md, ops
 

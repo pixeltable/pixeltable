@@ -403,7 +403,7 @@ def segment_video(
         ...     segment_paths=tbl.video.segment_video(
         ...         duration=10,
         ...         video_encoder='libx264',
-        ...         video_encoder_args={'crf': 23, 'preset': 'slow'}
+        ...         video_encoder_args={'crf': 23, 'preset': 'slow'},
         ...     )
         ... ).collect()
 
@@ -411,9 +411,7 @@ def segment_video(
 
         >>> duration = tbl.video.get_duration()
         >>> tbl.select(
-        ...     segment_paths=tbl.video.segment_video(
-        ...         segment_times=[duration / 2]
-        ...     )
+        ...     segment_paths=tbl.video.segment_video(segment_times=[duration / 2])
         ... ).collect()
     """
     Env.get().require_binary('ffmpeg')
@@ -645,9 +643,7 @@ def with_audio(
 
         >>> tbl.select(
         ...     tbl.video.with_audio(
-        ...         tbl.music_track,
-        ...         video_start_time=5.0,
-        ...         audio_start_time=5.0
+        ...         tbl.music_track, video_start_time=5.0, audio_start_time=5.0
         ...     )
         ... ).collect()
 
@@ -659,7 +655,7 @@ def with_audio(
         ...         video_start_time=30.0,
         ...         video_duration=10.0,
         ...         audio_start_time=15.0,
-        ...         audio_duration=10.0
+        ...         audio_duration=10.0,
         ...     )
         ... ).collect()
     """
@@ -790,7 +786,7 @@ def overlay_text(
         ...         box_border=[6, 14],
         ...         horizontal_margin=10,
         ...         vertical_align='bottom',
-        ...         vertical_margin=70
+        ...         vertical_margin=70,
         ...     )
         ... ).collect()
 
@@ -804,7 +800,7 @@ def overlay_text(
         ...         box=True,
         ...         box_color='black',
         ...         box_opacity=0.6,
-        ...         box_border=[20, 10]
+        ...         box_border=[20, 10],
         ...     )
         ... ).collect()
     """
@@ -929,6 +925,107 @@ def _create_drawtext_params(
 
 
 @pxt.udf(is_method=True)
+def crop(
+    video: pxt.Video,
+    bbox: list[int],
+    *,
+    bbox_format: Literal['xyxy', 'xywh', 'cxcywh'] = 'xywh',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Crop a rectangular region from a video using ffmpeg's crop filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        bbox: Crop region as a list of 4 integers.
+        bbox_format: Format of the `bbox` coordinates:
+
+            - `'xyxy'`: `[x1, y1, x2, y2]` where (x1, y1) is top-left and (x2, y2) is bottom-right
+            - `'xywh'`: `[x, y, width, height]` where (x, y) is top-left corner
+            - `'cxcywh'`: `[cx, cy, width, height]` where (cx, cy) is the center
+        video_encoder: Video encoder to use. If not specified, uses the default encoder.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        Video containing the cropped region.
+
+    Examples:
+        Crop using default xywh format:
+
+        >>> tbl.select(tbl.video.crop2([100, 50, 320, 240])).collect()
+
+        Crop using xyxy format (common in object detection):
+
+        >>> tbl.select(
+        ...     tbl.video.crop2([100, 50, 420, 290], bbox_format='xyxy')
+        ... ).collect()
+
+        Crop using center format:
+
+        >>> tbl.select(
+        ...     tbl.video.crop2([260, 170, 320, 240], bbox_format='cxcywh')
+        ... ).collect()
+
+        Use with yolox object detection output:
+
+        >>> tbl.add_computed_column(
+        ...     cropped=tbl.video.crop2(tbl.detections.bboxes[0], bbox_format='xyxy')
+        ... )
+    """
+    Env.get().require_binary('ffmpeg')
+
+    if len(bbox) != 4 or not all(isinstance(x, int) for x in bbox) or not all(x >= 0 for x in bbox):
+        raise pxt.Error(f'bbox must have exactly 4 non-negative integers, got {bbox}')
+    if bbox_format == 'xyxy' and (bbox[2] <= bbox[0] or bbox[3] <= bbox[1]):
+        raise pxt.Error(f'x2 must be greater than x1 and y2 must be greater than y1 for xyxy format, got {bbox}')
+
+    # normalize to xywh
+    x: int
+    y: int
+    w: int
+    h: int
+    if bbox_format == 'xyxy':
+        x1, y1, x2, y2 = bbox
+        x, y = x1, y1
+        w, h = x2 - x1, y2 - y1
+    elif bbox_format == 'xywh':
+        x, y, w, h = bbox
+    elif bbox_format == 'cxcywh':
+        cx, cy, w, h = bbox
+        x = cx - w // 2
+        y = cy - h // 2
+    else:
+        raise pxt.Error(f"bbox_format must be one of ['xyxy', 'xywh', 'cxcywh'], got {bbox_format!r}")
+
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+
+    cmd = ['ffmpeg', '-i', str(video), '-vf', f'crop={w}:{h}:{x}:{y}', '-c:a', 'copy', '-c:v', video_encoder]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+    cmd.extend(['-loglevel', 'error', output_path])
+    _logger.debug(f'crop(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = pathlib.Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
+@pxt.udf(is_method=True)
 def scene_detect_adaptive(
     video: pxt.Video,
     *,
@@ -991,15 +1088,14 @@ def scene_detect_adaptive(
 
         Detect more scenes by lowering the threshold:
 
-        >>> tbl.select(tbl.video.scene_detect_adaptive(adaptive_threshold=1.5)).collect()
+        >>> tbl.select(
+        ...     tbl.video.scene_detect_adaptive(adaptive_threshold=1.5)
+        ... ).collect()
 
         Use luminance-only detection with a longer minimum scene length:
 
         >>> tbl.select(
-        ...     tbl.video.scene_detect_adaptive(
-        ...         luma_only=True,
-        ...         min_scene_len=30
-        ...     )
+        ...     tbl.video.scene_detect_adaptive(luma_only=True, min_scene_len=30)
         ... ).collect()
 
         Add scene cuts as a computed column:
@@ -1101,9 +1197,7 @@ def scene_detect_content(
 
         >>> tbl.select(
         ...     tbl.video.scene_detect_content(
-        ...         delta_edges=1.0,
-        ...         delta_hue=0.5,
-        ...         delta_sat=0.5
+        ...         delta_edges=1.0, delta_hue=0.5, delta_sat=0.5
         ...     )
         ... ).collect()
 
@@ -1201,9 +1295,7 @@ def scene_detect_threshold(
         Add final scene boundary:
 
         >>> tbl.select(
-        ...     tbl.video.scene_detect_threshold(
-        ...         add_final_scene=True
-        ...     )
+        ...     tbl.video.scene_detect_threshold(add_final_scene=True)
         ... ).collect()
 
         Add fade transitions as a computed column:
@@ -1283,11 +1375,7 @@ def scene_detect_histogram(
 
         Use with a longer minimum scene length:
 
-        >>> tbl.select(
-        ...     tbl.video.scene_detect_histogram(
-        ...         min_scene_len=30
-        ...     )
-        ... ).collect()
+        >>> tbl.select(tbl.video.scene_detect_histogram(min_scene_len=30)).collect()
 
         Add scene cuts as a computed column:
 
@@ -1368,18 +1456,11 @@ def scene_detect_hash(
 
         Use for fast processing with lower frame rate:
 
-        >>> tbl.select(
-        ...     tbl.video.scene_detect_hash(
-        ...         fps=1.0,
-        ...         threshold=0.4
-        ...     )
-        ... ).collect()
+        >>> tbl.select(tbl.video.scene_detect_hash(fps=1.0, threshold=0.4)).collect()
 
         Add scene cuts as a computed column:
 
-        >>> tbl.add_computed_column(
-        ...     scene_cuts=tbl.video.scene_detect_hash()
-        ... )
+        >>> tbl.add_computed_column(scene_cuts=tbl.video.scene_detect_hash())
     """
     Env.get().require_package('scenedetect')
     from scenedetect.detectors import HashDetector
@@ -1505,15 +1586,23 @@ def frame_iterator(
 
         Create a view that extracts only keyframes from all videos:
 
-        >>> pxt.create_view('keyframes', tbl, iterator=frame_iterator(tbl.video, keyframes_only=True))
+        >>> pxt.create_view(
+        ...     'keyframes',
+        ...     tbl,
+        ...     iterator=frame_iterator(tbl.video, keyframes_only=True),
+        ... )
 
         Create a view that extracts frames from all videos at a rate of 1 frame per second:
 
-        >>> pxt.create_view('one_fps_frames', tbl, iterator=frame_iterator(tbl.video, fps=1.0))
+        >>> pxt.create_view(
+        ...     'one_fps_frames', tbl, iterator=frame_iterator(tbl.video, fps=1.0)
+        ... )
 
         Create a view that extracts exactly 10 frames from each video:
 
-        >>> pxt.create_view('ten_frames', tbl, iterator=frame_iterator(tbl.video, num_frames=10))
+        >>> pxt.create_view(
+        ...     'ten_frames', tbl, iterator=frame_iterator(tbl.video, num_frames=10)
+        ... )
     """
     kwargs: dict[str, Any] = {}
     if fps is not None:
@@ -1564,17 +1653,29 @@ def video_splitter(
 
         Create a view that splits each video into 10-second segments:
 
-        >>> pxt.create_view('ten_second_segments', tbl, iterator=video_splitter(tbl.video, duration=10.0))
+        >>> pxt.create_view(
+        ...     'ten_second_segments',
+        ...     tbl,
+        ...     iterator=video_splitter(tbl.video, duration=10.0),
+        ... )
 
         Create a view that splits each video into segments at specified fixed times:
 
         >>> split_times = [5.0, 15.0, 30.0]
-        >>> pxt.create_view('custom_segments', tbl, iterator=video_splitter(tbl.video, segment_times=split_times))
+        >>> pxt.create_view(
+        ...     'custom_segments',
+        ...     tbl,
+        ...     iterator=video_splitter(tbl.video, segment_times=split_times),
+        ... )
 
         Create a view that splits each video into segments at times specified by a column `split_times` of type
         `pxt.Json`, containing a list of timestamps in seconds:
 
-        >>> pxt.create_view('custom_segments', tbl, iterator=video_splitter(tbl.video, segment_times=tbl.split_times))
+        >>> pxt.create_view(
+        ...     'custom_segments',
+        ...     tbl,
+        ...     iterator=video_splitter(tbl.video, segment_times=tbl.split_times),
+        ... )
     """
     kwargs: dict[str, Any] = {}
     if duration is not None:

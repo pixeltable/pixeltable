@@ -46,7 +46,7 @@ _embedding_dimensions: dict[str, int] = {
 }
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def converse(
     messages: list[dict[str, Any]],
     *,
@@ -85,7 +85,11 @@ async def converse(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': [{'text': tbl.prompt}]}]
-        ... tbl.add_computed_column(response=messages(msgs, model_id='anthropic.claude-3-haiku-20240307-v1:0'))
+        ... tbl.add_computed_column(
+        ...     response=messages(
+        ...         msgs, model_id='anthropic.claude-3-haiku-20240307-v1:0'
+        ...     )
+        ... )
     """
 
     kwargs: dict[str, Any] = {'messages': messages, 'modelId': model_id}
@@ -121,7 +125,7 @@ async def converse(
     return await asyncio.to_thread(_bedrock_client().converse, **kwargs)
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def invoke_model(
     body: dict,
     *,
@@ -156,7 +160,9 @@ async def invoke_model(
         Add a computed column using Amazon Titan embedding model:
 
         >>> body = {'inputText': tbl.text, 'dimensions': 512, 'normalize': True}
-        >>> tbl.add_computed_column(response=invoke_model(body, model_id='amazon.titan-embed-text-v2:0'))
+        >>> tbl.add_computed_column(
+        ...     response=invoke_model(body, model_id='amazon.titan-embed-text-v2:0')
+        ... )
     """
     import json
 
@@ -204,7 +210,10 @@ async def embed(text: str, *, model_id: str, dimensions: int | None = None) -> p
 
         >>> tbl.add_embedding_index(
         ...     tbl.description,
-        ...     string_embed=embed.using(model_id='amazon.nova-2-multimodal-embeddings-v1:0', dimensions=1024)
+        ...     string_embed=embed.using(
+        ...         model_id='amazon.nova-2-multimodal-embeddings-v1:0',
+        ...         dimensions=1024,
+        ...     ),
         ... )
     """
     from botocore.exceptions import ClientError

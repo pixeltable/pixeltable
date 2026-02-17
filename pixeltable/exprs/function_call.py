@@ -335,12 +335,20 @@ class FunctionCall(Expr):
             return self.components[self.fn_expr_idx]
         return None
 
+    @property
+    def is_deterministic(self) -> bool:
+        return self.fn.is_deterministic
+
     def update(self, data_row: DataRow) -> None:
         """
         Update agg state
         """
         assert self.is_agg_fn_call
-        args, kwargs = self.make_args(data_row)
+        args_for_row = self.make_args(data_row)
+        if args_for_row is None:
+            # One or more of the required arguments for this aggregator func is None, skip this row
+            return
+        args, kwargs = args_for_row
         self.aggregator.update(*args, **kwargs)
 
     def make_args(self, data_row: DataRow) -> tuple[list[Any], dict[str, Any]] | None:

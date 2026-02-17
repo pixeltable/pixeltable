@@ -33,7 +33,7 @@ def _deepseek_client() -> 'openai.AsyncOpenAI':
     return env.Env.get().get_client('deepseek')
 
 
-@pxt.udf(resource_pool='request-rate:deepseek')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:deepseek')
 async def chat_completions(
     messages: list,
     *,
@@ -75,9 +75,11 @@ async def chat_completions(
 
         >>> messages = [
         ...     {'role': 'system', 'content': 'You are a helpful assistant.'},
-        ...     {'role': 'user', 'content': tbl.prompt}
+        ...     {'role': 'user', 'content': tbl.prompt},
         ... ]
-        >>> tbl.add_computed_column(response=chat_completions(messages, model='deepseek-chat'))
+        >>> tbl.add_computed_column(
+        ...     response=chat_completions(messages, model='deepseek-chat')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}

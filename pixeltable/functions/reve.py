@@ -129,7 +129,7 @@ def _client() -> _ReveClient:
 # currently communicate rate limit information in responses. Therefore neither of the currently implemented limiting
 # strategies is a perfect match, but "request-rate" is the closest. Reve does not currently enforce the rate limits,
 # but when it does, we can revisit this choice.
-@pxt.udf(resource_pool='request-rate:reve')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
 async def create(prompt: str, *, aspect_ratio: str | None = None, version: str | None = None) -> PIL.Image.Image:
     """
     Creates an image from a text prompt.
@@ -148,9 +148,7 @@ async def create(prompt: str, *, aspect_ratio: str | None = None, version: str |
     Examples:
         Add a computed column with generated square images to a table with text prompts:
 
-        >>> t.add_computed_column(
-        ...     img=reve.create(t.prompt, aspect_ratio='1:1')
-        ... )
+        >>> t.add_computed_column(img=reve.create(t.prompt, aspect_ratio='1:1'))
     """
     payload = {'prompt': prompt}
     if aspect_ratio is not None:
@@ -162,7 +160,7 @@ async def create(prompt: str, *, aspect_ratio: str | None = None, version: str |
     return result
 
 
-@pxt.udf(resource_pool='request-rate:reve')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
 async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | None = None) -> PIL.Image.Image:
     """
     Edits images based on a text prompt.
@@ -184,7 +182,7 @@ async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | 
         >>> t.add_computed_column(
         ...     catalog_img=reve.edit(
         ...         t.product_img,
-        ...         'Remove background and distractions from the product picture, improve lighting.'
+        ...         'Remove background and distractions from the product picture, improve lighting.',
         ...     )
         ... )
     """
@@ -196,7 +194,7 @@ async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | 
     return result
 
 
-@pxt.udf(resource_pool='request-rate:reve')
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
 async def remix(
     prompt: str, images: list[PIL.Image.Image], *, aspect_ratio: str | None = None, version: str | None = None
 ) -> PIL.Image.Image:

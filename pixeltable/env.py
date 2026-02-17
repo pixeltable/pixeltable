@@ -11,7 +11,6 @@ import inspect
 import logging
 import math
 import os
-import platform
 import shutil
 import subprocess
 import sys
@@ -291,8 +290,12 @@ class Env:
     def stop_progress(self) -> None:
         if self._progress is None:
             return
-        self._progress.stop()
-        self._progress = None
+        try:
+            self._progress.stop()
+        except Exception as e:
+            self._logger.warning(f'Error stopping progress: {e}')
+        finally:
+            self._progress = None
 
         # if we're running in a notebook, we need to clear the Progress output manually
         if self.is_notebook():
@@ -476,8 +479,6 @@ class Env:
                 except Exception as e:
                     raise excs.Error(f'Invalid {mode} media destination URI: {uri}') from e
 
-        self._pxt_api_key = config.get_string_value('api_key')
-
         # Disable spurious warnings:
         # Suppress tqdm's ipywidgets warning in Jupyter environments
         warnings.filterwarnings('ignore', message='IProgress not found')
@@ -595,12 +596,7 @@ class Env:
         else:
             self._db_name = config.get_string_value('db') or 'pixeltable'
             self._pgdata_dir = Path(os.environ.get('PIXELTABLE_PGDATA', str(Config.get().home / 'pgdata')))
-            # cleanup_mode=None will leave the postgres process running after Python exits
-            # cleanup_mode='stop' will terminate the postgres process when Python exits
-            # On Windows, we need cleanup_mode='stop' because child processes are killed automatically when the parent
-            # process (such as Terminal or VSCode) exits, potentially leaving it in an unusable state.
-            cleanup_mode = 'stop' if platform.system() == 'Windows' else None
-            self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=cleanup_mode)
+            self._db_server = pixeltable_pgserver.get_server(self._pgdata_dir, cleanup_mode=None)
             self._db_url = self._db_server.get_uri(database=self._db_name, driver='psycopg')
             self._dbms = PostgresqlDbms(sql.make_url(self._db_url))
         assert self._dbms is not None
@@ -715,7 +711,8 @@ class Env:
 
     @property
     def pxt_api_key(self) -> str | None:
-        return self._pxt_api_key
+        """Get the Pixeltable API key from config"""
+        return Config.get().get_string_value('api_key')
 
     def get_client(self, name: str) -> Any:
         """
@@ -855,6 +852,7 @@ class Env:
         self.__register_package('pydantic')
         self.__register_package('replicate')
         self.__register_package('reve')
+        self.__register_package('runwayml')
         self.__register_package('scenedetect')
         self.__register_package('sentencepiece')
         self.__register_package('sentence_transformers', library_name='sentence-transformers')

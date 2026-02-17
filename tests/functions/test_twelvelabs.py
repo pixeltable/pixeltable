@@ -17,8 +17,9 @@ from ..utils import (
 
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
+@pytest.mark.skip('[PXT-1040] twelvelabs tests are broken on ci')
 class TestTwelveLabs:
-    def test_embed_text(self, reset_db: None) -> None:
+    def test_embed_text(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
         from pixeltable.functions.twelvelabs import embed
@@ -38,7 +39,7 @@ class TestTwelveLabs:
         res = t.select(embedding=t.input.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
-    def test_embed_image(self, reset_db: None) -> None:
+    def test_embed_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
         from pixeltable.functions.twelvelabs import embed
@@ -54,7 +55,7 @@ class TestTwelveLabs:
         res = t.select(embedding=t.image.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
-    def test_embed_audio(self, reset_db: None) -> None:
+    def test_embed_audio(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
         from pixeltable.functions.twelvelabs import embed
@@ -72,7 +73,7 @@ class TestTwelveLabs:
         res = v.select(embedding=v.audio_chunk.embedding()).collect()
         assert res['embedding'][0].shape == (512,)
 
-    def test_embed_video(self, reset_db: None) -> None:
+    def test_embed_video(self, uses_db: None) -> None:
         skip_test_if_not_installed('twelvelabs')
         skip_test_if_no_client('twelvelabs')
         from pixeltable.functions.twelvelabs import embed

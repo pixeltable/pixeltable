@@ -14,12 +14,24 @@ this step-by-step. Here are some guidelines to keep in mind for your first contr
 * If it's your first or second contribution, it's easiest to start out by adding a new UDF or integration, rather than
     trying to improve some core Pixeltable feature or make changes to our process or workflow. Once you've become more
     familiar with Pixeltable engineering, you'll be able to contribute to those areas as well.
+* Please make an effort to ensure that your code and documentation conventions are consistent with those used elsewhere
+    in the Pixeltable codebase. (For example, if you are contributing a new integration in the pixeltable.functions
+    package, take some time to familiarize yourself with a few related modules in that package.)
 * Pixeltable adheres to rigorous coding and engineering standards. If you submit a PR, expect to see a healthy amount
     of commentary. We strive to ensure that every change or new feature is adequately tested, so it's advisable to
     include unit tests in the `tests` package alongside any code changes in the `pixeltable` package.
 * If you're not sure how to proceed or where something should go, or if you have any other questions, don't hesistate
     to open a conversation on the [discussions](https://github.com/orgs/pixeltable/discussions) page. We're here to
     help!
+
+## AI-Assisted Contributions
+
+We welcome the use of AI coding assistants as part of your development workflow. However, the same high bar for quality,
+correctness, test and documentation coverage applies to all contributions, regardless of how the code was produced.
+
+As the human author of a PR, you are responsible for every line of code in it. You must fully understand what the code
+does and be able to answer questions about it during review. Before submitting a PR, make sure you have read and
+understood every change in it.
 
 The remainder of this document guides you through setting up your dev environment and creating your first PR.
 
