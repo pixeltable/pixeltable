@@ -139,10 +139,6 @@ class SimilarityExpr(Expr):
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> 'SimilarityExpr':
-        if len(components) == 2:
-            idx_name = d.get('idx_name')
-            assert isinstance(components[0], ColumnRef)
-            return cls(item=components[1], col_ref=components[0], idx_name=idx_name)
         table_version_key = TableVersionKey.from_dict(d['table_version_key'])
         idx_name = d.get('idx_name')
         col_id = d.get('col_id')
