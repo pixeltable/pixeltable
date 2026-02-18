@@ -561,7 +561,7 @@ class Table(SchemaObject):
             result = UpdateStatus()
             if len(schema) == 0:
                 return result
-            new_cols = [Column.create_column(name, spec) for name, spec in schema.items()]
+            new_cols = [Column.create(name, spec) for name, spec in schema.items()]
             for new_col in new_cols:
                 self._verify_column(new_col)
 
@@ -730,7 +730,7 @@ class Table(SchemaObject):
                 assert cols_to_ignore[0] == col_name
                 return result
 
-            new_col = Column.create_column(col_name, col_schema)
+            new_col = Column.create(col_name, col_schema)
             self._verify_column(new_col)
             assert self._tbl_version is not None
             result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)

@@ -78,7 +78,7 @@ class InsertableTable(Table):
         media_validation: MediaValidation,
         create_default_idxs: bool,
     ) -> tuple[TableVersionMd, list[TableOp]]:
-        columns = [Column.create_column(name, spec) for name, spec in schema.items()]
+        columns = [Column.create(name, spec) for name, spec in schema.items()]
         cls._verify_schema(columns)
         column_names = [col.name for col in columns]
         for pk_col in primary_key:

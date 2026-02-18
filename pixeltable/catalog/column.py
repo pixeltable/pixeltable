@@ -238,7 +238,7 @@ class Column:
         return val_col, undo_col
 
     @classmethod
-    def create_column(cls, name: str, spec: type | ColumnSpec | exprs.Expr) -> Column:
+    def create(cls, name: str, spec: type | ColumnSpec | exprs.Expr) -> Column:
         col_type: ts.ColumnType | None = None
         value_expr: exprs.Expr | None = None
         primary_key: bool = False

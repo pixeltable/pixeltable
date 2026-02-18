@@ -96,11 +96,9 @@ class View(Table):
         select_list_columns: List[Column] = []
         if not include_base_columns:
             r = cls.select_list_to_additional_columns(select_list)
-            select_list_columns = [Column.create_column(name, spec) for name, spec in r.items()]
+            select_list_columns = [Column.create(name, spec) for name, spec in r.items()]
 
-        columns_from_additional_columns = [
-            Column.create_column(name, spec) for name, spec in additional_columns.items()
-        ]
+        columns_from_additional_columns = [Column.create(name, spec) for name, spec in additional_columns.items()]
         columns = select_list_columns + columns_from_additional_columns
         cls._verify_schema(columns)
 
