@@ -176,3 +176,66 @@ class TestCatalog:
                 view2      view       1              test_dir/tbl
             '''
         ).strip('\n').replace('|', '')  # fmt: skip
+
+    def test_cross_type_replacement(self, uses_db: None) -> None:
+        """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
+
+        This tests the path collision handling logic: dirs can only collide with dirs,
+        but all table subtypes (table, view, snapshot) can collide with each other.
+        """
+        base_table = pxt.create_table('base', {'c1': pxt.Int})
+
+        # Table can replace view
+        view1 = pxt.create_view('target', base_table)
+        assert 'target' in pxt.list_tables()
+        tbl1 = pxt.create_table('target', {'c2': pxt.String}, if_exists='replace')
+        assert 'target' in pxt.list_tables()
+        assert tbl1.column_names() == ['c2']  # new table schema
+
+        # Table can replace snapshot
+        snap1 = pxt.create_snapshot('target', base_table, if_exists='replace')
+        assert 'target' in pxt.list_tables()
+        tbl2 = pxt.create_table('target', {'c3': pxt.Float}, if_exists='replace')
+        assert 'target' in pxt.list_tables()
+        assert tbl2.column_names() == ['c3']
+
+        # View can replace table
+        tbl3 = pxt.create_table('target', {'c4': pxt.Bool}, if_exists='replace')
+        assert 'target' in pxt.list_tables()
+        view2 = pxt.create_view('target', base_table, if_exists='replace')
+        assert 'target' in pxt.list_tables()
+        assert view2.column_names() == ['c1']  # inherits from base_table
+
+        # View can replace snapshot
+        snap2 = pxt.create_snapshot('target', base_table, if_exists='replace')
+        assert 'target' in pxt.list_tables()
+        view3 = pxt.create_view('target', base_table, if_exists='replace')
+        assert 'target' in pxt.list_tables()
+
+        # Snapshot can replace table
+        tbl4 = pxt.create_table('target', {'c5': pxt.Int}, if_exists='replace')
+        assert 'target' in pxt.list_tables()
+        snap3 = pxt.create_snapshot('target', base_table, if_exists='replace')
+        assert 'target' in pxt.list_tables()
+
+        # Snapshot can replace view
+        view4 = pxt.create_view('target', base_table, if_exists='replace')
+        assert 'target' in pxt.list_tables()
+        snap4 = pxt.create_snapshot('target', base_table, if_exists='replace')
+        assert 'target' in pxt.list_tables()
+
+        # Verify that dirs still cannot be replaced by table subtypes
+        pxt.drop_table('target')
+        pxt.create_dir('target')
+        with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
+            pxt.create_table('target', {'c1': pxt.Int}, if_exists='replace')
+        with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
+            pxt.create_view('target', base_table, if_exists='replace')
+        with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
+            pxt.create_snapshot('target', base_table, if_exists='replace')
+
+        # And table subtypes cannot replace dirs
+        pxt.drop_dir('target')
+        tbl5 = pxt.create_table('target', {'c1': pxt.Int})
+        with pytest.raises(excs.Error, match='expected a directory'):
+            pxt.create_dir('target', if_exists='replace')

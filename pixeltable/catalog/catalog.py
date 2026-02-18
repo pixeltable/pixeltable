@@ -2570,20 +2570,13 @@ class Catalog:
 
         if if_exists == IfExistsParam.ERROR and obj is not None:
             raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}')
-        else:
-            is_snapshot = isinstance(obj, View) and obj._tbl_version_path.is_snapshot()
-            if obj is not None and (not isinstance(obj, expected_obj_type) or (expected_snapshot and not is_snapshot)):
-                if expected_obj_type is Dir:
-                    obj_type_str = 'directory'
-                elif expected_obj_type is InsertableTable:
-                    obj_type_str = 'table'
-                elif expected_obj_type is View:
-                    obj_type_str = 'snapshot' if expected_snapshot else 'view'
-                else:
-                    raise AssertionError()
-                raise excs.Error(
-                    f'Path {path!r} already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
-                )
+        
+        # dirs can only collide with dirs, all table subtypes can collide with eachother
+        if obj is not None:
+            if expected_obj_type == Dir and not isinstance(obj, Dir):
+                raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}, expected a directory')
+            if expected_obj_type != Dir and isinstance(obj, Dir):
+                raise excs.Error(f'Path {path!r} is an existing directory, expected a table, view or snapshot')
 
         if obj is None:
             return None
