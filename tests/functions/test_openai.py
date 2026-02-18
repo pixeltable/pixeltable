@@ -335,10 +335,6 @@ class TestOpenai:
                 t.input, model='dall-e-2', model_kwargs={'size': '512x512', 'user': 'pixeltable', 'n': 2}
             )
         )
-        # image size information was captured correctly
-        # type_info = t._get_schema()
-        # assert isinstance(type_info['img_2'], ts.ImageType)
-        # assert type_info['img_2'].size == (512, 512)
 
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
         assert t.collect()['img'][0]['data'][0].size == (1024, 1024)
