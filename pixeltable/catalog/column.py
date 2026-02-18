@@ -149,11 +149,10 @@ class Column:
     def instantiate_cols(
         cls, tbl_version: TableVersion, indexes: list[tuple[schema.IndexMd, index.IndexBase]]
     ) -> list[Column]:
-        val_col_idxs: dict[int, index.IndexBase] = {}  # value column id -> index
-        undo_col_idxs: dict[int, index.IndexBase] = {}  # undo column id -> index
-        for idx_md, idx in indexes:
-            val_col_idxs[idx_md.index_val_col_id] = idx
-            undo_col_idxs[idx_md.index_val_undo_col_id] = idx
+        # value column id -> index
+        val_col_idxs = {idx_md.index_val_col_id: idx for idx_md, idx in indexes}
+        # undo column id -> index
+        undo_col_idxs = {idx_md.index_val_undo_col_id: idx for idx_md, idx in indexes}
 
         # Sort columns in column_md by id to guarantee that all references point backward.
         sorted_column_md = sorted(tbl_version.tbl_md.column_md.values(), key=lambda item: item.id)
@@ -167,15 +166,9 @@ class Column:
                 else None
             )
 
-            sa_col_type: sql.types.TypeEngine | None = None
-            if col_md.id in val_col_idxs:
-                # index value column
-                idx = val_col_idxs[col_md.id]
-                sa_col_type = idx.get_index_sa_type(col_type)
-            elif col_md.id in undo_col_idxs:
-                # index undo column
-                idx = undo_col_idxs[col_md.id]
-                sa_col_type = idx.get_index_sa_type(col_type)
+            # For index val and undo columns, the index gets to override the store column type
+            idx = val_col_idxs.get(col_md.id) or undo_col_idxs.get(col_md.id)
+            sa_col_type = idx.get_index_sa_type(col_type) if idx is not None else None
 
             col = cls(
                 col_id=col_md.id,
