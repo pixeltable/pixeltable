@@ -285,8 +285,6 @@ class Column:
             destination=destination,
             stores_cellmd=stores_cellmd,
         )
-        # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
-        # media destination, it gets validated at this time.
         ObjectOps.validate_destination(column.destination, column.name)
         return column
 
