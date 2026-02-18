@@ -54,10 +54,10 @@ class Table(SchemaObject):
     """
     A handle to a table, view, or snapshot. This class is the primary interface through which table operations
     (queries, insertions, updates, etc.) are performed in Pixeltable.
-
-    Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
-    FileCache.emit_eviction_warnings() at the end of the operation.
     """
+
+    # Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
+    # FileCache.emit_eviction_warnings() at the end of the operation.
 
     # the chain of TableVersions needed to run queries and supply metadata (eg, schema)
     _tbl_version_path: TableVersionPath
@@ -271,8 +271,26 @@ class Table(SchemaObject):
         """Remove duplicate rows from table."""
         return self.select().distinct()
 
-    def limit(self, n: int) -> 'pxt.Query':
-        return self.select().limit(n)
+    def limit(self, n: int, offset: int | None = None) -> 'pxt.Query':
+        """Select a limited number of rows from the Table, optionally skipping rows for pagination.
+
+        Args:
+            n: Number of rows to select.
+            offset: Number of rows to skip before returning results. Default is None (no offset).
+
+        Returns:
+            A Query with the specified limited rows.
+
+        Examples:
+            Get the first 10 rows:
+
+            >>> t.limit(10).collect()
+
+            Get rows 21-30 (skip first 20, return next 10):
+
+            >>> t.limit(10, offset=20).collect()
+        """
+        return self.select().limit(n, offset=offset)
 
     def sample(
         self,
