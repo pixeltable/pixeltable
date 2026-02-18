@@ -72,7 +72,6 @@ def _get_resource_info(resource_str: str) -> _ResourceInfo:
 
     # Check if it's a video MIME type (for non-YouTube)
     is_video = guessed_type is not None and guessed_type.lower().startswith('video/')
-
     return _ResourceInfo(is_video=is_video, mime_type=guessed_type, is_youtube=False)
 
 
