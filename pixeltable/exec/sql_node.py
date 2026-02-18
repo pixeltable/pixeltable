@@ -378,7 +378,7 @@ class SqlNode(ExecNode):
 
         output_batch = DataRowBatch(self.row_builder)
         output_row: exprs.DataRow | None = None
-        num_rows_encountered = 0
+        num_rows_read = 0
         is_using_cockroachdb = Env.get().is_using_cockroachdb
         tzinfo = Env.get().default_time_zone
 
@@ -442,15 +442,13 @@ class SqlNode(ExecNode):
                     continue
 
             # Row passed filter (or no filter)
-            num_rows_encountered += 1
+            num_rows_read += 1
 
             # if we're using a Python filter, we need to apply offset/limit logic here. (with a SQL filter
             # that logic has already been baked into the query)
             if self.py_filter is not None:
                 # Check if we should skip this row due to offset
-                # TODO: Additional machinery (cursor caching) will be needed to make this efficient for repeated
-                #     offset queries
-                if self.offset is not None and num_rows_encountered <= self.offset:
+                if self.offset is not None and num_rows_read <= self.offset:
                     # Skip this row - remove it from batch
                     output_row = output_batch.pop_row()
                     output_row.clear()
@@ -458,7 +456,7 @@ class SqlNode(ExecNode):
 
                 # Check if we've reached the limit (after offset)
                 if self.limit is not None:
-                    num_rows_returned = num_rows_encountered - (self.offset or 0)
+                    num_rows_returned = num_rows_read - (self.offset or 0)
                     assert num_rows_returned <= self.limit
                     if num_rows_returned == self.limit:
                         break
