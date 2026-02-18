@@ -156,8 +156,7 @@ class Column:
             val_col_idxs[md.index_val_col_id] = idx
             undo_col_idxs[md.index_val_undo_col_id] = idx
 
-        # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
-        # point backward.
+        # Sort columns in column_md by id to guarantee that all references point backward.
         sorted_column_md = sorted(tbl_version.tbl_md.column_md.values(), key=lambda item: item.id)
         cols: list[Column] = []
         for col_md in sorted_column_md:
