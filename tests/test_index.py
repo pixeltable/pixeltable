@@ -1051,26 +1051,3 @@ class TestIndex:
 
         # Verify index is removed from table metadata
         assert 'text_idx' not in t._tbl_version.get().idxs_by_name
-
-    def test_drop_index_idempotent(self, uses_db: None) -> None:
-        """Test that dropping an index is idempotent (IF EXISTS behavior)"""
-        t = pxt.create_table('idempotent_drop_test', {'id': pxt.Int, 'data': pxt.String}, if_exists='replace')
-        t.insert([{'id': 1, 'data': 'test'}])
-
-        # Drop the auto-created B-tree index
-        t.drop_index(column='data')
-
-        # Verify metadata shows no index
-        assert 'data' not in [info.col.name for info in t._tbl_version.get().idxs_by_name.values()]
-
-        # Try to call the low-level drop_index directly on a non-existent index
-        # This should not raise an error due to IF EXISTS
-        from pixeltable.index import BtreeIndex
-
-        idx = BtreeIndex()
-        # This should not fail even if index doesn't exist
-        try:
-            with Env.get().begin_xact():
-                idx.drop_index('nonexistent_index_xyz', t._tbl_version.get().cols_by_name['data'])
-        except Exception as e:
-            pytest.fail(f'drop_index should be idempotent but raised: {e}')

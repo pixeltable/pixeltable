@@ -7,7 +7,6 @@ import sqlalchemy as sql
 import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.type_system as ts
-from pixeltable.env import Env
 from pixeltable.func.udf import udf
 
 from .base import IndexBase
@@ -61,15 +60,14 @@ class BtreeIndex(IndexBase):
         sa_idx = sql.Index(store_index_name, sa_value_col, postgresql_using='btree')
         return sql.schema.CreateIndex(sa_idx, if_not_exists=True).compile(dialect=postgresql.dialect())
 
-    def drop_index(self, index_name: str, index_value_col: 'catalog.Column') -> None:
-        """Drop the index on the index value column"""
+    def sa_drop_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
+        from sqlalchemy.dialects import postgresql
+
         # Generate DROP INDEX statement
         # Using IF EXISTS to make the operation idempotent
-        drop_stmt = sql.schema.DropIndex(sql.Index(index_name, index_value_col.sa_col), if_exists=True)
-
-        # Execute the DROP INDEX statement
-        conn = Env.get().conn
-        conn.execute(drop_stmt)
+        return sql.schema.DropIndex(sql.Index(store_index_name, sa_value_col), if_exists=True).compile(
+            dialect=postgresql.dialect()
+        )
 
     @classmethod
     def display_name(cls) -> str:

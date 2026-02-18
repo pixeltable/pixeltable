@@ -258,8 +258,8 @@ class StoreBase:
         """Drop If Exists for this index"""
         idx_info = self.tbl_version.get().idxs[idx_id]
         store_index_name = self.tbl_version.get()._store_idx_name(idx_id)
-        # Call the actual drop_index method on the index object
-        idx_info.idx.drop_index(store_index_name, idx_info.val_col)
+        stmt = idx_info.idx.sa_drop_stmt(store_index_name, idx_info.val_col.sa_col)
+        self._exec_if_not_exists(str(stmt), wait_for_table=True)
 
     def validate(self) -> None:
         """Validate store table against self.table_version"""
