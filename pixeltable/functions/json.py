@@ -14,6 +14,8 @@ t.select(pxtf.json.make_list(t.json_col)).collect()
 import json
 from typing import Any
 
+import sqlalchemy as sql
+
 import pixeltable as pxt
 from pixeltable.utils.code import local_public_names
 
@@ -32,6 +34,11 @@ def dumps(obj: pxt.Json) -> str:
         A JSON-formatted string.
     """
     return json.dumps(obj)
+
+
+@dumps.to_sql
+def _(obj: sql.ColumnElement) -> sql.ColumnElement:
+    return obj.cast(sql.Text)
 
 
 @pxt.uda
