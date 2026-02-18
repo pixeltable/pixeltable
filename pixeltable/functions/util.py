@@ -52,7 +52,7 @@ class _ResourceInfo(NamedTuple):
 
 def _get_resource_info(resource_str: str) -> _ResourceInfo:
     """Check if string is a video resource and return MIME type."""
-    # Guess MIME type once (moved to top, before YouTube check)
+    # Guess MIME type once
     guessed_type, _ = mimetypes.guess_type(resource_str, strict=False)
 
     # Check for youtube urls
