@@ -990,7 +990,7 @@ class TestIndex:
         t = pxt.create_table('index_drop_test', {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
         t.insert([{'id': 1, 'text': 'hello world'}, {'id': 2, 'text': 'goodbye'}])
 
-        # Find or create an index to be dropped
+        # Find or create an index to drop
         if index_type == 'btree':
             idx_info_list = [info for info in t._tbl_version.get().idxs_by_name.values() if info.col.name == 'text']
             assert len(idx_info_list) == 1, "Should have one B-tree index on 'text'"
