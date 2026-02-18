@@ -146,15 +146,14 @@ class Column:
         self._explicit_destination = destination
 
     @classmethod
-    def instantiate_cols(cls, tbl_version: TableVersion) -> list[Column]:
+    def instantiate_cols(
+        cls, tbl_version: TableVersion, indexes: list[tuple[schema.IndexMd, index.IndexBase]]
+    ) -> list[Column]:
         val_col_idxs: dict[int, index.IndexBase] = {}  # value column id -> index
         undo_col_idxs: dict[int, index.IndexBase] = {}  # undo column id -> index
-        for md in tbl_version.tbl_md.index_md.values():
-            cls_name = md.class_fqn.rsplit('.', 1)[-1]
-            idx_cls = getattr(index, cls_name)
-            idx = idx_cls.from_dict(md.init_args)
-            val_col_idxs[md.index_val_col_id] = idx
-            undo_col_idxs[md.index_val_undo_col_id] = idx
+        for idx_md, idx in indexes:
+            val_col_idxs[idx_md.index_val_col_id] = idx
+            undo_col_idxs[idx_md.index_val_undo_col_id] = idx
 
         # Sort columns in column_md by id to guarantee that all references point backward.
         sorted_column_md = sorted(tbl_version.tbl_md.column_md.values(), key=lambda item: item.id)

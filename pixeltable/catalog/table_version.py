@@ -564,14 +564,16 @@ class TableVersion:
 
         # initialize IndexBase instances and collect sa_col_types
         idxs: dict[int, index.IndexBase] = {}
+        idxs_with_md: list[tuple[schema.IndexMd, index.IndexBase]] = []
         for md in self.tbl_md.index_md.values():
             idx_cls_name = md.class_fqn.rsplit('.', 1)[-1]
             idx_cls = getattr(index, idx_cls_name)
             idx = idx_cls.from_dict(md.init_args)
             idxs[md.id] = idx
+            idxs_with_md.append((md, idx))
 
         # initialize Columns
-        self.cols = Column.instantiate_cols(self)
+        self.cols = Column.instantiate_cols(self, idxs_with_md)
         # populate lookup structures before Expr.from_dict()
         self.cols_by_name = {}
         self.cols_by_id = {}
