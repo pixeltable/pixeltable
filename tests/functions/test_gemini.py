@@ -6,7 +6,14 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    get_image_files,
+    get_test_video_files,
+    rerun,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 from .tool_utils import run_tool_invocations_test
 
 
@@ -64,6 +71,32 @@ class TestGemini:
         results = t.order_by(t.id).collect()
         assert 'French horn' in results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         assert 'truck' in results['output'][1]['candidates'][0]['content']['parts'][0]['text']
+
+    def test_generate_content_video(self, uses_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_content
+
+        video_files = get_test_video_files()[:2]
+
+        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'video': pxt.Video})
+        t.add_computed_column(
+            output=generate_content([t.video, "Describe what's happening in this video."], model='gemini-2.5-flash')
+        )
+        validate_update_status(
+            t.insert({'id': n, 'video': video_file} for n, video_file in enumerate(video_files)), expected_rows=2
+        )
+        results = t.collect()
+
+        text = results['output'][0]['candidates'][0]['content']['parts'][0]['text']
+        print(f'Video analysis result id=0: {text}')
+        assert len(text) > 0
+        assert 'Unable' not in text.lower() or 'Invalid' not in text.lower()
+
+        text = results['output'][1]['candidates'][0]['content']['parts'][0]['text']
+        print(f'Video analysis result id=1: {text}')
+        assert len(text) > 0
+        assert 'Unable' not in text.lower() or 'Invalid' not in text.lower()
 
     def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')

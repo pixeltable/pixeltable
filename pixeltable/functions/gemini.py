@@ -17,6 +17,7 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs, type_system as ts
 from pixeltable.func import Batch
+from pixeltable.functions.util import resolve_video_contents
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import exponential_backoff, parse_duration_str
 from pixeltable.utils.local_store import TempStore
@@ -122,6 +123,7 @@ async def generate_content(
             gemini_tools = [__convert_pxt_tool(tool) for tool in tools]
             config_.tools = [types.Tool(function_declarations=gemini_tools)]
 
+    contents = resolve_video_contents(contents)
     response = await _genai_client().aio.models.generate_content(model=model, contents=contents, config=config_)
     return response.model_dump()
 
