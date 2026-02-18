@@ -844,7 +844,7 @@ class TableVersion:
         assert idx_md.name in self.idxs_by_name
         idx_info = self.idxs_by_name[idx_md.name]
 
-        # Drop the physical index from PostgreSQL
+        # Drop the physical index from the store
         self.store_tbl.drop_index(idx_id)
 
         # remove this index entry from the active indexes (in memory)
