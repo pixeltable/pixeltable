@@ -397,7 +397,7 @@ class Table(SchemaObject):
                 'Column Name': col.name,
                 'Type': col.col_type._to_str(as_schema=True),
                 'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
-                'Comment': col.comment,
+                'Comment': col.comment if col.comment is not None else '',
             }
             for col in self._tbl_version_path.columns()
             if columns is None or col.name in columns
@@ -811,7 +811,7 @@ class Table(SchemaObject):
             stored = True
             destination: str | Path | None = None
             custom_metadata: Any = None
-            comment: str = ''
+            comment: str | None = None
 
             # TODO: Should we fully deprecate passing ts.ColumnType here?
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
@@ -839,8 +839,10 @@ class Table(SchemaObject):
                 )
                 destination = spec.get('destination')
                 custom_metadata = spec.get('custom_metadata')
-                if 'comment' in spec:
-                    comment = spec.get('comment')
+                comment = spec.get('comment')
+                if comment == '':
+                    comment = None
+
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 

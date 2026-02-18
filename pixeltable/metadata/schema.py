@@ -342,6 +342,10 @@ class SchemaVersionMd:
     Records all versioned table metadata.
     """
 
+    def __post_init__(self) -> None:
+        if self.comment == '':
+            self.comment = None
+
     tbl_id: str  # uuid.UUID
     schema_version: int
     preceding_schema_version: int | None

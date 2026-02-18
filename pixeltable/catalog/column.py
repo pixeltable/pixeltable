@@ -60,7 +60,7 @@ class Column:
     _explicit_destination: str | None  # An object store reference for computed files
     _media_validation: MediaValidation | None  # if not set, TableVersion.media_validation applies
     _custom_metadata: Any  # user-defined metadata; must be a valid JSON-serializable object
-    _comment: str
+    _comment: str | None
     schema_version_add: int | None
     schema_version_drop: int | None
     stores_cellmd: bool
@@ -89,7 +89,7 @@ class Column:
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
         destination: str | Path | None = None,
-        comment: str = '',
+        comment: str | None = None,
         custom_metadata: Any = None,
     ):
         if name is not None and not is_valid_identifier(name):
@@ -310,8 +310,7 @@ class Column:
         return self._custom_metadata
 
     @property
-    def comment(self) -> str:
-        assert self._comment is not None
+    def comment(self) -> str | None:
         return self._comment
 
     @property

@@ -332,6 +332,7 @@ class TestMigration:
         v = pxt.get_table('views.view')
         s = pxt.get_table('views.snapshot_non_pure')
         vv = pxt.get_table('views.view_of_views')
+        no_comment = pxt.get_table('string_splitter')
 
         # Verify comment and custom_metadata for base_table
         assert t.get_metadata()['comment'] == 'This is a test table.'
@@ -354,6 +355,9 @@ class TestMigration:
         # Verify comment and custom_metadata for view_of_views
         assert vv.get_metadata()['comment'] == 'This is a test view of views.'
         assert vv.get_metadata()['custom_metadata'] == {'view_of_views_key': 'view_of_views_value'}
+
+        assert no_comment.get_metadata()['comment'] is None
+        assert no_comment.get_metadata()['custom_metadata'] is None
 
 
 @pxt.udf(batch_size=4)

@@ -317,7 +317,7 @@ def from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, descriptio
     if description is None:
         # Default description is the table comment
         description = tbl._get_comment()
-        if len(description) == 0:
+        if description is None:
             description = f"UDF for table '{tbl._name}'"
 
     # TODO: Use column comments as parameter descriptions, when we have them

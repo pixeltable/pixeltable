@@ -217,7 +217,7 @@ def create_table(
     if comment is not None and not isinstance(comment, str):
         raise excs.Error('`comment` must be a string or None')
     elif comment == '':
-        comment = None  # treat empty string as no comment
+        comment = None
 
     try:
         json.dumps(custom_metadata)
@@ -370,7 +370,7 @@ def create_view(
     if comment is not None and not isinstance(comment, str):
         raise excs.Error('`comment` must be a string or None')
     elif comment == '':
-        comment = None  # treat empty string as no comment
+        comment = None
 
     try:
         json.dumps(custom_metadata)

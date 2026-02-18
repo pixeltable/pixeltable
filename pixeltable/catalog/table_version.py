@@ -1673,11 +1673,11 @@ class TableVersion:
         return self._tbl_md.is_replica
 
     @property
-    def comment(self) -> str:
+    def comment(self) -> str | None:
         return self._schema_version_md.comment
 
     @comment.setter
-    def comment(self, c: str) -> None:
+    def comment(self, c: str | None) -> None:
         assert self.effective_version is None
         self._schema_version_md.comment = c
 

@@ -914,11 +914,11 @@ class TestView:
                             'type_': type_,
                             'version_added': version_added,
                             'custom_metadata': None,
-                            'comment': '',
+                            'comment': None,
                         }
                         for name, (type_, version_added) in expected_schema.items()
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
@@ -1029,11 +1029,11 @@ class TestView:
                             'type_': type_,
                             'version_added': version_added,
                             'custom_metadata': None,
-                            'comment': '',
+                            'comment': None,
                         }
                         for name, (type_, version_added, computed_with) in expected_schema.items()
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
@@ -1111,11 +1111,11 @@ class TestView:
                             'type_': type_,
                             'version_added': version_added,
                             'custom_metadata': None,
-                            'comment': '',
+                            'comment': None,
                         }
                         for name, (type_, version_added, computed_with) in expected_schema.items()
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
