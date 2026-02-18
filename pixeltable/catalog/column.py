@@ -147,11 +147,6 @@ class Column:
 
     @classmethod
     def instantiate_cols(cls, tbl_version: TableVersion) -> list[Column]:
-        """Instantiates and returns Column objects based on the metadata of the given TableVersion.
-
-        Args:
-            tbl_version: the TableVersion being initialized
-        """
         val_col_idxs: dict[int, index.IndexBase] = {}  # value column id -> index
         undo_col_idxs: dict[int, index.IndexBase] = {}  # undo column id -> index
         for md in tbl_version.tbl_md.index_md.values():
@@ -214,17 +209,7 @@ class Column:
         undo_col_id: int,
         schema_version: int,
     ) -> tuple[Column, Column]:
-        """Create value and undo columns for a brand new index.
-        Args:
-            tbl_handle: the parent table
-            col: the column for which the index is being created
-            idx: the index that is being created
-            val_col_id: the column id for the index value column
-            undo_col_id: the column id for the index undo column
-            schema_version: the schema version in which the index is being created
-        Returns:
-            A tuple containing the value column and the undo column.
-        """
+        """Create value and undo columns for an index."""
         value_expr = idx.create_value_expr(col)
         val_col = cls(
             col_id=val_col_id,
@@ -255,7 +240,6 @@ class Column:
 
     @classmethod
     def create_column(cls, name: str, spec: type | ColumnSpec | exprs.Expr) -> Column:
-        """Creates a brand new Column based on the provided spec"""
         col_type: ts.ColumnType | None = None
         value_expr: exprs.Expr | None = None
         primary_key: bool = False
@@ -347,7 +331,7 @@ class Column:
     @classmethod
     def create_iterator_columns(cls, output_dict: dict[str, ColumnType], unstored_cols: list[str]) -> list[Column]:
         """
-        Creates iterator columns for a brand new component view.
+        Creates iterator columns for a component view.
 
         Args:
             output_dict (dict[str, ColumnType]): output columns of the iterator
@@ -415,7 +399,7 @@ class Column:
         return col_md, sch_md
 
     def verify(self) -> None:
-        """Check integrity of user-supplied Column"""
+        # TODO this verification should be done before or during the Column construction, not after it
         if self.name is None:
             return
         Column.validate_name(self.name)
