@@ -459,7 +459,7 @@ class TestIndex:
             new_rows.append(row)
 
         # create table with fewer rows to speed up testing
-        schema = {'pkey': ts.IntType(nullable=False), 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        schema = {'pkey': pxt.Required[pxt.Int], 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
         tbl_name = 'update_test'
         img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
         img_t.insert(new_rows)
