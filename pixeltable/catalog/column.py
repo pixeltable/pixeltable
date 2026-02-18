@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from pixeltable import catalog
 from pixeltable.type_system import ColumnType
+from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectOps
 
 from .globals import _POS_COLUMN_NAME
@@ -93,7 +94,7 @@ class Column:
         stores_cellmd: bool = False,
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
-        destination: str | None = None,
+        destination: str | Path | None = None,
     ):
         if name is not None and not is_valid_identifier(name):
             raise excs.Error(f'Invalid column name: {name}')
@@ -138,6 +139,10 @@ class Column:
 
         # computed cols also have storage columns for the exception string and type
         self.sa_cellmd_col = None
+
+        if isinstance(destination, Path):
+            destination = str(destination)
+
         self._explicit_destination = destination
 
     @classmethod
@@ -249,15 +254,16 @@ class Column:
         return val_col, undo_col
 
     @classmethod
-    def create_column(cls, name: str, spec: Any) -> Column:
+    def create_column(cls, name: str, spec: type | ColumnSpec | exprs.Expr) -> Column:
         """Creates a brand new Column based on the provided spec"""
         col_type: ts.ColumnType | None = None
         value_expr: exprs.Expr | None = None
         primary_key: bool = False
         media_validation: catalog.MediaValidation | None = None
         stored: bool = True
-        destination: str | None = None
+        destination: str | Path | None = None
 
+        # TODO: Should we fully deprecate passing ts.ColumnType here?
         if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
             col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
         elif isinstance(spec, exprs.Expr):
@@ -302,13 +308,14 @@ class Column:
         return column
 
     @classmethod
-    def _validate_column_spec(cls, name: str, spec: dict[str, Any]) -> None:
+    def _validate_column_spec(cls, name: str, spec: ColumnSpec) -> None:
         """Check integrity of user-supplied Column spec
 
         We unfortunately can't use something like jsonschema for validation, because this isn't strictly a JSON schema
         (on account of containing Python Callables or Exprs).
         """
         assert isinstance(spec, dict)
+        # TODO: this code could be made cleaner now that spec is a TypedDict
         valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
         for k in spec:
             if k not in valid_keys:
@@ -318,7 +325,7 @@ class Column:
             raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
 
         if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
-            raise excs.Error(f"Column {name!r}: 'type' must be a type or ColumnType; got {spec['type']}")
+            raise excs.Error(f"Column {name!r}: 'type' must be a type; got {spec['type']}")
 
         if 'value' in spec:
             value_expr = exprs.Expr.from_object(spec['value'])
