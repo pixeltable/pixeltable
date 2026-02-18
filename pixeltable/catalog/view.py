@@ -98,8 +98,7 @@ class View(Table):
             r = cls.select_list_to_additional_columns(select_list)
             select_list_columns = [Column.create(name, spec) for name, spec in r.items()]
 
-        columns_from_additional_columns = [Column.create(name, spec) for name, spec in additional_columns.items()]
-        columns = select_list_columns + columns_from_additional_columns
+        columns = select_list_columns + [Column.create(name, spec) for name, spec in additional_columns.items()]
         cls._verify_schema(columns)
 
         # verify that filters can be evaluated in the context of the base
