@@ -103,7 +103,7 @@ class Literal(Expr):
             encoded_val = self.val.tolist()
         else:
             encoded_val = self.val
-        return {'val': encoded_val, 'val_t': self.col_type.as_dict(), **super()._as_dict()}
+        return {'val': encoded_val, 'col_type': self.col_type.as_dict(), **super()._as_dict()}
 
     def as_literal(self) -> Literal | None:
         return self
@@ -111,10 +111,10 @@ class Literal(Expr):
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:
         val = d['val']
-        val_t = d['val_t']
-        if not isinstance(val_t, dict) or '_classname' not in val_t:
-            raise ValueError(f'Unsupported or malformed literal type: {val_t}')
-        col_type = ts.ColumnType.from_dict(val_t)
+        col_type_dict = d['col_type']
+        if not isinstance(col_type_dict, dict) or '_classname' not in col_type_dict:
+            raise ValueError(f'Unsupported or malformed literal type: {col_type_dict}')
+        col_type = ts.ColumnType.from_dict(col_type_dict)
 
         if col_type.is_date_type():
             dt = datetime.date.fromisoformat(val)
