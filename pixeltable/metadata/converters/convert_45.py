@@ -58,7 +58,7 @@ def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | No
         case 'BINARY':
             col_type_dict = {'_classname': 'BinaryType', 'nullable': False}
         case _:
-            raise AssertionError(f"Unrecognized Literal type: {val_t}")
+            raise AssertionError(f'Unrecognized Literal type: {val_t}')
 
     value['col_type'] = col_type_dict
     return key, value
