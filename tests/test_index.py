@@ -9,7 +9,6 @@ from typing import Any, Literal, _GenericAlias  # type: ignore[attr-defined]
 import numpy as np
 import PIL.Image
 import pytest
-import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -20,6 +19,7 @@ from .utils import (
     ReloadTester,
     assert_resultset_eq,
     get_sentences,
+    list_store_indexes,
     reload_catalog,
     skip_test_if_not_installed,
     validate_update_status,
@@ -986,47 +986,37 @@ class TestIndex:
     @pytest.mark.parametrize('index_type', ['btree', 'embedding'])
     def test_drop_index(self, index_type: str, uses_db: None, request: pytest.FixtureRequest) -> None:
         """Test that indices (B-tree and embedding) are properly dropped from the store"""
-        if index_type == 'embedding':
-            skip_test_if_not_installed('sentence_transformers')
         # Create table and insert data
         t = pxt.create_table('index_drop_test', {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
         t.insert([{'id': 1, 'text': 'hello world'}, {'id': 2, 'text': 'goodbye'}])
 
+        # Find or create an index to be dropped
         if index_type == 'btree':
-            # Find the auto-created B-tree index on 'text'
             idx_info_list = [info for info in t._tbl_version.get().idxs_by_name.values() if info.col.name == 'text']
             assert len(idx_info_list) == 1, "Should have one B-tree index on 'text'"
             idx_info = idx_info_list[0]
         else:
-            # Add embedding index
+            skip_test_if_not_installed('sentence_transformers')
             e5_embed = request.getfixturevalue('e5_embed')
             t.add_embedding_index('text', idx_name='text_idx', string_embed=e5_embed)
             idx_info = t._tbl_version.get().idxs_by_name['text_idx']
 
+        assert idx_info.id in t._tbl_version.get().idxs
         store_idx_name = t._tbl_version.get()._store_idx_name(idx_info.id)
 
-        # Verify index exists in PostgreSQL
-        with Env.get().begin_xact() as conn:
-            table_name = t._tbl_version.get().store_tbl._storage_name()
-            check_idx_query = sql.text(
-                f"SELECT indexname FROM pg_indexes WHERE tablename = '{table_name}' AND indexname = '{store_idx_name}'"
-            )
-            result = conn.execute(check_idx_query).fetchall()
-            assert len(result) == 1, f'Index {store_idx_name} should exist before drop'
+        # Verify index exists in the store
+        assert store_idx_name in list_store_indexes(t), f'Index {store_idx_name} should exist before drop'
 
-        # Drop the index
+        # Drop it
         if index_type == 'btree':
             t.drop_index(column='text')
         else:
             t.drop_embedding_index(idx_name='text_idx')
 
-        # Verify index no longer exists in PostgreSQL
-        with Env.get().begin_xact() as conn:
-            result = conn.execute(check_idx_query).fetchall()
-            assert len(result) == 0, f'Index {store_idx_name} should not exist after drop'
-
-        # Verify index is removed from table metadata
-        if index_type == 'btree':
-            assert 'text' not in [info.col.name for info in t._tbl_version.get().idxs_by_name.values()]
-        else:
-            assert 'text_idx' not in t._tbl_version.get().idxs_by_name
+        # Verify index no longer exists in the store
+        assert store_idx_name not in list_store_indexes(t), f'Index {store_idx_name} should not exist after drop'
+        # Or the metadata
+        assert idx_info.id not in t._tbl_version.get().idxs
+        reload_catalog()
+        t = pxt.get_table('index_drop_test')
+        assert idx_info.id not in t._tbl_version.get().idxs
