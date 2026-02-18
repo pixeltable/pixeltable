@@ -66,10 +66,7 @@ class BtreeIndex(IndexBase):
 
         # Generate DROP INDEX statement
         # Using IF EXISTS to make the operation idempotent
-        drop_stmt = sql.schema.DropIndex(
-            sql.Index(index_name, index_value_col.sa_col),
-            if_exists=True
-        )
+        drop_stmt = sql.schema.DropIndex(sql.Index(index_name, index_value_col.sa_col), if_exists=True)
 
         # Execute the DROP INDEX statement
         conn = Env.get().conn

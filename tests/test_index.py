@@ -987,16 +987,11 @@ class TestIndex:
         import sqlalchemy as sql
 
         # Create table with a column that will get a B-tree index
-        t = pxt.create_table(
-            'btree_drop_test',
-            {'id': pxt.Int, 'category': pxt.String},
-            if_exists='replace'
-        )
+        t = pxt.create_table('btree_drop_test', {'id': pxt.Int, 'category': pxt.String}, if_exists='replace')
         t.insert([{'id': 1, 'category': 'cat1'}, {'id': 2, 'category': 'cat2'}])
 
         # Find the B-tree index that was auto-created
-        idx_info_list = [info for info in t._tbl_version.get().idxs_by_name.values()
-                         if info.col.name == 'category']
+        idx_info_list = [info for info in t._tbl_version.get().idxs_by_name.values() if info.col.name == 'category']
         assert len(idx_info_list) == 1, "Should have one B-tree index on 'category'"
         idx_info = idx_info_list[0]
         store_idx_name = t._tbl_version.get()._store_idx_name(idx_info.id)
@@ -1005,11 +1000,10 @@ class TestIndex:
         with Env.get().begin_xact() as conn:
             table_name = t._tbl_version.get().store_tbl._storage_name()
             check_idx_query = sql.text(
-                f"SELECT indexname FROM pg_indexes WHERE tablename = '{table_name}' "
-                f"AND indexname = '{store_idx_name}'"
+                f"SELECT indexname FROM pg_indexes WHERE tablename = '{table_name}' AND indexname = '{store_idx_name}'"
             )
             result = conn.execute(check_idx_query).fetchall()
-            assert len(result) == 1, f"Index {store_idx_name} should exist before drop"
+            assert len(result) == 1, f'Index {store_idx_name} should exist before drop'
 
         # Drop the index
         t.drop_index(column='category')
@@ -1017,7 +1011,7 @@ class TestIndex:
         # Verify index no longer exists in PostgreSQL
         with Env.get().begin_xact() as conn:
             result = conn.execute(check_idx_query).fetchall()
-            assert len(result) == 0, f"Index {store_idx_name} should not exist after drop"
+            assert len(result) == 0, f'Index {store_idx_name} should not exist after drop'
 
         # Verify index is removed from table metadata
         assert 'category' not in [info.col.name for info in t._tbl_version.get().idxs_by_name.values()]
@@ -1028,11 +1022,7 @@ class TestIndex:
         import sqlalchemy as sql
 
         # Create table and add embedding index
-        t = pxt.create_table(
-            'embedding_drop_test',
-            {'id': pxt.Int, 'text': pxt.String},
-            if_exists='replace'
-        )
+        t = pxt.create_table('embedding_drop_test', {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
         t.insert([{'id': 1, 'text': 'hello world'}, {'id': 2, 'text': 'goodbye'}])
 
         # Add embedding index
@@ -1046,11 +1036,10 @@ class TestIndex:
         with Env.get().begin_xact() as conn:
             table_name = t._tbl_version.get().store_tbl._storage_name()
             check_idx_query = sql.text(
-                f"SELECT indexname FROM pg_indexes WHERE tablename = '{table_name}' "
-                f"AND indexname = '{store_idx_name}'"
+                f"SELECT indexname FROM pg_indexes WHERE tablename = '{table_name}' AND indexname = '{store_idx_name}'"
             )
             result = conn.execute(check_idx_query).fetchall()
-            assert len(result) == 1, f"Embedding index {store_idx_name} should exist before drop"
+            assert len(result) == 1, f'Embedding index {store_idx_name} should exist before drop'
 
         # Drop the embedding index
         t.drop_embedding_index(idx_name='text_idx')
@@ -1058,18 +1047,14 @@ class TestIndex:
         # Verify index no longer exists in PostgreSQL
         with Env.get().begin_xact() as conn:
             result = conn.execute(check_idx_query).fetchall()
-            assert len(result) == 0, f"Embedding index {store_idx_name} should not exist after drop"
+            assert len(result) == 0, f'Embedding index {store_idx_name} should not exist after drop'
 
         # Verify index is removed from table metadata
         assert 'text_idx' not in t._tbl_version.get().idxs_by_name
 
     def test_drop_index_idempotent(self, uses_db: None) -> None:
         """Test that dropping an index is idempotent (IF EXISTS behavior)"""
-        t = pxt.create_table(
-            'idempotent_drop_test',
-            {'id': pxt.Int, 'data': pxt.String},
-            if_exists='replace'
-        )
+        t = pxt.create_table('idempotent_drop_test', {'id': pxt.Int, 'data': pxt.String}, if_exists='replace')
         t.insert([{'id': 1, 'data': 'test'}])
 
         # Drop the auto-created B-tree index
@@ -1081,10 +1066,11 @@ class TestIndex:
         # Try to call the low-level drop_index directly on a non-existent index
         # This should not raise an error due to IF EXISTS
         from pixeltable.index import BtreeIndex
+
         idx = BtreeIndex()
         # This should not fail even if index doesn't exist
         try:
             with Env.get().begin_xact():
                 idx.drop_index('nonexistent_index_xyz', t._tbl_version.get().cols_by_name['data'])
         except Exception as e:
-            pytest.fail(f"drop_index should be idempotent but raised: {e}")
+            pytest.fail(f'drop_index should be idempotent but raised: {e}')
