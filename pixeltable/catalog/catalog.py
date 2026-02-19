@@ -739,20 +739,22 @@ class Catalog:
                     _logger.debug(f'finalize_pending_ops({tbl_id}): finalizing op {op!s}')
 
                     if op.needs_xact:
-                        tv = self.get_tbl_version(
-                            TableVersionKey(tbl_id, tbl_version, None),
-                            check_pending_ops=False,
-                            validate_initialized=True,
+                        tv = (
+                            self.get_tbl_version(
+                                TableVersionKey(tbl_id, tbl_version, None),
+                                check_pending_ops=False,
+                                validate_initialized=True,
+                            )
+                            if op.needs_tv
+                            else None
                         )
                         # TODO: The above TableVersionKey instance will need to be updated if we see a replica here.
                         # For now, just assert that we don't.
                         # assert not tv.is_replica
 
-                        if is_rollback:
-                            tv.undo_op(op)
-                        else:
-                            tv.exec_op(op)
-                        self.mark_modified_tvs(tv.handle)
+                        op.roll(tv, is_rollback=is_rollback)
+                        if tv is not None:
+                            self.mark_modified_tvs(tv.handle)
 
                         if is_final_op:
                             status = conn.execute(reset_tbl_state_stmt)
@@ -763,13 +765,14 @@ class Catalog:
                         continue
 
                 # this op runs outside of a transaction
-                tv = self.get_tbl_version(
-                    TableVersionKey(tbl_id, tbl_version, None), check_pending_ops=False, validate_initialized=True
+                tv = (
+                    self.get_tbl_version(
+                        TableVersionKey(tbl_id, tbl_version, None), check_pending_ops=False, validate_initialized=True
+                    )
+                    if op.needs_tv
+                    else None
                 )
-                if is_rollback:
-                    tv.undo_op(op)
-                else:
-                    tv.exec_op(op)
+                op.roll(tv, is_rollback=is_rollback)
                 # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed
                 # inside a transaction and therefore wouldn't end up here
 
