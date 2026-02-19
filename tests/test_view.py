@@ -201,15 +201,15 @@ class TestView:
         assert 'test_view_on_view' not in pxt.list_tables()
 
         # scenario 3: path exists but is not a view
-        _ = pxt.create_table('not_view', {'c1': pxt.String})
-        with pytest.raises(pxt.Error, match='is an existing table'):
+        _ = pxt.create_dir('not_view')
+        with pytest.raises(pxt.Error, match='is an existing directory'):
             pxt.create_view('not_view', t)
         for if_exists in ['ignore', 'replace', 'replace_force']:
             with pytest.raises(pxt.Error) as exc_info:
                 _ = pxt.create_view('not_view', t, if_exists=if_exists)  # type: ignore[arg-type]
             err_msg = str(exc_info.value).lower()
-            assert 'already exists' in err_msg and 'is not a view' in err_msg
-            assert 'not_view' in pxt.list_tables(), f'with if_exists={if_exists}'
+            assert 'is an existing' in err_msg and 'expected a' in err_msg
+            assert 'not_view' in pxt.list_dirs(), f'with if_exists={if_exists}'
 
         # sanity check persistence
         _ = reload_tester.run_query(t.select())

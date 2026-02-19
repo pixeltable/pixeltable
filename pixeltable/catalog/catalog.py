@@ -2581,6 +2581,18 @@ class Catalog:
         if obj is None:
             return None
         if if_exists == IfExistsParam.IGNORE:
+            # for ignore, we can only return the existing object if it matches the expected type
+            is_existing_snapshot = isinstance(obj, View) and obj._tbl_version_path.is_snapshot()
+            if not isinstance(obj, expected_obj_type) or (expected_snapshot and not is_existing_snapshot):
+                if expected_obj_type is Dir:
+                    obj_type_str = 'directory'
+                elif expected_obj_type is InsertableTable:
+                    obj_type_str = 'table'
+                elif expected_obj_type is View:
+                    obj_type_str = 'snapshot' if expected_snapshot else 'view'
+                else:
+                    obj_type_str = expected_obj_type.__name__
+                raise excs.Error(f'Path {path!r} already exists and is not a {obj_type_str}')
             return obj
 
         assert if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)

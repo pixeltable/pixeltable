@@ -240,7 +240,7 @@ class TestTable:
             with pytest.raises(pxt.Error) as exc_info:
                 pxt.create_table('dir1', schema, if_exists=ie)
             err_msg = str(exc_info.value).lower()
-            assert 'already exists' in err_msg and 'is not a table' in err_msg
+            assert 'is an existing' in err_msg and 'expected a table' in err_msg
             assert len(tbl.select().collect()) == 1, f'with if_exists={ie}'
             assert 'dir1' in pxt.list_dirs(), f'with if_exists={ie}'
 
