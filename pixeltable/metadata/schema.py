@@ -342,7 +342,6 @@ class SchemaVersionMd:
     Records all versioned table metadata.
     """
 
-
     tbl_id: str  # uuid.UUID
     schema_version: int
     preceding_schema_version: int | None
