@@ -189,6 +189,7 @@ test = [
     "pytest>=8.4",
     "pytest-xdist[psutil]>=3.8",
     "pytest-rerunfailures>=15.1",
+    "pytest-benchmark>=5.1",
     "coverage>=7.9",
     "filelock>=3.13",
 ]
