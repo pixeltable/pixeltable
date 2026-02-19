@@ -114,3 +114,8 @@ class ExecNode(abc.ABC):
         """Default implementation propagates to input"""
         if self.input is not None:
             self.input.set_limit(limit)
+
+    def set_offset(self, offset: int) -> None:
+        """Default implementation propagates to input"""
+        if self.input is not None:
+            self.input.set_offset(offset)
