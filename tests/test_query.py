@@ -11,6 +11,7 @@ import pydantic
 import pytest
 
 import pixeltable as pxt
+from pixeltable.functions.string import isalpha, isascii
 import pixeltable.type_system as ts
 from pixeltable.functions.video import frame_iterator
 
@@ -901,3 +902,17 @@ class TestQuery:
         with pytest.raises(pxt.Error, match=r'Extra fields .* are not allowed in model') as exc_info:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
+
+    @pytest.mark.benchmark(group="select_inexpensive")
+    def test_select_inexpensive(self, uses_db: None, benchmark) -> None:
+        t = pxt.create_table('test_inexpensive', {'c1': pxt.Int, 'c2': pxt.String})
+
+        ROW_COUNT = 100000
+
+        t.insert([{'c1': i, 'c2': f'str_{i}'} for i in range(ROW_COUNT)])
+
+        def select_inexpensive():
+            res = t.select(t.c1, t.c2, isascii(t.c2), isalpha(t.c2)).collect()
+            assert len(res) == ROW_COUNT
+
+        benchmark(select_inexpensive)
