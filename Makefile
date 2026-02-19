@@ -84,7 +84,7 @@ endif
 	@if ! which mamba >/dev/null 2>&1; then conda install -q -y -c conda-forge mamba; fi
 	@mamba install -q -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*' quarto nodejs lychee
 	@echo 'Installing mintlify ...'
-	@if ! which mint >/dev/null 2>&1; then npm install --silent -g @mintlify/cli; fi
+	@if ! which mint >/dev/null 2>&1; then npm install --silent -g mint@4.2.357; fi
 	@echo 'Fixing quarto conda packaging bugs ...'
 	@mkdir -p $(CONDA_PREFIX)/bin/tools/aarch64 2>/dev/null || true
 	@ln -sf $(CONDA_PREFIX)/bin/deno $(CONDA_PREFIX)/bin/tools/aarch64/deno 2>/dev/null || true
@@ -195,11 +195,11 @@ release: install
 docs: install
 	VIRTUAL_ENV="$(CONDA_PREFIX)" uv sync --active $(UV_ARGS) --upgrade-package pixeltable-doctools
 	@python -m pixeltable_doctools.build
-	@cd target/docs && mintlify broken-links || true
+	@cd target/docs && mint broken-links || true
 
 .PHONY: docs-serve
 docs-serve: docs
-	@cd target/docs && mintlify dev
+	@cd target/docs && mint dev
 
 .PHONY: docs-deploy
 docs-deploy: docs

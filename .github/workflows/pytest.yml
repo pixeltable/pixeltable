@@ -51,6 +51,7 @@ env:
   PXTTEST_COCKROACH_DB_CONNECT_STR: ${{ secrets.PXTTEST_COCKROACH_DB_CONNECT_STR }}
   PXTTEST_COCKROACH_DB_ROOT_CERT: ${{ secrets.PXTTEST_COCKROACH_DB_ROOT_CERT }}
   PXTTEST_IN_CI: 1
+  MINTLIFY_VERSION: 4.2.357
   UV_VERSION: 0.9.3
 
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
@@ -228,9 +229,9 @@ jobs:
         run: |
           # Install quarto and mintlify in order to build the docs
           conda install -y -c conda-forge quarto nodejs
-          npm install -g @mintlify/cli
+          npm install -g mint@$MINTLIFY_VERSION
           python -m pixeltable_doctools.build
-          cd target/docs && mintlify broken-links
+          cd target/docs && mint broken-links
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
         run: ruff check pixeltable tests tool
