@@ -234,7 +234,7 @@ class TestCatalog:
         with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
             pxt.create_snapshot('target', base_table, if_exists='replace')
 
-        # And table subtypes cannot replace dirs
+        # And table subtypes cannot be replaced by dirs
         pxt.drop_dir('target')
         pxt.create_table('target', {'c1': pxt.Int})
         with pytest.raises(excs.Error, match='expected a directory'):
