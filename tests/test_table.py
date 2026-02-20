@@ -316,12 +316,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
+                            'comment': None,
                             'name': 'col',
                             'type_': 'String',
                             'version_added': 0,
                         }
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_view': False,
                     'is_snapshot': False,
@@ -346,12 +348,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
+                            'comment': None,
                             'name': 'col',
                             'type_': 'String',
                             'version_added': 0,
                         }
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {
                         'idx0': {
                             'columns': ['col'],
@@ -390,12 +394,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'comment': None,
                             'name': 'col',
+                            'custom_metadata': None,
                             'type_': 'String',
                             'version_added': 0,
                         }
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
@@ -420,7 +426,9 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
                             'name': 'col',
+                            'comment': None,
                             'type_': 'String',
                             'version_added': 0,
                         },
@@ -430,12 +438,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
                             'name': 'col2',
+                            'comment': None,
                             'type_': 'String',
                             'version_added': 0,
                         },
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
@@ -2789,8 +2799,8 @@ class TestTable:
             """
             table 'test_tbl'
 
-             Column Name                            Type    Source           Computed With
-                      c1                Required[String]  test_tbl
+             Column Name                            Type    Source           Computed With                      Comment
+                      c1                Required[String]  test_tbl                          String column with no nulls
                      c1n                          String  test_tbl
                       c2                   Required[Int]  test_tbl
                       c3                 Required[Float]  test_tbl
@@ -2798,8 +2808,7 @@ class TestTable:
                       c5             Required[Timestamp]  test_tbl
                       c6                  Required[Json]  test_tbl
                       c7                  Required[Json]  test_tbl
-                      c8  Required[Array[(2, 3), int64]]  test_tbl  [[1, 2, 3], [4, 5, 6]]
-            """,
+                      c8  Required[Array[(2, 3), int64]]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
 
         v = pxt.create_view('test_view', test_tbl)
@@ -2808,8 +2817,8 @@ class TestTable:
             """
             view 'test_view' (of 'test_tbl')
 
-             Column Name                            Type    Source           Computed With
-                      c1                Required[String]  test_tbl
+             Column Name                            Type    Source           Computed With                      Comment
+                      c1                Required[String]  test_tbl                          String column with no nulls
                      c1n                          String  test_tbl
                       c2                   Required[Int]  test_tbl
                       c3                 Required[Float]  test_tbl
@@ -2817,8 +2826,7 @@ class TestTable:
                       c5             Required[Timestamp]  test_tbl
                       c6                  Required[Json]  test_tbl
                       c7                  Required[Json]  test_tbl
-                      c8  Required[Array[(2, 3), int64]]  test_tbl  [[1, 2, 3], [4, 5, 6]]
-            """,
+                      c8  Required[Array[(2, 3), int64]]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
 
         # test case: view with additional columns
@@ -2833,18 +2841,18 @@ class TestTable:
             view 'test_subview' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
-            Column Name                            Type        Source           Computed With
-              computed1  Required[Array[(3, 4), int64]]  test_subview            <lambda>(c2)
-            ---------------------------------------------------------------------------------
-                     c1                Required[String]      test_tbl
-                     c1n                         String      test_tbl
-                     c2                   Required[Int]      test_tbl
-                     c3                 Required[Float]      test_tbl
-                     c4                  Required[Bool]      test_tbl
-                     c5             Required[Timestamp]      test_tbl
-                     c6                  Required[Json]      test_tbl
-                     c7                  Required[Json]      test_tbl
-                     c8  Required[Array[(2, 3), int64]]      test_tbl  [[1, 2, 3], [4, 5, 6]]
+            Column Name                            Type           Source  Computed With                      Comment
+              computed1  Required[Array[(3, 4), int64]]     test_subview   <lambda>(c2)
+            ---------------------------------------------------------------------------------------------------------
+                     c1                Required[String]         test_tbl                  String column with no nulls
+                    c1n                          String         test_tbl
+                     c2                   Required[Int]         test_tbl
+                     c3                 Required[Float]         test_tbl
+                     c4                  Required[Bool]         test_tbl
+                     c5             Required[Timestamp]         test_tbl
+                     c6                  Required[Json]         test_tbl
+                     c7                  Required[Json]         test_tbl
+                     c8  Required[Array[(2, 3), int64]]         test_tbl  [[1, 2, 3], [4, 5, 6]]
 
             Index Name Column  Metric                                          Embedding
                   idx0     c1  cosine  sentence_transformer(c1, model_id='all-mpnet-b...
@@ -2863,10 +2871,10 @@ class TestTable:
             snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
-            Column Name                            Type        Source           Computed With
+            Column Name                            Type        Source           Computed With                      Comment
               computed1  Required[Array[(3, 4), int64]]  test_subview            <lambda>(c2)
-            ---------------------------------------------------------------------------------
-                     c1                Required[String]      test_tbl
+            --------------------------------------------------------------------------------------------------------------
+                     c1                Required[String]      test_tbl                          String column with no nulls
                     c1n                          String      test_tbl
                      c2                   Required[Int]      test_tbl
                      c3                 Required[Float]      test_tbl
@@ -2879,7 +2887,7 @@ class TestTable:
             External Store         Type
                    project  MockProject
 
-            Comment: This is an intriguing table comment."""
+            Comment: This is an intriguing table comment.""",  # noqa: E501
         )
 
         # test case: snapshot of base table
@@ -2889,8 +2897,8 @@ class TestTable:
             """
             snapshot 'test_snap2' (of 'test_tbl:2')
 
-            Column Name                            Type    Source           Computed With
-                     c1                Required[String]  test_tbl
+            Column Name                            Type    Source           Computed With                      Comment
+                     c1                Required[String]  test_tbl                          String column with no nulls
                     c1n                          String  test_tbl
                      c2                   Required[Int]  test_tbl
                      c3                 Required[Float]  test_tbl
@@ -2908,10 +2916,10 @@ class TestTable:
             """
             snapshot 'test_snap3' (of 'test_tbl:2')
 
-            Column Name                            Type       Source           Computed With
+            Column Name                            Type       Source           Computed With                      Comment
               computed1                 Required[Float]   test_snap3                 c2 + c3
-            --------------------------------------------------------------------------------
-                     c1                Required[String]     test_tbl
+            --------------------------------------------------------------------------------------------------------------
+                     c1                Required[String]     test_tbl                          String column with no nulls
                     c1n                          String     test_tbl
                      c2                   Required[Int]     test_tbl
                      c3                 Required[Float]     test_tbl
@@ -2919,7 +2927,7 @@ class TestTable:
                      c5             Required[Timestamp]     test_tbl
                      c6                  Required[Json]     test_tbl
                      c7                  Required[Json]     test_tbl
-                     c8  Required[Array[(2, 3), int64]]     test_tbl  [[1, 2, 3], [4, 5, 6]]""",
+                     c8  Required[Array[(2, 3), int64]]     test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
         )
 
         self._validate_repr(
@@ -2927,8 +2935,8 @@ class TestTable:
             """
             Column 'c1' (of table 'test_tbl')
 
-            Column Name              Type               Source Computed With
-            c1               Required[String]         test_tbl""",
+            Column Name              Type               Source Computed With                    Comment
+            c1               Required[String]         test_tbl              String column with no nulls""",
         )
 
         iterator_view_1 = pxt.create_view('iterator_view_1', s1, iterator=DummyIterator.create(input=s1.c2))
@@ -2937,14 +2945,14 @@ class TestTable:
             """
             view 'iterator_view_1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
 
-            Column Name                            Type              Source           Computed With
+            Column Name                            Type              Source           Computed With                      Comment
                     pos                   Required[Int]     iterator_view_1           DummyIterator
                    out1                Required[String]     iterator_view_1           DummyIterator
                    out2                   Required[Int]     iterator_view_1           DummyIterator
-            ---------------------------------------------------------------------------------------
+            --------------------------------------------------------------------------------------------------------------------
               computed1  Required[Array[(3, 4), int64]]        test_subview            <lambda>(c2)
-            ---------------------------------------------------------------------------------------
-                     c1                Required[String]            test_tbl
+            --------------------------------------------------------------------------------------------------------------------
+                     c1                Required[String]            test_tbl                          String column with no nulls
                     c1n                          String            test_tbl
                      c2                   Required[Int]            test_tbl
                      c3                 Required[Float]            test_tbl
@@ -2952,7 +2960,7 @@ class TestTable:
                      c5             Required[Timestamp]            test_tbl
                      c6                  Required[Json]            test_tbl
                      c7                  Required[Json]            test_tbl
-                     c8  Required[Array[(2, 3), int64]]            test_tbl  [[1, 2, 3], [4, 5, 6]]""",
+                     c8  Required[Array[(2, 3), int64]]            test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
         )
 
         iterator_view_2 = pxt.create_view(
@@ -2967,18 +2975,18 @@ class TestTable:
             """
             view 'iterator_view_2' (of 'iterator_view_1', 'test_subview:3', 'test_view:0', 'test_tbl:2')
 
-                      Column Name                            Type           Source                      Computed With
+                      Column Name                            Type           Source                      Computed With                      Comment
                               pos                   Required[Int]  iterator_view_2                     DummyIterator2
                              out1                Required[String]  iterator_view_2                     DummyIterator2
                              out3                   Required[Int]  iterator_view_2                     DummyIterator2
             iterator_view_2_col_1                Required[String]  iterator_view_2                 ('"' + out1) + '"'
             iterator_view_2_col_2                 Required[Float]  iterator_view_2 stock_price(iterator_view_2_col_1)
-            ---------------------------------------------------------------------------------------------------------
+            --------------------------------------------------------------------------------------------------------------------------------------
                              out2                   Required[Int]  iterator_view_1                      DummyIterator
-            ---------------------------------------------------------------------------------------------------------
+            --------------------------------------------------------------------------------------------------------------------------------------
                         computed1  Required[Array[(3, 4), int64]]     test_subview                       <lambda>(c2)
-            ---------------------------------------------------------------------------------------------------------
-                               c1                Required[String]         test_tbl
+            --------------------------------------------------------------------------------------------------------------------------------------
+                               c1                Required[String]         test_tbl                          String column with no nulls
                               c1n                          String         test_tbl
                                c2                   Required[Int]         test_tbl
                                c3                 Required[Float]         test_tbl
@@ -2986,7 +2994,7 @@ class TestTable:
                                c5             Required[Timestamp]         test_tbl
                                c6                  Required[Json]         test_tbl
                                c7                  Required[Json]         test_tbl
-                               c8  Required[Array[(2, 3), int64]]         test_tbl            [[1, 2, 3], [4, 5, 6]]""",
+                               c8  Required[Array[(2, 3), int64]]         test_tbl            [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
         )
 
     def test_common_col_names(self, uses_db: None) -> None:
@@ -3206,3 +3214,30 @@ class TestTable:
         # check that invalid JSON user metadata are rejected
         with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_column_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': {'type': pxt.Int, 'custom_metadata': custom_metadata}})
+        assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
+
+        # check that invalid JSON user metadata are rejected for columns
+        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
+            pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'custom_metadata': {'key': set}}})
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': {'type': pxt.Int, 'comment': 'This is a test column.'}})
+        assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
+
+        # check that raw object JSON comments are rejected for columns
+        with pytest.raises(pxt.Error, match="'comment' must be a string"):
+            pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[typeddict-item]

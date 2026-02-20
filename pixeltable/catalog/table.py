@@ -134,6 +134,8 @@ class Table(SchemaObject):
                 media_validation=col.media_validation.name.lower() if col.media_validation is not None else None,  # type: ignore[typeddict-item]
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
                 defined_in=col.get_tbl().name,
+                custom_metadata=col.custom_metadata,
+                comment=col.comment,
             )
 
         indices = tv.idxs_by_name.values()
@@ -443,6 +445,7 @@ class Table(SchemaObject):
                     'Type': col.col_type._to_str(as_schema=True),
                     'Source': source_tv.name,
                     'Computed With': computed_with,
+                    'Comment': col.comment if col.comment is not None else '',
                 }
             )
             # Insert a separator if this column's source is different from the last one.
@@ -806,8 +809,8 @@ class Table(SchemaObject):
         """
         assert isinstance(spec, dict)
 
-        # TODO: this code could be made cleaner now that spec is a TypedDict
-        valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
+        # We cannot use get_type_hints() here since ColumnSpec doesn't import exprs outside of a TYPE_CHECKING block
+        valid_keys = ColumnSpec.__annotations__.keys()
         for k in spec:
             if k not in valid_keys:
                 raise excs.Error(f'Column {name!r}: invalid key {k!r}')
@@ -831,9 +834,21 @@ class Table(SchemaObject):
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f"Column {name!r}: 'stored' must be a bool; got {spec['stored']}")
 
+        if 'comment' in spec and not isinstance(spec['comment'], str):
+            raise excs.Error(f"Column {name!r}: 'comment' must be a string; got {spec['comment']}")
+
         d = spec.get('destination')
         if d is not None and not isinstance(d, (str, Path)):
             raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
+
+        if 'custom_metadata' in spec:
+            # we require custom_metadata to be JSON-serializable
+            try:
+                json.dumps(spec['custom_metadata'])
+            except (TypeError, ValueError) as err:
+                raise excs.Error(
+                    f'Column {name!r}: `custom_metadata` must be JSON-serializable; got Error: {err}'
+                ) from err
 
     @classmethod
     def _create_columns(cls, schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> list[Column]:
@@ -846,6 +861,8 @@ class Table(SchemaObject):
             media_validation: catalog.MediaValidation | None = None
             stored = True
             destination: str | Path | None = None
+            custom_metadata: Any = None
+            comment: str | None = None
 
             # TODO: Should we fully deprecate passing ts.ColumnType here?
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
@@ -872,6 +889,11 @@ class Table(SchemaObject):
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
                 )
                 destination = spec.get('destination')
+                custom_metadata = spec.get('custom_metadata')
+                comment = spec.get('comment')
+                if comment == '':
+                    comment = None
+
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
@@ -883,6 +905,8 @@ class Table(SchemaObject):
                 is_pk=primary_key,
                 media_validation=media_validation,
                 destination=destination,
+                custom_metadata=custom_metadata,
+                comment=comment,
             )
             # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
             # media destination, it gets validated at this time.

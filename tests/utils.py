@@ -27,6 +27,7 @@ from pixeltable._query import ResultSet
 from pixeltable.catalog import Catalog
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
+from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
 from pixeltable.utils.object_stores import ObjectOps
@@ -149,9 +150,9 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
 
 
 def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
-    schema = {
-        'c1': pxt.Required[pxt.String],
-        'c1n': pxt.String,
+    schema: dict[str, type | ColumnSpec] = {
+        'c1': {'type': pxt.Required[pxt.String], 'comment': 'String column with no nulls'},
+        'c1n': {'type': pxt.String, 'custom_metadata': {'nullable': True}},
         'c2': pxt.Required[pxt.Int],
         'c3': pxt.Required[pxt.Float],
         'c4': pxt.Required[pxt.Bool],
