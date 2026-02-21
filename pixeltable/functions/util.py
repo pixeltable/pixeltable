@@ -1,12 +1,7 @@
-"""
-Shared utilities for Pixeltable functions (image normalization, torch device, etc.).
-"""
-
 import PIL.Image
 
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.utils.code import local_public_names
 
 
 def resolve_torch_device(device: str, allow_mps: bool = True) -> str:
@@ -36,6 +31,3 @@ def normalize_image_mode(image: PIL.Image.Image) -> PIL.Image.Image:
     if image.mode == 'LA':
         return image.convert('RGBA')
     return image
-
-
-__all__ = local_public_names(__name__)
