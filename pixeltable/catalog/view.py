@@ -83,7 +83,7 @@ class View(Table):
         is_snapshot: bool,
         create_default_idxs: bool,
         num_retained_versions: int,
-        comment: str,
+        comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
         iterator_call: func.GeneratingFunctionCall | None,

@@ -59,6 +59,8 @@ class Column:
     is_iterator_col: bool
     _explicit_destination: str | None  # An object store reference for computed files
     _media_validation: MediaValidation | None  # if not set, TableVersion.media_validation applies
+    _custom_metadata: Any  # user-defined metadata; must be a valid JSON-serializable object
+    _comment: str | None
     schema_version_add: int | None
     schema_version_drop: int | None
     stores_cellmd: bool
@@ -87,6 +89,8 @@ class Column:
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
         destination: str | Path | None = None,
+        comment: str | None = None,
+        custom_metadata: Any = None,
     ):
         if name is not None and not is_valid_identifier(name):
             raise excs.Error(f'Invalid column name: {name}')
@@ -143,6 +147,10 @@ class Column:
 
         self._explicit_destination = destination
 
+        # user-defined metadata - stored but not used by Pixeltable itself
+        self._custom_metadata = custom_metadata
+        self._comment = comment
+
     def to_md(self, pos: int | None = None) -> tuple[schema.ColumnMd, schema.SchemaColumn | None]:
         """Returns the Column and optional SchemaColumn metadata for this Column."""
         assert self.is_pk is not None
@@ -163,6 +171,8 @@ class Column:
             name=self.name,
             pos=pos,
             media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
+            custom_metadata=self._custom_metadata,
+            comment=self._comment,
         )
         return col_md, sch_md
 
@@ -294,6 +304,14 @@ class Column:
             return self._media_validation
         assert self.get_tbl() is not None
         return self.get_tbl().media_validation
+
+    @property
+    def custom_metadata(self) -> Any:
+        return self._custom_metadata
+
+    @property
+    def comment(self) -> str | None:
+        return self._comment
 
     @property
     def is_required_for_insert(self) -> bool:

@@ -913,10 +913,12 @@ class TestView:
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
+                            'custom_metadata': None,
+                            'comment': None,
                         }
                         for name, (type_, version_added) in expected_schema.items()
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
@@ -1026,10 +1028,12 @@ class TestView:
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
+                            'custom_metadata': None,
+                            'comment': None,
                         }
                         for name, (type_, version_added, computed_with) in expected_schema.items()
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
@@ -1106,10 +1110,12 @@ class TestView:
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
+                            'custom_metadata': None,
+                            'comment': None,
                         }
                         for name, (type_, version_added, computed_with) in expected_schema.items()
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
@@ -1298,3 +1304,42 @@ class TestView:
         # check that invalid JSON user metadata are rejected
         with pytest.raises(pxt.Error):
             pxt.create_view('tbl_view_invalid', t, custom_metadata={'key': set})
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_view_column_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': pxt.Int})
+        v = pxt.create_view(
+            'tbl_view', t, additional_columns={'v1': {'type': pxt.Int, 'custom_metadata': custom_metadata}}
+        )
+        assert v.get_metadata()['columns']['v1']['custom_metadata'] == custom_metadata
+
+        reload_catalog(do_reload_catalog)
+        v = pxt.get_table('tbl_view')
+        assert v.get_metadata()['columns']['v1']['custom_metadata'] == custom_metadata
+
+        # check that invalid JSON user metadata are rejected for columns
+        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
+            pxt.create_view(
+                'tbl_view_invalid', t, additional_columns={'v1': {'type': pxt.Int, 'custom_metadata': {'key': set}}}
+            )
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_view_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': pxt.Int})
+        v = pxt.create_view(
+            'tbl_view', t, additional_columns={'v1': {'type': pxt.Int, 'comment': 'This is a test column.'}}
+        )
+        assert v.get_metadata()['columns']['v1']['comment'] == 'This is a test column.'
+
+        reload_catalog(do_reload_catalog)
+        v = pxt.get_table('tbl_view')
+        assert v.get_metadata()['columns']['v1']['comment'] == 'This is a test column.'
+
+        # check that raw object JSON comments are rejected for columns
+        with pytest.raises(pxt.Error, match="'comment' must be a string"):
+            pxt.create_view(
+                'tbl_view_invalid',
+                t,
+                additional_columns={'v1': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
+            )

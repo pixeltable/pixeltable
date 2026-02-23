@@ -311,12 +311,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
+                            'comment': None,
                             'name': 'col',
                             'type_': 'String',
                             'version_added': 0,
                         }
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_view': False,
                     'is_snapshot': False,
@@ -341,12 +343,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
+                            'comment': None,
                             'name': 'col',
                             'type_': 'String',
                             'version_added': 0,
                         }
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {
                         'idx0': {
                             'columns': ['col'],
@@ -385,12 +389,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'comment': None,
                             'name': 'col',
+                            'custom_metadata': None,
                             'type_': 'String',
                             'version_added': 0,
                         }
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
@@ -415,7 +421,9 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
                             'name': 'col',
+                            'comment': None,
                             'type_': 'String',
                             'version_added': 0,
                         },
@@ -425,12 +433,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
                             'name': 'col2',
+                            'comment': None,
                             'type_': 'String',
                             'version_added': 0,
                         },
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
@@ -2783,9 +2793,9 @@ class TestTable:
             """view 'test_subview' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
-            Column Name                            Type           Computed With
+            Column Name                            Type           Computed With                      Comment
               computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
-                     c1                Required[String]
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2812,9 +2822,9 @@ class TestTable:
             """snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
-            Column Name                            Type           Computed With
+            Column Name                            Type           Computed With                      Comment
               computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
-                     c1                Required[String]
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2836,8 +2846,8 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap2' (of 'test_tbl:2')
 
-            Column Name                            Type           Computed With
-                     c1                Required[String]
+            Column Name                            Type           Computed With                      Comment
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2854,9 +2864,9 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap3' (of 'test_tbl:2')
 
-            Column Name                            Type           Computed With
+            Column Name                            Type           Computed With                      Comment
               computed1                 Required[Float]                 c2 + c3
-                     c1                Required[String]
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2873,8 +2883,8 @@ class TestTable:
             'c1'
             (of table 'test_tbl')
 
-            Column Name              Type Computed With
-                     c1  Required[String]"""
+            Column Name              Type Computed With                      Comment
+                   c1  Required[String]                String column with no nulls"""
         )
         _ = v2.c1._repr_html_()
 
@@ -3095,3 +3105,30 @@ class TestTable:
         # check that invalid JSON user metadata are rejected
         with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_column_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': {'type': pxt.Int, 'custom_metadata': custom_metadata}})
+        assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
+
+        # check that invalid JSON user metadata are rejected for columns
+        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
+            pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'custom_metadata': {'key': set}}})
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': {'type': pxt.Int, 'comment': 'This is a test column.'}})
+        assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
+
+        # check that raw object JSON comments are rejected for columns
+        with pytest.raises(pxt.Error, match="'comment' must be a string"):
+            pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[dict-item]

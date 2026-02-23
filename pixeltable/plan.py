@@ -939,6 +939,7 @@ class Planner:
         group_by_clause: list[exprs.Expr] | None = None,
         order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,
         limit: exprs.Expr | None = None,
+        offset: exprs.Expr | None = None,
         sample_clause: SampleClause | None = None,
         ignore_errors: bool = False,
         exact_version_only: list[catalog.TableVersionHandle] | None = None,
@@ -986,6 +987,7 @@ class Planner:
             eval_ctx=eval_ctx,
             columns=columns,
             limit=limit,
+            offset=offset,
             with_pk=True,
             exact_version_only=exact_version_only,
         )
@@ -1002,6 +1004,7 @@ class Planner:
         eval_ctx: exprs.RowBuilder.EvalCtx,
         columns: list[catalog.Column] | None = None,
         limit: exprs.Expr | None = None,
+        offset: exprs.Expr | None = None,
         with_pk: bool = False,
         exact_version_only: list[catalog.TableVersionHandle] | None = None,
     ) -> exec.ExecNode:
@@ -1182,6 +1185,10 @@ class Planner:
         if limit is not None:
             assert isinstance(limit, exprs.Literal)
             plan.set_limit(limit.val)
+
+        if offset is not None:
+            assert isinstance(offset, exprs.Literal)
+            plan.set_offset(offset.val)
 
         plan.set_ctx(ctx)
         return plan

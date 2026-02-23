@@ -1235,6 +1235,20 @@ class TestExprs:
         # need to use frozensets because dicts are not hashable
         assert {frozenset(d.items()) for d in val} == {frozenset(d.items()) for d in res2}
 
+    def test_json_dumps(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        t.add_computed_column(json_col={'a': t.c1, 'b': t.c2})
+
+        # Test normal execution (should use SQL translation via to_sql())
+        res = t.select(t.json_col, dumped=pxtf.json.dumps(t.json_col)).collect()
+        assert all(json.loads(res['dumped'][i]) == res['json_col'][i] for i in range(len(res)))
+
+        # Test forced Python execution
+        res = t.select(
+            t.json_col, dumped_py=pxtf.json.dumps(t.json_col.apply(lambda x: x, col_type=pxt.Json))
+        ).collect()
+        assert all(json.loads(res['dumped_py'][i]) == res['json_col'][i] for i in range(len(res)))
+
     def test_agg(self, uses_db: None) -> None:
         t = create_scalars_tbl(1000)
         df = t.select().collect().to_pandas()

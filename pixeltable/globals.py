@@ -58,7 +58,7 @@ def create_table(
     on_error: Literal['abort', 'ignore'] = 'abort',
     primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
-    comment: str = '',
+    comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
@@ -213,8 +213,10 @@ def create_table(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
         )
 
-    if not isinstance(comment, str):
-        raise excs.Error('`comment` must be a string')
+    if comment is not None and not isinstance(comment, str):
+        raise excs.Error('`comment` must be a string or None')
+    elif comment == '':
+        comment = None
 
     try:
         json.dumps(custom_metadata)
@@ -255,7 +257,7 @@ def create_view(
     create_default_idxs: bool = False,
     iterator: func.GeneratingFunctionCall | None = None,
     num_retained_versions: int = 10,
-    comment: str = '',
+    comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
@@ -367,8 +369,10 @@ def create_view(
     if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
         raise excs.Error('The specified `iterator` is not a valid Pixeltable iterator')
 
-    if not isinstance(comment, str):
-        raise excs.Error('`comment` must be a string')
+    if comment is not None and not isinstance(comment, str):
+        raise excs.Error('`comment` must be a string or None')
+    elif comment == '':
+        comment = None
 
     try:
         json.dumps(custom_metadata)
@@ -400,7 +404,7 @@ def create_snapshot(
     additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     iterator: func.GeneratingFunctionCall | None = None,
     num_retained_versions: int = 10,
-    comment: str = '',
+    comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',

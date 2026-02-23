@@ -930,6 +930,107 @@ def _create_drawtext_params(
 
 
 @pxt.udf(is_method=True)
+def crop(
+    video: pxt.Video,
+    bbox: list[int],
+    *,
+    bbox_format: Literal['xyxy', 'xywh', 'cxcywh'] = 'xywh',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
+    """
+    Crop a rectangular region from a video using ffmpeg's crop filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        bbox: Crop region as a list of 4 integers.
+        bbox_format: Format of the `bbox` coordinates:
+
+            - `'xyxy'`: `[x1, y1, x2, y2]` where (x1, y1) is top-left and (x2, y2) is bottom-right
+            - `'xywh'`: `[x, y, width, height]` where (x, y) is top-left corner
+            - `'cxcywh'`: `[cx, cy, width, height]` where (cx, cy) is the center
+        video_encoder: Video encoder to use. If not specified, uses the default encoder.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
+    Returns:
+        Video containing the cropped region.
+
+    Examples:
+        Crop using default xywh format:
+
+        >>> tbl.select(tbl.video.crop2([100, 50, 320, 240])).collect()
+
+        Crop using xyxy format (common in object detection):
+
+        >>> tbl.select(
+        ...     tbl.video.crop2([100, 50, 420, 290], bbox_format='xyxy')
+        ... ).collect()
+
+        Crop using center format:
+
+        >>> tbl.select(
+        ...     tbl.video.crop2([260, 170, 320, 240], bbox_format='cxcywh')
+        ... ).collect()
+
+        Use with yolox object detection output:
+
+        >>> tbl.add_computed_column(
+        ...     cropped=tbl.video.crop2(tbl.detections.bboxes[0], bbox_format='xyxy')
+        ... )
+    """
+    Env.get().require_binary('ffmpeg')
+
+    if len(bbox) != 4 or not all(isinstance(x, int) for x in bbox) or not all(x >= 0 for x in bbox):
+        raise pxt.Error(f'bbox must have exactly 4 non-negative integers, got {bbox}')
+    if bbox_format == 'xyxy' and (bbox[2] <= bbox[0] or bbox[3] <= bbox[1]):
+        raise pxt.Error(f'x2 must be greater than x1 and y2 must be greater than y1 for xyxy format, got {bbox}')
+
+    # normalize to xywh
+    x: int
+    y: int
+    w: int
+    h: int
+    if bbox_format == 'xyxy':
+        x1, y1, x2, y2 = bbox
+        x, y = x1, y1
+        w, h = x2 - x1, y2 - y1
+    elif bbox_format == 'xywh':
+        x, y, w, h = bbox
+    elif bbox_format == 'cxcywh':
+        cx, cy, w, h = bbox
+        x = cx - w // 2
+        y = cy - h // 2
+    else:
+        raise pxt.Error(f"bbox_format must be one of ['xyxy', 'xywh', 'cxcywh'], got {bbox_format!r}")
+
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+
+    cmd = ['ffmpeg', '-i', str(video), '-vf', f'crop={w}:{h}:{x}:{y}', '-c:a', 'copy', '-c:v', video_encoder]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+    cmd.extend(['-loglevel', 'error', output_path])
+    _logger.debug(f'crop(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
+@pxt.udf(is_method=True)
 def scene_detect_adaptive(
     video: pxt.Video,
     *,
