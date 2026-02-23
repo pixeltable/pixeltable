@@ -2595,8 +2595,9 @@ class Catalog:
                 raise excs.Error(f'Path {path!r} already exists and is not a {obj_type_str}')
             # for views/snapshots, verify the base table matches
             if isinstance(obj, View):
-                assert base is not None  # views/snapshots always require a base
-                if obj._base_tbl_id != base.tbl_id:
+                obj_base = obj._base_tbl_id
+                new_base = base.tbl_id if base is not None else None
+                if obj_base != new_base:
                     obj_type_str = 'snapshot' if expected_snapshot else 'view'
                     raise excs.Error(f'Path {path!r} already exists as a {obj_type_str} with a different base table')
             return obj
