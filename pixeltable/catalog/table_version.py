@@ -468,11 +468,9 @@ class TableVersion:
                 self.store_tbl.drop()
 
         elif isinstance(op, CreateStoreIdxsOp):
-            # Not implemented -- BtreeIndex.drop_index and EmbeddingIndex.drop_index must be implemented first.
-            # Store indexes will be dropped automatically when the column is dropped, which is the next op.
-            # However if in the future we use CreateStoreIdxsOp separately from table or column creation, not being able
-            # to drop indexes can result in orphaned indexes.
-            pass
+            for idx_id in op.idx_ids:
+                with Env.get().begin_xact():
+                    self.store_tbl.drop_index(idx_id)
 
         elif isinstance(op, LoadViewOp):
             # clear out any media files
