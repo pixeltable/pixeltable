@@ -218,6 +218,15 @@ class TestView:
             pxt.drop_table('not_view')
             _ = pxt.create_table('not_view', {'c1': pxt.String})
 
+        # scenario 4: view exists but with a different base table
+        pxt.drop_table('not_view')
+        other_base = pxt.create_table('other_base', {'c1': pxt.String})
+        _ = pxt.create_view('view_with_base', t)
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = pxt.create_view('view_with_base', other_base, if_exists='ignore')
+        err_msg = str(exc_info.value).lower()
+        assert 'already exists' in err_msg and 'different base table' in err_msg
+
         # sanity check persistence
         _ = reload_tester.run_query(t.select())
         _ = reload_tester.run_query(v3.select())

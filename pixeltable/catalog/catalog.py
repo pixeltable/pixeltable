@@ -2593,6 +2593,12 @@ class Catalog:
                 else:
                     obj_type_str = expected_obj_type.__name__
                 raise excs.Error(f'Path {path!r} already exists and is not a {obj_type_str}')
+            # for views/snapshots, verify the base table matches
+            if isinstance(obj, View):
+                assert base is not None  # views/snapshots always require a base
+                if obj._base_tbl_id != base.tbl_id:
+                    obj_type_str = 'snapshot' if expected_snapshot else 'view'
+                    raise excs.Error(f'Path {path!r} already exists as a {obj_type_str} with a different base table')
             return obj
 
         assert if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)

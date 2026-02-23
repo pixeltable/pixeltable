@@ -177,6 +177,14 @@ class TestSnapshot:
         assert 'not_snapshot' in pxt.list_tables()
         assert snap._tbl_version_path.is_snapshot()
 
+        # scenario 4: snapshot exists but with a different base table
+        other_base = pxt.create_table('other_base', {'c1': pxt.String}, if_exists='replace_force')
+        _ = pxt.create_snapshot('snap_with_base', t, if_exists='replace')
+        with pytest.raises(pxt.Error) as exc_info:
+            _ = pxt.create_snapshot('snap_with_base', other_base, if_exists='ignore')
+        err_msg = str(exc_info.value).lower()
+        assert 'already exists' in err_msg and 'different base table' in err_msg
+
     def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter while creating a snapshot."""
         t = create_test_tbl()
