@@ -211,7 +211,7 @@ class ExprEvalCtx:
         # dependencies[i, j] means expr i depends on expr j
         # missing_dependents[slot] = count of slots that depend on 'slot' and don't have a value
         dependencies = self.row_builder.dependencies
-        new_missing_dependents = (~has_val) @ dependencies
+        new_missing_dependents = (~has_val).astype(np.int16) @ dependencies.astype(np.int16)
 
         # Vectorized missing_slots computation
         # missing_slots = eval_ctx slots that don't have values yet

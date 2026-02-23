@@ -403,7 +403,7 @@ class ExprEvalNode(ExecNode):
             # has_val @ dependencies.T gives count of materialized dependencies per slot
             # dependencies[i, j] == True means expr i depends on expr j
             # We want: for each slot i, count how many of its dependencies have values
-            nc_num_mat_dependencies = nc_has_val @ dependencies
+            nc_num_mat_dependencies = nc_has_val.astype(np.int32) @ dependencies.T.astype(np.int32)
 
             # Ready when all dependencies are materialized
             nc_num_missing = nc_missing_dependencies - nc_num_mat_dependencies
@@ -421,7 +421,7 @@ class ExprEvalNode(ExecNode):
         # dependencies[i, j] means expr i depends on expr j
         # For each slot j, we count how many slots i (that don't have values) depend on j
         # This is: (~has_val) @ dependencies, summing over the first axis
-        new_missing_dependents = (~has_val) @ dependencies
+        new_missing_dependents = (~has_val).astype(np.int16) @ dependencies.astype(np.int16)
 
         # Identify slots to garbage collect per row
         gc_targets_2d = (new_missing_dependents == 0) & (missing_dependents > 0) & exec_ctx.gc_targets[np.newaxis, :]
