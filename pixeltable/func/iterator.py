@@ -149,7 +149,7 @@ class GeneratingFunction:
             if not isinstance(element_type, type) or not issubclass(element_type, dict):
                 raise excs.Error(
                     f'`__next__()` method of @pxt.iterator-decorated class `{self.fqn}` '
-                    'must have return type `dict` or `MyTypedDict`.'
+                    'must have return type `dict` or a subclass of `TypedDict`.'
                 )
             output_schema_type = element_type
 
@@ -173,7 +173,7 @@ class GeneratingFunction:
             ):
                 raise excs.Error(
                     f'@pxt.iterator-decorated function `{self.fqn}()` '
-                    'must have return type `Iterator[dict]` or `Iterator[MyTypedDict]`.'
+                    'must have return type `Iterator[dict]`, or `Iterator[T]` for a subclass `T` of `TypedDict`.'
                 )
             output_schema_type = element_type
 

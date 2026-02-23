@@ -276,7 +276,7 @@ class TestIterator:
         with pytest.raises(
             pxt.Error,
             match=r'`__next__\(\)` method of @pxt.iterator-decorated class '
-            r'`.*wrong_next_return_type` must have return type `dict` or `MyTypedDict`.',
+            r'`.*wrong_next_return_type` must have return type `dict` or a subclass of `TypedDict`.',
         ):
 
             @pxt.iterator
@@ -291,7 +291,7 @@ class TestIterator:
         with pytest.raises(
             pxt.Error,
             match=r'@pxt.iterator-decorated function `.*wrong_return_type\(\)` must have return type '
-            r'`Iterator\[dict\]` or `Iterator\[MyTypedDict\]`.',
+            r'`Iterator\[dict\]`, or `Iterator\[T\]` for a subclass `T` of `TypedDict`.',
         ):
 
             @pxt.iterator
@@ -302,7 +302,7 @@ class TestIterator:
         with pytest.raises(
             pxt.Error,
             match=r'@pxt.iterator-decorated function `.*iterator_of_ints\(\)` must have return type '
-            r'`Iterator\[dict\]` or `Iterator\[MyTypedDict\]`.',
+            r'`Iterator\[dict\]`, or `Iterator\[T\]` for a subclass `T` of `TypedDict`.',
         ):
 
             @pxt.iterator
