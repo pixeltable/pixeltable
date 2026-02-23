@@ -93,7 +93,7 @@ class Table(SchemaObject):
             self._dir_id = old_dir_id
 
         super()._move(new_name, new_dir_id)
-        conn = env.Env.get().conn
+        conn = get_runtime().conn
         stmt = sql.text(
             (
                 f'UPDATE {schema.Table.__table__} '

@@ -71,7 +71,7 @@ class TableVersionPath:
     def refresh_cached_md(self) -> None:
         from pixeltable.runtime import get_runtime
 
-        if Env.get().in_xact:
+        if get_runtime().in_xact:
             # when we're running inside a transaction, we need to make sure to supply current metadata;
             # mixing stale metadata with current metadata leads to query construction failures
             # (multiple sqlalchemy Table instances for the same underlying table create corrupted From clauses)

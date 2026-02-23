@@ -408,12 +408,12 @@ class TableVersion:
 
         if isinstance(op, CreateStoreTableOp):
             # this needs to be called outside of a transaction
-            with Env.get().begin_xact():
+            with get_runtime().begin_xact():
                 self.store_tbl.create()
 
         elif isinstance(op, CreateStoreIdxsOp):
             for idx_id in op.idx_ids:
-                with Env.get().begin_xact():
+                with get_runtime().begin_xact():
                     self.store_tbl.create_index(idx_id)
 
         elif isinstance(op, LoadViewOp):
@@ -423,7 +423,7 @@ class TableVersion:
 
             view_path = TableVersionPath.from_dict(op.view_path)
             plan, _ = Planner.create_view_load_plan(view_path)
-            with Env.get().report_progress():
+            with get_runtime().report_progress():
                 plan.ctx.title = self.display_str()
                 _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             status = UpdateStatus(row_count_stats=row_counts)
@@ -443,7 +443,7 @@ class TableVersion:
 
         elif isinstance(op, CreateStoreColumnsOp):
             for col_id in op.column_ids:
-                with Env.get().begin_xact():
+                with get_runtime().begin_xact():
                     self.store_tbl.add_column(self.cols_by_id[col_id])
 
         elif isinstance(op, DeleteTableMediaFilesOp):
@@ -453,7 +453,7 @@ class TableVersion:
         elif isinstance(op, DropStoreTableOp):
             # don't reference self.store_tbl here, it needs to reference the metadata for our base table, which at
             # this point may not exist anymore
-            with Env.get().begin_xact() as conn:
+            with get_runtime().begin_xact() as conn:
                 drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(self.id, self.is_view)}'
                 conn.execute(sql.text(drop_stmt))
 
@@ -464,12 +464,12 @@ class TableVersion:
 
         if isinstance(op, CreateStoreTableOp):
             # this needs to be called outside of a transaction
-            with Env.get().begin_xact():
+            with get_runtime().begin_xact():
                 self.store_tbl.drop()
 
         elif isinstance(op, CreateStoreIdxsOp):
             for idx_id in op.idx_ids:
-                with Env.get().begin_xact():
+                with get_runtime().begin_xact():
                     self.store_tbl.drop_index(idx_id)
 
         elif isinstance(op, LoadViewOp):
@@ -490,7 +490,7 @@ class TableVersion:
 
         elif isinstance(op, CreateStoreColumnsOp):
             for col_id in op.column_ids:
-                with Env.get().begin_xact():
+                with get_runtime().begin_xact():
                     self.store_tbl.drop_column(self.cols_by_id[col_id])
 
         elif isinstance(op, (DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp)):
@@ -503,7 +503,7 @@ class TableVersion:
 
         from .catalog import TableVersionPath
 
-        assert Env.get().in_xact
+        assert get_runtime().in_xact
         assert md.tbl_md.is_replica
         tbl_id = UUID(md.tbl_md.tbl_id)
         _logger.info(f'Creating replica table version {tbl_id}:{md.version_md.version}.')
@@ -1040,7 +1040,7 @@ class TableVersion:
             # populate the column
             plan = Planner.create_add_column_plan(self.path, col)
             excs_per_col = 0
-            with Env.get().report_progress():
+            with get_runtime().report_progress():
                 try:
                     plan.ctx.title = self.display_str()
                     excs_per_col = self.store_tbl.write_column(col, plan, on_error == 'abort')
@@ -1178,6 +1178,8 @@ class TableVersion:
         """
         from pixeltable.plan import Planner
 
+        from pixeltable.runtime import get_runtime
+
         assert self.is_insertable
         assert (rows is None) != (query is None)  # Exactly one must be specified
         if rows is not None:
@@ -1193,7 +1195,7 @@ class TableVersion:
                 self.next_row_id += 1
                 yield rowid
 
-        with Env.get().report_progress():
+        with get_runtime().report_progress():
             result = self._insert(
                 plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
             )
@@ -1509,7 +1511,7 @@ class TableVersion:
         """
         from pixeltable.runtime import get_runtime
 
-        conn = Env.get().conn
+        conn = get_runtime().conn
         # make sure we don't have a snapshot referencing this version
         # (unclear how to express this with sqlalchemy)
         query = (

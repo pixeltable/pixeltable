@@ -19,6 +19,7 @@ from pixeltable import exceptions as excs
 from pixeltable.env import Env
 from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
+from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.exception_handler import run_cleanup
 
@@ -95,7 +96,7 @@ def retry_loop(
                 try:
                     # in order for retry to work, we need to make sure that there aren't any prior db updates
                     # that are part of an ongoing transaction
-                    assert not Env.get().in_xact
+                    assert not get_runtime().in_xact
                     with cat.begin_xact(
                         tbl=tbl,
                         for_write=for_write,
@@ -276,7 +277,7 @@ class Catalog:
 
     def mark_modified_tvs(self, *handle: TableVersionHandle) -> None:
         """Record that the given TableVersion instances were modified in the current transaction"""
-        assert Env.get().in_xact
+        assert get_runtime().in_xact
         self._modified_tvs.update(handle)
 
     @contextmanager
@@ -310,14 +311,14 @@ class Catalog:
         If convert_db_excs == True, converts DBAPIErrors into excs.Errors.
         """
         assert tbl is None or tbl_id is None  # at most one can be specified
-        if Env.get().in_xact:
+        if get_runtime().in_xact:
             # make sure that we requested the required table lock at the beginning of the transaction
             if for_write:
                 if tbl is not None:
                     assert tbl.tbl_id in self._x_locked_tbl_ids, f'{tbl.tbl_id} not in {self._x_locked_tbl_ids}'
                 elif tbl_id is not None:
                     assert tbl_id in self._x_locked_tbl_ids, f'{tbl_id} not in {self._x_locked_tbl_ids}'
-            yield Env.get().conn
+            yield get_runtime().conn
             return
 
         # tv_msg = '\n'.join(
@@ -344,7 +345,7 @@ class Catalog:
                 has_exc = False
 
                 assert not self._undo_actions
-                with Env.get().begin_xact(for_write=for_write) as conn:
+                with get_runtime().begin_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
                         try:
                             target: TableVersionHandle | None = None
@@ -579,7 +580,7 @@ class Catalog:
             if user is not None:
                 where_clause = sql.and_(where_clause, schema.Table.md['user'].astext == Env.get().user)
 
-        conn = Env.get().conn
+        conn = get_runtime().conn
         q = sql.select(schema.Table).where(where_clause)
         if for_write:
             q = q.with_for_update(nowait=True)
@@ -892,12 +893,12 @@ class Catalog:
                 q = q.where(schema.Dir.md['name'].astext == dir_name)
             if user is not None:
                 q = q.where(schema.Dir.md['user'].astext == user)
-        Env.get().conn.execute(q)
+        get_runtime().conn.execute(q)
 
     def get_dir_path(self, dir_id: UUID) -> Path:
         """Return path for directory with given id"""
         assert isinstance(dir_id, UUID)
-        conn = Env.get().conn
+        conn = get_runtime().conn
         names: list[str] = []
         while True:
             q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
@@ -922,7 +923,7 @@ class Catalog:
 
     def _get_dir_contents(self, dir_id: UUID, recursive: bool = False) -> dict[str, DirEntry]:
         """Returns a dict mapping the entry names to DirEntry objects"""
-        conn = Env.get().conn
+        conn = get_runtime().conn
         result: dict[str, Catalog.DirEntry] = {}
 
         q = sql.select(schema.Dir).where(schema.Dir.parent_id == dir_id)
@@ -1040,7 +1041,7 @@ class Catalog:
         self, dir_id: UUID, name: str, version: int | None = None, lock_entry: bool = False
     ) -> SchemaObject | None:
         user = Env.get().user
-        conn = Env.get().conn
+        conn = get_runtime().conn
 
         # check for subdirectory
         if lock_entry:
@@ -1208,7 +1209,7 @@ class Catalog:
                 self._acquire_tbl_lock(tbl_id=base.tbl_id, for_write=True)
                 base_tv = self.get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
                 base_tv.tbl_md.view_sn += 1
-                result = Env.get().conn.execute(
+                result = get_runtime().conn.execute(
                     sql.update(schema.Table)
                     .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
                     .where(schema.Table.id == base.tbl_id)
@@ -1381,7 +1382,7 @@ class Catalog:
         assert dir is not None
         assert self._in_write_xact
 
-        conn = Env.get().conn
+        conn = get_runtime().conn
         tbl_id = md.tbl_md.tbl_id
 
         new_tbl_md: schema.TableMd | None = None
@@ -1481,8 +1482,8 @@ class Catalog:
 
     def get_additional_md(self, tbl_id: UUID) -> dict[str, Any]:
         """Return the additional_md field of the given table."""
-        assert Env.get().in_xact
-        conn = Env.get().conn
+        assert get_runtime().in_xact
+        conn = get_runtime().conn
         q = sql.select(schema.Table.additional_md).where(self._active_tbl_clause(tbl_id=tbl_id))
         # TODO: handle concurrent drop()
         row = conn.execute(q).one()
@@ -1495,7 +1496,7 @@ class Catalog:
         existing one via a JSON dictionary merge, giving preference to the new values.
         """
         assert self._in_write_xact
-        conn = Env.get().conn
+        conn = get_runtime().conn
         q = (
             sql.update(schema.Table)
             .where(schema.Table.id == str(tbl_id))
@@ -1618,7 +1619,7 @@ class Catalog:
             base_id = tvp.base.tbl_id
             base_tv = self.get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
             base_tv.tbl_md.view_sn += 1
-            result = Env.get().conn.execute(
+            result = get_runtime().conn.execute(
                 sql.update(schema.Table.__table__)
                 .values({schema.Table.md: dataclasses.asdict(base_tv.tbl_md, dict_factory=schema.md_dict_factory)})
                 .where(schema.Table.id == base_id)
@@ -1736,7 +1737,7 @@ class Catalog:
         self._roll_forward()
 
     def _drop_dir(self, dir_id: UUID, dir_path: Path, force: bool = False) -> None:
-        conn = Env.get().conn
+        conn = get_runtime().conn
         if not force:
             # check for existing entries
             q = sql.select(sql.func.count()).select_from(schema.Dir).where(schema.Dir.parent_id == dir_id)
@@ -1766,7 +1767,7 @@ class Catalog:
 
     def get_view_ids(self, tbl_id: UUID, for_update: bool = False) -> list[UUID]:
         """Return the ids of views that directly reference the given table"""
-        conn = Env.get().conn
+        conn = get_runtime().conn
         # check whether this table still exists
         q = sql.select(sql.func.count()).select_from(schema.Table).where(self._active_tbl_clause(tbl_id=tbl_id))
         tbl_count = conn.execute(q).scalar()
@@ -1877,7 +1878,7 @@ class Catalog:
 
     def get_dir(self, dir_id: UUID, for_update: bool = False) -> Dir | None:
         """Return the Dir with the given id, or None if it doesn't exist"""
-        conn = Env.get().conn
+        conn = get_runtime().conn
         if for_update:
             self._acquire_dir_xlock(dir_id=dir_id)
         q = sql.select(schema.Dir).where(schema.Dir.id == dir_id)
@@ -1892,7 +1893,7 @@ class Catalog:
         lock_dir: if True, X-locks target (but not the ancestors)
         """
         user = Env.get().user
-        conn = Env.get().conn
+        conn = get_runtime().conn
         if path.is_root:
             if lock_dir:
                 self._acquire_dir_xlock(dir_name='')
@@ -1921,7 +1922,7 @@ class Catalog:
         assert tbl_id is not None
         _logger.info(f'Loading table {tbl_id}')
 
-        conn = Env.get().conn
+        conn = get_runtime().conn
 
         if ignore_pending_drop:
             # check whether this table is in the process of being dropped
@@ -1998,7 +1999,7 @@ class Catalog:
         from .view import View
 
         # Load the specified TableMd and TableVersionMd records from the db.
-        conn = Env.get().conn
+        conn = get_runtime().conn
         q: sql.Executable = (
             sql.select(schema.Table, schema.TableVersion)
             .join(schema.TableVersion)
@@ -2032,7 +2033,7 @@ class Catalog:
         #     that we don't need to rely on timestamps (which might be nondeterministic in distributed execution
         #     scenarios).
 
-        assert Env.get().conn is not None
+        assert get_runtime().in_xact
 
         # Build the list of ancestor versions, starting with the given table and traversing back to the base table.
         # For each proper ancestor,
@@ -2053,7 +2054,7 @@ class Catalog:
                 .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
                 .limit(1)
             )
-            row = Env.get().conn.execute(q).one_or_none()
+            row = get_runtime().conn.execute(q).one_or_none()
             if row is None:
                 # This can happen if an ancestor version is garbage collected; it can also happen in
                 # rare circumstances involving table versions created specifically with Pixeltable 0.4.3.
@@ -2107,7 +2108,7 @@ class Catalog:
         )
         if n is not None:
             q = q.limit(n)
-        src_rows = Env.get().session.execute(q).fetchall()
+        src_rows = get_runtime().session.execute(q).fetchall()
         return [
             TableVersionMd(
                 tbl_md=schema.md_from_dict(schema.TableMd, row.Table.md),
@@ -2121,7 +2122,7 @@ class Catalog:
         """
         Returns the TableVersionMd for the most recent non-fragment version of the given table.
         """
-        conn = Env.get().conn
+        conn = get_runtime().conn
 
         q = (
             sql.select(schema.TableVersion.md)
@@ -2149,7 +2150,7 @@ class Catalog:
             anchor_timestamp = anchored_version_md.created_at
 
         # _logger.info(f'Loading metadata for table version: {tbl_id}:{effective_version}')
-        conn = Env.get().conn
+        conn = get_runtime().conn
 
         q = (
             sql.select(schema.Table, schema.TableVersion, schema.TableSchemaVersion)
@@ -2242,7 +2243,7 @@ class Catalog:
         assert version_md is None or version_md.created_at > 0.0
         assert pending_ops is None or len(pending_ops) > 0
         assert pending_ops is None or tbl_md is not None  # if we write pending ops, we must also write new tbl_md
-        session = Env.get().session
+        session = get_runtime().session
 
         # Construct and insert or update table record if requested.
         if tbl_md is not None:
@@ -2335,7 +2336,7 @@ class Catalog:
 
     def delete_current_tbl_version_md(self, tbl_id: UUID) -> None:
         """Removes 'current_version' from stored metadata for table and resets the table to current_version - 1"""
-        conn = Env.get().conn
+        conn = get_runtime().conn
         q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id)
         tbl_md = conn.execute(q).one()[0]
         current_version, current_schema_version = tbl_md['current_version'], tbl_md['current_schema_version']
@@ -2384,7 +2385,7 @@ class Catalog:
     def store_update_status(self, tbl_id: UUID, version: int, status: UpdateStatus) -> None:
         """Update the TableVersion.md.update_status field"""
         assert self._in_write_xact
-        conn = Env.get().conn
+        conn = get_runtime().conn
 
         stmt = (
             sql.update(schema.TableVersion)
@@ -2399,7 +2400,7 @@ class Catalog:
         """
         Deletes all table metadata from the store for the given table UUID.
         """
-        conn = Env.get().conn
+        conn = get_runtime().conn
         _logger.info(f'delete_tbl_md({tbl_id})')
         status = conn.execute(sql.delete(schema.TableSchemaVersion).where(schema.TableSchemaVersion.tbl_id == tbl_id))
         assert status.rowcount > 0
@@ -2454,7 +2455,7 @@ class Catalog:
         schema_version_md = tv_md.schema_version_md
         view_md = tbl_md.view_md
 
-        conn = Env.get().conn
+        conn = get_runtime().conn
 
         if check_pending_ops:
             # if we care about pending ops, we also care whether the table is in the process of getting dropped
@@ -2530,8 +2531,8 @@ class Catalog:
         """
         Creates a catalog record (root directory) for the specified user, if one does not already exist.
         """
-        with Env.get().begin_xact():
-            session = Env.get().session
+        with get_runtime().begin_xact():
+            session = get_runtime().session
             # See if there are any directories in the catalog matching the specified user.
             if session.query(schema.Dir).where(schema.Dir.md['user'].astext == user).count() > 0:
                 # At least one such directory exists; no need to create a new one.
@@ -2605,7 +2606,7 @@ class Catalog:
         This function can and should be extended to perform more checks.
         """
         all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
-        with Env.get().begin_xact(for_write=False):
+        with get_runtime().begin_xact(for_write=False):
             for entry in all_contents.values():
                 if entry.table is None:
                     continue
@@ -2667,7 +2668,7 @@ class Catalog:
                 .limit(1)
             )
             _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
-            for row in Env.get().conn.execute(stmt).all():
+            for row in get_runtime().conn.execute(stmt).all():
                 raise AssertionError(
                     f'The table validation query should have returned nothing, but it returned row: {row._asdict()}.\n'
                     f'This means that one of the indexes in {tbl._display_str()} is corrupted, i.e. the index value '
@@ -2715,7 +2716,7 @@ class Catalog:
                 .limit(1)
             )
             _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
-            for row in Env.get().conn.execute(stmt).all():
+            for row in get_runtime().conn.execute(stmt).all():
                 raise AssertionError(
                     'The table validation query should have returned nothing, but it returned row: '
                     f'{row._asdict()}.\nThis means that one of the indexes in {tbl._display_str()} is corrupted, i.e. '

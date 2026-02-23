@@ -30,8 +30,6 @@ import pixeltable_pgserver
 import sqlalchemy as sql
 import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
-from rich.progress import Progress
-from sqlalchemy import orm
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
@@ -53,8 +51,6 @@ class Env:
     For a local environment, Pixeltable uses an embedded PostgreSQL server that runs locally in a separate process.
     For a non-local environment, Pixeltable uses a connection string to the externally managed database.
     """
-
-    SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
 
     _instance: Env | None = None
     __initializing: bool = False
@@ -90,7 +86,6 @@ class Env:
     _stdout_handler: logging.StreamHandler
     _default_video_encoder: str | None
     _initialized: bool
-    _progress: Progress | None
 
     _resource_pool_info: dict[str, Any]
     _dbms: Dbms | None
@@ -152,7 +147,6 @@ class Env:
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
         self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
         self._initialized = False
-        self._progress = None
 
         self._resource_pool_info = {}
         self._dbms = None
@@ -227,22 +221,6 @@ class Env:
         return self._verbosity
 
     @property
-    def conn(self) -> sql.Connection:
-        from pixeltable.runtime import get_runtime
-
-        runtime = get_runtime()
-        assert runtime.conn is not None
-        return runtime.conn
-
-    @property
-    def session(self) -> orm.Session:
-        from pixeltable.runtime import get_runtime
-
-        runtime = get_runtime()
-        assert runtime.session is not None
-        return runtime.session
-
-    @property
     def dbms(self) -> Dbms | None:
         assert self._dbms is not None
         return self._dbms
@@ -251,12 +229,6 @@ class Env:
     def is_using_cockroachdb(self) -> bool:
         assert self._dbms is not None
         return isinstance(self._dbms, CockroachDbms)
-
-    @property
-    def in_xact(self) -> bool:
-        from pixeltable.runtime import get_runtime
-
-        return get_runtime().conn is not None
 
     @property
     def is_local(self) -> bool:
@@ -282,73 +254,6 @@ class Env:
             return 'ZMQInteractiveShell' in str(shell)
         except NameError:
             return False
-
-    def start_progress(self, create_fn: Callable[[], Progress]) -> Progress:
-        if self._progress is None:
-            self._progress = create_fn()
-            self._progress.start()
-        return self._progress
-
-    def stop_progress(self) -> None:
-        if self._progress is None:
-            return
-        try:
-            self._progress.stop()
-        except Exception as e:
-            self._logger.warning(f'Error stopping progress: {e}')
-        finally:
-            self._progress = None
-
-        # if we're running in a notebook, we need to clear the Progress output manually
-        if self.is_notebook():
-            try:
-                from IPython.display import clear_output
-
-                clear_output(wait=False)
-            except ImportError:
-                pass
-
-    @contextmanager
-    def report_progress(self) -> Iterator[None]:
-        """Context manager for the Progress instance."""
-        try:
-            yield
-        finally:
-            self.stop_progress()
-
-    @contextmanager
-    def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
-        """
-        Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly.
-
-        for_write: if True, uses serializable isolation; if False, uses repeatable_read
-
-        TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
-        that avoids tripping over any pending ops
-        """
-        from pixeltable.runtime import get_runtime
-
-        runtime = get_runtime()
-        if runtime.conn is None:
-            assert runtime.session is None
-            try:
-                runtime.isolation_level = self.SERIALIZABLE_ISOLATION_LEVEL
-                with (
-                    self.engine.connect().execution_options(isolation_level=runtime.isolation_level) as conn,
-                    orm.Session(conn) as session,
-                    conn.begin(),
-                ):
-                    runtime.conn = conn
-                    runtime.session = session
-                    yield conn
-            finally:
-                runtime.session = None
-                runtime.conn = None
-                runtime.isolation_level = None
-        else:
-            assert runtime.session is not None
-            assert runtime.isolation_level == self.SERIALIZABLE_ISOLATION_LEVEL or not for_write
-            yield runtime.conn
 
     def configure_logging(
         self,
@@ -990,8 +895,7 @@ class Env:
         from pixeltable.runtime import get_runtime
 
         runtime = get_runtime()
-        assert runtime.session is None
-        assert runtime.conn is None
+        assert not runtime.in_xact
 
         # Stop HTTP server
         if self._httpd is not None:

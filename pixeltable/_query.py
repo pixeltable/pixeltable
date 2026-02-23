@@ -337,7 +337,7 @@ class Query:
             with plan:
                 for row_batch in plan:
                     # stop progress output before we display anything, otherwise it'll mess up the output
-                    Env.get().stop_progress()
+                    get_runtime().stop_progress()
                     yield from row_batch
 
         yield from exec_plan()

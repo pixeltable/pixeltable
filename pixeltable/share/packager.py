@@ -472,7 +472,7 @@ class TableRestorer:
         parquet_table = pq.read_table(str(parquet_dir))
         replica_version = tv.version
 
-        conn = Env.get().conn
+        conn = get_runtime().conn
         store_sa_tbl = tv.store_tbl.sa_tbl
         store_sa_tbl_name = tv.store_tbl._storage_name()
 
