@@ -289,15 +289,15 @@ class StoreBase:
         assert col.is_stored
         conn = Env.get().conn
         col_type_str = col.sa_col_type.compile(dialect=conn.dialect)
-        if_not_exists_operator = 'IF NOT EXISTS' if if_not_exists else ''
+        if_not_exists_clause = 'IF NOT EXISTS' if if_not_exists else ''
         s_txt = (
             f'ALTER TABLE {self._storage_name()} '
-            f'ADD COLUMN {if_not_exists_operator} {col.store_name()} {col_type_str} NULL'
+            f'ADD COLUMN {if_not_exists_clause} {col.store_name()} {col_type_str} NULL'
         )
         added_storage_cols = [col.store_name()]
         if col.stores_cellmd:
             cellmd_type_str = col.sa_cellmd_type().compile(dialect=conn.dialect)
-            s_txt += f' , ADD COLUMN {if_not_exists_operator} {col.cellmd_store_name()} {cellmd_type_str} DEFAULT NULL'
+            s_txt += f' , ADD COLUMN {if_not_exists_clause} {col.cellmd_store_name()} {cellmd_type_str} DEFAULT NULL'
             added_storage_cols.append(col.cellmd_store_name())
 
         stmt = sql.text(s_txt)
@@ -308,10 +308,10 @@ class StoreBase:
 
     def drop_column(self, col: catalog.Column, if_exists: bool) -> None:
         """Execute Alter Table Drop Column statement"""
-        if_exists_operator = 'IF EXISTS' if if_exists else ''
-        s_txt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {if_exists_operator} {col.store_name()}'
+        if_exists_clause = 'IF EXISTS' if if_exists else ''
+        s_txt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {if_exists_clause} {col.store_name()}'
         if col.stores_cellmd:
-            s_txt += f' , DROP COLUMN {if_exists_operator} {col.cellmd_store_name()}'
+            s_txt += f' , DROP COLUMN {if_exists_clause} {col.cellmd_store_name()}'
         stmt = sql.text(s_txt)
         log_stmt(_logger, stmt)
         Env.get().conn.execute(stmt)
