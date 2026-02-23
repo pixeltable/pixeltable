@@ -2571,7 +2571,7 @@ class Catalog:
         if if_exists == IfExistsParam.ERROR and obj is not None:
             raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}')
 
-        # dirs can only collide with dirs, all table subtypes can collide with eachother
+        # dirs can only be replaced with dirs, all table subtypes can replace eachother
         if obj is not None:
             if expected_obj_type == Dir and not isinstance(obj, Dir):
                 raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}, expected a directory')
