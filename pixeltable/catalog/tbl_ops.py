@@ -33,7 +33,7 @@ class OpStatus(Enum):
 
 @dataclasses.dataclass
 class TableOp:
-    needs_tv: ClassVar[bool] = True  # if False, exec/undo can be called with tv=None
+    needs_tv: ClassVar[bool]  # if False, exec/undo can be called with tv=None
     needs_xact: ClassVar[bool]  # whether this op must run as part of a transaction
 
     tbl_id: str  # uuid.UUID
@@ -66,6 +66,7 @@ class TableOp:
 
 @dataclasses.dataclass
 class CreateStoreTableOp(TableOp):
+    needs_tv: ClassVar[bool] = True
     needs_xact: ClassVar[bool] = False
 
     def exec(self, tv: TableVersion | None) -> None:
@@ -81,6 +82,7 @@ class CreateStoreTableOp(TableOp):
 
 @dataclasses.dataclass
 class CreateStoreIdxsOp(TableOp):
+    needs_tv: ClassVar[bool] = True
     needs_xact: ClassVar[bool] = False
 
     idx_ids: list[int]
@@ -100,6 +102,7 @@ class CreateStoreIdxsOp(TableOp):
 
 @dataclasses.dataclass
 class LoadViewOp(TableOp):
+    needs_tv: ClassVar[bool] = True
     needs_xact: ClassVar[bool] = True
 
     view_path: dict[str, Any]  # needed to create the view load plan
@@ -180,6 +183,7 @@ class CreateTableVersionOp(TableOp):
 class CreateColumnMdOp(TableOp):
     """Undo-only log record"""
 
+    needs_tv: ClassVar[bool] = True
     needs_xact: ClassVar[bool] = True
 
     column_ids: list[int]
@@ -203,6 +207,7 @@ class CreateColumnMdOp(TableOp):
 
 @dataclasses.dataclass
 class CreateStoreColumnsOp(TableOp):
+    needs_tv: ClassVar[bool] = True
     needs_xact: ClassVar[bool] = False
 
     column_ids: list[int]
@@ -222,6 +227,7 @@ class CreateStoreColumnsOp(TableOp):
 
 @dataclasses.dataclass
 class DeleteTableMediaFilesOp(TableOp):
+    needs_tv: ClassVar[bool] = True
     needs_xact: ClassVar[bool] = False
 
     def exec(self, tv: TableVersion | None) -> None:
@@ -236,6 +242,7 @@ class DeleteTableMediaFilesOp(TableOp):
 
 @dataclasses.dataclass
 class DropStoreTableOp(TableOp):
+    needs_tv: ClassVar[bool] = True
     needs_xact: ClassVar[bool] = False
 
     def exec(self, tv: TableVersion | None) -> None:
