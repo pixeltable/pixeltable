@@ -211,7 +211,7 @@ class TestView:
         assert 'already exists' in err_msg and 'not a view' in err_msg
         assert 'not_view' in pxt.list_tables()
         # if_exists='replace' and 'replace_force' should drop the existing table and create a view
-        for if_exists in ['replace', 'replace_force']:
+        for if_exists in ('replace', 'replace_force'):
             _ = pxt.create_view('not_view', t, if_exists=if_exists)
             assert 'not_view' in pxt.list_tables()
             # setup for next iteration: drop view and recreate table
