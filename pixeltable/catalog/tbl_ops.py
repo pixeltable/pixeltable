@@ -57,16 +57,6 @@ class TableOp:
             assert op.needs_xact == needs_xact_legacy
         return op
 
-    def roll(self, tv: TableVersion | None, *, is_rollback: bool) -> None:
-        assert tv is not None or not self.needs_tv, f'{self.__class__.__name__} requires a TableVersion'
-        assert Env.get().in_xact == self.needs_xact, (
-            f'{self.__class__.__name__} needs_xact={self.needs_xact} but Env.in_xact={Env.get().in_xact}'
-        )
-        if is_rollback:
-            self.undo(tv)
-        else:
-            self.exec(tv)
-
     def exec(self, tv: TableVersion | None) -> None:
         raise NotImplementedError(f'{self.__class__.__name__}.exec()')
 
@@ -79,10 +69,12 @@ class CreateStoreTableOp(TableOp):
     needs_xact: ClassVar[bool] = False
 
     def exec(self, tv: TableVersion | None) -> None:
+        assert not Env.get().in_xact
         with Env.get().begin_xact():
             tv.store_tbl.create()
 
     def undo(self, tv: TableVersion | None) -> None:
+        assert not Env.get().in_xact
         with Env.get().begin_xact():
             tv.store_tbl.drop()
 
@@ -94,11 +86,13 @@ class CreateStoreIdxsOp(TableOp):
     idx_ids: list[int]
 
     def exec(self, tv: TableVersion | None) -> None:
+        assert not Env.get().in_xact
         for idx_id in self.idx_ids:
             with Env.get().begin_xact():
                 tv.store_tbl.create_index(idx_id)
 
     def undo(self, tv: TableVersion | None) -> None:
+        assert not Env.get().in_xact
         for idx_id in self.idx_ids:
             with Env.get().begin_xact():
                 tv.store_tbl.drop_index(idx_id)
@@ -115,6 +109,7 @@ class LoadViewOp(TableOp):
         from pixeltable.catalog.table_version_path import TableVersionPath
         from pixeltable.plan import Planner
 
+        assert Env.get().in_xact
         view_path = TableVersionPath.from_dict(self.view_path)
         plan, _ = Planner.create_view_load_plan(view_path)
         with Env.get().report_progress():
@@ -145,6 +140,7 @@ class CreateTableMdOp(TableOp):
     def undo(self, tv: TableVersion | None) -> None:
         from pixeltable.catalog import Catalog
 
+        assert Env.get().in_xact
         Catalog.get().delete_tbl_md(uuid.UUID(self.tbl_id))
 
 
@@ -156,6 +152,7 @@ class DeleteTableMdOp(TableOp):
     def exec(self, tv: TableVersion | None) -> None:
         from pixeltable.catalog import Catalog
 
+        assert Env.get().in_xact
         Catalog.get().delete_tbl_md(uuid.UUID(self.tbl_id))
 
     def undo(self, tv: TableVersion | None) -> None:
@@ -175,6 +172,7 @@ class CreateTableVersionOp(TableOp):
     def undo(self, tv: TableVersion | None) -> None:
         from pixeltable.catalog import Catalog
 
+        assert Env.get().in_xact
         Catalog.get().delete_current_tbl_version_md(uuid.UUID(self.tbl_id))
 
 
@@ -197,6 +195,7 @@ class CreateColumnMdOp(TableOp):
         # 1. major: write_tbl_md cannot be called while there are pending ops (and we are inside one of them).
         # 2. minor: [] is not an acceptable value for pending_ops
         # 3. minor: TableVersion internals access. Once we figure out how to fix 1, this one should go away as well.
+        assert Env.get().in_xact
         for col_id in self.column_ids:
             del tv._tbl_md.column_md[col_id]
         Catalog.get().write_tbl_md(tv.id, None, tv._tbl_md, None, None, [])
@@ -209,11 +208,13 @@ class CreateStoreColumnsOp(TableOp):
     column_ids: list[int]
 
     def exec(self, tv: TableVersion | None) -> None:
+        assert not Env.get().in_xact
         for col_id in self.column_ids:
             with Env.get().begin_xact():
                 tv.store_tbl.add_column(tv.cols_by_id[col_id])
 
     def undo(self, tv: TableVersion | None) -> None:
+        assert not Env.get().in_xact
         for col_id in self.column_ids:
             with Env.get().begin_xact():
                 tv.store_tbl.drop_column(tv.cols_by_id[col_id])
@@ -242,6 +243,7 @@ class DropStoreTableOp(TableOp):
 
         # don't reference tv.store_tbl here, it needs to reference the metadata for our base table, which at
         # this point may not exist anymore
+        assert not Env.get().in_xact
         with Env.get().begin_xact() as conn:
             drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(tv.id, tv.is_view)}'
             conn.execute(sql.text(drop_stmt))

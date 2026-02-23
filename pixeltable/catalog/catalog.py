@@ -752,7 +752,10 @@ class Catalog:
                         # For now, just assert that we don't.
                         # assert not tv.is_replica
 
-                        op.roll(tv, is_rollback=is_rollback)
+                        if is_rollback:
+                            op.undo(tv)
+                        else:
+                            op.exec(tv)
                         if tv is not None:
                             self.mark_modified_tvs(tv.handle)
 
@@ -772,7 +775,10 @@ class Catalog:
                     if op.needs_tv
                     else None
                 )
-                op.roll(tv, is_rollback=is_rollback)
+                if is_rollback:
+                    op.undo(tv)
+                else:
+                    op.exec(tv)
                 # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed
                 # inside a transaction and therefore wouldn't end up here
 
