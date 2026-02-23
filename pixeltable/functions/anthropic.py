@@ -119,22 +119,24 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
             or not hasattr(exc.response, 'headers')
         ):
             return
-        requests_info, input_tokens_info, output_tokens_info = _get_header_info(exc.response.headers)
-        _logger.debug(
-            f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} '
-            f'input_tokens_info={input_tokens_info} output_tokens_info={output_tokens_info}'
-        )
-        self.record(
-            request_ts=request_ts,
-            requests=requests_info,
-            input_tokens=input_tokens_info,
-            output_tokens=output_tokens_info,
-        )
-        self.has_exc = True
 
-        retry_after_str = exc.response.headers.get('retry-after')
-        if retry_after_str is not None:
-            _logger.debug(f'retry-after: {retry_after_str}')
+        with self._lock:
+            requests_info, input_tokens_info, output_tokens_info = _get_header_info(exc.response.headers)
+            _logger.debug(
+                f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} '
+                f'input_tokens_info={input_tokens_info} output_tokens_info={output_tokens_info}'
+            )
+            self.record(
+                request_ts=request_ts,
+                requests=requests_info,
+                input_tokens=input_tokens_info,
+                output_tokens=output_tokens_info,
+            )
+            self.has_exc = True
+
+            retry_after_str = exc.response.headers.get('retry-after')
+            if retry_after_str is not None:
+                _logger.debug(f'retry-after: {retry_after_str}')
 
     def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
         import anthropic

@@ -86,6 +86,7 @@ class Env:
     _initialized: bool
 
     _resource_pool_info: dict[str, Any]
+    _resource_pool_lock: threading.Lock
     _dbms: Dbms | None
 
     @classmethod
@@ -151,6 +152,7 @@ class Env:
         self._initialized = False
 
         self._resource_pool_info = {}
+        self._resource_pool_lock = threading.Lock()
         self._dbms = None
 
     @property
@@ -824,11 +826,12 @@ class Env:
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
     def get_resource_pool_info(self, pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T:
         """Returns the info object for the given id, creating it if necessary."""
-        info = self._resource_pool_info.get(pool_id)
-        if info is None and make_pool_info is not None:
-            info = make_pool_info()
-            self._resource_pool_info[pool_id] = info
-        return info
+        with self._resource_pool_lock:
+            info = self._resource_pool_info.get(pool_id)
+            if info is None and make_pool_info is not None:
+                info = make_pool_info()
+                self._resource_pool_info[pool_id] = info
+            return info
 
     @property
     def media_dir(self) -> Path:
@@ -978,6 +981,8 @@ class RateLimitsInfo:
     - get_retry_delay()
     - get_request_resources(self, ...) -> dict[str, int]
     with parameters that are a subset of those of the udf that creates the subclass's instance
+
+    All mutable state is protected by _lock (a reentrant lock, since subclass record_exc() may call self.record()).
     """
 
     # get_request_resources:
@@ -988,15 +993,19 @@ class RateLimitsInfo:
 
     resource_limits: dict[str, RateLimitInfo] = field(default_factory=dict)
     has_exc: bool = False
+    _lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
 
     def debug_str(self) -> str:
-        return ','.join(info.debug_str() for info in self.resource_limits.values())
+        with self._lock:
+            return ','.join(info.debug_str() for info in self.resource_limits.values())
 
     def is_initialized(self) -> bool:
-        return len(self.resource_limits) > 0
+        with self._lock:
+            return len(self.resource_limits) > 0
 
     def reset(self) -> None:
-        self.resource_limits.clear()
+        with self._lock:
+            self.resource_limits.clear()
 
     def record(self, request_ts: datetime.datetime, reset_exc: bool = False, **kwargs: Any) -> None:
         """Update self.resource_limits with the provided rate limit info.
@@ -1004,40 +1013,43 @@ class RateLimitsInfo:
             - request_ts: time at which the request was made
             - reset_exc: if True, reset the has_exc flag
         """
-        if len(self.resource_limits) == 0:
-            self.resource_limits = {k: RateLimitInfo(k, request_ts, *v) for k, v in kwargs.items() if v is not None}
-            # TODO: remove
-            for info in self.resource_limits.values():
-                _logger.debug(f'Updated resource state: {info}')
-        else:
-            if self.has_exc and not reset_exc:
-                # ignore updates until we're asked to reset
-                _logger.debug(f'rate_limits.record(): ignoring update {kwargs}')
-                return
-            self.has_exc = False
-            for k, v in kwargs.items():
-                if v is not None:
-                    self.resource_limits[k].update(request_ts, *v)
-                    _logger.debug(f'Updated resource state: {self.resource_limits[k]}')
+        with self._lock:
+            if len(self.resource_limits) == 0:
+                self.resource_limits = {k: RateLimitInfo(k, request_ts, *v) for k, v in kwargs.items() if v is not None}
+                # TODO: remove
+                for info in self.resource_limits.values():
+                    _logger.debug(f'Updated resource state: {info}')
+            else:
+                if self.has_exc and not reset_exc:
+                    # ignore updates until we're asked to reset
+                    _logger.debug(f'rate_limits.record(): ignoring update {kwargs}')
+                    return
+                self.has_exc = False
+                for k, v in kwargs.items():
+                    if v is not None:
+                        self.resource_limits[k].update(request_ts, *v)
+                        _logger.debug(f'Updated resource state: {self.resource_limits[k]}')
 
     def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:
         """Update self.resource_limits based on the exception headers
         Args:
             - request_ts: time at which the request that caused the exception was made
             - exc: the exception raised"""
-        self.has_exc = True
+        with self._lock:
+            self.has_exc = True
 
     def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
         """Returns number of seconds to wait before retry, or None if not retryable"""
-        # Find the highest wait until at least 5% availability of all resources
-        max_wait = 0.0
-        for limit_info in self.resource_limits.values():
-            time_until = limit_info.estimated_resource_refill_delay(
-                math.ceil(TARGET_RATE_LIMIT_RESOURCE_FRACT * limit_info.limit)
-            )
-            if time_until is not None:
-                max_wait = max(max_wait, time_until)
-        return max_wait if max_wait > 0 else None
+        with self._lock:
+            # Find the highest wait until at least 5% availability of all resources
+            max_wait = 0.0
+            for limit_info in self.resource_limits.values():
+                time_until = limit_info.estimated_resource_refill_delay(
+                    math.ceil(TARGET_RATE_LIMIT_RESOURCE_FRACT * limit_info.limit)
+                )
+                if time_until is not None:
+                    max_wait = max(max_wait, time_until)
+            return max_wait if max_wait > 0 else None
 
 
 @dataclass

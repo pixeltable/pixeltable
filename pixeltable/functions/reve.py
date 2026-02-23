@@ -103,8 +103,7 @@ class _ReveClient:  # noqa: B903
                     )
                 case _:
                     _logger.info(
-                        f'Reve request {request_id} failed with status code {resp.status} and error code '
-                        f'{error_code}'
+                        f'Reve request {request_id} failed with status code {resp.status} and error code {error_code}'
                     )
                     raise ReveUnexpectedError(
                         f'Reve request failed with status code {resp.status} and error code {error_code}'

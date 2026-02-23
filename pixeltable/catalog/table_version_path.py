@@ -6,6 +6,7 @@ from typing import Any
 from uuid import UUID
 
 from pixeltable.metadata import schema
+
 from .column import Column
 from .globals import MediaValidation
 from .table_version import TableVersion, TableVersionKey

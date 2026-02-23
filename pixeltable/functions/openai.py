@@ -205,12 +205,13 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
         if not isinstance(exc, openai.APIError) or not hasattr(exc, 'response') or not hasattr(exc.response, 'headers'):
             return
 
-        requests_info, tokens_info = _get_header_info(exc.response.headers)
-        _logger.debug(
-            f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} tokens_info={tokens_info}'
-        )
-        self.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info)
-        self.has_exc = True
+        with self._lock:
+            requests_info, tokens_info = _get_header_info(exc.response.headers)
+            _logger.debug(
+                f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} tokens_info={tokens_info}'
+            )
+            self.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info)
+            self.has_exc = True
 
     def _retry_delay_from_exception(self, exc: Exception) -> float | None:
         try:
