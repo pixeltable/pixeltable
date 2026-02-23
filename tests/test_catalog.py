@@ -188,7 +188,12 @@ class TestCatalog:
         # One lambda per create_x with expected columns
         creators = {
             'table': (lambda: pxt.create_table('target', {'c2': pxt.String}, if_exists='replace'), ['c2']),
-            'view': (lambda: pxt.create_view('target', base_table, additional_columns={'c3': pxt.String}, if_exists='replace'), ['c3', 'c1']),
+            'view': (
+                lambda: pxt.create_view(
+                    'target', base_table, additional_columns={'c3': pxt.String}, if_exists='replace'
+                ),
+                ['c3', 'c1'],
+            ),
             'snapshot': (lambda: pxt.create_snapshot('target', base_table, if_exists='replace'), ['c1']),
         }
 
