@@ -368,18 +368,17 @@ class ExprEvalNode(ExecNode):
         # ---------- Compute progress (output slot materialization) ----------
         num_computed_outputs = 0
         if self.eval_ctx is exec_ctx:
-            # Count newly-materialized output slots (before updating missing_slots)
-            outputs_2d = self.outputs[np.newaxis, :]  # broadcast to (1, num_slots)
-            missing_outputs_before = (missing_slots & outputs_2d).sum()
+            # Count currently non-materialized output slots (before updating missing_slots)
+            missing_outputs_before = (missing_slots & self.outputs).sum()
 
             # Update missing_slots: clear slots that now have values
-            missing_slots &= (has_val == False)
+            missing_slots &= ~has_val
 
-            missing_outputs_after = (missing_slots & outputs_2d).sum()
-            num_computed_outputs = int(missing_outputs_before - missing_outputs_after)
+            missing_outputs_after = (missing_slots & self.outputs).sum()
+            num_computed_outputs = missing_outputs_before - missing_outputs_after
         else:
             # Update missing_slots: clear slots that now have values
-            missing_slots &= (has_val == False)
+            missing_slots &= ~has_val
 
         # ---------- Identify completed rows ----------
         missing_slot_counts = missing_slots.sum(axis=1)  # (num_rows,)
