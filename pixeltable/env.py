@@ -93,8 +93,11 @@ class Env:
 
     @classmethod
     def get(cls) -> Env:
-        if cls._instance is None:
-            cls._init_env()
+        if cls._instance is not None:
+            return cls._instance
+        with cls.__init_lock:
+            if cls._instance is None:
+                cls._init_env()
         return cls._instance
 
     @classmethod
