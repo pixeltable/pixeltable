@@ -19,7 +19,7 @@ from ..utils import (
 from .tool_utils import run_tool_invocations_test
 
 
-@pytest.mark.remote_api
+# @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestGemini:
     @pytest.mark.parametrize('model', ['gemini-2.5-flash', 'gemini-3-pro-preview'])

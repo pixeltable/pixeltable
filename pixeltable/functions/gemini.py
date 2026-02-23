@@ -511,16 +511,17 @@ def _process_media_contents(
         task = client.files.upload(file=str(local_path), config={'mime_type': mime_type})
         upload_tasks.append(task)
         large_video_paths.append(str(local_path))
-        return {_UPLOAD_PLACEHOLDER_KEY: len(upload_tasks) - 1}
+        return {_UPLOAD_PLACEHOLDER_KEY: {'task_id': len(upload_tasks) - 1, 'mime_type': mime_type}}
     return data
 
 
 def _replace_upload_placeholders(obj: Any, uploaded: list[Any]) -> Any:
     """Replace placeholders with file_data from gathered uploads."""
     if isinstance(obj, dict) and _UPLOAD_PLACEHOLDER_KEY in obj:
-        idx = obj[_UPLOAD_PLACEHOLDER_KEY]
+        idx = obj[_UPLOAD_PLACEHOLDER_KEY]['task_id']
+        mime_type = obj[_UPLOAD_PLACEHOLDER_KEY]['mime_type']
         f = uploaded[idx]
-        return {'file_data': {'file_uri': f.uri, 'mime_type': 'video/mp4'}}
+        return {'file_data': {'file_uri': f.uri, 'mime_type': mime_type}}
     if isinstance(obj, dict):
         return {k: _replace_upload_placeholders(v, uploaded) for k, v in obj.items()}
     if isinstance(obj, list):
