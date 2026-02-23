@@ -81,7 +81,10 @@ def retry_loop(
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
         def loop(*args: Any, **kwargs: Any) -> T:
-            cat = Catalog.get()
+            from pixeltable.runtime import get_runtime
+
+            runtime = get_runtime()
+            cat = runtime.catalog
             # retry_loop() is reentrant
             if cat._in_retry_loop:
                 return op(*args, **kwargs)
@@ -93,7 +96,7 @@ def retry_loop(
                     # in order for retry to work, we need to make sure that there aren't any prior db updates
                     # that are part of an ongoing transaction
                     assert not Env.get().in_xact
-                    with Catalog.get().begin_xact(
+                    with cat.begin_xact(
                         tbl=tbl,
                         for_write=for_write,
                         convert_db_excs=False,
@@ -103,7 +106,7 @@ def retry_loop(
                         return op(*args, **kwargs)
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
-                    Catalog.get()._finalize_pending_ops(e.tbl_id)
+                    cat._finalize_pending_ops(e.tbl_id)
                 except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
                     # TODO: what other exceptions should we be looking for?
                     if isinstance(
@@ -175,8 +178,6 @@ class Catalog:
     - metadata validation is only needed for live TableVersion instances (snapshot instances are immutable)
     """
 
-    _instance: Catalog | None = None
-
     # cached TableVersion instances; key: [id, version, anchor_tbl_id]
     # - mutable version of a table: version == None (even though TableVersion.version is set correctly)
     # - snapshot versions: records the version of the snapshot
@@ -198,21 +199,6 @@ class Catalog:
 
     # column dependents are recomputed at the beginning of every write transaction and only reflect the locked tree
     _column_dependents: dict[QColumnId, set[QColumnId]] | None
-
-    @classmethod
-    def get(cls) -> Catalog:
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
-
-    @classmethod
-    def clear(cls) -> None:
-        """Remove the instance. Used for testing."""
-        if cls._instance is not None:
-            # invalidate all existing instances to force reloading of metadata
-            for tbl_version in cls._instance._tbl_versions.values():
-                tbl_version.is_validated = False
-        cls._instance = None
 
     def __init__(self) -> None:
         self._tbl_versions = {}
@@ -1520,7 +1506,7 @@ class Catalog:
 
     @retry_loop(for_write=False)
     def get_table(self, path: Path, if_not_exists: IfNotExistsParam) -> Table | None:
-        obj = Catalog.get()._get_schema_object(
+        obj = self._get_schema_object(
             path, expected=Table, raise_if_not_exists=(if_not_exists == IfNotExistsParam.ERROR)
         )
         if obj is None:

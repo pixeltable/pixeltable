@@ -19,12 +19,12 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import exprs, metadata, type_system as ts
-from pixeltable.catalog import Catalog
 from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.env import Env
 from pixeltable.index.embedding_index import EmbeddingIndex
 from pixeltable.metadata import schema
 from pixeltable.plan import FromClause
+from pixeltable.runtime import get_runtime
 from pixeltable.share.packager import TablePackager, TableRestorer
 from pixeltable.utils.local_store import LocalStore, TempStore
 from tests.conftest import clean_db
@@ -250,7 +250,7 @@ class TestPackager:
 
         # Run the database consistency checks; this will ensure we check for consistency after every __check_table(),
         # not just at the end of the test.
-        Catalog.get().validate_store()
+        get_runtime().catalog.validate_store()
 
     def __extract_store_col_schema(self, tbl: pxt.Table) -> set[tuple[str, str]]:
         with Env.get().begin_xact():
@@ -293,7 +293,7 @@ class TestPackager:
         """
         tv = tbl._tbl_version_path.tbl_version.get()
         with Env.get().begin_xact():
-            head_version = Catalog.get()._collect_tbl_history(tbl._id, n=1)[0].version_md.version
+            head_version = get_runtime().catalog._collect_tbl_history(tbl._id, n=1)[0].version_md.version
             for idx_info in tv.idxs_by_name.values():
                 if isinstance(idx_info.idx, EmbeddingIndex):
                     q = sql.select(

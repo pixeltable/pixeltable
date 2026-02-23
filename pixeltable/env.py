@@ -93,9 +93,6 @@ class Env:
     _progress: Progress | None
 
     _resource_pool_info: dict[str, Any]
-    _current_conn: sql.Connection | None
-    _current_session: orm.Session | None
-    _current_isolation_level: str | None
     _dbms: Dbms | None
     _event_loop: asyncio.AbstractEventLoop | None  # event loop for ExecNode
 
@@ -158,9 +155,6 @@ class Env:
         self._progress = None
 
         self._resource_pool_info = {}
-        self._current_conn = None
-        self._current_session = None
-        self._current_isolation_level = None
         self._dbms = None
         self._event_loop = None
 
@@ -233,14 +227,20 @@ class Env:
         return self._verbosity
 
     @property
-    def conn(self) -> sql.Connection | None:
-        assert self._current_conn is not None
-        return self._current_conn
+    def conn(self) -> sql.Connection:
+        from pixeltable.runtime import get_runtime
+
+        runtime = get_runtime()
+        assert runtime.conn is not None
+        return runtime.conn
 
     @property
-    def session(self) -> orm.Session | None:
-        assert self._current_session is not None
-        return self._current_session
+    def session(self) -> orm.Session:
+        from pixeltable.runtime import get_runtime
+
+        runtime = get_runtime()
+        assert runtime.session is not None
+        return runtime.session
 
     @property
     def dbms(self) -> Dbms | None:
@@ -254,7 +254,9 @@ class Env:
 
     @property
     def in_xact(self) -> bool:
-        return self._current_conn is not None
+        from pixeltable.runtime import get_runtime
+
+        return get_runtime().conn is not None
 
     @property
     def is_local(self) -> bool:
@@ -324,26 +326,29 @@ class Env:
         TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
         that avoids tripping over any pending ops
         """
-        if self._current_conn is None:
-            assert self._current_session is None
+        from pixeltable.runtime import get_runtime
+
+        runtime = get_runtime()
+        if runtime.conn is None:
+            assert runtime.session is None
             try:
-                self._current_isolation_level = self.SERIALIZABLE_ISOLATION_LEVEL
+                runtime.isolation_level = self.SERIALIZABLE_ISOLATION_LEVEL
                 with (
-                    self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
+                    self.engine.connect().execution_options(isolation_level=runtime.isolation_level) as conn,
                     orm.Session(conn) as session,
                     conn.begin(),
                 ):
-                    self._current_conn = conn
-                    self._current_session = session
+                    runtime.conn = conn
+                    runtime.session = session
                     yield conn
             finally:
-                self._current_session = None
-                self._current_conn = None
-                self._current_isolation_level = None
+                runtime.session = None
+                runtime.conn = None
+                runtime.isolation_level = None
         else:
-            assert self._current_session is not None
-            assert self._current_isolation_level == self.SERIALIZABLE_ISOLATION_LEVEL or not for_write
-            yield self._current_conn
+            assert runtime.session is not None
+            assert runtime.isolation_level == self.SERIALIZABLE_ISOLATION_LEVEL or not for_write
+            yield runtime.conn
 
     def configure_logging(
         self,
@@ -982,8 +987,11 @@ class Env:
         Internal cleanup method that properly closes all resources and resets state.
         This is called before destroying the singleton instance.
         """
-        assert self._current_session is None
-        assert self._current_conn is None
+        from pixeltable.runtime import get_runtime
+
+        runtime = get_runtime()
+        assert runtime.session is None
+        assert runtime.conn is None
 
         # Stop HTTP server
         if self._httpd is not None:

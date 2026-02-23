@@ -17,10 +17,10 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exprs, functions as pxtf
-from pixeltable.catalog import Catalog
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.functions.video import frame_iterator
+from pixeltable.runtime import get_runtime
 
 from .utils import (
     ReloadTester,
@@ -131,7 +131,7 @@ class TestExprs:
         _ = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
         sql_elements = exprs.SqlElementCache()
         # Expr.sql_expr() needs to run in the context of a transaction
-        with Catalog.get().begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False):
             e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
             assert len(e.clauses) == 2
 

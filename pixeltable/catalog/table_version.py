@@ -403,7 +403,7 @@ class TableVersion:
         return TableVersionMd(tbl_md, table_version_md, schema_version_md)
 
     def exec_op(self, op: TableOp) -> None:
-        from pixeltable.catalog import Catalog
+        from pixeltable.runtime import get_runtime
         from pixeltable.store import StoreBase
 
         if isinstance(op, CreateStoreTableOp):
@@ -427,7 +427,7 @@ class TableVersion:
                 plan.ctx.title = self.display_str()
                 _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             status = UpdateStatus(row_count_stats=row_counts)
-            Catalog.get().store_update_status(self.id, self.version, status)
+            get_runtime().catalog.store_update_status(self.id, self.version, status)
             _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
 
         elif isinstance(op, CreateTableMdOp):
@@ -435,7 +435,7 @@ class TableVersion:
             pass
 
         elif isinstance(op, DeleteTableMdOp):
-            Catalog.get().delete_tbl_md(self.id)
+            get_runtime().catalog.delete_tbl_md(self.id)
 
         elif isinstance(op, CreateColumnMdOp):
             # nothing to do
@@ -458,7 +458,7 @@ class TableVersion:
                 conn.execute(sql.text(drop_stmt))
 
     def undo_op(self, op: TableOp) -> None:
-        from pixeltable.catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
         # ops that cannot be rolled back raise AssertionError()
 
@@ -478,15 +478,15 @@ class TableVersion:
             FileCache.get().clear(tbl_id=self.id)
 
         elif isinstance(op, CreateTableMdOp):
-            Catalog.get().delete_tbl_md(self.id)
+            get_runtime().catalog.delete_tbl_md(self.id)
 
         elif isinstance(op, CreateTableVersionOp):
-            Catalog.get().delete_current_tbl_version_md(self.id)
+            get_runtime().catalog.delete_current_tbl_version_md(self.id)
 
         elif isinstance(op, CreateColumnMdOp):
             for col_id in op.column_ids:
                 del self._tbl_md.column_md[col_id]
-            Catalog.get().write_tbl_md(self.id, None, self._tbl_md, None, None, [])
+            get_runtime().catalog.write_tbl_md(self.id, None, self._tbl_md, None, None, [])
 
         elif isinstance(op, CreateStoreColumnsOp):
             for col_id in op.column_ids:
@@ -499,7 +499,9 @@ class TableVersion:
 
     @classmethod
     def create_replica(cls, md: TableVersionMd, create_store_tbl: bool = True) -> TableVersion:
-        from .catalog import Catalog, TableVersionPath
+        from pixeltable.runtime import get_runtime
+
+        from .catalog import TableVersionPath
 
         assert Env.get().in_xact
         assert md.tbl_md.is_replica
@@ -510,7 +512,7 @@ class TableVersion:
         base = base_path.tbl_version if base_path is not None else None
         key = TableVersionKey(tbl_id, md.version_md.version, None)
         tbl_version = cls(key, md.tbl_md, md.version_md, md.schema_version_md, [], base_path=base_path, base=base)
-        cat = Catalog.get()
+        cat = get_runtime().catalog
         # We're creating a new TableVersion replica, so we should never have seen this particular
         # TableVersion instance before.
         # Actually this isn't true, because we might be re-creating a dropped replica.
@@ -544,9 +546,9 @@ class TableVersion:
         Initialize schema-related in-memory metadata separately, now that this TableVersion instance is visible
         in Catalog.
         """
-        from .catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
-        cat = Catalog.get()
+        cat = get_runtime().catalog
         assert self.key in cat._tbl_versions
         self._init_schema()
         if self.is_mutable:
@@ -557,9 +559,8 @@ class TableVersion:
         self.is_initialized = True
 
     def _init_schema(self) -> None:
+        from pixeltable.runtime import get_runtime
         from pixeltable.store import StoreComponentView, StoreTable, StoreView
-
-        from .catalog import Catalog
 
         # initialize IndexBase instances and collect sa_col_types
         idxs: dict[int, index.IndexBase] = {}
@@ -660,7 +661,7 @@ class TableVersion:
             # for snapshot TableVersion instances, we need to retarget the column value_exprs to the snapshot;
             # otherwise they'll incorrectly refer to the live table. So, construct a full TableVersionPath to
             # use for retargeting.
-            tvp = Catalog.get().construct_tvp(
+            tvp = get_runtime().catalog.construct_tvp(
                 self.id, self.effective_version, self.tbl_md.ancestors, self.version_md.created_at
             )
         elif self.anchor_tbl_id is not None:
@@ -694,9 +695,9 @@ class TableVersion:
             return None
 
     def _write_md(self, new_version: bool, new_schema_version: bool) -> None:
-        from pixeltable.catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
-        Catalog.get().write_tbl_md(
+        get_runtime().catalog.write_tbl_md(
             self.id,
             None,
             self._tbl_md,
@@ -998,8 +999,8 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Add and populate columns within the current transaction"""
-        from pixeltable.catalog import Catalog
         from pixeltable.plan import Planner
+        from pixeltable.runtime import get_runtime
 
         cols_to_add = list(cols)
 
@@ -1044,7 +1045,7 @@ class TableVersion:
                     plan.ctx.title = self.display_str()
                     excs_per_col = self.store_tbl.write_column(col, plan, on_error == 'abort')
                 except sql_exc.DBAPIError as exc:
-                    Catalog.get().convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
+                    get_runtime().catalog.convert_sql_exc(exc, self.id, self.handle, convert_db_excs=True)
                     # If it wasn't converted, re-raise as a generic Pixeltable error
                     # (this means it's not a known concurrency error; it's something else)
                     raise excs.Error(
@@ -1054,7 +1055,7 @@ class TableVersion:
                 cols_with_excs.append(col)
                 num_excs += excs_per_col
 
-        Catalog.get().record_column_dependencies(self)
+        get_runtime().catalog.record_column_dependencies(self)
 
         if print_stats:
             plan.ctx.profile.print(num_rows=row_count)
@@ -1099,7 +1100,7 @@ class TableVersion:
 
     def _drop_columns(self, cols: Iterable[Column]) -> None:
         """Mark columns as dropped"""
-        from pixeltable.catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
         assert self.is_mutable
 
@@ -1120,7 +1121,7 @@ class TableVersion:
             schema_col.pos = pos
 
         self.store_tbl.create_sa_tbl()
-        Catalog.get().record_column_dependencies(self)
+        get_runtime().catalog.record_column_dependencies(self)
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
@@ -1402,10 +1403,10 @@ class TableVersion:
         timestamp: float,
         cascade: bool,
     ) -> UpdateStatus:
-        from pixeltable.catalog import Catalog
         from pixeltable.plan import Planner
+        from pixeltable.runtime import get_runtime
 
-        Catalog.get().mark_modified_tvs(self.handle)
+        get_runtime().catalog.mark_modified_tvs(self.handle)
         result = UpdateStatus()
         create_new_table_version = plan is not None
         if create_new_table_version:
@@ -1460,9 +1461,9 @@ class TableVersion:
         self, where: exprs.Expr | None, base_versions: list[int | None], timestamp: float
     ) -> UpdateStatus:
         """Delete rows in this table and propagate to views"""
-        from pixeltable.catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
-        Catalog.get().mark_modified_tvs(self.handle)
+        get_runtime().catalog.mark_modified_tvs(self.handle)
 
         # print(f'calling sql_expr()')
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
@@ -1506,7 +1507,7 @@ class TableVersion:
         Doesn't attempt to revert the in-memory metadata, but instead invalidates this TableVersion instance
         and relies on Catalog to reload it
         """
-        from pixeltable.catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
         conn = Env.get().conn
         # make sure we don't have a snapshot referencing this version
@@ -1541,7 +1542,7 @@ class TableVersion:
         # revert schema changes:
         # - undo changes to self._tbl_md and write that back
         # - delete newly-added TableVersion/TableSchemaVersion records
-        Catalog.get().mark_modified_tvs(self.handle)
+        get_runtime().catalog.mark_modified_tvs(self.handle)
         old_version = self.version
         if self.version == self.schema_version:
             # physically delete newly-added columns and remove them from the stored md
@@ -1599,7 +1600,7 @@ class TableVersion:
 
         # force reload on next operation
         self.is_validated = False
-        Catalog.get().remove_tbl_version(self.key)
+        get_runtime().catalog.remove_tbl_version(self.key)
 
         # delete newly-added data
         # Do this at the end, after all DB operations have completed.
@@ -1717,14 +1718,14 @@ class TableVersion:
             bump_schema_version: if True, also adjusts the schema version (setting it equal to the new version)
                 and associated metadata.
         """
-        from pixeltable.catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
         assert self.effective_version is None
 
         if timestamp is None:
             timestamp = time.time()
 
-        Catalog.get().mark_modified_tvs(self.handle)
+        get_runtime().catalog.mark_modified_tvs(self.handle)
 
         old_version = self._tbl_md.current_version
         assert self._version_md.version == old_version
@@ -1873,9 +1874,9 @@ class TableVersion:
         """
         Return the set of columns that transitively depend on any of the given ones.
         """
-        from pixeltable.catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
-        cat = Catalog.get()
+        cat = get_runtime().catalog
         result = set().union(*[cat.get_column_dependents(col.get_tbl().id, col.id) for col in cols])
         if len(result) > 0:
             result.update(self.get_dependent_columns(result))
@@ -1898,7 +1899,7 @@ class TableVersion:
 
     @classmethod
     def from_dict(cls, d: dict) -> TableVersion:
-        from pixeltable.catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
         key = TableVersionKey.from_dict(d)
-        return Catalog.get().get_tbl_version(key)
+        return get_runtime().catalog.get_tbl_version(key)

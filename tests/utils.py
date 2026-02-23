@@ -24,8 +24,8 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
-from pixeltable.catalog import Catalog
 from pixeltable.env import Env
+from pixeltable.runtime import reset_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
@@ -694,7 +694,7 @@ def make_test_arrow_table(output_path: Path) -> str:
 def reload_catalog(reload: bool = True) -> None:
     if not reload:
         return
-    Catalog.clear()
+    reset_runtime()
     pxt.init()
 
 

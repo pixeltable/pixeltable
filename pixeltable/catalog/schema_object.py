@@ -25,20 +25,20 @@ class SchemaObject:
 
     def _parent(self) -> 'catalog.Dir | None':
         """Returns the parent directory of this schema object."""
-        from .catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
-        with Catalog.get().begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False):
             if self._dir_id is None:
                 return None
-            return Catalog.get().get_dir(self._dir_id)
+            return get_runtime().catalog.get_dir(self._dir_id)
 
     def _path(self) -> str:
         """Returns the path to this schema object."""
-        from .catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
         assert self._dir_id is not None
-        with Catalog.get().begin_xact(for_write=False):
-            path = Catalog.get().get_dir_path(self._dir_id)
+        with get_runtime().catalog.begin_xact(for_write=False):
+            path = get_runtime().catalog.get_dir_path(self._dir_id)
             return str(path.append(self._name))
 
     @abstractmethod

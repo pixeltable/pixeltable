@@ -26,6 +26,7 @@ from pixeltable.catalog.table_version import TableVersionKey, TableVersionMd
 from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
+from pixeltable.runtime import get_runtime
 from pixeltable.utils import sha256sum
 from pixeltable.utils.formatter import Formatter
 from pixeltable.utils.local_store import TempStore
@@ -66,8 +67,8 @@ class TablePackager:
         self.media_files = {}
 
         # Load metadata and convert to JSON immediately
-        with catalog.Catalog.get().begin_xact(for_write=False):
-            tbl_md = catalog.Catalog.get().load_replica_md(table)
+        with get_runtime().catalog.begin_xact(for_write=False):
+            tbl_md = get_runtime().catalog.load_replica_md(table)
             self.bundle_md = {
                 'pxt_version': pxt.__version__,
                 'pxt_md_version': metadata.VERSION,
@@ -88,7 +89,7 @@ class TablePackager:
             json.dump(self.bundle_md, fp)
         self.tables_dir = self.tmp_dir / 'tables'
         self.tables_dir.mkdir()
-        with catalog.Catalog.get().begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False):
             for tv in self.table._tbl_version_path.get_tbl_versions():
                 _logger.info(f'Exporting table {tv.get().versioned_name!r}.')
                 self.__export_table(tv.get())
@@ -436,7 +437,7 @@ class TableRestorer:
 
         assert not tbl_md[0].version_md.is_fragment  # Top-level table cannot be a version fragment
 
-        cat = catalog.Catalog.get()
+        cat = get_runtime().catalog
 
         with cat.begin_xact(for_write=True):
             # Create (or update) the replica table and its ancestors, along with TableVersion instances for any
@@ -671,7 +672,7 @@ class TableRestorer:
 
         # Get the most recent replicated version of the table. This might be the version we're currently importing,
         # but it might be a different version of the table that was previously imported.
-        head_version_md = catalog.Catalog.get()._collect_tbl_history(tv.id, n=1)[0]
+        head_version_md = get_runtime().catalog._collect_tbl_history(tv.id, n=1)[0]
         head_version = head_version_md.version_md.version
         _logger.debug(f'Head version for index rectification is {head_version}.')
 

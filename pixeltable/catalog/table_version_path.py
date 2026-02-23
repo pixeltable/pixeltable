@@ -69,7 +69,7 @@ class TableVersionPath:
         return result
 
     def refresh_cached_md(self) -> None:
-        from pixeltable.catalog import Catalog
+        from pixeltable.runtime import get_runtime
 
         if Env.get().in_xact:
             # when we're running inside a transaction, we need to make sure to supply current metadata;
@@ -81,7 +81,7 @@ class TableVersionPath:
         elif self._cached_tbl_version is not None:
             return
 
-        with Catalog.get().begin_xact(tbl_id=self.tbl_version.id, for_write=False):
+        with get_runtime().catalog.begin_xact(tbl_id=self.tbl_version.id, for_write=False):
             self._cached_tbl_version = self.tbl_version.get()
 
     def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
