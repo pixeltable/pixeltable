@@ -297,7 +297,7 @@ class TableVersion:
         name: str,
         cols: list[Column],
         num_retained_versions: int,
-        comment: str,
+        comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
@@ -619,6 +619,8 @@ class TableVersion:
                 value_expr_dict=col_md.value_expr,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
+                custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
+                comment=schema_col_md.comment if schema_col_md is not None else '',
             )
 
             self.cols.append(col)
@@ -912,6 +914,8 @@ class TableVersion:
                     name=col.name,
                     pos=pos,
                     media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
+                    comment=col.comment,
+                    custom_metadata=col.custom_metadata,
                 )
                 self._schema_version_md.columns[col.id] = schema_md
 
@@ -1671,11 +1675,11 @@ class TableVersion:
         return self._tbl_md.is_replica
 
     @property
-    def comment(self) -> str:
+    def comment(self) -> str | None:
         return self._schema_version_md.comment
 
     @comment.setter
-    def comment(self, c: str) -> None:
+    def comment(self, c: str | None) -> None:
         assert self.effective_version is None
         self._schema_version_md.comment = c
 
