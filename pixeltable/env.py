@@ -892,11 +892,6 @@ class Env:
         Internal cleanup method that properly closes all resources and resets state.
         This is called before destroying the singleton instance.
         """
-        from pixeltable.runtime import get_runtime
-
-        runtime = get_runtime()
-        assert not runtime.in_xact
-
         # Stop HTTP server
         if self._httpd is not None:
             try:
