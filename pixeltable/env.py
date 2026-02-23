@@ -18,11 +18,10 @@ import threading
 import types
 import typing
 import warnings
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import Any, Callable, Iterator, TypeVar
+from typing import Any, Callable, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import nest_asyncio  # type: ignore[import-untyped]
@@ -54,6 +53,7 @@ class Env:
 
     _instance: Env | None = None
     __initializing: bool = False
+    _init_lock: threading.RLock = threading.RLock()
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Path | None
@@ -95,7 +95,9 @@ class Env:
     def get(cls) -> Env:
         if cls._instance is not None:
             return cls._instance
-        with cls.__init_lock:
+        # _init_lock is a reentrant lock, so that circular calls to _init_env() don't end up deadlocking (and instead
+        # hit the assertion in _init_env())
+        with cls._init_lock:
             if cls._instance is None:
                 cls._init_env()
         return cls._instance

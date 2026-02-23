@@ -1177,7 +1177,6 @@ class TableVersion:
         Insert rows into this table, either from an explicit list of dicts or from a `Query`.
         """
         from pixeltable.plan import Planner
-
         from pixeltable.runtime import get_runtime
 
         assert self.is_insertable

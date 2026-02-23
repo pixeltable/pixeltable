@@ -11,10 +11,10 @@ from pathlib import Path
 from typing import Any, Iterator
 from uuid import UUID
 
+import PIL.Image
 import more_itertools
 import numpy as np
 import pgvector.sqlalchemy as sql_vector  # type: ignore[import-untyped]
-import PIL.Image
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlalchemy as sql
@@ -23,7 +23,6 @@ import pixeltable as pxt
 import pixeltable.utils.av as av_utils
 from pixeltable import catalog, exceptions as excs, metadata, type_system as ts
 from pixeltable.catalog.table_version import TableVersionKey, TableVersionMd
-from pixeltable.env import Env
 from pixeltable.exprs.data_row import CellMd
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
