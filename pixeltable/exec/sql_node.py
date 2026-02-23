@@ -107,6 +107,7 @@ class SqlNode(ExecNode):
 
     order_by_clause: OrderByClause
     limit: int | None
+    offset: int | None
 
     def __init__(
         self,
@@ -171,6 +172,7 @@ class SqlNode(ExecNode):
         self.py_filter_eval_ctx = None
         self.cte = None
         self.limit = None
+        self.offset = None
         self.where_clause = None
         self.where_clause_element = None
         self.order_by_clause = []
@@ -229,9 +231,12 @@ class SqlNode(ExecNode):
                 order_by_clause.append(self.sql_elements.get(e).desc() if asc is False else self.sql_elements.get(e))
         stmt = stmt.order_by(*order_by_clause)
 
-        if self.py_filter is None and self.limit is not None:
-            # if we don't have a Python filter, we can apply the limit to stmt
-            stmt = stmt.limit(self.limit)
+        if self.py_filter is None:
+            # if we don't have a Python filter, we can apply limit/offset to stmt
+            if self.limit is not None:
+                stmt = stmt.limit(self.limit)
+            if self.offset is not None:
+                stmt = stmt.offset(self.offset)
 
         return stmt
 
@@ -339,6 +344,9 @@ class SqlNode(ExecNode):
     def set_limit(self, limit: int) -> None:
         self.limit = limit
 
+    def set_offset(self, offset: int) -> None:
+        self.offset = offset
+
     def _log_explain(self, stmt: sql.Select) -> None:
         conn = Env.get().conn
         try:
@@ -370,7 +378,7 @@ class SqlNode(ExecNode):
 
         output_batch = DataRowBatch(self.row_builder)
         output_row: exprs.DataRow | None = None
-        num_rows_returned = 0
+        num_rows_read = 0
         is_using_cockroachdb = Env.get().is_using_cockroachdb
         tzinfo = Env.get().default_time_zone
 
@@ -427,17 +435,34 @@ class SqlNode(ExecNode):
             if self.py_filter is not None:
                 # evaluate filter
                 self.row_builder.eval(output_row, self.py_filter_eval_ctx, profile=self.ctx.profile)
-            if self.py_filter is not None and not output_row[self.py_filter.slot_idx]:
-                # we re-use this row for the next sql row since it didn't pass the filter
-                output_row = output_batch.pop_row()
-                output_row.clear()
-            else:
-                # reset output_row in order to add new one
-                output_row = None
-                num_rows_returned += 1
+                if not output_row[self.py_filter.slot_idx]:
+                    # didn't pass filter; re-use this row for the next sql row
+                    output_row = output_batch.pop_row()
+                    output_row.clear()
+                    continue
 
-            if self.limit is not None and num_rows_returned == self.limit:
-                break
+            # Row passed filter (or no filter)
+            num_rows_read += 1
+
+            # if we're using a Python filter, we need to apply offset/limit logic here. (with a SQL filter
+            # that logic has already been baked into the query)
+            if self.py_filter is not None:
+                # Check if we should skip this row due to offset
+                if self.offset is not None and num_rows_read <= self.offset:
+                    # Skip this row - remove it from batch
+                    output_row = output_batch.pop_row()
+                    output_row.clear()
+                    continue
+
+                # Check if we've reached the limit (after offset)
+                if self.limit is not None:
+                    num_rows_returned = num_rows_read - (self.offset or 0)
+                    assert num_rows_returned <= self.limit
+                    if num_rows_returned == self.limit:
+                        break
+
+            # Include this row in output
+            output_row = None
 
             if self.ctx.batch_size > 0 and len(output_batch) == self.ctx.batch_size:
                 _logger.debug(f'SqlScanNode: returning {len(output_batch)} rows')
