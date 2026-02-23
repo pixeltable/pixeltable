@@ -962,15 +962,15 @@ class TestQuery:
         assert extract_fields(exc_info) == {'extra'}
 
     @pytest.mark.benchmark(group='select_inexpensive')
-    def test_select_inexpensive(self, uses_db: None, benchmark) -> None:
+    def test_select_inexpensive(self, uses_db: None, benchmark: Any) -> None:
         t = pxt.create_table('test_inexpensive', {'c1': pxt.Int, 'c2': pxt.String})
 
-        ROW_COUNT = 100000
+        row_count = 100000
 
-        t.insert([{'c1': i, 'c2': f'str_{i}'} for i in range(ROW_COUNT)])
+        t.insert([{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)])
 
-        def select_inexpensive():
+        def select_inexpensive() -> None:
             res = t.select(t.c1, t.c2, isascii(t.c2), isalpha(t.c2)).collect()
-            assert len(res) == ROW_COUNT
+            assert len(res) == row_count
 
         benchmark(select_inexpensive)
