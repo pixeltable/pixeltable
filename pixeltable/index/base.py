@@ -36,9 +36,13 @@ class IndexBase(abc.ABC):
     def sa_create_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
         """Return a sqlalchemy statement for creating the index"""
 
-    @abc.abstractmethod
     def sa_drop_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
         """Return a sqlalchemy statement for dropping the index"""
+        from sqlalchemy.dialects import postgresql
+
+        return sql.schema.DropIndex(sql.Index(store_index_name, sa_value_col), if_exists=True).compile(
+            dialect=postgresql.dialect()
+        )
 
     @classmethod
     @abc.abstractmethod

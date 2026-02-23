@@ -178,15 +178,6 @@ class EmbeddingIndex(IndexBase):
         stmt = Env.get().dbms.create_vector_index_stmt(store_index_name, sa_value_col, metric=metric)
         return stmt
 
-    def sa_drop_stmt(self, store_index_name: str, sa_value_col: sql.Column) -> sql.Compiled:
-        from sqlalchemy.dialects import postgresql
-
-        # Generate DROP INDEX statement
-        # Using IF EXISTS to make the operation idempotent
-        return sql.schema.DropIndex(sql.Index(store_index_name, sa_value_col), if_exists=True).compile(
-            dialect=postgresql.dialect()
-        )
-
     def similarity_clause(self, val_column: catalog.Column, item: exprs.Literal) -> sql.ColumnElement:
         """Create a ColumnElement that represents '<val_column> <op> <item>'"""
         assert item.col_type._type in self.embeddings
