@@ -185,57 +185,28 @@ class TestCatalog:
         """
         base_table = pxt.create_table('base', {'c1': pxt.Int})
 
-        # Table can replace view
-        pxt.create_view('target', base_table)
-        assert 'target' in pxt.list_tables()
-        tbl1 = pxt.create_table('target', {'c2': pxt.String}, if_exists='replace')
-        assert 'target' in pxt.list_tables()
-        assert tbl1.columns() == ['c2']  # new table schema
+        # One lambda per create_x with expected columns
+        creators = {
+            'table': (lambda: pxt.create_table('target', {'c2': pxt.String}, if_exists='replace'), ['c2']),
+            'view': (lambda: pxt.create_view('target', base_table, additional_columns={'c3': pxt.String}, if_exists='replace'), ['c3', 'c1']),
+            'snapshot': (lambda: pxt.create_snapshot('target', base_table, if_exists='replace'), ['c1']),
+        }
 
-        # Table can replace snapshot
-        pxt.create_snapshot('target', base_table, if_exists='replace')
-        assert 'target' in pxt.list_tables()
-        tbl2 = pxt.create_table('target', {'c3': pxt.Float}, if_exists='replace')
-        assert 'target' in pxt.list_tables()
-        assert tbl2.columns() == ['c3']
-
-        # View can replace table
-        pxt.create_table('target', {'c4': pxt.Bool}, if_exists='replace')
-        assert 'target' in pxt.list_tables()
-        view2 = pxt.create_view('target', base_table, if_exists='replace')
-        assert 'target' in pxt.list_tables()
-        assert view2.columns() == ['c1']  # inherits from base_table
-
-        # View can replace snapshot
-        pxt.create_snapshot('target', base_table, if_exists='replace')
-        assert 'target' in pxt.list_tables()
-        view3 = pxt.create_view('target', base_table, additional_columns={'c6': pxt.String}, if_exists='replace')
-        assert 'target' in pxt.list_tables()
-        assert view3.columns() == ['c6', 'c1']
-
-        # Snapshot can replace table
-        pxt.create_table('target', {'c5': pxt.Int}, if_exists='replace')
-        assert 'target' in pxt.list_tables()
-        snap1 = pxt.create_snapshot('target', base_table, additional_columns={'c7': pxt.Float}, if_exists='replace')
-        assert 'target' in pxt.list_tables()
-        assert snap1.columns() == ['c7', 'c1']
-
-        # Snapshot can replace view
-        pxt.create_view('target', base_table, if_exists='replace')
-        assert 'target' in pxt.list_tables()
-        snap2 = pxt.create_snapshot('target', base_table, additional_columns={'c8': pxt.Bool}, if_exists='replace')
-        assert 'target' in pxt.list_tables()
-        assert snap2.columns() == ['c8', 'c1']
+        # Test all permutations: each table subtype can replace any table subtype
+        for existing_creator, _ in creators.values():
+            for replacing_creator, expected_cols in creators.values():
+                existing_creator()
+                assert 'target' in pxt.list_tables()
+                result = replacing_creator()
+                assert 'target' in pxt.list_tables()
+                assert result.columns() == expected_cols
 
         # Verify that dirs still cannot be replaced by table subtypes
         pxt.drop_table('target')
         pxt.create_dir('target')
-        with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
-            pxt.create_table('target', {'c1': pxt.Int}, if_exists='replace')
-        with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
-            pxt.create_view('target', base_table, if_exists='replace')
-        with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
-            pxt.create_snapshot('target', base_table, if_exists='replace')
+        for creator, _ in creators.values():
+            with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
+                creator()
 
         # And table subtypes cannot be replaced by dirs
         pxt.drop_dir('target')
