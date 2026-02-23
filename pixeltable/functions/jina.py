@@ -4,8 +4,6 @@ for embeddings and reranking. In order to use them, the API key must be specifie
 environment variable, or as `api_key` in the `jina` section of the Pixeltable config file.
 """
 
-import asyncio
-import atexit
 import logging
 import re
 from typing import Any, Literal
@@ -15,7 +13,7 @@ import numpy as np
 
 import pixeltable as pxt
 from pixeltable import type_system as ts
-from pixeltable.env import Env, register_client
+from pixeltable.env import register_client
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
 
@@ -45,21 +43,15 @@ class JinaUnexpectedError(Exception):
     pass
 
 
-class _JinaClient:
+class _JinaClient:  # noqa: B903
     """
-    Client for interacting with the Jina AI API. Maintains a long-lived HTTP session to the service.
+    Client for interacting with the Jina AI API.
     """
 
     api_key: str
-    session: aiohttp.ClientSession
 
     def __init__(self, api_key: str):
         self.api_key = api_key
-        self.session = Env.get().event_loop.run_until_complete(self._start_session())
-        atexit.register(lambda: asyncio.run(self.session.close()))
-
-    async def _start_session(self) -> aiohttp.ClientSession:
-        return aiohttp.ClientSession(base_url='https://api.jina.ai')
 
     async def _post(self, endpoint: str, *, payload: dict) -> dict:
         request_headers = {
@@ -68,7 +60,10 @@ class _JinaClient:
             'Accept': 'application/json',
         }
 
-        async with self.session.post(endpoint, json=payload, headers=request_headers) as resp:
+        async with (
+            aiohttp.ClientSession(base_url='https://api.jina.ai') as session,
+            session.post(endpoint, json=payload, headers=request_headers) as resp,
+        ):
             match resp.status:
                 case 200:
                     data = await resp.json()
@@ -94,6 +89,8 @@ def _(api_key: str) -> _JinaClient:
 
 
 def _client() -> _JinaClient:
+    from pixeltable.env import Env
+
     return Env.get().get_client('jina')
 
 

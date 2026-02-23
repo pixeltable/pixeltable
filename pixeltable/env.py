@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import builtins
 import datetime
 import glob
@@ -24,7 +23,6 @@ from sys import stdout
 from typing import Any, Callable, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 import tzlocal
@@ -89,7 +87,6 @@ class Env:
 
     _resource_pool_info: dict[str, Any]
     _dbms: Dbms | None
-    _event_loop: asyncio.AbstractEventLoop | None  # event loop for ExecNode
 
     @classmethod
     def get(cls) -> Env:
@@ -155,32 +152,6 @@ class Env:
 
         self._resource_pool_info = {}
         self._dbms = None
-        self._event_loop = None
-
-    def _init_event_loop(self) -> None:
-        try:
-            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
-            # multiple run_until_complete()
-            running_loop = asyncio.get_running_loop()
-            self._event_loop = running_loop
-            _logger.debug('Patched running loop')
-        except RuntimeError:
-            self._event_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._event_loop)
-            # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
-            self._event_loop.slow_callback_duration = 3600
-
-        # always allow nested event loops, we need that to run async udfs synchronously (eg, for SimilarityExpr);
-        # see run_coroutine_synchronously()
-        nest_asyncio.apply()
-        if _logger.isEnabledFor(logging.DEBUG):
-            self._event_loop.set_debug(True)
-
-    @property
-    def event_loop(self) -> asyncio.AbstractEventLoop:
-        if self._event_loop is None:
-            self._init_event_loop()
-        return self._event_loop
 
     @property
     def db_url(self) -> str:
@@ -928,15 +899,6 @@ class Env:
                 self._sa_engine.dispose()
             except Exception as e:
                 _logger.warning(f'Error disposing engine: {e}')
-
-        # Close event loop
-        if self._event_loop is not None:
-            try:
-                if self._event_loop.is_running():
-                    self._event_loop.stop()
-                self._event_loop.close()
-            except Exception as e:
-                _logger.warning(f'Error closing event loop: {e}')
 
         # Remove logging handlers
         for handler in self._logger.handlers[:]:

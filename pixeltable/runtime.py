@@ -6,11 +6,13 @@ Process-level resources (engine, paths, logging, config) stay shared on Env.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Callable, Iterator
 
+import nest_asyncio  # type: ignore[import-untyped]
 import sqlalchemy as sql
 from rich.progress import Progress
 from sqlalchemy import orm
@@ -34,6 +36,7 @@ class Runtime:
     session: orm.Session | None
     isolation_level: str | None
     _progress: Progress | None
+    _event_loop: asyncio.AbstractEventLoop | None
 
     def __init__(self) -> None:
         # Catalog is created lazily to avoid circular initialization:
@@ -43,6 +46,7 @@ class Runtime:
         self.session = None
         self.isolation_level = None
         self._progress = None
+        self._event_loop = None
 
     @property
     def in_xact(self) -> bool:
@@ -55,6 +59,31 @@ class Runtime:
 
             self._catalog = Catalog()
         return self._catalog
+
+    @property
+    def event_loop(self) -> asyncio.AbstractEventLoop:
+        if self._event_loop is None:
+            self._init_event_loop()
+        return self._event_loop
+
+    def _init_event_loop(self) -> None:
+        try:
+            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
+            # multiple run_until_complete()
+            running_loop = asyncio.get_running_loop()
+            self._event_loop = running_loop
+            _logger.debug('Patched running loop')
+        except RuntimeError:
+            self._event_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._event_loop)
+            # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
+            self._event_loop.slow_callback_duration = 3600
+
+        # always allow nested event loops, we need that to run async udfs synchronously (eg, for SimilarityExpr);
+        # see run_coroutine_synchronously()
+        nest_asyncio.apply()
+        if _logger.isEnabledFor(logging.DEBUG):
+            self._event_loop.set_debug(True)
 
     @contextmanager
     def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
@@ -139,8 +168,17 @@ def get_runtime() -> Runtime:
 def reset_runtime() -> None:
     """Reset the current thread's Runtime instance. Used for testing."""
     runtime = getattr(_thread_local, 'runtime', None)
-    if runtime is not None and runtime._catalog is not None:
-        # Invalidate all existing TableVersion instances to force reloading of metadata,
-        for tbl_version in runtime._catalog._tbl_versions.values():
-            tbl_version.is_validated = False
+    if runtime is not None:
+        if runtime._catalog is not None:
+            # Invalidate all existing TableVersion instances to force reloading of metadata,
+            for tbl_version in runtime._catalog._tbl_versions.values():
+                tbl_version.is_validated = False
+        if runtime._event_loop is not None:
+            # Don't close a loop we didn't create (e.g. Jupyter's)
+            try:
+                loop = runtime._event_loop
+                if not loop.is_running():
+                    loop.close()
+            except Exception:
+                pass
     _thread_local.runtime = Runtime()

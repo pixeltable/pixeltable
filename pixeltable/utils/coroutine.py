@@ -1,8 +1,6 @@
-import asyncio
-import threading
 from typing import Any, Coroutine, TypeVar
 
-from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 
 T = TypeVar('T')
 
@@ -11,14 +9,8 @@ T = TypeVar('T')
 #   general, it can be removed.
 
 
-def run_coroutine_synchronously(coroutine: Coroutine[Any, Any, T], timeout: float = 30) -> T:
+def run_coroutine_synchronously(coroutine: Coroutine[Any, Any, T]) -> T:
     """
     Runs the given coroutine synchronously, even if called in the context of a running event loop.
     """
-    loop = Env.get().event_loop
-
-    if threading.current_thread() is threading.main_thread():
-        return loop.run_until_complete(coroutine)
-    else:
-        # Not in main thread, use run_coroutine_threadsafe
-        return asyncio.run_coroutine_threadsafe(coroutine, loop).result(timeout)
+    return get_runtime().event_loop.run_until_complete(coroutine)
