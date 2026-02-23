@@ -382,7 +382,7 @@ class ExprEvalNode(ExecNode):
 
         # ---------- Identify completed rows ----------
         missing_slot_counts = missing_slots.sum(axis=1)  # (num_rows,)
-        completed_mask = (missing_slot_counts == 0)
+        completed_mask = missing_slot_counts == 0
 
         # ---------- Compute ready slots for non-completed rows ----------
         # ready_slots: (num_rows, num_slots)

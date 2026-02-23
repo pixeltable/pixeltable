@@ -11,8 +11,8 @@ import pydantic
 import pytest
 
 import pixeltable as pxt
-from pixeltable.functions.string import isalpha, isascii
 import pixeltable.type_system as ts
+from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
 from .utils import (
@@ -961,7 +961,7 @@ class TestQuery:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
 
-    @pytest.mark.benchmark(group="select_inexpensive")
+    @pytest.mark.benchmark(group='select_inexpensive')
     def test_select_inexpensive(self, uses_db: None, benchmark) -> None:
         t = pxt.create_table('test_inexpensive', {'c1': pxt.Int, 'c2': pxt.String})
 
