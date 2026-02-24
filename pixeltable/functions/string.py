@@ -929,9 +929,10 @@ def _(
 ) -> sql.ColumnElement:
     # self[:start] + repl + self[stop:]
     # In SQL: substr(self, 1, start) || repl || substr(self, stop + 1)
-    replacement = repl if repl is not None else sql.literal('')
+    replacement: sql.ColumnElement = repl if repl is not None else sql.literal('')
 
     # Handle None start (means from beginning, so prefix is empty)
+    prefix: sql.ColumnElement
     if start is None:
         prefix = sql.literal('')
     else:
@@ -939,6 +940,7 @@ def _(
         prefix = sql.func.substr(self, 1, start.cast(sql.Integer))
 
     # Handle None stop (means to end, so suffix is empty)
+    suffix: sql.ColumnElement
     if stop is None:
         suffix = sql.literal('')
     else:
