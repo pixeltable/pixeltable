@@ -260,7 +260,7 @@ class StoreBase:
         idx_info = self.tbl_version.get().idxs[idx_id]
         store_index_name = self.tbl_version.get()._store_idx_name(idx_id)
         stmt = idx_info.idx.sa_drop_stmt(store_index_name, idx_info.val_col.sa_col)
-        with Env.get().begin_xact(for_write=True) as conn:
+        with get_runtime().begin_xact(for_write=True) as conn:
             try:
                 conn.execute(sql.text(str(stmt)))
             except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
