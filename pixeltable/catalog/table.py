@@ -421,7 +421,7 @@ class Table(SchemaObject):
         The separators are used to visually group columns by their Source when the table description is rendered.
 
         Args:
-            columns: List of columns to include, or all columns if None. Defaults to None.
+            columns: List of columns to include, or all columns if None.
 
         Returns:
             A tuple of the column descriptor DataFrame, and a list of row indexes after which a vertical separator
