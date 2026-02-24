@@ -181,6 +181,11 @@ def add_days(self: date, n: int) -> date:
     return self + timedelta(days=n)
 
 
+@add_days.to_sql
+def _(self: sql.ColumnElement, n: sql.ColumnElement) -> sql.ColumnElement:
+    return self + sql.func.make_interval(0, 0, 0, n.cast(sql.Integer))
+
+
 __all__ = local_public_names(__name__)
 
 

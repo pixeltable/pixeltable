@@ -142,6 +142,11 @@ def astimezone(self: datetime, tz: str) -> datetime:
     return self.astimezone(tzinfo)
 
 
+@astimezone.to_sql
+def _(self: sql.ColumnElement, tz: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.timezone(tz, self)
+
+
 @pxt.udf(is_method=True)
 def weekday(self: datetime) -> int:
     """
@@ -307,6 +312,11 @@ def posix_timestamp(self: datetime) -> float:
     Equivalent to [`datetime.timestamp()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.timestamp).
     """
     return self.timestamp()
+
+
+@posix_timestamp.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('epoch', self)
 
 
 __all__ = local_public_names(__name__)

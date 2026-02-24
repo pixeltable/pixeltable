@@ -62,6 +62,17 @@ def center(self: str, width: int, fillchar: str = ' ') -> str:
     return self.center(width, fillchar)
 
 
+@center.to_sql
+def _(self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None) -> sql.ColumnElement:
+    fill = fillchar if fillchar is not None else ' '
+    w = width.cast(sql.types.INT)
+    str_len = sql.func.char_length(self)
+    total_pad = sql.func.greatest(w - str_len, 0)
+    left_pad = total_pad / 2
+    right_pad = total_pad - left_pad
+    return sql.func.rpad(sql.func.lpad(self, str_len + left_pad, fill), str_len + total_pad, fill)
+
+
 @pxt.udf(is_method=True)
 def contains(self: str, substr: str, case: bool = True) -> bool:
     """
@@ -362,6 +373,11 @@ def join(sep: str, elements: list) -> str:
     return sep.join(elements)
 
 
+@join.to_sql
+def _(sep: sql.ColumnElement, elements: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.array_to_string(elements, sep)
+
+
 @pxt.udf(is_method=True)
 def len(self: str) -> int:
     """
@@ -390,6 +406,12 @@ def ljust(self: str, width: int, fillchar: str = ' ') -> str:
         fillchar: Additional character for filling.
     """
     return self.ljust(width, fillchar)
+
+
+@ljust.to_sql
+def _(self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None) -> sql.ColumnElement:
+    fill = fillchar if fillchar is not None else ' '
+    return sql.func.rpad(self, width.cast(sql.types.INT), fill)
 
 
 @pxt.udf(is_method=True)
@@ -625,6 +647,12 @@ def rjust(self: str, width: int, fillchar: str = ' ') -> str:
     return self.rjust(width, fillchar)
 
 
+@rjust.to_sql
+def _(self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None) -> sql.ColumnElement:
+    fill = fillchar if fillchar is not None else ' '
+    return sql.func.lpad(self, width.cast(sql.types.INT), fill)
+
+
 @pxt.udf(is_method=True)
 def rpartition(self: str, sep: str = ' ') -> list:
     """
@@ -775,6 +803,11 @@ def title(self: str) -> str:
     return self.title()
 
 
+@title.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.func.initcap(self)
+
+
 @pxt.udf(is_method=True)
 def upper(self: str) -> str:
     """
@@ -816,6 +849,18 @@ def zfill(self: str, width: int) -> str:
         width: Minimum width of resulting string.
     """
     return self.zfill(width)
+
+
+@zfill.to_sql
+def _(self: sql.ColumnElement, width: sql.ColumnElement) -> sql.ColumnElement:
+    w = width.cast(sql.types.INT)
+    first_char = sql.func.left(self, 1)
+    rest = sql.func.right(self, -1)
+    has_sign = first_char.in_(['-', '+'])
+    return sql.case(
+        (has_sign, sql.func.concat(first_char, sql.func.lpad(rest, w - 1, '0'))),
+        else_=sql.func.lpad(self, w, '0'),
+    )
 
 
 def string_splitter(
