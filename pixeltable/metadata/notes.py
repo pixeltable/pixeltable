@@ -2,7 +2,8 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
-    46: 'Adds stores_cellmd property to ColumnMd',
+    47: 'Adds stores_cellmd property to ColumnMd',
+    46: 'Literal type serialization updates',
     45: 'Adds a new parameter "precision" to EmbeddingIndex',
     44: 'ArrayType dtype migration from pxt types to numpy dtypes',
     43: 'Changing tables.dir_id to nullable',

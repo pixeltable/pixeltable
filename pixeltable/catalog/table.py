@@ -125,6 +125,8 @@ class Table(SchemaObject):
                 media_validation=col.media_validation.name.lower() if col.media_validation is not None else None,  # type: ignore[typeddict-item]
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
                 defined_in=col.get_tbl().name,
+                custom_metadata=col.custom_metadata,
+                comment=col.comment,
             )
 
         indices = tv.idxs_by_name.values()
@@ -404,6 +406,7 @@ class Table(SchemaObject):
                 'Column Name': col.name,
                 'Type': col.col_type._to_str(as_schema=True),
                 'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
+                'Comment': col.comment if col.comment is not None else '',
             }
             for col in self._tbl_version_path.columns()
             if columns is None or col.name in columns
@@ -1176,7 +1179,7 @@ class Table(SchemaObject):
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)

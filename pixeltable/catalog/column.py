@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import warnings
 from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
-from pixeltable import catalog
+from pixeltable import catalog, exceptions as excs
 from pixeltable.type_system import ColumnType
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectOps
@@ -18,7 +19,6 @@ from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
 import sqlalchemy as sql
 
-import pixeltable.exceptions as excs
 import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
@@ -67,6 +67,8 @@ class Column:
     is_iterator_col: bool
     _explicit_destination: str | None  # An object store reference for computed files
     _media_validation: MediaValidation | None  # if not set, TableVersion.media_validation applies
+    _custom_metadata: Any  # user-defined metadata; must be a valid JSON-serializable object
+    _comment: str | None
     schema_version_add: int | None
     schema_version_drop: int | None
     stores_cellmd: bool
@@ -95,6 +97,8 @@ class Column:
         value_expr_dict: dict[str, Any] | None = None,
         tbl_handle: 'TableVersionHandle' | None = None,
         destination: str | Path | None = None,
+        comment: str | None = None,
+        custom_metadata: Any = None,
     ):
         if name is not None and not is_valid_identifier(name):
             raise excs.Error(f'Invalid column name: {name}')
@@ -145,6 +149,10 @@ class Column:
 
         self._explicit_destination = destination
 
+        # user-defined metadata - stored but not used by Pixeltable itself
+        self._custom_metadata = custom_metadata
+        self._comment = comment
+
     @classmethod
     def instantiate_cols(
         cls, tbl_version: TableVersion, indexes: list[tuple[schema.IndexMd, index.IndexBase]]
@@ -185,6 +193,8 @@ class Column:
                 value_expr_dict=col_md.value_expr,
                 tbl_handle=tbl_version.handle,
                 destination=col_md.destination,
+                custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
+                comment=schema_col_md.comment if schema_col_md is not None else '',
             )
             cols.append(col)
 
@@ -237,6 +247,8 @@ class Column:
         media_validation: catalog.MediaValidation | None = None
         stored: bool = True
         destination: str | Path | None = None
+        custom_metadata: Any = None
+        comment: str | None = None
 
         # TODO: Should we fully deprecate passing ts.ColumnType here?
         if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
@@ -261,6 +273,10 @@ class Column:
                 catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
             )
             destination = spec.get('destination')
+            custom_metadata = spec.get('custom_metadata')
+            comment = spec.get('comment')
+            if comment == '':
+                comment = None
         else:
             raise excs.Error(f'Invalid spec for column {name!r}: {type(spec)}')
 
@@ -275,6 +291,8 @@ class Column:
             is_pk=primary_key,
             media_validation=media_validation,
             destination=destination,
+            custom_metadata=custom_metadata,
+            comment=comment,
             stores_cellmd=stores_cellmd,
         )
         ObjectOps.validate_destination(column.destination, column.name)
@@ -288,8 +306,8 @@ class Column:
         (on account of containing Python Callables or Exprs).
         """
         assert isinstance(spec, dict)
-        # TODO: this code could be made cleaner now that spec is a TypedDict
-        valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
+        # We cannot use get_type_hints() here since ColumnSpec doesn't import exprs outside of a TYPE_CHECKING block
+        valid_keys = ColumnSpec.__annotations__.keys()
         for k in spec:
             if k not in valid_keys:
                 raise excs.Error(f'Column {name!r}: invalid key {k!r}')
@@ -313,9 +331,21 @@ class Column:
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f"Column {name!r}: 'stored' must be a bool; got {spec['stored']}")
 
+        if 'comment' in spec and not isinstance(spec['comment'], str):
+            raise excs.Error(f"Column {name!r}: 'comment' must be a string; got {spec['comment']}")
+
         d = spec.get('destination')
         if d is not None and not isinstance(d, (str, Path)):
             raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
+
+        if 'custom_metadata' in spec:
+            # we require custom_metadata to be JSON-serializable
+            try:
+                json.dumps(spec['custom_metadata'])
+            except (TypeError, ValueError) as err:
+                raise excs.Error(
+                    f'Column {name!r}: `custom_metadata` must be JSON-serializable; got Error: {err}'
+                ) from err
 
     @classmethod
     def create_iterator_columns(cls, output_dict: dict[str, ColumnType], unstored_cols: list[str]) -> list[Column]:
@@ -384,6 +414,8 @@ class Column:
             name=self.name,
             pos=pos,
             media_validation=self._media_validation.name.lower() if self._media_validation is not None else None,
+            custom_metadata=self._custom_metadata,
+            comment=self._comment,
         )
         return col_md, sch_md
 
@@ -530,6 +562,14 @@ class Column:
             return self._media_validation
         assert self.get_tbl() is not None
         return self.get_tbl().media_validation
+
+    @property
+    def custom_metadata(self) -> Any:
+        return self._custom_metadata
+
+    @property
+    def comment(self) -> str | None:
+        return self._comment
 
     @property
     def is_required_for_insert(self) -> bool:

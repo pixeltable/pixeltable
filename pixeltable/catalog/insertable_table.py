@@ -73,7 +73,7 @@ class InsertableTable(Table):
         schema: dict[str, type | ColumnSpec | exprs.Expr],
         primary_key: list[str],
         num_retained_versions: int,
-        comment: str,
+        comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,

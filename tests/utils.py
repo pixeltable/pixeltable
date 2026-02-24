@@ -20,12 +20,14 @@ import numpy as np
 import pandas as pd
 import PIL.Image
 import pytest
+import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
 from pixeltable.catalog import Catalog
 from pixeltable.env import Env
+from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
 from pixeltable.utils.object_stores import ObjectOps
@@ -148,9 +150,9 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
 
 
 def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
-    schema = {
-        'c1': pxt.Required[pxt.String],
-        'c1n': pxt.String,
+    schema: dict[str, type | ColumnSpec] = {
+        'c1': {'type': pxt.Required[pxt.String], 'comment': 'String column with no nulls'},
+        'c1n': {'type': pxt.String, 'custom_metadata': {'nullable': True}},
         'c2': pxt.Required[pxt.Int],
         'c3': pxt.Required[pxt.Float],
         'c4': pxt.Required[pxt.Bool],
@@ -784,3 +786,13 @@ IN_CI = bool(os.environ.get('PXTTEST_IN_CI'))
 
 # The OS id (e.g., 'unbuntu-latest') on which the tests are running in CI, or None if not in CI.
 CI_OS = os.environ.get('PXTTEST_CI_OS')
+
+
+def list_store_indexes(t: pxt.Table) -> list[str]:
+    """Return all index names in the store for the given table."""
+    sa_tbl_name = t._tbl_version.get().store_tbl._storage_name()
+    with Env.get().begin_xact() as conn:
+        result = conn.execute(
+            sql.text(f"SELECT indexname FROM pg_indexes WHERE tablename = '{sa_tbl_name}'")
+        ).fetchall()
+    return [row[0] for row in result]
