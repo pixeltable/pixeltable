@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pixeltable import exceptions as excs
+from pixeltable.runtime import get_runtime
 
 from .table_version import TableVersion, TableVersionKey
 
@@ -60,8 +61,6 @@ class TableVersionHandle:
         return self.effective_version is not None
 
     def get(self) -> TableVersion:
-        from pixeltable.runtime import get_runtime
-
         if self._tbl_version is None or not self._tbl_version.is_validated:
             cat = get_runtime().catalog
             if self.effective_version is not None and self._tbl_version is not None:

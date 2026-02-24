@@ -82,10 +82,7 @@ def retry_loop(
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
         def loop(*args: Any, **kwargs: Any) -> T:
-            from pixeltable.runtime import get_runtime
-
-            runtime = get_runtime()
-            cat = runtime.catalog
+            cat = get_runtime().catalog
             # retry_loop() is reentrant
             if cat._in_retry_loop:
                 return op(*args, **kwargs)

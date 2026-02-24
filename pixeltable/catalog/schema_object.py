@@ -2,6 +2,8 @@ from abc import abstractmethod
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from pixeltable.runtime import get_runtime
+
 if TYPE_CHECKING:
     from pixeltable import catalog
 
@@ -25,8 +27,6 @@ class SchemaObject:
 
     def _parent(self) -> 'catalog.Dir | None':
         """Returns the parent directory of this schema object."""
-        from pixeltable.runtime import get_runtime
-
         with get_runtime().catalog.begin_xact(for_write=False):
             if self._dir_id is None:
                 return None
@@ -34,8 +34,6 @@ class SchemaObject:
 
     def _path(self) -> str:
         """Returns the path to this schema object."""
-        from pixeltable.runtime import get_runtime
-
         assert self._dir_id is not None
         with get_runtime().catalog.begin_xact(for_write=False):
             path = get_runtime().catalog.get_dir_path(self._dir_id)
