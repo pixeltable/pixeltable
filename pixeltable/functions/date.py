@@ -131,6 +131,19 @@ def isocalendar(self: date) -> dict:
     return {'year': iso_year, 'week': iso_week, 'weekday': iso_weekday}
 
 
+@isocalendar.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Build JSON object with ISO calendar components
+    return sql.func.jsonb_build_object(
+        'year',
+        sql.extract('isoyear', self).cast(sql.Integer),
+        'week',
+        sql.extract('week', self).cast(sql.Integer),
+        'weekday',
+        sql.extract('isodow', self).cast(sql.Integer),
+    )
+
+
 @pxt.udf(is_method=True)
 def isoformat(self: date, sep: str = 'T', timespec: str = 'auto') -> str:
     """
@@ -147,6 +160,14 @@ def isoformat(self: date, sep: str = 'T', timespec: str = 'auto') -> str:
     return self.isoformat()
 
 
+@isoformat.to_sql
+def _(
+    self: sql.ColumnElement, sep: sql.ColumnElement | None = None, timespec: sql.ColumnElement | None = None
+) -> sql.ColumnElement:
+    # For dates, isoformat always returns 'YYYY-MM-DD' regardless of sep/timespec
+    return sql.func.to_char(self.cast(sql.Date), 'YYYY-MM-DD')
+
+
 @pxt.udf(is_method=True)
 def toordinal(self: date) -> int:
     """
@@ -155,6 +176,14 @@ def toordinal(self: date) -> int:
     Equivalent to [`date.toordinal()`](https://docs.python.org/3/library/datetime.html#datetime.date.toordinal).
     """
     return self.toordinal()
+
+
+@toordinal.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Ordinal is days since Jan 1, year 1 (which has ordinal 1)
+    # PostgreSQL date subtraction gives days between dates
+    epoch = sql.cast(sql.literal('0001-01-01'), sql.Date)
+    return (self.cast(sql.Date) - epoch + 1).cast(sql.Integer)
 
 
 @pxt.udf(is_method=True)

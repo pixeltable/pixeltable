@@ -365,6 +365,88 @@ class TestString:
         res_py = t.select(out=zfill(t.s.apply(lambda x: x, col_type=pxt.String), 6)).collect()['out']
         assert res_py == expected, f'Python result {res_py} != expected {expected}'
 
+    def test_is_validation_functions(self, uses_db: None) -> None:
+        """Test is* validation functions with edge cases to ensure SQL/Python equivalence.
+
+        Note: SQL implementations use PostgreSQL POSIX character classes which are locale-dependent.
+        These tests focus on ASCII strings for reliable cross-locale behavior.
+        """
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        # Test strings covering various edge cases (ASCII only, no duplicates)
+        test_strs = [
+            # Empty and whitespace
+            '',
+            ' ',
+            '   ',
+            '\t',
+            '\n',
+            '\t\n',
+            # Alphanumeric
+            'abc',
+            'ABC',
+            '123',
+            'abc123',
+            'ABC123',
+            # Alpha only
+            'Hello',
+            'HELLO',
+            'hello',
+            # Digit only
+            '0',
+            '12345',
+            # Mixed with symbols
+            'abc!',
+            'a b',
+            'hello world',
+            'a1b2',
+            '123.45',
+            '-123',
+            # Case variations
+            'Hello World',
+            'HELLO WORLD',
+            # Identifiers
+            'valid_name',
+            '_private',
+            '__dunder__',
+            'CamelCase',
+            # Non-identifiers
+            '123invalid',
+            '123Invalid',
+            '!invalid',
+            # Title case edge cases
+            'Hello world',
+            'hello WORLD',
+            # Swapcase inputs
+            'HeLLo',
+            'hELLO wORLD',
+        ]
+        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+
+        test_params = [
+            (isalnum, str.isalnum),
+            (isalpha, str.isalpha),
+            (isascii, str.isascii),
+            (isdecimal, str.isdecimal),
+            (isdigit, str.isdigit),
+            (islower, str.islower),
+            (isupper, str.isupper),
+            (isspace, str.isspace),
+            (istitle, str.istitle),
+            (isidentifier, str.isidentifier),
+            (swapcase, str.swapcase),
+            (casefold, str.casefold),
+        ]
+
+        for pxt_fn, str_fn in test_params:
+            # SQL execution
+            res_sql = t.select(out=pxt_fn(t.s)).collect()['out']
+            expected = [str_fn(s) for s in test_strs]
+            assert res_sql == expected, f'{pxt_fn.name} SQL mismatch: {res_sql} != {expected}'
+
+            # Force Python execution
+            res_py = t.select(out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String))).collect()['out']
+            assert res_py == expected, f'{pxt_fn.name} Python mismatch: {res_py} != {expected}'
+
     def test_string_splitter(self, uses_db: None) -> None:
         skip_test_if_not_installed('spacy')
         t = pxt.create_table('test_tbl', {'s': pxt.String})
