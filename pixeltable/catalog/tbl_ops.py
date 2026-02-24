@@ -50,6 +50,8 @@ class TableOp:
     def from_dict(cls, data: dict) -> TableOp:
         classname = data.pop('_classname')
         # needs_xact used to be a member variable. Remove it from the dict for backward compatibility.
+        # TODO: delete this line, and the assert the follows, in ~ May 2026 or later. The chance of anyone still having
+        # needs_xact in their pending table ops at that point will be extremely low.
         needs_xact_legacy = data.pop('needs_xact', None)
         op_class = getattr(sys.modules[__name__], classname)
         op = schema.md_from_dict(op_class, data)
