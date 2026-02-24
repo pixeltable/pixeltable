@@ -64,8 +64,9 @@ class TestExprEvalPerformance:
         t.add_computed_column(c3=isascii(t.c2))
         t.add_computed_column(c4=isalpha(t.c2))
         t.add_computed_column(c5=upper(t.c2))
-        
+
         row_count = 50000
+
         def do_insert() -> None:
             t.insert([{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)])
 
