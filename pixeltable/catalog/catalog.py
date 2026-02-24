@@ -15,9 +15,8 @@ import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, func
 from pixeltable.env import Env
-from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.exception_handler import run_cleanup
@@ -434,7 +433,7 @@ class Catalog:
 
             except (Exception, KeyboardInterrupt) as e:
                 has_exc = True
-                _logger.debug(f'Caught {e.__class__}')
+                _logger.debug(f'Caught {e.__class__}: {e}', exc_info=True)
                 raise
 
             finally:
@@ -1216,7 +1215,7 @@ class Catalog:
         additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
-        iterator: tuple[type[ComponentIterator], dict[str, Any]] | None,
+        iterator: func.GeneratingFunctionCall | None,
         num_retained_versions: int,
         comment: str | None,
         custom_metadata: Any,
@@ -1245,10 +1244,6 @@ class Catalog:
 
             dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
             assert dir is not None
-            if iterator is None:
-                iterator_class, iterator_args = None, None
-            else:
-                iterator_class, iterator_args = iterator
             md, ops = View._create(
                 dir._id,
                 path.name,
@@ -1259,8 +1254,7 @@ class Catalog:
                 sample_clause=sample_clause,
                 is_snapshot=is_snapshot,
                 create_default_idxs=create_default_idxs,
-                iterator_cls=iterator_class,
-                iterator_args=iterator_args,
+                iterator_call=iterator,
                 num_retained_versions=num_retained_versions,
                 comment=comment,
                 custom_metadata=custom_metadata,

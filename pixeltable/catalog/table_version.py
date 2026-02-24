@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-import importlib
 import itertools
 import logging
 import time
@@ -19,13 +18,14 @@ import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
-from pixeltable.iterators import ComponentIterator
+from pixeltable.exprs.inline_expr import InlineDict
+from pixeltable.func.iterator import GeneratingFunctionCall
 from pixeltable.metadata import schema
 from pixeltable.utils.object_stores import ObjectOps
 
 from ..func.globals import resolve_symbol
 from .column import Column
-from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
@@ -152,8 +152,7 @@ class TableVersion:
     predicate: exprs.Expr | None
     sample_clause: 'SampleClause' | None
 
-    iterator_cls: type[ComponentIterator] | None
-    iterator_args: exprs.InlineDict | None
+    iterator_call: GeneratingFunctionCall | None
     num_iterator_cols: int
 
     # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
@@ -239,17 +238,11 @@ class TableVersion:
         self.sample_clause = SampleClause.from_dict(sample_dict) if sample_dict is not None else None
 
         # component view-specific initialization
-        self.iterator_cls = None
-        self.iterator_args = None
+        self.iterator_call = None
         self.num_iterator_cols = 0
-        if self.view_md is not None and self.view_md.iterator_class_fqn is not None:
-            module_name, class_name = tbl_md.view_md.iterator_class_fqn.rsplit('.', 1)
-            module = importlib.import_module(module_name)
-            self.iterator_cls = getattr(module, class_name)
-            self.iterator_args = exprs.InlineDict.from_dict(tbl_md.view_md.iterator_args)
-            output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.to_kwargs())
-            self.num_iterator_cols = len(output_schema)
-            assert tbl_md.view_md.iterator_args is not None
+        if self.view_md is not None and self.view_md.iterator_call is not None:
+            self.iterator_call = GeneratingFunctionCall.from_dict(self.view_md.iterator_call)
+            self.num_iterator_cols = len(self.iterator_call.outputs)
 
         self.mutable_views = frozenset(mutable_views)
         assert self.is_mutable or len(self.mutable_views) == 0
@@ -1693,7 +1686,7 @@ class TableVersion:
 
     @property
     def is_component_view(self) -> bool:
-        return self.iterator_cls is not None
+        return self.iterator_call is not None
 
     @property
     def is_insertable(self) -> bool:
@@ -1708,17 +1701,14 @@ class TableVersion:
         # the iterator columns directly follow the pos column
         return self.is_component_view and col.id > 0 and col.id < self.num_iterator_cols + 1
 
-    def is_system_column(self, col: Column) -> bool:
-        """Return True if column was created by Pixeltable"""
-        return col.name == _POS_COLUMN_NAME and self.is_component_view
-
     def iterator_columns(self) -> list[Column]:
         """Return all iterator-produced columns"""
         return self.cols[1 : self.num_iterator_cols + 1]
 
-    def user_columns(self) -> list[Column]:
-        """Return all non-system columns"""
-        return [c for c in self.cols if not self.is_system_column(c)]
+    def iterator_args_expr(self) -> InlineDict | None:
+        if self.is_component_view:
+            return InlineDict(self.iterator_call.bound_args).copy()
+        return None
 
     def primary_key_columns(self) -> list[Column]:
         """Return all non-system columns"""
