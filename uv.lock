@@ -6300,7 +6300,6 @@ dev = [
 ]
 extra-dev = [
     { name = "llama-cpp-python", marker = "sys_platform != 'win32'" },
-    { name = "vllm", marker = "sys_platform == 'linux'" },
 ]
 storage-sdks = [
     { name = "boto3" },
@@ -6314,6 +6313,7 @@ test = [
     { name = "pytest" },
     { name = "pytest-rerunfailures" },
     { name = "pytest-xdist", extra = ["psutil"] },
+    { name = "vllm", marker = "sys_platform == 'linux'" },
 ]
 
 [package.metadata]
@@ -6435,10 +6435,7 @@ dev = [
     { name = "voyageai", specifier = ">=0.3.5" },
     { name = "whisperx", marker = "python_full_version < '3.14'", specifier = ">=3.7" },
 ]
-extra-dev = [
-    { name = "llama-cpp-python", marker = "sys_platform != 'win32'", specifier = ">=0.3.16" },
-    { name = "vllm", marker = "sys_platform == 'linux'", specifier = ">=0.6.0" },
-]
+extra-dev = [{ name = "llama-cpp-python", marker = "sys_platform != 'win32'", specifier = ">=0.3.16" }]
 storage-sdks = [
     { name = "boto3", specifier = "==1.36.23" },
     { name = "botocore", specifier = "==1.36.23" },
@@ -6450,6 +6447,7 @@ test = [
     { name = "pytest", specifier = ">=8.4" },
     { name = "pytest-rerunfailures", specifier = ">=15.1" },
     { name = "pytest-xdist", extras = ["psutil"], specifier = ">=3.8" },
+    { name = "vllm", marker = "sys_platform == 'linux'", specifier = ">=0.6.0" },
 ]
 
 [[package]]
