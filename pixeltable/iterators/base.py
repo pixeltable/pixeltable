@@ -56,7 +56,7 @@ class ComponentIterator(ABC):
     @deprecated(
         'The `ComponentIterator` class is deprecated; please use the `@pxt.iterator` decorator instead.\n'
         f'For details see: {ITERATOR_GUIDE_URL}',
-        version='0.5.18',
+        version='0.5.19',
         category=excs.PixeltableDeprecationWarning,
     )
     def create(cls, **kwargs: Any) -> GeneratingFunctionCall:
