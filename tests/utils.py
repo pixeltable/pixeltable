@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 import PIL.Image
 import pytest
+import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
@@ -827,3 +828,13 @@ class DummyIterator2(DummyIterator):
 
     def _result(self) -> dict[str, Any]:
         return {'out1': f'str{self.count}', 'out3': self.count}
+
+
+def list_store_indexes(t: pxt.Table) -> list[str]:
+    """Return all index names in the store for the given table."""
+    sa_tbl_name = t._tbl_version.get().store_tbl._storage_name()
+    with Env.get().begin_xact() as conn:
+        result = conn.execute(
+            sql.text(f"SELECT indexname FROM pg_indexes WHERE tablename = '{sa_tbl_name}'")
+        ).fetchall()
+    return [row[0] for row in result]
