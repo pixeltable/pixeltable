@@ -82,12 +82,11 @@ def export_parquet(
             json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
 
         batch_num = 0
-        with get_runtime().catalog.begin_xact(for_write=False):
-            for record_batch in to_record_batches(query, partition_size_bytes):
-                output_path = temp_path / f'part-{batch_num:05d}.parquet'
-                arrow_tbl = pa.Table.from_batches([record_batch])
-                pa.parquet.write_table(arrow_tbl, str(output_path))
-                batch_num += 1
+        for record_batch in to_record_batches(query, partition_size_bytes):
+            output_path = temp_path / f'part-{batch_num:05d}.parquet'
+            arrow_tbl = pa.Table.from_batches([record_batch])
+            pa.parquet.write_table(arrow_tbl, str(output_path))
+            batch_num += 1
 
 
 def import_parquet(
