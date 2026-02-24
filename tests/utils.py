@@ -4,6 +4,7 @@ import itertools
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import sysconfig
@@ -838,3 +839,13 @@ def list_store_indexes(t: pxt.Table) -> list[str]:
             sql.text(f"SELECT indexname FROM pg_indexes WHERE tablename = '{sa_tbl_name}'")
         ).fetchall()
     return [row[0] for row in result]
+
+
+def validate_repr(t: Any, expected: str) -> None:
+    def cleanup(r: str) -> str:
+        r = re.sub(r'-{3,}', '---', r)  # normalize separator lines
+        r = re.sub(r'\.{3,}', '...', r)
+        return re.sub(r'\s+', ' ', r).strip()  # normalize whitespace
+
+    assert cleanup(repr(t)) == cleanup(expected), f'Expected repr: {expected}, actual: {t!r}'
+    t._repr_html_()  # TODO: Is there a good way to test this output?

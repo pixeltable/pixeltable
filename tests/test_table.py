@@ -46,6 +46,7 @@ from .utils import (
     reload_catalog,
     skip_test_if_not_installed,
     stock_price,
+    validate_repr,
     validate_update_status,
 )
 
@@ -2785,17 +2786,8 @@ class TestTable:
         actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
         assert expected_schema == actual_schema
 
-    def _validate_repr(self, t: Any, expected: str) -> None:
-        def cleanup(r: str) -> str:
-            r = re.sub(r'-{3,}', '---', r)  # normalize separator lines
-            r = re.sub(r'\.{3,}', '...', r)
-            return re.sub(r'\s+', ' ', r).strip()  # normalize whitespace
-
-        assert cleanup(repr(t)) == cleanup(expected), f'Expected repr: {expected}, actual: {t!r}'
-        t._repr_html_()  # TODO: Is there a good way to test this output?
-
     def test_repr(self, uses_db: None, test_tbl: pxt.Table, all_mpnet_embed: pxt.Function) -> None:
-        self._validate_repr(
+        validate_repr(
             test_tbl,
             """
             table 'test_tbl'
@@ -2814,7 +2806,7 @@ class TestTable:
         )
 
         v = pxt.create_view('test_view', test_tbl)
-        self._validate_repr(
+        validate_repr(
             v,
             """
             view 'test_view' (of 'test_tbl')
@@ -2838,7 +2830,7 @@ class TestTable:
         v2.add_computed_column(computed1=v2.c2.apply(lambda x: np.full((3, 4), x), col_type=pxt.Array[(3, 4), pxt.Int]))  # type: ignore[misc]
         v2.add_embedding_index('c1', string_embed=all_mpnet_embed)
         v2._link_external_store(MockProject.create(v2, 'project', {}, {}))
-        self._validate_repr(
+        validate_repr(
             v2,
             """
             view 'test_subview' (of 'test_view', 'test_tbl')
@@ -2871,7 +2863,7 @@ class TestTable:
 
         # test case: snapshot of view
         s1 = pxt.create_snapshot('test_snap1', v2)
-        self._validate_repr(
+        validate_repr(
             s1,
             """
             snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
@@ -2900,7 +2892,7 @@ class TestTable:
 
         # test case: snapshot of base table
         s2 = pxt.create_snapshot('test_snap2', test_tbl)
-        self._validate_repr(
+        validate_repr(
             s2,
             """
             snapshot 'test_snap2' (of 'test_tbl:2')
@@ -2920,7 +2912,7 @@ class TestTable:
 
         # test case: snapshot with additional columns
         s3 = pxt.create_snapshot('test_snap3', test_tbl, additional_columns={'computed1': test_tbl.c2 + test_tbl.c3})
-        self._validate_repr(
+        validate_repr(
             s3,
             """
             snapshot 'test_snap3' (of 'test_tbl:2')
@@ -2940,7 +2932,7 @@ class TestTable:
                      c8  Required[Array[(2, 3), int64]]    test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
         )
 
-        self._validate_repr(
+        validate_repr(
             v2.c1,
             """
             Column 'c1' (of table 'test_tbl')
@@ -2951,7 +2943,7 @@ class TestTable:
         )
 
         iterator_view_1 = pxt.create_view('iterator_view_1', s1, iterator=DummyIterator.create(input=s1.c2))
-        self._validate_repr(
+        validate_repr(
             iterator_view_1,
             """
             view 'iterator_view_1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
@@ -2982,7 +2974,7 @@ class TestTable:
             additional_columns={'iterator_view_2_col_1': '"' + iterator_view_1.out1 + '"'},
         )
         iterator_view_2.add_computed_column(iterator_view_2_col_2=stock_price(iterator_view_2.iterator_view_2_col_1))
-        self._validate_repr(
+        validate_repr(
             iterator_view_2,
             """
             view 'iterator_view_2' (of 'iterator_view_1', 'test_subview:3', 'test_view:0', 'test_tbl:2')
