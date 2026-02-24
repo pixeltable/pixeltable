@@ -1,9 +1,3 @@
-"""Per-thread execution context for concurrent Pixeltable access.
-
-Each thread gets its own Runtime instance containing a Catalog and DB connection state.
-Process-level resources (engine, paths, logging, config) stay shared on Env.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -28,7 +22,9 @@ SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
 
 class Runtime:
     """
-    Per-thread execution context. Each thread gets its own Runtime instance.
+    Global context for a thread executing Pixeltable API calls.
+
+    All state that cannot be shared process-wide (and would therefore be located in Env) is stored here.
     """
 
     _catalog: Catalog | None
