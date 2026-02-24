@@ -31,13 +31,11 @@ class TestExprEvalPerformance:
             t.add_computed_column(**{f'computed_{i}': t.c2 + f'_{i}'})
 
         row_count = 10000
-        t.insert([{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)])
 
-        def query_wide_table() -> None:
-            res = t.head(row_count)
-            assert len(res) == row_count
+        def insert_wide_table() -> None:
+            t.insert([{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)])
 
-        benchmark(query_wide_table)
+        benchmark(insert_wide_table)
 
     @pytest.mark.benchmark(group='dependency_chain')
     def test_dependency_chain_evaluation(self, uses_db: None, benchmark: Any) -> None:
@@ -52,27 +50,24 @@ class TestExprEvalPerformance:
         t.add_computed_column(step5=upper(t.step4))
 
         row_count = 50000
-        t.insert([{'text': f'Test_String_{i}'} for i in range(row_count)])
 
-        def query_chain() -> None:
-            res = t.select(t.step5).collect()
-            assert len(res) == row_count
+        def insert_chain() -> None:
+            t.insert([{'text': f'Test_String_{i}'} for i in range(row_count)])
 
-        benchmark(query_chain)
+        benchmark(insert_chain)
 
     @pytest.mark.benchmark(group='insert_computed')
     def test_insert_with_computed_columns(self, uses_db: None, benchmark: Any) -> None:
         """Test insert performance when computed columns need evaluation."""
 
+        t = pxt.create_table('insert_tbl', {'c1': pxt.Int, 'c2': pxt.String})
+        t.add_computed_column(c3=isascii(t.c2))
+        t.add_computed_column(c4=isalpha(t.c2))
+        t.add_computed_column(c5=upper(t.c2))
+        
+        row_count = 50000
         def do_insert() -> None:
-            t = pxt.create_table('insert_tbl', {'c1': pxt.Int, 'c2': pxt.String})
-            t.add_computed_column(c3=isascii(t.c2))
-            t.add_computed_column(c4=isalpha(t.c2))
-            t.add_computed_column(c5=upper(t.c2))
-
-            row_count = 50000
             t.insert([{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)])
-            pxt.drop_table('insert_tbl')
 
         benchmark(do_insert)
 
@@ -103,13 +98,11 @@ class TestExprEvalPerformance:
         t.add_computed_column(height=t.img.height)
         t.add_computed_column(mode=t.img.mode)
         # Duplicate the same image many times
-        t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        def query_properties() -> None:
-            res = t.select(t.width, t.height, t.mode).collect()
-            assert len(res) == row_count
+        def insert_images() -> None:
+            t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        benchmark(query_properties)
+        benchmark(insert_images)
 
     @pytest.mark.benchmark(group='image_transform')
     def test_image_resize(self, uses_db: None, benchmark: Any) -> None:
@@ -118,13 +111,11 @@ class TestExprEvalPerformance:
 
         t = pxt.create_table('img_resize_tbl', {'img': pxt.Image})
         t.add_computed_column(resized=t.img.resize((128, 128)))
-        t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        def query_resized() -> None:
-            res = t.select(t.resized).collect()
-            assert len(res) == row_count
+        def insert_resized() -> None:
+            t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        benchmark(query_resized)
+        benchmark(insert_resized)
 
     @pytest.mark.benchmark(group='image_transform')
     def test_image_convert_grayscale(self, uses_db: None, benchmark: Any) -> None:
@@ -133,13 +124,11 @@ class TestExprEvalPerformance:
 
         t = pxt.create_table('img_convert_tbl', {'img': pxt.Image})
         t.add_computed_column(grayscale=t.img.convert('L'))
-        t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        def query_converted() -> None:
-            res = t.select(t.grayscale).collect()
-            assert len(res) == row_count
+        def insert_converted() -> None:
+            t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        benchmark(query_converted)
+        benchmark(insert_converted)
 
     @pytest.mark.benchmark(group='image_chain')
     def test_image_transform_chain(self, uses_db: None, benchmark: Any) -> None:
@@ -152,13 +141,11 @@ class TestExprEvalPerformance:
         t.add_computed_column(step2=t.step1.convert('L'))
         t.add_computed_column(step3=t.step2.rotate(90))
         t.add_computed_column(final_width=t.step3.width)
-        t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        def query_chain() -> None:
-            res = t.select(t.step3, t.final_width).collect()
-            assert len(res) == row_count
+        def insert_chain() -> None:
+            t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        benchmark(query_chain)
+        benchmark(insert_chain)
 
     @pytest.mark.benchmark(group='image_wide')
     def test_wide_image_table(self, uses_db: None, benchmark: Any) -> None:
@@ -177,13 +164,11 @@ class TestExprEvalPerformance:
         t.add_computed_column(thumb=t.img.resize((32, 32)))
         t.add_computed_column(flipped=t.img.transpose(0))  # FLIP_LEFT_RIGHT
         t.add_computed_column(cropped=t.img.crop((10, 10, 100, 100)))
-        t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        def query_wide() -> None:
-            res = t.head(row_count)
-            assert len(res) == row_count
+        def insert_wide() -> None:
+            t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        benchmark(query_wide)
+        benchmark(insert_wide)
 
     @pytest.mark.benchmark(group='image_histogram')
     def test_image_histogram(self, uses_db: None, benchmark: Any) -> None:
@@ -193,13 +178,11 @@ class TestExprEvalPerformance:
         t = pxt.create_table('img_hist_tbl', {'img': pxt.Image})
         t.add_computed_column(histogram=t.img.histogram())
         t.add_computed_column(extrema=t.img.getextrema())
-        t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        def query_histogram() -> None:
-            res = t.select(t.histogram, t.extrema).collect()
-            assert len(res) == row_count
+        def insert_histogram() -> None:
+            t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        benchmark(query_histogram)
+        benchmark(insert_histogram)
 
     # -------------------------------------------------------------------------
     # Video Processing Benchmarks
@@ -216,14 +199,11 @@ class TestExprEvalPerformance:
         t = pxt.create_table('video_meta_tbl', {'video': pxt.Video})
         t.add_computed_column(metadata=pxt_video.get_metadata(t.video))
         t.add_computed_column(duration=pxt_video.get_duration(t.video))
-        # Insert same video multiple times
-        t.insert([{'video': video_path} for _ in range(20)])
 
-        def query_metadata() -> None:
-            res = t.select(t.metadata, t.duration).collect()
-            assert len(res) == 20
+        def insert_metadata() -> None:
+            t.insert([{'video': video_path} for _ in range(20)])
 
-        benchmark(query_metadata)
+        benchmark(insert_metadata)
 
     @pytest.mark.benchmark(group='video_frames')
     def test_video_frame_extraction(self, uses_db: None, benchmark: Any) -> None:
@@ -235,14 +215,11 @@ class TestExprEvalPerformance:
 
         t = pxt.create_table('video_frame_tbl', {'video': pxt.Video, 'timestamp': pxt.Float})
         t.add_computed_column(frame=pxt_video.extract_frame(t.video, timestamp=t.timestamp))
-        # Extract frames at different timestamps
-        t.insert([{'video': video_path, 'timestamp': i * 0.5} for i in range(20)])
 
-        def query_frames() -> None:
-            res = t.select(t.frame).collect()
-            assert len(res) == 20
+        def insert_frames() -> None:
+            t.insert([{'video': video_path, 'timestamp': i * 0.5} for i in range(20)])
 
-        benchmark(query_frames)
+        benchmark(insert_frames)
 
     # -------------------------------------------------------------------------
     # Audio Processing Benchmarks
@@ -258,14 +235,11 @@ class TestExprEvalPerformance:
 
         t = pxt.create_table('audio_meta_tbl', {'audio': pxt.Audio})
         t.add_computed_column(metadata=pxt_audio.get_metadata(t.audio))
-        # Insert same audio multiple times
-        t.insert([{'audio': audio_path} for _ in range(50)])
 
-        def query_metadata() -> None:
-            res = t.select(t.metadata).collect()
-            assert len(res) == 50
+        def insert_metadata() -> None:
+            t.insert([{'audio': audio_path} for _ in range(50)])
 
-        benchmark(query_metadata)
+        benchmark(insert_metadata)
 
     # -------------------------------------------------------------------------
     # Scaling Benchmarks
@@ -279,13 +253,11 @@ class TestExprEvalPerformance:
         t.add_computed_column(width=t.img.width)
         t.add_computed_column(height=t.img.height)
         t.add_computed_column(resized=t.img.resize((64, 64)))
-        t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        def query_images() -> None:
-            res = t.select(t.width, t.height, t.resized).collect()
-            assert len(res) == row_count
+        def insert_images() -> None:
+            t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        benchmark(query_images)
+        benchmark(insert_images)
 
     # -------------------------------------------------------------------------
     # Mixed Multimodal Benchmarks
@@ -306,10 +278,8 @@ class TestExprEvalPerformance:
         # Branch 3: crop path
         t.add_computed_column(cropped=t.img.crop((0, 0, 100, 100)))
         t.add_computed_column(cropped_resized=t.cropped.resize((50, 50)))
-        t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        def query_branches() -> None:
-            res = t.select(t.small_gray, t.gray_rotated, t.cropped_resized).collect()
-            assert len(res) == row_count
+        def insert_branches() -> None:
+            t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
-        benchmark(query_branches)
+        benchmark(insert_branches)
