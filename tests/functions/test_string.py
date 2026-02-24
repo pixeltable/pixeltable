@@ -332,12 +332,7 @@ class TestString:
         from pixeltable.functions.string import join
 
         t = pxt.create_table('test_tbl', {'elements': pxt.Json})
-        test_data = [
-            ['a', 'b', 'c'],
-            ['hello', 'world'],
-            ['single'],
-            [],
-        ]
+        test_data = [['a', 'b', 'c'], ['hello', 'world'], ['single'], []]
         validate_update_status(t.insert({'elements': e} for e in test_data), expected_rows=len(test_data))
 
         # Test with comma separator

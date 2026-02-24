@@ -63,17 +63,16 @@ def center(self: str, width: int, fillchar: str = ' ') -> str:
 
 
 @center.to_sql
-def _(self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None) -> sql.ColumnElement:
+def _(
+    self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None
+) -> sql.ColumnElement:
     fill = fillchar if fillchar is not None else ' '
     w = width.cast(sql.types.INT)
     str_len = sql.func.char_length(self)
     total_pad = w - str_len
     left_pad = sql.func.floor(total_pad / 2).cast(sql.types.INT)
     # When width <= str_len, return self unchanged (Python's center behavior)
-    return sql.case(
-        (w <= str_len, self),
-        else_=sql.func.rpad(sql.func.lpad(self, str_len + left_pad, fill), w, fill),
-    )
+    return sql.case((w <= str_len, self), else_=sql.func.rpad(sql.func.lpad(self, str_len + left_pad, fill), w, fill))
 
 
 @pxt.udf(is_method=True)
@@ -417,14 +416,13 @@ def ljust(self: str, width: int, fillchar: str = ' ') -> str:
 
 
 @ljust.to_sql
-def _(self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None) -> sql.ColumnElement:
+def _(
+    self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None
+) -> sql.ColumnElement:
     fill = fillchar if fillchar is not None else ' '
     w = width.cast(sql.types.INT)
     # Python's ljust doesn't truncate strings longer than width
-    return sql.case(
-        (sql.func.char_length(self) >= w, self),
-        else_=sql.func.rpad(self, w, fill),
-    )
+    return sql.case((sql.func.char_length(self) >= w, self), else_=sql.func.rpad(self, w, fill))
 
 
 @pxt.udf(is_method=True)
@@ -661,14 +659,13 @@ def rjust(self: str, width: int, fillchar: str = ' ') -> str:
 
 
 @rjust.to_sql
-def _(self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None) -> sql.ColumnElement:
+def _(
+    self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None
+) -> sql.ColumnElement:
     fill = fillchar if fillchar is not None else ' '
     w = width.cast(sql.types.INT)
     # Python's rjust doesn't truncate strings longer than width
-    return sql.case(
-        (sql.func.char_length(self) >= w, self),
-        else_=sql.func.lpad(self, w, fill),
-    )
+    return sql.case((sql.func.char_length(self) >= w, self), else_=sql.func.lpad(self, w, fill))
 
 
 @pxt.udf(is_method=True)
