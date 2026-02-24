@@ -240,7 +240,7 @@ def _clear_hf_caches() -> None:
 _MD_TABLE_NAMES = set(base_metadata.tables.keys())
 
 
-def clean_db(restore_md_tables: bool = True) -> None:
+def clean_db(drop_md_tables: bool = False) -> None:
     engine = Env.get().engine
     inspector = sql.inspect(engine)
     all_table_names = set(inspector.get_table_names())
@@ -255,12 +255,12 @@ def clean_db(restore_md_tables: bool = True) -> None:
 
         if existing_md_names:
             table_names = ', '.join(f'"{t}"' for t in existing_md_names)
-            if restore_md_tables:
-                # Truncate existing metadata tables
-                conn.execute(text(f'TRUNCATE TABLE {table_names} CASCADE'))
-            else:
+            if drop_md_tables:
                 # Drop existing metadata tables
                 conn.execute(text(f'DROP TABLE IF EXISTS {table_names} CASCADE'))
+            else:
+                # Truncate existing metadata tables
+                conn.execute(text(f'TRUNCATE TABLE {table_names} CASCADE'))
         conn.commit()
 
 
