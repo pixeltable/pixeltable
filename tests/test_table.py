@@ -2788,6 +2788,7 @@ class TestTable:
     def _validate_repr(self, t: Any, expected: str) -> None:
         def cleanup(r: str) -> str:
             r = re.sub(r'-{3,}', '---', r)  # normalize separator lines
+            r = re.sub(r'\.{3,}', '...', r)
             return re.sub(r'\s+', ' ', r).strip()  # normalize whitespace
 
         assert cleanup(repr(t)) == cleanup(expected), f'Expected repr: {expected}, actual: {t!r}'
@@ -2800,6 +2801,7 @@ class TestTable:
             table 'test_tbl'
 
              Column Name                            Type    Source           Computed With                      Comment
+            -----------------------------------------------------------------------------------------------------------
                       c1                Required[String]  test_tbl                          String column with no nulls
                      c1n                          String  test_tbl
                       c2                   Required[Int]  test_tbl
@@ -2818,6 +2820,7 @@ class TestTable:
             view 'test_view' (of 'test_tbl')
 
              Column Name                            Type    Source           Computed With                      Comment
+            -----------------------------------------------------------------------------------------------------------
                       c1                Required[String]  test_tbl                          String column with no nulls
                      c1n                          String  test_tbl
                       c2                   Required[Int]  test_tbl
@@ -2841,39 +2844,10 @@ class TestTable:
             view 'test_subview' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
-            Column Name                            Type           Source  Computed With                      Comment
-              computed1  Required[Array[(3, 4), int64]]     test_subview   <lambda>(c2)
-            ---------------------------------------------------------------------------------------------------------
-                     c1                Required[String]         test_tbl                  String column with no nulls
-                    c1n                          String         test_tbl
-                     c2                   Required[Int]         test_tbl
-                     c3                 Required[Float]         test_tbl
-                     c4                  Required[Bool]         test_tbl
-                     c5             Required[Timestamp]         test_tbl
-                     c6                  Required[Json]         test_tbl
-                     c7                  Required[Json]         test_tbl
-                     c8  Required[Array[(2, 3), int64]]         test_tbl  [[1, 2, 3], [4, 5, 6]]
-
-            Index Name Column  Metric                                          Embedding
-                  idx0     c1  cosine  sentence_transformer(c1, model_id='all-mpnet-b...
-
-            External Store         Type
-                   project  MockProject
-
-            Comment: This is an intriguing table comment.""",
-        )
-
-        # test case: snapshot of view
-        s1 = pxt.create_snapshot('test_snap1', v2)
-        self._validate_repr(
-            s1,
-            """
-            snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
-            Where: ~(c1 == None)
-
-            Column Name                            Type        Source           Computed With                      Comment
-              computed1  Required[Array[(3, 4), int64]]  test_subview            <lambda>(c2)
-            --------------------------------------------------------------------------------------------------------------
+             Column Name                            Type        Source           Computed With                      Comment
+            ---------------------------------------------------------------------------------------------------------------
+               computed1  Required[Array[(3, 4), int64]]  test_subview            <lambda>(c2)
+            ...............................................................................................................
                      c1                Required[String]      test_tbl                          String column with no nulls
                     c1n                          String      test_tbl
                      c2                   Required[Int]      test_tbl
@@ -2884,8 +2858,42 @@ class TestTable:
                      c7                  Required[Json]      test_tbl
                      c8  Required[Array[(2, 3), int64]]      test_tbl  [[1, 2, 3], [4, 5, 6]]
 
-            External Store         Type
-                   project  MockProject
+             Index Name Column  Metric                                          Embedding
+            -----------------------------------------------------------------------------
+                   idx0     c1  cosine  sentence_transformer(c1, model_id='all-mpnet-b...
+
+             External Store         Type
+            ----------------------------
+                    project  MockProject
+
+            Comment: This is an intriguing table comment.""",  # noqa: E501
+        )
+
+        # test case: snapshot of view
+        s1 = pxt.create_snapshot('test_snap1', v2)
+        self._validate_repr(
+            s1,
+            """
+            snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
+            Where: ~(c1 == None)
+
+             Column Name                            Type        Source           Computed With                      Comment
+            ---------------------------------------------------------------------------------------------------------------
+               computed1  Required[Array[(3, 4), int64]]  test_subview            <lambda>(c2)
+            ...............................................................................................................
+                     c1                Required[String]      test_tbl                          String column with no nulls
+                    c1n                          String      test_tbl
+                     c2                   Required[Int]      test_tbl
+                     c3                 Required[Float]      test_tbl
+                     c4                  Required[Bool]      test_tbl
+                     c5             Required[Timestamp]      test_tbl
+                     c6                  Required[Json]      test_tbl
+                     c7                  Required[Json]      test_tbl
+                     c8  Required[Array[(2, 3), int64]]      test_tbl  [[1, 2, 3], [4, 5, 6]]
+
+             External Store         Type
+            ----------------------------
+                    project  MockProject
 
             Comment: This is an intriguing table comment.""",  # noqa: E501
         )
@@ -2897,7 +2905,8 @@ class TestTable:
             """
             snapshot 'test_snap2' (of 'test_tbl:2')
 
-            Column Name                            Type    Source           Computed With                      Comment
+             Column Name                            Type    Source           Computed With                      Comment
+            -----------------------------------------------------------------------------------------------------------
                      c1                Required[String]  test_tbl                          String column with no nulls
                     c1n                          String  test_tbl
                      c2                   Required[Int]  test_tbl
@@ -2916,18 +2925,19 @@ class TestTable:
             """
             snapshot 'test_snap3' (of 'test_tbl:2')
 
-            Column Name                            Type       Source           Computed With                      Comment
-              computed1                 Required[Float]   test_snap3                 c2 + c3
-            --------------------------------------------------------------------------------------------------------------
-                     c1                Required[String]     test_tbl                          String column with no nulls
-                    c1n                          String     test_tbl
-                     c2                   Required[Int]     test_tbl
-                     c3                 Required[Float]     test_tbl
-                     c4                  Required[Bool]     test_tbl
-                     c5             Required[Timestamp]     test_tbl
-                     c6                  Required[Json]     test_tbl
-                     c7                  Required[Json]     test_tbl
-                     c8  Required[Array[(2, 3), int64]]     test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
+             Column Name                            Type      Source           Computed With                      Comment
+            -------------------------------------------------------------------------------------------------------------
+               computed1                 Required[Float]  test_snap3                 c2 + c3
+            .............................................................................................................
+                     c1                Required[String]    test_tbl                          String column with no nulls
+                    c1n                          String    test_tbl
+                     c2                   Required[Int]    test_tbl
+                     c3                 Required[Float]    test_tbl
+                     c4                  Required[Bool]    test_tbl
+                     c5             Required[Timestamp]    test_tbl
+                     c6                  Required[Json]    test_tbl
+                     c7                  Required[Json]    test_tbl
+                     c8  Required[Array[(2, 3), int64]]    test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
         )
 
         self._validate_repr(
@@ -2935,8 +2945,9 @@ class TestTable:
             """
             Column 'c1' (of table 'test_tbl')
 
-            Column Name              Type               Source Computed With                    Comment
-            c1               Required[String]         test_tbl              String column with no nulls""",
+             Column Name              Type    Source Computed With                      Comment
+            -----------------------------------------------------------------------------------
+                      c1  Required[String]  test_tbl                String column with no nulls""",
         )
 
         iterator_view_1 = pxt.create_view('iterator_view_1', s1, iterator=DummyIterator.create(input=s1.c2))
@@ -2945,22 +2956,23 @@ class TestTable:
             """
             view 'iterator_view_1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
 
-            Column Name                            Type              Source           Computed With                      Comment
-                    pos                   Required[Int]     iterator_view_1           DummyIterator
-                   out1                Required[String]     iterator_view_1           DummyIterator
-                   out2                   Required[Int]     iterator_view_1           DummyIterator
-            --------------------------------------------------------------------------------------------------------------------
-              computed1  Required[Array[(3, 4), int64]]        test_subview            <lambda>(c2)
-            --------------------------------------------------------------------------------------------------------------------
-                     c1                Required[String]            test_tbl                          String column with no nulls
-                    c1n                          String            test_tbl
-                     c2                   Required[Int]            test_tbl
-                     c3                 Required[Float]            test_tbl
-                     c4                  Required[Bool]            test_tbl
-                     c5             Required[Timestamp]            test_tbl
-                     c6                  Required[Json]            test_tbl
-                     c7                  Required[Json]            test_tbl
-                     c8  Required[Array[(2, 3), int64]]            test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
+             Column Name                            Type           Source           Computed With                      Comment
+            ------------------------------------------------------------------------------------------------------------------
+                     pos                   Required[Int]  iterator_view_1           DummyIterator
+                    out1                Required[String]  iterator_view_1           DummyIterator
+                    out2                   Required[Int]  iterator_view_1           DummyIterator
+            ..................................................................................................................
+               computed1  Required[Array[(3, 4), int64]]     test_subview            <lambda>(c2)
+            ..................................................................................................................
+                      c1                Required[String]         test_tbl                          String column with no nulls
+                     c1n                          String         test_tbl
+                      c2                   Required[Int]         test_tbl
+                      c3                 Required[Float]         test_tbl
+                      c4                  Required[Bool]         test_tbl
+                      c5             Required[Timestamp]         test_tbl
+                      c6                  Required[Json]         test_tbl
+                      c7                  Required[Json]         test_tbl
+                      c8  Required[Array[(2, 3), int64]]         test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
         )
 
         iterator_view_2 = pxt.create_view(
@@ -2975,18 +2987,19 @@ class TestTable:
             """
             view 'iterator_view_2' (of 'iterator_view_1', 'test_subview:3', 'test_view:0', 'test_tbl:2')
 
-                      Column Name                            Type           Source                      Computed With                      Comment
-                              pos                   Required[Int]  iterator_view_2                     DummyIterator2
-                             out1                Required[String]  iterator_view_2                     DummyIterator2
-                             out3                   Required[Int]  iterator_view_2                     DummyIterator2
-            iterator_view_2_col_1                Required[String]  iterator_view_2                 ('"' + out1) + '"'
-            iterator_view_2_col_2                 Required[Float]  iterator_view_2 stock_price(iterator_view_2_col_1)
-            --------------------------------------------------------------------------------------------------------------------------------------
-                             out2                   Required[Int]  iterator_view_1                      DummyIterator
-            --------------------------------------------------------------------------------------------------------------------------------------
-                        computed1  Required[Array[(3, 4), int64]]     test_subview                       <lambda>(c2)
-            --------------------------------------------------------------------------------------------------------------------------------------
-                               c1                Required[String]         test_tbl                          String column with no nulls
+                        Column Name                            Type           Source                       Computed With                      Comment
+            -----------------------------------------------------------------------------------------------------------------------------------------
+                                pos                   Required[Int]  iterator_view_2                      DummyIterator2
+                               out1                Required[String]  iterator_view_2                      DummyIterator2
+                               out3                   Required[Int]  iterator_view_2                      DummyIterator2
+              iterator_view_2_col_1                Required[String]  iterator_view_2                  ('"' + out1) + '"'
+              iterator_view_2_col_2                 Required[Float]  iterator_view_2  stock_price(iterator_view_2_col_1)
+            .........................................................................................................................................
+                               out2                   Required[Int]  iterator_view_1                       DummyIterator
+            .........................................................................................................................................
+                          computed1  Required[Array[(3, 4), int64]]     test_subview                        <lambda>(c2)
+            .........................................................................................................................................
+                               c1                Required[String]         test_tbl                                      String column with no nulls
                               c1n                          String         test_tbl
                                c2                   Required[Int]         test_tbl
                                c3                 Required[Float]         test_tbl

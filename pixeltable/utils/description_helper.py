@@ -65,8 +65,7 @@ class DescriptionHelper:
                 df.index = [''] * len(df)  # type: ignore[assignment]
             # max_colwidth=50 is the identical default that Pandas uses for a DataFrame's __repr__() output.
             rendered = df.to_string(header=descriptor.show_header, max_colwidth=50)
-            if descriptor.separator_idxs:
-                rendered = cls.__insert_separators(rendered, descriptor)
+            rendered = cls.__insert_separators(rendered, descriptor)
             return rendered
 
     @classmethod
@@ -75,13 +74,16 @@ class DescriptionHelper:
         lines = rendered.split('\n')
         header_lines = int(descriptor.show_header)  # 0 or 1
         width = max(len(line) for line in lines)
-        separator_line = '-' * width
-        separator_idxs_set = set(descriptor.separator_idxs)
+        row_separator_line = '.' * width
+        separator_idxs_set = set(descriptor.separator_idxs) if descriptor.separator_idxs else set()
         result = lines[:header_lines]
+        if descriptor.show_header:
+            header_separator_line = '-' * width
+            result.append(header_separator_line)
         for i, line in enumerate(lines[header_lines:]):
             result.append(line)
             if i in separator_idxs_set:
-                result.append(separator_line)
+                result.append(row_separator_line)
         return '\n'.join(result)
 
     @classmethod
