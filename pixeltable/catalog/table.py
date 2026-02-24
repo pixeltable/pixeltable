@@ -428,8 +428,8 @@ class Table(SchemaObject):
             should be placed.
         """
         cols = [col for col in self._tbl_version_path.columns() if columns is None or col.name in columns]
-        col_descriptors = []
-        separator_idxs = []
+        col_descriptors: list[dict[str, str]] = []
+        separator_idxs: list[int] = []
         prev_source: str | None = None
         for i, col in enumerate(cols):
             computed_with = col.value_expr.display_str(inline=False) if col.value_expr is not None else ''
