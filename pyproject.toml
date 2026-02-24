@@ -257,7 +257,7 @@ markers = [
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)
-    'error::pixeltable.exceptions.PixeltableDeprecationWarning',
+    'error::pixeltable.exceptions.PixeltableWarning',
     # ignore 'apply() is deprecated' warning for now, until we remove its usage in our tests
     'ignore:.*apply\(\) is deprecated:pixeltable.exceptions.PixeltableDeprecationWarning',
     "ignore:The `dict` method is deprecated; use `model_dump` instead.:DeprecationWarning",
