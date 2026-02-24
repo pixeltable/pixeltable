@@ -142,6 +142,12 @@ def astimezone(self: datetime, tz: str) -> datetime:
     return self.astimezone(tzinfo)
 
 
+# Note: astimezone cannot be implemented in SQL because PostgreSQL's timestamptz
+# stores UTC instants, and the target timezone info cannot be preserved in the result.
+# psycopg interprets timestamptz using session timezone, not the query's target timezone.
+# Python's astimezone() returns datetime with target tzinfo, which SQL cannot replicate.
+
+
 @pxt.udf(is_method=True)
 def weekday(self: datetime) -> int:
     """
@@ -182,6 +188,19 @@ def isocalendar(self: datetime) -> dict:
     """
     iso_year, iso_week, iso_weekday = self.isocalendar()
     return {'year': iso_year, 'week': iso_week, 'weekday': iso_weekday}
+
+
+@isocalendar.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Build JSON object with ISO calendar components
+    return sql.func.jsonb_build_object(
+        'year',
+        sql.extract('isoyear', self).cast(sql.Integer),
+        'week',
+        sql.extract('week', self).cast(sql.Integer),
+        'weekday',
+        sql.extract('isodow', self).cast(sql.Integer),
+    )
 
 
 @pxt.udf(is_method=True)
@@ -289,6 +308,33 @@ def replace(
     return self.replace(**kwargs)
 
 
+@replace.to_sql
+def _(
+    self: sql.ColumnElement,
+    year: sql.ColumnElement | None = None,
+    month: sql.ColumnElement | None = None,
+    day: sql.ColumnElement | None = None,
+    hour: sql.ColumnElement | None = None,
+    minute: sql.ColumnElement | None = None,
+    second: sql.ColumnElement | None = None,
+    microsecond: sql.ColumnElement | None = None,
+) -> sql.ColumnElement:
+    # Use coalesce to use original value when replacement is not specified
+    new_year = year.cast(sql.Integer) if year is not None else sql.extract('year', self).cast(sql.Integer)
+    new_month = month.cast(sql.Integer) if month is not None else sql.extract('month', self).cast(sql.Integer)
+    new_day = day.cast(sql.Integer) if day is not None else sql.extract('day', self).cast(sql.Integer)
+    new_hour = hour.cast(sql.Integer) if hour is not None else sql.extract('hour', self).cast(sql.Integer)
+    new_minute = minute.cast(sql.Integer) if minute is not None else sql.extract('minute', self).cast(sql.Integer)
+    # For seconds, we need to combine second and microsecond
+    orig_second = sql.extract('second', self)
+    orig_microsecond = sql.extract('microseconds', self) - sql.extract('second', self) * 1000000
+    new_second = second.cast(sql.Integer) if second is not None else sql.func.floor(orig_second).cast(sql.Integer)
+    new_microsecond = microsecond.cast(sql.Integer) if microsecond is not None else orig_microsecond.cast(sql.Integer)
+    # Combine second and microsecond for make_timestamptz
+    combined_seconds = (new_second + new_microsecond / 1000000.0).cast(sql.Float)
+    return sql.func.make_timestamptz(new_year, new_month, new_day, new_hour, new_minute, combined_seconds)
+
+
 @pxt.udf(is_method=True)
 def toordinal(self: datetime) -> int:
     """
@@ -299,6 +345,14 @@ def toordinal(self: datetime) -> int:
     return self.toordinal()
 
 
+@toordinal.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Ordinal is days since Jan 1, year 1 (which has ordinal 1)
+    # Cast timestamp to date first, then calculate ordinal
+    epoch = sql.cast(sql.literal('0001-01-01'), sql.Date)
+    return (self.cast(sql.Date) - epoch + 1).cast(sql.Integer)
+
+
 @pxt.udf(is_method=True)
 def posix_timestamp(self: datetime) -> float:
     """
@@ -307,6 +361,11 @@ def posix_timestamp(self: datetime) -> float:
     Equivalent to [`datetime.timestamp()`](https://docs.python.org/3/library/datetime.html#datetime.datetime.timestamp).
     """
     return self.timestamp()
+
+
+@posix_timestamp.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    return sql.extract('epoch', self)
 
 
 __all__ = local_public_names(__name__)

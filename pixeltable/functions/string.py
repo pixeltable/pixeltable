@@ -48,6 +48,12 @@ def casefold(self: str) -> str:
     return self.casefold()
 
 
+@casefold.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # casefold is more aggressive than lower() for Unicode, but lower() is a good approximation
+    return sql.func.lower(self)
+
+
 @pxt.udf(is_method=True)
 def center(self: str, width: int, fillchar: str = ' ') -> str:
     """
@@ -60,6 +66,19 @@ def center(self: str, width: int, fillchar: str = ' ') -> str:
         fillchar: Character used for padding.
     """
     return self.center(width, fillchar)
+
+
+@center.to_sql
+def _(
+    self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None
+) -> sql.ColumnElement:
+    fill = fillchar if fillchar is not None else ' '
+    w = width.cast(sql.types.INT)
+    str_len = sql.func.char_length(self)
+    total_pad = w - str_len
+    left_pad = sql.func.floor(total_pad / 2).cast(sql.types.INT)
+    # When width <= str_len, return self unchanged (Python's center behavior)
+    return sql.case((w <= str_len, self), else_=sql.func.rpad(sql.func.lpad(self, str_len + left_pad, fill), w, fill))
 
 
 @pxt.udf(is_method=True)
@@ -248,6 +267,12 @@ def isalnum(self: str) -> bool:
     return self.isalnum()
 
 
+@isalnum.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # At least one character and all characters are alphanumeric
+    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[[:alnum:]]+$'))
+
+
 @pxt.udf(is_method=True)
 def isalpha(self: str) -> bool:
     """
@@ -258,6 +283,12 @@ def isalpha(self: str) -> bool:
     return self.isalpha()
 
 
+@isalpha.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # At least one character and all characters are alphabetic
+    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[[:alpha:]]+$'))
+
+
 @pxt.udf(is_method=True)
 def isascii(self: str) -> bool:
     """
@@ -266,6 +297,13 @@ def isascii(self: str) -> bool:
     Equivalent to [`str.isascii()`](https://docs.python.org/3/library/stdtypes.html#str.isascii).
     """
     return self.isascii()
+
+
+@isascii.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # ASCII characters are single-byte in UTF-8; compare byte length with character length
+    # Empty string is also ASCII
+    return sql.func.octet_length(self) == sql.func.char_length(self)
 
 
 @pxt.udf(is_method=True)
@@ -279,6 +317,12 @@ def isdecimal(self: str) -> bool:
     return self.isdecimal()
 
 
+@isdecimal.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # At least one character and all are decimal digits (0-9)
+    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[0-9]+$'))
+
+
 @pxt.udf(is_method=True)
 def isdigit(self: str) -> bool:
     """
@@ -289,6 +333,12 @@ def isdigit(self: str) -> bool:
     return self.isdigit()
 
 
+@isdigit.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # At least one character and all are digit characters
+    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[[:digit:]]+$'))
+
+
 @pxt.udf(is_method=True)
 def isidentifier(self: str) -> bool:
     """
@@ -297,6 +347,13 @@ def isidentifier(self: str) -> bool:
     Equivalent to [`str.isidentifier()`](https://docs.python.org/3/library/stdtypes.html#str.isidentifier)
     """
     return self.isidentifier()
+
+
+@isidentifier.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Python identifier: starts with letter/underscore, followed by letters/digits/underscores
+    # This covers ASCII identifiers; full Unicode identifier support would require more complex logic
+    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[A-Za-z_][A-Za-z0-9_]*$'))
 
 
 @pxt.udf(is_method=True)
@@ -310,6 +367,12 @@ def islower(self: str) -> bool:
     return self.islower()
 
 
+@islower.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Has at least one lowercase letter and no uppercase letters
+    return sql.and_(self.op('~')('[a-z]'), sql.not_(self.op('~')('[A-Z]')))
+
+
 @pxt.udf(is_method=True)
 def isnumeric(self: str) -> bool:
     """
@@ -318,6 +381,10 @@ def isnumeric(self: str) -> bool:
     Equivalent to [`str.isnumeric()`](https://docs.python.org/3/library/stdtypes.html#str.isnumeric)
     """
     return self.isnumeric()
+
+
+# Note: isnumeric includes Unicode numeric characters (fractions, subscripts, etc.)
+# SQL implementation covers ASCII digits only; fall back to Python for full Unicode support
 
 
 @pxt.udf(is_method=True)
@@ -331,6 +398,12 @@ def isupper(self: str) -> bool:
     return self.isupper()
 
 
+@isupper.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Has at least one uppercase letter and no lowercase letters
+    return sql.and_(self.op('~')('[A-Z]'), sql.not_(self.op('~')('[a-z]')))
+
+
 @pxt.udf(is_method=True)
 def istitle(self: str) -> bool:
     """
@@ -339,6 +412,18 @@ def istitle(self: str) -> bool:
     Equivalent to [`str.istitle()`](https://docs.python.org/3/library/stdtypes.html#str.istitle)
     """
     return self.istitle()
+
+
+@istitle.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Python's istitle: uppercase follows uncased (including digits), lowercase follows cased
+    # PostgreSQL's initcap doesn't capitalize after digits, so we use the same marker approach as title()
+    # Insert marker after digits before letters to force initcap to see word boundaries
+    with_markers = sql.func.regexp_replace(self, r'([0-9])([a-zA-Z])', r'\1¤\2', 'g')
+    titled = sql.func.initcap(with_markers)
+    titled_clean = sql.func.replace(titled, '¤', '')
+    # String is titlecased if it equals its titled form and has at least one letter
+    return sql.and_(self.op('~')('[A-Za-z]'), self == titled_clean)
 
 
 @pxt.udf(is_method=True)
@@ -352,6 +437,12 @@ def isspace(self: str) -> bool:
     return self.isspace()
 
 
+@isspace.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # At least one character and all characters are whitespace
+    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[[:space:]]+$'))
+
+
 @pxt.udf
 def join(sep: str, elements: list) -> str:
     """
@@ -360,6 +451,16 @@ def join(sep: str, elements: list) -> str:
     Equivalent to [`str.join()`](https://docs.python.org/3/library/stdtypes.html#str.join)
     """
     return sep.join(elements)
+
+
+@join.to_sql
+def _(sep: sql.ColumnElement, elements: sql.ColumnElement) -> sql.ColumnElement:
+    # Native PostgreSQL arrays work directly with array_to_string
+    if isinstance(elements.type, sql.ARRAY):
+        return sql.func.coalesce(sql.func.array_to_string(elements, sep), '')
+    # For JSONB arrays, scalar subqueries with set-returning functions have
+    # compatibility issues with Pixeltable's query processor. Fall back to Python.
+    return None
 
 
 @pxt.udf(is_method=True)
@@ -390,6 +491,16 @@ def ljust(self: str, width: int, fillchar: str = ' ') -> str:
         fillchar: Additional character for filling.
     """
     return self.ljust(width, fillchar)
+
+
+@ljust.to_sql
+def _(
+    self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None
+) -> sql.ColumnElement:
+    fill = fillchar if fillchar is not None else ' '
+    w = width.cast(sql.types.INT)
+    # Python's ljust doesn't truncate strings longer than width
+    return sql.case((sql.func.char_length(self) >= w, self), else_=sql.func.rpad(self, w, fill))
 
 
 @pxt.udf(is_method=True)
@@ -477,6 +588,37 @@ def pad(self: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
         raise ValueError(f'Invalid side: {side}')
 
 
+@pad.to_sql
+def _(
+    self: sql.ColumnElement,
+    width: sql.ColumnElement,
+    side: sql.ColumnElement | None = None,
+    fillchar: sql.ColumnElement | None = None,
+) -> sql.ColumnElement:
+    fill = fillchar if fillchar is not None else ' '
+    w = width.cast(sql.types.INT)
+    str_len = sql.func.char_length(self)
+    # Default side is 'left' which means ljust (pad on right)
+    # side='left' -> ljust -> rpad
+    # side='right' -> rjust -> lpad
+    # side='both' -> center -> lpad then rpad
+    if side is None:
+        # Default: ljust behavior (pad on right)
+        return sql.case((str_len >= w, self), else_=sql.func.rpad(self, w, fill))
+    # For dynamic side parameter, we need case expressions
+    total_pad = w - str_len
+    left_pad = sql.func.floor(total_pad / 2).cast(sql.types.INT)
+    return sql.case(
+        (side == 'left', sql.case((str_len >= w, self), else_=sql.func.rpad(self, w, fill))),
+        (side == 'right', sql.case((str_len >= w, self), else_=sql.func.lpad(self, w, fill))),
+        (
+            side == 'both',
+            sql.case((w <= str_len, self), else_=sql.func.rpad(sql.func.lpad(self, str_len + left_pad, fill), w, fill)),
+        ),
+        else_=self,
+    )
+
+
 @pxt.udf(is_method=True)
 def partition(self: str, sep: str = ' ') -> list:
     """
@@ -488,6 +630,20 @@ def partition(self: str, sep: str = ' ') -> list:
     if idx == -1:
         return [self, '', '']
     return [self[:idx], sep, self[idx + builtins.len(sep) :]]
+
+
+@partition.to_sql
+def _(self: sql.ColumnElement, sep: sql.ColumnElement | None = None) -> sql.ColumnElement:
+    separator = sep if sep is not None else sql.literal(' ')
+    pos = sql.func.strpos(self, separator)
+    sep_len = sql.func.char_length(separator)
+    # Build JSON array with 3 elements: [before, sep, after]
+    return sql.case(
+        (pos == 0, sql.func.jsonb_build_array(self, '', '')),
+        else_=sql.func.jsonb_build_array(
+            sql.func.substr(self, 1, pos - 1), separator, sql.func.substr(self, pos + sep_len)
+        ),
+    )
 
 
 @pxt.udf(is_method=True)
@@ -600,6 +756,26 @@ def rfind(self: str, substr: str, start: int | None = 0, end: int | None = None)
     return self.rfind(substr, start, end)
 
 
+@rfind.to_sql
+def _(
+    self: sql.ColumnElement,
+    substr: sql.ColumnElement,
+    start: sql.ColumnElement | None = None,
+    end: sql.ColumnElement | None = None,
+) -> sql.ColumnElement:
+    # Only implement simple case (no start/end); fall back to Python for complex cases
+    if start is not None or end is not None:
+        return None
+    # Find last occurrence by reversing strings and using strpos
+    # position in reversed = strpos(reverse(self), reverse(substr))
+    # original position = length(self) - position - length(substr) + 1
+    rev_pos = sql.func.strpos(sql.func.reverse(self), sql.func.reverse(substr))
+    str_len = sql.func.char_length(self)
+    substr_len = sql.func.char_length(substr)
+    # Convert to 0-based index; return -1 if not found (rev_pos = 0)
+    return sql.case((rev_pos == 0, -1), else_=(str_len - rev_pos - substr_len + 1))
+
+
 @pxt.udf(is_method=True)
 def rindex(self: str, substr: str, start: int | None = 0, end: int | None = None) -> int:
     """
@@ -625,6 +801,16 @@ def rjust(self: str, width: int, fillchar: str = ' ') -> str:
     return self.rjust(width, fillchar)
 
 
+@rjust.to_sql
+def _(
+    self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None
+) -> sql.ColumnElement:
+    fill = fillchar if fillchar is not None else ' '
+    w = width.cast(sql.types.INT)
+    # Python's rjust doesn't truncate strings longer than width
+    return sql.case((sql.func.char_length(self) >= w, self), else_=sql.func.lpad(self, w, fill))
+
+
 @pxt.udf(is_method=True)
 def rpartition(self: str, sep: str = ' ') -> list:
     """
@@ -635,6 +821,24 @@ def rpartition(self: str, sep: str = ' ') -> list:
     if idx == -1:
         return [self, '', '']
     return [self[:idx], sep, self[idx + builtins.len(sep) :]]
+
+
+@rpartition.to_sql
+def _(self: sql.ColumnElement, sep: sql.ColumnElement | None = None) -> sql.ColumnElement:
+    separator = sep if sep is not None else sql.literal(' ')
+    sep_len = sql.func.char_length(separator)
+    str_len = sql.func.char_length(self)
+    # Find last occurrence using reverse search
+    rev_pos = sql.func.strpos(sql.func.reverse(self), sql.func.reverse(separator))
+    # Convert to original position (1-indexed)
+    pos = sql.case((rev_pos == 0, 0), else_=(str_len - rev_pos - sep_len + 2))
+    # Build JSON array with 3 elements: [before, sep, after]
+    return sql.case(
+        (pos == 0, sql.func.jsonb_build_array('', '', self)),
+        else_=sql.func.jsonb_build_array(
+            sql.func.substr(self, 1, pos - 1), separator, sql.func.substr(self, pos + sep_len)
+        ),
+    )
 
 
 @pxt.udf(is_method=True)
@@ -716,6 +920,36 @@ def slice_replace(self: str, start: int | None = None, stop: int | None = None, 
     return self[:start] + repl + self[stop:]
 
 
+@slice_replace.to_sql
+def _(
+    self: sql.ColumnElement,
+    start: sql.ColumnElement | None = None,
+    stop: sql.ColumnElement | None = None,
+    repl: sql.ColumnElement | None = None,
+) -> sql.ColumnElement:
+    # self[:start] + repl + self[stop:]
+    # In SQL: substr(self, 1, start) || repl || substr(self, stop + 1)
+    replacement: sql.ColumnElement = repl if repl is not None else sql.literal('')
+
+    # Handle None start (means from beginning, so prefix is empty)
+    prefix: sql.ColumnElement
+    if start is None:
+        prefix = sql.literal('')
+    else:
+        # substr(self, 1, start) - PostgreSQL substr is 1-indexed
+        prefix = sql.func.substr(self, 1, start.cast(sql.Integer))
+
+    # Handle None stop (means to end, so suffix is empty)
+    suffix: sql.ColumnElement
+    if stop is None:
+        suffix = sql.literal('')
+    else:
+        # substr(self, stop + 1) - get from position stop+1 to end (1-indexed)
+        suffix = sql.func.substr(self, stop.cast(sql.Integer) + 1)
+
+    return sql.func.concat(prefix, replacement, suffix)
+
+
 @pxt.udf(is_method=True)
 def startswith(self: str, substr: str) -> int:
     """
@@ -764,6 +998,14 @@ def swapcase(self: str) -> str:
     return self.swapcase()
 
 
+@swapcase.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Swap case using translate for ASCII letters
+    upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    lower = 'abcdefghijklmnopqrstuvwxyz'
+    return sql.func.translate(self, upper + lower, lower + upper)
+
+
 @pxt.udf(is_method=True)
 def title(self: str) -> str:
     """
@@ -773,6 +1015,16 @@ def title(self: str) -> str:
     Equivalent to [`str.title()`](https://docs.python.org/3/library/stdtypes.html#str.title).
     """
     return self.title()
+
+
+@title.to_sql
+def _(self: sql.ColumnElement) -> sql.ColumnElement:
+    # Python's title() capitalizes after ANY non-alpha character (including digits)
+    # PostgreSQL's initcap() only capitalizes after non-alphanumeric characters
+    # To match Python, insert a marker (¤) after digits that precede letters, making initcap see word boundaries
+    with_markers = sql.func.regexp_replace(self, r'([0-9])([a-zA-Z])', r'\1¤\2', 'g')
+    titled = sql.func.initcap(with_markers)
+    return sql.func.replace(titled, '¤', '')
 
 
 @pxt.udf(is_method=True)
@@ -816,6 +1068,21 @@ def zfill(self: str, width: int) -> str:
         width: Minimum width of resulting string.
     """
     return self.zfill(width)
+
+
+@zfill.to_sql
+def _(self: sql.ColumnElement, width: sql.ColumnElement) -> sql.ColumnElement:
+    w = width.cast(sql.types.INT)
+    str_len = sql.func.char_length(self)
+    first_char = sql.func.left(self, 1)
+    rest = sql.func.right(self, -1)
+    has_sign = first_char.in_(['-', '+'])
+    # Return self unchanged if already at or exceeding width
+    return sql.case(
+        (str_len >= w, self),
+        (has_sign, sql.func.concat(first_char, sql.func.lpad(rest, w - 1, '0'))),
+        else_=sql.func.lpad(self, w, '0'),
+    )
 
 
 def string_splitter(

@@ -105,6 +105,33 @@ class TestDate:
 
         assert res['out'] == test_dts
 
+    def test_add_days(self, uses_db: None) -> None:
+        from datetime import timedelta
+
+        from pixeltable.functions.date import add_days
+
+        test_dts, t = self.make_test_table()
+
+        # Test adding positive days
+        res = t.select(out=add_days(t.dt, 10)).collect()['out']
+        expected = [dt + timedelta(days=10) for dt in test_dts]
+        assert res == expected
+
+        # Test adding negative days
+        res = t.select(out=add_days(t.dt, -5)).collect()['out']
+        expected = [dt + timedelta(days=-5) for dt in test_dts]
+        assert res == expected
+
+        # Test adding zero days
+        res = t.select(out=add_days(t.dt, 0)).collect()['out']
+        expected = test_dts
+        assert res == expected
+
+        # Force Python execution and compare
+        res_py = t.select(out=add_days(t.dt.apply(lambda x: x, col_type=pxt.Date), 10)).collect()['out']
+        expected = [dt + timedelta(days=10) for dt in test_dts]
+        assert res_py == expected
+
     def test_date_arith(self, uses_db: None) -> None:
         _, t = self.make_test_table()
 
