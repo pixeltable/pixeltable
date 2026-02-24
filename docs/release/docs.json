@@ -90,6 +90,7 @@
                   {
                     "group": "Agents",
                     "pages": [
+                      "howto/cookbooks/agents/agentic-patterns",
                       "howto/cookbooks/agents/pattern-rag-pipeline",
                       "howto/use-cases/rag-demo",
                       "howto/use-cases/rag-operations",

@@ -63,10 +63,10 @@ class Table(SchemaObject):
     """
     A handle to a table, view, or snapshot. This class is the primary interface through which table operations
     (queries, insertions, updates, etc.) are performed in Pixeltable.
-
-    Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
-    FileCache.emit_eviction_warnings() at the end of the operation.
     """
+
+    # Every user-invoked operation that runs an ExecNode tree (directly or indirectly) needs to call
+    # FileCache.emit_eviction_warnings() at the end of the operation.
 
     # the chain of TableVersions needed to run queries and supply metadata (eg, schema)
     _tbl_version_path: TableVersionPath
@@ -134,6 +134,8 @@ class Table(SchemaObject):
                 media_validation=col.media_validation.name.lower() if col.media_validation is not None else None,  # type: ignore[typeddict-item]
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
                 defined_in=col.get_tbl().name,
+                custom_metadata=col.custom_metadata,
+                comment=col.comment,
             )
 
         indices = tv.idxs_by_name.values()
@@ -280,8 +282,26 @@ class Table(SchemaObject):
         """Remove duplicate rows from table."""
         return self.select().distinct()
 
-    def limit(self, n: int) -> 'pxt.Query':
-        return self.select().limit(n)
+    def limit(self, n: int, offset: int | None = None) -> 'pxt.Query':
+        """Select a limited number of rows from the Table, optionally skipping rows for pagination.
+
+        Args:
+            n: Number of rows to select.
+            offset: Number of rows to skip before returning results. Default is None (no offset).
+
+        Returns:
+            A Query with the specified limited rows.
+
+        Examples:
+            Get the first 10 rows:
+
+            >>> t.limit(10).collect()
+
+            Get rows 21-30 (skip first 20, return next 10):
+
+            >>> t.limit(10, offset=20).collect()
+        """
+        return self.select().limit(n, offset=offset)
 
     def sample(
         self,
@@ -395,6 +415,7 @@ class Table(SchemaObject):
                 'Column Name': col.name,
                 'Type': col.col_type._to_str(as_schema=True),
                 'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
+                'Comment': col.comment if col.comment is not None else '',
             }
             for col in self._tbl_version_path.columns()
             if columns is None or col.name in columns
@@ -755,8 +776,8 @@ class Table(SchemaObject):
         """
         assert isinstance(spec, dict)
 
-        # TODO: this code could be made cleaner now that spec is a TypedDict
-        valid_keys = {'type', 'value', 'stored', 'media_validation', 'destination'}
+        # We cannot use get_type_hints() here since ColumnSpec doesn't import exprs outside of a TYPE_CHECKING block
+        valid_keys = ColumnSpec.__annotations__.keys()
         for k in spec:
             if k not in valid_keys:
                 raise excs.Error(f'Column {name!r}: invalid key {k!r}')
@@ -780,9 +801,21 @@ class Table(SchemaObject):
         if 'stored' in spec and not isinstance(spec['stored'], bool):
             raise excs.Error(f"Column {name!r}: 'stored' must be a bool; got {spec['stored']}")
 
+        if 'comment' in spec and not isinstance(spec['comment'], str):
+            raise excs.Error(f"Column {name!r}: 'comment' must be a string; got {spec['comment']}")
+
         d = spec.get('destination')
         if d is not None and not isinstance(d, (str, Path)):
             raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
+
+        if 'custom_metadata' in spec:
+            # we require custom_metadata to be JSON-serializable
+            try:
+                json.dumps(spec['custom_metadata'])
+            except (TypeError, ValueError) as err:
+                raise excs.Error(
+                    f'Column {name!r}: `custom_metadata` must be JSON-serializable; got Error: {err}'
+                ) from err
 
     @classmethod
     def _create_columns(cls, schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> list[Column]:
@@ -795,6 +828,8 @@ class Table(SchemaObject):
             media_validation: catalog.MediaValidation | None = None
             stored = True
             destination: str | Path | None = None
+            custom_metadata: Any = None
+            comment: str | None = None
 
             # TODO: Should we fully deprecate passing ts.ColumnType here?
             if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
@@ -821,6 +856,11 @@ class Table(SchemaObject):
                     catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
                 )
                 destination = spec.get('destination')
+                custom_metadata = spec.get('custom_metadata')
+                comment = spec.get('comment')
+                if comment == '':
+                    comment = None
+
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
@@ -832,6 +872,8 @@ class Table(SchemaObject):
                 is_pk=primary_key,
                 media_validation=media_validation,
                 destination=destination,
+                custom_metadata=custom_metadata,
+                comment=comment,
             )
             # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
             # media destination, it gets validated at this time.
@@ -1280,7 +1322,7 @@ class Table(SchemaObject):
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=False):
+        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)

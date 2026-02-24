@@ -151,14 +151,14 @@ class Dumper:
 
         schema = {
             'c1': pxt.Required[pxt.String],
-            'c1n': pxt.String,
+            'c1n': {'type': pxt.String, 'comment': 'Nullable version of c1'},
             'c2': pxt.Required[pxt.Int],
             'c3': pxt.Required[pxt.Float],
             'c4': pxt.Required[pxt.Bool],
             'c5': pxt.Required[pxt.Timestamp],
             'c6': pxt.Required[pxt.Json],
             'c7': pxt.Required[pxt.Json],
-            'c8': pxt.Image,
+            'c8': {'type': pxt.Image, 'custom_metadata': {'source': 'test'}},
             'c9': pxt.Audio,
             'c10': pxt.Video,
             'c11': pxt.Document,
@@ -234,7 +234,9 @@ class Dumper:
         ]
 
         self.__add_expr_columns(t, 'base_table')
-        t.insert(rows)
+        status = t.insert(rows)
+        assert status.num_excs == 0
+        assert status.num_rows == num_rows
 
         pxt.create_dir('views')
 
