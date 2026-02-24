@@ -334,10 +334,15 @@ class TestMigration:
         v = pxt.get_table('views.view')
         s = pxt.get_table('views.snapshot_non_pure')
         vv = pxt.get_table('views.view_of_views')
+        no_comment = pxt.get_table('string_splitter')
 
         # Verify comment and custom_metadata for base_table
         assert t.get_metadata()['comment'] == 'This is a test table.'
         assert t.get_metadata()['custom_metadata'] == {'key': 'value'}
+
+        # Verify column-level comment and custom_metadata
+        assert t.get_metadata()['columns']['c1n']['comment'] == 'Nullable version of c1'
+        assert t.get_metadata()['columns']['c8']['custom_metadata'] == {'source': 'test'}
 
         # Verify comment and custom_metadata for view
         assert v.get_metadata()['comment'] == 'This is a test view.'
@@ -352,6 +357,10 @@ class TestMigration:
         # Verify comment and custom_metadata for view_of_views
         assert vv.get_metadata()['comment'] == 'This is a test view of views.'
         assert vv.get_metadata()['custom_metadata'] == {'view_of_views_key': 'view_of_views_value'}
+        
+	# TODO: Once we migrate we should have no more '' as comments
+        assert no_comment.get_metadata()['comment'] in (None, '')
+        assert no_comment.get_metadata()['custom_metadata'] in (None, '')
 
     @classmethod
     def _verify_v46(cls) -> None:
