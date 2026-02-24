@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import threading
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Callable, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, TypeVar
 
 import nest_asyncio  # type: ignore[import-untyped]
 import sqlalchemy as sql
@@ -18,6 +19,8 @@ _logger = logging.getLogger('pixeltable')
 _thread_local = threading.local()
 
 SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
+
+_T = TypeVar('_T')
 
 
 class Runtime:
@@ -33,6 +36,7 @@ class Runtime:
     isolation_level: str | None
     _progress: Progress | None
     _event_loop: asyncio.AbstractEventLoop | None
+    _run_coro_executor: concurrent.futures.ThreadPoolExecutor
 
     def __init__(self) -> None:
         # Catalog is created lazily to avoid circular initialization:
@@ -43,6 +47,7 @@ class Runtime:
         self.isolation_level = None
         self._progress = None
         self._event_loop = None
+        self._run_coro_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
 
     @property
     def in_xact(self) -> bool:
@@ -80,6 +85,10 @@ class Runtime:
         nest_asyncio.apply()
         if _logger.isEnabledFor(logging.DEBUG):
             self._event_loop.set_debug(True)
+
+    def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:
+        """Run a coroutine synchronously in a separate thread with its own event loop."""
+        return self._run_coro_executor.submit(asyncio.run, coro).result()
 
     @contextmanager
     def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
@@ -177,4 +186,5 @@ def reset_runtime() -> None:
                     loop.close()
             except Exception:
                 pass
+        runtime._run_coro_executor.shutdown(wait=False)
     _thread_local.runtime = Runtime()
