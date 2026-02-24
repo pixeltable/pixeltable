@@ -67,10 +67,13 @@ def _(self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnEle
     fill = fillchar if fillchar is not None else ' '
     w = width.cast(sql.types.INT)
     str_len = sql.func.char_length(self)
-    total_pad = sql.func.greatest(w - str_len, 0)
-    left_pad = total_pad / 2
-    right_pad = total_pad - left_pad
-    return sql.func.rpad(sql.func.lpad(self, str_len + left_pad, fill), str_len + total_pad, fill)
+    total_pad = w - str_len
+    left_pad = sql.func.floor(total_pad / 2).cast(sql.types.INT)
+    # When width <= str_len, return self unchanged (Python's center behavior)
+    return sql.case(
+        (w <= str_len, self),
+        else_=sql.func.rpad(sql.func.lpad(self, str_len + left_pad, fill), w, fill),
+    )
 
 
 @pxt.udf(is_method=True)
@@ -375,7 +378,12 @@ def join(sep: str, elements: list) -> str:
 
 @join.to_sql
 def _(sep: sql.ColumnElement, elements: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.array_to_string(elements, sep)
+    # Native PostgreSQL arrays work directly with array_to_string
+    if isinstance(elements.type, sql.ARRAY):
+        return sql.func.coalesce(sql.func.array_to_string(elements, sep), '')
+    # For JSONB arrays, scalar subqueries with set-returning functions have
+    # compatibility issues with Pixeltable's query processor. Fall back to Python.
+    return None
 
 
 @pxt.udf(is_method=True)
@@ -411,7 +419,12 @@ def ljust(self: str, width: int, fillchar: str = ' ') -> str:
 @ljust.to_sql
 def _(self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None) -> sql.ColumnElement:
     fill = fillchar if fillchar is not None else ' '
-    return sql.func.rpad(self, width.cast(sql.types.INT), fill)
+    w = width.cast(sql.types.INT)
+    # Python's ljust doesn't truncate strings longer than width
+    return sql.case(
+        (sql.func.char_length(self) >= w, self),
+        else_=sql.func.rpad(self, w, fill),
+    )
 
 
 @pxt.udf(is_method=True)
@@ -650,7 +663,12 @@ def rjust(self: str, width: int, fillchar: str = ' ') -> str:
 @rjust.to_sql
 def _(self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None) -> sql.ColumnElement:
     fill = fillchar if fillchar is not None else ' '
-    return sql.func.lpad(self, width.cast(sql.types.INT), fill)
+    w = width.cast(sql.types.INT)
+    # Python's rjust doesn't truncate strings longer than width
+    return sql.case(
+        (sql.func.char_length(self) >= w, self),
+        else_=sql.func.lpad(self, w, fill),
+    )
 
 
 @pxt.udf(is_method=True)
@@ -805,7 +823,12 @@ def title(self: str) -> str:
 
 @title.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.initcap(self)
+    # Python's title() capitalizes after ANY non-alpha character (including digits)
+    # PostgreSQL's initcap() only capitalizes after non-alphanumeric characters
+    # To match Python, insert a marker (¤) after digits that precede letters, making initcap see word boundaries
+    with_markers = sql.func.regexp_replace(self, r'([0-9])([a-zA-Z])', r'\1¤\2', 'g')
+    titled = sql.func.initcap(with_markers)
+    return sql.func.replace(titled, '¤', '')
 
 
 @pxt.udf(is_method=True)
@@ -854,10 +877,13 @@ def zfill(self: str, width: int) -> str:
 @zfill.to_sql
 def _(self: sql.ColumnElement, width: sql.ColumnElement) -> sql.ColumnElement:
     w = width.cast(sql.types.INT)
+    str_len = sql.func.char_length(self)
     first_char = sql.func.left(self, 1)
     rest = sql.func.right(self, -1)
     has_sign = first_char.in_(['-', '+'])
+    # Return self unchanged if already at or exceeding width
     return sql.case(
+        (str_len >= w, self),
         (has_sign, sql.func.concat(first_char, sql.func.lpad(rest, w - 1, '0'))),
         else_=sql.func.lpad(self, w, '0'),
     )

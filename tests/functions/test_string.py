@@ -328,6 +328,48 @@ class TestString:
         row = t.head()[1]
         assert row == {'input': 'PQR', 's1': 'ABC PQR', 's2': 'DEF PQR', 's3': 'GHI PQR JKL PQR'}
 
+    def test_join(self, uses_db: None) -> None:
+        from pixeltable.functions.string import join
+
+        t = pxt.create_table('test_tbl', {'elements': pxt.Json})
+        test_data = [
+            ['a', 'b', 'c'],
+            ['hello', 'world'],
+            ['single'],
+            [],
+        ]
+        validate_update_status(t.insert({'elements': e} for e in test_data), expected_rows=len(test_data))
+
+        # Test with comma separator
+        res = t.select(out=join(', ', t.elements)).collect()['out']
+        expected = [', '.join(e) for e in test_data]
+        assert res == expected
+
+        # Test with empty separator
+        res = t.select(out=join('', t.elements)).collect()['out']
+        expected = [''.join(e) for e in test_data]
+        assert res == expected
+
+        # Force Python execution and compare
+        res_py = t.select(out=join(', ', t.elements.apply(lambda x: x, col_type=pxt.Json))).collect()['out']
+        expected = [', '.join(e) for e in test_data]
+        assert res_py == expected
+
+    def test_zfill_signed(self, uses_db: None) -> None:
+        """Test zfill with signed numbers to ensure sign is preserved at front."""
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        test_strs = ['-42', '+42', '42', '-1', '+1', '1', '-123456', '+123456', '']
+        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+
+        # Test zfill with width 6
+        res = t.select(out=zfill(t.s, 6)).collect()['out']
+        expected = [s.zfill(6) for s in test_strs]
+        assert res == expected, f'SQL result {res} != expected {expected}'
+
+        # Force Python execution and compare
+        res_py = t.select(out=zfill(t.s.apply(lambda x: x, col_type=pxt.String), 6)).collect()['out']
+        assert res_py == expected, f'Python result {res_py} != expected {expected}'
+
     def test_string_splitter(self, uses_db: None) -> None:
         skip_test_if_not_installed('spacy')
         t = pxt.create_table('test_tbl', {'s': pxt.String})

@@ -183,7 +183,8 @@ def add_days(self: date, n: int) -> date:
 
 @add_days.to_sql
 def _(self: sql.ColumnElement, n: sql.ColumnElement) -> sql.ColumnElement:
-    return self + sql.func.make_interval(0, 0, 0, n.cast(sql.Integer))
+    # Adding interval to date returns timestamp in PostgreSQL; cast back to date
+    return (self + sql.func.make_interval(0, 0, 0, n.cast(sql.Integer))).cast(sql.Date)
 
 
 __all__ = local_public_names(__name__)

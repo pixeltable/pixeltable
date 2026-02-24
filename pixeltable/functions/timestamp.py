@@ -142,9 +142,10 @@ def astimezone(self: datetime, tz: str) -> datetime:
     return self.astimezone(tzinfo)
 
 
-@astimezone.to_sql
-def _(self: sql.ColumnElement, tz: sql.ColumnElement) -> sql.ColumnElement:
-    return sql.func.timezone(tz, self)
+# Note: astimezone cannot be implemented in SQL because PostgreSQL's timestamptz
+# stores UTC instants, and the target timezone info cannot be preserved in the result.
+# psycopg interprets timestamptz using session timezone, not the query's target timezone.
+# Python's astimezone() returns datetime with target tzinfo, which SQL cannot replicate.
 
 
 @pxt.udf(is_method=True)
