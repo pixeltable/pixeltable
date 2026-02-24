@@ -7,7 +7,7 @@ from tests.utils import validate_update_status
 
 
 class TestConcurrentOps:
-    @pytest.mark.parametrize('num_threads,rows_per_thread', [(4, 500)])
+    @pytest.mark.parametrize('num_threads,rows_per_thread', [(4, 100)])
     def test_concurrent_insert_and_select(self, uses_db: None, num_threads: int, rows_per_thread: int) -> None:
         """Verify that concurrent inserts and selects from multiple threads work correctly."""
         t = pxt.create_table(

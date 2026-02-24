@@ -12,7 +12,9 @@ if TYPE_CHECKING:
 
 
 def mcp_udfs(url: str) -> list['pxt.func.Function']:
-    return asyncio.run(mcp_udfs_async(url))
+    from pixeltable.utils.coroutine import run_coroutine_synchronously
+
+    return run_coroutine_synchronously(mcp_udfs_async(url))
 
 
 async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:
