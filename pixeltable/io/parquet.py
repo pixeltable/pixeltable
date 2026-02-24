@@ -9,7 +9,6 @@ from typing import Any, cast
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable.runtime import get_runtime
 from pixeltable.utils.transactional_directory import transactional_directory
 
 if typing.TYPE_CHECKING:
@@ -81,12 +80,10 @@ def export_parquet(
             type_dict = {k: v.as_dict() for k, v in query.schema.items()}
             json.dump(type_dict, (temp_path / '.pixeltable.column_types.json').open('w'))  # keep type metadata
 
-        batch_num = 0
-        for record_batch in to_record_batches(query, partition_size_bytes):
+        for batch_num, record_batch in enumerate(to_record_batches(query, partition_size_bytes)):
             output_path = temp_path / f'part-{batch_num:05d}.parquet'
             arrow_tbl = pa.Table.from_batches([record_batch])
             pa.parquet.write_table(arrow_tbl, str(output_path))
-            batch_num += 1
 
 
 def import_parquet(

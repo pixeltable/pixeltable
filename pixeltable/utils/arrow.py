@@ -3,8 +3,8 @@ import io
 import uuid
 from typing import TYPE_CHECKING, Any, Iterator, cast
 
-import PIL.Image
 import numpy as np
+import PIL.Image
 import pyarrow as pa
 
 import pixeltable.exceptions as excs

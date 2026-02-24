@@ -8,7 +8,6 @@ from typing import Literal
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.env import Env
-from pixeltable.runtime import get_runtime
 
 _logger = logging.getLogger('pixeltable')
 
