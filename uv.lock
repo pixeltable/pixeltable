@@ -191,11 +191,11 @@ wheels = [
 
 [[package]]
 name = "annotated-types"
-version = "0.6.0"
+version = "0.7.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/67/fe/8c7b275824c6d2cd17c93ee85d0ee81c090285b6d52f4876ccc47cf9c3c4/annotated_types-0.6.0.tar.gz", hash = "sha256:563339e807e53ffd9c267e99fc6d9ea23eb8443c08f112651963e24e22f84a5d", size = 14670, upload-time = "2023-10-06T18:53:19.389Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ee/67/531ea369ba64dcff5ec9c3402f9f51bf748cec26dde048a2f973a4eea7f5/annotated_types-0.7.0.tar.gz", hash = "sha256:aff07c09a53a08bc8cfccb9c85b05f1aa9a2a6f23728d790723543408344ce89", size = 16081, upload-time = "2024-05-20T21:33:25.928Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/28/78/d31230046e58c207284c6b2c4e8d96e6d3cb4e52354721b944d3e1ee4aa5/annotated_types-0.6.0-py3-none-any.whl", hash = "sha256:0641064de18ba7a25dee8f96403ebc39113d0cb953a01429249d5c7564666a43", size = 12360, upload-time = "2023-10-06T18:53:18.027Z" },
+    { url = "https://files.pythonhosted.org/packages/78/b6/6307fbef88d9b5ee7421e68d78a9f162e0da4900bc5f5793f6d3d0e34fb8/annotated_types-0.7.0-py3-none-any.whl", hash = "sha256:1f02e8b43a8fbbc3f3e0d4f0f4bfc8131bcb4eebe8849b8e5c773f3a1c582a53", size = 13643, upload-time = "2024-05-20T21:33:24.1Z" },
 ]
 
 [[package]]
@@ -5469,6 +5469,7 @@ dev = [
     { name = "types-sqlalchemy-utils" },
     { name = "types-toml" },
     { name = "types-tqdm" },
+    { name = "vlmrun" },
     { name = "voyageai" },
     { name = "whisperx", marker = "python_full_version < '3.14'" },
 ]
@@ -5604,6 +5605,7 @@ dev = [
     { name = "types-sqlalchemy-utils", specifier = "~=1.1" },
     { name = "types-toml", specifier = ">=0.10" },
     { name = "types-tqdm", specifier = "~=4.64" },
+    { name = "vlmrun", specifier = ">=0.3.10" },
     { name = "voyageai", specifier = ">=0.3.5" },
     { name = "whisperx", marker = "python_full_version < '3.14'", specifier = ">=3.7" },
 ]
@@ -6605,6 +6607,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/67/1d/42628a2c33e93f8e9acbde0d5d735fa0850f3e6a2f8cb1eb6c40b9a732ac/pydantic_settings-2.9.1.tar.gz", hash = "sha256:c509bf79d27563add44e8446233359004ed85066cd096d8b510f715e6ef5d268", size = 163234, upload-time = "2025-04-18T16:44:48.265Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b6/5f/d6d641b490fd3ec2c4c13b4244d68deea3a1b970a97be64f34fb5504ff72/pydantic_settings-2.9.1-py3-none-any.whl", hash = "sha256:59b4f431b1defb26fe620c71a7d3968a710d719f5f4cdbbdb7926edeb770f6ef", size = 44356, upload-time = "2025-04-18T16:44:46.617Z" },
+]
+
+[[package]]
+name = "pydantic-yaml"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "ruamel-yaml" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bb/6c/6bc8f39406cdeed864578df88f52a63db27bd24aa8473206d650bc4fa1d8/pydantic_yaml-1.6.0.tar.gz", hash = "sha256:ce5f10b65d95ca45846a36ea8dae54e550fa3058e7d6218e0179184d9bf6f660", size = 25782, upload-time = "2025-08-08T21:01:13.097Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ba/39/8d263fbcb409a8f5dd78ac8f89f1e6af1d4e4d9fbb7f856ca3245b354809/pydantic_yaml-1.6.0-py3-none-any.whl", hash = "sha256:02cb800b455b68daeeb74ad736c252a94a0b203da5fbbeef02539d468e1d98f8", size = 22511, upload-time = "2025-08-08T21:01:11.425Z" },
 ]
 
 [[package]]
@@ -9428,6 +9444,51 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/de/ad/713be230bcda622eaa35c28f0d328c3675c371238470abdea52417f17a8e/uvicorn-0.34.3.tar.gz", hash = "sha256:35919a9a979d7a59334b6b10e05d77c1d0d574c50e0fc98b8b1a0f165708b55a", size = 76631, upload-time = "2025-06-01T07:48:17.531Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6d/0d/8adfeaa62945f90d19ddc461c55f4a50c258af7662d34b6a3d5d1f8646f6/uvicorn-0.34.3-py3-none-any.whl", hash = "sha256:16246631db62bdfbf069b0645177d6e8a77ba950cfedbfd093acef9444e4d885", size = 62431, upload-time = "2025-06-01T07:48:15.664Z" },
+]
+
+[[package]]
+name = "vlmrun"
+version = "0.3.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cachetools" },
+    { name = "ipython" },
+    { name = "loguru" },
+    { name = "opencv-python" },
+    { name = "pandas" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pydantic-core" },
+    { name = "requests" },
+    { name = "rich" },
+    { name = "tabulate" },
+    { name = "tenacity" },
+    { name = "tqdm" },
+    { name = "typer" },
+    { name = "vlmrun-hub" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f9/67/616c1631c7f67ad8df01fa3d2fb6c144cc2037465c92f63842970f13f055/vlmrun-0.3.10.tar.gz", hash = "sha256:407823e4bffaaaaa2a3310978d2597f173dbdb5fb9c788134358493f07df185b", size = 57315, upload-time = "2025-12-14T21:45:59.785Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1e/fb/dd86103fc9addf65a2acb56d272fe130b778dfc04470c8487c856b8a3361/vlmrun-0.3.10-py3-none-any.whl", hash = "sha256:723f47bfeed8e96c429784faba0f25decf27986c10025d64b31754b975e99b64", size = 62849, upload-time = "2025-12-14T21:45:58.468Z" },
+]
+
+[[package]]
+name = "vlmrun-hub"
+version = "0.1.35"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "annotated-types" },
+    { name = "datamodel-code-generator" },
+    { name = "loguru" },
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "pydantic-core" },
+    { name = "pydantic-yaml" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/85/ad/df0f9f4c93aa30c7fe6818c5152054cde2ad5dc606892313b55dfa3c5860/vlmrun_hub-0.1.35.tar.gz", hash = "sha256:a15b0a7b6d1c32f752f65aadb51148c3d69791db9b7e30e69e6cbdc82a067f65", size = 65092, upload-time = "2025-12-15T22:41:51.969Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/11/42/cf00ae0daf18b7d30ca48e84bf1b492c644df5ba7afa24c0c0417c78eb9f/vlmrun_hub-0.1.35-py3-none-any.whl", hash = "sha256:d8759ec2ba698ac43cd217fb7ffd2b79f214d998339236e8f37fe9a9e7642e9c", size = 65999, upload-time = "2025-12-15T22:41:50.658Z" },
 ]
 
 [[package]]
