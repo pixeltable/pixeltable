@@ -72,12 +72,12 @@ class DescriptionHelper:
     def __insert_separators(cls, rendered: str, descriptor: _Descriptor) -> str:
         # Note: this can break if the DataFrame's repr changes
         lines = rendered.split('\n')
-        header_lines = int(descriptor.show_header)  # 0 or 1
         width = max(len(line) for line in lines)
         row_separator_line = '.' * width
         separator_idxs_set = set(descriptor.separator_idxs) if descriptor.separator_idxs else set()
+        header_lines = int(descriptor.show_header)  # 0 or 1
         result = lines[:header_lines]
-        if descriptor.show_header:
+        if header_lines:
             header_separator_line = '-' * width
             result.append(header_separator_line)
         for i, line in enumerate(lines[header_lines:]):
