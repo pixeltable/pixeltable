@@ -12,6 +12,8 @@ import sqlalchemy as sql
 from rich.progress import Progress
 from sqlalchemy import orm
 
+from pixeltable.env import Env
+
 if TYPE_CHECKING:
     from pixeltable.catalog.catalog import Catalog
 
@@ -80,9 +82,9 @@ class Runtime:
             # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
             self._event_loop.slow_callback_duration = 3600
 
-        # always allow nested event loops, we need that to run async udfs synchronously (eg, for SimilarityExpr);
-        # see run_coroutine_synchronously()
-        nest_asyncio.apply()
+        if Env.get().is_notebook():
+            # Jupyter notebooks have their own event loop, which we need to patch to allow nested run_until_complete()
+            nest_asyncio.apply(self._event_loop)
         if _logger.isEnabledFor(logging.DEBUG):
             self._event_loop.set_debug(True)
 
