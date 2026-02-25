@@ -120,10 +120,9 @@ jobs:
 
   benchmark-tests:
     runs-on: ubuntu-large
-    # Need write permissions to push to gh-pages and comment on PRs
+    # Need write permissions to push to gh-pages
     permissions:
       contents: write
-      pull-requests: write
     defaults:
       run:
         shell: bash -el {0}
@@ -175,7 +174,6 @@ jobs:
           # Fail if performance regresses by more than 15%
           alert-threshold: '115%'
           fail-on-alert: true
-          # Comment on commits/PRs when alert threshold is exceeded
-          comment-on-alert: true
+          comment-on-alert: false
           # Only keep the last 30 data points
           max-items-in-chart: 30
