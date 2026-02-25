@@ -12,7 +12,7 @@ import uuid
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, TypedDict
 from unittest import TestCase
 from uuid import uuid4
 
@@ -28,7 +28,6 @@ import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
 from pixeltable.catalog import Catalog
 from pixeltable.env import Env
-from pixeltable.iterators import ComponentIterator
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
@@ -790,45 +789,48 @@ IN_CI = bool(os.environ.get('PXTTEST_IN_CI'))
 CI_OS = os.environ.get('PXTTEST_CI_OS')
 
 
-# A simple iterator for testing
-class DummyIterator(ComponentIterator):
-    def __init__(self, input: int):
-        self.input = input
+class DummyIteratorOut(TypedDict):
+    out1: str
+    out2: int
+
+
+@pxt.iterator
+class DummyIterator(pxt.PxtIterator[DummyIteratorOut]):
+    count: int
+    limit: int
+
+    def __init__(self, limit: int) -> None:
         self.count = 0
+        self.limit = limit
 
-    @classmethod
-    def input_schema(cls) -> dict[str, ts.ColumnType]:
-        return {'input': ts.IntType()}
-
-    @classmethod
-    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        return {'out1': ts.StringType(), 'out2': ts.IntType()}, []
-
-    def __next__(self) -> dict[str, Any]:
-        while True:
-            if self.count > min(self.input, 10):
-                raise StopIteration
-            result = self._result()
-            self.count += 1
-            return result
-
-    def _result(self) -> dict[str, Any]:
-        return {'out1': f'str{self.count}', 'out2': self.count}
-
-    def close(self) -> None:
-        pass
-
-    def set_pos(self, pos: int, **kwargs: Any) -> None:
-        raise AssertionError()
+    def __next__(self) -> DummyIteratorOut:
+        if self.count >= self.limit:
+            raise StopIteration
+        result = DummyIteratorOut(out1=f'str{self.count}', out2=self.count)
+        self.count += 1
+        return result
 
 
-class DummyIterator2(DummyIterator):
-    @classmethod
-    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        return {'out1': ts.StringType(), 'out3': ts.IntType()}, []
+class DummyIterator2Out(TypedDict):
+    out1: str
+    out3: int
 
-    def _result(self) -> dict[str, Any]:
-        return {'out1': f'str{self.count}', 'out3': self.count}
+
+@pxt.iterator
+class DummyIterator2(pxt.PxtIterator[DummyIterator2Out]):
+    count: int
+    limit: int
+
+    def __init__(self, limit: int) -> None:
+        self.count = 0
+        self.limit = limit
+
+    def __next__(self) -> DummyIterator2Out:
+        if self.count >= self.limit:
+            raise StopIteration
+        result = DummyIterator2Out(out1=f'str{self.count}', out3=self.count)
+        self.count += 1
+        return result
 
 
 def list_store_indexes(t: pxt.Table) -> list[str]:

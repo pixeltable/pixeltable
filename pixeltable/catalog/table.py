@@ -437,7 +437,8 @@ class Table(SchemaObject):
             if source_tv.is_iterator_column(col) or (source_tv.is_component_view and col.id == 0):
                 # col is an iterator column (including the special "pos" column) of an iterator view. Computed With
                 # should be the iterator class name.
-                computed_with = source_tv.iterator_cls.__name__
+                assert source_tv.iterator_call is not None
+                computed_with = source_tv.iterator_call.it.name
 
             col_descriptors.append(
                 {

@@ -2935,7 +2935,7 @@ class TestTable:
                       c1  Required[String]  test_tbl                String column with no nulls""",
         )
 
-        iterator_view_1 = pxt.create_view('iterator_view_1', s1, iterator=DummyIterator.create(input=s1.c2))
+        iterator_view_1 = pxt.create_view('iterator_view_1', s1, iterator=DummyIterator(s1.c2))
         validate_repr(
             iterator_view_1,
             """
@@ -2963,7 +2963,7 @@ class TestTable:
         iterator_view_2 = pxt.create_view(
             'iterator_view_2',
             iterator_view_1,
-            iterator=DummyIterator2.create(input=iterator_view_1.out2),
+            iterator=DummyIterator2(iterator_view_1.out2),
             additional_columns={'iterator_view_2_col_1': '"' + iterator_view_1.out1 + '"'},
         )
         iterator_view_2.add_computed_column(iterator_view_2_col_2=stock_price(iterator_view_2.iterator_view_2_col_1))
@@ -2974,12 +2974,14 @@ class TestTable:
 
                         Column Name                            Type           Source                       Computed With                      Comment
             -----------------------------------------------------------------------------------------------------------------------------------------
-                                pos                   Required[Int]  iterator_view_2                      DummyIterator2
-                               out1                Required[String]  iterator_view_2                      DummyIterator2
+                              pos_1                   Required[Int]  iterator_view_2                      DummyIterator2
+                             out1_1                Required[String]  iterator_view_2                      DummyIterator2
                                out3                   Required[Int]  iterator_view_2                      DummyIterator2
               iterator_view_2_col_1                Required[String]  iterator_view_2                  ('"' + out1) + '"'
               iterator_view_2_col_2                 Required[Float]  iterator_view_2  stock_price(iterator_view_2_col_1)
             .........................................................................................................................................
+                                pos                   Required[Int]  iterator_view_1                       DummyIterator
+                               out1                Required[String]  iterator_view_1                       DummyIterator
                                out2                   Required[Int]  iterator_view_1                       DummyIterator
             .........................................................................................................................................
                           computed1  Required[Array[(3, 4), int64]]     test_subview                        <lambda>(c2)
