@@ -96,7 +96,6 @@ async def generate_content(
     Args:
         contents: The input content to generate from. Can be a prompt, or a list containing images and text
             prompts, as described in: <https://ai.google.dev/gemini-api/docs/text-generation>
-            For video columns, use the ``.localpath`` property (e.g. ``tbl.video_col.localpath``)
         model: The name of the model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateContentConfig`. For details on the parameters, see:
@@ -113,15 +112,6 @@ async def generate_content(
 
         >>> tbl.add_computed_column(
         ...     response=generate_content(tbl.prompt, model='gemini-2.5-flash')
-        ... )
-
-        Add a computed column that applies the model `gemini-2.5-flash` for image understanding.
-
-        With video, use the column's ``.localpath`` property
-
-        >>> generate_content(
-        ...     [tbl.video_col.localpath, 'Describe this video'],
-        ...     model='gemini-2.5-flash',
         ... )
     """
     env.Env.get().require_package('google.genai')

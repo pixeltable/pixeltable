@@ -93,7 +93,7 @@ class TestGemini:
         )
         t.add_computed_column(
             output=generate_content(
-                [t.video.localpath, "understand what's happening in this video and create a short title"],
+                [t.video, "understand what's happening in this video and create a short title"],
                 model='gemini-2.5-flash',
                 config=config,
             )
