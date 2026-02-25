@@ -210,11 +210,7 @@ async def rerank(
 
 @pxt.udf(batch_size=4, resource_pool='request-rate:voyageai')
 async def multimodal_embed(
-    text: Batch[str],
-    *,
-    model: str,
-    input_type: Literal['query', 'document'] | None = None,
-    truncation: bool = True,
+    text: Batch[str], *, model: str, input_type: Literal['query', 'document'] | None = None, truncation: bool = True
 ) -> Batch[pxt.Array[(1024,), np.float32]]:
     """
     Creates an embedding vector for text, images, or video using Voyage AI's multimodal model.

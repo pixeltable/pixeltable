@@ -2,7 +2,14 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_image_files, get_video_files, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    get_image_files,
+    get_video_files,
+    rerun,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 @pytest.mark.remote_api
@@ -113,8 +120,12 @@ class TestVoyageAI:
         # Test with image column
         t = pxt.create_table('test_tbl', {'img': pxt.Image, 'description': pxt.String, 'video': pxt.Video})
         t.add_computed_column(img_embed=multimodal_embed(t.img, model='voyage-multimodal-3.5', input_type='document'))
-        t.add_computed_column(text_embed=multimodal_embed(t.description, model='voyage-multimodal-3.5', input_type='document'))
-        t.add_computed_column(video_embed=multimodal_embed(t.video, model='voyage-multimodal-3.5', input_type='document'))
+        t.add_computed_column(
+            text_embed=multimodal_embed(t.description, model='voyage-multimodal-3.5', input_type='document')
+        )
+        t.add_computed_column(
+            video_embed=multimodal_embed(t.video, model='voyage-multimodal-3.5', input_type='document')
+        )
 
         img_paths = get_image_files()
         video_paths = get_video_files()
