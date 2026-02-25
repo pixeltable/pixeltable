@@ -22,7 +22,6 @@ from pixeltable.exprs.inline_expr import InlineDict
 from pixeltable.func.iterator import GeneratingFunctionCall
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
-from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
 
 from ..func.globals import resolve_symbol

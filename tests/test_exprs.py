@@ -19,8 +19,8 @@ import pixeltable.type_system as ts
 from pixeltable import exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
-from pixeltable.runtime import get_runtime
 from pixeltable.functions.video import legacy_frame_iterator
+from pixeltable.runtime import get_runtime
 
 from .utils import (
     ReloadTester,

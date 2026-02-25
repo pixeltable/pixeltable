@@ -12,6 +12,7 @@ from pixeltable import exprs, func
 from pixeltable.func.iterator import IteratorOutput
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
+
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
 from .table import Table
