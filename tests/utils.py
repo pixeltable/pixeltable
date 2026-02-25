@@ -580,7 +580,7 @@ def skip_test_if_no_client(client_name: str) -> None:
     try:
         _ = Env.get().get_client(client_name)
     except pxt.Error as exc:
-        pytest.skip(str(exc))
+        pytest.skip(str(exc).split('\n')[0])
 
 
 def skip_test_if_no_pxt_credentials() -> None:

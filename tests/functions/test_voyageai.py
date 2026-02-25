@@ -2,7 +2,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import get_image_files, get_video_files, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.remote_api
@@ -111,13 +111,15 @@ class TestVoyageAI:
         from pixeltable.functions.voyageai import multimodal_embed
 
         # Test with image column
-        t = pxt.create_table('test_tbl', {'img': pxt.Image, 'description': pxt.String})
-        t.add_computed_column(img_embed=multimodal_embed(t.img, input_type='document'))
-        t.add_computed_column(text_embed=multimodal_embed(t.description, input_type='document'))
+        t = pxt.create_table('test_tbl', {'img': pxt.Image, 'description': pxt.String, 'video': pxt.Video})
+        t.add_computed_column(img_embed=multimodal_embed(t.img, model='voyage-multimodal-3.5', input_type='document'))
+        t.add_computed_column(text_embed=multimodal_embed(t.description, model='voyage-multimodal-3.5', input_type='document'))
+        t.add_computed_column(video_embed=multimodal_embed(t.video, model='voyage-multimodal-3.5', input_type='document'))
 
-        # Use a test image
         img_paths = get_image_files()
-        validate_update_status(t.insert(img=img_paths[0], description='A test image'), 1)
-        res = t.select(t.img_embed, t.text_embed).collect()
-        assert res['img_embed'][0].shape == (1024,)  # voyage-multimodal-3 produces 1024-dim embeddings
+        video_paths = get_video_files()
+        validate_update_status(t.insert(img=img_paths[0], description='A test image', video=video_paths[0]), 1)
+        res = t.select(t.img_embed, t.text_embed, t.video_embed).collect()
+        assert res['img_embed'][0].shape == (1024,)  # voyage-multimodal-3.5 produces 1024-dim embeddings
         assert res['text_embed'][0].shape == (1024,)
+        assert res['video_embed'][0].shape == (1024,)
