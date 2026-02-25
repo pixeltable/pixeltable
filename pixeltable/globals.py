@@ -16,7 +16,6 @@ from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
-from pixeltable.iterators import ComponentIterator
 from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
@@ -256,7 +255,7 @@ def create_view(
     additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     is_snapshot: bool = False,
     create_default_idxs: bool = False,
-    iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
+    iterator: func.GeneratingFunctionCall | None = None,
     num_retained_versions: int = 10,
     comment: str | None = None,
     custom_metadata: Any = None,
@@ -311,13 +310,13 @@ def create_view(
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
+        >>> view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
 
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10,
         and if it not already exist. Otherwise, get the existing view named `my_view`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view(
+        >>> view = pxt.create_view(
         ...     'my_view', tbl.where(tbl.col1 > 10), if_exists='ignore'
         ... )
 
@@ -325,7 +324,7 @@ def create_view(
         and replace any existing view named `my_view`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view(
+        >>> view = pxt.create_view(
         ...     'my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force'
         ... )
     """
@@ -367,6 +366,9 @@ def create_view(
                     f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
                 )
 
+    if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
+        raise excs.Error('The specified `iterator` is not a valid Pixeltable iterator')
+
     if comment is not None and not isinstance(comment, str):
         raise excs.Error('`comment` must be a string or None')
     elif comment == '':
@@ -400,7 +402,7 @@ def create_snapshot(
     base: catalog.Table | Query,
     *,
     additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
-    iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
+    iterator: func.GeneratingFunctionCall | None = None,
     num_retained_versions: int = 10,
     comment: str | None = None,
     custom_metadata: Any = None,
@@ -450,13 +452,13 @@ def create_snapshot(
         Create a snapshot `my_snapshot` of a table `my_table`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... snapshot = pxt.create_snapshot('my_snapshot', tbl)
+        >>> snapshot = pxt.create_snapshot('my_snapshot', tbl)
 
         Create a snapshot `my_snapshot` of a view `my_view` with additional int column `col3`,
         if `my_snapshot` does not already exist:
 
         >>> view = pxt.get_table('my_view')
-        ... snapshot = pxt.create_snapshot(
+        >>> snapshot = pxt.create_snapshot(
         ...     'my_snapshot',
         ...     view,
         ...     additional_columns={'col3': pxt.Int},
@@ -466,7 +468,7 @@ def create_snapshot(
         Create a snapshot `my_snapshot` on a table `my_table`, and replace any existing snapshot named `my_snapshot`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... snapshot = pxt.create_snapshot(
+        >>> snapshot = pxt.create_snapshot(
         ...     'my_snapshot', tbl, if_exists='replace_force'
         ... )
     """
@@ -604,11 +606,11 @@ def move(
     Examples:
         Move a table to a different directory:
 
-        >>>> pxt.move('dir1/my_table', 'dir2/my_table')
+        >>> pxt.move('dir1/my_table', 'dir2/my_table')
 
         Rename a table:
 
-        >>>> pxt.move('dir1/my_table', 'dir1/new_name')
+        >>> pxt.move('dir1/my_table', 'dir1/new_name')
     """
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     if if_exists_ not in (catalog.IfExistsParam.ERROR, catalog.IfExistsParam.IGNORE):

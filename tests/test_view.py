@@ -1341,5 +1341,5 @@ class TestView:
             pxt.create_view(
                 'tbl_view_invalid',
                 t,
-                additional_columns={'v1': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[typeddict-item]
+                additional_columns={'v1': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
             )
