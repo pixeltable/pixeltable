@@ -33,7 +33,6 @@ class TestExprEvalPerformance:
 
         benchmark(select_with_functions)
 
-
     @pytest.mark.benchmark(group='batch_insert_scaling')
     @pytest.mark.parametrize('row_count', [1000, 10000, 50000, 100000])
     def test_insert_batch_scaling_pxt(self, uses_db: None, benchmark: Any, row_count: int) -> None:
@@ -49,12 +48,7 @@ class TestExprEvalPerformance:
         """Benchmark raw SQLAlchemy batch inserts as a baseline comparison to pixeltable."""
         engine = Env.get().engine
         meta = sa.MetaData()
-        raw_tbl = sa.Table(
-            f'raw_insert_{row_count}',
-            meta,
-            sa.Column('c1', sa.Integer),
-            sa.Column('c2', sa.String),
-        )
+        raw_tbl = sa.Table(f'raw_insert_{row_count}', meta, sa.Column('c1', sa.Integer), sa.Column('c2', sa.String))
         meta.create_all(engine)
         rows = [{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)]
 
@@ -73,8 +67,12 @@ class TestExprEvalPerformance:
         """Benchmark PyArrow -> pandas -> SQL batch inserts as a second baseline."""
         engine = Env.get().engine
         table_name = f'pa_insert_{row_count}'
-        arrow_tbl = pa.table({'c1': pa.array(range(row_count), type=pa.int32()),
-                              'c2': pa.array([f'str_{i}' for i in range(row_count)], type=pa.string())})
+        arrow_tbl = pa.table(
+            {
+                'c1': pa.array(range(row_count), type=pa.int32()),
+                'c2': pa.array([f'str_{i}' for i in range(row_count)], type=pa.string()),
+            }
+        )
 
         # Create the table once so repeated benchmark rounds just append
         arrow_tbl.to_pandas().head(0).to_sql(table_name, engine, if_exists='replace', index=False)
@@ -100,7 +98,6 @@ class TestExprEvalPerformance:
             t.insert([{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)])
 
         benchmark(insert_resized)
-
 
     @pytest.mark.benchmark(group='video_frames')
     def test_insert_video_frame_extraction(self, uses_db: None, benchmark: Any) -> None:
