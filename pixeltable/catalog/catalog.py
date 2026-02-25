@@ -15,9 +15,8 @@ import sqlalchemy as sql
 import sqlalchemy.exc as sql_exc
 
 import pixeltable.index as index
-from pixeltable import exceptions as excs
+from pixeltable import exceptions as excs, func
 from pixeltable.env import Env
-from pixeltable.iterators import ComponentIterator
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
@@ -418,7 +417,7 @@ class Catalog:
 
             except (Exception, KeyboardInterrupt) as e:
                 has_exc = True
-                _logger.debug(f'Caught {e.__class__}')
+                _logger.debug(f'Caught {e.__class__}: {e}', exc_info=True)
                 raise
 
             finally:
@@ -723,20 +722,25 @@ class Catalog:
                     _logger.debug(f'finalize_pending_ops({tbl_id}): finalizing op {op!s}')
 
                     if op.needs_xact:
-                        tv = self.get_tbl_version(
-                            TableVersionKey(tbl_id, tbl_version, None),
-                            check_pending_ops=False,
-                            validate_initialized=True,
+                        tv = (
+                            self.get_tbl_version(
+                                TableVersionKey(tbl_id, tbl_version, None),
+                                check_pending_ops=False,
+                                validate_initialized=True,
+                            )
+                            if op.needs_tv
+                            else None
                         )
                         # TODO: The above TableVersionKey instance will need to be updated if we see a replica here.
                         # For now, just assert that we don't.
                         # assert not tv.is_replica
 
                         if is_rollback:
-                            tv.undo_op(op)
+                            op.undo(tv)
                         else:
-                            tv.exec_op(op)
-                        self.mark_modified_tvs(tv.handle)
+                            op.exec(tv)
+                        if tv is not None:
+                            self.mark_modified_tvs(tv.handle)
 
                         if is_final_op:
                             status = conn.execute(reset_tbl_state_stmt)
@@ -747,13 +751,17 @@ class Catalog:
                         continue
 
                 # this op runs outside of a transaction
-                tv = self.get_tbl_version(
-                    TableVersionKey(tbl_id, tbl_version, None), check_pending_ops=False, validate_initialized=True
+                tv = (
+                    self.get_tbl_version(
+                        TableVersionKey(tbl_id, tbl_version, None), check_pending_ops=False, validate_initialized=True
+                    )
+                    if op.needs_tv
+                    else None
                 )
                 if is_rollback:
-                    tv.undo_op(op)
+                    op.undo(tv)
                 else:
-                    tv.exec_op(op)
+                    op.exec(tv)
                 # no need to invalidate tv here: all operations that modify metadata (cached in tv) are executed
                 # inside a transaction and therefore wouldn't end up here
 
@@ -1191,7 +1199,7 @@ class Catalog:
         additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None,
         is_snapshot: bool,
         create_default_idxs: bool,
-        iterator: tuple[type[ComponentIterator], dict[str, Any]] | None,
+        iterator: func.GeneratingFunctionCall | None,
         num_retained_versions: int,
         comment: str | None,
         custom_metadata: Any,
@@ -1220,10 +1228,6 @@ class Catalog:
 
             dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
             assert dir is not None
-            if iterator is None:
-                iterator_class, iterator_args = None, None
-            else:
-                iterator_class, iterator_args = iterator
             md, ops = View._create(
                 dir._id,
                 path.name,
@@ -1234,8 +1238,7 @@ class Catalog:
                 sample_clause=sample_clause,
                 is_snapshot=is_snapshot,
                 create_default_idxs=create_default_idxs,
-                iterator_cls=iterator_class,
-                iterator_args=iterator_args,
+                iterator_call=iterator,
                 num_retained_versions=num_retained_versions,
                 comment=comment,
                 custom_metadata=custom_metadata,

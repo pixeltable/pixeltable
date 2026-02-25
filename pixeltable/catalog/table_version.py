@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-import importlib
 import itertools
 import logging
 import time
@@ -19,7 +18,8 @@ import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
-from pixeltable.iterators import ComponentIterator
+from pixeltable.exprs.inline_expr import InlineDict
+from pixeltable.func.iterator import GeneratingFunctionCall
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
@@ -27,18 +27,15 @@ from pixeltable.utils.object_stores import ObjectOps
 
 from ..func.globals import resolve_symbol
 from .column import Column
-from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
     CreateStoreIdxsOp,
-    CreateStoreTableOp,
-    CreateTableMdOp,
     CreateTableVersionOp,
     DeleteTableMdOp,
     DeleteTableMediaFilesOp,
     DropStoreTableOp,
-    LoadViewOp,
     OpStatus,
     TableOp,
 )
@@ -157,8 +154,7 @@ class TableVersion:
     predicate: exprs.Expr | None
     sample_clause: 'SampleClause' | None
 
-    iterator_cls: type[ComponentIterator] | None
-    iterator_args: exprs.InlineDict | None
+    iterator_call: GeneratingFunctionCall | None
     num_iterator_cols: int
 
     # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
@@ -244,17 +240,11 @@ class TableVersion:
         self.sample_clause = SampleClause.from_dict(sample_dict) if sample_dict is not None else None
 
         # component view-specific initialization
-        self.iterator_cls = None
-        self.iterator_args = None
+        self.iterator_call = None
         self.num_iterator_cols = 0
-        if self.view_md is not None and self.view_md.iterator_class_fqn is not None:
-            module_name, class_name = tbl_md.view_md.iterator_class_fqn.rsplit('.', 1)
-            module = importlib.import_module(module_name)
-            self.iterator_cls = getattr(module, class_name)
-            self.iterator_args = exprs.InlineDict.from_dict(tbl_md.view_md.iterator_args)
-            output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.to_kwargs())
-            self.num_iterator_cols = len(output_schema)
-            assert tbl_md.view_md.iterator_args is not None
+        if self.view_md is not None and self.view_md.iterator_call is not None:
+            self.iterator_call = GeneratingFunctionCall.from_dict(self.view_md.iterator_call)
+            self.num_iterator_cols = len(self.iterator_call.outputs)
 
         self.mutable_views = frozenset(mutable_views)
         assert self.is_mutable or len(self.mutable_views) == 0
@@ -403,98 +393,6 @@ class TableVersion:
         )
         return TableVersionMd(tbl_md, table_version_md, schema_version_md)
 
-    def exec_op(self, op: TableOp) -> None:
-        from pixeltable.store import StoreBase
-
-        if isinstance(op, CreateStoreTableOp):
-            # this needs to be called outside of a transaction
-            with get_runtime().begin_xact():
-                self.store_tbl.create()
-
-        elif isinstance(op, CreateStoreIdxsOp):
-            for idx_id in op.idx_ids:
-                with get_runtime().begin_xact():
-                    self.store_tbl.create_index(idx_id)
-
-        elif isinstance(op, LoadViewOp):
-            from pixeltable.plan import Planner
-
-            from .table_version_path import TableVersionPath
-
-            view_path = TableVersionPath.from_dict(op.view_path)
-            plan, _ = Planner.create_view_load_plan(view_path)
-            with get_runtime().report_progress():
-                plan.ctx.title = self.display_str()
-                _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
-            status = UpdateStatus(row_count_stats=row_counts)
-            get_runtime().catalog.store_update_status(self.id, self.version, status)
-            _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
-
-        elif isinstance(op, CreateTableMdOp):
-            # nothing to do here
-            pass
-
-        elif isinstance(op, DeleteTableMdOp):
-            get_runtime().catalog.delete_tbl_md(self.id)
-
-        elif isinstance(op, CreateColumnMdOp):
-            # nothing to do
-            pass
-
-        elif isinstance(op, CreateStoreColumnsOp):
-            for col_id in op.column_ids:
-                with get_runtime().begin_xact():
-                    self.store_tbl.add_column(self.cols_by_id[col_id])
-
-        elif isinstance(op, DeleteTableMediaFilesOp):
-            self.delete_media()
-            FileCache.get().clear(tbl_id=self.id)
-
-        elif isinstance(op, DropStoreTableOp):
-            # don't reference self.store_tbl here, it needs to reference the metadata for our base table, which at
-            # this point may not exist anymore
-            with get_runtime().begin_xact() as conn:
-                drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(self.id, self.is_view)}'
-                conn.execute(sql.text(drop_stmt))
-
-    def undo_op(self, op: TableOp) -> None:
-        # ops that cannot be rolled back raise AssertionError()
-
-        if isinstance(op, CreateStoreTableOp):
-            # this needs to be called outside of a transaction
-            with get_runtime().begin_xact():
-                self.store_tbl.drop()
-
-        elif isinstance(op, CreateStoreIdxsOp):
-            for idx_id in op.idx_ids:
-                with get_runtime().begin_xact():
-                    self.store_tbl.drop_index(idx_id)
-
-        elif isinstance(op, LoadViewOp):
-            # clear out any media files
-            self.delete_media()
-            FileCache.get().clear(tbl_id=self.id)
-
-        elif isinstance(op, CreateTableMdOp):
-            get_runtime().catalog.delete_tbl_md(self.id)
-
-        elif isinstance(op, CreateTableVersionOp):
-            get_runtime().catalog.delete_current_tbl_version_md(self.id)
-
-        elif isinstance(op, CreateColumnMdOp):
-            for col_id in op.column_ids:
-                del self._tbl_md.column_md[col_id]
-            get_runtime().catalog.write_tbl_md(self.id, None, self._tbl_md, None, None, [])
-
-        elif isinstance(op, CreateStoreColumnsOp):
-            for col_id in op.column_ids:
-                with get_runtime().begin_xact():
-                    self.store_tbl.drop_column(self.cols_by_id[col_id])
-
-        elif isinstance(op, (DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp)):
-            # undo of physical deletion is currently not supported; see schema.TableStatement.can_abort()
-            raise AssertionError()
-
     @classmethod
     def create_replica(cls, md: TableVersionMd, create_store_tbl: bool = True) -> TableVersion:
         from .catalog import TableVersionPath
@@ -531,9 +429,9 @@ class TableVersion:
     def drop(self) -> list[TableOp]:
         id_str = str(self.id)
         ops = [
-            DeleteTableMediaFilesOp(tbl_id=id_str, op_sn=0, num_ops=3, needs_xact=False, status=OpStatus.PENDING),
-            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, needs_xact=False, status=OpStatus.PENDING),
-            DeleteTableMdOp(tbl_id=id_str, op_sn=2, num_ops=3, needs_xact=True, status=OpStatus.PENDING),
+            DeleteTableMediaFilesOp(tbl_id=id_str, op_sn=0, num_ops=3, status=OpStatus.PENDING),
+            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, status=OpStatus.PENDING),
+            DeleteTableMdOp(tbl_id=id_str, op_sn=2, num_ops=3, status=OpStatus.PENDING),
         ]
         return ops
 
@@ -920,26 +818,14 @@ class TableVersion:
 
         id_str = str(self.id)
         tbl_ops = [
-            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=4, needs_xact=True, status=OpStatus.PENDING),
+            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=4, status=OpStatus.PENDING),
             CreateColumnMdOp(
-                tbl_id=id_str,
-                op_sn=1,
-                num_ops=4,
-                needs_xact=True,
-                status=OpStatus.PENDING,
-                column_ids=[col.id for col in all_cols],
+                tbl_id=id_str, op_sn=1, num_ops=4, status=OpStatus.PENDING, column_ids=[col.id for col in all_cols]
             ),
             CreateStoreColumnsOp(
-                tbl_id=id_str,
-                op_sn=2,
-                num_ops=4,
-                needs_xact=False,
-                status=OpStatus.PENDING,
-                column_ids=[col.id for col in all_cols],
+                tbl_id=id_str, op_sn=2, num_ops=4, status=OpStatus.PENDING, column_ids=[col.id for col in all_cols]
             ),
-            CreateStoreIdxsOp(
-                tbl_id=id_str, op_sn=3, num_ops=4, needs_xact=False, status=OpStatus.PENDING, idx_ids=idx_ids
-            ),
+            CreateStoreIdxsOp(tbl_id=id_str, op_sn=3, num_ops=4, status=OpStatus.PENDING, idx_ids=idx_ids),
         ]
         return TableVersionMd(self._tbl_md, self._version_md, self._schema_version_md), tbl_ops
 
@@ -1786,7 +1672,7 @@ class TableVersion:
 
     @property
     def is_component_view(self) -> bool:
-        return self.iterator_cls is not None
+        return self.iterator_call is not None
 
     @property
     def is_insertable(self) -> bool:
@@ -1801,17 +1687,14 @@ class TableVersion:
         # the iterator columns directly follow the pos column
         return self.is_component_view and col.id > 0 and col.id < self.num_iterator_cols + 1
 
-    def is_system_column(self, col: Column) -> bool:
-        """Return True if column was created by Pixeltable"""
-        return col.name == _POS_COLUMN_NAME and self.is_component_view
-
     def iterator_columns(self) -> list[Column]:
         """Return all iterator-produced columns"""
         return self.cols[1 : self.num_iterator_cols + 1]
 
-    def user_columns(self) -> list[Column]:
-        """Return all non-system columns"""
-        return [c for c in self.cols if not self.is_system_column(c)]
+    def iterator_args_expr(self) -> InlineDict | None:
+        if self.is_component_view:
+            return InlineDict(self.iterator_call.bound_args).copy()
+        return None
 
     def primary_key_columns(self) -> list[Column]:
         """Return all non-system columns"""

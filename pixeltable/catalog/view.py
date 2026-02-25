@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import inspect
+import dataclasses
 import logging
 from typing import TYPE_CHECKING, Any, List, Literal, Mapping
 from uuid import UUID
@@ -9,10 +9,9 @@ import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
 from pixeltable import exprs, func
-from pixeltable.iterators import ComponentIterator
+from pixeltable.func.iterator import IteratorOutput
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
-
 from .column import Column
 from .globals import _POS_COLUMN_NAME, MediaValidation
 from .table import Table
@@ -87,9 +86,9 @@ class View(Table):
         comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
-        iterator_cls: type[ComponentIterator] | None,
-        iterator_args: dict | None,
+        iterator_call: func.GeneratingFunctionCall | None,
     ) -> tuple[TableVersionMd, list[TableOp] | None]:
+        from pixeltable.exprs import InlineDict
         from pixeltable.plan import SampleClause
 
         # Convert select_list to more additional_columns if present
@@ -134,58 +133,30 @@ class View(Table):
                     f'base table {base.tbl_name()!r}'
                 )
 
-        if iterator_cls is not None:
-            assert iterator_args is not None
+        if iterator_call is not None:
+            assert _POS_COLUMN_NAME in iterator_call.outputs
+            known_col_names = {col.name for col in columns}
+            if include_base_columns:
+                known_col_names.update(col.name for col in base.columns())
+            if any(name in known_col_names for name in iterator_call.outputs):
+                # One or more output column names from the iterator call conflict with existing column names.
+                # Rename the output column names as necessary to avoid conflicts.
+                updated_outputs: dict[str, IteratorOutput] = {}
+                for col_name, output_info in iterator_call.outputs.items():
+                    unique_name = cls.__get_unique_column_name(col_name, known_col_names)
+                    if unique_name != col_name:
+                        known_col_names.add(unique_name)
+                    updated_outputs[unique_name] = output_info
+                iterator_call = dataclasses.replace(iterator_call, outputs=updated_outputs)
 
-            # validate iterator_args
-            py_signature = inspect.signature(iterator_cls.__init__)
-
-            # make sure iterator_args can be used to instantiate iterator_cls
-            bound_args: dict[str, Any]
-            try:
-                bound_args = py_signature.bind(None, **iterator_args).arguments  # None: arg for self
-            except TypeError as exc:
-                raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
-            # we ignore 'self'
-            first_param_name = next(iter(py_signature.parameters))  # can't guarantee it's actually 'self'
-            del bound_args[first_param_name]
-
-            # construct Signature and type-check bound_args
-            params = [
-                func.Parameter(param_name, param_type, kind=inspect.Parameter.POSITIONAL_OR_KEYWORD)
-                for param_name, param_type in iterator_cls.input_schema().items()
+            iterator_cols = [
+                Column(name, output_info.col_type, is_iterator_col=True, stored=(output_info.is_stored))
+                for name, output_info in iterator_call.outputs.items()
             ]
-            sig = func.Signature(ts.InvalidType(), params)
 
-            expr_args = {k: exprs.Expr.from_object(v) for k, v in bound_args.items()}
-            sig.validate_args(expr_args, context=f'in iterator of type `{iterator_cls.__name__}`')
-            literal_args = {k: v.val if isinstance(v, exprs.Literal) else v for k, v in expr_args.items()}
-
-            # prepend pos and output_schema columns to cols:
-            # a component view exposes the pos column of its rowid;
-            # we create that column here, so it gets assigned a column id;
-            # stored=False: it is not stored separately (it's already stored as part of the rowid)
-            iterator_cols = [Column(_POS_COLUMN_NAME, ts.IntType(), is_iterator_col=True, stored=False)]
-            output_dict, unstored_cols = iterator_cls.output_schema(**literal_args)
-            iterator_cols.extend(
-                [
-                    Column(col_name, col_type, is_iterator_col=True, stored=col_name not in unstored_cols)
-                    for col_name, col_type in output_dict.items()
-                ]
-            )
-
-            iterator_col_names = {col.name for col in iterator_cols}
-            for col in columns:
-                if col.name in iterator_col_names:
-                    raise excs.Error(
-                        f'Duplicate name: column {col.name!r} is already present in the iterator output schema'
-                    )
             columns = iterator_cols + columns
 
-        from pixeltable.exprs import InlineDict
-
-        iterator_args_expr: exprs.Expr = InlineDict(iterator_args) if iterator_args is not None else None
-        iterator_class_fqn = f'{iterator_cls.__module__}.{iterator_cls.__name__}' if iterator_cls is not None else None
+        iterator_args_expr: exprs.Expr = InlineDict(iterator_call.bound_args) if iterator_call is not None else None
         base_version_path = cls._get_snapshot_path(base) if is_snapshot else base
 
         # if this is a snapshot, we need to retarget all exprs to the snapshot tbl versions
@@ -206,8 +177,7 @@ class View(Table):
             predicate=predicate.as_dict() if predicate is not None else None,
             sample_clause=sample_clause.as_dict() if sample_clause is not None else None,
             base_versions=base_version_path.as_md(),
-            iterator_class_fqn=iterator_class_fqn,
-            iterator_args=iterator_args_expr.as_dict() if iterator_args_expr is not None else None,
+            iterator_call=iterator_call.as_dict() if iterator_call is not None else None,
         )
 
         md = TableVersion.create_initial_md(
@@ -228,18 +198,25 @@ class View(Table):
             key = TableVersionKey(UUID(tbl_id), 0 if is_snapshot else None, None)
             view_path = TableVersionPath(TableVersionHandle(key), base=base_version_path)
             ops = [
-                CreateTableMdOp(tbl_id=tbl_id, op_sn=0, num_ops=3, needs_xact=True, status=OpStatus.PENDING),
-                CreateStoreTableOp(tbl_id=tbl_id, op_sn=1, num_ops=3, needs_xact=False, status=OpStatus.PENDING),
-                LoadViewOp(
-                    tbl_id=tbl_id,
-                    op_sn=2,
-                    num_ops=3,
-                    needs_xact=True,
-                    status=OpStatus.PENDING,
-                    view_path=view_path.as_dict(),
-                ),
+                CreateTableMdOp(tbl_id=tbl_id, op_sn=0, num_ops=3, status=OpStatus.PENDING),
+                CreateStoreTableOp(tbl_id=tbl_id, op_sn=1, num_ops=3, status=OpStatus.PENDING),
+                LoadViewOp(tbl_id=tbl_id, op_sn=2, num_ops=3, status=OpStatus.PENDING, view_path=view_path.as_dict()),
             ]
             return md, ops
+
+    @classmethod
+    def __get_unique_column_name(cls, base_name: str, existing_names: set[str]) -> str:
+        """Returns a unique column name based on the given base name and the set of existing names."""
+        if base_name not in existing_names:
+            return base_name
+
+        i = 1
+        new_name = f'{base_name}_{i}'
+        while new_name in existing_names:
+            i += 1
+            new_name = f'{base_name}_{i}'
+
+        return new_name
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
