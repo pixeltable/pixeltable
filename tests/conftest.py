@@ -12,7 +12,7 @@ import sqlalchemy as sql
 import tenacity
 from _pytest.config import Config as PytestConfig, argparsing
 from filelock import FileLock
-from sqlalchemy import orm, text
+from sqlalchemy import text
 
 import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
@@ -20,8 +20,7 @@ from pixeltable.catalog import Catalog
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
-from pixeltable.metadata import SystemInfo, create_system_info
-from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
+from pixeltable.metadata.schema import base_metadata
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
@@ -237,34 +236,32 @@ def _clear_hf_caches() -> None:
             )
 
 
-def clean_db(restore_md_tables: bool = True) -> None:
+# Get all known metadata table names and cache them
+_MD_TABLE_NAMES = set(base_metadata.tables.keys())
+
+
+def clean_db(drop_md_tables: bool = False) -> None:
     engine = Env.get().engine
+    inspector = sql.inspect(engine)
+    all_table_names = set(inspector.get_table_names())
+    data_table_names = all_table_names - _MD_TABLE_NAMES
+    existing_md_names = all_table_names & _MD_TABLE_NAMES
 
-    # Drop all tables from the DB, including data tables. Dropping the data tables is necessary for certain tests,
-    # such as test_db_migration, that may lead to UUID collisions if interrupted.
-    sql_md = orm.declarative_base().metadata
-    sql_md.reflect(engine)
-    sql_md.drop_all(bind=engine)
+    with engine.connect() as conn:
+        # Drop data tables
+        if data_table_names:
+            table_names = ', '.join(f'"{t}"' for t in data_table_names)
+            conn.execute(text(f'DROP TABLE IF EXISTS {table_names} CASCADE'))
 
-    # The following lines may be uncommented as a replacement for the above, if one wishes to drop only metadata
-    # tables for testing purposes.
-    # SystemInfo.__table__.drop(engine, checkfirst=True)
-    # TableSchemaVersion.__table__.drop(engine, checkfirst=True)
-    # TableVersion.__table__.drop(engine, checkfirst=True)
-    # Table.__table__.drop(engine, checkfirst=True)
-    # Function.__table__.drop(engine, checkfirst=True)
-    # Dir.__table__.drop(engine, checkfirst=True)
-
-    if restore_md_tables:
-        # Restore metadata tables and system info
-        Dir.__table__.create(engine)
-        Function.__table__.create(engine)
-        Table.__table__.create(engine)
-        TableVersion.__table__.create(engine)
-        TableSchemaVersion.__table__.create(engine)
-        PendingTableOp.__table__.create(engine)
-        SystemInfo.__table__.create(engine)
-        create_system_info(engine)
+        if existing_md_names:
+            table_names = ', '.join(f'"{t}"' for t in existing_md_names)
+            if drop_md_tables:
+                # Drop existing metadata tables
+                conn.execute(text(f'DROP TABLE IF EXISTS {table_names} CASCADE'))
+            else:
+                # Truncate existing metadata tables
+                conn.execute(text(f'TRUNCATE TABLE {table_names} CASCADE'))
+        conn.commit()
 
 
 @pytest.fixture(scope='function')
