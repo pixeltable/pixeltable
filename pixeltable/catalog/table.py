@@ -1358,11 +1358,8 @@ class Table(SchemaObject):
 
         # Find out if anything depends on this index
         val_col = idx_info.val_col
-        dependent_user_cols = [
-            c
-            for c in get_runtime().catalog.get_column_dependents(val_col.get_tbl().id, val_col.id)
-            if c.name is not None
-        ]
+        col_dependents = get_runtime().catalog.get_column_dependents(val_col.get_tbl().id, val_col.id)
+        dependent_user_cols = [c for c in col_dependents if c.name is not None]
         if len(dependent_user_cols) > 0:
             raise excs.Error(
                 f'Cannot drop index {idx_info.name!r} because the following columns depend on it:\n'

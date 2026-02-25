@@ -13,7 +13,7 @@ import numpy as np
 
 import pixeltable as pxt
 from pixeltable import type_system as ts
-from pixeltable.env import register_client
+from pixeltable.env import Env, register_client
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
 
@@ -89,8 +89,6 @@ def _(api_key: str) -> _JinaClient:
 
 
 def _client() -> _JinaClient:
-    from pixeltable.env import Env
-
     return Env.get().get_client('jina')
 
 
