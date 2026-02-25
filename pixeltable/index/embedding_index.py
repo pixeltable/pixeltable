@@ -65,13 +65,14 @@ class EmbeddingIndex(IndexBase):
         image_embed: func.Function | None = None,
         audio_embed: func.Function | None = None,
         video_embed: func.Function | None = None,
-        array_embed: func.Function | None = None,
         column: catalog.Column | None = None,  # Used for validation when the indexed column is an array.
     ):
+        array_embed: func.Function | None = None
         if column is not None and isinstance(column.col_type, ts.ArrayType) and array_embed is None:
             from pixeltable.functions import identity
 
             array_embed = identity
+
         if not any((embed, string_embed, image_embed, audio_embed, video_embed, array_embed)):
             raise excs.Error(
                 'At least one of `embed`, `string_embed`, `image_embed`, `audio_embed`, `video_embed` '

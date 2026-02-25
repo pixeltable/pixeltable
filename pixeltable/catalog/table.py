@@ -1069,7 +1069,6 @@ class Table(SchemaObject):
         embedding: pxt.Function | None = None,
         string_embed: pxt.Function | None = None,
         image_embed: pxt.Function | None = None,
-        array_embed: pxt.Function | None = None,
         metric: Literal['cosine', 'ip', 'l2'] = 'cosine',
         precision: Literal['fp16', 'fp32'] = 'fp16',
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
@@ -1094,8 +1093,6 @@ class Table(SchemaObject):
             image_embed: An optional UDF to use for the image embedding component of this index.
                 Can be used in conjunction with `string_embed` to construct multimodal embeddings manually, by
                 specifying different embedding functions for different data types.
-            array_embed: An optional UDF to use for the array/vector component of this index. Use when the
-                indexed column is an array of floats (e.g. precomputed embeddings).
             metric: Distance metric to use for the index; one of `'cosine'`, `'ip'`, or `'l2'`.
                 The default is `'cosine'`.
             precision: level of precision for the embeddings; one of `'fp16'` or `'fp32'`.
@@ -1189,7 +1186,6 @@ class Table(SchemaObject):
                 embed=embedding,
                 string_embed=string_embed,
                 image_embed=image_embed,
-                array_embed=array_embed,
                 column=col,  # Pass column for shape validation
             )
             _ = idx.create_value_expr(col)
