@@ -218,3 +218,24 @@ class TestCatalog:
         pxt.create_table('target', {'c1': pxt.Int})
         with pytest.raises(excs.Error, match='expected a directory'):
             pxt.create_dir('target', if_exists='replace')
+            
+    def test_table_op_from_dict_needs_xact(self) -> None:
+        """Verifies that a TableOp can be correctly deserialized from a dict that includes the legacy 'needs_xact'
+        field"""
+        from pixeltable.catalog.tbl_ops import CreateTableMdOp, TableOp
+
+        # notice needs_xact that is no longer included in the output of to_dict
+        # however, for backward compatibility it needs to continue to be accepted
+        op = TableOp.from_dict(
+            {
+                'op_sn': 0,
+                'status': 0,
+                'tbl_id': 'b8037eea-404d-47c9-97fc-b4976bbb5466',
+                'num_ops': 2,
+                '_classname': 'CreateTableMdOp',
+                'needs_xact': True,
+            }
+        )
+        assert isinstance(op, CreateTableMdOp)
+        assert op.needs_xact  # now a ClassVar
+        assert 'needs_xact' not in op.to_dict()
