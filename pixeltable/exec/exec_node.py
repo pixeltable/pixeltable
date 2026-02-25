@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import abc
+import asyncio
 import logging
+import queue
+import threading
 from types import TracebackType
 from typing import AsyncIterator, Iterable, Iterator, TypeVar
 
@@ -56,19 +59,75 @@ class ExecNode(abc.ABC):
         pass
 
     def __iter__(self) -> Iterator[DataRowBatch]:
-        loop = get_runtime().event_loop
-        aiter = self.__aiter__()
+        # Check if we're inside a running event loop that isn't patched by nest_asyncio
+        try:
+            running = asyncio.get_running_loop()
+            nested_ok = getattr(running, '_nest_patched', False)
+        except RuntimeError:
+            running = None
+            nested_ok = False
+
+        if running is not None and not nested_ok:
+            yield from self._iter_via_thread()
+        else:
+            loop = get_runtime().event_loop
+            aiter = self.__aiter__()
+            try:
+                while True:
+                    batch: DataRowBatch = loop.run_until_complete(aiter.__anext__())
+                    yield batch
+            except StopAsyncIteration:
+                pass
+
+    _SENTINEL = object()
+
+    def _iter_via_thread(self) -> Iterator[DataRowBatch]:
+        """Run async iteration in a background thread when the calling thread
+        already has a running event loop (e.g. LanceDB consuming our iterator
+        from within its own async context)."""
+        result_queue: queue.Queue = queue.Queue(maxsize=2)
+        caller_runtime = get_runtime()
+        # Borrow the caller's DB connection state -- safe because the caller
+        # blocks on queue.get() and never touches the connection concurrently.
+        caller_conn = caller_runtime.conn
+        caller_session = caller_runtime.session
+        caller_isolation_level = caller_runtime.isolation_level
+
+        def run() -> None:
+            bg = get_runtime()
+            bg.conn = caller_conn
+            bg.session = caller_session
+            bg.isolation_level = caller_isolation_level
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+
+                async def produce() -> None:
+                    async for batch in aiter(self):
+                        result_queue.put(batch)
+
+                loop.run_until_complete(produce())
+                result_queue.put(ExecNode._SENTINEL)
+            except BaseException as e:
+                result_queue.put(e)
+            finally:
+                loop.close()
+                bg.conn = None
+                bg.session = None
+                bg.isolation_level = None
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
         try:
             while True:
-                batch: DataRowBatch = loop.run_until_complete(aiter.__anext__())
-                yield batch
-        except StopAsyncIteration:
-            pass
-        # TODO:
-        #  - we seem to have some tasks that aren't accounted for by ExprEvalNode and don't get cancelled by the time
-        #    we end up here
-        # - however, blindly cancelling all pending tasks doesn't work when running in a jupyter environment, which
-        #   creates tasks on its own
+                item = result_queue.get()
+                if item is ExecNode._SENTINEL:
+                    break
+                if isinstance(item, BaseException):
+                    raise item
+                yield item
+        finally:
+            thread.join(timeout=30)
 
     def __enter__(self) -> Self:
         if self.ctx.show_progress:
