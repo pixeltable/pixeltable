@@ -83,7 +83,7 @@ class Runtime:
             self._event_loop.slow_callback_duration = 3600
 
         # TODO: remove unconditional nest_asyncio.apply()
-        if True or Env.get().is_notebook():
+        if True or Env.get().is_notebook():  # noqa: SIM222
             # Jupyter notebooks have their own event loop, which we need to patch to allow nested run_until_complete()
             nest_asyncio.apply(self._event_loop)
         if _logger.isEnabledFor(logging.DEBUG):
