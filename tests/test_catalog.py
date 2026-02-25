@@ -218,7 +218,7 @@ class TestCatalog:
         pxt.create_table('target', {'c1': pxt.Int})
         with pytest.raises(excs.Error, match='expected a directory'):
             pxt.create_dir('target', if_exists='replace')
-            
+
     def test_table_op_from_dict_needs_xact(self) -> None:
         """Verifies that a TableOp can be correctly deserialized from a dict that includes the legacy 'needs_xact'
         field"""
