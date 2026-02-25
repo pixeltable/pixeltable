@@ -242,7 +242,8 @@ class TableVersion:
         self.num_iterator_cols = 0
         if self.view_md is not None and self.view_md.iterator_call is not None:
             self.iterator_call = GeneratingFunctionCall.from_dict(self.view_md.iterator_call)
-            self.num_iterator_cols = len(self.iterator_call.outputs)
+            # iterator_call.outputs includes the automatically added pos column, which we do not consider an iterator column
+            self.num_iterator_cols = len(self.iterator_call.outputs) - 1
 
         self.mutable_views = frozenset(mutable_views)
         assert self.is_mutable or len(self.mutable_views) == 0
@@ -496,12 +497,15 @@ class TableVersion:
                 stores_cellmd = False
                 sa_col_type = idx.get_index_sa_type(col_type)
 
+            # Iterator columns are those produced by the component view's iterator. The special pos (id=0) column
+            # is not considered an iterator column.
+            is_iterator_col = self.is_component_view and col_md.id > 0 and col_md.id < self.num_iterator_cols + 1
             col = Column(
                 col_id=col_md.id,
                 name=schema_col_md.name if schema_col_md is not None else None,
                 col_type=col_type,
                 is_pk=col_md.is_pk,
-                is_iterator_col=self.is_component_view and col_md.id < self.num_iterator_cols + 1,
+                is_iterator_col=is_iterator_col,
                 stored=col_md.stored,
                 media_validation=media_val,
                 sa_col_type=sa_col_type,

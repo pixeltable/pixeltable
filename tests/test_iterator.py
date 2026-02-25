@@ -650,5 +650,69 @@ class TestIterator:
             {'input': 'balloon', 'pos': 3, 'output_text': 'stored balloon 3', 'unstored_text': 'unstored balloon 3'},
         ]
 
+    def test_nested_iterator(self, uses_db: None) -> None:
+        n = 5
+        t = pxt.create_table('test_nested', schema={'input': pxt.Int})
+        t.insert([{'input': n}])
+
+        v1 = pxt.create_view('v1', t, iterator=simple_iterator(t.input), additional_columns={'additional_col_1': pxt.Int})
+        assert len(v1.collect()) == n
+
+        v2 = pxt.create_view('v2', v1, iterator=simple_iterator(v1.icol), additional_columns={'additional_col_2': pxt.Int})
+        assert len(v2.collect()) == n * (n - 1) // 2
+
+        for _ in range(2):
+            assert not v1._tbl_version.get().is_iterator_column(v1.input.col)
+            assert not v1.input.col.is_iterator_col
+            assert not v2._tbl_version.get().is_iterator_column(v2.input.col)
+            assert not v2.input.col.is_iterator_col
+
+            assert v1._tbl_version.get().is_iterator_column(v1.acol.col)
+            assert v1.acol.col.is_iterator_col
+            assert v2._tbl_version.get().is_iterator_column(v2.acol.col)
+            assert v2.acol.col.is_iterator_col
+
+            assert v1.scol.col.is_iterator_col
+            assert v1._tbl_version.get().is_iterator_column(v1.scol.col)
+            assert v2.scol.col.is_iterator_col
+            assert v2._tbl_version.get().is_iterator_column(v2.scol.col)
+
+            assert v1.icol.col.is_iterator_col
+            assert v1._tbl_version.get().is_iterator_column(v1.icol.col)
+            assert v2.icol.col.is_iterator_col
+            assert v2._tbl_version.get().is_iterator_column(v2.icol.col)
+
+            assert not v1.pos.col.is_iterator_col
+            assert not v1._tbl_version.get().is_iterator_column(v1.pos.col)
+            assert not v2.pos.col.is_iterator_col
+            assert not v2._tbl_version.get().is_iterator_column(v2.pos.col)
+
+            assert not v1.additional_col_1.col.is_iterator_col
+            assert not v1._tbl_version.get().is_iterator_column(v1.additional_col_1.col)
+            assert not v2.additional_col_1.col.is_iterator_col
+            assert not v2._tbl_version.get().is_iterator_column(v2.additional_col_1.col)
+
+            assert v2.acol_1.col.is_iterator_col
+            assert v2._tbl_version.get().is_iterator_column(v2.acol_1.col)
+
+            assert v2.scol_1.col.is_iterator_col
+            assert v2._tbl_version.get().is_iterator_column(v2.scol_1.col)
+
+            assert v2.icol_1.col.is_iterator_col
+            assert v2._tbl_version.get().is_iterator_column(v2.icol_1.col)
+
+            assert not v2.pos_1.col.is_iterator_col
+            assert not v2._tbl_version.get().is_iterator_column(v2.pos_1.col)
+
+            assert not v2.additional_col_2.col.is_iterator_col
+            assert not v2._tbl_version.get().is_iterator_column(v2.additional_col_2.col)
+
+            assert v1._tbl_version.get().iterator_columns() == [v1.icol.col, v1.scol.col, v1.acol.col]
+            assert v2._tbl_version.get().iterator_columns() == [v2.icol_1.col, v2.scol_1.col, v2.acol_1.col]
+
+            reload_catalog()
+            v1 = pxt.get_table('v1')
+            v2 = pxt.get_table('v2')
+
 
 evolving_iterator: func.GeneratingFunction | None = None
