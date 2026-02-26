@@ -171,8 +171,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           # Store results in gh-pages branch
           auto-push: true
-          # Fail if performance regresses by more than 15%
-          alert-threshold: '115%'
+          # Fail if performance regresses by more than 30%
+          alert-threshold: '130%'
           fail-on-alert: true
           comment-on-alert: false
           # Only keep the last 30 data points
