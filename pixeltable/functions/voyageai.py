@@ -280,7 +280,7 @@ async def _(
 
 @multimodal_embed.overload
 async def _(
-    input: Batch[pxt.Video],
+    video: Batch[pxt.Video],
     *,
     model: str,
     input_type: Literal['query', 'document'] | None = None,
@@ -292,7 +292,7 @@ async def _(
     cl = _voyageai_client()
 
     # Build inputs: each video becomes a single-element content list
-    inputs: list[list[str | PIL.Image.Image]] = [[Video.from_path(vid, model=model)] for vid in input]
+    inputs: list[list[str | PIL.Image.Image]] = [[Video.from_path(vid, model=model)] for vid in video]
     result = await cl.multimodal_embed(inputs=inputs, model=model, input_type=input_type, truncation=truncation)
     return [np.array(emb, dtype=np.float32) for emb in result.embeddings]
 
