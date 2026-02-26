@@ -206,18 +206,20 @@ class TestCatalog:
                 assert 'target' in pxt.list_tables()
                 assert result.columns() == expected_cols
 
-        # Verify that dirs still cannot be replaced by table subtypes
+        # Verify cross-type replacement is blocked in both directions for every table subtype
         pxt.drop_table('target')
         pxt.create_dir('target')
         for creator, _ in creators.values():
+            # dirs cannot be replaced by table subtypes
             with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
                 creator()
-
-        # And table subtypes cannot be replaced by dirs
-        pxt.drop_dir('target')
-        pxt.create_table('target', {'c1': pxt.Int})
-        with pytest.raises(excs.Error, match='expected a directory'):
-            pxt.create_dir('target', if_exists='replace')
+            # table subtypes cannot be replaced by dirs
+            pxt.drop_dir('target')
+            creator()
+            with pytest.raises(excs.Error, match='expected a directory'):
+                pxt.create_dir('target', if_exists='replace')
+            pxt.drop_table('target')
+            pxt.create_dir('target')
 
     def test_table_op_from_dict_needs_xact(self) -> None:
         """Verifies that a TableOp can be correctly deserialized from a dict that includes the legacy 'needs_xact'
