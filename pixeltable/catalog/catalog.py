@@ -2577,9 +2577,9 @@ class Catalog:
         # dirs can only be replaced with dirs, all table subtypes can replace eachother
         if obj is not None:
             if expected_obj_type == Dir and not isinstance(obj, Dir):
-                raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}, expected a directory')
+                raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}; expected a directory')
             if expected_obj_type != Dir and isinstance(obj, Dir):
-                raise excs.Error(f'Path {path!r} is an existing directory, expected a table, view or snapshot')
+                raise excs.Error(f'Path {path!r} is an existing directory; expected a table, view or snapshot')
 
         if obj is None:
             return None
