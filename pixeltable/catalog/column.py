@@ -8,11 +8,8 @@ from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
 from pixeltable import catalog, exceptions as excs
-from pixeltable.type_system import ColumnType
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.object_stores import ObjectOps
-
-from .globals import _POS_COLUMN_NAME
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
@@ -297,6 +294,11 @@ class Column:
         )
         ObjectOps.validate_destination(column.destination, column.name)
         return column
+
+    @classmethod
+    def create_iterator_column(cls, name: str, col_type: ts.ColumnType, is_stored: bool) -> Column:
+        stores_cellmd = is_stored and (col_type.is_media_type() or col_type.supports_file_offloading())
+        return Column(name, col_type=col_type, is_iterator_col=True, stored=is_stored, stores_cellmd=stores_cellmd)
 
     @classmethod
     def _validate_column_spec(cls, name: str, spec: ColumnSpec) -> None:

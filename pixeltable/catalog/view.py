@@ -151,18 +151,8 @@ class View(Table):
 
             iterator_cols = []
             for col_name, output_info in iterator_call.outputs.items():
-                # TODO this shouldn't be here
-                stores_cellmd = output_info.is_stored and (
-                    output_info.col_type.is_media_type() or output_info.col_type.supports_file_offloading()
-                )
                 iterator_cols.append(
-                    Column(
-                        col_name,
-                        output_info.col_type,
-                        is_iterator_col=True,
-                        stored=(output_info.is_stored),
-                        stores_cellmd=stores_cellmd,
-                    )
+                    Column.create_iterator_column(col_name, output_info.col_type, is_stored=output_info.is_stored)
                 )
 
             columns = iterator_cols + columns
