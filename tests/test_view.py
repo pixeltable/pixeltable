@@ -160,7 +160,9 @@ class TestView:
         id_before = v._id
 
         # invalid if_exists value is rejected
-        with pytest.raises(pxt.Error, match="if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"):
+        with pytest.raises(
+            pxt.Error, match="if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"
+        ):
             _ = pxt.create_view('test_view', t, if_exists='invalid')  # type: ignore[arg-type]
 
         # scenario 1: a view exists at the path already

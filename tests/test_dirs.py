@@ -74,7 +74,9 @@ class TestDirs:
             id_before[name] = dir._id
 
         # invalid if_exists value is rejected
-        with pytest.raises(pxt.Error, match="if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"):
+        with pytest.raises(
+            pxt.Error, match="if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"
+        ):
             pxt.create_dir('dir1', if_exists='invalid')  # type: ignore[arg-type]
 
         # scenrio 1: path already has a directory
@@ -97,10 +99,10 @@ class TestDirs:
         assert d3._id != id_before['dir1/sub1/subsub1']
         id_before['dir1/sub1/subsub1'] = d3._id
         assert pxt.list_dirs(recursive=True) == dirs
-        with pytest.raises(pxt.Error, match='already exists and is not empty') as exc_info:
+        with pytest.raises(pxt.Error, match='already exists and is not empty'):
             pxt.create_dir('dir1/sub1', if_exists='replace')
         assert pxt.list_dirs(recursive=True) == dirs
-        with pytest.raises(pxt.Error, match='already exists and is not empty') as exc_info:
+        with pytest.raises(pxt.Error, match='already exists and is not empty'):
             pxt.create_dir('dir1', if_exists='replace')
         assert pxt.list_dirs(recursive=True) == dirs
 
