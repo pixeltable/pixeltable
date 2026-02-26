@@ -1,7 +1,7 @@
 import re
 import textwrap
 import unicodedata
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
 
@@ -420,9 +420,6 @@ class TestString:
             # Title case edge cases
             'Hello world',
             'hello WORLD',
-            # Swapcase inputs
-            'HeLLo',
-            'hELLO wORLD',
         ]
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
@@ -437,8 +434,6 @@ class TestString:
             (isspace, str.isspace),
             (istitle, str.istitle),
             (isidentifier, str.isidentifier),
-            (swapcase, str.swapcase),
-            (casefold, str.casefold),
         ]
 
         for pxt_fn, str_fn in test_params:
@@ -448,6 +443,20 @@ class TestString:
             assert res_sql == expected, f'{pxt_fn.name} SQL mismatch: {res_sql} != {expected}'
 
             # Force Python execution
+            res_py = t.select(out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String))).collect()['out']
+            assert res_py == expected, f'{pxt_fn.name} Python mismatch: {res_py} != {expected}'
+
+    def test_case_transforms(self, uses_db: None) -> None:
+        """Test case-transformation functions (swapcase, casefold) for SQL/Python equivalence."""
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        test_strs = ['', 'abc', 'ABC', 'HeLLo', 'hELLO wORLD', '123', 'abc123', 'Hello World', 'HELLO WORLD']
+        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+
+        for pxt_fn, str_fn in [(swapcase, str.swapcase), (casefold, str.casefold)]:
+            res_sql = t.select(out=pxt_fn(t.s)).collect()['out']
+            expected = [str_fn(s) for s in test_strs]
+            assert res_sql == expected, f'{pxt_fn.name} SQL mismatch: {res_sql} != {expected}'
+
             res_py = t.select(out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String))).collect()['out']
             assert res_py == expected, f'{pxt_fn.name} Python mismatch: {res_py} != {expected}'
 
@@ -491,7 +500,7 @@ class TestString:
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
-        def check_sql_and_py(pxt_fn: pxt.Function, *args, **kwargs) -> tuple[list, list]:
+        def check_sql_and_py(pxt_fn: pxt.Function, *args: Any, **kwargs: Any) -> tuple[list[Any], list[Any]]:
             """Return (sql_results, python_results) for pxt_fn applied to the test table."""
             res_sql = t.select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out']
             res_py = t.select(out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String), *args, **kwargs)).collect()['out']
@@ -501,7 +510,7 @@ class TestString:
         # Basic literal pattern
         for pat in ['cat', 'dog', 'hello']:
             res_sql, res_py = check_sql_and_py(contains_re, pat)
-            expected = [bool(re.search(pat, s)) for s in test_strs]
+            expected: list[Any] = [bool(re.search(pat, s)) for s in test_strs]
             assert res_sql == expected, f'contains_re SQL pat={pat!r}'
             assert res_py == expected, f'contains_re Py pat={pat!r}'
 
@@ -517,7 +526,7 @@ class TestString:
 
         # flags parameter causes Python fallback — result must still be correct
         res_flags = t.select(out=contains_re(t.s, 'cat', flags=re.IGNORECASE)).collect()['out']
-        assert res_flags == [bool(re.search('cat', s, re.IGNORECASE)) for s in test_strs]
+        assert res_flags == [bool(re.search(r'cat', s, re.IGNORECASE)) for s in test_strs]
 
         # ── count ─────────────────────────────────────────────────────────────
         for pat in ['[aeiou]', 'a', 'cat', 'zzz']:
@@ -528,13 +537,13 @@ class TestString:
 
         # Non-overlapping behaviour: 'aaa' with 'aa' → 1 (not 2)
         res_sql, res_py = check_sql_and_py(count, 'aa')
-        expected = [len(re.findall('aa', s)) for s in test_strs]
+        expected = [len(re.findall(r'aa', s)) for s in test_strs]
         assert res_sql == expected, f'count non-overlap SQL: {res_sql} != {expected}'
         assert res_py == expected
 
         # flags causes Python fallback — result must still be correct
         res_flags = t.select(out=count(t.s, 'cat', flags=re.IGNORECASE)).collect()['out']
-        assert res_flags == [len(re.findall('cat', s, re.IGNORECASE)) for s in test_strs]
+        assert res_flags == [len(re.findall(r'cat', s, re.IGNORECASE)) for s in test_strs]
 
         # ── match ─────────────────────────────────────────────────────────────
         for pat in ['cat', 'dog', 'hello', '[0-9]+', r'\w+']:
@@ -550,14 +559,14 @@ class TestString:
 
         # Alternation: (?:cat|dog) must be anchored at start only — 'cat dog' starts with 'cat'
         res_sql, res_py = check_sql_and_py(match, 'cat|dog')
-        expected = [bool(re.match('cat|dog', s)) for s in test_strs]
-        assert res_sql == expected, f'match alternation SQL ((?:...) anchoring)'
+        expected = [bool(re.match(r'cat|dog', s)) for s in test_strs]
+        assert res_sql == expected, 'match alternation SQL ((?:...) anchoring)'
         assert res_py == expected
 
         # Case-insensitive match (dynamic `case` param)
         res_sql, res_py = check_sql_and_py(match, 'cat', case=False)
-        expected = [bool(re.match('cat', s, re.IGNORECASE)) for s in test_strs]
-        assert res_sql == expected, f'match case=False SQL'
+        expected = [bool(re.match(r'cat', s, re.IGNORECASE)) for s in test_strs]
+        assert res_sql == expected, 'match case=False SQL'
         assert res_py == expected
 
         # ── fullmatch ─────────────────────────────────────────────────────────
@@ -574,16 +583,16 @@ class TestString:
         # Alternation: (?:cat|dog) with end-anchor means 'catdog' must NOT match 'cat|dog'
         # This verifies that '^(?:cat|dog)$' is used, not '^cat|dog$'.
         res_sql, res_py = check_sql_and_py(fullmatch, 'cat|dog')
-        expected = [bool(re.fullmatch('cat|dog', s)) for s in test_strs]
-        assert res_sql == expected, f'fullmatch alternation SQL ((?:...) anchoring)'
+        expected = [bool(re.fullmatch(r'cat|dog', s)) for s in test_strs]
+        assert res_sql == expected, 'fullmatch alternation SQL ((?:...) anchoring)'
         assert res_py == expected
         fullmatch_alt = set(t.where(fullmatch(t.s, 'cat|dog')).select(t.s).collect()['s'])
         assert fullmatch_alt == {'cat', 'dog'}, f'fullmatch alternation set: {fullmatch_alt}'
 
         # Case-insensitive fullmatch
         res_sql, res_py = check_sql_and_py(fullmatch, 'cat', case=False)
-        expected = [bool(re.fullmatch('cat', s, re.IGNORECASE)) for s in test_strs]
-        assert res_sql == expected, f'fullmatch case=False SQL'
+        expected = [bool(re.fullmatch(r'cat', s, re.IGNORECASE)) for s in test_strs]
+        assert res_sql == expected, 'fullmatch case=False SQL'
         assert res_py == expected
 
         # ── replace_re ────────────────────────────────────────────────────────
@@ -601,12 +610,12 @@ class TestString:
 
         # n=1 limits to first replacement only (falls back to Python); must still be correct
         res_n1 = t.select(out=replace_re(t.s, '[aeiou]', '*', n=1)).collect()['out']
-        expected_n1 = [re.sub('[aeiou]', '*', s, count=1) for s in test_strs]
+        expected_n1 = [re.sub(r'[aeiou]', '*', s, count=1) for s in test_strs]
         assert res_n1 == expected_n1, f'replace_re n=1: {res_n1} != {expected_n1}'
 
         # flags causes Python fallback — result must still be correct
         res_flags = t.select(out=replace_re(t.s, 'cat', 'feline', flags=re.IGNORECASE)).collect()['out']
-        assert res_flags == [re.sub('cat', 'feline', s, flags=re.IGNORECASE) for s in test_strs]
+        assert res_flags == [re.sub(r'cat', 'feline', s, flags=re.IGNORECASE) for s in test_strs]
 
     def test_string_splitter(self, uses_db: None) -> None:
         skip_test_if_not_installed('spacy')

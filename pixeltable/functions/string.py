@@ -1062,9 +1062,9 @@ def swapcase(self: str) -> str:
 @swapcase.to_sql
 def _(self: sql.ColumnElement) -> sql.ColumnElement:
     # Swap case using translate for ASCII letters
-    upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    lower = 'abcdefghijklmnopqrstuvwxyz'
-    return sql.func.translate(self, upper + lower, lower + upper)
+    uc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    lc = 'abcdefghijklmnopqrstuvwxyz'
+    return sql.func.translate(self, uc + lc, lc + uc)
 
 
 @pxt.udf(is_method=True)

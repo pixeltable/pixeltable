@@ -1,6 +1,6 @@
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Callable
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
 import pixeltable as pxt
@@ -217,7 +217,7 @@ class TestTimestamp:
         # Convert to the default timezone for expected-value computation (matches Pixeltable behaviour)
         test_dts = [dt.astimezone(default_tz) for dt in raw_dts]
 
-        def check_sql_and_py(*args, **kwargs) -> tuple[list, list]:
+        def check_sql_and_py(*args: Any, **kwargs: Any) -> tuple[list[Any], list[Any]]:
             res_sql = t.select(out=isoformat(t.dt, *args, **kwargs)).collect()['out']
             res_py = t.select(
                 out=isoformat(t.dt.apply(lambda x: x, col_type=pxt.Timestamp), *args, **kwargs)
@@ -342,7 +342,7 @@ class TestTimestamp:
         # Literal text mixed with format codes — alphabetic literals must be double-quoted in PG
         res_sql, res_py = check_sql_and_py('Year: %Y, Month: %m')
         expected = [dt.strftime('Year: %Y, Month: %m') for dt in test_dts]
-        assert res_sql == expected, f'strftime literal text SQL'
+        assert res_sql == expected, 'strftime literal text SQL'
         assert res_py == expected
 
         # Double-percent produces a literal '%'
