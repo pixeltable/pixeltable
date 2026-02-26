@@ -11,8 +11,8 @@ from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_i
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
 
 
-@pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+#@pytest.mark.remote_api
+#@rerun(reruns=3, reruns_delay=8)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, uses_db: None) -> None:

@@ -39,6 +39,8 @@ class Runtime:
     _progress: Progress | None
     _event_loop: asyncio.AbstractEventLoop | None
     _run_coro_executor: concurrent.futures.ThreadPoolExecutor
+    _executor_loop: asyncio.AbstractEventLoop | None
+    _clients: dict[str, Any]
 
     def __init__(self) -> None:
         # Catalog is created lazily to avoid circular initialization:
@@ -50,6 +52,8 @@ class Runtime:
         self._progress = None
         self._event_loop = None
         self._run_coro_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        self._executor_loop = None
+        self._clients = {}
 
     @property
     def in_xact(self) -> bool:
@@ -89,9 +93,31 @@ class Runtime:
         if _logger.isEnabledFor(logging.DEBUG):
             self._event_loop.set_debug(True)
 
+    def get_client(self, name: str) -> Any:
+        """Get a cached client instance for this Runtime (thread-local).
+
+        Clients are created via the init functions registered with ``register_client`` in ``env.py``,
+        but cached per-Runtime so that each thread (and its event loop) gets its own instance.
+        """
+        client = self._clients.get(name)
+        if client is not None:
+            return client
+        # Delegate parameter resolution and init_fn invocation to Env
+        from pixeltable.env import Env
+        client = Env.get()._create_client(name)
+        self._clients[name] = client
+        return client
+
+    def _run_on_executor_loop(self, coro: Coroutine[Any, Any, _T]) -> _T:
+        """Run a coroutine on the executor thread's persistent event loop."""
+        if self._executor_loop is None or self._executor_loop.is_closed():
+            self._executor_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._executor_loop)
+        return self._executor_loop.run_until_complete(coro)
+
     def run_coro(self, coro: Coroutine[Any, Any, _T]) -> _T:
-        """Run a coroutine synchronously in a separate thread with its own event loop."""
-        return self._run_coro_executor.submit(asyncio.run, coro).result()
+        """Run a coroutine synchronously in a separate thread with its own persistent event loop."""
+        return self._run_coro_executor.submit(self._run_on_executor_loop, coro).result()
 
     @contextmanager
     def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
@@ -189,5 +215,9 @@ def reset_runtime() -> None:
                     loop.close()
             except Exception:
                 pass
+        runtime._clients.clear()
         runtime._run_coro_executor.shutdown(wait=False)
+        # The executor loop lives on the executor thread; it will be closed when the executor shuts down.
+        # Just clear the reference so a new Runtime gets a fresh loop.
+        runtime._executor_loop = None
     _thread_local.runtime = Runtime()

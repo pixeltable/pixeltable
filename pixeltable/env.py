@@ -606,14 +606,23 @@ class Env:
         """
         Gets the client with the specified name, initializing it if necessary.
 
+        Delegates to the current thread's Runtime so that each thread gets its own
+        client instance (important for async clients bound to a specific event loop).
+
         Args:
             - name: The name of the client
         """
-        # Return the existing client if it has already been constructed
+        from pixeltable.runtime import get_runtime
+        return get_runtime().get_client(name)
+
+    def _create_client(self, name: str) -> Any:
+        """
+        Resolves config parameters and calls the registered init function to create a new client instance.
+
+        This is called by Runtime.get_client() — callers should use get_client() instead.
+        """
         with _registered_clients_lock:
             cl = _registered_clients[name]
-            if cl.client_obj is not None:
-                return cl.client_obj  # Already initialized
 
         # Retrieve parameters required to construct the requested client.
         init_kwargs: dict[str, Any] = {}
@@ -639,13 +648,9 @@ class Env:
                     f'or put `{pname.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
                 )
 
-        # Construct the requested client
-        with _registered_clients_lock:
-            if cl.client_obj is not None:
-                return cl.client_obj  # Already initialized
-            cl.client_obj = cl.init_fn(**init_kwargs)
-            self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
-            return cl.client_obj
+        client = cl.init_fn(**init_kwargs)
+        self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
+        return client
 
     def _start_web_server(self) -> None:
         """
@@ -954,7 +959,6 @@ _registered_clients: dict[str, ApiClient] = {}
 class ApiClient:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
-    client_obj: Any | None = None
 
 
 @dataclass
