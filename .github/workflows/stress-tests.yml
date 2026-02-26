@@ -120,9 +120,6 @@ jobs:
 
   benchmark-tests:
     runs-on: ubuntu-latest
-    # Need write permissions to push to gh-pages
-    permissions:
-      contents: write
     defaults:
       run:
         shell: bash -el {0}
@@ -163,17 +160,7 @@ jobs:
         run: |
           pytest -m benchmark --benchmark-json=benchmark-results.json tests/
 
-      - name: Store benchmark results
-        uses: benchmark-action/github-action-benchmark@v1
-        with:
-          tool: 'pytest'
-          output-file-path: benchmark-results.json
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          # Store results in gh-pages branch
-          auto-push: true
-          # Fail if performance regresses by more than 30%
-          alert-threshold: '130%'
-          fail-on-alert: true
-          comment-on-alert: false
-          # Only keep the last 30 data points
-          max-items-in-chart: 30
+      - name: Report benchmark results to Grafana
+        env:
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
+        run: python tool/benchmark_reporter.py benchmark-results.json
