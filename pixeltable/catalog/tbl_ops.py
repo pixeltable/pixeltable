@@ -33,6 +33,14 @@ class OpStatus(Enum):
 
 @dataclasses.dataclass
 class TableOp:
+    """TableOp describes an individual operation that needs to be performed on the table.
+
+    If needs_xact is True, the TableOp is executed, and its state is updated as part of a single store transaction.
+    Otherwise, the op is executed outside of the store transaction. Such operations (including undo) must be idempotent
+    and safe to execute concurrently, because multiple processes may attempt to make progress on the same TableOp
+    simultaneously.
+    """
+
     needs_tv: ClassVar[bool]  # if False, exec/undo can be called with tv=None
     needs_xact: ClassVar[bool]  # whether this op must run as part of a transaction
 
@@ -218,13 +226,13 @@ class CreateStoreColumnsOp(TableOp):
         assert not Env.get().in_xact
         for col_id in self.column_ids:
             with Env.get().begin_xact():
-                tv.store_tbl.add_column(tv.cols_by_id[col_id])
+                tv.store_tbl.add_column(tv.cols_by_id[col_id], if_not_exists=True)
 
     def undo(self, tv: TableVersion | None) -> None:
         assert not Env.get().in_xact
         for col_id in self.column_ids:
             with Env.get().begin_xact():
-                tv.store_tbl.drop_column(tv.cols_by_id[col_id])
+                tv.store_tbl.drop_column(tv.cols_by_id[col_id], if_exists=True)
 
 
 @dataclasses.dataclass

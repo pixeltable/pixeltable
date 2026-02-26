@@ -917,7 +917,7 @@ class TableVersion:
                 self._tbl_md.column_md[col.id] = col_md
 
             if col.is_stored:
-                self.store_tbl.add_column(col)
+                self.store_tbl.add_column(col, if_not_exists=False)
 
             if not col.is_computed or not col.is_stored or row_count == 0:
                 continue
@@ -1436,7 +1436,7 @@ class TableVersion:
                 self._tbl_md.next_col_id = min(col.id for col in added_cols)
                 for col in added_cols:
                     if col.is_stored:
-                        self.store_tbl.drop_column(col)
+                        self.store_tbl.drop_column(col, if_exists=False)
                     del self._tbl_md.column_md[col.id]
 
             # remove newly-added indices from the lookup structures
