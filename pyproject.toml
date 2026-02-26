@@ -122,6 +122,7 @@ dev = [
     "types-sqlalchemy-utils~=1.1",
     "types-toml>=0.10",
     "types-tqdm~=4.64",
+    "pytest-benchmark>=5.1",
     "ruff>=0.14",
     "notebook>=7.1.0,<8",
     "mkdocs>=1.6.0,<2",

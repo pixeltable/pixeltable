@@ -119,7 +119,7 @@ jobs:
         run: echo "Performance test failed. Check the logs for details."
 
   benchmark-tests:
-    runs-on: ubuntu-large
+    runs-on: ubuntu-latest
     # Need write permissions to push to gh-pages
     permissions:
       contents: write
