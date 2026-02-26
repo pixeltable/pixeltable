@@ -23,7 +23,7 @@ from pixeltable.catalog.globals import MAX_DEFAULT_VALUE_SIZE
 from pixeltable.env import Env
 from pixeltable.exprs import ColumnRef
 from pixeltable.func import Batch
-from pixeltable.functions.video import frame_iterator
+from pixeltable.functions.video import legacy_frame_iterator
 from pixeltable.io.external_store import MockProject
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
@@ -150,9 +150,6 @@ class TestTable:
             pxt.drop_table('.test2')
         with pytest.raises(pxt.Error, match='Versioned path not allowed here: test2:120'):
             pxt.drop_table('test2:120')
-
-        with pytest.raises(pxt.Error, match="'pos' is a reserved name in Pixeltable"):
-            pxt.create_table('bad_col_name', {'pos': pxt.Int})
 
         with pytest.raises(pxt.Error, match="'add_column' is a reserved name in Pixeltable"):
             pxt.create_table('test', {'add_column': pxt.Int})
@@ -315,12 +312,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
+                            'comment': None,
                             'name': 'col',
                             'type_': 'String',
                             'version_added': 0,
                         }
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_view': False,
                     'is_snapshot': False,
@@ -345,12 +344,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
+                            'comment': None,
                             'name': 'col',
                             'type_': 'String',
                             'version_added': 0,
                         }
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {
                         'idx0': {
                             'columns': ['col'],
@@ -389,12 +390,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'comment': None,
                             'name': 'col',
+                            'custom_metadata': None,
                             'type_': 'String',
                             'version_added': 0,
                         }
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
@@ -419,7 +422,9 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
                             'name': 'col',
+                            'comment': None,
                             'type_': 'String',
                             'version_added': 0,
                         },
@@ -429,12 +434,14 @@ class TestTable:
                             'is_primary_key': False,
                             'is_stored': True,
                             'media_validation': media_val,
+                            'custom_metadata': None,
                             'name': 'col2',
+                            'comment': None,
                             'type_': 'String',
                             'version_added': 0,
                         },
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_view': True,
                     'is_snapshot': True,
@@ -478,7 +485,7 @@ class TestTable:
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.create_table('validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})  # type: ignore[typeddict-item]
+            _ = pxt.create_table('validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})  # type: ignore[dict-item]
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
     def test_validate_on_read(self, uses_db: None, reload_tester: ReloadTester) -> None:
@@ -1167,15 +1174,15 @@ class TestTable:
         assert "'type' or 'value' must be specified" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'type': 'string'}})  # type: ignore[typeddict-item]
+            pxt.create_table('test', {'c1': {'type': 'string'}})  # type: ignore[dict-item]
         assert 'must be a type' in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'value': 1, 'type': pxt.String}})  # type: ignore[typeddict-item]
+            pxt.create_table('test', {'c1': {'value': 1, 'type': pxt.String}})  # type: ignore[dict-item]
         assert "'type' is redundant" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'value': pytest}})  # type: ignore[typeddict-item]
+            pxt.create_table('test', {'c1': {'value': pytest}})  # type: ignore[dict-item]
         assert "Column 'c1': 'value' must be a Pixeltable expression" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -1183,11 +1190,11 @@ class TestTable:
             def f() -> float:
                 return 1.0
 
-            pxt.create_table('test', {'c1': {'value': f}})  # type: ignore[typeddict-item]
+            pxt.create_table('test', {'c1': {'value': f}})  # type: ignore[dict-item]
         assert "Column 'c1': 'value' must be a Pixeltable expression" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
-            pxt.create_table('test', {'c1': {'type': pxt.String, 'stored': 'true'}})  # type: ignore[typeddict-item]
+            pxt.create_table('test', {'c1': {'type': pxt.String, 'stored': 'true'}})  # type: ignore[dict-item]
         assert "'stored' must be a bool" in str(exc_info.value)
 
         with pytest.raises(pxt.Error) as exc_info:
@@ -1449,7 +1456,7 @@ class TestTable:
             )
         skip_test_if_not_installed('boto3')
         tbl = pxt.create_table('test_tbl', {'payload': pxt.Int, 'video': pxt.Video})
-        view = pxt.create_view('test_view', tbl, iterator=frame_iterator(tbl.video, fps=0))
+        view = pxt.create_view('test_view', tbl, iterator=legacy_frame_iterator(tbl.video))
         view.add_computed_column(c1=view.frame.rotate(30), stored=True)
         view.add_computed_column(c2=view.c1.rotate(40), stored=False)
         view.add_computed_column(c3=view.c2.rotate(50), stored=True)
@@ -2196,10 +2203,6 @@ class TestTable:
             _ = t.add_column(add2=pxt.Int, add3=pxt.String)
         assert 'requires exactly one keyword argument' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
-            _ = t.add_column(pos=pxt.String)
-        assert "'pos' is a reserved name in pixeltable" in str(exc_info.value).lower()
-
         with pytest.raises(pxt.Error) as excs_info:
             _ = t.add_column(add_column=pxt.Int)
         assert "'add_column' is a reserved name in pixeltable" in str(excs_info.value).lower()
@@ -2791,9 +2794,9 @@ class TestTable:
             """view 'test_subview' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
-            Column Name                            Type           Computed With
+            Column Name                            Type           Computed With                      Comment
               computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
-                     c1                Required[String]
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2820,9 +2823,9 @@ class TestTable:
             """snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
-            Column Name                            Type           Computed With
+            Column Name                            Type           Computed With                      Comment
               computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
-                     c1                Required[String]
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2844,8 +2847,8 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap2' (of 'test_tbl:2')
 
-            Column Name                            Type           Computed With
-                     c1                Required[String]
+            Column Name                            Type           Computed With                      Comment
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2862,9 +2865,9 @@ class TestTable:
         assert strip_lines(r) == strip_lines(
             """snapshot 'test_snap3' (of 'test_tbl:2')
 
-            Column Name                            Type           Computed With
+            Column Name                            Type           Computed With                      Comment
               computed1                 Required[Float]                 c2 + c3
-                     c1                Required[String]
+                     c1                Required[String]                          String column with no nulls
                     c1n                          String
                      c2                   Required[Int]
                      c3                 Required[Float]
@@ -2881,8 +2884,8 @@ class TestTable:
             'c1'
             (of table 'test_tbl')
 
-            Column Name              Type Computed With
-                     c1  Required[String]"""
+            Column Name              Type Computed With                      Comment
+                   c1  Required[String]                String column with no nulls"""
         )
         _ = v2.c1._repr_html_()
 
@@ -3161,9 +3164,9 @@ class TestTable:
 
         # invalid metadata parameters are rejected
         with pytest.raises(pxt.Error, match=r"media_validation must be one of: \['on_read', 'on_write']"):
-            t.add_columns({'non_existing_col1': {'type': pxt.Image, 'media_validation': 'on_error'}})  # type: ignore[typeddict-item]
+            t.add_columns({'non_existing_col1': {'type': pxt.Image, 'media_validation': 'on_error'}})  # type: ignore[dict-item]
         with pytest.raises(pxt.Error, match="'stored' must be a bool; got <class 'float'>"):
-            t.add_columns({'non_existing_col1': {'type': pxt.Image, 'stored': float}})  # type: ignore[typeddict-item]
+            t.add_columns({'non_existing_col1': {'type': pxt.Image, 'stored': float}})  # type: ignore[dict-item]
 
         # valid metadata parameters are accepted
         t.add_columns({'c3': {'type': pxt.Image, 'stored': True, 'media_validation': 'on_write'}})
@@ -3239,3 +3242,30 @@ class TestTable:
         # check that invalid JSON user metadata are rejected
         with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_column_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': {'type': pxt.Int, 'custom_metadata': custom_metadata}})
+        assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c']['custom_metadata'] == custom_metadata
+
+        # check that invalid JSON user metadata are rejected for columns
+        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
+            pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'custom_metadata': {'key': set}}})
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': {'type': pxt.Int, 'comment': 'This is a test column.'}})
+        assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
+
+        reload_catalog(do_reload_catalog)
+        t = pxt.get_table('tbl')
+        assert t.get_metadata()['columns']['c']['comment'] == 'This is a test column.'
+
+        # check that raw object JSON comments are rejected for columns
+        with pytest.raises(pxt.Error, match="'comment' must be a string"):
+            pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[dict-item]

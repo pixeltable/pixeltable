@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-import importlib
 import itertools
 import logging
 import time
@@ -19,26 +18,23 @@ import pixeltable.exprs as exprs
 import pixeltable.index as index
 import pixeltable.type_system as ts
 from pixeltable.env import Env
-from pixeltable.iterators import ComponentIterator
+from pixeltable.exprs.inline_expr import InlineDict
+from pixeltable.func.iterator import GeneratingFunctionCall
 from pixeltable.metadata import schema
-from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.object_stores import ObjectOps
 from pixeltable.utils.sql import log_explain
 
 from ..func.globals import resolve_symbol
 from .column import Column
-from .globals import _POS_COLUMN_NAME, _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
+from .globals import _ROWID_COLUMN_NAME, MediaValidation, QColumnId, is_valid_identifier
 from .tbl_ops import (
     CreateColumnMdOp,
     CreateStoreColumnsOp,
     CreateStoreIdxsOp,
-    CreateStoreTableOp,
-    CreateTableMdOp,
     CreateTableVersionOp,
     DeleteTableMdOp,
     DeleteTableMediaFilesOp,
     DropStoreTableOp,
-    LoadViewOp,
     OpStatus,
     SetColumnValueOp,
     TableOp,
@@ -158,8 +154,7 @@ class TableVersion:
     predicate: exprs.Expr | None
     sample_clause: 'SampleClause' | None
 
-    iterator_cls: type[ComponentIterator] | None
-    iterator_args: exprs.InlineDict | None
+    iterator_call: GeneratingFunctionCall | None
     num_iterator_cols: int
 
     # target for data operation propagation (only set for non-snapshots, and only records non-snapshot views)
@@ -245,17 +240,11 @@ class TableVersion:
         self.sample_clause = SampleClause.from_dict(sample_dict) if sample_dict is not None else None
 
         # component view-specific initialization
-        self.iterator_cls = None
-        self.iterator_args = None
+        self.iterator_call = None
         self.num_iterator_cols = 0
-        if self.view_md is not None and self.view_md.iterator_class_fqn is not None:
-            module_name, class_name = tbl_md.view_md.iterator_class_fqn.rsplit('.', 1)
-            module = importlib.import_module(module_name)
-            self.iterator_cls = getattr(module, class_name)
-            self.iterator_args = exprs.InlineDict.from_dict(tbl_md.view_md.iterator_args)
-            output_schema, _ = self.iterator_cls.output_schema(**self.iterator_args.to_kwargs())
-            self.num_iterator_cols = len(output_schema)
-            assert tbl_md.view_md.iterator_args is not None
+        if self.view_md is not None and self.view_md.iterator_call is not None:
+            self.iterator_call = GeneratingFunctionCall.from_dict(self.view_md.iterator_call)
+            self.num_iterator_cols = len(self.iterator_call.outputs)
 
         self.mutable_views = frozenset(mutable_views)
         assert self.is_mutable or len(self.mutable_views) == 0
@@ -299,7 +288,7 @@ class TableVersion:
         name: str,
         cols: list[Column],
         num_retained_versions: int,
-        comment: str,
+        comment: str | None,
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
@@ -540,9 +529,9 @@ class TableVersion:
     def drop(self) -> list[TableOp]:
         id_str = str(self.id)
         ops = [
-            DeleteTableMediaFilesOp(tbl_id=id_str, op_sn=0, num_ops=3, needs_xact=False, status=OpStatus.PENDING),
-            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, needs_xact=False, status=OpStatus.PENDING),
-            DeleteTableMdOp(tbl_id=id_str, op_sn=2, num_ops=3, needs_xact=True, status=OpStatus.PENDING),
+            DeleteTableMediaFilesOp(tbl_id=id_str, op_sn=0, num_ops=3, status=OpStatus.PENDING),
+            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, status=OpStatus.PENDING),
+            DeleteTableMdOp(tbl_id=id_str, op_sn=2, num_ops=3, status=OpStatus.PENDING),
         ]
         return ops
 
@@ -632,6 +621,8 @@ class TableVersion:
                 default_value_expr_dict=default_value_expr_dict,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
+                custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
+                comment=schema_col_md.comment if schema_col_md is not None else '',
             )
 
             self.cols.append(col)
@@ -859,6 +850,10 @@ class TableVersion:
         idx_md.schema_version_drop = self.schema_version
         assert idx_md.name in self.idxs_by_name
         idx_info = self.idxs_by_name[idx_md.name]
+
+        # Drop the physical index from the store
+        self.store_tbl.drop_index(idx_id)
+
         # remove this index entry from the active indexes (in memory)
         # and the index metadata (in persistent table metadata)
         # TODO: this is wrong, it breaks revert()
@@ -927,6 +922,8 @@ class TableVersion:
                     name=col.name,
                     pos=pos,
                     media_validation=col._media_validation.name.lower() if col._media_validation is not None else None,
+                    comment=col.comment,
+                    custom_metadata=col.custom_metadata,
                 )
                 self._schema_version_md.columns[col.id] = schema_md
 
@@ -1751,11 +1748,11 @@ class TableVersion:
         return self._tbl_md.is_replica
 
     @property
-    def comment(self) -> str:
+    def comment(self) -> str | None:
         return self._schema_version_md.comment
 
     @comment.setter
-    def comment(self, c: str) -> None:
+    def comment(self, c: str | None) -> None:
         assert self.effective_version is None
         self._schema_version_md.comment = c
 
@@ -1878,7 +1875,7 @@ class TableVersion:
 
     @property
     def is_component_view(self) -> bool:
-        return self.iterator_cls is not None
+        return self.iterator_call is not None
 
     @property
     def is_insertable(self) -> bool:
@@ -1893,17 +1890,14 @@ class TableVersion:
         # the iterator columns directly follow the pos column
         return self.is_component_view and col.id > 0 and col.id < self.num_iterator_cols + 1
 
-    def is_system_column(self, col: Column) -> bool:
-        """Return True if column was created by Pixeltable"""
-        return col.name == _POS_COLUMN_NAME and self.is_component_view
-
     def iterator_columns(self) -> list[Column]:
         """Return all iterator-produced columns"""
         return self.cols[1 : self.num_iterator_cols + 1]
 
-    def user_columns(self) -> list[Column]:
-        """Return all non-system columns"""
-        return [c for c in self.cols if not self.is_system_column(c)]
+    def iterator_args_expr(self) -> InlineDict | None:
+        if self.is_component_view:
+            return InlineDict(self.iterator_call.bound_args).copy()
+        return None
 
     def primary_key_columns(self) -> list[Column]:
         """Return all non-system columns"""

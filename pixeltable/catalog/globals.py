@@ -86,4 +86,4 @@ def is_system_column_name(name: str) -> bool:
     global _PREDEF_SYMBOLS  # noqa: PLW0603
     if _PREDEF_SYMBOLS is None:
         _PREDEF_SYMBOLS = set(itertools.chain(dir(InsertableTable), dir(View)))
-    return name == _POS_COLUMN_NAME or name in _PREDEF_SYMBOLS
+    return name in _PREDEF_SYMBOLS

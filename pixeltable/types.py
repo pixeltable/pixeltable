@@ -38,3 +38,7 @@ class ColumnSpec(TypedDict, total=False):
         - Supported for scalar types (String, Int, Float, Bool, Timestamp, Date, UUID), simple JSON, Array, and Binary.
         - Not supported for media types (Image, Video, Audio, Document).
     """
+    custom_metadata: Any
+    """User-defined metadata to associate with the column."""
+    comment: str
+    """Optional comment for the column. Displayed in .describe() output."""
