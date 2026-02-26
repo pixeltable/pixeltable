@@ -255,11 +255,7 @@ class Column:
 
     @classmethod
     def _validate_column_spec(cls, name: str, spec: ColumnSpec) -> None:
-        """Check integrity of user-supplied Column spec
-
-        We unfortunately can't use something like jsonschema for validation, because this isn't strictly a JSON schema
-        (on account of containing Python Callables or Exprs).
-        """
+        """Check integrity of user-supplied Column spec"""
         assert isinstance(spec, dict)
         # We cannot use get_type_hints() here since ColumnSpec doesn't import exprs outside of a TYPE_CHECKING block
         valid_keys = ColumnSpec.__annotations__.keys()
