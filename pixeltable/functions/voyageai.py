@@ -15,6 +15,10 @@ from pixeltable import env, type_system as ts
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
 
+if TYPE_CHECKING:
+    from voyageai import AsyncClient
+    from voyageai.video_utils import Video
+
 # Default embedding dimensions for Voyage AI models
 _embedding_dimensions_cache: dict[str, int] = {
     'voyage-3-large': 1024,
@@ -30,9 +34,6 @@ _embedding_dimensions_cache: dict[str, int] = {
     'voyage-large-2': 1536,
     'voyage-2': 1024,
 }
-
-if TYPE_CHECKING:
-    from voyageai import AsyncClient
 
 
 @env.register_client('voyage')
@@ -256,7 +257,7 @@ async def multimodal_embed(
     cl = _voyageai_client()
 
     # Build inputs: each text becomes a single-element content list
-    inputs: list[list[str | PIL.Image.Image]] = [[t] for t in text]
+    inputs: list[list[str | PIL.Image.Image | 'Video']] = [[t] for t in text]
     result = await cl.multimodal_embed(inputs=inputs, model=model, input_type=input_type, truncation=truncation)
     return [np.array(emb, dtype=np.float32) for emb in result.embeddings]
 
@@ -273,7 +274,7 @@ async def _(
     cl = _voyageai_client()
 
     # Build inputs: each image becomes a single-element content list
-    inputs: list[list[str | PIL.Image.Image]] = [[img] for img in image]
+    inputs: list[list[str | PIL.Image.Image | 'Video']] = [[img] for img in image]
     result = await cl.multimodal_embed(inputs=inputs, model=model, input_type=input_type, truncation=truncation)
     return [np.array(emb, dtype=np.float32) for emb in result.embeddings]
 
@@ -292,7 +293,7 @@ async def _(
     cl = _voyageai_client()
 
     # Build inputs: each video becomes a single-element content list
-    inputs: list[list[str | PIL.Image.Image]] = [[Video.from_path(vid, model=model)] for vid in video]
+    inputs: list[list[str | PIL.Image.Image | Video]] = [[Video.from_path(vid, model=model)] for vid in video]
     result = await cl.multimodal_embed(inputs=inputs, model=model, input_type=input_type, truncation=truncation)
     return [np.array(emb, dtype=np.float32) for emb in result.embeddings]
 
