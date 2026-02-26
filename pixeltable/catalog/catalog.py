@@ -2571,18 +2571,19 @@ class Catalog:
     ) -> SchemaObject | None:
         obj, _, _ = self._prepare_dir_op(add_dir_path=path.parent, add_name=path.name)
 
-        if if_exists == IfExistsParam.ERROR and obj is not None:
+        if obj is None:
+            return None
+        
+        if if_exists == IfExistsParam.ERROR:
             raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}')
 
         # dirs can only be replaced with dirs, all table subtypes can replace eachother
-        if obj is not None:
-            if expected_obj_type == Dir and not isinstance(obj, Dir):
-                raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}; expected a directory')
-            if expected_obj_type != Dir and isinstance(obj, Dir):
-                raise excs.Error(f'Path {path!r} is an existing directory; expected a table, view or snapshot')
+        if expected_obj_type == Dir and not isinstance(obj, Dir):
+            raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}; expected a directory')
+        if expected_obj_type != Dir and isinstance(obj, Dir):
+            raise excs.Error(f'Path {path!r} is an existing directory; expected a table, view or snapshot')
 
-        if obj is None:
-            return None
+        
         if if_exists == IfExistsParam.IGNORE:
             # for ignore, we can only return the existing object if it matches the expected type
             is_existing_snapshot = isinstance(obj, View) and obj._tbl_version_path.is_snapshot()
@@ -2608,7 +2609,7 @@ class Catalog:
         assert if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
 
         # Check for circularity
-        if obj is not None and base is not None:
+        if base is not None:
             assert isinstance(obj, Table)  # or else it would have been caught above
             if obj._id in tuple(version.id for version in base.get_tbl_versions()):
                 raise excs.Error(
