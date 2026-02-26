@@ -40,6 +40,9 @@ class Runtime:
     _event_loop: asyncio.AbstractEventLoop | None
     _run_coro_executor: concurrent.futures.ThreadPoolExecutor
     _executor_loop: asyncio.AbstractEventLoop | None
+
+    # we need to cache client instances on a per-thread basis because some of them are thread-specific (eg, async
+    # clients which are tied to an event loop)
     _clients: dict[str, Any]
 
     def __init__(self) -> None:
@@ -94,17 +97,11 @@ class Runtime:
             self._event_loop.set_debug(True)
 
     def get_client(self, name: str) -> Any:
-        """Get a cached client instance for this Runtime (thread-local).
-
-        Clients are created via the init functions registered with ``register_client`` in ``env.py``,
-        but cached per-Runtime so that each thread (and its event loop) gets its own instance.
-        """
+        """Gets the client with the specified name, initializing it if necessary."""
         client = self._clients.get(name)
         if client is not None:
             return client
-        # Delegate parameter resolution and init_fn invocation to Env
-        from pixeltable.env import Env
-        client = Env.get()._create_client(name)
+        client = Env.get().create_client(name)
         self._clients[name] = client
         return client
 

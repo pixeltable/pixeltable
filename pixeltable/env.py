@@ -613,20 +613,19 @@ class Env:
             - name: The name of the client
         """
         from pixeltable.runtime import get_runtime
+
         return get_runtime().get_client(name)
 
-    def _create_client(self, name: str) -> Any:
+    def create_client(self, name: str) -> Any:
         """
         Resolves config parameters and calls the registered init function to create a new client instance.
-
-        This is called by Runtime.get_client() — callers should use get_client() instead.
         """
-        with _registered_clients_lock:
-            cl = _registered_clients[name]
+        with _client_factories_lock:
+            client_factory = _client_factories[name]
 
         # Retrieve parameters required to construct the requested client.
         init_kwargs: dict[str, Any] = {}
-        for param in cl.params.values():
+        for param in client_factory.params.values():
             # Determine the type of the parameter for proper config parsing.
             pname = param.name
             t = param.annotation
@@ -648,7 +647,7 @@ class Env:
                     f'or put `{pname.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
                 )
 
-        client = cl.init_fn(**init_kwargs)
+        client = client_factory.init_fn(**init_kwargs)
         self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
         return client
 
@@ -945,18 +944,18 @@ def register_client(name: str) -> Callable:
     def decorator(fn: Callable) -> None:
         sig = inspect.signature(fn)
         params = dict(sig.parameters)
-        with _registered_clients_lock:
-            _registered_clients[name] = ApiClient(init_fn=fn, params=params)
+        with _client_factories_lock:
+            _client_factories[name] = ApiClientFactory(init_fn=fn, params=params)
 
     return decorator
 
 
-_registered_clients_lock: threading.Lock = threading.Lock()
-_registered_clients: dict[str, ApiClient] = {}
+_client_factories_lock: threading.Lock = threading.Lock()
+_client_factories: dict[str, ApiClientFactory] = {}
 
 
 @dataclass
-class ApiClient:
+class ApiClientFactory:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
 
