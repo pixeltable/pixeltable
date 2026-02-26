@@ -271,9 +271,9 @@ class TestTimestamp:
         Env.get().default_time_zone = default_tz
 
         raw_dts = [
-            datetime.fromisoformat('2024-01-01T00:00:00+00:00'),   # midnight UTC / New Year
-            datetime.fromisoformat('2024-07-04T12:30:45+00:00'),   # afternoon, mid-year
-            datetime.fromisoformat('2020-02-29T08:15:00+00:00'),   # leap day
+            datetime.fromisoformat('2024-01-01T00:00:00+00:00'),  # midnight UTC / New Year
+            datetime.fromisoformat('2024-07-04T12:30:45+00:00'),  # afternoon, mid-year
+            datetime.fromisoformat('2020-02-29T08:15:00+00:00'),  # leap day
             datetime(2023, 11, 6, 23, 59, 59, 123456, tzinfo=timezone.utc),  # with microseconds
             datetime(2022, 12, 31, 11, 0, 0, tzinfo=timezone.utc),  # AM hour
         ]
@@ -284,24 +284,22 @@ class TestTimestamp:
 
         def check_sql_and_py(fmt: str) -> tuple[list, list]:
             res_sql = t.select(out=strftime(t.dt, fmt)).collect()['out']
-            res_py = t.select(
-                out=strftime(t.dt.apply(lambda x: x, col_type=pxt.Timestamp), fmt)
-            ).collect()['out']
+            res_py = t.select(out=strftime(t.dt.apply(lambda x: x, col_type=pxt.Timestamp), fmt)).collect()['out']
             return res_sql, res_py
 
         # Basic date/time components
         for fmt in [
-            '%Y',           # 4-digit year
-            '%y',           # 2-digit year
-            '%m',           # zero-padded month
-            '%d',           # zero-padded day
-            '%H',           # 24h hour
-            '%M',           # minute
-            '%S',           # second
-            '%Y-%m-%d',     # ISO date
+            '%Y',  # 4-digit year
+            '%y',  # 2-digit year
+            '%m',  # zero-padded month
+            '%d',  # zero-padded day
+            '%H',  # 24h hour
+            '%M',  # minute
+            '%S',  # second
+            '%Y-%m-%d',  # ISO date
             '%Y-%m-%d %H:%M:%S',  # full datetime
-            '%H:%M',        # time only
-            '%j',           # day of year
+            '%H:%M',  # time only
+            '%j',  # day of year
         ]:
             res_sql, res_py = check_sql_and_py(fmt)
             expected = [dt.strftime(fmt) for dt in test_dts]
@@ -359,9 +357,7 @@ class TestTimestamp:
 
         # Non-literal format column also falls back to Python — must still be correct
         t2 = pxt.create_table('test_tbl2', {'dt': pxt.Timestamp, 'fmt': pxt.String})
-        validate_update_status(
-            t2.insert({'dt': dt, 'fmt': '%Y-%m-%d'} for dt in raw_dts), expected_rows=len(raw_dts)
-        )
+        validate_update_status(t2.insert({'dt': dt, 'fmt': '%Y-%m-%d'} for dt in raw_dts), expected_rows=len(raw_dts))
         res_col = t2.select(out=strftime(t2.dt, t2.fmt)).collect()['out']
         assert res_col == [dt.strftime('%Y-%m-%d') for dt in test_dts], 'strftime column format'
 

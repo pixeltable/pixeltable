@@ -494,9 +494,7 @@ class TestString:
         def check_sql_and_py(pxt_fn: pxt.Function, *args, **kwargs) -> tuple[list, list]:
             """Return (sql_results, python_results) for pxt_fn applied to the test table."""
             res_sql = t.select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out']
-            res_py = t.select(
-                out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String), *args, **kwargs)
-            ).collect()['out']
+            res_py = t.select(out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String), *args, **kwargs)).collect()['out']
             return res_sql, res_py
 
         # ── contains_re ───────────────────────────────────────────────────────
@@ -590,11 +588,11 @@ class TestString:
 
         # ── replace_re ────────────────────────────────────────────────────────
         for pat, repl in [
-            ('[aeiou]', '*'),               # vowel replacement
-            (r'(\w+)', r'[\1]'),            # backreference
-            ('cat', 'feline'),              # literal pattern
-            ('zzz', 'XXX'),                 # no-match: string unchanged
-            (r'\d+', '#'),                  # digit replacement
+            ('[aeiou]', '*'),  # vowel replacement
+            (r'(\w+)', r'[\1]'),  # backreference
+            ('cat', 'feline'),  # literal pattern
+            ('zzz', 'XXX'),  # no-match: string unchanged
+            (r'\d+', '#'),  # digit replacement
         ]:
             res_sql, res_py = check_sql_and_py(replace_re, pat, repl)
             expected = [re.sub(pat, repl, s) for s in test_strs]
