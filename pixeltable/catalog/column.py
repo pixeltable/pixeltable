@@ -171,9 +171,9 @@ class Column:
             stores_cellmd=idx.records_value_errors(),
             schema_version_add=schema_version,
             schema_version_drop=None,
+            tbl_handle=tbl_handle,
         )
         val_col.col_type = val_col.col_type.copy(nullable=True)
-        val_col.tbl_handle = tbl_handle
 
         undo_col = cls(
             col_id=undo_col_id,
@@ -184,9 +184,9 @@ class Column:
             stores_cellmd=False,
             schema_version_add=schema_version,
             schema_version_drop=None,
+            tbl_handle=tbl_handle,
         )
         undo_col.col_type = undo_col.col_type.copy(nullable=True)
-        undo_col.tbl_handle = tbl_handle
         return val_col, undo_col
 
     @classmethod
