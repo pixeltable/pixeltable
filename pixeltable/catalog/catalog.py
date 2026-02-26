@@ -2601,7 +2601,7 @@ class Catalog:
                     raise excs.Error(f'Path {path!r} already exists as a {obj_type_str} with a different base table')
             return obj
 
-        # IfExistsParam.REPLACE or IfExistsParam.REPLACE_FORCE: Drop existing object if it matches expected type (and base table for views/snapshots)
+        # IfExistsParam.REPLACE or IfExistsParam.REPLACE_FORCE
         assert if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
 
         # check to ensure that dirs can only be replaced with dirs, and all table subtypes can replace each other

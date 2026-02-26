@@ -118,7 +118,7 @@ class TestSnapshot:
         id_before = s._id
         # invalid if_exists value is rejected
         with pytest.raises(
-            pxt.Error, match="if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"
+            pxt.Error, match=r"if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"
         ):
             pxt.create_snapshot(sname, t, if_exists='invalid')  # type: ignore[arg-type]
         # scenario 1: a snapshot exists at the path already

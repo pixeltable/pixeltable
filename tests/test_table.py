@@ -167,7 +167,7 @@ class TestTable:
 
         # invalid if_exists value is rejected
         with pytest.raises(
-            pxt.Error, match="if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"
+            pxt.Error, match=r"if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"
         ):
             pxt.create_table('test', schema, if_exists='invalid')  # type: ignore[arg-type]
 
@@ -230,7 +230,7 @@ class TestTable:
             _ = pxt.create_table('dir1', schema)
         assert len(tbl.select().collect()) == 1
         for ie in ('ignore', 'replace', 'replace_force'):
-            with pytest.raises(pxt.Error, match='already exists') as exc_info:
+            with pytest.raises(pxt.Error, match='already exists'):
                 pxt.create_table('dir1', schema, if_exists=ie)
             assert len(tbl.select().collect()) == 1, f'with if_exists={ie}'
             assert 'dir1' in pxt.list_dirs(), f'with if_exists={ie}'
