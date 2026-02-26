@@ -2573,7 +2573,7 @@ class Catalog:
 
         if obj is None:
             return None
-        
+
         # IfExistsParam.ERROR: Error given there is existing schema object
         if if_exists == IfExistsParam.ERROR:
             raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}')
@@ -2609,7 +2609,7 @@ class Catalog:
             raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}; expected a directory')
         if expected_obj_type != Dir and isinstance(obj, Dir):
             raise excs.Error(f'Path {path!r} is an existing directory; expected a table, view or snapshot')
-        
+
         # Check for circularity
         if base is not None:
             assert isinstance(obj, Table)  # or else it would have been caught above
