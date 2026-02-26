@@ -151,53 +151,6 @@ class Column:
         self._comment = comment
 
     @classmethod
-    def instantiate_cols(
-        cls, tbl_version: TableVersion, indexes: list[tuple[schema.IndexMd, index.IndexBase]]
-    ) -> list[Column]:
-        # value column id -> index
-        val_col_idxs = {idx_md.index_val_col_id: idx for idx_md, idx in indexes}
-        # undo column id -> index
-        undo_col_idxs = {idx_md.index_val_undo_col_id: idx for idx_md, idx in indexes}
-
-        # Sort columns in column_md by id to guarantee that all references point backward.
-        sorted_column_md = sorted(tbl_version.tbl_md.column_md.values(), key=lambda item: item.id)
-        cols: list[Column] = []
-        for col_md in sorted_column_md:
-            col_type = ts.ColumnType.from_dict(col_md.col_type)
-            schema_col_md = tbl_version.schema_version_md.columns.get(col_md.id)
-            media_val = (
-                MediaValidation[schema_col_md.media_validation.upper()]
-                if schema_col_md is not None and schema_col_md.media_validation is not None
-                else None
-            )
-
-            # For index val and undo columns, the index gets to override the store column type
-            idx = val_col_idxs.get(col_md.id) or undo_col_idxs.get(col_md.id)
-            sa_col_type = idx.get_index_sa_type(col_type) if idx is not None else None
-
-            col = cls(
-                col_id=col_md.id,
-                name=schema_col_md.name if schema_col_md is not None else None,
-                col_type=col_type,
-                is_pk=col_md.is_pk,
-                is_iterator_col=tbl_version.is_component_view and col_md.id < tbl_version.num_iterator_cols + 1,
-                stored=col_md.stored,
-                media_validation=media_val,
-                sa_col_type=sa_col_type,
-                schema_version_add=col_md.schema_version_add,
-                schema_version_drop=col_md.schema_version_drop,
-                stores_cellmd=col_md.stores_cellmd,
-                value_expr_dict=col_md.value_expr,
-                tbl_handle=tbl_version.handle,
-                destination=col_md.destination,
-                custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
-                comment=schema_col_md.comment if schema_col_md is not None else '',
-            )
-            cols.append(col)
-
-        return cols
-
-    @classmethod
     def create_index_columns(
         cls,
         tbl_handle: TableVersionHandle,
