@@ -15,6 +15,7 @@ import httpx
 import pixeltable as pxt
 from pixeltable import env, exprs
 from pixeltable.func import Tools
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import exponential_backoff
 
@@ -36,7 +37,7 @@ def _(api_key: str) -> 'anthropic.AsyncAnthropic':
 
 
 def _anthropic_client() -> 'anthropic.AsyncAnthropic':
-    return env.Env.get().get_client('anthropic')
+    return get_runtime().get_client('anthropic')
 
 
 def _get_header_info(

@@ -13,6 +13,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env, register_client
 from pixeltable.func.signature import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ def _(api_key: str) -> 'mistralai.Mistral':
 
 
 def _mistralai_client() -> 'mistralai.Mistral':
-    return Env.get().get_client('mistral')
+    return get_runtime().get_client('mistral')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:mistral')

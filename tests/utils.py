@@ -578,7 +578,7 @@ def skip_test_if_not_in_path(*binaries: str) -> None:
 
 def skip_test_if_no_client(client_name: str) -> None:
     try:
-        _ = Env.get().get_client(client_name)
+        _ = get_runtime().get_client(client_name)
     except pxt.Error as exc:
         pytest.skip(str(exc))
 

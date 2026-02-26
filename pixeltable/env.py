@@ -602,20 +602,6 @@ class Env:
         """Get the Pixeltable API key from config"""
         return Config.get().get_string_value('api_key')
 
-    def get_client(self, name: str) -> Any:
-        """
-        Gets the client with the specified name, initializing it if necessary.
-
-        Delegates to the current thread's Runtime so that each thread gets its own
-        client instance (important for async clients bound to a specific event loop).
-
-        Args:
-            - name: The name of the client
-        """
-        from pixeltable.runtime import get_runtime
-
-        return get_runtime().get_client(name)
-
     def create_client(self, name: str) -> Any:
         """
         Resolves config parameters and calls the registered init function to create a new client instance.

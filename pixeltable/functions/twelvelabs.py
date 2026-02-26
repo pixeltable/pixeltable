@@ -12,6 +12,7 @@ import numpy as np
 
 import pixeltable as pxt
 from pixeltable import env, type_system as ts
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
@@ -27,7 +28,7 @@ def _(api_key: str) -> 'AsyncTwelveLabs':
 
 
 def _twelvelabs_client() -> 'AsyncTwelveLabs':
-    return env.Env.get().get_client('twelvelabs')
+    return get_runtime().get_client('twelvelabs')
 
 
 @pxt.udf(resource_pool='request-rate:twelvelabs')

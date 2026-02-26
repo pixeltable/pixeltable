@@ -13,8 +13,9 @@ import numpy as np
 
 import pixeltable as pxt
 from pixeltable import type_system as ts
-from pixeltable.env import Env, register_client
+from pixeltable.env import register_client
 from pixeltable.func import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 _logger = logging.getLogger('pixeltable')
@@ -89,7 +90,7 @@ def _(api_key: str) -> _JinaClient:
 
 
 def _client() -> _JinaClient:
-    return Env.get().get_client('jina')
+    return get_runtime().get_client('jina')
 
 
 @pxt.udf(batch_size=128, resource_pool='request-rate:jina')

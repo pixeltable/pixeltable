@@ -116,9 +116,9 @@ def _(api_key: str) -> _ReveClient:
 
 
 def _client() -> _ReveClient:
-    from pixeltable.env import Env
+    from pixeltable.runtime import get_runtime
 
-    return Env.get().get_client('reve')
+    return get_runtime().get_client('reve')
 
 
 # TODO Regarding rate limiting: Reve appears to be going for a credits per minute rate limiting model, but does not

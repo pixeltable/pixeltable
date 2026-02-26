@@ -91,8 +91,6 @@ class Config:
         with cls.__init_lock:
             if reinit:
                 cls.__instance = None
-                # for cl in env._client_factories.values():
-                #     cl.client_obj = None
             if cls.__instance is None:
                 cls.__instance = cls(config_overrides)
             elif len(config_overrides) > 0:
