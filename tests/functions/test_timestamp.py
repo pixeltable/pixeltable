@@ -188,6 +188,183 @@ class TestTimestamp:
         assert t.where(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00')).count() == 960
         assert t.where(t.dt >= datetime.fromisoformat('2024-07-01T00:00:00-04:00')).count() == 1200
 
+    def test_isoformat_edge_cases(self, uses_db: None) -> None:
+        """Test isoformat SQL/Python equivalence, focusing on the 'auto' timespec branch.
+
+        The SQL implementation branches on whether sub-second microseconds are present.
+        We need datetimes both with and without microseconds to exercise both branches.
+        """
+        from pixeltable.functions.timestamp import isoformat
+
+        default_tz = ZoneInfo('America/Anchorage')
+        Env.get().default_time_zone = default_tz
+
+        # Include datetimes both with and without microseconds, and with boundary values
+        raw_dts = [
+            # No microseconds — SQL should produce 'HH24:MI:SS+TZ'
+            datetime.fromisoformat('2024-01-01T12:34:56-08:00'),
+            datetime.fromisoformat('2023-12-31T23:59:59-08:00'),
+            datetime.fromisoformat('2020-02-29T00:00:00-08:00'),  # leap day, midnight
+            # With microseconds — SQL should produce 'HH24:MI:SS.US+TZ'
+            datetime(2024, 6, 15, 8, 30, 0, 123456, tzinfo=ZoneInfo('America/Los_Angeles')),
+            datetime(2023, 7, 4, 0, 0, 0, 500000, tzinfo=timezone.utc),  # exactly 0.5 s
+            datetime(2022, 1, 1, 12, 0, 0, 1, tzinfo=timezone.utc),  # single microsecond
+            datetime(2022, 1, 1, 12, 0, 0, 999999, tzinfo=timezone.utc),  # max microseconds
+        ]
+        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
+        validate_update_status(t.insert({'dt': dt} for dt in raw_dts), expected_rows=len(raw_dts))
+
+        # Convert to the default timezone for expected-value computation (matches Pixeltable behaviour)
+        test_dts = [dt.astimezone(default_tz) for dt in raw_dts]
+
+        def check_sql_and_py(*args, **kwargs) -> tuple[list, list]:
+            res_sql = t.select(out=isoformat(t.dt, *args, **kwargs)).collect()['out']
+            res_py = t.select(
+                out=isoformat(t.dt.apply(lambda x: x, col_type=pxt.Timestamp), *args, **kwargs)
+            ).collect()['out']
+            return res_sql, res_py
+
+        # Default sep='T', timespec='auto' — exercises both branches of the microseconds CASE
+        res_sql, res_py = check_sql_and_py()
+        expected = [dt.isoformat() for dt in test_dts]
+        assert res_sql == expected, f'isoformat default SQL: {res_sql} != {expected}'
+        assert res_py == expected, f'isoformat default Py: {res_py} != {expected}'
+
+        # Microsecond branch: rows without microseconds must NOT have a decimal point
+        no_us_idx = [i for i, dt in enumerate(test_dts) if dt.microsecond == 0]
+        for i in no_us_idx:
+            assert '.' not in res_sql[i].split('T')[1], (
+                f'isoformat should omit microseconds for dt={test_dts[i]}, got {res_sql[i]!r}'
+            )
+
+        # Microsecond branch: rows with microseconds MUST have a 6-digit decimal part
+        us_idx = [i for i, dt in enumerate(test_dts) if dt.microsecond != 0]
+        for i in us_idx:
+            time_part = res_sql[i].split('T')[1]
+            assert '.' in time_part, f'isoformat missing microseconds for dt={test_dts[i]}, got {res_sql[i]!r}'
+            decimal_digits = time_part.split('.')[1][:6]  # strip trailing tz offset
+            assert len(decimal_digits) == 6, f'expected 6 microsecond digits, got {res_sql[i]!r}'
+
+        # Custom separator
+        res_sql, res_py = check_sql_and_py(sep=' ')
+        expected = [dt.isoformat(sep=' ') for dt in test_dts]
+        assert res_sql == expected, f'isoformat sep=" " SQL: {res_sql} != {expected}'
+        assert res_py == expected
+
+        # Explicit timespec falls back to Python — result must still be correct
+        res_seconds = t.select(out=isoformat(t.dt, timespec='seconds')).collect()['out']
+        assert res_seconds == [dt.isoformat(timespec='seconds') for dt in test_dts]
+
+        res_ms = t.select(out=isoformat(t.dt, timespec='milliseconds')).collect()['out']
+        assert res_ms == [dt.isoformat(timespec='milliseconds') for dt in test_dts]
+
+    def test_strftime_formats(self, uses_db: None) -> None:
+        """Test strftime SQL/Python equivalence across common format codes and edge cases.
+
+        The SQL implementation translates literal Python strftime format strings to
+        PostgreSQL to_char patterns at query-planning time.  Unsupported codes and
+        non-literal format columns fall back to Python execution.
+        """
+        from pixeltable.functions.timestamp import strftime
+
+        default_tz = ZoneInfo('America/Anchorage')
+        Env.get().default_time_zone = default_tz
+
+        raw_dts = [
+            datetime.fromisoformat('2024-01-01T00:00:00+00:00'),   # midnight UTC / New Year
+            datetime.fromisoformat('2024-07-04T12:30:45+00:00'),   # afternoon, mid-year
+            datetime.fromisoformat('2020-02-29T08:15:00+00:00'),   # leap day
+            datetime(2023, 11, 6, 23, 59, 59, 123456, tzinfo=timezone.utc),  # with microseconds
+            datetime(2022, 12, 31, 11, 0, 0, tzinfo=timezone.utc),  # AM hour
+        ]
+        t = pxt.create_table('test_tbl', {'dt': pxt.Timestamp})
+        validate_update_status(t.insert({'dt': dt} for dt in raw_dts), expected_rows=len(raw_dts))
+
+        test_dts = [dt.astimezone(default_tz) for dt in raw_dts]
+
+        def check_sql_and_py(fmt: str) -> tuple[list, list]:
+            res_sql = t.select(out=strftime(t.dt, fmt)).collect()['out']
+            res_py = t.select(
+                out=strftime(t.dt.apply(lambda x: x, col_type=pxt.Timestamp), fmt)
+            ).collect()['out']
+            return res_sql, res_py
+
+        # Basic date/time components
+        for fmt in [
+            '%Y',           # 4-digit year
+            '%y',           # 2-digit year
+            '%m',           # zero-padded month
+            '%d',           # zero-padded day
+            '%H',           # 24h hour
+            '%M',           # minute
+            '%S',           # second
+            '%Y-%m-%d',     # ISO date
+            '%Y-%m-%d %H:%M:%S',  # full datetime
+            '%H:%M',        # time only
+            '%j',           # day of year
+        ]:
+            res_sql, res_py = check_sql_and_py(fmt)
+            expected = [dt.strftime(fmt) for dt in test_dts]
+            assert res_sql == expected, f'strftime SQL fmt={fmt!r}: {res_sql} != {expected}'
+            assert res_py == expected, f'strftime Py fmt={fmt!r}: {res_py} != {expected}'
+
+        # Microseconds
+        res_sql, res_py = check_sql_and_py('%f')
+        expected = [dt.strftime('%f') for dt in test_dts]
+        assert res_sql == expected, f'strftime %f SQL: {res_sql} != {expected}'
+        assert res_py == expected
+
+        # AM/PM with 12-hour clock
+        res_sql, res_py = check_sql_and_py('%I:%M %p')
+        expected = [dt.strftime('%I:%M %p') for dt in test_dts]
+        assert res_sql == expected, f'strftime %I:%M %p SQL: {res_sql} != {expected}'
+        assert res_py == expected
+
+        # Day and month names — both full and abbreviated
+        res_sql, res_py = check_sql_and_py('%A')
+        expected = [dt.strftime('%A') for dt in test_dts]
+        assert res_sql == expected, f'strftime %A SQL: {res_sql} != {expected}'
+        assert res_py == expected
+
+        res_sql, res_py = check_sql_and_py('%a')
+        expected = [dt.strftime('%a') for dt in test_dts]
+        assert res_sql == expected, f'strftime %a SQL: {res_sql} != {expected}'
+        assert res_py == expected
+
+        res_sql, res_py = check_sql_and_py('%B')
+        expected = [dt.strftime('%B') for dt in test_dts]
+        assert res_sql == expected, f'strftime %B SQL: {res_sql} != {expected}'
+        assert res_py == expected
+
+        res_sql, res_py = check_sql_and_py('%b')
+        expected = [dt.strftime('%b') for dt in test_dts]
+        assert res_sql == expected, f'strftime %b SQL: {res_sql} != {expected}'
+        assert res_py == expected
+
+        # Literal text mixed with format codes — alphabetic literals must be double-quoted in PG
+        res_sql, res_py = check_sql_and_py('Year: %Y, Month: %m')
+        expected = [dt.strftime('Year: %Y, Month: %m') for dt in test_dts]
+        assert res_sql == expected, f'strftime literal text SQL'
+        assert res_py == expected
+
+        # Double-percent produces a literal '%'
+        res_sql, res_py = check_sql_and_py('100%%')
+        expected = [dt.strftime('100%%') for dt in test_dts]
+        assert res_sql == expected, f'strftime 100%% SQL: {res_sql} != {expected}'
+        assert res_py == expected
+
+        # Unsupported format code (%z) falls back to Python — must still be correct
+        res_fallback = t.select(out=strftime(t.dt, '%z')).collect()['out']
+        assert res_fallback == [dt.strftime('%z') for dt in test_dts], 'strftime %z fallback'
+
+        # Non-literal format column also falls back to Python — must still be correct
+        t2 = pxt.create_table('test_tbl2', {'dt': pxt.Timestamp, 'fmt': pxt.String})
+        validate_update_status(
+            t2.insert({'dt': dt, 'fmt': '%Y-%m-%d'} for dt in raw_dts), expected_rows=len(raw_dts)
+        )
+        res_col = t2.select(out=strftime(t2.dt, t2.fmt)).collect()['out']
+        assert res_col == [dt.strftime('%Y-%m-%d') for dt in test_dts], 'strftime column format'
+
     def test_timestamp_make(self, uses_db: None) -> None:
         Env.get().default_time_zone = ZoneInfo('America/Anchorage')
         test_dts, t = self.make_test_table()

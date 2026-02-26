@@ -10,9 +10,11 @@ t.select(t.timestamp_col.year, t.timestamp_col.weekday()).collect()
 ```
 """
 
+import re as _re
 from datetime import datetime
 
 import sqlalchemy as sql
+from sqlalchemy.sql.elements import BindParameter as _BindParameter
 
 import pixeltable as pxt
 from pixeltable.env import Env
@@ -219,6 +221,77 @@ def isoformat(self: datetime, sep: str = 'T', timespec: str = 'auto') -> str:
     return self.isoformat(sep=sep, timespec=timespec)
 
 
+@isoformat.to_sql
+def _(
+    self: sql.ColumnElement, sep: sql.ColumnElement | None = None, timespec: sql.ColumnElement | None = None
+) -> sql.ColumnElement:
+    if timespec is not None:
+        return None  # Can't dynamically select format for arbitrary timespec in SQL
+    # Default timespec='auto': include microseconds only when non-zero
+    separator = sep if sep is not None else sql.literal('T')
+    date_part = sql.func.to_char(self, 'YYYY-MM-DD')
+    # extract('microseconds') returns total seconds*1e6; modulo 1e6 gives sub-second microseconds
+    sub_us = sql.extract('microseconds', self).cast(sql.Integer) % 1000000
+    time_part = sql.case(
+        (sub_us == 0, sql.func.to_char(self, 'HH24:MI:SS')), else_=sql.func.to_char(self, 'HH24:MI:SS.US')
+    )
+    return sql.func.concat(date_part, separator, time_part, sql.func.to_char(self, 'TZH:TZM'))
+
+
+# Mapping from Python strftime codes to PostgreSQL to_char patterns.
+_PY_TO_PG: dict[str, str] = {
+    '%Y': 'YYYY',  # 4-digit year
+    '%y': 'YY',  # 2-digit year
+    '%m': 'MM',  # month (01-12)
+    '%d': 'DD',  # day of month (01-31)
+    '%H': 'HH24',  # hour 24h (00-23)
+    '%I': 'HH12',  # hour 12h (01-12)
+    '%M': 'MI',  # minute (00-59)
+    '%S': 'SS',  # second (00-59)
+    '%f': 'US',  # microseconds (000000-999999)
+    '%p': 'AM',  # AM/PM indicator
+    '%j': 'DDD',  # day of year (001-366)
+    '%A': 'TMDay',  # full weekday name, unpadded (e.g. Monday)
+    '%a': 'Dy',  # abbreviated weekday name (Mon, Tue, ...)
+    '%B': 'TMMonth',  # full month name, unpadded (e.g. January)
+    '%b': 'Mon',  # abbreviated month name (Jan, Feb, ...)
+    '%h': 'Mon',  # same as %b
+    '%%': '%',  # literal percent sign
+}
+
+# Python strftime codes with no reliable SQL equivalent; fall back to Python for these.
+_UNSUPPORTED_PY_CODES = frozenset({'%c', '%x', '%X', '%G', '%V', '%u', '%w', '%W', '%U', '%z', '%Z'})
+
+_PY_FORMAT_RE = _re.compile(r'%.')
+
+
+def _translate_strftime_format(fmt: str) -> str | None:
+    """Translate a Python strftime format string to a PostgreSQL to_char format string.
+
+    Returns None if the format contains codes that can't be reliably translated.
+    Literal text segments are wrapped in double-quotes to prevent PostgreSQL from
+    misinterpreting alphabetic characters as format patterns.
+    """
+    result: list[str] = []
+    last = 0
+    for m in _PY_FORMAT_RE.finditer(fmt):
+        lit = fmt[last : m.start()]
+        if lit:
+            result.append('"' + lit.replace('"', '\\"') + '"')
+        code = m.group()
+        if code in _UNSUPPORTED_PY_CODES:
+            return None
+        pg = _PY_TO_PG.get(code)
+        if pg is None:
+            return None
+        result.append(pg)
+        last = m.end()
+    lit = fmt[last:]
+    if lit:
+        result.append('"' + lit.replace('"', '\\"') + '"')
+    return ''.join(result)
+
+
 @pxt.udf(is_method=True)
 def strftime(self: datetime, format: str) -> str:
     """
@@ -231,6 +304,16 @@ def strftime(self: datetime, format: str) -> str:
             [`strftime()` and `strptime()` Behavior](https://docs.python.org/3/library/datetime.html#strftime-and-strptime-behavior).
     """
     return self.strftime(format)
+
+
+@strftime.to_sql
+def _(self: sql.ColumnElement, format: sql.ColumnElement) -> sql.ColumnElement:
+    if not isinstance(format, _BindParameter):
+        return None  # Can only translate literal format strings at query-planning time
+    pg_fmt = _translate_strftime_format(format.value)
+    if pg_fmt is None:
+        return None
+    return sql.func.to_char(self, pg_fmt)
 
 
 @pxt.udf(is_method=True)

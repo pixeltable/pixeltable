@@ -123,6 +123,13 @@ def contains_re(self: str, pattern: str, flags: int = 0) -> bool:
     return bool(re.search(pattern, self, flags))
 
 
+@contains_re.to_sql
+def _(self: sql.ColumnElement, pattern: sql.ColumnElement, flags: sql.ColumnElement | None = None) -> sql.ColumnElement:
+    if flags is not None:
+        return None  # Can't handle arbitrary re flags in SQL
+    return self.op('~')(pattern)
+
+
 @pxt.udf(is_method=True)
 def count(self: str, pattern: str, flags: int = 0) -> int:
     """
@@ -133,6 +140,13 @@ def count(self: str, pattern: str, flags: int = 0) -> int:
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
     return builtins.len(re.findall(pattern, self, flags))
+
+
+@count.to_sql
+def _(self: sql.ColumnElement, pattern: sql.ColumnElement, flags: sql.ColumnElement | None = None) -> sql.ColumnElement:
+    if flags is not None:
+        return None  # Can't handle arbitrary re flags in SQL
+    return sql.func.regexp_count(self, pattern)
 
 
 @pxt.udf(is_method=True)
@@ -238,6 +252,23 @@ def fullmatch(self: str, pattern: str, case: bool = True, flags: int = 0) -> boo
         flags |= re.IGNORECASE
     _ = bool(re.fullmatch(pattern, self, flags))
     return bool(re.fullmatch(pattern, self, flags))
+
+
+@fullmatch.to_sql
+def _(
+    self: sql.ColumnElement,
+    pattern: sql.ColumnElement,
+    case: sql.ColumnElement | None = None,
+    flags: sql.ColumnElement | None = None,
+) -> sql.ColumnElement:
+    if flags is not None:
+        return None  # Can't handle arbitrary re flags in SQL
+    # Anchor pattern to match the full string; wrap in (?:...) to protect internal alternation
+    anchored = sql.func.concat('^(?:', pattern, ')$')
+    if case is None:
+        # Default case=True: case-sensitive
+        return self.op('~')(anchored)
+    return sql.case((case, self.op('~')(anchored)), else_=self.op('~*')(anchored))
 
 
 @pxt.udf(is_method=True)
@@ -552,6 +583,23 @@ def match(self: str, pattern: str, case: bool = True, flags: int = 0) -> bool:
     return bool(re.match(pattern, self, flags))
 
 
+@match.to_sql
+def _(
+    self: sql.ColumnElement,
+    pattern: sql.ColumnElement,
+    case: sql.ColumnElement | None = None,
+    flags: sql.ColumnElement | None = None,
+) -> sql.ColumnElement:
+    if flags is not None:
+        return None  # Can't handle arbitrary re flags in SQL
+    # Anchor pattern to match at start of string; wrap in (?:...) to protect internal alternation
+    anchored = sql.func.concat('^(?:', pattern, ')')
+    if case is None:
+        # Default case=True: case-sensitive
+        return self.op('~')(anchored)
+    return sql.case((case, self.op('~')(anchored)), else_=self.op('~*')(anchored))
+
+
 @pxt.udf(is_method=True)
 def normalize(self: str, form: str) -> str:
     """
@@ -724,6 +772,19 @@ def replace_re(self: str, pattern: str, repl: str, n: int | None = None, flags: 
         flags: [flags](https://docs.python.org/3/library/re.html#flags) for the `re` module
     """
     return re.sub(pattern, repl, self, count=(n or 0), flags=flags)
+
+
+@replace_re.to_sql
+def _(
+    self: sql.ColumnElement,
+    pattern: sql.ColumnElement,
+    repl: sql.ColumnElement,
+    n: sql.ColumnElement | None = None,
+    flags: sql.ColumnElement | None = None,
+) -> sql.ColumnElement:
+    if n is not None or flags is not None:
+        return None  # Can't bound replacements or handle re flags in SQL
+    return sql.func.regexp_replace(self, pattern, repl, 'g')
 
 
 @pxt.udf(is_method=True)
