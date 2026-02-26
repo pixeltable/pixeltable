@@ -96,16 +96,15 @@ jobs:
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniconda-version: latest
+          miniforge-version: latest
           activate-environment: pxt
       - name: Install python
         run: |
-          conda install -y python=${{ matrix.python-version }} pip=25.0
-          conda info
+          ./scripts/retry.sh 3 30 mamba install -y -c conda-forge python=${{ matrix.python-version }}
+          mamba info
       - name: Install tools and libraries
         # cmake is needed for certain CI environments where it is not preinstalled.
-        # libiconv and ffmpeg are needed by WhisperX.
-        run: ./scripts/retry.sh 3 30 conda install -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
+        run: ./scripts/retry.sh 3 30 mamba install -c conda-forge 'cmake>=3.22' libiconv 'ffmpeg==6.1.1=gpl*'
       - name: Delete source tree
         run: rm -rf pixeltable  # Ensure we use pypi pixeltable package for testing, not local source tree
       - name: Install dependencies
@@ -171,6 +170,6 @@ jobs:
       - name: Install conda
         uses: conda-incubator/setup-miniconda@v3
         with:
-          miniconda-version: latest
+          miniforge-version: latest
       - name: Run isolated notebook tests
         run: ./scripts/run-isolated-nb-tests.sh ${{ matrix.python-version }}
