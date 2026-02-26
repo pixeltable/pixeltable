@@ -351,8 +351,14 @@ class Column:
         return col_md, sch_md
 
     def verify(self) -> None:
+        """Self-validation of a user column.
+
+        Verifies the column name and the combination of its user-configured properties.
+
+        Does nothing if it's a non-user column, i.e. a column without a name."""
         # TODO this verification should be done before or during the Column construction, not after it
         if self.name is None:
+            # Non-user columns are created internally by Pixeltable, thus need no validation
             return
         Column.validate_name(self.name)
         if self.stored is False and not self.is_computed:
