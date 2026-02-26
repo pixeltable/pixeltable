@@ -45,7 +45,7 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           sudo rm -rf /opt/hostedtoolcache
           df -h
-      - name: Install conda
+      - name: Install miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniforge-version: latest
@@ -89,7 +89,7 @@ jobs:
         with:
           detached: true
 
-      - name: Install conda
+      - name: Install miniforge
         uses: conda-incubator/setup-miniconda@v3
         with:
           miniforge-version: latest
