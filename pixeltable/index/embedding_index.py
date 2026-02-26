@@ -67,17 +67,19 @@ class EmbeddingIndex(IndexBase):
         video_embed: func.Function | None = None,
         column: catalog.Column | None = None,  # Used for validation when the indexed column is an array.
     ):
-        array_embed: func.Function | None = None
-        if column is not None and isinstance(column.col_type, ts.ArrayType) and array_embed is None:
-            from pixeltable.functions import identity
-
-            array_embed = identity
-
-        if not any((embed, string_embed, image_embed, audio_embed, video_embed, array_embed)):
+        # Skip validation in two cases:
+        # 1. column is None: deserialization path, no need to validate
+        # 2. column is an array type: similarity search uses the raw vector directly, no embedding function needed
+        if (
+            column is not None
+            and column.col_type._type != ts.ColumnType.Type.ARRAY
+            and not any((embed, string_embed, image_embed, audio_embed, video_embed))
+        ):
             raise excs.Error(
-                'At least one of `embed`, `string_embed`, `image_embed`, `audio_embed`, `video_embed` '
-                'or `array_embed` must be specified'
+                'At least one of `embed`, `string_embed`, `image_embed`, `audio_embed` or `video_embed` '
+                'must be specified'
             )
+
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
@@ -93,7 +95,6 @@ class EmbeddingIndex(IndexBase):
             (ts.ColumnType.Type.IMAGE, image_embed),
             (ts.ColumnType.Type.AUDIO, audio_embed),
             (ts.ColumnType.Type.VIDEO, video_embed),
-            (ts.ColumnType.Type.ARRAY, array_embed),
         ):
             if embed_fn is not None:
                 # Embedding function for the requisite type is specified directly; it MUST be valid.
@@ -110,12 +111,11 @@ class EmbeddingIndex(IndexBase):
                 if resolved_fn is not None:
                     self.embeddings[embed_type] = resolved_fn
 
-        if len(self.embeddings) == 0:
+        if embed and len(self.embeddings) == 0:
             # `embed` was specified and contains no matching signatures.
-            assert embed is not None
             raise excs.Error(
                 f'The function `{embed.name}` is not a valid embedding: '
-                'it must take a single string, image, audio, video, or array parameter'
+                'it must take a single string, image, audio or video parameter'
             )
 
         # Now validate the return types of the embedding functions.
@@ -220,8 +220,12 @@ class EmbeddingIndex(IndexBase):
 
     def similarity_clause(self, val_column: catalog.Column, item: exprs.Literal) -> sql.ColumnElement:
         """Create a ColumnElement that represents '<val_column> <op> <item>'"""
-        assert item.col_type._type in self.embeddings
-        embedding = self.embeddings[item.col_type._type].exec([item.val], {})
+        if item.col_type._type == ts.ColumnType.Type.ARRAY:
+            # Array value is already a vector; no embedding function needed.
+            embedding = item.val
+        else:
+            assert item.col_type._type in self.embeddings
+            embedding = self.embeddings[item.col_type._type].exec([item.val], {})
         assert isinstance(embedding, np.ndarray)
         self._validate_similarity_input_vector(embedding, val_column, item.col_type._type)
 
@@ -235,14 +239,16 @@ class EmbeddingIndex(IndexBase):
         elif self.metric == self.Metric.IP:
             return val_column.sa_col.max_inner_product(embedding) * neg_one
         else:
-            assert self.metric == self.Metric.L2
-            # Convert distance to similarity: similarity = 1 / (1 + distance)
-            return one / (one + val_column.sa_col.l2_distance(embedding))
+            return val_column.sa_col.l2_distance(embedding)
 
     def order_by_clause(self, val_column: catalog.Column, item: exprs.Literal, is_asc: bool) -> sql.ColumnElement:
         """Create a ColumnElement that is used in an ORDER BY clause"""
-        assert item.col_type._type in self.embeddings
-        embedding = self.embeddings[item.col_type._type].exec([item.val], {})
+        if item.col_type._type == ts.ColumnType.Type.ARRAY:
+            # Array value is already a vector; no embedding function needed.
+            embedding = item.val
+        else:
+            assert item.col_type._type in self.embeddings
+            embedding = self.embeddings[item.col_type._type].exec([item.val], {})
         assert isinstance(embedding, np.ndarray)
         self._validate_similarity_input_vector(embedding, val_column, item.col_type._type)
 
@@ -300,19 +306,19 @@ class EmbeddingIndex(IndexBase):
                 f'The function `{embed_fn.name}` is not a valid embedding: '
                 f'it must return an array, but returns {return_type}'
             )
-
         shape = return_type.shape
-        if embed_fn.name != 'identity':  # skip shape checks for identity function
-            if shape is None or len(shape) != 1:
-                raise excs.Error(
-                    f'The function `{embed_fn.name}` is not a valid embedding: '
-                    f'it must return a 1-dimensional array, but returns {return_type}'
-                )
-            if shape[0] is not None and shape[0] <= 0:
-                raise excs.Error(
-                    f'The function `{embed_fn.name}` is not a valid embedding: '
-                    f'it returns an array of invalid length {shape[0]}'
-                )
+        if shape is None or len(shape) != 1:
+            raise excs.Error(
+                f'The function `{embed_fn.name}` is not a valid embedding: '
+                f'it must return a 1-dimensional array, but returns {return_type}'
+            )
+        if shape[0] is None:
+            raise excs.Error('Embedding function must return a 1-dimensional array of a specific length.')
+        if shape[0] <= 0:
+            raise excs.Error(
+                f'The function `{embed_fn.name}` is not a valid embedding: '
+                f'it returns an array of invalid length {shape[0]}'
+            )
 
         # Deserialization when no column context is passed, skip column-specific validation.
         if column is None:
@@ -331,8 +337,6 @@ class EmbeddingIndex(IndexBase):
                     f'The function `{embed_fn.name}` returns an array with shape {shape}, '
                     f'but column {column.name!r} has shape {col_shape}'
                 )
-        elif shape[0] is None:
-            raise excs.Error('Embedding function must return a 1-dimensional array of a specific length.')
 
     def as_dict(self) -> dict:
         d: dict[str, Any] = {'metric': self.metric.name.lower(), 'precision': self.precision.value}
@@ -347,7 +351,7 @@ class EmbeddingIndex(IndexBase):
         image_embed = func.Function.from_dict(d['image_embed']) if d.get('image_embed') is not None else None
         audio_embed = func.Function.from_dict(d['audio_embed']) if d.get('audio_embed') is not None else None
         video_embed = func.Function.from_dict(d['video_embed']) if d.get('video_embed') is not None else None
-        array_embed = func.Function.from_dict(d['array_embed']) if d.get('array_embed') is not None else None
+
         return cls(
             metric=d['metric'],
             precision=d['precision'],
@@ -356,5 +360,4 @@ class EmbeddingIndex(IndexBase):
             image_embed=image_embed,
             audio_embed=audio_embed,
             video_embed=video_embed,
-            array_embed=array_embed,
         )

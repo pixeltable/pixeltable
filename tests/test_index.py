@@ -13,7 +13,6 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env
-from pixeltable.functions import identity
 from pixeltable.functions.huggingface import clip
 
 from .utils import (
@@ -721,9 +720,8 @@ class TestIndex:
         with pytest.raises(pxt.Error) as exc_info:
             # no embedding function specified
             img_t.add_embedding_index('img')
-        assert (
-            '`embed`, `string_embed`, `image_embed`, `audio_embed`, `video_embed` or `array_embed` must be specified'
-            in str(exc_info.value)
+        assert '`embed`, `string_embed`, `image_embed`, `audio_embed` or `video_embed` must be specified' in str(
+            exc_info.value
         )
 
         with pytest.raises(pxt.Error, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."):
@@ -756,7 +754,7 @@ class TestIndex:
         with pytest.raises(
             pxt.Error,
             match=r'The function `clip` is not a valid embedding: '
-            'it must take a single string, image, audio, video, or array parameter',
+            'it must take a single string, image, audio or video parameter',
         ):
             # no matching signature
             img_t.add_embedding_index('img', embedding=clip)
@@ -988,76 +986,79 @@ class TestIndex:
     def test_array_column_embedding_index(
         self, uses_db: None, e5_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
-        skip_test_if_not_installed('sentence_transformers')
-
-        from sentence_transformers import SentenceTransformer
+        skip_test_if_not_installed('transformers')
 
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
-        model = SentenceTransformer('intfloat/e5-large-v2')
-        precomputed_embeddings = model.encode(texts, convert_to_numpy=True)
-        dim = precomputed_embeddings[0].shape[0]
+        t = pxt.create_table('array_embedding_test', {'id': pxt.Int, 'text': pxt.String})
+        validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
+        precomputed_embeddings = t.select(emb=e5_embed(t.text)).collect()['emb']
+        dim = len(precomputed_embeddings[0])
         precomputed_embeddings_f64 = [v.astype(np.float64) for v in precomputed_embeddings]
-        t = pxt.create_table(
-            'array_embedding_test',
-            {
-                'id': pxt.Int,
-                'text': pxt.String,
-                'precomputed_embeddings': pxt.Array[(dim,), np.float32],  # type: ignore[misc]
-                'precomputed_embeddings_f64': pxt.Array[(dim,), np.float64],  # type: ignore[misc]
-            },
-            if_exists='replace',
-        )
-        validate_update_status(
-            t.insert(
-                [
+        t.add_column(precomputed_embeddings=pxt.Array[(dim,), np.float32])  # type: ignore[misc]
+        t.add_column(precomputed_embeddings_f64=pxt.Array[(dim,), np.float64])  # type: ignore[misc]
+        for i in range(len(texts)):
+            validate_update_status(
+                t.where(t.id == i).update(
                     {
-                        'id': i,
-                        'text': s,
                         'precomputed_embeddings': precomputed_embeddings[i],
-                        'precomputed_embeddings_f64': precomputed_embeddings_f64[i]
+                        'precomputed_embeddings_f64': precomputed_embeddings_f64[i],
                     }
-                    for i, s in enumerate(texts)
-                ]
-            ),
-            expected_rows=3,
-        )
+                ),
+                expected_rows=1,
+            )
         t.add_computed_column(embedding=e5_embed(t.text))
+        # embedding index on text column
+        t.add_embedding_index('text', idx_name='emd_idx_text', embedding=e5_embed, metric='cosine', precision='fp32')
+        # embedding index on computed column
         t.add_embedding_index(
-            'embedding', idx_name='emb_computed', embedding=e5_embed, metric='cosine', precision='fp32'
+            'embedding', idx_name='emb_idx_computed', embedding=e5_embed, metric='cosine', precision='fp32'
         )
         # f32 precomputed embedding with string embedding function
-        t.add_embedding_index('precomputed_embeddings', idx_name='emb_stored', string_embed=e5_embed, metric='cosine', precision='fp32')
-        # f64 precomputed embedding column with string embedding function
         t.add_embedding_index(
-            'vec64', idx_name='emb_stored64', string_embed=e5_embed, metric='cosine', precision='fp32'
+            'precomputed_embeddings',
+            idx_name='emb_idx_stored',
+            string_embed=e5_embed,
+            metric='cosine',
+            precision='fp32',
         )
-        # add another index but without array_embed
-        t.add_embedding_index('vec_array_f32', idx_name='emb_array_f32_l2', metric='l2', precision='fp32')
+        # f64 precomputed embedding column without any embedding function, should be searchable by vector
+        t.add_embedding_index(
+            'precomputed_embeddings_f64', idx_name='emb_idx_stored64', metric='cosine', precision='fp32'
+        )
         best = 'a cat sitting on a mat'
         best_vec = precomputed_embeddings[texts.index(best)]
         # Test string similarity on computed column and array columns with string embedding function
-        for col_name, idx_name in [('embedding', 'emb_computed'), ('vec', 'emb_stored'), ('vec64', 'emb_stored64')]:
+        for col_name, idx_name, has_string_embed_fn in [
+            ('text', 'emd_idx_text', True),
+            ('embedding', 'emb_idx_computed', True),
+            ('precomputed_embeddings', 'emb_idx_stored', True),
+            ('precomputed_embeddings_f64', 'emb_idx_stored64', False),
+        ]:
             col = getattr(t, col_name)
-            sim = col.similarity(string='a cat', idx=idx_name)
-            query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
-            res = reload_tester.run_query(query)
-            assert len(res) == 3, col_name
-            assert res[0]['text'] == best, col_name
-            sim_vals = [r['sim'] for r in res]
-            assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
-                f'{col_name}:{idx_name}: similarity scores must be descending; got {sim_vals}'
-            )
-        # Search by vector (array modality)
-        for idx_name in ('emb_array_f32_cosine', 'emb_array_f32_l2'):
-            sim = t.vec_array_f32.similarity(array=best_vec, idx=idx_name)
+
+            # search by string/text
+            if has_string_embed_fn:
+                sim = col.similarity(string='a cat', idx=idx_name)
+                query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
+                res = reload_tester.run_query(query)
+                assert len(res) == 3, col_name
+                assert res[0]['text'] == best, col_name
+                sim_vals = [r['sim'] for r in res]
+                assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
+                    f'{col_name}:{idx_name}: similarity scores must be descending; got {sim_vals}'
+                )
+
+            # search by embedding vector on - should work with all embedding indices
+            sim = col.similarity(embedding=best_vec, idx=idx_name)
             query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
             res = reload_tester.run_query(query)
             assert len(res) == 3
             assert res[0]['text'] == best
             sim_vals = [r['sim'] for r in res]
             assert all(sim_vals[i] >= sim_vals[i + 1] for i in range(len(sim_vals) - 1)), (
-                f'vec_array_f32({idx_name}: similarity scores must be descending; got {sim_vals}'
+                f'precomputed_embeddings({idx_name}): similarity scores must be descending; got {sim_vals}'
             )
+
         reload_tester.run_reload_test()
 
     @staticmethod
@@ -1072,6 +1073,5 @@ class TestIndex:
             if_exists='replace',
         )
         t.insert([{'id': 0, 'vec': np.zeros(384, dtype=np.float32)}])
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='shape'):
             t.add_embedding_index('vec', embedding=self._embed_wrong_shape)
-        assert 'shape' in str(exc_info.value).lower()

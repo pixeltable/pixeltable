@@ -357,8 +357,8 @@ class TestMigration:
         # Verify comment and custom_metadata for view_of_views
         assert vv.get_metadata()['comment'] == 'This is a test view of views.'
         assert vv.get_metadata()['custom_metadata'] == {'view_of_views_key': 'view_of_views_value'}
-        
-	# TODO: Once we migrate we should have no more '' as comments
+
+        # TODO: Once we migrate we should have no more '' as comments
         assert no_comment.get_metadata()['comment'] in (None, '')
         assert no_comment.get_metadata()['custom_metadata'] in (None, '')
 

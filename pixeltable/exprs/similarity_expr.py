@@ -76,7 +76,8 @@ class SimilarityExpr(Expr):
         idx = idx_info.idx
         assert isinstance(idx, EmbeddingIndex)
 
-        if item.col_type._type not in idx.embeddings:
+        # Skip for array columns; similarity search uses the raw vector directly.
+        if item.col_type._type != ts.ColumnType.Type.ARRAY and item.col_type._type not in idx.embeddings:
             type_str = item.col_type._type.name.lower()
             article = 'an' if type_str[0] in 'aeiou' else 'a'
             raise excs.Error(
