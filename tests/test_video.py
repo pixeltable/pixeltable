@@ -10,7 +10,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
-from pixeltable.functions.video import frame_iterator, video_splitter
+from pixeltable.functions.video import frame_iterator, legacy_frame_iterator, video_splitter
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -25,14 +25,13 @@ from .utils import (
 
 class TestVideo:
     def create_tbls(
-        self, base_name: str = 'video_tbl', view_name: str = 'frame_view', all_frame_attrs: bool = True
+        self, base_name: str = 'video_tbl', view_name: str = 'frame_view', use_legacy_schema: bool = False
     ) -> tuple[pxt.Table, pxt.Table]:
         pxt.drop_table(view_name, if_not_exists='ignore')
         pxt.drop_table(base_name, if_not_exists='ignore')
         base_t = pxt.create_table(base_name, {'video': pxt.Video})
-        view_t = pxt.create_view(
-            view_name, base_t, iterator=frame_iterator(base_t.video, fps=1, all_frame_attrs=all_frame_attrs)
-        )
+        iterator = legacy_frame_iterator if use_legacy_schema else frame_iterator
+        view_t = pxt.create_view(view_name, base_t, iterator=iterator(base_t.video, fps=1))
         return base_t, view_t
 
     def create_and_insert(self, stored: bool | None, paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
@@ -133,13 +132,10 @@ class TestVideo:
         for p in get_video_files():
             for kwargs in (
                 {},
-                {'all_frame_attrs': True},
                 {'fps': 0.5},
                 {'fps': 3},
-                {'fps': 3, 'all_frame_attrs': True},
                 {'fps': 1000},
                 {'num_frames': 10},
-                {'num_frames': 10, 'all_frame_attrs': True},
                 {'num_frames': 50},
                 {'num_frames': 10000},
             ):
@@ -165,10 +161,8 @@ class TestVideo:
         videos = pxt.create_table('videos', {'video': pxt.Video})
 
         # Test keyframes_only=True extracts all keyframes
-        keyframes = pxt.create_view(
-            'keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True, all_frame_attrs=True)
-        )
-        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=0, all_frame_attrs=True))
+        keyframes = pxt.create_view('keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True))
+        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=None))
 
         videos.insert(video=path)
 
@@ -202,11 +196,11 @@ class TestVideo:
 
     def test_frame_attrs(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        base_t, view_t = self.create_tbls(all_frame_attrs=True)
+        base_t, view_t = self.create_tbls(use_legacy_schema=False)
         base_t.insert([{'video': video_filepaths[0]}])
         all_attrs = set(view_t.limit(1).select(view_t.frame_attrs).collect()[0, 0].keys())
         assert all_attrs == {'index', 'pts', 'dts', 'time', 'is_corrupt', 'key_frame', 'pict_type', 'interlaced_frame'}
-        _, view_t = self.create_tbls(all_frame_attrs=False)
+        _, view_t = self.create_tbls(use_legacy_schema=True)
         default_attrs = set(view_t.get_metadata()['columns'].keys())
         assert default_attrs == {'frame', 'pos', 'frame_idx', 'pos_msec', 'pos_frame', 'video'}
 
@@ -1222,9 +1216,7 @@ class TestVideo:
 
         # make sure the output is usable for the VideoSplitter
         v = pxt.create_view(
-            'scenes_view',
-            t,
-            iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate'),  # type: ignore[arg-type]
+            'scenes_view', t, iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate')
         )
         _ = v.collect()
 

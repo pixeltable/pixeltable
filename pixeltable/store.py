@@ -249,16 +249,24 @@ class StoreBase:
             self.create_index(id)
 
     def create_index(self, idx_id: int) -> None:
-        """Create If Not Exists for this index"""
+        """Create index if not exists"""
         idx_info = self.tbl_version.get().idxs[idx_id]
         stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
         self._exec_if_not_exists(str(stmt), wait_for_table=True)
 
     def drop_index(self, idx_id: int) -> None:
-        """Drop If Exists for this index"""
+        """Drop index if exists"""
         idx_info = self.tbl_version.get().idxs[idx_id]
-        stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
-        self._exec_if_not_exists(str(stmt), wait_for_table=True)
+        store_index_name = self.tbl_version.get()._store_idx_name(idx_id)
+        stmt = idx_info.idx.sa_drop_stmt(store_index_name, idx_info.val_col.sa_col)
+        with Env.get().begin_xact(for_write=True) as conn:
+            try:
+                conn.execute(sql.text(str(stmt)))
+            except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
+                Env.get().console_logger.info(f'{stmt} failed with: {e}')
+                if not isinstance(e.orig, psycopg.errors.UndefinedTable):
+                    raise
+                # Table no longer exists -- nothing to drop, ignore error
 
     def validate(self) -> None:
         """Validate store table against self.table_version"""
@@ -628,7 +636,10 @@ class StoreComponentView(StoreView):
             tbl_version = self.tbl_version.get()
         super().create_sa_tbl(tbl_version)
         # we need to fix up the 'pos' column in TableVersion
-        tbl_version.cols_by_name['pos'].sa_col = self.pos_col
+        # it is always the first column in iteration order.
+        name, pxt_pos_col = next(iter(tbl_version.cols_by_name.items()))
+        assert name == 'pos' or name.startswith('pos_'), name
+        pxt_pos_col.sa_col = self.pos_col
 
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.and_(

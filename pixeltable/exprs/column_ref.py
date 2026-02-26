@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Any, Sequence, cast
+from typing import TYPE_CHECKING, Any, Iterator, Sequence, cast
 from uuid import UUID
 
 import numpy as np
@@ -10,8 +10,8 @@ import sqlalchemy as sql
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
-import pixeltable.iterators as iters
 import pixeltable.type_system as ts
+from pixeltable import func
 from pixeltable.catalog.table_version import TableVersionKey
 
 from ..utils.description_helper import DescriptionHelper
@@ -63,7 +63,7 @@ class ColumnRef(Expr):
 
     # execution state
     base_rowid: Sequence[Any | None]
-    iterator: iters.ComponentIterator | None
+    iterator: Iterator
     pos_idx: int
 
     def __init__(
@@ -429,11 +429,12 @@ class ColumnRef(Expr):
             assert self.iter_arg_ctx is not None
             row_builder.eval(data_row, self.iter_arg_ctx)
             iterator_args = data_row[self.iter_arg_ctx.target_slot_idxs[0]]
-            self.iterator = self.col.get_tbl().iterator_cls(**iterator_args)
+            self.iterator = self.col.get_tbl().iterator_call.eval(iterator_args)
             self.base_rowid = data_row.pk[: self.base_rowid_len]
         stored_outputs = {col_ref.col.name: data_row[col_ref.slot_idx] for col_ref in self.iter_outputs}
         assert all(name is not None for name in stored_outputs)
-        self.iterator.set_pos(data_row.pk[self.pos_idx], **stored_outputs)
+        assert isinstance(self.iterator, func.PxtIterator)  # Otherwise we could not have an unstored column
+        self.iterator.seek(data_row.pk[self.pos_idx], **stored_outputs)
         res = next(self.iterator)
         data_row[self.slot_idx] = res[self.col.name]
 

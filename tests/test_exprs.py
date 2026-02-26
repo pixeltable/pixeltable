@@ -20,7 +20,7 @@ from pixeltable import exprs, functions as pxtf
 from pixeltable.catalog import Catalog
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
-from pixeltable.functions.video import frame_iterator
+from pixeltable.functions.video import legacy_frame_iterator
 
 from .utils import (
     ReloadTester,
@@ -1216,7 +1216,7 @@ class TestExprs:
 
         # ordering conflict between frame extraction and window fn
         base_t = pxt.create_table('videos', {'video': pxt.Video, 'c2': pxt.Int})
-        v = pxt.create_view('frame_view', base_t, iterator=frame_iterator(base_t.video, fps=0))
+        v = pxt.create_view('frame_view', base_t, iterator=legacy_frame_iterator(base_t.video))
         # compatible ordering
         _ = v.select(v.frame, pxtf.sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
         with pytest.raises(pxt.Error):
