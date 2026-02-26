@@ -189,7 +189,7 @@ class TestView:
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace' cannot drop a view with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(pxt.Error, match='already exists'):
+        with pytest.raises(pxt.Error, match='has dependents'):
             v3 = pxt.create_view('test_view', t, if_exists='replace')
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace_force' should drop the existing view and

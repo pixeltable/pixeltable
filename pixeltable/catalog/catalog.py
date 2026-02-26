@@ -2604,7 +2604,7 @@ class Catalog:
         # IfExistsParam.REPLACE or IfExistsParam.REPLACE_FORCE: Drop existing object if it matches expected type (and base table for views/snapshots)
         assert if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
 
-        # check to ensure that dirs can only be replaced with dirs, and all table subtypes can replace eachother
+        # check to ensure that dirs can only be replaced with dirs, and all table subtypes can replace each other
         if expected_obj_type == Dir and not isinstance(obj, Dir):
             raise excs.Error(f'Path {path!r} already exists as a {obj._display_name()}; expected a directory')
         if expected_obj_type != Dir and isinstance(obj, Dir):

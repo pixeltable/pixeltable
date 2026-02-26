@@ -79,7 +79,7 @@ class TestDirs:
         ):
             pxt.create_dir('dir1', if_exists='invalid')  # type: ignore[arg-type]
 
-        # scenrio 1: path already has a directory
+        # scenario 1: path already has a directory
 
         # if_exists='error' should raise error - already tested in test_create
 
