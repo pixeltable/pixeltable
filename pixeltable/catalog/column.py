@@ -348,26 +348,6 @@ class Column:
                 ) from err
 
     @classmethod
-    def create_iterator_columns(cls, output_dict: dict[str, ColumnType], unstored_cols: list[str]) -> list[Column]:
-        """
-        Creates iterator columns for a component view.
-
-        Args:
-            output_dict (dict[str, ColumnType]): output columns of the iterator
-            unstored_cols (list[str]): list of unstored column names of the iterator
-
-        Returns:
-            list[Column]: iterator columns
-        """
-        iterator_cols = [cls(_POS_COLUMN_NAME, ts.IntType(), is_iterator_col=True, stored=False)]
-        for col_name, col_type in output_dict.items():
-            stored = col_name not in unstored_cols
-            stores_cellmd = stored and (col_type.is_media_type() or col_type.supports_file_offloading())
-            col = cls(col_name, col_type, is_iterator_col=True, stored=stored, stores_cellmd=stores_cellmd)
-            iterator_cols.append(col)
-        return iterator_cols
-
-    @classmethod
     def create_stored_proxy_column(cls, col: Column) -> Column:
         """Creates a proxy column for the specified column."""
         from pixeltable import exprs

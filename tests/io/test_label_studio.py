@@ -381,7 +381,7 @@ class TestLabelStudio:
         assert not v.frame.col.is_stored
         assert v.count() == 10
         v.add_computed_column(rot_frame=v.frame.rotate(180))
-        v.add_computed_column(header=format('Frame Number {0}', v.frame_idx))
+        v.add_computed_column(header=format('Frame Number {0}', v.pos))
         v.add_column(text=pxt.String)
         v.update({'text': 'Initial text'})
 
@@ -400,7 +400,7 @@ class TestLabelStudio:
         assert len(tasks) == 10
 
         # Update a few rows in Pixeltable and check that they sync properly
-        v.update({'text': 'New text'}, v.frame_idx.isin([3, 8]))
+        v.update({'text': 'New text'}, v.pos.isin([3, 8]))
         assert all(tasks[i]['data']['text'] == 'Initial text' for i in range(10))  # Before syncing
         sync_status = v.sync()
         validate_sync_status(sync_status, 0, 2, 0, 0, 0)

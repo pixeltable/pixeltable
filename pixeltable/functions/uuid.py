@@ -106,7 +106,7 @@ def uuid7() -> uuid.UUID:
     return _uuid7()
 
 
-@pxt.udf
+@pxt.udf(is_method=True)
 def to_string(u: uuid.UUID) -> str:
     """
     Convert a UUID to its string representation.
@@ -130,7 +130,7 @@ def _(u: sql.ColumnElement) -> sql.ColumnElement:
     return u.cast(sql.Text)
 
 
-@pxt.udf
+@pxt.udf(is_method=True)
 def hex(u: uuid.UUID) -> str:
     """
     Convert a UUID to its hexadecimal representation.

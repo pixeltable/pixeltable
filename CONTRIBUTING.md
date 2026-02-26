@@ -42,18 +42,18 @@ already have standard developer tools such as `git` and `make` installed on your
 
 1. Set up your Python environment for Pixeltable
 
-    * Install Miniconda:
+    * Install Miniforge:
 
-        * <https://docs.anaconda.com/free/miniconda/index.html>
+        * <https://github.com/conda-forge/miniforge>
 
     * Create your conda environment:
 
-        * `conda create --name pxt python=3.10`
+        * `mamba create --name pxt python=3.10`
         * For development, we use Python 3.10 (the minimum supported version) to ensure compatibility.
 
     * Activate the conda environment:
 
-        * `conda activate pxt`
+        * `mamba activate pxt`
 
 2. Install Pixeltable
 
@@ -76,6 +76,32 @@ already have standard developer tools such as `git` and `make` installed on your
 
 We recommend VSCode for development: <https://code.visualstudio.com/>
 
+## Building and Serving Documentation Locally
+
+Pixeltable uses [Mintlify](https://mintlify.com) for documentation. If you're contributing to the docs, you may want to build and preview them locally before submitting a PR.
+
+### Working with the Docs
+
+If you've followed the installation instructions above (`make install`), you already have everything you need to build and serve the documentation locally. Node.js and the Mintlify CLI are automatically installed into your conda environment.
+
+Use these Makefile commands to work with the documentation:
+
+* `make` - Print Makefile help with all available commands
+* `make docs` - Build the docs locally
+* `make docs-serve` - Build the docs locally, start a local Mintlify server, and open a browser tab
+
+The `make docs-serve` command will automatically open your browser to `http://localhost:3000` where you can preview your changes. Any changes you make to your documentation files will be reflected in real-time in your browser.
+
+### Adding New SDK Features to Documentation
+
+If you're adding new functions, classes, or other SDK features, you'll need to update two configuration files to ensure they appear in the documentation:
+
+1. **Update `docs/public_api.opml`**: Add entries for your new SDK features in this file. This file controls which API elements are documented.
+
+2. **Update `docs/release/docs.json`**: Add entries for your new SDK pages in this file. This file controls the documentation site's navigation structure and determines which pages appear in the SDK reference section.
+
+After updating these files, rebuild the docs with `make docs` to verify that your new SDK features appear correctly in the documentation.
+
 ## Crafting a pull request
 
 Once you've set up your dev environment, you're ready to start contributing PRs.
@@ -97,6 +123,9 @@ Once you've set up your dev environment, you're ready to start contributing PRs.
         eventually gets merged to `main`.
     * Use `make format` to format your Python code, and `make check` for static checks. These checks are
         enforced by CI during pull request.
+    * If you're updating documentation, use `make docs-serve` to preview your changes locally before submitting
+        your PR (requires Node.js and Mintlify CLI installation - see "Building and Serving Documentation Locally"
+        section above).
 
 3. Create a pull request
 

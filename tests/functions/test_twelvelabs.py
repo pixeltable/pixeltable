@@ -67,7 +67,7 @@ class TestTwelveLabs:
             'audio_chunks',
             base_t,
             # Twelvelabs models require a minimum audio duration of 4 seconds
-            iterator=audio_splitter(base_t.audio, chunk_duration_sec=5.0, min_chunk_duration_sec=4.0),
+            iterator=audio_splitter(base_t.audio, segment_duration_sec=5.0, min_segment_duration_sec=4.0),
         )
         v.add_embedding_index(v.audio_chunk, embedding=embed.using(model_name='marengo3.0'))
         res = v.select(embedding=v.audio_chunk.embedding()).collect()
