@@ -15,6 +15,10 @@ from pixeltable import env, type_system as ts
 from pixeltable.func import Batch
 from pixeltable.utils.code import local_public_names
 
+if TYPE_CHECKING:
+    from voyageai import AsyncClient
+    from voyageai.video_utils import Video
+
 # Default embedding dimensions for Voyage AI models
 _embedding_dimensions_cache: dict[str, int] = {
     'voyage-3-large': 1024,
@@ -30,9 +34,6 @@ _embedding_dimensions_cache: dict[str, int] = {
     'voyage-large-2': 1536,
     'voyage-2': 1024,
 }
-
-if TYPE_CHECKING:
-    from voyageai import AsyncClient
 
 
 @env.register_client('voyage')
@@ -55,7 +56,7 @@ async def embeddings(
     truncation: bool | None = None,
     output_dimension: int | None = None,
     output_dtype: Literal['float', 'int8', 'uint8', 'binary', 'ubinary'] | None = None,
-) -> Batch[pxt.Array[(None,), pxt.Float]]:
+) -> Batch[pxt.Array[(None,), np.float32]]:
     """
     Creates an embedding vector representing the input text.
 
@@ -101,6 +102,7 @@ async def embeddings(
         ...     'text', string_embed=embeddings.using(model='voyage-3.5')
         ... )
     """
+    env.Env.get().require_package('voyageai')
     cl = _voyageai_client()
 
     # Build kwargs for the API call
@@ -116,7 +118,7 @@ async def embeddings(
 
     result = await cl.embed(texts=input, model=model, **kwargs)
     # TODO: set output dtype correctly based on output_dtype parameter
-    return [np.array(emb, dtype=np.float64) for emb in result.embeddings]
+    return [np.array(emb, dtype=np.float32) for emb in result.embeddings]
 
 
 @embeddings.conditional_return_type
@@ -207,16 +209,12 @@ async def rerank(
     }
 
 
-@pxt.udf(batch_size=32, resource_pool='request-rate:voyageai')
+@pxt.udf(batch_size=4, resource_pool='request-rate:voyageai')
 async def multimodal_embed(
-    text: Batch[str],
-    *,
-    model: str = 'voyage-multimodal-3',
-    input_type: Literal['query', 'document'] | None = None,
-    truncation: bool = True,
-) -> Batch[pxt.Array[(1024,), pxt.Float]]:
+    text: Batch[str], *, model: str, input_type: Literal['query', 'document'] | None = None, truncation: bool = True
+) -> Batch[pxt.Array[(1024,), np.float32]]:
     """
-    Creates an embedding vector for text or images using Voyage AI's multimodal model.
+    Creates an embedding vector for text, images, or video using Voyage AI's multimodal model.
 
     Equivalent to the Voyage AI `multimodal_embed` API endpoint.
     For additional details, see: <https://docs.voyageai.com/docs/multimodal-embeddings>
@@ -231,6 +229,8 @@ async def multimodal_embed(
 
     Args:
         text: The text to embed.
+        image: The image to embed.
+        video: The video to embed.
         model: The model to use. Currently only `voyage-multimodal-3` is supported.
         input_type: Type of the input. Options: `None`, `query`, `document`.
             For retrieval/search, set to `query` or `document` as appropriate.
@@ -250,52 +250,52 @@ async def multimodal_embed(
 
         >>> tbl.add_embedding_index(
         ...     'description',
-        ...     string_embed=multimodal_embed.using(model='voyage-multimodal-3'),
-        ... )
-
-        Embed an image column `img`:
-
-        >>> tbl.add_computed_column(
-        ...     embed=multimodal_embed(tbl.img, input_type='document')
+        ...     embed=multimodal_embed.using(model='voyage-multimodal-3'),
         ... )
     """
+    env.Env.get().require_package('voyageai')
     cl = _voyageai_client()
 
     # Build inputs: each text becomes a single-element content list
-    inputs: list[list[str | PIL.Image.Image]] = [[t] for t in text]
-
-    kwargs: dict[str, Any] = {}
-    if input_type is not None:
-        kwargs['input_type'] = input_type
-    if truncation is not None:
-        kwargs['truncation'] = truncation
-
-    result = await cl.multimodal_embed(inputs=inputs, model=model, **kwargs)
-    return [np.array(emb, dtype=np.float64) for emb in result.embeddings]
+    inputs: list[list[str | PIL.Image.Image | 'Video']] = [[t] for t in text]
+    result = await cl.multimodal_embed(inputs=inputs, model=model, input_type=input_type, truncation=truncation)
+    return [np.array(emb, dtype=np.float32) for emb in result.embeddings]
 
 
 @multimodal_embed.overload
 async def _(
     image: Batch[PIL.Image.Image],
     *,
-    model: str = 'voyage-multimodal-3',
+    model: str,
     input_type: Literal['query', 'document'] | None = None,
     truncation: bool = True,
-) -> Batch[pxt.Array[(1024,), pxt.Float]]:
-    """Image overload for multimodal_embed - embeds images using the multimodal model."""
+) -> Batch[pxt.Array[(1024,), np.float32]]:
+    env.Env.get().require_package('voyageai')
     cl = _voyageai_client()
 
     # Build inputs: each image becomes a single-element content list
-    inputs: list[list[str | PIL.Image.Image]] = [[img] for img in image]
+    inputs: list[list[str | PIL.Image.Image | 'Video']] = [[img] for img in image]
+    result = await cl.multimodal_embed(inputs=inputs, model=model, input_type=input_type, truncation=truncation)
+    return [np.array(emb, dtype=np.float32) for emb in result.embeddings]
 
-    kwargs: dict[str, Any] = {}
-    if input_type is not None:
-        kwargs['input_type'] = input_type
-    if truncation is not None:
-        kwargs['truncation'] = truncation
 
-    result = await cl.multimodal_embed(inputs=inputs, model=model, **kwargs)
-    return [np.array(emb, dtype=np.float64) for emb in result.embeddings]
+@multimodal_embed.overload
+async def _(
+    video: Batch[pxt.Video],
+    *,
+    model: str,
+    input_type: Literal['query', 'document'] | None = None,
+    truncation: bool = True,
+) -> Batch[pxt.Array[(1024,), np.float32]]:
+    env.Env.get().require_package('voyageai')
+    from voyageai.video_utils import Video
+
+    cl = _voyageai_client()
+
+    # Build inputs: each video becomes a single-element content list
+    inputs: list[list[str | PIL.Image.Image | Video]] = [[Video.from_path(vid, model=model)] for vid in video]
+    result = await cl.multimodal_embed(inputs=inputs, model=model, input_type=input_type, truncation=truncation)
+    return [np.array(emb, dtype=np.float32) for emb in result.embeddings]
 
 
 __all__ = local_public_names(__name__)
