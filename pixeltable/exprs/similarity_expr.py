@@ -24,7 +24,6 @@ if TYPE_CHECKING:
 class SimilarityExpr(Expr):
     """
     A similarity expression against an embedding index.
-    Resolved by index name so that drop + recreate under the same name still works.
     """
 
     table_version_key: TableVersionKey
@@ -65,10 +64,10 @@ class SimilarityExpr(Expr):
         # determine index to use
         if self.idx_name is None:
             # Look up index by column
-            idx_info = tv.get_idx(column, idx_name, EmbeddingIndex)
+            idx_info = tv.get_idx(column, None, EmbeddingIndex)
             self.idx_name = idx_info.name
         else:
-            # Lookup index by name
+            # Look up index by name
             idx_info = tv.idxs_by_name.get(idx_name)
             if idx_info is None:
                 raise excs.Error(f'Index {idx_name!r} not found for column {column.name!r}')
@@ -87,8 +86,12 @@ class SimilarityExpr(Expr):
         self.id = self._create_id()
 
     def __repr__(self) -> str:
-        idx_info = self._resolve_idx()
-        return f'{idx_info.name}.similarity({self.components[0]})'
+        assert self.idx_name is not None
+        assert self.col_id is not None
+
+        tbl_version = catalog.Catalog.get().get_tbl_version(self.table_version_key, validate_initialized=True)
+        col = tbl_version.cols_by_id[self.col_id]
+        return f'{col.name}.{self.idx_name}.similarity({self.components[0]})'
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('idx_name', self.idx_name)]

@@ -1128,6 +1128,10 @@ class TestExprs:
         assert sim1.id == sim2.id
         assert sim1.serialize() == sim2.serialize()
 
+        # Test repr
+        assert repr(sim1) == "img.img_idx0.similarity('red truck')"
+        assert repr(sim2) == "img.img_idx0.similarity('red truck')"
+
         # Deprecated pattern; verify it still gives the same results
         with pytest.warns(
             DeprecationWarning, match=r'Use of similarity\(\) without specifying an explicit modality is deprecated'
@@ -1145,6 +1149,10 @@ class TestExprs:
         sim2 = t2.img.similarity(string='red truck', idx='img_idx2')
         assert sim1.id != sim2.id
         assert sim1.serialize() != sim2.serialize()
+
+        # Test repr
+        assert repr(sim1) == "img.img_idx1.similarity('red truck')"
+        assert repr(sim2) == "img.img_idx2.similarity('red truck')"
 
     def test_ids(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]
