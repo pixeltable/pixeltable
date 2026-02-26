@@ -22,8 +22,7 @@ class OpStatus(Enum):
 
 @dataclasses.dataclass
 class TableOp:
-    """TableOp describes an individual operation that needs to be performed on the table, typically as part of a schema
-    change.
+    """TableOp describes an individual operation that needs to be performed on the table.
 
     If needs_xact is True, the TableOp is executed, and its state is updated as part of a single store transaction.
     Otherwise, the op is executed outside of the store transaction. Such operations (including undo) must be idempotent
