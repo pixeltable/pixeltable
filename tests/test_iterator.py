@@ -655,10 +655,14 @@ class TestIterator:
         t = pxt.create_table('test_nested', schema={'input': pxt.Int})
         t.insert([{'input': n}])
 
-        v1 = pxt.create_view('v1', t, iterator=simple_iterator(t.input), additional_columns={'additional_col_1': pxt.Int})
+        v1 = pxt.create_view(
+            'v1', t, iterator=simple_iterator(t.input), additional_columns={'additional_col_1': pxt.Int}
+        )
         assert len(v1.collect()) == n
 
-        v2 = pxt.create_view('v2', v1, iterator=simple_iterator(v1.icol), additional_columns={'additional_col_2': pxt.Int})
+        v2 = pxt.create_view(
+            'v2', v1, iterator=simple_iterator(v1.icol), additional_columns={'additional_col_2': pxt.Int}
+        )
         assert len(v2.collect()) == n * (n - 1) // 2
 
         for _ in range(2):

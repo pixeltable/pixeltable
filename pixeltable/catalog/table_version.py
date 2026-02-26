@@ -242,7 +242,8 @@ class TableVersion:
         self.num_iterator_cols = 0
         if self.view_md is not None and self.view_md.iterator_call is not None:
             self.iterator_call = GeneratingFunctionCall.from_dict(self.view_md.iterator_call)
-            # iterator_call.outputs includes the automatically added pos column, which we do not consider an iterator column
+            # iterator_call.outputs includes the automatically added pos column, which we do not consider an iterator
+            # column
             self.num_iterator_cols = len(self.iterator_call.outputs) - 1
 
         self.mutable_views = frozenset(mutable_views)
