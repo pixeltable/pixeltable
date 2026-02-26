@@ -497,29 +497,12 @@ class RowBuilder:
         """
         from pixeltable.exprs.column_property_ref import ColumnPropertyRef
 
-        def _get_default_value(col: catalog.Column) -> Any:
-            """Get default value for a column, initializing value_expr if needed."""
-            col.init_value_expr(None)  # idempotent: no-op if already initialized
-            assert col.value_expr is not None and isinstance(col.value_expr, exprs.Literal), (
-                f'Column {col.name!r} has default value but value_expr is not a Literal'
-            )
-            return col.value_expr.stored_value
-
-        def _is_null(val: Any, col: catalog.Column) -> bool:
-            """Check if value is NULL (None or sql.sql.null() for JSON types)."""
-            return val is None or (
-                col.col_type.is_json_type() and hasattr(val, '__class__') and 'Null' in val.__class__.__name__
-            )
-
         num_excs = 0
         table_row: list[Any] = list(pk)
         # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
         for col, slot_idx in self.table_columns.items():
             if col.id in data_row.cell_vals:
                 val = data_row.cell_vals[col.id]
-                # Use default if value is None (or sql.sql.null() for JSON types)
-                if _is_null(val, col) and col.has_default_value:
-                    val = _get_default_value(col)
                 table_row.append(val)
                 if col.stores_cellmd:
                     if data_row.cell_md[col.id] is None:
@@ -547,12 +530,6 @@ class RowBuilder:
             else:
                 if data_row.has_val[slot_idx]:
                     val = data_row.get_stored_val(slot_idx, col.sa_col_type)
-                    # Use default if value is None (or sql.sql.null() for JSON types)
-                    if _is_null(val, col) and col.has_default_value:
-                        val = _get_default_value(col)
-                elif col.has_default_value:
-                    # Use default value
-                    val = _get_default_value(col)
                 else:
                     val = None
                 table_row.append(val)

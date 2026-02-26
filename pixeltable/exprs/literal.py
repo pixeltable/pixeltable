@@ -20,7 +20,6 @@ from .sql_element_cache import SqlElementCache
 
 class Literal(Expr):
     val: Any
-    stored_value: Any  # Value in stored format (computed from val)
 
     def __init__(self, val: Any, col_type: ts.ColumnType | None = None):
         if col_type is not None:
@@ -44,8 +43,6 @@ class Literal(Expr):
             # Tuples are stored as a list
             val = list(val)
         self.val = val
-        # Compute stored value once during initialization
-        self.stored_value = Literal._to_stored_value(self.val, self.col_type)
         self.id = self._create_id()
 
     def default_column_name(self) -> str | None:
@@ -83,10 +80,8 @@ class Literal(Expr):
         return sql.sql.expression.literal(self.val, type_=self.col_type.to_sa_type())
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        # this will be called, even though sql_expr() does not return None
-        # Always use stored_value which is computed once during initialization
-        # This is especially important for arrays which need to be converted to stored format
-        data_row[self.slot_idx] = self.stored_value
+        # DataRow holds in-memory values only (not stored format)
+        data_row[self.slot_idx] = self.val
 
     def _as_dict(self) -> dict:
         # For some types, we need to explicitly record their type, because JSON does not know
@@ -118,19 +113,6 @@ class Literal(Expr):
 
     def as_literal(self) -> Literal | None:
         return self
-
-    @classmethod
-    def _to_stored_value(cls, val: Any, col_type: ts.ColumnType) -> Any:
-        """
-        Convert the literal value to the format that should be stored in the database.
-        For arrays, converts to bytes. For other types, returns the value as-is.
-        """
-        if col_type.is_array_type():
-            assert isinstance(val, np.ndarray)
-            buffer = io.BytesIO()
-            np.save(buffer, val, allow_pickle=False)
-            return buffer.getvalue()
-        return val
 
     @classmethod
     def _from_dict(cls, d: dict, components: list[Expr]) -> Literal:

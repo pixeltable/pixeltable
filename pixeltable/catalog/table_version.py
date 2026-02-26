@@ -609,6 +609,13 @@ class TableVersion:
                 stores_cellmd = False
                 sa_col_type = idx.get_index_sa_type(col_type)
 
+            value_expr_dict: dict[str, Any] | None = None
+            default_value_expr_dict: dict[str, Any] | None = None
+            if col_md.default_value_expr is not None:
+                default_value_expr_dict = col_md.default_value_expr
+            else:
+                value_expr_dict = col_md.value_expr
+
             col = Column(
                 col_id=col_md.id,
                 name=schema_col_md.name if schema_col_md is not None else None,
@@ -621,8 +628,8 @@ class TableVersion:
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
                 stores_cellmd=stores_cellmd,
-                value_expr_dict=col_md.value_expr,
-                is_computed_column=col_md.is_computed_column,
+                value_expr_dict=value_expr_dict,
+                default_value_expr_dict=default_value_expr_dict,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
             )
@@ -765,7 +772,7 @@ class TableVersion:
             col_id=id_cb(),
             name=None,
             computed_with=value_expr,
-            is_computed_column=True,
+            value_expr_dict=value_expr.as_dict(),
             sa_col_type=idx.get_index_sa_type(value_expr.col_type),
             stored=True,
             stores_cellmd=idx.records_value_errors(),
@@ -907,7 +914,8 @@ class TableVersion:
                 is_pk=col.is_pk,
                 schema_version_add=self.schema_version,
                 schema_version_drop=None,
-                value_expr=col.value_expr.as_dict() if col.value_expr is not None else None,
+                value_expr=col.value_expr.as_dict() if col.value_expr is not None and col.is_computed else None,
+                default_value_expr=col.default_value_expr_dict,
                 stored=col.stored,
                 destination=col._explicit_destination,
             )
@@ -1122,16 +1130,11 @@ class TableVersion:
 
         # Set all default value columns
         for col in default_value_cols:
-            col.init_value_expr(None)
             assert col.has_default_value, f'Column {col.name!r} should have default value'
-            assert col.value_expr is not None, f'Column {col.name!r} value_expr should be initialized'
-            assert isinstance(col.value_expr, exprs.Literal), (
-                f'Column {col.name!r} has default value but value_expr is not a Literal'
-            )
+            assert col.default_value_expr is not None, f'Column {col.name!r} default_value_expr should be set'
             # sa_col should be initialized by create_sa_tbl() called above
             assert col.sa_col is not None, f'Column {col.name!r} sa_col should be initialized'
-            # Use stored_value from the Literal - it's already converted to the appropriate SQL type
-            default_val = col.value_expr.stored_value
+            default_val = col.col_type.to_stored_value(col.default_value_expr.val)
             update_stmt = update_stmt.values({col.sa_col: default_val})
             if col.stores_cellmd:
                 assert col.sa_cellmd_col is not None, f'Column {col.name!r} sa_cellmd_col should be initialized'

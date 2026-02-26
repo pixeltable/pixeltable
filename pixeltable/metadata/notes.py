@@ -2,7 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
-    46: 'Adds is_computed_column flag to ColumnMd to distinguish computed columns from columns with default values',
+    46: 'Adds default_value_expr to ColumnMd for columns with default values',
     45: 'Adds a new parameter "precision" to EmbeddingIndex',
     44: 'ArrayType dtype migration from pxt types to numpy dtypes',
     43: 'Changing tables.dir_id to nullable',

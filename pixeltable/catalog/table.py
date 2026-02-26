@@ -884,7 +884,6 @@ class Table(SchemaObject):
         for name, spec in schema.items():
             col_type: ts.ColumnType | None = None
             value_expr: exprs.Expr | None = None
-            is_computed_column: bool = False  # Default to False, set to True only for computed columns
             primary_key: bool = False
             media_validation: catalog.MediaValidation | None = None
             stored = True
@@ -897,7 +896,6 @@ class Table(SchemaObject):
                 # create copy so we can modify it
                 value_expr = spec.copy()
                 value_expr.bind_rel_paths()
-                is_computed_column = True
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
                 if 'type' in spec:
@@ -913,8 +911,6 @@ class Table(SchemaObject):
                         # create copy so we can modify it
                         value_expr = value_expr.copy()
                         value_expr.bind_rel_paths()
-
-                    is_computed_column = True
                 elif 'default' in spec:
                     # Column with default value
                     default_expr_obj = spec['default']
@@ -922,10 +918,7 @@ class Table(SchemaObject):
                     value_expr = value_expr.copy()
                     value_expr.bind_rel_paths()
 
-                    # Check if the literal value is None (validation in _validate_column_spec ensures it's a Literal)
                     assert isinstance(value_expr, exprs.Literal)
-                    if value_expr.val is None:
-                        raise excs.Error(f'Column {name!r}: Default value cannot be None.')
 
                     assert col_type is not None
                     if col_type.is_media_type():
@@ -956,8 +949,8 @@ class Table(SchemaObject):
                         )
 
                     cls._validate_json_default_value_expr(value_expr, name, MAX_DEFAULT_VALUE_SIZE)
-                    col_type = col_type.copy(nullable=False)
-                    is_computed_column = False
+                    # Default value columns are nullable (user can explicitly insert None)
+                    col_type = col_type.copy(nullable=True)
 
                 stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key', False)
@@ -969,6 +962,13 @@ class Table(SchemaObject):
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
+            # For computed columns, pass value_expr_dict so Column knows it's computed (not default)
+            value_expr_dict: dict[str, Any] | None = None
+            if value_expr is not None and (
+                isinstance(spec, exprs.Expr) or (isinstance(spec, dict) and 'value' in spec)
+            ):
+                value_expr_dict = value_expr.as_dict()
+
             column = Column(
                 name,
                 col_type=col_type,
@@ -977,7 +977,7 @@ class Table(SchemaObject):
                 is_pk=primary_key,
                 media_validation=media_validation,
                 destination=destination,
-                is_computed_column=is_computed_column,
+                value_expr_dict=value_expr_dict,
             )
             # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
             # media destination, it gets validated at this time.

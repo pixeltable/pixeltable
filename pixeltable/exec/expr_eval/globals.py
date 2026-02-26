@@ -167,7 +167,7 @@ class ExprEvalCtx:
 
         output_ctx = self.row_builder.create_eval_ctx(output_exprs, exclude=input_exprs)
         self.all_exprs = output_ctx.exprs
-        self.literals = {e.slot_idx: e.stored_value for e in output_ctx.exprs if isinstance(e, exprs.Literal)}
+        self.literals = {e.slot_idx: e.val for e in output_ctx.exprs if isinstance(e, exprs.Literal)}
         self.eval_ctx = np.zeros(self.row_builder.num_materialized, dtype=bool)
         non_literal_slot_idxs = [e.slot_idx for e in output_ctx.exprs if not isinstance(e, exprs.Literal)]
         self.eval_ctx[non_literal_slot_idxs] = True
