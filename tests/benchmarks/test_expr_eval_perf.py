@@ -29,8 +29,7 @@ class TestExprEvalPerformance:
     def test_select_batch_scaling(self, uses_db: None, benchmark: BenchmarkFixture, row_count: int) -> None:
         """Test how performance scales with row count (vectorization benefit)."""
         t = pxt.create_table(f'scale_tbl_{row_count}', {'c1': pxt.Int, 'c2': pxt.String})
-        rows = [{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)]
-        t.insert(rows)
+        t.insert({'c1': i, 'c2': f'str_{i}'} for i in range(row_count))
 
         def select_with_functions() -> None:
             res = t.select(t.c1, noop_str(t.c2)).collect()
@@ -43,9 +42,11 @@ class TestExprEvalPerformance:
     def test_insert_batch_scaling_pxt(self, uses_db: None, benchmark: BenchmarkFixture, row_count: int) -> None:
         """Benchmark pixeltable batch inserts with no computed columns."""
         t = pxt.create_table(f'insert_pxt_{row_count}', {'c1': pxt.Int, 'c2': pxt.String})
-        rows = [{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)]
 
-        benchmark(t.insert, rows)
+        def pxt_insert() -> None:
+            t.insert({'c1': i, 'c2': f'str_{i}'} for i in range(row_count))
+
+        benchmark(pxt_insert)
 
     @pytest.mark.benchmark(group='batch_insert_scaling')
     @pytest.mark.parametrize('row_count', [1000, 10000, 50000, 100000])
@@ -55,11 +56,10 @@ class TestExprEvalPerformance:
         meta = sa.MetaData()
         raw_tbl = sa.Table(f'raw_insert_{row_count}', meta, sa.Column('c1', sa.Integer), sa.Column('c2', sa.String))
         meta.create_all(engine)
-        rows = [{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)]
 
         def sql_insert() -> None:
             with engine.begin() as conn:
-                conn.execute(raw_tbl.insert(), rows)
+                conn.execute(raw_tbl.insert().values({'c1': i, 'c2': f'str_{i}'} for i in range(row_count)))
 
         try:
             benchmark(sql_insert)
@@ -98,10 +98,9 @@ class TestExprEvalPerformance:
 
         t = pxt.create_table('img_resize_tbl', {'img': pxt.Image})
         t.add_computed_column(resized=t.img.resize((128, 128)))
-        rows = [{'img': SAMPLE_IMAGE_URL} for _ in range(row_count)]
 
         def insert_resized() -> None:
-            t.insert(rows)
+            t.insert({'img': SAMPLE_IMAGE_URL} for _ in range(row_count))
 
         benchmark(insert_resized)
 
@@ -114,10 +113,9 @@ class TestExprEvalPerformance:
 
         t = pxt.create_table('video_frame_tbl', {'video': pxt.Video})
         pxt.create_view('video_frames', t, iterator=pxtf.video.frame_iterator(t.video))
-        rows = [{'video': video_path}]
 
         def insert_frames() -> None:
-            t.insert(rows)
+            t.insert({'video': video_path})
 
         benchmark(insert_frames)
 
@@ -130,9 +128,8 @@ class TestExprEvalPerformance:
 
         t = pxt.create_table('audio_meta_tbl', {'audio': pxt.Audio})
         t.add_computed_column(metadata=pxtf.audio.get_metadata(t.audio))
-        rows = [{'audio': audio_path} for _ in range(50)]
 
         def insert_metadata() -> None:
-            t.insert(rows)
+            t.insert({'audio': audio_path} for _ in range(50))
 
         benchmark(insert_metadata)
