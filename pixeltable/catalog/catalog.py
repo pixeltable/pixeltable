@@ -2571,11 +2571,18 @@ class Catalog:
     ) -> SchemaObject | None:
         obj, _, _ = self._prepare_dir_op(add_dir_path=path.parent, add_name=path.name)
 
-        if if_exists == IfExistsParam.ERROR and obj is not None:
+        if obj is None:
+            return None
+
+        # IfExistsParam.ERROR: Error given there is existing schema object
+        if if_exists == IfExistsParam.ERROR:
             raise excs.Error(f'Path {path!r} is an existing {obj._display_name()}')
-        else:
-            is_snapshot = isinstance(obj, View) and obj._tbl_version_path.is_snapshot()
-            if obj is not None and (not isinstance(obj, expected_obj_type) or (expected_snapshot and not is_snapshot)):
+
+        # IfExistsParam.IGNORE: Return existing object if it matches expected type (and base table for views/snapshots)
+        if if_exists == IfExistsParam.IGNORE:
+            # for ignore, we can only return the existing object if it matches the expected type
+            is_existing_snapshot = isinstance(obj, View) and obj._tbl_version_path.is_snapshot()
+            if not isinstance(obj, expected_obj_type) or (expected_snapshot and not is_existing_snapshot):
                 if expected_obj_type is Dir:
                     obj_type_str = 'directory'
                 elif expected_obj_type is InsertableTable:
@@ -2583,20 +2590,28 @@ class Catalog:
                 elif expected_obj_type is View:
                     obj_type_str = 'snapshot' if expected_snapshot else 'view'
                 else:
-                    raise AssertionError()
-                raise excs.Error(
-                    f'Path {path!r} already exists but is not a {obj_type_str}. Cannot {if_exists.name.lower()} it.'
-                )
-
-        if obj is None:
-            return None
-        if if_exists == IfExistsParam.IGNORE:
+                    obj_type_str = expected_obj_type.__name__
+                raise excs.Error(f'Path {path!r} already exists and is not a {obj_type_str}')
+            # for views/snapshots, verify the base table matches
+            if isinstance(obj, View):
+                obj_base = obj._base_tbl_id
+                new_base = base.tbl_id if base is not None else None
+                if obj_base != new_base:
+                    obj_type_str = 'snapshot' if expected_snapshot else 'view'
+                    raise excs.Error(f'Path {path!r} already exists as a {obj_type_str} with a different base table')
             return obj
 
+        # IfExistsParam.REPLACE or IfExistsParam.REPLACE_FORCE
         assert if_exists in (IfExistsParam.REPLACE, IfExistsParam.REPLACE_FORCE)
 
+        # check to ensure that dirs can only be replaced with dirs, and all table subtypes can replace each other
+        if expected_obj_type == Dir and not isinstance(obj, Dir):
+            raise excs.Error(f'Path {path!r} already exists as a {obj._display_name()}; expected a directory')
+        if expected_obj_type != Dir and isinstance(obj, Dir):
+            raise excs.Error(f'Path {path!r} already exists as a directory; expected a table, view or snapshot')
+
         # Check for circularity
-        if obj is not None and base is not None:
+        if base is not None:
             assert isinstance(obj, Table)  # or else it would have been caught above
             if obj._id in tuple(version.id for version in base.get_tbl_versions()):
                 raise excs.Error(
