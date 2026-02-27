@@ -43,11 +43,7 @@ def report_benchmarks_to_grafana(json_path: str, grafana_instance_id: str, grafa
     )
 
     for bench in data.get('benchmarks', []):
-        attrs = {
-            'test_name': bench['name'],
-            'group': bench.get('group', 'ungrouped'),
-            'branch': branch,
-        }
+        attrs = {'test_name': bench['name'], 'group': bench.get('group', 'ungrouped'), 'branch': branch}
         stats = bench['stats']
         mean_gauge.set(stats['mean'], attributes=attrs)
         stddev_gauge.set(stats['stddev'], attributes=attrs)
