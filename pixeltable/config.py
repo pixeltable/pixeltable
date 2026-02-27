@@ -10,7 +10,7 @@ from typing import Any, ClassVar, TypeVar
 
 import toml
 
-from pixeltable import env, exceptions as excs
+from pixeltable import exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -217,7 +217,6 @@ KNOWN_CONFIG_OPTIONS = {
     'voyage': {'api_key': 'Voyage AI API key', 'rate_limit': 'Rate limit for Voyage AI API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
 }
-
 
 KNOWN_CONFIG_OVERRIDES = {
     f'{section}.{key}': info
