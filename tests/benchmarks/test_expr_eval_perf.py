@@ -59,7 +59,7 @@ class TestExprEvalPerformance:
 
         def sql_insert() -> None:
             with engine.begin() as conn:
-                conn.execute(raw_tbl.insert().values([{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)]))
+                conn.execute(raw_tbl.insert(), [{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)])
 
         try:
             benchmark(sql_insert)
@@ -115,7 +115,7 @@ class TestExprEvalPerformance:
         pxt.create_view('video_frames', t, iterator=pxtf.video.frame_iterator(t.video))
 
         def insert_frames() -> None:
-            t.insert({'video': video_path})
+            t.insert([{'video': video_path}])
 
         benchmark(insert_frames)
 
