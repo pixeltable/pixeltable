@@ -12,6 +12,7 @@ import httpx
 
 import pixeltable as pxt
 from pixeltable import env
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -30,7 +31,7 @@ def _(api_key: str) -> 'openai.AsyncOpenAI':
 
 
 def _deepseek_client() -> 'openai.AsyncOpenAI':
-    return env.Env.get().get_client('deepseek')
+    return get_runtime().get_client('deepseek')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:deepseek')

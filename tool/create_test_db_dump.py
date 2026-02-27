@@ -55,6 +55,8 @@ SAMPLE_DOCUMENT_URLS = (
 
 
 class CustomLegacyIterator(ComponentIterator):
+    """This is preserved in code for the benefit of version <= 45 database dumps that reference it."""
+
     input_text: str
     expand_by: int
     idx: int
@@ -147,18 +149,16 @@ class Dumper:
 
     # Expression types, predicate types, embedding indices, views on views
     def create_tables(self) -> None:
-        import tool.create_test_db_dump  # noqa: PLW0406  # we need a self-reference since this module is run as main
-
         schema = {
             'c1': pxt.Required[pxt.String],
-            'c1n': pxt.String,
+            'c1n': {'type': pxt.String, 'comment': 'Nullable version of c1'},
             'c2': pxt.Required[pxt.Int],
             'c3': pxt.Required[pxt.Float],
             'c4': pxt.Required[pxt.Bool],
             'c5': pxt.Required[pxt.Timestamp],
             'c6': pxt.Required[pxt.Json],
             'c7': pxt.Required[pxt.Json],
-            'c8': pxt.Image,
+            'c8': {'type': pxt.Image, 'custom_metadata': {'source': 'test'}},
             'c9': pxt.Audio,
             'c10': pxt.Video,
             'c11': pxt.Document,
@@ -234,7 +234,9 @@ class Dumper:
         ]
 
         self.__add_expr_columns(t, 'base_table')
-        t.insert(rows)
+        status = t.insert(rows)
+        assert status.num_excs == 0
+        assert status.num_rows == num_rows
 
         pxt.create_dir('views')
 
@@ -301,10 +303,8 @@ class Dumper:
         # Various iterators
         pxt.create_view('string_splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))
         pxt.create_view('tile_iterator', t, iterator=pxtf.image.tile_iterator(t.c8, (64, 64), overlap=(16, 16)))
-        pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.frame_iterator(t.c10, fps=1))
-        pxt.create_view(
-            'frame_iterator_2', t, iterator=pxtf.video.frame_iterator(t.c10, num_frames=5, all_frame_attrs=True)
-        )
+        pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.legacy_frame_iterator(t.c10, fps=1))
+        pxt.create_view('frame_iterator_2', t, iterator=pxtf.video.frame_iterator(t.c10, num_frames=5))
         pxt.create_view('frame_iterator_3', t, iterator=pxtf.video.frame_iterator(t.c10, keyframes_only=True))
         pxt.create_view(
             'document_splitter', t, iterator=pxtf.document.document_splitter(t.c11, 'page', elements=['text'])
@@ -317,9 +317,7 @@ class Dumper:
         pxt.create_view(
             'audio_splitter',
             t.where(t.c2 >= len(SAMPLE_AUDIO_URLS)),
-            iterator=pxtf.audio.audio_splitter(
-                t.c9, chunk_duration_sec=10.0, overlap_sec=1.0, min_chunk_duration_sec=5.0
-            ),
+            iterator=pxtf.audio.audio_splitter(t.c9, duration=10.0, overlap=1.0, min_segment_duration=5.0),
         )
         pxt.create_view(
             'video_splitter',
@@ -332,10 +330,6 @@ class Dumper:
             'video_splitter_2',
             t.where(t.c2 >= len(SAMPLE_VIDEO_URLS)),
             iterator=pxtf.video.video_splitter(t.c10, segment_times=[3.0, 6.0], mode='accurate'),
-        )
-        # Use a qualified references to CustomIterator so that it doesn't get persisted as __main__.CustomIterator
-        pxt.create_view(
-            'custom_iterator', t, iterator=tool.create_test_db_dump.CustomLegacyIterator.create(text=t.c1, expand_by=2)
         )
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:

@@ -14,8 +14,8 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
-from pixeltable.catalog import Catalog
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 
 
 def _sa_type(col_type: ts.ColumnType) -> sql.types.TypeEngine:
@@ -135,7 +135,7 @@ def export_sql(
     batch_size = 16 * 1024
     try:
         batch: list[dict] = []
-        with Catalog.get().begin_xact(for_write=False), engine.connect() as target_conn:
+        with get_runtime().catalog.begin_xact(for_write=False), engine.connect() as target_conn:
             for data_row in query._exec():
                 row_dict: dict[str, Any] = {}
                 for col_name, e in zip(query.schema.keys(), query._select_list_exprs):

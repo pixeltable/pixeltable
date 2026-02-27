@@ -10,7 +10,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
-from pixeltable.functions.video import frame_iterator, video_splitter
+from pixeltable.functions.video import frame_iterator, legacy_frame_iterator, video_splitter
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -25,14 +25,13 @@ from .utils import (
 
 class TestVideo:
     def create_tbls(
-        self, base_name: str = 'video_tbl', view_name: str = 'frame_view', all_frame_attrs: bool = True
+        self, base_name: str = 'video_tbl', view_name: str = 'frame_view', use_legacy_schema: bool = False
     ) -> tuple[pxt.Table, pxt.Table]:
         pxt.drop_table(view_name, if_not_exists='ignore')
         pxt.drop_table(base_name, if_not_exists='ignore')
         base_t = pxt.create_table(base_name, {'video': pxt.Video})
-        view_t = pxt.create_view(
-            view_name, base_t, iterator=frame_iterator(base_t.video, fps=1, all_frame_attrs=all_frame_attrs)
-        )
+        iterator = legacy_frame_iterator if use_legacy_schema else frame_iterator
+        view_t = pxt.create_view(view_name, base_t, iterator=iterator(base_t.video, fps=1))
         return base_t, view_t
 
     def create_and_insert(self, stored: bool | None, paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
@@ -133,13 +132,10 @@ class TestVideo:
         for p in get_video_files():
             for kwargs in (
                 {},
-                {'all_frame_attrs': True},
                 {'fps': 0.5},
                 {'fps': 3},
-                {'fps': 3, 'all_frame_attrs': True},
                 {'fps': 1000},
                 {'num_frames': 10},
-                {'num_frames': 10, 'all_frame_attrs': True},
                 {'num_frames': 50},
                 {'num_frames': 10000},
             ):
@@ -165,10 +161,8 @@ class TestVideo:
         videos = pxt.create_table('videos', {'video': pxt.Video})
 
         # Test keyframes_only=True extracts all keyframes
-        keyframes = pxt.create_view(
-            'keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True, all_frame_attrs=True)
-        )
-        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=0, all_frame_attrs=True))
+        keyframes = pxt.create_view('keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True))
+        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=None))
 
         videos.insert(video=path)
 
@@ -202,11 +196,11 @@ class TestVideo:
 
     def test_frame_attrs(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        base_t, view_t = self.create_tbls(all_frame_attrs=True)
+        base_t, view_t = self.create_tbls(use_legacy_schema=False)
         base_t.insert([{'video': video_filepaths[0]}])
         all_attrs = set(view_t.limit(1).select(view_t.frame_attrs).collect()[0, 0].keys())
         assert all_attrs == {'index', 'pts', 'dts', 'time', 'is_corrupt', 'key_frame', 'pict_type', 'interlaced_frame'}
-        _, view_t = self.create_tbls(all_frame_attrs=False)
+        _, view_t = self.create_tbls(use_legacy_schema=True)
         default_attrs = set(view_t.get_metadata()['columns'].keys())
         assert default_attrs == {'frame', 'pos', 'frame_idx', 'pos_msec', 'pos_frame', 'video'}
 
@@ -1029,6 +1023,85 @@ class TestVideo:
         with pytest.raises(pxt.Error, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')):
             t.select(t.video.overlay_text('Test', box=True, box_border=[-5, 10])).collect()
 
+    @pytest.mark.parametrize(
+        'bbox_format,bbox',
+        [
+            ('xywh', [0, 0, 160, 80]),  # x, y, width, height
+            ('xyxy', [0, 0, 160, 80]),  # x1, y1, x2, y2
+            ('cxcywh', [80, 40, 160, 80]),  # center_x, center_y, width, height
+        ],
+    )
+    @pytest.mark.parametrize('encoder_args', [None, {'crf': '18'}])
+    def test_crop(
+        self,
+        uses_db: None,
+        tmp_path: Path,
+        bbox_format: Literal['xywh', 'xyxy', 'cxcywh'],
+        bbox: list[int],
+        encoder_args: dict[str, Any] | None,
+    ) -> None:
+        t = pxt.create_table('crop_test', {'video': pxt.Video})
+        videos = get_video_files()
+        validate_update_status(t.insert({'video': f} for f in videos), expected_rows=len(videos))
+
+        crop = t.video.crop(bbox, bbox_format=bbox_format, video_encoder_args=encoder_args)
+        result = t.select(md=t.video.get_metadata(), cropped=crop, cropped_md=crop.get_metadata()).collect()
+
+        # validate output dimensions
+        assert all(md['streams'][0]['width'] == 160 for md in result['cropped_md'])
+        assert all(md['streams'][0]['height'] == 80 for md in result['cropped_md'])
+
+        # insert cropped videos to verify they're valid
+        t.insert(({'video': row['cropped']} for row in result), on_error='abort')
+
+    def test_crop_with_column(self, uses_db: None) -> None:
+        """Test crop() with bbox values from a table column."""
+        t = pxt.create_table('crop_column_test', {'video': pxt.Video, 'bbox': pxt.Json})
+        videos = get_video_files()
+        validate_update_status(
+            t.insert({'video': f, 'bbox': [0, 0, 160, 80]} for f in videos), expected_rows=len(videos)
+        )
+
+        # Test with bbox from column
+        result = t.select(
+            cropped=t.video.crop(t.bbox, bbox_format='xywh'),
+            cropped_md=t.video.crop(t.bbox, bbox_format='xywh').get_metadata(),
+        ).collect()
+
+        assert all(md['streams'][0]['width'] == 160 for md in result['cropped_md'])
+        assert all(md['streams'][0]['height'] == 80 for md in result['cropped_md'])
+
+    def test_crop_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('crop_error_test', {'video': pxt.Video})
+        t.insert({'video': f} for f in get_video_files()[:1])
+
+        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+            t.select(t.video.crop([0, 0, 100])).collect()
+
+        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+            t.select(t.video.crop([0, 0, 100, 100, 50])).collect()
+
+        with pytest.raises(pxt.Error, match='bbox_format must be one of'):
+            t.select(t.video.crop([0, 0, 100, 100], bbox_format='invalid')).collect()
+
+        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+            t.select(t.video.crop([-1, 0, 100, 100], bbox_format='xywh')).collect()
+
+        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+            t.select(t.video.crop([0, -1, 100, 100], bbox_format='xywh')).collect()
+
+        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+            t.select(t.video.crop([100, 0, 50, 100], bbox_format='xyxy')).collect()
+
+        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+            t.select(t.video.crop([0, 100, 100, 50], bbox_format='xyxy')).collect()
+
+        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+            t.select(t.video.crop([50, 0, 50, 100], bbox_format='xyxy')).collect()
+
+        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+            t.select(t.video.crop([0, 50, 100, 50], bbox_format='xyxy')).collect()
+
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
     def test_with_audio(self, uses_db: None) -> None:
         from pixeltable.functions.video import with_audio
@@ -1143,9 +1216,7 @@ class TestVideo:
 
         # make sure the output is usable for the VideoSplitter
         v = pxt.create_view(
-            'scenes_view',
-            t,
-            iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate'),  # type: ignore[arg-type]
+            'scenes_view', t, iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate')
         )
         _ = v.collect()
 

@@ -167,11 +167,8 @@ class ViewMd:
     # sampling predicate applied to the base table; view-only
     sample_clause: dict[str, Any] | None
 
-    # ComponentIterator subclass; only for component views
-    iterator_class_fqn: str | None
-
-    # args to pass to the iterator class constructor; only for component views
-    iterator_args: dict[str, Any] | None
+    # IteratorCall for iterator (component) views
+    iterator_call: dict[str, Any] | None
 
 
 class TableState(Enum):
@@ -328,10 +325,12 @@ class SchemaColumn:
 
     pos: int
     name: str
-
     # media validation strategy of this particular media column; if not set, TableMd.media_validation applies
     # stores column.MediaValiation.name.lower()
     media_validation: str | None
+    comment: str | None = None
+    # user-defined metadata - must be a valid JSON-serializable object
+    custom_metadata: Any = None
 
 
 @dataclasses.dataclass
@@ -345,7 +344,8 @@ class SchemaVersionMd:
     preceding_schema_version: int | None
     columns: dict[int, SchemaColumn]  # col_id -> SchemaColumn
     num_retained_versions: int
-    comment: str
+    # TODO: Before next release, add migration to preexisting empty strings to None
+    comment: str | None
 
     # default validation strategy for any media column of this table
     # stores column.MediaValiation.name.lower()

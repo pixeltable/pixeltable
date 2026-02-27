@@ -253,35 +253,26 @@ class TestOpenai:
         assert res[0]['tool_calls'] == {'get_customer_info': [[{'customer_id': 'Q371A', 'name': 'Aaron Siegel'}]]}
 
     @pytest.mark.expensive
-    def test_gpt_4_vision(self, uses_db: None) -> None:
+    def test_gpt_vision(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, vision
-        from pixeltable.functions.string import format
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String, 'img': pxt.Image})
         t.add_computed_column(response=vision(prompt="What's in this image?", image=t.img, model='gpt-4o-mini'))
-        # Also get the response the low-level way, by calling chat_completions
+        # Also get the response via chat_completions
         msgs = [
-            {
-                'role': 'user',
-                'content': [
-                    {'type': 'text', 'text': t.prompt},
-                    {
-                        'type': 'image_url',
-                        'image_url': {'url': format('data:image/png;base64,{0}', t.img.b64_encode())},
-                    },
-                ],
-            }
+            {'role': 'user', 'content': [{'type': 'text', 'text': t.prompt}, {'type': 'image_url', 'image_url': t.img}]}
         ]
-        t.add_computed_column(
-            response_2=chat_completions(model='gpt-4o-mini', messages=msgs, model_kwargs={'max_tokens': 300})
-            .choices[0]
-            .message.content
-        )
-        validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
-        result = t.collect()['response_2'][0]
-        assert len(result) > 0
+        t.add_computed_column(response_2=chat_completions(msgs, model='gpt-4o-mini', model_kwargs={'max_tokens': 300}))
+        with pytest.warns(
+            pxt.exceptions.PixeltableDeprecationWarning,
+            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) instead',
+        ):
+            validate_update_status(t.insert(prompt="What's in this image?", img=SAMPLE_IMAGE_URL), 1)
+        result = t.collect()
+        assert 'broccoli' in result['response'][0].lower()
+        assert 'broccoli' in result['response_2'][0]['choices'][0]['message']['content'].lower()
 
     def test_embeddings(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
@@ -337,19 +328,20 @@ class TestOpenai:
         from pixeltable.functions.openai import image_generations
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(img=image_generations(t.input))
+        t.add_computed_column(img=image_generations(t.input, model='dall-e-2'))
         # Test dall-e-2 options
         t.add_computed_column(
-            img_2=image_generations(t.input, model='dall-e-2', model_kwargs={'size': '512x512', 'user': 'pixeltable'})
+            img_2=image_generations(
+                t.input, model='dall-e-2', model_kwargs={'size': '512x512', 'user': 'pixeltable', 'n': 2}
+            )
         )
-        # image size information was captured correctly
-        type_info = t._get_schema()
-        assert isinstance(type_info['img_2'], ts.ImageType)
-        assert type_info['img_2'].size == (512, 512)
 
         validate_update_status(t.insert(input='A friendly dinosaur playing tennis in a cornfield'), 1)
-        assert t.collect()['img'][0].size == (1024, 1024)
-        assert t.collect()['img_2'][0].size == (512, 512)
+        assert t.collect()['img'][0]['data'][0].size == (1024, 1024)
+
+        # Also check that multiple images can be generated and returned in the same results dict
+        assert t.collect()['img_2'][0]['data'][0].size == (512, 512)
+        assert t.collect()['img_2'][0]['data'][1].size == (512, 512)
 
     @pytest.mark.expensive
     def test_table_udf_tools(self, uses_db: None) -> None:
