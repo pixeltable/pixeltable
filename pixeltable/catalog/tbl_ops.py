@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 import sqlalchemy as sql
 
 import pixeltable.metadata.schema as schema
-from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 
 from .update_status import UpdateStatus
 
@@ -80,13 +80,13 @@ class CreateStoreTableOp(TableOp):
     needs_xact: ClassVar[bool] = False
 
     def exec(self, tv: TableVersion | None) -> None:
-        assert not Env.get().in_xact
-        with Env.get().begin_xact():
+        assert not get_runtime().in_xact
+        with get_runtime().begin_xact():
             tv.store_tbl.create()
 
     def undo(self, tv: TableVersion | None) -> None:
-        assert not Env.get().in_xact
-        with Env.get().begin_xact():
+        assert not get_runtime().in_xact
+        with get_runtime().begin_xact():
             tv.store_tbl.drop()
 
 
@@ -98,15 +98,15 @@ class CreateStoreIdxsOp(TableOp):
     idx_ids: list[int]
 
     def exec(self, tv: TableVersion | None) -> None:
-        assert not Env.get().in_xact
+        assert not get_runtime().in_xact
         for idx_id in self.idx_ids:
-            with Env.get().begin_xact():
+            with get_runtime().begin_xact():
                 tv.store_tbl.create_index(idx_id)
 
     def undo(self, tv: TableVersion | None) -> None:
-        assert not Env.get().in_xact
+        assert not get_runtime().in_xact
         for idx_id in self.idx_ids:
-            with Env.get().begin_xact():
+            with get_runtime().begin_xact():
                 tv.store_tbl.drop_index(idx_id)
 
 
@@ -118,18 +118,17 @@ class LoadViewOp(TableOp):
     view_path: dict[str, Any]  # needed to create the view load plan
 
     def exec(self, tv: TableVersion | None) -> None:
-        from pixeltable.catalog import Catalog
         from pixeltable.catalog.table_version_path import TableVersionPath
         from pixeltable.plan import Planner
 
-        assert Env.get().in_xact
+        assert get_runtime().in_xact
         view_path = TableVersionPath.from_dict(self.view_path)
         plan, _ = Planner.create_view_load_plan(view_path)
-        with Env.get().report_progress():
+        with get_runtime().report_progress():
             plan.ctx.title = tv.display_str()
             _, row_counts = tv.store_tbl.insert_rows(plan, v_min=tv.version)
         status = UpdateStatus(row_count_stats=row_counts)
-        Catalog.get().store_update_status(tv.id, tv.version, status)
+        get_runtime().catalog.store_update_status(tv.id, tv.version, status)
         _logger.debug(f'Loaded view {tv.name} with {row_counts.num_rows} rows')
 
     def undo(self, tv: TableVersion | None) -> None:
@@ -151,10 +150,8 @@ class CreateTableMdOp(TableOp):
         pass
 
     def undo(self, tv: TableVersion | None) -> None:
-        from pixeltable.catalog import Catalog
-
-        assert Env.get().in_xact
-        Catalog.get().delete_tbl_md(uuid.UUID(self.tbl_id))
+        assert get_runtime().in_xact
+        get_runtime().catalog.delete_tbl_md(uuid.UUID(self.tbl_id))
 
 
 @dataclasses.dataclass
@@ -163,10 +160,8 @@ class DeleteTableMdOp(TableOp):
     needs_xact: ClassVar[bool] = True
 
     def exec(self, tv: TableVersion | None) -> None:
-        from pixeltable.catalog import Catalog
-
-        assert Env.get().in_xact
-        Catalog.get().delete_tbl_md(uuid.UUID(self.tbl_id))
+        assert get_runtime().in_xact
+        get_runtime().catalog.delete_tbl_md(uuid.UUID(self.tbl_id))
 
     def undo(self, tv: TableVersion | None) -> None:
         raise AssertionError()
@@ -183,10 +178,8 @@ class CreateTableVersionOp(TableOp):
         pass
 
     def undo(self, tv: TableVersion | None) -> None:
-        from pixeltable.catalog import Catalog
-
-        assert Env.get().in_xact
-        Catalog.get().delete_current_tbl_version_md(uuid.UUID(self.tbl_id))
+        assert get_runtime().in_xact
+        get_runtime().catalog.delete_current_tbl_version_md(uuid.UUID(self.tbl_id))
 
 
 @dataclasses.dataclass
@@ -202,17 +195,15 @@ class CreateColumnMdOp(TableOp):
         pass
 
     def undo(self, tv: TableVersion | None) -> None:
-        from pixeltable.catalog import Catalog
-
         # TODO this is completely broken, but the fix requires a separate change and more thought. Leaving as is for now
         # because this change is meant to be mostly a refactoring (and a minor change in behavior, but elsewhere)
         # 1. major: write_tbl_md cannot be called while there are pending ops (and we are inside one of them).
         # 2. minor: [] is not an acceptable value for pending_ops
         # 3. minor: TableVersion internals access. Once we figure out how to fix 1, this one should go away as well.
-        assert Env.get().in_xact
+        assert get_runtime().in_xact
         for col_id in self.column_ids:
             del tv._tbl_md.column_md[col_id]
-        Catalog.get().write_tbl_md(tv.id, None, tv._tbl_md, None, None, [])
+        get_runtime().catalog.write_tbl_md(tv.id, None, tv._tbl_md, None, None, [])
 
 
 @dataclasses.dataclass
@@ -223,15 +214,15 @@ class CreateStoreColumnsOp(TableOp):
     column_ids: list[int]
 
     def exec(self, tv: TableVersion | None) -> None:
-        assert not Env.get().in_xact
+        assert not get_runtime().in_xact
         for col_id in self.column_ids:
-            with Env.get().begin_xact():
+            with get_runtime().begin_xact():
                 tv.store_tbl.add_column(tv.cols_by_id[col_id], if_not_exists=True)
 
     def undo(self, tv: TableVersion | None) -> None:
-        assert not Env.get().in_xact
+        assert not get_runtime().in_xact
         for col_id in self.column_ids:
-            with Env.get().begin_xact():
+            with get_runtime().begin_xact():
                 tv.store_tbl.drop_column(tv.cols_by_id[col_id], if_exists=True)
 
 
@@ -260,8 +251,8 @@ class DropStoreTableOp(TableOp):
 
         # don't reference tv.store_tbl here, it needs to reference the metadata for our base table, which at
         # this point may not exist anymore
-        assert not Env.get().in_xact
-        with Env.get().begin_xact() as conn:
+        assert not get_runtime().in_xact
+        with get_runtime().begin_xact() as conn:
             drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(tv.id, tv.is_view)}'
             conn.execute(sql.text(drop_stmt))
 

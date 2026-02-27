@@ -13,6 +13,7 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable import env, type_system as ts
 from pixeltable.func import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -44,7 +45,7 @@ def _(api_key: str) -> 'AsyncClient':
 
 
 def _voyageai_client() -> 'AsyncClient':
-    return env.Env.get().get_client('voyage')
+    return get_runtime().get_client('voyage')
 
 
 @pxt.udf(batch_size=128, resource_pool='request-rate:voyageai')

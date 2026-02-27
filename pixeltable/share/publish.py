@@ -16,10 +16,10 @@ from urllib3.util.retry import Retry
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import Catalog
 from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 from pixeltable.utils import sha256sum
 from pixeltable.utils.local_store import TempStore
 
@@ -96,8 +96,8 @@ def push_replica(
         Env.get().console_logger.info(
             f'Replica for version {publish_request.md[0].version_md.version} already exists at {existing_table_uri}.'
         )
-        with Catalog.get().begin_xact(tbl_id=src_tbl._id, for_write=True):
-            Catalog.get().update_additional_md(src_tbl._id, {'pxt_uri': existing_table_uri})
+        with get_runtime().catalog.begin_xact(tbl_id=src_tbl._id, for_write=True):
+            get_runtime().catalog.update_additional_md(src_tbl._id, {'pxt_uri': existing_table_uri})
         return existing_table_uri
     if response.status_code != 200:
         raise excs.Error(f'Error publishing {src_tbl._display_name()}: {response.text}')
@@ -142,8 +142,8 @@ def push_replica(
     confirmed_tbl_uri = finalize_response.confirmed_table_uri
     Env.get().console_logger.info(f'The published table is now available at: {confirmed_tbl_uri}')
 
-    with Catalog.get().begin_xact(tbl_id=src_tbl._id, for_write=True):
-        Catalog.get().update_additional_md(src_tbl._id, {'pxt_uri': str(confirmed_tbl_uri)})
+    with get_runtime().catalog.begin_xact(tbl_id=src_tbl._id, for_write=True):
+        get_runtime().catalog.update_additional_md(src_tbl._id, {'pxt_uri': str(confirmed_tbl_uri)})
 
     return str(confirmed_tbl_uri)
 
@@ -155,7 +155,7 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
 
     Env.get().console_logger.info(f'Uploading replica to: {bucket}:{remote_path}')
 
-    s3_client = Env.get().get_client('s3')
+    s3_client = get_runtime().get_client('s3')
 
     upload_args = {'ChecksumAlgorithm': 'SHA256'}
 
@@ -225,7 +225,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
 
     Env.get().console_logger.info(f'Downloading replica from: {bucket}:{remote_path}')
 
-    s3_client = Env.get().get_client('s3')
+    s3_client = get_runtime().get_client('s3')
 
     obj = s3_client.head_object(Bucket=bucket, Key=remote_path)  # Check if the object exists
     bundle_size = obj['ContentLength']
