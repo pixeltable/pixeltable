@@ -4,6 +4,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, Iterator, Sequence, cast
 from uuid import UUID
 
+import numpy as np
 import PIL.Image
 import sqlalchemy as sql
 
@@ -181,6 +182,7 @@ class ColumnRef(Expr):
         image: str | PIL.Image.Image | None = None,
         audio: str | None = None,
         video: str | None = None,
+        embedding: np.ndarray | None = None,
         idx: str | None = None,
     ) -> Expr:
         from .similarity_expr import SimilarityExpr
@@ -192,18 +194,27 @@ class ColumnRef(Expr):
                 '  .similarity(string=...)\n'
                 '  .similarity(image=...)\n'
                 '  .similarity(audio=...)\n'
-                '  .similarity(video=...)',
+                '  .similarity(video=...)\n'
+                '  .similarity(embedding=...)',
                 DeprecationWarning,
                 stacklevel=2,
             )
 
-        arg_count = (string is not None) + (image is not None) + (audio is not None) + (video is not None)
+        arg_count = (
+            (string is not None)
+            + (image is not None)
+            + (audio is not None)
+            + (video is not None)
+            + (embedding is not None)
+        )
 
         if item is not None and arg_count != 0:
             raise excs.Error('similarity(): `item` is deprecated and cannot be used together with modality arguments')
 
         if arg_count > 1:
-            raise excs.Error('similarity(): expected exactly one of string=..., image=..., audio=..., video=...')
+            raise excs.Error(
+                'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., embedding=...'
+            )
 
         expr: Expr
 
@@ -272,7 +283,28 @@ class ColumnRef(Expr):
                 video_path = fetch_url(video, allow_local_file=True)
                 expr = Literal(str(video_path), ts.VideoType())
 
-        return SimilarityExpr(self, expr, idx_name=idx)
+        if embedding is not None:
+            if isinstance(embedding, Expr):
+                if not embedding.col_type.is_array_type():
+                    raise excs.Error(f'similarity(embedding=...): expected `Array`; got `{embedding.col_type}`')
+                expr = embedding
+            else:
+                if not isinstance(embedding, np.ndarray):
+                    raise excs.Error(
+                        f'similarity(embedding=...): expected `numpy.ndarray`, or array `Expr`; '
+                        f'got `{type(embedding).__name__}`'
+                    )
+                if embedding.ndim != 1:
+                    raise excs.Error(
+                        f'similarity(embedding=...): expected 1-dimensional array; got shape {embedding.shape}'
+                    )
+                # Validate dtype is float (any float type: float16, float32, float64)
+                if not np.issubdtype(embedding.dtype, np.floating):
+                    raise excs.Error(f'similarity(embedding=...): expected float array; got dtype {embedding.dtype}')
+                col_type = ts.ColumnType.infer_literal_type(embedding)
+                expr = Literal(embedding, col_type=col_type)
+
+        return SimilarityExpr(expr, col_ref=self, idx_name=idx)
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
         from pixeltable.index import EmbeddingIndex

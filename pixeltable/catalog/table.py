@@ -1205,7 +1205,12 @@ class Table(SchemaObject):
 
             # validate EmbeddingIndex args
             idx = EmbeddingIndex(
-                metric=metric, precision=precision, embed=embedding, string_embed=string_embed, image_embed=image_embed
+                metric=metric,
+                precision=precision,
+                embed=embedding,
+                string_embed=string_embed,
+                image_embed=image_embed,
+                column=col,  # Pass column for shape validation
             )
             _ = idx.create_value_expr(col)
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)

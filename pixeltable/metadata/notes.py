@@ -2,6 +2,7 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
+    48: 'SimilarityExpr: migrate from indexed_col to tbl_version_key',
     47: 'New iterator structure',
     46: 'Literal type serialization updates',
     45: 'Adds a new parameter "precision" to EmbeddingIndex',
