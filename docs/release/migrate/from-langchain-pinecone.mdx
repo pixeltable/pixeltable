@@ -1,0 +1,219 @@
+---
+title: 'Coming from LangChain + Pinecone'
+description: 'How RAG pipeline concepts map from LangChain and vector databases to Pixeltable'
+---
+
+If you've built RAG pipelines with LangChain, LlamaIndex, or a similar orchestration framework paired with a vector database like Pinecone, Weaviate, or Chroma, this guide shows how those concepts translate to Pixeltable.
+
+---
+
+## Concept Mapping
+
+| LangChain + Pinecone | Pixeltable | Notes |
+|---|---|---|
+| `DocumentLoader` | `insert()`, `import_csv()`, `import_parquet()` | Load from files, URLs, S3, or HuggingFace |
+| `RecursiveCharacterTextSplitter` | `DocumentSplitter` iterator (via `create_view`) | Splits by sentence, heading, page, or token limit |
+| `OpenAIEmbeddings()` | `embeddings.using(model='text-embedding-3-small')` | Passed to `add_embedding_index()` |
+| `Pinecone.from_documents()` | `add_embedding_index()` | No separate database to provision |
+| `retriever.get_relevant_documents()` | `.similarity()` + `.order_by()` | Returns ranked results as a DataFrame |
+| `create_retrieval_chain()` | Computed column with LLM call | Chains retrieval and generation declaratively |
+| `PromptTemplate` | `@pxt.udf` that builds the prompt string | Plain Python function |
+| Re-run entire pipeline on new docs | Incremental — only new rows are processed | Embeddings, chunks, and LLM calls are cached |
+| Pinecone dashboard for index management | `t.describe()`, `t.count()`, `t.head()` | Everything is queryable from Python |
+
+---
+
+## Side by Side: Build a RAG Pipeline
+
+### The LangChain + Pinecone Approach
+
+A typical RAG setup requires orchestrating multiple packages:
+
+```python
+# Requirements: langchain, langchain-openai, langchain-pinecone,
+#               langchain-community, pinecone-client, unstructured
+
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_pinecone import PineconeVectorStore
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.prompts import PromptTemplate
+
+# 1. Load documents
+loader = PyPDFLoader('report.pdf')
+documents = loader.load()
+
+# 2. Split into chunks
+splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+chunks = splitter.split_documents(documents)
+
+# 3. Create embeddings and store in Pinecone
+embeddings = OpenAIEmbeddings(model='text-embedding-3-small')
+vector_store = PineconeVectorStore.from_documents(
+    chunks, embeddings, index_name='my-index'
+)
+retriever = vector_store.as_retriever(search_kwargs={'k': 5})
+
+# 4. Build retrieval chain
+prompt = PromptTemplate.from_template(
+    'Answer based on context:\n{context}\n\nQuestion: {input}'
+)
+llm = ChatOpenAI(model='gpt-4o-mini', temperature=0)
+combine_chain = create_stuff_documents_chain(llm, prompt)
+rag_chain = create_retrieval_chain(retriever, combine_chain)
+
+# 5. Ask a question
+result = rag_chain.invoke({'input': 'What were the key findings?'})
+print(result['answer'])
+
+# ⚠️ Adding new documents means re-running steps 1-3
+# ⚠️ No versioning of chunks or embeddings
+# ⚠️ Pinecone requires separate account + API key
+```
+
+**Packages involved:** `langchain`, `langchain-openai`, `langchain-pinecone`, `langchain-community`, `pinecone-client`, `unstructured`
+
+### The Same Thing in Pixeltable
+
+```python
+# Requirements: pixeltable, openai
+
+import pixeltable as pxt
+from pixeltable.functions.openai import chat_completions, embeddings
+from pixeltable.functions.document import document_splitter
+
+# 1. Create document table
+docs = pxt.create_table('rag.docs', {'pdf': pxt.Document})
+
+# 2. Split into chunks (view auto-processes new docs)
+chunks = pxt.create_view('rag.chunks', docs,
+    iterator=document_splitter(docs.pdf, separators='sentence,token_limit', limit=300))
+
+# 3. Add embedding index (auto-maintained)
+chunks.add_embedding_index('text',
+    string_embed=embeddings.using(model='text-embedding-3-small'))
+
+# 4. Create retrieval function
+@pxt.query
+def retrieve_context(question: str, top_k: int = 5):
+    sim = chunks.text.similarity(string=question)
+    return chunks.where(sim > 0.3).order_by(sim, asc=False).limit(top_k).select(chunks.text)
+
+# 5. Build the RAG pipeline as computed columns
+qa = pxt.create_table('rag.qa', {'question': pxt.String})
+qa.add_computed_column(context=retrieve_context(qa.question))
+
+@pxt.udf
+def build_prompt(question: str, context: list[dict]) -> str:
+    ctx = '\n\n'.join(c['text'] for c in context)
+    return f'Answer based on context:\n{ctx}\n\nQuestion: {question}'
+
+qa.add_computed_column(prompt=build_prompt(qa.question, qa.context))
+qa.add_computed_column(response=chat_completions(
+    messages=[{'role': 'user', 'content': qa.prompt}], model='gpt-4o-mini'))
+qa.add_computed_column(answer=qa.response.choices[0].message.content)
+
+# 6. Ask questions
+qa.insert([{'question': 'What were the key findings?'}])
+qa.select(qa.question, qa.answer).collect()
+
+# ✅ Adding new docs: just docs.insert([...]) — chunks, embeddings, and answers auto-update
+# ✅ Every intermediate result is stored and versioned
+# ✅ No external vector database to manage
+```
+
+**Packages involved:** `pixeltable`, `openai`
+
+---
+
+## What You Gain
+
+- **Fewer dependencies.** One package replaces the orchestration framework, vector database client, document processing library, and glue code.
+- **Incremental by default.** Insert new documents and everything downstream — chunking, embedding, retrieval, generation — runs automatically on just the new rows. No need to re-index.
+- **Built-in persistence.** Every intermediate result (chunks, embeddings, LLM responses) is stored. Restart your notebook and your data is still there.
+- **Versioning.** Call `t.history()` to see all changes, `pxt.create_snapshot()` to bookmark a state, or query a past version.
+- **No infrastructure.** No Pinecone account, no API keys for the vector database, no index provisioning. Pixeltable manages embedding storage and search locally.
+
+---
+
+## Common Patterns
+
+### Adding new documents
+
+<Tabs>
+  <Tab title="LangChain + Pinecone">
+    ```python
+    # Must re-run the entire pipeline
+    new_docs = loader.load()
+    new_chunks = splitter.split_documents(new_docs)
+    vector_store.add_documents(new_chunks)
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    # Just insert — everything else is automatic
+    docs.insert([{'pdf': 'new_report.pdf'}])
+    ```
+  </Tab>
+</Tabs>
+
+### Filtering by metadata
+
+<Tabs>
+  <Tab title="LangChain + Pinecone">
+    ```python
+    retriever = vector_store.as_retriever(
+        search_kwargs={'k': 5, 'filter': {'source': 'annual_report'}}
+    )
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    sim = chunks.text.similarity(string=query)
+    results = (chunks
+        .where((chunks.source == 'annual_report') & (sim > 0.3))
+        .order_by(sim, asc=False)
+        .limit(5)
+        .collect())
+    ```
+  </Tab>
+</Tabs>
+
+### Inspecting what was retrieved
+
+<Tabs>
+  <Tab title="LangChain + Pinecone">
+    ```python
+    # Requires verbose mode or custom callbacks
+    result = rag_chain.invoke({'input': query})
+    print(result['context'])  # if available
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    # Every column is queryable — context, prompt, response, answer
+    qa.select(qa.question, qa.context, qa.answer).collect()
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RAG Pipeline Cookbook" icon="book" href="/howto/cookbooks/agents/pattern-rag-pipeline">
+    Hands-on walkthrough of a complete RAG system
+  </Card>
+  <Card title="Chunk Documents for RAG" icon="scissors" href="/howto/cookbooks/text/doc-chunk-for-rag">
+    Control chunk size, overlap, and splitting strategies
+  </Card>
+  <Card title="OpenAI Embeddings" icon="vector-square" href="/howto/cookbooks/search/embed-text-openai">
+    Generate and query embeddings
+  </Card>
+  <Card title="Semantic Text Search" icon="magnifying-glass" href="/howto/cookbooks/search/search-semantic-text">
+    Search patterns and similarity queries
+  </Card>
+</CardGroup>

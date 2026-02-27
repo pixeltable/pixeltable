@@ -283,6 +283,15 @@
             ]
           },
           {
+            "group": "Migrating to Pixeltable",
+            "pages": [
+              "migrate/overview",
+              "migrate/from-langchain-pinecone",
+              "migrate/from-lancedb",
+              "migrate/from-langgraph"
+            ]
+          },
+          {
             "group": "Deployment",
             "pages": [
               "howto/deployment/overview",
