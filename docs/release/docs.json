@@ -286,6 +286,7 @@
             "group": "Migrating to Pixeltable",
             "pages": [
               "migrate/overview",
+              "migrate/from-diy-pipeline",
               "migrate/from-langchain-pinecone",
               "migrate/from-lancedb",
               "migrate/from-langgraph"

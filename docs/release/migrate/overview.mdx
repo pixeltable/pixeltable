@@ -3,7 +3,7 @@ title: 'Migrating to Pixeltable'
 description: 'How concepts you already know map to Pixeltable'
 ---
 
-Already using LangChain, Pinecone, LanceDB, or LangGraph? Pixeltable unifies capabilities you currently spread across multiple tools into a single Python library with declarative, incremental data infrastructure.
+Whether you've hand-rolled a pipeline with S3 + Lambda + direct API calls, or you're using frameworks like LangChain or LangGraph, Pixeltable unifies what you currently spread across multiple tools into a single Python library with declarative, incremental data infrastructure.
 
 These guides show how the concepts you already know map to Pixeltable, and walk you through building the same pipelines with less code and fewer dependencies.
 
@@ -11,7 +11,12 @@ These guides show how the concepts you already know map to Pixeltable, and walk 
 
 ## Pick Your Starting Point
 
-<CardGroup cols={3}>
+<CardGroup cols={2}>
+  <Card title="Coming from a DIY Pipeline" icon="screwdriver-wrench" href="/migrate/from-diy-pipeline">
+    **S3 + Lambda + SQS + direct API calls**
+
+    Replace hand-rolled scripts, manual retries, embedding dumps, and glue code with declarative tables and computed columns.
+  </Card>
   <Card title="Coming from LangChain + Pinecone" icon="link" href="/migrate/from-langchain-pinecone">
     **RAG pipelines and AI app backends**
 
