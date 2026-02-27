@@ -80,13 +80,9 @@ class ExecNode(abc.ABC):
     _SENTINEL = object()
 
     def _thread_iter(self) -> Iterator[DataRowBatch]:
-        """Run async iteration in a background thread when the calling thread
-        already has a running event loop (e.g. LanceDB consuming our iterator
-        from within its own async context)."""
+        # maxsize=2: we want a minimal amount of buffering
         result_queue: queue.Queue = queue.Queue(maxsize=2)
         caller_runtime = get_runtime()
-        # Borrow the caller's DB connection state -- safe because the caller
-        # blocks on queue.get() and never touches the connection concurrently.
 
         def run() -> None:
             thread_runtime = get_runtime()
