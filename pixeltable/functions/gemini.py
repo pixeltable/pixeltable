@@ -17,6 +17,7 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs, type_system as ts
 from pixeltable.func import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import exponential_backoff, parse_duration_str
 from pixeltable.utils.local_store import TempStore
@@ -35,7 +36,7 @@ def _(api_key: str) -> 'genai.client.Client':
 
 
 def _genai_client() -> 'genai.client.Client':
-    return env.Env.get().get_client('gemini')
+    return get_runtime().get_client('gemini')
 
 
 class GeminiRateLimitsInfo(env.RateLimitsInfo):
@@ -98,7 +99,9 @@ async def generate_content(
         Add a computed column that applies the model `gemini-2.5-flash`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_content(tbl.prompt, model='gemini-2.5-flash'))
+        >>> tbl.add_computed_column(
+        ...     response=generate_content(tbl.prompt, model='gemini-2.5-flash')
+        ... )
 
         Add a computed column that applies the model `gemini-2.5-flash` for image understanding
     """
@@ -191,7 +194,9 @@ async def generate_images(
         Add a computed column that applies the model `imagen-4.0-generate-001`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_images(tbl.prompt, model='imagen-4.0-generate-001'))
+        >>> tbl.add_computed_column(
+        ...     response=generate_images(tbl.prompt, model='imagen-4.0-generate-001')
+        ... )
     """
     env.Env.get().require_package('google.genai')
     from google.genai.types import GenerateImagesConfig
@@ -247,7 +252,9 @@ async def generate_videos(
         Add a computed column that applies the model `veo-3.0-generate-001`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=generate_videos(tbl.prompt, model='veo-3.0-generate-001'))
+        >>> tbl.add_computed_column(
+        ...     response=generate_videos(tbl.prompt, model='veo-3.0-generate-001')
+        ... )
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types

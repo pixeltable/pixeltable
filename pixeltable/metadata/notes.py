@@ -2,7 +2,9 @@
 # rather than as a comment, so that the existence of a description can be enforced by
 # the unit tests when new versions are added.
 VERSION_NOTES = {
-    46: 'Various column metadata moved from ColumnMd to SchemaColumn for versioning',
+    48: 'Various column metadata moved from ColumnMd to SchemaColumn for versioning',
+    47: 'New iterator structure',
+    46: 'Literal type serialization updates',
     45: 'Adds a new parameter "precision" to EmbeddingIndex',
     44: 'ArrayType dtype migration from pxt types to numpy dtypes',
     43: 'Changing tables.dir_id to nullable',

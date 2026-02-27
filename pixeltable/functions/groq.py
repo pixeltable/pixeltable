@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.env import Env, register_client
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 from .openai import _openai_response_to_pxt_tool_calls
@@ -26,7 +27,7 @@ def _(api_key: str) -> 'groq.AsyncGroq':
 
 
 def _groq_client() -> 'groq.AsyncGroq':
-    return Env.get().get_client('groq')
+    return get_runtime().get_client('groq')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:groq')
@@ -66,7 +67,9 @@ async def chat_completions(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response=chat_completions(messages, model='llama-3.1-8b-instant'))
+        ... tbl.add_computed_column(
+        ...     response=chat_completions(messages, model='llama-3.1-8b-instant')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}

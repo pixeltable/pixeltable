@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -23,7 +24,7 @@ def _(api_token: str) -> 'replicate.Client':
 
 
 def _replicate_client() -> 'replicate.Client':
-    return Env.get().get_client('replicate')
+    return get_runtime().get_client('replicate')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:replicate')
@@ -52,14 +53,21 @@ async def run(input: dict[str, Any], *, ref: str) -> pxt.Json:
         Add a computed column that applies the model `meta/meta-llama-3-8b-instruct`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> input = {'system_prompt': 'You are a helpful assistant.', 'prompt': tbl.prompt}
-        ... tbl.add_computed_column(response=run(input, ref='meta/meta-llama-3-8b-instruct'))
+        >>> input = {
+        ...     'system_prompt': 'You are a helpful assistant.',
+        ...     'prompt': tbl.prompt,
+        ... }
+        ... tbl.add_computed_column(
+        ...     response=run(input, ref='meta/meta-llama-3-8b-instruct')
+        ... )
 
         Add a computed column that uses the model `black-forest-labs/flux-schnell`
         to generate images from an existing Pixeltable column `tbl.prompt`:
 
         >>> input = {'prompt': tbl.prompt, 'go_fast': True, 'megapixels': '1'}
-        ... tbl.add_computed_column(response=run(input, ref='black-forest-labs/flux-schnell'))
+        ... tbl.add_computed_column(
+        ...     response=run(input, ref='black-forest-labs/flux-schnell')
+        ... )
         ... tbl.add_computed_column(image=tbl.response.output[0].astype(pxt.Image))
     """
     Env.get().require_package('replicate')

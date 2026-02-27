@@ -367,6 +367,64 @@ class TestQuery:
         print(res)
         assert res[0]['get_val'][0]['foo'] == [2, 3, 4]
 
+    def test_pagination(self, uses_db: None) -> None:
+        """Test limit with offset for pagination"""
+        # Create a simple table without computed columns to avoid versioning issues
+        t = pxt.create_table('pagination_test', {'id': pxt.Int, 'value': pxt.String})
+        rows = [{'id': i, 'value': f'row_{i}'} for i in range(50)]
+        t.insert(rows)
+
+        # Test basic offset - first page
+        res = t.select(t.id).order_by(t.id).limit(5, offset=0).collect()
+        assert len(res) == 5
+        assert [row['id'] for row in res] == list(range(5))
+
+        # Test pagination: skip first 5, get next 5
+        res = t.select(t.id).order_by(t.id).limit(5, offset=5).collect()
+        assert len(res) == 5
+        assert [row['id'] for row in res] == list(range(5, 10))
+
+        # Test pagination: skip first 10, get next 5
+        res = t.select(t.id).order_by(t.id).limit(5, offset=10).collect()
+        assert len(res) == 5
+        assert [row['id'] for row in res] == list(range(10, 15))
+
+        # Test offset larger than result set
+        res = t.select(t.id).limit(10, offset=50).collect()
+        assert len(res) == 0
+
+        # Test offset with where clause
+        res = t.where(t.id >= 10).select(t.id).order_by(t.id).limit(5, offset=5).collect()
+        assert len(res) == 5
+        assert [row['id'] for row in res] == list(range(15, 20))
+
+        # Test that offset=0 is equivalent to no offset
+        res_no_offset = t.select(t.id).order_by(t.id).limit(5).collect()
+        res_with_zero_offset = t.select(t.id).order_by(t.id).limit(5, offset=0).collect()
+        assert res_no_offset == res_with_zero_offset
+
+        # Test offset near end of results
+        res = t.select(t.id).order_by(t.id).limit(10, offset=45).collect()
+        assert len(res) == 5  # Only 5 rows left
+        assert [row['id'] for row in res] == list(range(45, 50))
+
+        # Test pagination with Python filter (forces Python-side offset handling)
+        # Using a UDF that can't be converted to SQL
+        @pxt.udf(_force_stored=True)
+        def is_even_py(x: int) -> bool:
+            return x % 2 == 0
+
+        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(5, offset=5).collect()
+        assert len(res) == 5
+        assert [row['id'] for row in res] == [10, 12, 14, 16, 18]
+
+        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(10, offset=20).collect()
+        assert len(res) == 5  # Only 5 left
+        assert [row['id'] for row in res] == [40, 42, 44, 46, 48]
+
+        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(5, offset=25).collect()
+        assert len(res) == 0  # No more rows
+
     def test_head_tail(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = t.head(10).to_pandas()
@@ -553,7 +611,7 @@ class TestQuery:
 
         # grouping_tbl
 
-        t2 = pxt.create_table('test_tbl_2', {'name': ts.StringType(), 'video': ts.VideoType()})
+        t2 = pxt.create_table('test_tbl_2', {'name': pxt.String, 'video': pxt.Video})
         v2 = pxt.create_view('test_view_2', t2, iterator=frame_iterator(t2.video, fps=1))
         with pytest.raises(pxt.Error) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
@@ -722,7 +780,7 @@ class TestQuery:
 
         from pixeltable.functions.yolox import yolo_to_coco, yolox
 
-        base_t = pxt.create_table('videos', {'video': ts.VideoType()})
+        base_t = pxt.create_table('videos', {'video': pxt.Video})
         view_t = pxt.create_view('frames', base_t, iterator=frame_iterator(base_t.video, fps=1))
         view_t.add_computed_column(detections=yolox(view_t.frame, model_id='yolox_m'))
         base_t.insert(video=get_video_files()[0])

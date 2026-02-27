@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -31,7 +32,7 @@ def _(api_key: str, site_url: str | None = None, app_name: str | None = None) ->
 
 
 def _openrouter_client() -> 'openai.AsyncOpenAI':
-    return Env.get().get_client('openrouter')
+    return get_runtime().get_client('openrouter')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:openrouter')
@@ -79,8 +80,7 @@ async def chat_completions(
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
         ... tbl.add_computed_column(
         ...     response=chat_completions(
-        ...         messages,
-        ...         model='anthropic/claude-3.5-sonnet'
+        ...         messages, model='anthropic/claude-3.5-sonnet'
         ...     )
         ... )
 
@@ -90,7 +90,7 @@ async def chat_completions(
         ...     response=chat_completions(
         ...         messages,
         ...         model='anthropic/claude-3.5-sonnet',
-        ...         provider={'require_parameters': True, 'order': ['Anthropic']}
+        ...         provider={'require_parameters': True, 'order': ['Anthropic']},
         ...     )
         ... )
 
@@ -100,7 +100,7 @@ async def chat_completions(
         ...     response=chat_completions(
         ...         messages,
         ...         model='openai/gpt-4',
-        ...         transforms=['middle-out']  # Optimize for long contexts
+        ...         transforms=['middle-out'],  # Optimize for long contexts
         ...     )
         ... )
     """

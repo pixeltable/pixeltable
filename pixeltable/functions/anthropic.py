@@ -15,6 +15,7 @@ import httpx
 import pixeltable as pxt
 from pixeltable import env, exprs
 from pixeltable.func import Tools
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import exponential_backoff
 
@@ -36,7 +37,7 @@ def _(api_key: str) -> 'anthropic.AsyncAnthropic':
 
 
 def _anthropic_client() -> 'anthropic.AsyncAnthropic':
-    return env.Env.get().get_client('anthropic')
+    return get_runtime().get_client('anthropic')
 
 
 def _get_header_info(
@@ -119,22 +120,24 @@ class AnthropicRateLimitsInfo(env.RateLimitsInfo):
             or not hasattr(exc.response, 'headers')
         ):
             return
-        requests_info, input_tokens_info, output_tokens_info = _get_header_info(exc.response.headers)
-        _logger.debug(
-            f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} '
-            f'input_tokens_info={input_tokens_info} output_tokens_info={output_tokens_info}'
-        )
-        self.record(
-            request_ts=request_ts,
-            requests=requests_info,
-            input_tokens=input_tokens_info,
-            output_tokens=output_tokens_info,
-        )
-        self.has_exc = True
 
-        retry_after_str = exc.response.headers.get('retry-after')
-        if retry_after_str is not None:
-            _logger.debug(f'retry-after: {retry_after_str}')
+        with self._lock:
+            requests_info, input_tokens_info, output_tokens_info = _get_header_info(exc.response.headers)
+            _logger.debug(
+                f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} '
+                f'input_tokens_info={input_tokens_info} output_tokens_info={output_tokens_info}'
+            )
+            self.record(
+                request_ts=request_ts,
+                requests=requests_info,
+                input_tokens=input_tokens_info,
+                output_tokens=output_tokens_info,
+            )
+            self.has_exc = True
+
+            retry_after_str = exc.response.headers.get('retry-after')
+            if retry_after_str is not None:
+                _logger.debug(f'retry-after: {retry_after_str}')
 
     def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
         import anthropic
@@ -193,7 +196,9 @@ async def messages(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> msgs = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response=messages(msgs, model='claude-3-5-sonnet-20241022'))
+        ... tbl.add_computed_column(
+        ...     response=messages(msgs, model='claude-3-5-sonnet-20241022')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}

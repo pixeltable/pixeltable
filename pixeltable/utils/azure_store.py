@@ -13,6 +13,7 @@ from azure.storage.blob import BlobSasPermissions, generate_blob_sas
 
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress
 
 if TYPE_CHECKING:
@@ -71,7 +72,7 @@ class AzureBlobStore(ObjectStoreBase):
 
     def client(self) -> 'BlobServiceClient':
         """Return the Azure Blob Storage client."""
-        client_dict: dict[str, 'BlobServiceClient'] = env.Env.get().get_client('azure_blob')
+        client_dict: dict[str, 'BlobServiceClient'] = get_runtime().get_client('azure_blob')
         with client_lock:
             uri = self.soa.container_free_uri
             if uri not in client_dict:

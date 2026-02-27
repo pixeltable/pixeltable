@@ -9,6 +9,7 @@ import pyarrow as pa
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable.runtime import get_runtime
 
 if TYPE_CHECKING:
     import pixeltable as pxt
@@ -51,7 +52,7 @@ PXT_TO_PA_TYPES: dict[type[ts.ColumnType], pa.DataType] = {
 }
 
 
-def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> ts.ColumnType | None:
+def to_pxt_type(arrow_type: pa.DataType, nullable: bool) -> ts.ColumnType | None:
     """Convert a pyarrow DataType to a pixeltable ColumnType if one is defined.
     Returns None if no conversion is currently implemented.
     """
@@ -63,7 +64,7 @@ def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> ts.ColumnType
         pt = PA_TO_PXT_TYPES[arrow_type]
         return pt.copy(nullable=nullable) if pt is not None else None
     elif isinstance(arrow_type, pa.FixedShapeTensorType):
-        dtype = to_pixeltable_type(arrow_type.value_type, nullable)
+        dtype = to_pxt_type(arrow_type.value_type, nullable)
         if dtype is None:
             return None
         return ts.ArrayType(shape=tuple(arrow_type.shape), dtype=dtype, nullable=nullable)
@@ -71,14 +72,23 @@ def to_pixeltable_type(arrow_type: pa.DataType, nullable: bool) -> ts.ColumnType
         return None
 
 
-def to_arrow_type(pixeltable_type: ts.ColumnType) -> pa.DataType | None:
+def to_arrow_type(pxt_type: ts.ColumnType) -> pa.DataType | None:
     """Convert a pixeltable DataType to a pyarrow datatype if one is defined.
     Returns None if no conversion is currently implemented.
     """
-    if pixeltable_type.__class__ in PXT_TO_PA_TYPES:
-        return PXT_TO_PA_TYPES[pixeltable_type.__class__]
-    elif isinstance(pixeltable_type, ts.ArrayType):
-        return pa.fixed_shape_tensor(pa.from_numpy_dtype(pixeltable_type.dtype), pixeltable_type.shape)
+    if pxt_type.__class__ in PXT_TO_PA_TYPES:
+        return PXT_TO_PA_TYPES[pxt_type.__class__]
+    elif isinstance(pxt_type, ts.ArrayType):
+        shape = pxt_type.shape
+        assert shape is not None
+        if any(d is None for d in shape):
+            # we need to map this to a nested list of the dtype
+            arrow_type = pa.from_numpy_dtype(pxt_type.dtype)
+            for _ in shape:
+                arrow_type = pa.list_(arrow_type)
+            return arrow_type
+
+        return pa.fixed_shape_tensor(pa.from_numpy_dtype(pxt_type.dtype), pxt_type.shape)
     else:
         return None
 
@@ -88,7 +98,7 @@ def to_pxt_schema(
 ) -> dict[str, ts.ColumnType]:
     """Convert a pyarrow Schema to a schema using pyarrow names and pixeltable types."""
     pxt_schema = {
-        field.name: to_pixeltable_type(field.type, field.name not in primary_key)
+        field.name: to_pxt_type(field.type, field.name not in primary_key)
         if field.name not in schema_overrides
         else schema_overrides[field.name]
         for field in arrow_schema
@@ -96,14 +106,22 @@ def to_pxt_schema(
     return pxt_schema
 
 
-def _to_record_batch(column_vals: dict[str, list[Any]], schema: pa.Schema) -> pa.RecordBatch:
+def _to_record_batch(
+    column_vals: dict[str, list[Any]], schema: pa.Schema, pxt_schema: dict[str, ts.ColumnType]
+) -> pa.RecordBatch:
     import pyarrow as pa
 
     pa_arrays: list[pa.Array] = []
     for field in schema:
+        assert field.name in pxt_schema
+        pxt_type = pxt_schema[field.name]
         if isinstance(field.type, pa.FixedShapeTensorType):
             stacked_arr = np.stack(column_vals[field.name])
             pa_arrays.append(pa.FixedShapeTensorArray.from_numpy_ndarray(stacked_arr))
+        elif pxt_type.is_array_type() and isinstance(field.type, pa.ListType):
+            # convert ragged arrays to nested lists
+            list_col_vals = [val.tolist() for val in column_vals[field.name]]
+            pa_arrays.append(pa.array(list_col_vals))
         else:
             pa_array = cast(pa.Array, pa.array(column_vals[field.name]))
             pa_arrays.append(pa_array)
@@ -134,97 +152,101 @@ def to_record_batches(query: 'pxt.Query', batch_size_bytes: int) -> Iterator[pa.
     # TODO: in order to avoid having to deal with ExprEvalError here, ResultSet should be an iterator
     # over _exec()
     try:
-        for data_row in query._exec():
-            num_batch_rows += 1
-            for (col_name, col_type), e in zip(query.schema.items(), query._select_list_exprs):
-                val = data_row[e.slot_idx]
-                val_size_bytes: int
-                if val is None:
+        with get_runtime().catalog.begin_xact(for_write=False):
+            for data_row in query._exec():
+                num_batch_rows += 1
+                for (col_name, col_type), e in zip(query.schema.items(), query._select_list_exprs):
+                    val = data_row[e.slot_idx]
+                    val_size_bytes: int
+                    if val is None:
+                        batch_columns[col_name].append(val)
+                        continue
+
+                    assert val is not None
+                    if col_type.is_image_type():
+                        # images get inlined into the parquet file
+                        if data_row.file_paths[e.slot_idx] is not None:
+                            # if there is a file, read directly to preserve information
+                            with open(data_row.file_paths[e.slot_idx], 'rb') as f:
+                                val = f.read()
+                        elif isinstance(val, PIL.Image.Image):
+                            # no file available: save as png
+                            buf = io.BytesIO()
+                            val.save(buf, format='png')
+                            val = buf.getvalue()
+                        else:
+                            raise excs.Error(f'unknown image type {type(val)}')
+                        val_size_bytes = len(val)
+                    elif col_type.is_string_type():
+                        val_size_bytes = len(val)
+                    elif col_type.is_uuid_type():
+                        # pa.uuid() uses fixed_size_binary(16) as storage type
+                        val = val.bytes  # Convert UUID to 16-byte binary for arrow
+                        val_size_bytes = len(val)
+                    elif col_type.is_binary_type():
+                        val_size_bytes = len(val)
+                    elif col_type.is_media_type():
+                        assert data_row.file_paths[e.slot_idx] is not None
+                        val = data_row.file_paths[e.slot_idx]
+                        val_size_bytes = len(val)
+                    elif col_type.is_json_type():
+                        if col_name not in json_val_size:
+                            val_size_bytes = pa.array([val]).nbytes
+                            json_batch_size[col_name] = json_batch_size.get(col_name, 0) + val_size_bytes
+                        else:
+                            val_size_bytes = json_val_size[col_name]
+                    elif col_type.is_array_type():
+                        val_size_bytes = val.nbytes
+                    elif col_type.is_int_type() or col_type.is_float_type():
+                        val_size_bytes = 8
+                    elif col_type.is_bool_type():
+                        val_size_bytes = 1
+                    elif col_type.is_date_type():
+                        val_size_bytes = 4
+                    elif col_type.is_timestamp_type():
+                        val = val.astimezone(datetime.timezone.utc)
+                        val_size_bytes = 8
+                    else:
+                        raise excs.Error(f'unknown type {col_type} for {col_name}')
+
                     batch_columns[col_name].append(val)
-                    continue
+                    current_byte_estimate += val_size_bytes
 
-                assert val is not None
-                if col_type.is_image_type():
-                    # images get inlined into the parquet file
-                    if data_row.file_paths[e.slot_idx] is not None:
-                        # if there is a file, read directly to preserve information
-                        with open(data_row.file_paths[e.slot_idx], 'rb') as f:
-                            val = f.read()
-                    elif isinstance(val, PIL.Image.Image):
-                        # no file available: save as png
-                        buf = io.BytesIO()
-                        val.save(buf, format='png')
-                        val = buf.getvalue()
-                    else:
-                        raise excs.Error(f'unknown image type {type(val)}')
-                    val_size_bytes = len(val)
-                elif col_type.is_string_type():
-                    val_size_bytes = len(val)
-                elif col_type.is_uuid_type():
-                    # pa.uuid() uses fixed_size_binary(16) as storage type
-                    val = val.bytes  # Convert UUID to 16-byte binary for arrow
-                    val_size_bytes = len(val)
-                elif col_type.is_binary_type():
-                    val_size_bytes = len(val)
-                elif col_type.is_media_type():
-                    assert data_row.file_paths[e.slot_idx] is not None
-                    val = data_row.file_paths[e.slot_idx]
-                    val_size_bytes = len(val)
-                elif col_type.is_json_type():
-                    if col_name not in json_val_size:
-                        val_size_bytes = pa.array([val]).nbytes
-                        json_batch_size[col_name] = json_batch_size.get(col_name, 0) + val_size_bytes
-                    else:
-                        val_size_bytes = json_val_size[col_name]
-                elif col_type.is_array_type():
-                    val_size_bytes = val.nbytes
-                elif col_type.is_int_type() or col_type.is_float_type():
-                    val_size_bytes = 8
-                elif col_type.is_bool_type():
-                    val_size_bytes = 1
-                elif col_type.is_date_type():
-                    val_size_bytes = 4
-                elif col_type.is_timestamp_type():
-                    val = val.astimezone(datetime.timezone.utc)
-                    val_size_bytes = 8
-                else:
-                    raise excs.Error(f'unknown type {col_type} for {col_name}')
-
-                batch_columns[col_name].append(val)
-                current_byte_estimate += val_size_bytes
-
-            if current_byte_estimate > batch_size_bytes and num_batch_rows > 0:
-                if arrow_schema is None:
-                    # this is the first batch
-                    json_val_size = {
-                        col_name: json_batch_size[col_name] // num_batch_rows for col_name in json_batch_size
-                    }
-                create_arrow_schema()
-                record_batch = _to_record_batch(batch_columns, arrow_schema)
-                yield record_batch
-                batch_columns = {k: [] for k in query.schema}
-                current_byte_estimate = 0
-                num_batch_rows = 0
+                if current_byte_estimate > batch_size_bytes and num_batch_rows > 0:
+                    if arrow_schema is None:
+                        # this is the first batch
+                        json_val_size = {
+                            col_name: json_batch_size[col_name] // num_batch_rows for col_name in json_batch_size
+                        }
+                    create_arrow_schema()
+                    record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
+                    yield record_batch
+                    batch_columns = {k: [] for k in query.schema}
+                    current_byte_estimate = 0
+                    num_batch_rows = 0
 
     except excs.ExprEvalError as e:
         query._raise_expr_eval_err(e)
 
     if num_batch_rows > 0:
         create_arrow_schema()
-        record_batch = _to_record_batch(batch_columns, arrow_schema)
+        record_batch = _to_record_batch(batch_columns, arrow_schema, query.schema)
         yield record_batch
 
 
 def to_pydict(batch: pa.Table | pa.RecordBatch) -> dict[str, list | np.ndarray]:
-    """Convert a RecordBatch to a dictionary of lists, unlike pa.lib.RecordBatch.to_pydict,
-    this function will not convert numpy arrays to lists, and will preserve the original numpy dtype.
+    """Convert a RecordBatch to a dictionary of lists
+
+    FixedShapeTensor columns are converted to numpy arrays with the correct shape.
     """
     out: dict[str, list | np.ndarray] = {}
     for k, name in enumerate(batch.schema.names):
         col = batch.column(k)
         if isinstance(col.type, pa.FixedShapeTensorType):
-            # treat array columns as numpy arrays to easily preserve numpy type
-            out[name] = col.to_numpy(zero_copy_only=False)
+            # we want a list of ndarrays of the correct shape
+            if isinstance(col, pa.ChunkedArray):
+                col = col.combine_chunks()
+            out[name] = list(cast(pa.FixedShapeTensorArray, col).to_numpy_ndarray())
         else:
             # for the rest, use pydict to preserve python types
             out[name] = col.to_pylist()

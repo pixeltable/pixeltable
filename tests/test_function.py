@@ -1,4 +1,5 @@
 import re
+import subprocess
 import typing
 import warnings
 from datetime import datetime
@@ -62,7 +63,7 @@ class TestFunction:
         print(_)
 
     def test_stored_udf(self, uses_db: None) -> None:
-        t = pxt.create_table('test', {'c1': ts.IntType(), 'c2': ts.FloatType()})
+        t = pxt.create_table('test', {'c1': pxt.Int, 'c2': pxt.Float})
         rows = [{'c1': i, 'c2': i + 0.5} for i in range(100)]
         status = t.insert(rows)
         assert status.num_rows == len(rows)
@@ -577,7 +578,7 @@ class TestFunction:
         assert self.agg.__doc__ == 'An aggregator.'
 
     @pxt.udf
-    def overloaded_udf(x: str, y: str, z: str = 'a') -> str:  # type: ignore[misc]  # noqa: N805
+    def overloaded_udf(x: str, y: str, z: str = 'a') -> str:  # noqa: N805
         return x + y
 
     @staticmethod
@@ -869,7 +870,7 @@ class TestFunction:
             regex = '\n'.join(
                 [
                     re.escape(
-                        "Data cannot be inserted into the table 'test',\n"
+                        "Data cannot be inserted into the Table 'test',\n"
                         "because the column 'result' is currently invalid:"
                     ),
                     re.escape(msg),
@@ -881,7 +882,7 @@ class TestFunction:
             regex = '.*'.join(
                 [
                     re.escape(
-                        "Data cannot be updated in the table 'test',\nbecause the column 'result' is currently invalid:"
+                        "Data cannot be updated in the Table 'test',\nbecause the column 'result' is currently invalid:"
                     ),
                     re.escape(msg),
                 ]
@@ -937,7 +938,7 @@ class TestFunction:
         else:
             reload_and_validate_table()
 
-        # Change the parameter from fixed to variable; this works only if the UDF was invoked with a positional
+        # Change the parameter from fixed to variadic; this works only if the UDF was invoked with a positional
         # argument
         @pxt.udf(_force_stored=True)
         def udf_version_4(*a: str) -> pxt.Array[pxt.Float] | None:
@@ -1014,6 +1015,24 @@ class TestFunction:
         # Now drop the column that references the invalid UDF
         t.drop_column('result')
         reload_and_validate_table(has_result_column=False)
+
+        # Test that we get the same warnings when the computed column is on a view.
+        # TODO: These do not currently work.
+        # pxt.drop_table('test')
+        # t = pxt.create_table('test', {'c1': pxt.String})
+        # t.insert(c1='xyz')
+        # v = pxt.create_view('view', t)
+        # mimic(udf_base_version)
+        # if as_kwarg:
+        #     v.add_computed_column(result=tests.test_function.evolving_udf(a=t.c1))
+        # else:
+        #     v.add_computed_column(result=tests.test_function.evolving_udf(t.c1))
+
+        # mimic(udf_version_6)
+        # reload_and_validate_table(validation_error=signature_error.format(params='(a: pxt.Float, b: pxt.Int)'))
+
+        # mimic(udf_version_7)
+        # reload_and_validate_table(validation_error=return_type_error.format(return_type='Array | None'))
 
     def test_udf_import_error(self, uses_db: None) -> None:
         """
@@ -1294,6 +1313,11 @@ class TestFunction:
         assert set(res['plus_one']) == {2, 3, None}
 
         assert len(t.where(t.col_2.match('def')).collect()) == 1
+
+    def test_udf_in_global_namespace(self, uses_db: None) -> None:
+        process = subprocess.run(('python', 'tests/script_with_udf.py'), check=False, capture_output=True, text=True)
+        assert process.returncode != 0  # The script should fail with an appropriate error message
+        assert "Defining the UDF 'inline_udf' directly in the global namespace of a Python script" in process.stderr
 
 
 @pxt.udf

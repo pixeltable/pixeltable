@@ -19,6 +19,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import env
 from pixeltable.func import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -33,7 +34,7 @@ def _(api_key: str) -> 'together.AsyncTogether':
 
 
 def _together_client() -> 'together.AsyncTogether':
-    return env.Env.get().get_client('together')
+    return get_runtime().get_client('together')
 
 
 T = TypeVar('T')
@@ -78,7 +79,9 @@ async def completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] |
         Add a computed column that applies the model `mistralai/Mixtral-8x7B-v0.1` to an existing Pixeltable column
         `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1'))
+        >>> tbl.add_computed_column(
+        ...     response=completions(tbl.prompt, model='mistralai/Mixtral-8x7B-v0.1')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -119,7 +122,11 @@ async def chat_completions(
         `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response=chat_completions(messages, model='mistralai/Mixtral-8x7B-v0.1'))
+        ... tbl.add_computed_column(
+        ...     response=chat_completions(
+        ...         messages, model='mistralai/Mixtral-8x7B-v0.1'
+        ...     )
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -167,7 +174,11 @@ async def embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,
         Add a computed column that applies the model `togethercomputer/m2-bert-80M-8k-retrieval`
         to an existing Pixeltable column `tbl.text` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=embeddings(tbl.text, model='togethercomputer/m2-bert-80M-8k-retrieval'))
+        >>> tbl.add_computed_column(
+        ...     response=embeddings(
+        ...         tbl.text, model='togethercomputer/m2-bert-80M-8k-retrieval'
+        ...     )
+        ... )
     """
     result = await _together_client().embeddings.create(input=input, model=model)
     return [np.array(data.embedding, dtype=np.float64) for data in result.data]
@@ -212,7 +223,9 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> tbl.add_computed_column(
-        ...     response=image_generations(tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0')
+        ...     response=image_generations(
+        ...         tbl.prompt, model='stabilityai/stable-diffusion-xl-base-1.0'
+        ...     )
         ... )
     """
     if model_kwargs is None:

@@ -6,8 +6,10 @@ import PIL
 import pytest
 
 import pixeltable as pxt
-from pixeltable.catalog import Catalog
+from pixeltable import exprs
 from pixeltable.func import Batch
+from pixeltable.runtime import get_runtime
+from pixeltable.types import ColumnSpec
 
 from .utils import (
     ReloadTester,
@@ -148,7 +150,7 @@ class TestView:
         assert status.num_rows == 30  # 20 in the base table, 10 in test_view_alt
 
         with pytest.raises(pxt.Error) as exc_info:
-            _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})
+            _ = pxt.create_view('lambda_view', t, additional_columns={'v1': lambda c3: c3 * 2.0})  # type: ignore[dict-item]
         assert "invalid value for column 'v1'" in str(exc_info.value).lower()
 
     def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
@@ -158,9 +160,10 @@ class TestView:
         id_before = v._id
 
         # invalid if_exists value is rejected
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error, match=r"if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"
+        ):
             _ = pxt.create_view('test_view', t, if_exists='invalid')  # type: ignore[arg-type]
-        assert "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value)
 
         # scenario 1: a view exists at the path already
         with pytest.raises(pxt.Error, match='is an existing view'):
@@ -186,10 +189,8 @@ class TestView:
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace' cannot drop a view with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='has dependents'):
             v3 = pxt.create_view('test_view', t, if_exists='replace')
-        err_msg = str(exc_info.value).lower()
-        assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
         assert 'test_view_on_view' in pxt.list_tables()
         # if_exists='replace_force' should drop the existing view and
         # its dependent views and create a new one
@@ -202,12 +203,24 @@ class TestView:
         _ = pxt.create_table('not_view', {'c1': pxt.String})
         with pytest.raises(pxt.Error, match='is an existing table'):
             pxt.create_view('not_view', t)
-        for if_exists in ['ignore', 'replace', 'replace_force']:
-            with pytest.raises(pxt.Error) as exc_info:
-                _ = pxt.create_view('not_view', t, if_exists=if_exists)  # type: ignore[arg-type]
-            err_msg = str(exc_info.value).lower()
-            assert 'already exists' in err_msg and 'is not a view' in err_msg
-            assert 'not_view' in pxt.list_tables(), f'with if_exists={if_exists}'
+        # if_exists='ignore' should fail because existing object is not a view
+        with pytest.raises(pxt.Error, match='already exists'):
+            _ = pxt.create_view('not_view', t, if_exists='ignore')
+        assert 'not_view' in pxt.list_tables()
+        # if_exists='replace' and 'replace_force' should drop the existing table and create a view
+        for if_exists in ('replace', 'replace_force'):
+            _ = pxt.create_view('not_view', t, if_exists=if_exists)
+            assert 'not_view' in pxt.list_tables()
+            # setup for next iteration: drop view and recreate table
+            pxt.drop_table('not_view')
+            _ = pxt.create_table('not_view', {'c1': pxt.String})
+
+        # scenario 4: view exists but with a different base table
+        pxt.drop_table('not_view')
+        other_base = pxt.create_table('other_base', {'c1': pxt.String})
+        _ = pxt.create_view('view_with_base', t)
+        with pytest.raises(pxt.Error, match='already exists'):
+            _ = pxt.create_view('view_with_base', other_base, if_exists='ignore')
 
         # sanity check persistence
         _ = reload_tester.run_query(t.select())
@@ -499,7 +512,7 @@ class TestView:
         t_res = t.select(t.c1, t.c2, t.c3, t.c4, t.c5, t.c6, t.c7, t.c8, t.d1, t.c10, t.d2).head(5)
         print(t_res)
 
-        add_schema1 = {
+        add_schema1: dict[str, ColumnSpec] = {
             'uc1': {'value': t.c1, 'stored': False},
             'uc1n': {'value': t.c1n, 'stored': False},
             'uc2': {'value': t.c2, 'stored': False},
@@ -522,7 +535,7 @@ class TestView:
 
         assert_resultset_eq(v1_res, t_res, compare_col_names=False)
 
-        add_schema2 = {
+        add_schema2: dict[str, ColumnSpec] = {
             'vc1': {'value': v1.uc1, 'stored': False},
             'vc1n': {'value': v1.uc1n, 'stored': False},
             'vc2': {'value': v1.uc2, 'stored': False},
@@ -544,7 +557,7 @@ class TestView:
         print(v2_res)
         assert_resultset_eq(v2_res, t_res, compare_col_names=False)
 
-        add_schema3 = {
+        add_schema3: dict[str, ColumnSpec] = {
             'wc2a': {'value': add_unstored_base_val(v2.vc2), 'stored': True},
             'wc2b': {'value': add_unstored_base_val(v2.vc2), 'stored': False},
         }
@@ -573,7 +586,7 @@ class TestView:
         t.insert(rows)
 
         # view with unstored column that depends on int1 and a manually updated column (int4)
-        v1_schema = {
+        v1_schema: dict[str, ColumnSpec | type | exprs.Expr] = {
             'img2': {'value': t.img.crop([t.int1, t.int1, width, height]), 'stored': False},
             'int3': t.int1 * 2,
             'int4': pxt.Int,  # TODO: add default
@@ -584,7 +597,7 @@ class TestView:
         _ = v1.select(v1.img2.width, v1.img2.height).collect()
 
         # view with stored column that depends on t and view1
-        v2_schema = {
+        v2_schema: dict[str, ColumnSpec] = {
             'img3': {
                 # use the actual width and height of the image (not 100, which will pad the image)
                 'value': v1.img2.crop([t.int1 + t.int2, v1.int3 + v1.int4, v1.img2.width, v1.img2.height]),
@@ -636,7 +649,7 @@ class TestView:
         t = self.create_tbl()
 
         # Note that v1.c3 overrides t.c3, but both are accessible
-        schema = {'v1': {'value': t.c2, 'stored': True}}
+        schema: dict[str, ColumnSpec] = {'v1': {'value': t.c2, 'stored': True}}
         v1 = pxt.create_view(
             'test_view1', t.select(t.c2, t.c2 + 99, foo=t.c2, bar=t.c2 + 27, c3=t.c3 * 2), additional_columns=schema
         )
@@ -819,8 +832,8 @@ class TestView:
         v = pxt.create_view('test_view', s.where(s.c2 < 10), additional_columns=schema)
         orig_view_cols = v._get_schema().keys()
         view_s = pxt.create_snapshot('test_view_snap', v)
-        with Catalog.get().begin_xact(for_write=False):
-            _ = Catalog.get().load_replica_md(view_s)
+        with get_runtime().catalog.begin_xact(for_write=False):
+            _ = get_runtime().catalog.load_replica_md(view_s)
         assert set(view_s._get_schema().keys()) == set(orig_view_cols)
 
         def check(s1: pxt.Table, v: pxt.Table, s2: pxt.Table) -> None:
@@ -911,10 +924,12 @@ class TestView:
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
+                            'custom_metadata': None,
+                            'comment': None,
                         }
                         for name, (type_, version_added) in expected_schema.items()
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
@@ -1024,10 +1039,12 @@ class TestView:
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
+                            'custom_metadata': None,
+                            'comment': None,
                         }
                         for name, (type_, version_added, computed_with) in expected_schema.items()
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
@@ -1104,10 +1121,12 @@ class TestView:
                             'name': name,
                             'type_': type_,
                             'version_added': version_added,
+                            'custom_metadata': None,
+                            'comment': None,
                         }
                         for name, (type_, version_added, computed_with) in expected_schema.items()
                     },
-                    'comment': '',
+                    'comment': None,
                     'indices': {},
                     'is_replica': False,
                     'is_snapshot': True,
@@ -1296,3 +1315,42 @@ class TestView:
         # check that invalid JSON user metadata are rejected
         with pytest.raises(pxt.Error):
             pxt.create_view('tbl_view_invalid', t, custom_metadata={'key': set})
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_view_column_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
+        custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
+        t = pxt.create_table('tbl', {'c': pxt.Int})
+        v = pxt.create_view(
+            'tbl_view', t, additional_columns={'v1': {'type': pxt.Int, 'custom_metadata': custom_metadata}}
+        )
+        assert v.get_metadata()['columns']['v1']['custom_metadata'] == custom_metadata
+
+        reload_catalog(do_reload_catalog)
+        v = pxt.get_table('tbl_view')
+        assert v.get_metadata()['columns']['v1']['custom_metadata'] == custom_metadata
+
+        # check that invalid JSON user metadata are rejected for columns
+        with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
+            pxt.create_view(
+                'tbl_view_invalid', t, additional_columns={'v1': {'type': pxt.Int, 'custom_metadata': {'key': set}}}
+            )
+
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_view_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
+        t = pxt.create_table('tbl', {'c': pxt.Int})
+        v = pxt.create_view(
+            'tbl_view', t, additional_columns={'v1': {'type': pxt.Int, 'comment': 'This is a test column.'}}
+        )
+        assert v.get_metadata()['columns']['v1']['comment'] == 'This is a test column.'
+
+        reload_catalog(do_reload_catalog)
+        v = pxt.get_table('tbl_view')
+        assert v.get_metadata()['columns']['v1']['comment'] == 'This is a test column.'
+
+        # check that raw object JSON comments are rejected for columns
+        with pytest.raises(pxt.Error, match="'comment' must be a string"):
+            pxt.create_view(
+                'tbl_view_invalid',
+                t,
+                additional_columns={'v1': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}},  # type: ignore[dict-item]
+            )

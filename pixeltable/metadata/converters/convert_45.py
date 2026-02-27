@@ -1,71 +1,64 @@
-from uuid import UUID
+from typing import Any
 
+import numpy as np
 import sqlalchemy as sql
 
+import pixeltable.type_system as ts
 from pixeltable.metadata import register_converter
-from pixeltable.metadata.schema import Table, TableSchemaVersion
+from pixeltable.metadata.converters.util import convert_table_md
 
 
 @register_converter(version=45)
 def _(engine: sql.engine.Engine) -> None:
     """
-    In version 46, some column metadata moved from the table level (TableMd, ColumnMd) to SchemaVersionMd to allow for
-    versioning of these fields in the future. This converter moves the affected fields accordingly by reading all table
-    and schema version metadata to memory, then updating them and writing them back.
+    Renames val_t to col_type in Literals, and updates how Literal types are serialized so that col_type is always
+    present and always a full ColumnType dict (never a bare type-name string).
+
+    E.g. before: {'val': [[...], [...]], 'val_t': 'ARRAY', '_classname': 'Literal'}
+    After: {'val': [[...], [...]], 'col_type': {'_classname': 'ArrayType', 'nullable': False, 'shape': [2, 3],
+           'numpy_dtype': 'int64'}, '_classname': 'Literal'}
     """
-    with engine.connect().execution_options(isolation_level='READ COMMITTED') as conn:
-        # Read the table and table schema version metadata from the store
-        # table id -> table md
-        table_mds: dict[UUID, dict] = {}
-        # table id -> schema version -> schema version md
-        table_schema_versions: dict[UUID, dict[int, dict]] = {}
-        for row in conn.execute(sql.select(Table.id, Table.md)):
-            assert row.id not in table_mds
-            table_mds[row.id] = row.md
-        for row in conn.execute(
-            sql.select(TableSchemaVersion.tbl_id, TableSchemaVersion.schema_version, TableSchemaVersion.md)
-        ):
-            versions = table_schema_versions.setdefault(row.tbl_id, {})
-            assert row.schema_version not in versions
-            versions[row.schema_version] = row.md
-
-        # Convert and write back the updated metadata
-        for tbl_id, tbl_md in table_mds.items():
-            _convert_table_and_versions(tbl_md, table_schema_versions[tbl_id])
-            conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=tbl_md))
-            for schema_version, schema_version_md in table_schema_versions[tbl_id].items():
-                conn.execute(
-                    sql.update(TableSchemaVersion)
-                    .where(TableSchemaVersion.tbl_id == tbl_id)
-                    .where(TableSchemaVersion.schema_version == schema_version)
-                    .values(md=schema_version_md)
-                )
-
-        conn.commit()
+    convert_table_md(engine, substitution_fn=_substitution_fn)
 
 
-# field name -> is required
-_COL_FIELDS_TO_MOVE = {'col_type': True, 'is_pk': True, 'value_expr': False, 'destination': False}
+def _substitution_fn(key: str | None, value: Any) -> tuple[str | None, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    if value.get('_classname') != 'Literal' or 'val' not in value:
+        return None
 
+    # convert_29 calls Literal.as_dict, so it's possible to encounter already converted literals here.
+    if 'col_type' in value:
+        assert isinstance(value['col_type'], dict)
+        return None
 
-def _convert_table_and_versions(table_md: dict, schema_versions: dict[int, dict]) -> None:
-    assert len(schema_versions) > 0, table_md.get('tbl_id')
-    for col_id, table_col_md in table_md['column_md'].items():
-        # For each column in table md, find the relevant schema versions in schema versions md and add/update columns
-        # there accordingly
-        # lowest and highest versions are inclusive:
-        lowest_schema_ver = table_col_md['schema_version_add']
-        highest_schema_ver = table_col_md.get('schema_version_drop', None)
-        highest_schema_ver = Table.MAX_VERSION if highest_schema_ver is None else highest_schema_ver - 1
-        for schema_ver, schema_version_md in schema_versions.items():
-            if schema_ver < lowest_schema_ver or schema_ver > highest_schema_ver:
-                continue
-            # Update user-visible columns and add system columns
-            col = schema_version_md['columns'].setdefault(col_id, {'pos': None, 'name': None, 'media_validation': None})
-            for field, is_required in _COL_FIELDS_TO_MOVE.items():
-                assert field in table_col_md or not is_required, field
-                if field in table_col_md:
-                    col[field] = table_col_md[field]
-        # Finally, remove the moved fields from the source table md
-        for field in _COL_FIELDS_TO_MOVE:
-            table_col_md.pop(field, None)
+    if 'val_t' not in value:
+        # Add col_type for Literals that previously didn't serialize it (int, float, string, bool, json, None/invalid)
+        col_type = ts.ColumnType.infer_literal_type(value['val'])
+        assert col_type is not None, f'Failed to infer literal type for {value["val"]}'
+        value['col_type'] = col_type.as_dict()
+        return key, value
+
+    val_t = value.pop('val_t')
+    assert isinstance(val_t, str), val_t
+
+    # val_t is a bare string; convert from old string format to new dict format
+    match val_t:
+        case 'ARRAY':
+            array = np.array(value['val'])
+            col_type = ts.ArrayType.from_literal(array)
+            assert col_type is not None, array
+            col_type_dict = col_type.as_dict()
+        case 'TIMESTAMP':
+            col_type_dict = {'_classname': 'TimestampType', 'nullable': False}
+        case 'UUID':
+            col_type_dict = {'_classname': 'UUIDType', 'nullable': False}
+        case 'DATE':
+            col_type_dict = {'_classname': 'DateType', 'nullable': False}
+        case 'BINARY':
+            col_type_dict = {'_classname': 'BinaryType', 'nullable': False}
+        case _:
+            raise AssertionError(f'Unrecognized Literal type: {val_t}')
+
+    value['col_type'] = col_type_dict
+    return key, value

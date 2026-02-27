@@ -2,15 +2,21 @@
 Pixeltable UDFs for `AudioType`.
 """
 
-from typing import Any
+import logging
+from fractions import Fraction
+from pathlib import Path
+from typing import Any, ClassVar, TypedDict
 
 import av
 import numpy as np
 
 import pixeltable as pxt
 import pixeltable.utils.av as av_utils
+from pixeltable import exceptions as excs
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.local_store import TempStore
+
+_logger = logging.getLogger('pixeltable')
 
 
 @pxt.udf(is_method=True)
@@ -127,37 +133,206 @@ def encode_audio(
         return output_path
 
 
-def audio_splitter(
-    audio: Any, chunk_duration_sec: float, *, overlap_sec: float = 0.0, min_chunk_duration_sec: float = 0.0
-) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
+class AudioSegment(TypedDict):
+    segment_start: float
+    segment_end: float
+    audio_segment: pxt.Audio | None
+
+
+@pxt.iterator
+class audio_splitter(pxt.PxtIterator[AudioSegment]):
     """
-    Iterator over chunks of an audio file. The audio file is split into smaller chunks,
-    where the duration of each chunk is determined by chunk_duration_sec.
-    The iterator yields audio chunks as pxt.Audio, along with the start and end time of each chunk.
-    If the input contains no audio, no chunks are yielded.
+    Iterator over segments of an audio file. The audio file is split into smaller segments,
+    where the duration of each segment is determined by `duration`.
+
+    If the input contains no audio, no segments are yielded.
+
+    __Outputs__:
+
+        One row per audio segment, with the following columns:
+
+        - `segment_start` (`pxt.Float`): Start time of the audio segment in seconds
+        - `segment_end` (`pxt.Float`): End time of the audio segment in seconds
+        - `audio_segment` (`pxt.Audio | None`): The audio content of the segment
 
     Args:
-        chunk_duration_sec: Audio chunk duration in seconds
-        overlap_sec: Overlap between consecutive chunks in seconds
-        min_chunk_duration_sec: Drop the last chunk if it is smaller than min_chunk_duration_sec
+        duration: Audio segment duration in seconds
+        overlap: Overlap between consecutive segments in seconds
+        min_segment_duration: Drop the last segment if it is smaller than `min_segment_duration`
 
     Examples:
         This example assumes an existing table `tbl` with a column `audio` of type `pxt.Audio`.
 
-        Create a view that splits all audio files into chunks of 30 seconds with 5 seconds overlap:
+        Create a view that splits all audio files into segments of 30 seconds with 5 seconds overlap:
 
         >>> pxt.create_view(
-        ...     'audio_chunks',
+        ...     'audio_segments',
         ...     tbl,
-        ...     iterator=audio_splitter(tbl.audio, chunk_duration_sec=30.0, overlap_sec=5.0)
+        ...     iterator=audio_splitter(tbl.audio, duration=30.0, overlap=5.0),
         ... )
     """
-    kwargs: dict[str, Any] = {}
-    if overlap_sec != 0.0:
-        kwargs['overlap_sec'] = overlap_sec
-    if min_chunk_duration_sec != 0.0:
-        kwargs['min_chunk_duration_sec'] = min_chunk_duration_sec
-    return pxt.iterators.AudioSplitter._create(audio=audio, chunk_duration_sec=chunk_duration_sec, **kwargs)
+
+    audio_path: Path
+    segment_duration: float
+    overlap: float
+    min_segment_duration: float
+
+    # audio stream details
+    container: av.container.input.InputContainer
+    audio_time_base: Fraction  # seconds per presentation time
+
+    # List of segments to extract
+    # Each segment is defined by start and end presentation timestamps in audio file (int)
+    segments_to_extract_in_pts: list[tuple[int, int]] | None
+
+    __codec_map: ClassVar[dict[str, str]] = {
+        'mp3': 'mp3',  # MP3 decoder -> mp3/libmp3lame encoder
+        'mp3float': 'mp3',  # MP3float decoder -> mp3 encoder
+        'aac': 'aac',  # AAC decoder -> AAC encoder
+        'vorbis': 'libvorbis',  # Vorbis decoder -> libvorbis encoder
+        'opus': 'libopus',  # Opus decoder -> libopus encoder
+        'flac': 'flac',  # FLAC decoder -> FLAC encoder
+        'wavpack': 'wavpack',  # WavPack decoder -> WavPack encoder
+        'alac': 'alac',  # ALAC decoder -> ALAC encoder
+    }
+
+    def __init__(self, audio: pxt.Audio, duration: float, *, overlap: float = 0.0, min_segment_duration: float = 0.0):
+        assert duration > 0.0
+        assert duration >= min_segment_duration
+        assert overlap < duration
+        audio_path = Path(audio)
+        assert audio_path.exists() and audio_path.is_file()
+        self.audio_path = audio_path
+        self.next_pos = 0
+        self.container = av.open(str(audio_path))
+        if len(self.container.streams.audio) == 0:
+            # No audio stream
+            return
+        self.segment_duration = duration
+        self.overlap = overlap
+        self.min_segment_duration = min_segment_duration
+        self.audio_time_base = self.container.streams.audio[0].time_base
+
+        audio_start_time_pts = self.container.streams.audio[0].start_time or 0
+        audio_start_time = float(audio_start_time_pts * self.audio_time_base)
+        total_audio_duration_pts = self.container.streams.audio[0].duration or 0
+        total_audio_duration = float(total_audio_duration_pts * self.audio_time_base)
+
+        self.segments_to_extract_in_pts = [
+            (round(start / self.audio_time_base), round(end / self.audio_time_base))
+            for (start, end) in self.build_segments(
+                audio_start_time, total_audio_duration, duration, overlap, min_segment_duration
+            )
+        ]
+        _logger.debug(
+            f'AudioIterator: path={self.audio_path} total_audio_duration_pts={total_audio_duration_pts} '
+            f'segments_to_extract_in_pts={self.segments_to_extract_in_pts}'
+        )
+
+    @classmethod
+    def build_segments(
+        cls,
+        start_time: float,
+        total_duration: float,
+        segment_duration: float,
+        overlap: float,
+        min_segment_duration: float,
+    ) -> list[tuple[float, float]]:
+        segments_to_extract_in: list[tuple[float, float]] = []
+        current_pos = start_time
+        end_time = start_time + total_duration
+        while current_pos < end_time:
+            segment_start = current_pos
+            segment_end = min(segment_start + segment_duration, end_time)
+            segments_to_extract_in.append((segment_start, segment_end))
+            if segment_end >= end_time:
+                break
+            current_pos = segment_end - overlap
+        # If the last segment is smaller than min_segment_duration then drop the last segment from the list
+        if (
+            len(segments_to_extract_in) > 0
+            and (segments_to_extract_in[-1][1] - segments_to_extract_in[-1][0]) < min_segment_duration
+        ):
+            return segments_to_extract_in[:-1]  # return all but the last segment
+        return segments_to_extract_in
+
+    def __next__(self) -> AudioSegment:
+        if self.next_pos >= len(self.segments_to_extract_in_pts):
+            raise StopIteration
+        target_segment_start, target_segment_end = self.segments_to_extract_in_pts[self.next_pos]
+        segment_start_pts = 0
+        segment_end_pts = 0
+        segment_file = str(TempStore.create_path(extension=self.audio_path.suffix))
+        output_container = av.open(segment_file, mode='w')
+        input_stream = self.container.streams.audio[0]
+        codec_name = self.__codec_map.get(input_stream.codec_context.name, input_stream.codec_context.name)
+        output_stream = output_container.add_stream(codec_name, rate=input_stream.codec_context.sample_rate)
+        assert isinstance(output_stream, av.audio.stream.AudioStream)
+        frame_count = 0
+        # Since frames don't align with segment boundaries, we may have read an extra frame in previous iteration
+        # Seek to the nearest frame in stream at current segment start time
+        self.container.seek(target_segment_start, backward=True, stream=self.container.streams.audio[0])
+        while True:
+            try:
+                frame = next(self.container.decode(audio=0))
+            except EOFError as e:
+                raise excs.Error(f"Failed to read audio file '{self.audio_path}': {e}") from e
+            except StopIteration:
+                # no more frames to scan
+                break
+            if frame.pts < target_segment_start:
+                # Current frame is behind segment's start time, always get frame next to segment's start time
+                continue
+            if frame.pts >= target_segment_end:
+                # Frame has crossed the segment boundary, it should be picked up by next segment, throw away
+                # the current frame
+                break
+            frame_end = frame.pts + frame.samples
+            if frame_count == 0:
+                # Record start of the first frame
+                segment_start_pts = frame.pts
+            # Write frame to output container
+            frame_count += 1
+            # If encode returns packets, write them to output container. Some encoders will buffer the frames.
+            output_container.mux(output_stream.encode(frame))
+            # record this frame's end as segments end
+            segment_end_pts = frame_end
+            # Check if frame's end has crossed the segment boundary
+            if frame_end >= target_segment_end:
+                break
+
+        # record result
+        if frame_count > 0:
+            # flush encoder
+            output_container.mux(output_stream.encode(None))
+            output_container.close()
+            result: AudioSegment = {
+                'segment_start': round(float(segment_start_pts * self.audio_time_base), 4),
+                'segment_end': round(float(segment_end_pts * self.audio_time_base), 4),
+                'audio_segment': segment_file if frame_count > 0 else None,
+            }
+            _logger.debug('audio segment result: %s', result)
+            self.next_pos += 1
+            return result
+        else:
+            # It's possible that there are no frames in the range of the last segment, stop the iterator in this case.
+            # Note that start_time points at the first frame so case applies only for the last segment
+            assert self.next_pos == len(self.segments_to_extract_in_pts) - 1
+            self.next_pos += 1
+            raise StopIteration
+
+    @classmethod
+    def validate(cls, bound_args: dict[str, Any]) -> None:
+        duration = bound_args.get('duration')
+        overlap = bound_args.get('overlap')
+        min_segment_duration = bound_args.get('min_segment_duration')
+
+        if duration is not None and duration <= 0.0:
+            raise excs.Error('`duration` must be a positive number')
+        if duration is not None and min_segment_duration is not None and duration < min_segment_duration:
+            raise excs.Error('`duration` must be at least `min_segment_duration`')
+        if duration is not None and overlap is not None and overlap >= duration:
+            raise excs.Error('`overlap` must be strictly less than `duration`')
 
 
 __all__ = local_public_names(__name__)

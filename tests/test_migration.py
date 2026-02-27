@@ -5,9 +5,11 @@ import os
 import platform
 import subprocess
 import sys
+import uuid
 from datetime import datetime
 from typing import Any
 
+import numpy as np
 import pixeltable_pgserver
 import pytest
 import sqlalchemy as sql
@@ -21,7 +23,7 @@ from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
 from pixeltable.func.signature import Batch
 from pixeltable.metadata import VERSION, SystemInfo
-from pixeltable.metadata.converters.convert_45 import _convert_table_and_versions
+from pixeltable.metadata.converters.convert_47 import _convert_table_and_versions
 from pixeltable.metadata.converters.util import convert_table_md, convert_table_schema_version_md
 from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
@@ -107,30 +109,37 @@ class TestMigration:
             with orm.Session(env.engine) as session:
                 convert_table_schema_version_md(env.engine, schema_column_updater=self.__replace_pickled_udfs)
 
-            reload_catalog()
+            try:
+                reload_catalog()
 
-            # TODO(aaron-siegel) We need many more of these sorts of checks.
-            if 12 <= old_version <= 14:
-                self._run_v12_tests()
-            if 13 <= old_version <= 14:
-                self._run_v13_tests()
-            if old_version == 14:
-                self._run_v14_tests()
-            if old_version >= 15:
-                self._run_v15_tests()
-            if old_version >= 17:
-                self._run_v17_tests()
-            if old_version >= 19:
-                self._run_v19_tests(old_version)
-            if old_version >= 30:
-                self._run_v30_tests()
-            if old_version >= 33:
-                self._verify_v33()
-            if old_version >= 45:
-                self._verify_v45()
-                self._verify_v45_column_md()
+                # TODO: We need many more of these sorts of checks.
+                if 12 <= old_version <= 14:
+                    self._run_v12_tests()
+                if 13 <= old_version <= 14:
+                    self._run_v13_tests()
+                if old_version == 14:
+                    self._run_v14_tests()
+                if old_version >= 15:
+                    self._run_v15_tests()
+                if old_version >= 17:
+                    self._run_v17_tests()
+                if old_version >= 19:
+                    self._run_v19_tests(old_version)
+                if old_version >= 30:
+                    self._run_v30_tests()
+                if old_version >= 33:
+                    self._verify_v33()
+                if old_version >= 45:
+                    self._verify_v45()
+                if old_version >= 48:
+                    self._verify_v48_column_md()
 
-            pxt.drop_table('sample_table', force=True)
+                pxt.drop_table('sample_table', force=True)
+
+            except Exception as e:
+                raise RuntimeError(
+                    f'Migration test failed on version {old_version} with `{e.__class__.__qualname__}`: {e}'
+                ) from e
 
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, (
@@ -261,6 +270,12 @@ class TestMigration:
             row['c9'] = get_audio_files()[0]
             row['c10'] = get_video_files()[0]
             row['c11'] = get_documents()[0]
+            row['c12'] = np.zeros((10,), dtype=np.float64)
+            row['c13'] = uuid.uuid4()
+            row['c14'] = datetime.now().date()
+            row['c16'] = b'\xca\xfe'
+            row['c17'] = np.ones((1, 2, 3), dtype=np.bool_)
+            row['c18'] = np.zeros((2, 10), dtype=np.str_)
         status = t.insert([row])
         validate_update_status(status)
         inline_list_mixed = (
@@ -319,7 +334,7 @@ class TestMigration:
                     assert column_md['is_pk'] is not None
 
     @classmethod
-    def _verify_v45_column_md(cls) -> None:
+    def _verify_v48_column_md(cls) -> None:
         unexpected_table_md_col_keys = {'col_type', 'is_pk', 'value_expr', 'destination'}
         required_table_schema_version_col_keys = {'col_type', 'is_pk'}
         with Env.get().engine.begin() as conn:
@@ -350,10 +365,15 @@ class TestMigration:
         v = pxt.get_table('views.view')
         s = pxt.get_table('views.snapshot_non_pure')
         vv = pxt.get_table('views.view_of_views')
+        no_comment = pxt.get_table('string_splitter')
 
         # Verify comment and custom_metadata for base_table
         assert t.get_metadata()['comment'] == 'This is a test table.'
         assert t.get_metadata()['custom_metadata'] == {'key': 'value'}
+
+        # Verify column-level comment and custom_metadata
+        assert t.get_metadata()['columns']['c1n']['comment'] == 'Nullable version of c1'
+        assert t.get_metadata()['columns']['c8']['custom_metadata'] == {'source': 'test'}
 
         # Verify comment and custom_metadata for view
         assert v.get_metadata()['comment'] == 'This is a test view.'
@@ -368,6 +388,10 @@ class TestMigration:
         # Verify comment and custom_metadata for view_of_views
         assert vv.get_metadata()['comment'] == 'This is a test view of views.'
         assert vv.get_metadata()['custom_metadata'] == {'view_of_views_key': 'view_of_views_value'}
+
+        # TODO: Once we migrate we should have no more '' as comments
+        assert no_comment.get_metadata()['comment'] in (None, '')
+        assert no_comment.get_metadata()['custom_metadata'] in (None, '')
 
 
 @pxt.udf(batch_size=4)

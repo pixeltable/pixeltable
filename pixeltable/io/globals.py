@@ -121,7 +121,7 @@ def create_label_studio_project(
         ...     tbl,
         ...     config,
         ...     media_import_method='url',
-        ...     s3_configuration={'bucket': 'my-bucket', 'region_name': 'us-east-2'}
+        ...     s3_configuration={'bucket': 'my-bucket', 'region_name': 'us-east-2'},
         ... )
     """
     Env.get().require_package('label_studio_sdk')
@@ -192,7 +192,8 @@ def export_images_as_fo_dataset(
             {
                 'label': 'giraffe',
                 'confidence': 0.99,
-                'bounding_box': [0.081, 0.836, 0.202, 0.136]  # [x, y, w, h], fractional coordinates
+                # [x, y, w, h], fractional coordinates
+                'bounding_box': [0.081, 0.836, 0.202, 0.136],
             }
             ```
 
@@ -206,9 +207,7 @@ def export_images_as_fo_dataset(
         labels from `tbl.classifications`:
 
         >>> export_images_as_fo_dataset(
-        ...     tbl,
-        ...     tbl.image,
-        ...     classifications=tbl.classifications
+        ...     tbl, tbl.image, classifications=tbl.classifications
         ... )
 
         See the [Working with Voxel51 in Pixeltable](https://docs.pixeltable.com/examples/vision/voxel51) tutorial

@@ -15,10 +15,11 @@ import pydantic
 import sqlalchemy.exc as sql_exc
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
-from pixeltable.catalog import Catalog, is_valid_identifier
+from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner, SampleClause
+from pixeltable.runtime import get_runtime
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
@@ -185,6 +186,7 @@ class Query:
     grouping_tbl: catalog.TableVersion | None
     order_by_clause: list[tuple[exprs.Expr, bool]] | None
     limit_val: exprs.Expr | None
+    offset_val: exprs.Expr | None
     sample_clause: SampleClause | None
 
     def __init__(
@@ -196,6 +198,7 @@ class Query:
         grouping_tbl: catalog.TableVersion | None = None,
         order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,  # list[(expr, asc)]
         limit: exprs.Expr | None = None,
+        offset: exprs.Expr | None = None,
         sample_clause: SampleClause | None = None,
     ):
         self._from_clause = from_clause
@@ -216,6 +219,7 @@ class Query:
         self.grouping_tbl = grouping_tbl
         self.order_by_clause = copy.deepcopy(order_by_clause)
         self.limit_val = limit
+        self.offset_val = offset
         self.sample_clause = sample_clause
 
     @classmethod
@@ -275,6 +279,8 @@ class Query:
             all_exprs.extend([expr for expr, _ in self.order_by_clause])
         if self.limit_val is not None:
             all_exprs.append(self.limit_val)
+        if self.offset_val is not None:
+            all_exprs.append(self.offset_val)
         vars = exprs.Expr.list_subexprs(all_exprs, expr_class=exprs.Variable)
         unique_vars: dict[str, exprs.Variable] = {}
         for var in vars:
@@ -331,7 +337,7 @@ class Query:
             with plan:
                 for row_batch in plan:
                     # stop progress output before we display anything, otherwise it'll mess up the output
-                    Env.get().stop_progress()
+                    get_runtime().stop_progress()
                     yield from row_batch
 
         yield from exec_plan()
@@ -368,6 +374,7 @@ class Query:
             group_by_clause=group_by_clause,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
             sample_clause=self.sample_clause,
         )
 
@@ -457,6 +464,7 @@ class Query:
             else None
         )
         limit_val = copy.deepcopy(self.limit_val)
+        offset_val = copy.deepcopy(self.offset_val)
 
         var_exprs: dict[exprs.Expr, exprs.Expr] = {}
         vars = self._vars()
@@ -488,6 +496,10 @@ class Query:
             limit_val = limit_val.substitute(var_exprs)
             if limit_val is not None and not isinstance(limit_val, exprs.Literal):
                 raise excs.Error(f'limit(): parameter must be a constant; got: {limit_val}')
+        if offset_val is not None:
+            offset_val = offset_val.substitute(var_exprs)
+            if offset_val is not None and not isinstance(offset_val, exprs.Literal):
+                raise excs.Error(f'offset parameter must be a constant; got: {offset_val}')
 
         return Query(
             from_clause=self._from_clause,
@@ -497,6 +509,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=order_by_clause,
             limit=limit_val,
+            offset=offset_val,
         )
 
     def _raise_expr_eval_err(self, e: excs.ExprEvalError) -> NoReturn:
@@ -519,14 +532,16 @@ class Query:
     def _output_row_iterator(self) -> Iterator[list]:
         # TODO: extend begin_xact() to accept multiple TVPs for joins
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
-        with Catalog.get().begin_xact(tbl=single_tbl, for_write=False):
+        with get_runtime().catalog.begin_xact(tbl=single_tbl, for_write=False):
             try:
                 for data_row in self._exec():
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
-                Catalog.get().convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
+                get_runtime().catalog.convert_sql_exc(
+                    e, tbl=(single_tbl.tbl_version if single_tbl is not None else None)
+                )
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
@@ -540,7 +555,7 @@ class Query:
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
         except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
-            Catalog.get().convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
+            get_runtime().catalog.convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
             raise  # just re-raise if not converted to a Pixeltable error
 
     def count(self) -> int:
@@ -549,7 +564,7 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
+        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False) as conn:
             count_stmt = Planner.create_count_stmt(self)
             result: int = conn.execute(count_stmt).scalar_one()
             assert isinstance(result, int)
@@ -595,7 +610,10 @@ class Query:
             )
         if self.limit_val is not None:
             heading_vals.append('Limit')
-            info_vals.append(self.limit_val.display_str(inline=False))
+            limit_str = self.limit_val.display_str(inline=False)
+            if self.offset_val is not None:
+                limit_str += f',{self.offset_val.display_str(inline=False)}'
+            info_vals.append(limit_str)
         if self.sample_clause is not None:
             heading_vals.append('Sample')
             info_vals.append(self.sample_clause.display_str(inline=False))
@@ -705,6 +723,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
         )
 
     def where(self, pred: exprs.Expr) -> Query:
@@ -747,6 +766,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
         )
 
     def _create_join_predicate(
@@ -888,6 +908,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
         )
 
     def group_by(self, *grouping_items: Any) -> Query:
@@ -924,7 +945,9 @@ class Query:
             Use the above Query grouped by genre to count the number of
             books for each 'genre':
 
-            >>> query = book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
+            >>> query = (
+            ...     book.group_by(t.genre).select(t.genre, count=count(t.genre)).show()
+            ... )
 
             Use the above Query grouped by genre to the total price of
             books for each 'genre':
@@ -964,6 +987,7 @@ class Query:
             grouping_tbl=grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
         )
 
     def distinct(self) -> Query:
@@ -984,7 +1008,11 @@ class Query:
 
             Select unique locations (street, city) in the state of `CA`
 
-            >>> results = addresses.select(addresses.street, addresses.city).where(addresses.state == 'CA').distinct()
+            >>> results = (
+            ...     addresses.select(addresses.street, addresses.city)
+            ...     .where(addresses.state == 'CA')
+            ...     .distinct()
+            ... )
         """
         exps, _ = self._normalize_select_list(self._from_clause.tbls, self.select_list)
         return self.group_by(*exps)
@@ -1034,21 +1062,38 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
         )
 
-    def limit(self, n: int) -> Query:
-        """Limit the number of rows in the Query.
+    def limit(self, n: int, offset: int | None = None) -> Query:
+        """Limit the number of rows in the Query, optionally skipping rows for pagination.
 
         Args:
             n: Number of rows to select.
+            offset: Number of rows to skip before returning results. Default is None (no offset).
 
         Returns:
             A new Query with the specified limited rows.
+
+        Examples:
+            >>> query = t.select()
+
+            Get the first 10 rows:
+
+            >>> query.limit(10).collect()
+
+            Get rows 21-30 (skip first 20, return next 10):
+
+            >>> query.limit(10, offset=20).collect()
         """
         if self.sample_clause is not None:
             raise excs.Error('limit() cannot be used with sample()')
 
         limit_expr = self._convert_param_to_typed_expr(n, ts.IntType(nullable=False), True, 'limit()')
+        offset_expr = None
+        if offset is not None:
+            offset_expr = self._convert_param_to_typed_expr(offset, ts.IntType(nullable=False), False, 'offset')
+
         return Query(
             from_clause=self._from_clause,
             select_list=self.select_list,
@@ -1057,6 +1102,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=limit_expr,
+            offset=offset_expr,
         )
 
     def sample(
@@ -1173,6 +1219,7 @@ class Query:
             grouping_tbl=self.grouping_tbl,
             order_by_clause=self.order_by_clause,
             limit=self.limit_val,
+            offset=self.offset_val,
             sample_clause=sample_clause,
         )
 
@@ -1205,7 +1252,7 @@ class Query:
             >>> person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def recompute_columns(
@@ -1229,8 +1276,8 @@ class Query:
             >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
         self._validate_mutable('recompute_columns', False)
-        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
-            tbl = Catalog.get().get_table_by_id(self._first_tbl.tbl_id)
+        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+            tbl = get_runtime().catalog.get_table_by_id(self._first_tbl.tbl_id)
             return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
@@ -1249,7 +1296,7 @@ class Query:
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error('Cannot use `delete` on a view.')
-        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
@@ -1305,6 +1352,7 @@ class Query:
             if self.order_by_clause is not None
             else None,
             'limit_val': self.limit_val.as_dict() if self.limit_val is not None else None,
+            'offset_val': self.offset_val.as_dict() if self.offset_val is not None else None,
             'sample_clause': self.sample_clause.as_dict() if self.sample_clause is not None else None,
         }
         return d
@@ -1312,7 +1360,7 @@ class Query:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'Query':
         # we need to wrap the construction with a transaction, because it might need to load metadata
-        with Catalog.get().begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False):
             tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
             join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
             from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
@@ -1332,6 +1380,7 @@ class Query:
                 else None
             )
             limit_val = exprs.Expr.from_dict(d['limit_val']) if d['limit_val'] is not None else None
+            offset_val = exprs.Expr.from_dict(d['offset_val']) if d.get('offset_val') is not None else None
             sample_clause = SampleClause.from_dict(d['sample_clause']) if d['sample_clause'] is not None else None
 
             return Query(
@@ -1342,6 +1391,7 @@ class Query:
                 grouping_tbl=grouping_tbl,
                 order_by_clause=order_by_clause,
                 limit=limit_val,
+                offset=offset_val,
                 sample_clause=sample_clause,
             )
 
@@ -1388,7 +1438,7 @@ class Query:
             return data_file_path
         else:
             # TODO: extend begin_xact() to accept multiple TVPs for joins
-            with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
+            with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1433,7 +1483,8 @@ class Query:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
-                export_parquet(self, dest_path, inline_images=True)
+            with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False):
+                # we need the metadata for PixeltablePytorchDataset
+                export_parquet(self, dest_path, inline_images=True, _write_md=True)
 
         return PixeltablePytorchDataset(path=dest_path, image_format=image_format)

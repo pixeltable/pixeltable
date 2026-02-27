@@ -15,6 +15,7 @@ env:
   PXTTEST_IN_CI: 1
   # PIXELTABLE_API_KEY: ${{ secrets.PIXELTABLE_API_KEY }}
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
+  PIXELTABLE_VERBOSITY: 0
   CMAKE_ARGS: '-DLLAVA_BUILD=OFF -DGGML_METAL=OFF'
   CMAKE_POLICY_VERSION_MINIMUM: 3.5
   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

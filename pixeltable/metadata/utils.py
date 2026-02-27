@@ -78,7 +78,7 @@ class MetadataUtils:
         """Compares two SchemaColumn objects and returns a string describing the differences, or None if they are
         the same.
         """
-        assert len(fields(old)) == 7, 'This method needs to be updated whenever SchemaColumn changes'
+        assert len(fields(old)) == 9, 'This method needs to be updated whenever SchemaColumn changes'
         diff = []
         # Note: we ignore pos because columns changing places are not very interesting to users, and because they are
         # usually a side effect of other changes such as drop column.
@@ -89,6 +89,8 @@ class MetadataUtils:
         assert old.value_expr == new.value_expr, 'Not implemented: describe a value expression change'
         assert old.media_validation == new.media_validation, 'Not implemented: describe a media validation change'
         assert old.destination == new.destination, 'Not implemented: describe a destination change'
+        assert old.comment == new.comment, 'Not implemented: describe a comment change'
+        assert old.custom_metadata == new.custom_metadata, 'Not implemented: describe a custom metadata change'
 
         if diff:
             return ', '.join(diff)

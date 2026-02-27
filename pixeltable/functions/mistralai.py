@@ -13,6 +13,7 @@ import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable.env import Env, register_client
 from pixeltable.func.signature import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ def _(api_key: str) -> 'mistralai.Mistral':
 
 
 def _mistralai_client() -> 'mistralai.Mistral':
-    return Env.get().get_client('mistral')
+    return get_runtime().get_client('mistral')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:mistral')
@@ -62,7 +63,9 @@ async def chat_completions(
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
         >>> messages = [{'role': 'user', 'content': tbl.prompt}]
-        ... tbl.add_computed_column(response=completions(messages, model='mistral-latest-small'))
+        ... tbl.add_computed_column(
+        ...     response=completions(messages, model='mistral-latest-small')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
@@ -107,7 +110,9 @@ async def fim_completions(prompt: str, *, model: str, model_kwargs: dict[str, An
         Add a computed column that applies the model `codestral-latest`
         to an existing Pixeltable column `tbl.prompt` of the table `tbl`:
 
-        >>> tbl.add_computed_column(response=completions(tbl.prompt, model='codestral-latest'))
+        >>> tbl.add_computed_column(
+        ...     response=completions(tbl.prompt, model='codestral-latest')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}

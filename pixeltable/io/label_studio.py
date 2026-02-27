@@ -18,6 +18,7 @@ from pixeltable.catalog.update_status import RowCountStats, UpdateStatus
 from pixeltable.config import Config
 from pixeltable.exprs import ColumnRef, DataRow, Expr
 from pixeltable.io.external_store import Project
+from pixeltable.runtime import get_runtime
 from pixeltable.utils import coco
 from pixeltable.utils.local_store import TempStore
 
@@ -39,7 +40,7 @@ def _(api_key: str, url: str) -> label_studio_sdk.Client:
 
 
 def _label_studio_client() -> label_studio_sdk.Client:
-    return env.Env.get().get_client('label_studio')
+    return get_runtime().get_client('label_studio')
 
 
 class LabelStudioProject(Project):
@@ -106,7 +107,7 @@ class LabelStudioProject(Project):
         Always contains a single entry:
 
         ```
-        {"annotations": ts.JsonType(nullable=True)}
+        {'annotations': ts.JsonType(nullable=True)}
         ```
         """
         return {ANNOTATIONS_COLUMN: ts.JsonType(nullable=True)}

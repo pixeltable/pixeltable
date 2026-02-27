@@ -12,6 +12,7 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
@@ -27,7 +28,7 @@ def _(api_secret: str) -> 'AsyncRunwayML':
 
 
 def _runwayml_client() -> 'AsyncRunwayML':
-    return Env.get().get_client('runwayml')
+    return get_runtime().get_client('runwayml')
 
 
 def _image_to_data_uri(image: PIL.Image.Image) -> str:
@@ -85,7 +86,9 @@ async def text_to_image(
         Add a computed column that generates images from prompts:
 
         >>> tbl.add_computed_column(
-        ...     response=text_to_image(tbl.prompt, [tbl.ref_image], model='gen4_image', ratio='16:9')
+        ...     response=text_to_image(
+        ...         tbl.prompt, [tbl.ref_image], model='gen4_image', ratio='16:9'
+        ...     )
         ... )
         >>> tbl.add_computed_column(image=tbl.response['output'][0].astype(pxt.Image))
     """
@@ -147,7 +150,11 @@ async def text_to_video(
     Examples:
         Add a computed column that generates videos from prompts:
 
-        >>> tbl.add_computed_column(response=text_to_video(tbl.prompt, model='veo3.1', ratio='16:9', duration=4))
+        >>> tbl.add_computed_column(
+        ...     response=text_to_video(
+        ...         tbl.prompt, model='veo3.1', ratio='16:9', duration=4
+        ...     )
+        ... )
         >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
     Env.get().require_package('runwayml')
@@ -207,7 +214,13 @@ async def image_to_video(
         Add a computed column that generates videos from images:
 
         >>> tbl.add_computed_column(
-        ...     response=image_to_video(tbl.image, model='gen4', ratio='16:9', prompt_text='Slow motion', duration=5)
+        ...     response=image_to_video(
+        ...         tbl.image,
+        ...         model='gen4',
+        ...         ratio='16:9',
+        ...         prompt_text='Slow motion',
+        ...         duration=5,
+        ...     )
         ... )
         >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
@@ -269,7 +282,9 @@ async def video_to_video(
         Add a computed column that transforms videos:
 
         >>> tbl.add_computed_column(
-        ...     response=video_to_video(tbl.video_url, 'Anime style', model='gen4_aleph', ratio='16:9')
+        ...     response=video_to_video(
+        ...         tbl.video_url, 'Anime style', model='gen4_aleph', ratio='16:9'
+        ...     )
         ... )
         >>> tbl.add_computed_column(video=tbl.response['output'].astype(pxt.Video))
     """
