@@ -53,7 +53,7 @@ class _JinaClient:
     """
 
     _request_headers: dict[str, str]
-    _session: aiohttp.ClientSession
+    _session: aiohttp.ClientSession | None
 
     def __init__(self, api_key: str):
         self._request_headers = {
@@ -61,10 +61,15 @@ class _JinaClient:
             'Content-Type': 'application/json',
             'Accept': 'application/json',
         }
-        self._session = aiohttp.ClientSession(base_url=_JINA_BASE_URL)
+        self._session = None  # defer session creation until we have a running event loop
+
+    def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None:
+            self._session = aiohttp.ClientSession(base_url=_JINA_BASE_URL)
+        return self._session
 
     async def _post(self, endpoint: str, *, payload: dict) -> dict:
-        async with self._session.post(endpoint, json=payload, headers=self._request_headers) as resp:
+        async with self._get_session().post(endpoint, json=payload, headers=self._request_headers) as resp:
             match resp.status:
                 case 200:
                     data = await resp.json()

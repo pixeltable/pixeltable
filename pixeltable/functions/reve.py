@@ -42,7 +42,7 @@ class _ReveClient:
     """
 
     _request_headers: dict[str, str]
-    _session: aiohttp.ClientSession
+    _session: aiohttp.ClientSession | None
 
     def __init__(self, api_key: str):
         self._request_headers = {
@@ -50,10 +50,15 @@ class _ReveClient:
             'Content-Type': 'application/json',
             'Accept': _REVE_CONTENT_TYPE,
         }
-        self._session = aiohttp.ClientSession(base_url=_REVE_BASE_URL)
+        self._session = None  # defer session creation until we have a running event loop
+
+    def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None:
+            self._session = aiohttp.ClientSession(base_url=_REVE_BASE_URL)
+        return self._session
 
     async def _post(self, endpoint: str, *, payload: dict) -> PIL.Image.Image:
-        async with self._session.post(endpoint, json=payload, headers=self._request_headers) as resp:
+        async with self._get_session().post(endpoint, json=payload, headers=self._request_headers) as resp:
             request_id = resp.headers.get('X-Reve-Request-Id')
             error_code = resp.headers.get('X-Reve-Error-Code')
             match resp.status:
