@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -23,7 +24,7 @@ def _(api_token: str) -> 'replicate.Client':
 
 
 def _replicate_client() -> 'replicate.Client':
-    return Env.get().get_client('replicate')
+    return get_runtime().get_client('replicate')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:replicate')

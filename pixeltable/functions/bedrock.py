@@ -16,6 +16,7 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable import env, exprs, type_system as ts
 from pixeltable.func import Tools
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
@@ -34,7 +35,7 @@ def _() -> 'BaseClient':
 
 # boto3 typing is weird; type information is dynamically defined, so the best we can do for the static checker is `Any`
 def _bedrock_client() -> Any:
-    return env.Env.get().get_client('bedrock')
+    return get_runtime().get_client('bedrock')
 
 
 # Default embedding dimensions for models

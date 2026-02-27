@@ -104,7 +104,7 @@ bump = true
 
 [dependency-groups]
 dev = [
-    "mypy>=1.16",
+    "mypy>=1.19",
     "boto3-stubs==1.36.23",
     "opentelemetry-api>=1.39.0",
     "opentelemetry-sdk>=1.39.0",
@@ -176,7 +176,7 @@ dev = [
     "azure-storage-blob>=12.20.0",
     "azure-identity>=1.16.0",
     "twelvelabs>=1.1.0",
-    "voyageai>=0.3.5",
+    "voyageai>=0.3.7",
     "scenedetect>=0.6.0.1",
     "opentelemetry-exporter-otlp>=1.38.0",
     "runwayml>=4.2.0",
