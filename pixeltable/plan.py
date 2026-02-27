@@ -372,14 +372,6 @@ class Planner:
 
         cls.__check_valid_columns(tbl, stored_cols, 'inserted into')
 
-        defaults = {col.name: col.default_value_expr.val for col in stored_cols if col.has_default_value}
-        if defaults:
-            rows = [dict(row) for row in rows]
-            for row in rows:
-                for col_name, val in defaults.items():
-                    if col_name not in row:
-                        row[col_name] = val
-
         row_builder = exprs.RowBuilder([], stored_cols, [], tbl)
 
         # create InMemoryDataNode for 'rows'

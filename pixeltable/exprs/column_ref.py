@@ -389,7 +389,10 @@ class ColumnRef(Expr):
 
         if not self.is_unstored_iter_col:
             # supply default
-            data_row[self.slot_idx] = None
+            if self.col.has_default_value:
+                data_row[self.slot_idx] = self.col.default_value_expr.val
+            else:
+                data_row[self.slot_idx] = None
             return
 
         # if this is a new base row, we need to instantiate a new iterator

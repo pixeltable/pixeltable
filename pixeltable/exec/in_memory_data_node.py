@@ -74,12 +74,12 @@ class InMemoryDataNode(ExecNode):
 
                 input_slot_idxs.add(col_info.slot_idx)
 
-            # set the remaining output slots to their default values (presently None)
+            # set the remaining output slots to their default values
             missing_slot_idxs = output_slot_idxs - input_slot_idxs
             for slot_idx in missing_slot_idxs:
                 col_info = output_cols_by_idx.get(slot_idx)
                 assert col_info is not None
-                output_row[col_info.slot_idx] = None
+                output_row[col_info.slot_idx] = col_info.col.default_value_expr.val if col_info.col.has_default_value else None
             self.output_batch.add_row(output_row)
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:
