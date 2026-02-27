@@ -66,7 +66,7 @@ def search(query: str, limit: int = 10) -> list[SearchResult]:
 
 ### Returning Query Results
 
-`table.select(...).collect()` returns a [`ResultSet`](/sdk/latest/pixeltable#class-resultset) object, which Pydantic cannot serialize directly. You have two options:
+`table.select(...).collect()` returns a `ResultSet` object, which Pydantic cannot serialize directly. You have two options:
 
 **Option 1: `to_pydantic()` (recommended for FastAPI)**
 
