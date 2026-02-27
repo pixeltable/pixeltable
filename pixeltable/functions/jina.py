@@ -13,11 +13,15 @@ import numpy as np
 
 import pixeltable as pxt
 from pixeltable import type_system as ts
-from pixeltable.env import Env, register_client
+from pixeltable.env import register_client
 from pixeltable.func import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 _logger = logging.getLogger('pixeltable')
+
+_JINA_BASE_URL = 'https://api.jina.ai'
+_RETRY_AFTER_RE = re.compile(r'\d{1,2}')
 
 # Default embedding dimensions for Jina models
 _embedding_dimensions_cache: dict[str, int] = {
@@ -43,27 +47,24 @@ class JinaUnexpectedError(Exception):
     pass
 
 
-class _JinaClient:  # noqa: B903
+class _JinaClient:
     """
     Client for interacting with the Jina AI API.
     """
 
-    api_key: str
+    _request_headers: dict[str, str]
+    _session: aiohttp.ClientSession
 
     def __init__(self, api_key: str):
-        self.api_key = api_key
-
-    async def _post(self, endpoint: str, *, payload: dict) -> dict:
-        request_headers = {
-            'Authorization': f'Bearer {self.api_key}',
+        self._request_headers = {
+            'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json',
             'Accept': 'application/json',
         }
+        self._session = aiohttp.ClientSession(base_url=_JINA_BASE_URL)
 
-        async with (
-            aiohttp.ClientSession(base_url='https://api.jina.ai') as session,
-            session.post(endpoint, json=payload, headers=request_headers) as resp,
-        ):
+    async def _post(self, endpoint: str, *, payload: dict) -> dict:
+        async with self._session.post(endpoint, json=payload, headers=self._request_headers) as resp:
             match resp.status:
                 case 200:
                     data = await resp.json()
@@ -71,7 +72,7 @@ class _JinaClient:  # noqa: B903
                 case 429:
                     retry_after_seconds = None
                     retry_after_header = resp.headers.get('Retry-After')
-                    if retry_after_header is not None and re.fullmatch(r'\d{1,2}', retry_after_header):
+                    if retry_after_header is not None and _RETRY_AFTER_RE.fullmatch(retry_after_header):
                         retry_after_seconds = int(retry_after_header)
                     _logger.info(f'Jina request failed due to rate limiting, retry after: {retry_after_header}')
                     raise JinaRateLimitedError(
@@ -89,7 +90,7 @@ def _(api_key: str) -> _JinaClient:
 
 
 def _client() -> _JinaClient:
-    return Env.get().get_client('jina')
+    return get_runtime().get_client('jina')
 
 
 @pxt.udf(batch_size=128, resource_pool='request-rate:jina')

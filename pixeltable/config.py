@@ -10,7 +10,7 @@ from typing import Any, ClassVar, TypeVar
 
 import toml
 
-from pixeltable import env, exceptions as excs
+from pixeltable import exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -91,8 +91,6 @@ class Config:
         with cls.__init_lock:
             if reinit:
                 cls.__instance = None
-                for cl in env._registered_clients.values():
-                    cl.client_obj = None
             if cls.__instance is None:
                 cls.__instance = cls(config_overrides)
             elif len(config_overrides) > 0:
@@ -219,7 +217,6 @@ KNOWN_CONFIG_OPTIONS = {
     'voyage': {'api_key': 'Voyage AI API key', 'rate_limit': 'Rate limit for Voyage AI API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
 }
-
 
 KNOWN_CONFIG_OVERRIDES = {
     f'{section}.{key}': info

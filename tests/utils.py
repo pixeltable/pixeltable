@@ -578,9 +578,9 @@ def skip_test_if_not_in_path(*binaries: str) -> None:
 
 def skip_test_if_no_client(client_name: str) -> None:
     try:
-        _ = Env.get().get_client(client_name)
+        _ = get_runtime().get_client(client_name)
     except pxt.Error as exc:
-        pytest.skip(str(exc))
+        pytest.skip(str(exc).splitlines()[0])
 
 
 def skip_test_if_no_pxt_credentials() -> None:
@@ -596,7 +596,7 @@ def skip_test_if_no_aws_credentials() -> None:
         cl = boto3.client('s3')
         cl.list_buckets()
     except NoCredentialsError as exc:
-        pytest.skip(str(exc))
+        pytest.skip(str(exc).splitlines()[0])
 
 
 _S3_PYTEST_RESOURCES = 's3://pxt-test/pytest-resources'

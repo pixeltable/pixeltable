@@ -31,29 +31,29 @@ class ReveUnexpectedError(Exception):
     pass
 
 
-class _ReveClient:  # noqa: B903
+_REVE_BASE_URL = 'https://api.reve.com'
+_REVE_CONTENT_TYPE = 'image/png'
+_RETRY_AFTER_RE = re.compile(r'\d{1,2}')
+
+
+class _ReveClient:
     """
     Client for interacting with the Reve API.
     """
 
-    api_key: str
+    _request_headers: dict[str, str]
+    _session: aiohttp.ClientSession
 
     def __init__(self, api_key: str):
-        self.api_key = api_key
+        self._request_headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+            'Accept': _REVE_CONTENT_TYPE,
+        }
+        self._session = aiohttp.ClientSession(base_url=_REVE_BASE_URL)
 
     async def _post(self, endpoint: str, *, payload: dict) -> PIL.Image.Image:
-        # Reve supports other formats as well, but we only use PNG for now
-        requested_content_type = 'image/png'
-        request_headers = {
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json',
-            'Accept': requested_content_type,
-        }
-
-        async with (
-            aiohttp.ClientSession(base_url='https://api.reve.com') as session,
-            session.post(endpoint, json=payload, headers=request_headers) as resp,
-        ):
+        async with self._session.post(endpoint, json=payload, headers=self._request_headers) as resp:
             request_id = resp.headers.get('X-Reve-Request-Id')
             error_code = resp.headers.get('X-Reve-Error-Code')
             match resp.status:
@@ -67,9 +67,9 @@ class _ReveClient:  # noqa: B903
                         raise ReveContentViolationError(
                             f'Reve request {request_id} resulted in a content violation error'
                         )
-                    if resp.content_type != requested_content_type:
+                    if resp.content_type != _REVE_CONTENT_TYPE:
                         raise ReveUnexpectedError(
-                            f'Reve request {request_id} expected content type {requested_content_type}, '
+                            f'Reve request {request_id} expected content type {_REVE_CONTENT_TYPE}, '
                             f'got {resp.content_type}'
                         )
 
@@ -89,7 +89,7 @@ class _ReveClient:  # noqa: B903
                     # currently handle
                     retry_after_seconds = None
                     retry_after_header = resp.headers.get('Retry-After')
-                    if retry_after_header is not None and re.fullmatch(r'\d{1,2}', retry_after_header):
+                    if retry_after_header is not None and _RETRY_AFTER_RE.fullmatch(retry_after_header):
                         retry_after_seconds = int(retry_after_header)
                     _logger.info(
                         f'Reve request {request_id} failed due to rate limiting, retry after header value: '
@@ -116,9 +116,9 @@ def _(api_key: str) -> _ReveClient:
 
 
 def _client() -> _ReveClient:
-    from pixeltable.env import Env
+    from pixeltable.runtime import get_runtime
 
-    return Env.get().get_client('reve')
+    return get_runtime().get_client('reve')
 
 
 # TODO Regarding rate limiting: Reve appears to be going for a credits per minute rate limiting model, but does not

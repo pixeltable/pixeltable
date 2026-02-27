@@ -19,6 +19,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import env
 from pixeltable.func import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -33,7 +34,7 @@ def _(api_key: str) -> 'together.AsyncTogether':
 
 
 def _together_client() -> 'together.AsyncTogether':
-    return env.Env.get().get_client('together')
+    return get_runtime().get_client('together')
 
 
 T = TypeVar('T')

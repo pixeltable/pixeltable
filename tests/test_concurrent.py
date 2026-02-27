@@ -23,6 +23,8 @@ class TestConcurrentOps:
 
         def worker(tid: int) -> None:
             try:
+                # each thread needs its own Table instance
+                t = pxt.get_table('test_concurrent')
                 for i in range(rows_per_thread):
                     status = t.insert([{'thread_id': tid, 'row_idx': i, 'value': tid * 1000 + i}])
                     validate_update_status(status, expected_rows=1)

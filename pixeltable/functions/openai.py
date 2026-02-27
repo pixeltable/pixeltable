@@ -25,6 +25,7 @@ import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs, type_system as ts
 from pixeltable.config import Config
 from pixeltable.func import Batch, Tools
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import parse_duration_str
 from pixeltable.utils.image import to_base64
@@ -74,7 +75,7 @@ def _(api_key: str, base_url: str | None = None, api_version: str | None = None)
 
 
 def _openai_client() -> 'openai.AsyncOpenAI':
-    return env.Env.get().get_client('openai')
+    return get_runtime().get_client('openai')
 
 
 # models that share rate limits; see https://platform.openai.com/settings/organization/limits for details
