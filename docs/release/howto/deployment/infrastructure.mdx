@@ -143,6 +143,7 @@ def search_documents(query_text: str, limit: int = 5):
 
   <Tab title="app.py">
 ```python
+from pydantic import BaseModel
 from fastapi import FastAPI
 import pixeltable as pxt
 from setup_pixeltable import search_documents
@@ -151,10 +152,14 @@ import config
 app = FastAPI()
 docs_table = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
 
+class SearchResult(BaseModel):
+    document: str
+    sim: float
+
 @app.get("/search")
-async def search(query: str, limit: int = 5):
+def search(query: str, limit: int = 5) -> list[SearchResult]:
     results = search_documents(query, limit).collect()
-    return {"results": list(results)}
+    return list(results.to_pydantic(SearchResult))
 ```
   </Tab>
 </Tabs>
@@ -165,6 +170,10 @@ async def search(query: str, limit: int = 5):
 - **Retrieval Queries** (`@pxt.query`): Encapsulate complex retrieval logic as reusable functions.
 - **Idempotency:** Use `if_exists='ignore'` to make `setup_pixeltable.py` safely re-runnable.
 </Note>
+
+<Card title="App Template" icon="github" href="https://github.com/pixeltable/pixeltable-app-template">
+  See this structure in action — a ready-to-clone FastAPI + React app with `setup_pixeltable.py`, `config.py`, `functions.py`, and endpoint routers already wired up.
+</Card>
 
 ## Storage Architecture
 

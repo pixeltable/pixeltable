@@ -7,10 +7,10 @@ description: "Concurrency, error handling, schema evolution, and deployment patt
 
 | Aspect | Details |
 |--------|---------|
+| **Thread Safety** | Each thread gets its own database connection and transaction context automatically |
 | **Locking** | Automatic table-level locking for schema changes |
 | **Isolation** | PostgreSQL `SERIALIZABLE` isolation prevents data race conditions |
 | **Retries** | Built-in retry logic handles transient serialization failures |
-| **Multi-Process** | Multiple workers/containers can safely read/write to the same instance |
 
 | Scaling Dimension | Current Approach | Limitation |
 |-------------------|------------------|------------|
@@ -21,6 +21,88 @@ description: "Concurrency, error handling, schema evolution, and deployment patt
 <Info>
 Multi-node HA and horizontal scaling planned for Pixeltable Cloud (2026).
 </Info>
+
+## Web Framework Concurrency
+
+Pixeltable is thread-safe and works with FastAPI, Flask, Django, and other web frameworks out of the box. The key rule: **use sync (`def`) endpoint handlers**, not `async def`.
+
+### Why Sync Endpoints
+
+FastAPI (and Starlette) dispatches sync (`def`) handlers to a thread pool. Each concurrent request gets its own thread, and Pixeltable automatically creates an isolated database connection per thread. This gives you true parallel request handling with no extra configuration.
+
+```python
+from pydantic import BaseModel
+from fastapi import FastAPI
+import pixeltable as pxt
+
+app = FastAPI()
+
+class SearchResult(BaseModel):
+    text: str
+    score: float
+
+@app.post("/ingest")
+def ingest(text: str):
+    t = pxt.get_table('myapp/documents')
+    status = t.insert([{'text': text}])
+    return {'inserted': status.num_rows}
+
+@app.get("/search")
+def search(query: str, limit: int = 10) -> list[SearchResult]:
+    t = pxt.get_table('myapp/documents')
+    sim = t.text.similarity(string=query)
+    results = (
+        t.order_by(sim, asc=False)
+        .limit(limit)
+        .select(t.text, score=sim)
+        .collect()
+    )
+    return list(results.to_pydantic(SearchResult))
+```
+
+<Warning>
+**Do not use `async def` for endpoints that call Pixeltable.** Pixeltable's API is synchronous. Inside an `async def` handler, Pixeltable calls block the event loop, serializing all requests and starving other coroutines. With `def` handlers, FastAPI's thread pool handles concurrency for you.
+</Warning>
+
+### Returning Query Results
+
+`table.select(...).collect()` returns a [`ResultSet`](/sdk/latest/pixeltable#class-resultset) object, which Pydantic cannot serialize directly. You have two options:
+
+**Option 1: `to_pydantic()` (recommended for FastAPI)**
+
+Define a Pydantic model and let Pixeltable validate and convert each row. FastAPI serializes these natively.
+
+```python
+class Item(BaseModel):
+    name: str
+    score: float
+
+@app.get("/rows")
+def get_rows() -> list[Item]:
+    t = pxt.get_table('myapp/items')
+    return list(t.select(t.name, t.score).collect().to_pydantic(Item))
+```
+
+**Option 2: `to_pandas()` + `to_dict()`**
+
+Convert via pandas when you don't need a Pydantic model.
+
+```python
+@app.get("/rows")
+def get_rows():
+    t = pxt.get_table('myapp/items')
+    df = t.select(t.name, t.score).collect().to_pandas()
+    return {'rows': df.to_dict(orient='records')}
+```
+
+### uvloop Compatibility
+
+Pixeltable is compatible with [uvloop](https://github.com/MagicStack/uvloop), the high-performance event loop used by default in many production deployments. No special configuration is needed — sync endpoints work identically whether the server uses the default asyncio loop or uvloop.
+
+```bash
+# uvicorn with uvloop (the default when uvloop is installed)
+uvicorn app:app --host 0.0.0.0 --port 8000 --workers 1
+```
 
 ## GPU Acceleration
 
@@ -108,7 +190,11 @@ docs_table.add_computed_column(
 - Execute `setup_pixeltable.py` during deployment initialization
 - Web server processes connect to Pixeltable instance
 - Pixeltable uses connection pooling internally
-- Example: FastAPI with `pxt.get_table()` in endpoint handlers
+- Use sync (`def`) endpoint handlers for concurrent request support
+
+<Card title="App Template" icon="github" href="https://github.com/pixeltable/pixeltable-app-template">
+  Clone a working FastAPI + React app with multimodal upload, search, and agent endpoints already configured.
+</Card>
 
 **Batch Processing:**
 - Schedule via `cron`, Airflow, AWS EventBridge, GCP Cloud Scheduler
