@@ -75,12 +75,6 @@ def create_table(
     Args:
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir/my_subdir/my_table'`.
         schema: Schema for the new table, mapping column names to Pixeltable types or column specifications.
-            Column specifications can be dictionaries with `'type'` and optionally `'default'` keys.
-
-            Default values:
-            - Supported for scalar types (String, Int, Float, Bool, Timestamp, Date, UUID),
-              simple JSON, Array, and Binary.
-            - Not supported for media types (Image, Video, Audio, Document).
         source: A data source (file, URL, Table, Query, or list of rows) to import from.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
@@ -288,8 +282,7 @@ def create_view(
             base the view on.
         additional_columns: If specified, will add these columns to the view once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema` parameter in
-            [`create_table`][pixeltable.create_table]. Column specifications can include a `'default'` key
-            for default values.
+            [`create_table`][pixeltable.create_table].
         is_snapshot: Whether the view is a snapshot. Setting this to `True` is equivalent to calling
             [`create_snapshot`][pixeltable.create_snapshot].
         create_default_idxs: Whether to create default indexes on the view's columns (the base's columns are excluded).
@@ -436,8 +429,7 @@ def create_snapshot(
             base the snapshot on.
         additional_columns: If specified, will add these columns to the snapshot once it is created. The format
             of the `additional_columns` parameter is identical to the format of the `schema` parameter in
-            [`create_table`][pixeltable.create_table]. Column specifications can include a `'default'` key
-            for default values.
+            [`create_table`][pixeltable.create_table].
         iterator: The iterator to use for this snapshot. If specified, then this snapshot will be a one-to-many view of
             the base table.
         num_retained_versions: Number of versions of the view to retain.

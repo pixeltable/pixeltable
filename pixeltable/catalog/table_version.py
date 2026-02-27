@@ -393,106 +393,6 @@ class TableVersion:
         )
         return TableVersionMd(tbl_md, table_version_md, schema_version_md)
 
-    def exec_op(self, op: TableOp) -> None:
-        from pixeltable.catalog import Catalog
-        from pixeltable.store import StoreBase
-
-        if isinstance(op, CreateStoreTableOp):
-            # this needs to be called outside of a transaction
-            with Env.get().begin_xact():
-                self.store_tbl.create()
-
-        elif isinstance(op, CreateStoreIdxsOp):
-            for idx_id in op.idx_ids:
-                with Env.get().begin_xact():
-                    self.store_tbl.create_index(idx_id)
-
-        elif isinstance(op, LoadViewOp):
-            from pixeltable.plan import Planner
-
-            from .table_version_path import TableVersionPath
-
-            view_path = TableVersionPath.from_dict(op.view_path)
-            plan, _ = Planner.create_view_load_plan(view_path)
-            with Env.get().report_progress():
-                plan.ctx.title = self.display_str()
-                _, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
-            status = UpdateStatus(row_count_stats=row_counts)
-            Catalog.get().store_update_status(self.id, self.version, status)
-            _logger.debug(f'Loaded view {self.name} with {row_counts.num_rows} rows')
-
-        elif isinstance(op, CreateTableMdOp):
-            # nothing to do here
-            pass
-
-        elif isinstance(op, DeleteTableMdOp):
-            Catalog.get().delete_tbl_md(self.id)
-
-        elif isinstance(op, CreateColumnMdOp):
-            # nothing to do
-            pass
-
-        elif isinstance(op, CreateStoreColumnsOp):
-            for col_id in op.column_ids:
-                with Env.get().begin_xact():
-                    self.store_tbl.add_column(self.cols_by_id[col_id])
-
-        elif isinstance(op, SetColumnValueOp):
-            cols = [self.cols_by_id[col_id] for col_id in op.column_ids]
-            with Env.get().begin_xact():
-                self._populate_default_values(cols)
-
-        elif isinstance(op, DeleteTableMediaFilesOp):
-            self.delete_media()
-            FileCache.get().clear(tbl_id=self.id)
-
-        elif isinstance(op, DropStoreTableOp):
-            # don't reference self.store_tbl here, it needs to reference the metadata for our base table, which at
-            # this point may not exist anymore
-            with Env.get().begin_xact() as conn:
-                drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(self.id, self.is_view)}'
-                conn.execute(sql.text(drop_stmt))
-
-    def undo_op(self, op: TableOp) -> None:
-        from pixeltable.catalog import Catalog
-
-        # ops that cannot be rolled back raise AssertionError()
-
-        if isinstance(op, CreateStoreTableOp):
-            # this needs to be called outside of a transaction
-            with Env.get().begin_xact():
-                self.store_tbl.drop()
-
-        elif isinstance(op, CreateStoreIdxsOp):
-            for idx_id in op.idx_ids:
-                with Env.get().begin_xact():
-                    self.store_tbl.drop_index(idx_id)
-
-        elif isinstance(op, LoadViewOp):
-            # clear out any media files
-            self.delete_media()
-            FileCache.get().clear(tbl_id=self.id)
-
-        elif isinstance(op, CreateTableMdOp):
-            Catalog.get().delete_tbl_md(self.id)
-
-        elif isinstance(op, CreateTableVersionOp):
-            Catalog.get().delete_current_tbl_version_md(self.id)
-
-        elif isinstance(op, CreateColumnMdOp):
-            for col_id in op.column_ids:
-                del self._tbl_md.column_md[col_id]
-            Catalog.get().write_tbl_md(self.id, None, self._tbl_md, None, None, [])
-
-        elif isinstance(op, CreateStoreColumnsOp):
-            for col_id in op.column_ids:
-                with Env.get().begin_xact():
-                    self.store_tbl.drop_column(self.cols_by_id[col_id])
-
-        elif isinstance(op, (DeleteTableMdOp, DeleteTableMediaFilesOp, DropStoreTableOp)):
-            # undo of physical deletion is currently not supported; see schema.TableStatement.can_abort()
-            raise AssertionError()
-
     @classmethod
     def create_replica(cls, md: TableVersionMd, create_store_tbl: bool = True) -> TableVersion:
         from .catalog import Catalog, TableVersionPath
@@ -598,13 +498,6 @@ class TableVersion:
                 stores_cellmd = False
                 sa_col_type = idx.get_index_sa_type(col_type)
 
-            value_expr_dict: dict[str, Any] | None = None
-            default_value_expr_dict: dict[str, Any] | None = None
-            if col_md.default_value_expr is not None:
-                default_value_expr_dict = col_md.default_value_expr
-            else:
-                value_expr_dict = col_md.value_expr
-
             col = Column(
                 col_id=col_md.id,
                 name=schema_col_md.name if schema_col_md is not None else None,
@@ -617,8 +510,8 @@ class TableVersion:
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
                 stores_cellmd=stores_cellmd,
-                value_expr_dict=value_expr_dict,
-                default_value_expr_dict=default_value_expr_dict,
+                value_expr_dict=col_md.value_expr,
+                default_value_expr_dict=col_md.default_value_expr,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
                 custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
@@ -936,12 +829,11 @@ class TableVersion:
         has_default_cols = any(col.has_default_value for col in cols)
         num_ops = 5 if has_default_cols else 4
         tbl_ops = [
-            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=num_ops, needs_xact=True, status=OpStatus.PENDING),
+            CreateTableVersionOp(tbl_id=id_str, op_sn=0, num_ops=num_ops, status=OpStatus.PENDING),
             CreateColumnMdOp(
                 tbl_id=id_str,
                 op_sn=1,
                 num_ops=num_ops,
-                needs_xact=True,
                 status=OpStatus.PENDING,
                 column_ids=[col.id for col in all_cols],
             ),
@@ -949,13 +841,10 @@ class TableVersion:
                 tbl_id=id_str,
                 op_sn=2,
                 num_ops=num_ops,
-                needs_xact=False,
                 status=OpStatus.PENDING,
                 column_ids=[col.id for col in all_cols],
             ),
-            CreateStoreIdxsOp(
-                tbl_id=id_str, op_sn=3, num_ops=num_ops, needs_xact=False, status=OpStatus.PENDING, idx_ids=idx_ids
-            ),
+            CreateStoreIdxsOp(tbl_id=id_str, op_sn=3, num_ops=num_ops, status=OpStatus.PENDING, idx_ids=idx_ids),
         ]
         if has_default_cols:
             tbl_ops.append(
@@ -963,7 +852,6 @@ class TableVersion:
                     tbl_id=id_str,
                     op_sn=4,
                     num_ops=num_ops,
-                    needs_xact=False,
                     status=OpStatus.PENDING,
                     column_ids=[col.id for col in cols],
                 )
@@ -1002,10 +890,6 @@ class TableVersion:
         # Create indices and their md records
         for col, (idx, val_col, undo_col) in index_cols.items():
             self._create_index(col, val_col, undo_col, idx_name=None, idx=idx)
-
-        # Populate default values for columns that were just added to existing rows
-        self._populate_default_values(cols)
-
         self.update_status = status
         self._write_md(new_version=True, new_schema_version=True)
         _logger.info(f'Added columns {[col.name for col in cols]} to table {self.name}, new version: {self.version}')
@@ -1133,10 +1017,6 @@ class TableVersion:
             assert col.sa_col is not None, f'Column {col.name!r} sa_col should be initialized'
             default_val = col.col_type.to_stored_value(col.default_value_expr.val)
             update_stmt = update_stmt.values({col.sa_col: default_val})
-            if col.stores_cellmd:
-                assert col.sa_cellmd_col is not None, f'Column {col.name!r} sa_cellmd_col should be initialized'
-                # Set cellmd to NULL for default values (no errors)
-                update_stmt = update_stmt.values({col.sa_cellmd_col: None})
 
         log_explain(_logger, update_stmt, conn)
         conn.execute(update_stmt)

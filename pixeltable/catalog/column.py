@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import warnings
 from pathlib import Path
+from textwrap import dedent
 from typing import TYPE_CHECKING, Any
 
 import pgvector.sqlalchemy  # type: ignore[import-untyped]
@@ -109,20 +110,23 @@ class Column:
         if computed_with is not None:
             value_expr = exprs.Expr.from_object(computed_with)
             if value_expr is None:
+                # TODO: this shouldn't be a user-facing error
                 raise excs.Error(
                     f'Column {name!r}: `computed_with` needs to be a valid Pixeltable expression, '
                     f'but it is a {type(computed_with)}'
                 )
-            is_computed = value_expr_dict is not None
-            if is_computed:
+            else:
                 self._value_expr = value_expr.copy()
                 self.col_type = self._value_expr.col_type
-                if self.value_expr_dict is None:
-                    self.value_expr_dict = self._value_expr.as_dict()
-            else:
-                if not isinstance(value_expr, exprs.Literal):
-                    raise excs.Error(f'Column {name!r}: Default values must be constants.')
-                self.default_value_expr_dict = value_expr.as_dict()
+            if self._value_expr is not None and self.value_expr_dict is None:
+                self.value_expr_dict = self._value_expr.as_dict()
+
+        if default_value_expr_dict is not None:
+            self._default_value_expr = exprs.Expr.from_dict(self.default_value_expr_dict).as_literal()
+            if self._default_value_expr is None:
+                raise excs.Error(
+                    f'Column {self.name!r}: Default values must be constants, but it is: {self._default_value_expr}'
+                )
 
         if col_type is not None:
             self.col_type = col_type
@@ -169,7 +173,7 @@ class Column:
             is_pk=self.is_pk,
             schema_version_add=self.schema_version_add,
             schema_version_drop=self.schema_version_drop,
-            value_expr=self.value_expr.as_dict() if self.value_expr is not None and self.is_computed else None,
+            value_expr=self.value_expr.as_dict() if self.value_expr is not None else None,
             default_value_expr=self.default_value_expr_dict,
             stored=self.stored,
             destination=self._explicit_destination,
@@ -185,6 +189,37 @@ class Column:
             comment=self._comment,
         )
         return col_md, sch_md
+
+    def init_value_expr(self, tvp: 'TableVersionPath' | None) -> None:
+        """
+        Initialize the value_expr from its dict representation, if necessary.
+
+        If `tvp` is not None, retarget the value_expr to the given TableVersionPath.
+        """
+        if self._value_expr is None and self.value_expr_dict is None:
+            return
+
+        if self._value_expr is None:
+            # Instantiate the Expr from its dict
+            self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
+            self._value_expr.bind_rel_paths()
+            if not self._value_expr.is_valid:
+                message = (
+                    dedent(
+                        f"""
+                        The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.
+                        {{validation_error}}
+                        You can continue to query existing data from this column, but evaluating it on new data will raise an error.
+                        """  # noqa: E501
+                    )
+                    .strip()
+                    .format(validation_error=self._value_expr.validation_error)
+                )
+                warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
+
+        if tvp is not None:
+            # Retarget the Expr
+            self._value_expr = self._value_expr.retarget(tvp)
 
     def get_tbl(self) -> TableVersion:
         tv = self.tbl_handle.get()
@@ -226,45 +261,11 @@ class Column:
 
     @property
     def value_expr(self) -> exprs.Expr | None:
+        assert self.value_expr_dict is None or self._value_expr is not None
         return self._value_expr
-
-    def init_value_expr(self, tvp: 'TableVersionPath' | None) -> None:
-        """
-        Initialize the value_expr from its dict representation, if necessary.
-
-        If `tvp` is not None, retarget the value_expr to the given TableVersionPath.
-        """
-        if self._value_expr is None and self.value_expr_dict is None:
-            return
-
-        if self._value_expr is None:
-            self._value_expr = exprs.Expr.from_dict(self.value_expr_dict)
-            self._value_expr.bind_rel_paths()
-            if not self._value_expr.is_valid:
-                message = (
-                    f'The computed column {self.name!r} in table {self.get_tbl().name!r} is no longer valid.\n'
-                    f'{self._value_expr.validation_error}\n'
-                    'You can continue to query existing data from this column, '
-                    'but evaluating it on new data will raise an error.'
-                )
-                warnings.warn(message, category=excs.PixeltableWarning, stacklevel=2)
-
-        if tvp is not None and self._value_expr is not None:
-            self._value_expr = self._value_expr.retarget(tvp)
-
-    def init_default_value_expr(self) -> None:
-        if self._default_value_expr is not None or self.default_value_expr_dict is None:
-            return
-        self._default_value_expr = exprs.Expr.from_dict(self.default_value_expr_dict)
-        self._default_value_expr.bind_rel_paths()
-        if not isinstance(self._default_value_expr, exprs.Literal):
-            raise excs.Error(
-                f'Column {self.name!r}: Default values must be constants. Got expression: {self._default_value_expr}'
-            )
 
     @property
     def default_value_expr(self) -> exprs.Expr | None:
-        self.init_default_value_expr()
         return self._default_value_expr
 
     def set_value_expr(self, value_expr: exprs.Expr) -> None:
@@ -298,8 +299,7 @@ class Column:
 
     @property
     def is_computed(self) -> bool:
-        """Returns True if this is a computed column."""
-        return self.value_expr_dict is not None
+        return self._value_expr is not None or self.value_expr_dict is not None
 
     @property
     def is_stored(self) -> bool:

@@ -14,9 +14,9 @@ class InMemoryDataNode(ExecNode):
     """
     Outputs in-memory data as a DataRowBatch of a particular table.
 
-    Populates slots from the input rows. Defaults are applied at plan time (planner
-    fills missing columns before rows reach this node), so we do not substitute
-    defaults here. Explicit None in the input is preserved.
+    Populates slots of all non-computed columns (ie, output ColumnRefs)
+    - with the values provided in the input rows
+    - if an input row doesn't provide a value, sets the slot to the column default
     """
 
     tbl: catalog.TableVersionHandle
@@ -74,10 +74,12 @@ class InMemoryDataNode(ExecNode):
 
                 input_slot_idxs.add(col_info.slot_idx)
 
-            # Missing columns get None (defaults are applied at plan time)
+            # set the remaining output slots to their default values (presently None)
             missing_slot_idxs = output_slot_idxs - input_slot_idxs
             for slot_idx in missing_slot_idxs:
-                output_row[slot_idx] = None
+                col_info = output_cols_by_idx.get(slot_idx)
+                assert col_info is not None
+                output_row[col_info.slot_idx] = None
             self.output_batch.add_row(output_row)
 
     async def __aiter__(self) -> AsyncIterator[DataRowBatch]:

@@ -366,11 +366,6 @@ class TestMigration:
         assert no_comment.get_metadata()['comment'] in (None, '')
         assert no_comment.get_metadata()['custom_metadata'] in (None, '')
 
-    @classmethod
-    def _verify_v46(cls) -> None:
-        """Placeholder for v46 (default_value_expr in ColumnMd)."""
-        pass
-
 
 @pxt.udf(batch_size=4)
 def replacement_batched_udf(strings: Batch[str], *, upper: bool = True) -> Batch[pxt.String]:

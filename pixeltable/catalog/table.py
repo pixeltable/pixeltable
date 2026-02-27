@@ -567,9 +567,9 @@ class Table(SchemaObject):
             ...         'media_validation': 'on_write',
             ...     },
             ...     'new_col_2': {
-                ...		    'type': pxt.String,
+            ...		    'type': pxt.String,
             ...		    'default': 'empty'
-                ...     }
+            ...     }
             ... }
             ... tbl.add_columns(schema)
         """
@@ -899,6 +899,8 @@ class Table(SchemaObject):
         for name, spec in schema.items():
             col_type: ts.ColumnType | None = None
             value_expr: exprs.Expr | None = None
+            value_expr_dict: dict[str, Any] | None = None
+            default_value_expr_dict: dict[str, Any] | None = None
             primary_key: bool = False
             media_validation: catalog.MediaValidation | None = None
             stored = True
@@ -931,11 +933,11 @@ class Table(SchemaObject):
                 elif 'default' in spec:
                     # Column with default value
                     default_expr_obj = spec['default']
-                    value_expr = exprs.Expr.from_object(default_expr_obj)
-                    value_expr = value_expr.copy()
-                    value_expr.bind_rel_paths()
+                    default_value_expr = exprs.Expr.from_object(default_expr_obj)
+                    default_value_expr = default_value_expr.copy()
+                    default_value_expr.bind_rel_paths()
 
-                    assert isinstance(value_expr, exprs.Literal)
+                    assert isinstance(default_value_expr, exprs.Literal)
 
                     assert col_type is not None
                     if col_type.is_media_type():
@@ -957,17 +959,15 @@ class Table(SchemaObject):
                             f'Array, and Binary.'
                         )
                     # Ensure the default value's type is compatible with the column type
-                    # Check compatibility ignoring nullability since we'll mark the column non-nullable
-                    default_type = value_expr.col_type
+                    default_type = default_value_expr.col_type
                     if not col_type.is_supertype_of(default_type, ignore_nullable=True):
                         raise excs.Error(
                             f'Column {name!r}: Default value type {default_type} is not compatible '
                             f'with column type {col_type}.'
                         )
 
-                    cls._validate_json_default_value_expr(value_expr, name, MAX_DEFAULT_VALUE_SIZE)
-                    # Default value columns are nullable (user can explicitly insert None)
-                    col_type = col_type.copy(nullable=True)
+                    cls._validate_json_default_value_expr(default_value_expr, name, MAX_DEFAULT_VALUE_SIZE)
+                    default_value_expr_dict = default_value_expr.as_dict()
 
                 stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key', False)
@@ -984,13 +984,6 @@ class Table(SchemaObject):
             else:
                 raise excs.Error(f'Invalid value for column {name!r}')
 
-            # For computed columns, pass value_expr_dict so Column knows it's computed (not default)
-            value_expr_dict: dict[str, Any] | None = None
-            if value_expr is not None and (
-                isinstance(spec, exprs.Expr) or (isinstance(spec, dict) and 'value' in spec)
-            ):
-                value_expr_dict = value_expr.as_dict()
-
             column = Column(
                 name,
                 col_type=col_type,
@@ -1000,6 +993,7 @@ class Table(SchemaObject):
                 media_validation=media_validation,
                 destination=destination,
                 value_expr_dict=value_expr_dict,
+                default_value_expr_dict=default_value_expr_dict,
                 custom_metadata=custom_metadata,
                 comment=comment,
             )

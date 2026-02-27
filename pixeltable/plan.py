@@ -372,16 +372,13 @@ class Planner:
 
         cls.__check_valid_columns(tbl, stored_cols, 'inserted into')
 
-        # Apply defaults at plan time: only for columns not provided by the user.
-        # Explicit None in the row is preserved (default value columns are nullable).
-        rows = [dict(row) for row in rows]
-        for row in rows:
-            for col in stored_cols:
-                if col.name is not None and col.name not in row and col.has_default_value:
-                    assert col.default_value_expr is not None, (
-                        f'Column {col.name!r} has default value but default_value_expr is not set'
-                    )
-                    row[col.name] = col.default_value_expr.val
+        defaults = {col.name: col.default_value_expr.val for col in stored_cols if col.has_default_value}
+        if defaults:
+            rows = [dict(row) for row in rows]
+            for row in rows:
+                for col_name, val in defaults.items():
+                    if col_name not in row:
+                        row[col_name] = val
 
         row_builder = exprs.RowBuilder([], stored_cols, [], tbl)
 

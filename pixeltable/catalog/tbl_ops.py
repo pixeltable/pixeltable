@@ -230,8 +230,19 @@ class CreateStoreColumnsOp(TableOp):
 @dataclasses.dataclass
 class SetColumnValueOp(TableOp):
     """Set values for specified columns."""
+    needs_tv: ClassVar[bool] = True
+    needs_xact: ClassVar[bool] = False
 
     column_ids: list[int]
+
+    def exec(self, tv: TableVersion | None) -> None:
+        assert not Env.get().in_xact
+        cols = [tv.cols_by_id[col_id] for col_id in self.column_ids]
+        with Env.get().begin_xact():
+            tv._populate_default_values(cols)
+
+    def undo(self, tv: TableVersion | None) -> None:
+        pass
 
 
 @dataclasses.dataclass

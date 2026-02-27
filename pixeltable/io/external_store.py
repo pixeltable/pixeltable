@@ -141,16 +141,14 @@ class Project(ExternalStore, abc.ABC):
         assert (
             col.col_type.is_media_type() and not (col.is_stored and col.is_computed) and col not in self.stored_proxies
         )
-        proxy_expr = exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type)
         proxy_col = Column(
             name=None,
             # Force images in the proxy column to be materialized inside the media store, in a normalized format.
             # TODO(aaron-siegel): This is a temporary solution and it will be replaced by a proper `destination`
             #   parameter for computed columns. Among other things, this solution does not work for video or audio.
             #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
-            computed_with=proxy_expr,
+            computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
             stored=True,
-            value_expr_dict=proxy_expr.as_dict(),
         )
         return proxy_col
 

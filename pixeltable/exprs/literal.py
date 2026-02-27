@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import datetime
-import io
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -80,7 +79,7 @@ class Literal(Expr):
         return sql.sql.expression.literal(self.val, type_=self.col_type.to_sa_type())
 
     def eval(self, data_row: DataRow, row_builder: RowBuilder) -> None:
-        # DataRow holds in-memory values only (not stored format)
+        # this will be called, even though sql_expr() does not return None
         data_row[self.slot_idx] = self.val
 
     def _as_dict(self) -> dict:

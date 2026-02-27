@@ -502,8 +502,7 @@ class RowBuilder:
         # Nulls in JSONB columns need to be stored as sql.sql.null(), otherwise it stores a json 'null'
         for col, slot_idx in self.table_columns.items():
             if col.id in data_row.cell_vals:
-                val = data_row.cell_vals[col.id]
-                table_row.append(val)
+                table_row.append(data_row.cell_vals[col.id])
                 if col.stores_cellmd:
                     if data_row.cell_md[col.id] is None:
                         table_row.append(sql.sql.null())
@@ -528,10 +527,7 @@ class RowBuilder:
                     # exceptions get stored in the errortype/-msg properties of the cellmd column
                     table_row.append(ColumnPropertyRef.create_cellmd_exc(exc))
             else:
-                if data_row.has_val[slot_idx]:
-                    val = data_row.get_stored_val(slot_idx, col.sa_col_type)
-                else:
-                    val = None
+                val = data_row.get_stored_val(slot_idx, col.sa_col_type)
                 table_row.append(val)
                 if col.stores_cellmd:
                     table_row.append(sql.sql.null())  # placeholder for cellmd column

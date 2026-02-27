@@ -16,8 +16,8 @@ def log_explain(logger: logging.Logger, stmt: sql.sql.ClauseElement, conn: sql.e
         explain_result = conn.execute(sql.text(f'EXPLAIN {stmt_str}'))
         explain_str = '\n'.join(str(row) for row in explain_result)
         logger.debug(f'SqlScanNode explain:\n{explain_str}')
-    except Exception:
-        logger.warning('EXPLAIN failed')
+    except Exception as e:
+        logger.warning('EXPLAIN failed', exc_info=e)
 
 
 def add_option_to_db_url(url: str | URL, option: str) -> URL:
