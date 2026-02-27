@@ -199,7 +199,7 @@ class RowBuilder:
 
         unstored_iter_col_refs = [col_ref for col_ref in col_refs if refs_unstored_iter_col(col_ref)]
         component_views = [col_ref.col.get_tbl() for col_ref in unstored_iter_col_refs]
-        unstored_iter_args = {view.id: view.iterator_args.copy() for view in component_views}
+        unstored_iter_args = {view.id: view.iterator_args_expr() for view in component_views}
 
         # the *stored* output columns of the unstored iterators
         self.unstored_iter_outputs = {
@@ -321,7 +321,7 @@ class RowBuilder:
             for i, c in enumerate(expr.components):
                 # make sure we only refer to components that have themselves been recorded
                 expr.components[i] = self._record_unique_expr(c, True)
-        assert expr.slot_idx is None
+        assert expr.slot_idx is None, expr
         expr.slot_idx = self._next_slot_idx()
         self.unique_exprs.add(expr)
         return expr

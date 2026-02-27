@@ -13,6 +13,7 @@ from google.cloud.exceptions import Forbidden, NotFound
 from google.cloud.storage.client import Client  # type: ignore[import-untyped]
 
 from pixeltable import env, exceptions as excs
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
 
 if TYPE_CHECKING:
@@ -69,7 +70,7 @@ class GCSStore(ObjectStoreBase):
     @classmethod
     def client(cls) -> 'Client':
         """Return the GCS client."""
-        return env.Env.get().get_client('gcs_store')
+        return get_runtime().get_client('gcs_store')
 
     @property
     def bucket_name(self) -> str:

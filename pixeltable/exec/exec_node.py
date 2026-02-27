@@ -8,7 +8,7 @@ from typing import AsyncIterator, Iterable, Iterator, TypeVar
 from typing_extensions import Self
 
 from pixeltable import exprs
-from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 
 from .data_row_batch import DataRowBatch
 from .exec_context import ExecContext
@@ -56,7 +56,7 @@ class ExecNode(abc.ABC):
         pass
 
     def __iter__(self) -> Iterator[DataRowBatch]:
-        loop = Env.get().event_loop
+        loop = get_runtime().event_loop
         aiter = self.__aiter__()
         try:
             while True:
@@ -86,7 +86,7 @@ class ExecNode(abc.ABC):
         self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: TracebackType | None
     ) -> None:
         # Ensure progress stops on exit (including empty results, errors, interrupts)
-        Env.get().stop_progress()
+        get_runtime().stop_progress()
         self._close_aux()
 
     def _close_aux(self) -> None:
