@@ -4,12 +4,13 @@ import json
 import logging
 import os
 import shutil
+import threading
 from pathlib import Path
 from typing import Any, ClassVar, TypeVar
 
 import toml
 
-from pixeltable import env, exceptions as excs
+from pixeltable import exceptions as excs
 
 _logger = logging.getLogger('pixeltable')
 
@@ -23,6 +24,7 @@ class Config:
     """
 
     __instance: ClassVar[Config | None] = None
+    __init_lock: ClassVar[threading.Lock] = threading.Lock()
 
     __home: Path
     __config_file: Path
@@ -79,21 +81,22 @@ class Config:
 
     @classmethod
     def get(cls) -> Config:
+        if cls.__instance is not None:
+            return cls.__instance
         cls.init({})
         return cls.__instance
 
     @classmethod
     def init(cls, config_overrides: dict[str, Any], reinit: bool = False) -> None:
-        if reinit:
-            cls.__instance = None
-            for cl in env._registered_clients.values():
-                cl.client_obj = None
-        if cls.__instance is None:
-            cls.__instance = cls(config_overrides)
-        elif len(config_overrides) > 0:
-            raise excs.Error(
-                'Pixeltable has already been initialized; cannot specify new config values in the same session'
-            )
+        with cls.__init_lock:
+            if reinit:
+                cls.__instance = None
+            if cls.__instance is None:
+                cls.__instance = cls(config_overrides)
+            elif len(config_overrides) > 0:
+                raise excs.Error(
+                    'Pixeltable has already been initialized; cannot specify new config values in the same session'
+                )
 
     @classmethod
     def __create_default_config(cls, config_path: Path) -> dict[str, Any]:
@@ -214,7 +217,6 @@ KNOWN_CONFIG_OPTIONS = {
     'voyage': {'api_key': 'Voyage AI API key', 'rate_limit': 'Rate limit for Voyage AI API requests'},
     'pypi': {'api_key': 'PyPI API key (for internal use only)'},
 }
-
 
 KNOWN_CONFIG_OVERRIDES = {
     f'{section}.{key}': info

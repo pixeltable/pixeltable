@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
 from pixeltable.env import Env, register_client
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -31,7 +32,7 @@ def _(api_key: str, site_url: str | None = None, app_name: str | None = None) ->
 
 
 def _openrouter_client() -> 'openai.AsyncOpenAI':
-    return Env.get().get_client('openrouter')
+    return get_runtime().get_client('openrouter')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:openrouter')

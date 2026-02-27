@@ -26,8 +26,8 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
-from pixeltable.catalog import Catalog
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime, reset_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
@@ -579,9 +579,9 @@ def skip_test_if_not_in_path(*binaries: str) -> None:
 
 def skip_test_if_no_client(client_name: str) -> None:
     try:
-        _ = Env.get().get_client(client_name)
+        _ = get_runtime().get_client(client_name)
     except pxt.Error as exc:
-        pytest.skip(str(exc))
+        pytest.skip(str(exc).splitlines()[0])
 
 
 def skip_test_if_no_pxt_credentials() -> None:
@@ -597,7 +597,7 @@ def skip_test_if_no_aws_credentials() -> None:
         cl = boto3.client('s3')
         cl.list_buckets()
     except NoCredentialsError as exc:
-        pytest.skip(str(exc))
+        pytest.skip(str(exc).splitlines()[0])
 
 
 _S3_PYTEST_RESOURCES = 's3://pxt-test/pytest-resources'
@@ -696,7 +696,7 @@ def make_test_arrow_table(output_path: Path) -> str:
 def reload_catalog(reload: bool = True) -> None:
     if not reload:
         return
-    Catalog.clear()
+    reset_runtime()
     pxt.init()
 
 
@@ -836,7 +836,7 @@ class DummyIterator2(pxt.PxtIterator[DummyIterator2Out]):
 def list_store_indexes(t: pxt.Table) -> list[str]:
     """Return all index names in the store for the given table."""
     sa_tbl_name = t._tbl_version.get().store_tbl._storage_name()
-    with Env.get().begin_xact() as conn:
+    with get_runtime().begin_xact() as conn:
         result = conn.execute(
             sql.text(f"SELECT indexname FROM pg_indexes WHERE tablename = '{sa_tbl_name}'")
         ).fetchall()

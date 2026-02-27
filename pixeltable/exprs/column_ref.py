@@ -12,6 +12,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import func
 from pixeltable.catalog.table_version import TableVersionKey
+from pixeltable.runtime import get_runtime
 
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
@@ -159,7 +160,7 @@ class ColumnRef(Expr):
         return super().__getattr__(name)
 
     def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
-        cat = catalog.Catalog.get()
+        cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(tbl=self.reference_tbl, for_write=True, lock_mutable_tree=True):
             tbl_version = self.col_handle.tbl_version.get()
@@ -295,7 +296,7 @@ class ColumnRef(Expr):
 
         if self.reference_tbl is None:
             # No reference table; use the current version of the table to which the column belongs
-            tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl_handle.id)
+            tbl = get_runtime().catalog.get_table_by_id(self.col.tbl_handle.id)
             return tbl.select(self)
         else:
             # Explicit reference table; construct a Query directly from it
@@ -330,8 +331,8 @@ class ColumnRef(Expr):
         return self._descriptors().to_html()
 
     def _descriptors(self) -> DescriptionHelper:
-        with catalog.Catalog.get().begin_xact():
-            tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl_handle.id)
+        with get_runtime().catalog.begin_xact():
+            tbl = get_runtime().catalog.get_table_by_id(self.col.tbl_handle.id)
         helper = DescriptionHelper()
         helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
         col_df, _ = tbl._col_descriptor([self.col.name])
@@ -430,7 +431,7 @@ class ColumnRef(Expr):
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
         # validate_initialized=False: this gets called as part of TableVersion.init()
         # TODO: When we have views on replicas, we will need to store anchor_tbl_id in metadata as well.
-        tbl_version = catalog.Catalog.get().get_tbl_version(
+        tbl_version = get_runtime().catalog.get_tbl_version(
             TableVersionKey(tbl_id, version, None), validate_initialized=False
         )
         # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
