@@ -62,13 +62,11 @@ class ExecNode(abc.ABC):
         # Check if we're inside a running event loop that isn't patched by nest_asyncio
         try:
             running = asyncio.get_running_loop()
-            nested_ok = getattr(running, '_nest_patched', False)
         except RuntimeError:
             running = None
-            nested_ok = False
 
-        if running is not None and not nested_ok:
-            yield from self._iter_via_thread()
+        if running is not None:
+            yield from self._thread_iter()
         else:
             loop = get_runtime().event_loop
             aiter = self.__aiter__()
@@ -81,7 +79,7 @@ class ExecNode(abc.ABC):
 
     _SENTINEL = object()
 
-    def _iter_via_thread(self) -> Iterator[DataRowBatch]:
+    def _thread_iter(self) -> Iterator[DataRowBatch]:
         """Run async iteration in a background thread when the calling thread
         already has a running event loop (e.g. LanceDB consuming our iterator
         from within its own async context)."""
@@ -89,15 +87,16 @@ class ExecNode(abc.ABC):
         caller_runtime = get_runtime()
         # Borrow the caller's DB connection state -- safe because the caller
         # blocks on queue.get() and never touches the connection concurrently.
-        caller_conn = caller_runtime.conn
-        caller_session = caller_runtime.session
-        caller_isolation_level = caller_runtime.isolation_level
 
         def run() -> None:
-            bg = get_runtime()
-            bg.conn = caller_conn
-            bg.session = caller_session
-            bg.isolation_level = caller_isolation_level
+            thread_runtime = get_runtime()
+            # the execution needs to happen in the same db context (connection, transaction, catalog) as the caller,
+            # but on a new event loop
+            thread_runtime.conn = caller_runtime.conn
+            thread_runtime.session = caller_runtime.session
+            thread_runtime.isolation_level = caller_runtime.isolation_level
+            thread_runtime._progress = caller_runtime._progress
+            thread_runtime._catalog = caller_runtime.catalog
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
@@ -112,9 +111,9 @@ class ExecNode(abc.ABC):
                 result_queue.put(e)
             finally:
                 loop.close()
-                bg.conn = None
-                bg.session = None
-                bg.isolation_level = None
+                thread_runtime.conn = None
+                thread_runtime.session = None
+                thread_runtime.isolation_level = None
 
         thread = threading.Thread(target=run, daemon=True)
         thread.start()

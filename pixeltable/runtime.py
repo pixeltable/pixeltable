@@ -7,7 +7,6 @@ import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, TypeVar
 
-import nest_asyncio  # type: ignore[import-untyped]
 import sqlalchemy as sql
 from rich.progress import Progress
 from sqlalchemy import orm
@@ -87,9 +86,6 @@ class Runtime:
             # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
             self._event_loop.slow_callback_duration = 3600
 
-        if Env.get().is_notebook():
-            # Jupyter notebooks have their own event loop, which we need to patch to allow nested run_until_complete()
-            nest_asyncio.apply(self._event_loop)
         if _logger.isEnabledFor(logging.DEBUG):
             self._event_loop.set_debug(True)
 
