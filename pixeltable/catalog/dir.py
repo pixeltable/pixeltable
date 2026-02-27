@@ -9,6 +9,7 @@ import sqlalchemy as sql
 
 from pixeltable.env import Env
 from pixeltable.metadata import schema
+from pixeltable.runtime import get_runtime
 
 from .schema_object import SchemaObject
 
@@ -21,7 +22,7 @@ class Dir(SchemaObject):
 
     @classmethod
     def _create(cls, parent_id: UUID, name: str) -> Dir:
-        session = Env.get().session
+        session = get_runtime().session
         user = Env.get().user
         assert session is not None
         dir_md = schema.DirMd(name=name, user=user, additional_md={})
@@ -58,4 +59,4 @@ class Dir(SchemaObject):
                 f'WHERE {schema.Dir.id.name} = :id'
             )
         )
-        Env.get().conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})
+        get_runtime().conn.execute(stmt, {'new_dir_id': new_dir_id, 'new_name': json.dumps(new_name), 'id': self._id})

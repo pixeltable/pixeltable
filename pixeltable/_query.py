@@ -15,10 +15,11 @@ import pydantic
 import sqlalchemy.exc as sql_exc
 
 from pixeltable import catalog, exceptions as excs, exec, exprs, plan, type_system as ts
-from pixeltable.catalog import Catalog, is_valid_identifier
+from pixeltable.catalog import is_valid_identifier
 from pixeltable.catalog.update_status import UpdateStatus
 from pixeltable.env import Env
 from pixeltable.plan import Planner, SampleClause
+from pixeltable.runtime import get_runtime
 from pixeltable.type_system import ColumnType
 from pixeltable.utils.description_helper import DescriptionHelper
 from pixeltable.utils.formatter import Formatter
@@ -336,7 +337,7 @@ class Query:
             with plan:
                 for row_batch in plan:
                     # stop progress output before we display anything, otherwise it'll mess up the output
-                    Env.get().stop_progress()
+                    get_runtime().stop_progress()
                     yield from row_batch
 
         yield from exec_plan()
@@ -531,14 +532,16 @@ class Query:
     def _output_row_iterator(self) -> Iterator[list]:
         # TODO: extend begin_xact() to accept multiple TVPs for joins
         single_tbl = self._first_tbl if len(self._from_clause.tbls) == 1 else None
-        with Catalog.get().begin_xact(tbl=single_tbl, for_write=False):
+        with get_runtime().catalog.begin_xact(tbl=single_tbl, for_write=False):
             try:
                 for data_row in self._exec():
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
             except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
-                Catalog.get().convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
+                get_runtime().catalog.convert_sql_exc(
+                    e, tbl=(single_tbl.tbl_version if single_tbl is not None else None)
+                )
                 raise  # just re-raise if not converted to a Pixeltable error
 
     def collect(self) -> ResultSet:
@@ -552,7 +555,7 @@ class Query:
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
         except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
-            Catalog.get().convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
+            get_runtime().catalog.convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
             raise  # just re-raise if not converted to a Pixeltable error
 
     def count(self) -> int:
@@ -561,7 +564,7 @@ class Query:
         Returns:
             The number of rows in the Query.
         """
-        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False) as conn:
+        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False) as conn:
             count_stmt = Planner.create_count_stmt(self)
             result: int = conn.execute(count_stmt).scalar_one()
             assert isinstance(result, int)
@@ -1249,7 +1252,7 @@ class Query:
             >>> person.where(t.year == 2014).update({'age': 30})
         """
         self._validate_mutable('update', False)
-        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().update(value_spec, where=self.where_clause, cascade=cascade)
 
     def recompute_columns(
@@ -1273,8 +1276,8 @@ class Query:
             >>> query = person.where(t.age < 18).recompute_columns(person.height)
         """
         self._validate_mutable('recompute_columns', False)
-        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
-            tbl = Catalog.get().get_table_by_id(self._first_tbl.tbl_id)
+        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+            tbl = get_runtime().catalog.get_table_by_id(self._first_tbl.tbl_id)
             return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
@@ -1293,7 +1296,7 @@ class Query:
         self._validate_mutable('delete', False)
         if not self._first_tbl.is_insertable():
             raise excs.Error('Cannot use `delete` on a view.')
-        with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             return self._first_tbl.tbl_version.get().delete(where=self.where_clause)
 
     def _validate_mutable(self, op_name: str, allow_select: bool) -> None:
@@ -1357,7 +1360,7 @@ class Query:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'Query':
         # we need to wrap the construction with a transaction, because it might need to load metadata
-        with Catalog.get().begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False):
             tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
             join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
             from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
@@ -1435,7 +1438,7 @@ class Query:
             return data_file_path
         else:
             # TODO: extend begin_xact() to accept multiple TVPs for joins
-            with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
+            with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False):
                 return write_coco_dataset(self, dest_path)
 
     def to_pytorch_dataset(self, image_format: str = 'pt') -> 'torch.utils.data.IterableDataset':
@@ -1480,7 +1483,7 @@ class Query:
         if dest_path.exists():  # fast path: use cache
             assert dest_path.is_dir()
         else:
-            with Catalog.get().begin_xact(tbl=self._first_tbl, for_write=False):
+            with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=False):
                 # we need the metadata for PixeltablePytorchDataset
                 export_parquet(self, dest_path, inline_images=True, _write_md=True)
 

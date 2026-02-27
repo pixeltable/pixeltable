@@ -12,6 +12,7 @@ import pydantic_core
 import pixeltable as pxt
 from pixeltable import exceptions as excs, type_system as ts
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.pydantic import is_json_convertible
@@ -138,14 +139,13 @@ class InsertableTable(Table):
         print_stats: bool = False,
         **kwargs: Any,
     ) -> UpdateStatus:
-        from pixeltable.catalog import Catalog
         from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
             raise excs.Error('Cannot insert an empty sequence.')
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             table = self
             start_ts = time.monotonic()
 
@@ -183,10 +183,9 @@ class InsertableTable(Table):
         self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False
     ) -> pxt.UpdateStatus:
         """Insert row batches into this table from a `TableDataConduit`."""
-        from pixeltable.catalog import Catalog
         from pixeltable.io.table_data_conduit import QueryTableDataConduit
 
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             start_ts = time.perf_counter()
             if isinstance(data_source, QueryTableDataConduit):
                 status = pxt.UpdateStatus()
@@ -323,9 +322,7 @@ class InsertableTable(Table):
 
             >>> tbl.delete(tbl.a > 5)
         """
-        from pixeltable.catalog import Catalog
-
-        with Catalog.get().begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             return self._tbl_version.get().delete(where=where)
 
     def _get_base_table(self) -> 'Table' | None:

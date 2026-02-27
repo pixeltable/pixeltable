@@ -12,6 +12,7 @@ import numpy as np
 import pixeltable as pxt
 from pixeltable import env
 from pixeltable.func import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ def _(host: str) -> 'ollama.Client':
 
 def _ollama_client() -> 'ollama.Client | None':
     try:
-        return env.Env.get().get_client('ollama')
+        return get_runtime().get_client('ollama')
     except Exception:
         return None
 

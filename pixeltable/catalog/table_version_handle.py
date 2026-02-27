@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pixeltable import exceptions as excs
+from pixeltable.runtime import get_runtime
 
 from .table_version import TableVersion, TableVersionKey
 
@@ -60,10 +61,8 @@ class TableVersionHandle:
         return self.effective_version is not None
 
     def get(self) -> TableVersion:
-        from .catalog import Catalog
-
-        cat = Catalog.get()
         if self._tbl_version is None or not self._tbl_version.is_validated:
+            cat = get_runtime().catalog
             if self.effective_version is not None and self._tbl_version is not None:
                 # this is a snapshot version; we need to make sure we refer to the instance cached
                 # in Catalog, in order to avoid mixing sa_tbl instances in the same transaction
@@ -72,11 +71,8 @@ class TableVersionHandle:
                 self._tbl_version = cat._tbl_versions[self.key]
                 self._tbl_version.is_validated = True
             else:
-                self._tbl_version = Catalog.get().get_tbl_version(self.key)
+                self._tbl_version = cat.get_tbl_version(self.key)
                 assert self._tbl_version.key == self.key
-        if self.effective_version is None:
-            tvs = list(Catalog.get()._tbl_versions.values())
-            assert self._tbl_version in tvs, self._tbl_version
         return self._tbl_version
 
     def as_dict(self) -> dict:

@@ -7,7 +7,6 @@ from typing import Literal
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
-from pixeltable.catalog import Catalog
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable')
@@ -73,12 +72,11 @@ def export_lancedb(
             # table doesn't exist
             pass
 
-        with Catalog.get().begin_xact(for_write=False):
-            if lance_tbl is None or if_exists == 'overwrite':
-                mode = 'overwrite' if lance_tbl is not None else 'create'
-                _ = db.create_table(table_name, to_record_batches(query, batch_size_bytes), mode=mode)
-            else:
-                lance_tbl.add(to_record_batches(query, batch_size_bytes))
+        if lance_tbl is None or if_exists == 'overwrite':
+            mode = 'overwrite' if lance_tbl is not None else 'create'
+            _ = db.create_table(table_name, to_record_batches(query, batch_size_bytes), mode=mode)
+        else:
+            lance_tbl.add(to_record_batches(query, batch_size_bytes))
 
     except Exception as e:
         # cleanup
