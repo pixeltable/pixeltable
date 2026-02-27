@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 import os
@@ -14,7 +15,7 @@ GRAFANA_OTLP_URL = 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/metr
 _logger = logging.getLogger('pixeltable')
 
 
-def report_benchmarks_to_grafana(json_path: str, grafana_token: str) -> None:
+def report_benchmarks_to_grafana(json_path: str, grafana_instance_id: str, grafana_token: str) -> None:
     with open(json_path) as f:
         data = json.load(f)
 
@@ -23,7 +24,8 @@ def report_benchmarks_to_grafana(json_path: str, grafana_token: str) -> None:
     commit = commit_info.get('id', 'unknown')
 
     resource = Resource.create({'service.name': 'benchmark', 'environment': 'ci'})
-    exporter = OTLPMetricExporter(endpoint=GRAFANA_OTLP_URL, headers={'Authorization': f'Bearer {grafana_token}'})
+    auth = base64.b64encode(f'{grafana_instance_id}:{grafana_token}'.encode()).decode()
+    exporter = OTLPMetricExporter(endpoint=GRAFANA_OTLP_URL, headers={'Authorization': f'Basic {auth}'})
     reader = PeriodicExportingMetricReader(exporter)
     provider = MeterProvider(resource=resource, metric_readers=[reader])
     metrics.set_meter_provider(provider)
@@ -58,12 +60,15 @@ def main() -> None:
 
     json_path = sys.argv[1]
 
+    grafana_instance_id = os.getenv('GRAFANA_INSTANCE_ID', '')
+    if not grafana_instance_id:
+        raise ValueError('GRAFANA_INSTANCE_ID environment variable is not set')
     grafana_token = os.getenv('GRAFANA_SERVICE_ACCOUNT_TOKEN', '')
     if not grafana_token:
         raise ValueError('GRAFANA_SERVICE_ACCOUNT_TOKEN environment variable is not set')
 
     logging.basicConfig(level=logging.INFO)
-    report_benchmarks_to_grafana(json_path, grafana_token)
+    report_benchmarks_to_grafana(json_path, grafana_instance_id, grafana_token)
 
 
 if __name__ == '__main__':

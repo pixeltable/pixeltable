@@ -163,5 +163,6 @@ jobs:
 
       - name: Report benchmark results to Grafana
         env:
+          GRAFANA_INSTANCE_ID: ${{ env.GRAFANA_INSTANCE_ID }}
           GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
         run: python tool/benchmark_reporter.py benchmark-results.json
