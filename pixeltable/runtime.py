@@ -55,6 +55,14 @@ class Runtime:
         self._run_coro_executor = None
         self._clients = {}
 
+    def copy_db_context(self, other: Runtime) -> None:
+        """Copy the db-related state from another Runtime instance."""
+        self.conn = other.conn
+        self.session = other.session
+        self.isolation_level = other.isolation_level
+        self._catalog = other.catalog
+        self._progress = other._progress
+
     @property
     def in_xact(self) -> bool:
         return self.conn is not None

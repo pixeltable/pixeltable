@@ -90,13 +90,8 @@ class ExecNode(abc.ABC):
 
         def run() -> None:
             thread_runtime = get_runtime()
-            # the execution needs to happen in the same db context (connection, transaction, catalog) as the caller,
-            # but on a new event loop
-            thread_runtime.conn = caller_runtime.conn
-            thread_runtime.session = caller_runtime.session
-            thread_runtime.isolation_level = caller_runtime.isolation_level
-            thread_runtime._progress = caller_runtime._progress
-            thread_runtime._catalog = caller_runtime.catalog
+            # the execution needs to happen in the same db context as the caller, but on a new event loop
+            thread_runtime.copy_db_context(caller_runtime)
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
