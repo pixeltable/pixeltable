@@ -37,17 +37,21 @@ def report_benchmarks_to_grafana(json_path: str, grafana_instance_id: str, grafa
     stddev_gauge = meter.create_gauge(
         name='benchmark_stddev_seconds', description='Benchmark execution time standard deviation', unit='s'
     )
+    # Separate info metric so commit is queryable without fragmenting the main time series
+    commit_info_gauge = meter.create_gauge(
+        name='benchmark_commit_info', description='Commit metadata for benchmark runs', unit='1'
+    )
 
     for bench in data.get('benchmarks', []):
         attrs = {
             'test_name': bench['name'],
             'group': bench.get('group', 'ungrouped'),
             'branch': branch,
-            'commit': commit,
         }
         stats = bench['stats']
         mean_gauge.set(stats['mean'], attributes=attrs)
         stddev_gauge.set(stats['stddev'], attributes=attrs)
+        commit_info_gauge.set(1, attributes={**attrs, 'commit': commit})
         _logger.info(f'Reported {bench["name"]}: mean={stats["mean"]:.4f}s stddev={stats["stddev"]:.4f}s')
 
     provider.shutdown()
