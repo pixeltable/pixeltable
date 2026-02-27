@@ -59,15 +59,14 @@ class ExecNode(abc.ABC):
         pass
 
     def __iter__(self) -> Iterator[DataRowBatch]:
-        # Check if we're inside a running event loop that isn't patched by nest_asyncio
         try:
             running = asyncio.get_running_loop()
         except RuntimeError:
             running = None
 
-        if running is not None:
-            yield from self._thread_iter()
-        else:
+        if running is None:
+            # if we don't already have a running loop, we can run the async iterator directly and avoid the extra
+            # overhead introduced by _thread_iter()
             loop = get_runtime().event_loop
             aiter = self.__aiter__()
             try:
@@ -76,11 +75,16 @@ class ExecNode(abc.ABC):
                     yield batch
             except StopAsyncIteration:
                 pass
+        else:
+            yield from self._thread_iter()
 
-    _SENTINEL = object()
+    _THREAD_QUEUE_SENTINEL = object()
 
     def _thread_iter(self) -> Iterator[DataRowBatch]:
-        # maxsize=2: we want a minimal amount of buffering
+        """Run the async iterator in a separate thread with a dedicated event loop, connected via a queue."""
+        # maxsize=2: we want a minimal amount of buffering to allow for some overlap between plan execution and result
+        # consumption (but buffering more than that would simply increase memory consumption without additional
+        # benefits)
         result_queue: queue.Queue = queue.Queue(maxsize=2)
         caller_runtime = get_runtime()
 
@@ -97,21 +101,18 @@ class ExecNode(abc.ABC):
                         result_queue.put(batch)
 
                 loop.run_until_complete(produce())
-                result_queue.put(ExecNode._SENTINEL)
+                result_queue.put(ExecNode._THREAD_QUEUE_SENTINEL)
             except BaseException as e:
                 result_queue.put(e)
             finally:
                 loop.close()
-                thread_runtime.conn = None
-                thread_runtime.session = None
-                thread_runtime.isolation_level = None
 
         thread = threading.Thread(target=run, daemon=True)
         thread.start()
         try:
             while True:
                 item = result_queue.get()
-                if item is ExecNode._SENTINEL:
+                if item is ExecNode._THREAD_QUEUE_SENTINEL:
                     break
                 if isinstance(item, BaseException):
                     raise item
