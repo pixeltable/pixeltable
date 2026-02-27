@@ -4,6 +4,7 @@ import itertools
 import json
 import os
 import random
+import re
 import shutil
 import subprocess
 import sysconfig
@@ -11,7 +12,7 @@ import uuid
 from contextlib import contextmanager
 from io import StringIO
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable, Iterator, TypedDict
 from unittest import TestCase
 from uuid import uuid4
 
@@ -20,12 +21,14 @@ import numpy as np
 import pandas as pd
 import PIL.Image
 import pytest
+import sqlalchemy as sql
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable._query import ResultSet
-from pixeltable.catalog import Catalog
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime, reset_runtime
+from pixeltable.types import ColumnSpec
 from pixeltable.utils import sha256sum
 from pixeltable.utils.console_output import ConsoleMessageFilter, ConsoleOutputHandler
 from pixeltable.utils.object_stores import ObjectOps
@@ -148,9 +151,9 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
 
 
 def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
-    schema = {
-        'c1': pxt.Required[pxt.String],
-        'c1n': pxt.String,
+    schema: dict[str, type | ColumnSpec] = {
+        'c1': {'type': pxt.Required[pxt.String], 'comment': 'String column with no nulls'},
+        'c1n': {'type': pxt.String, 'custom_metadata': {'nullable': True}},
         'c2': pxt.Required[pxt.Int],
         'c3': pxt.Required[pxt.Float],
         'c4': pxt.Required[pxt.Bool],
@@ -576,9 +579,9 @@ def skip_test_if_not_in_path(*binaries: str) -> None:
 
 def skip_test_if_no_client(client_name: str) -> None:
     try:
-        _ = Env.get().get_client(client_name)
+        _ = get_runtime().get_client(client_name)
     except pxt.Error as exc:
-        pytest.skip(str(exc))
+        pytest.skip(str(exc).splitlines()[0])
 
 
 def skip_test_if_no_pxt_credentials() -> None:
@@ -594,7 +597,7 @@ def skip_test_if_no_aws_credentials() -> None:
         cl = boto3.client('s3')
         cl.list_buckets()
     except NoCredentialsError as exc:
-        pytest.skip(str(exc))
+        pytest.skip(str(exc).splitlines()[0])
 
 
 _S3_PYTEST_RESOURCES = 's3://pxt-test/pytest-resources'
@@ -693,7 +696,7 @@ def make_test_arrow_table(output_path: Path) -> str:
 def reload_catalog(reload: bool = True) -> None:
     if not reload:
         return
-    Catalog.clear()
+    reset_runtime()
     pxt.init()
 
 
@@ -784,3 +787,67 @@ IN_CI = bool(os.environ.get('PXTTEST_IN_CI'))
 
 # The OS id (e.g., 'unbuntu-latest') on which the tests are running in CI, or None if not in CI.
 CI_OS = os.environ.get('PXTTEST_CI_OS')
+
+
+class DummyIteratorOut(TypedDict):
+    out1: str
+    out2: int
+
+
+@pxt.iterator
+class DummyIterator(pxt.PxtIterator[DummyIteratorOut]):
+    count: int
+    limit: int
+
+    def __init__(self, limit: int) -> None:
+        self.count = 0
+        self.limit = limit
+
+    def __next__(self) -> DummyIteratorOut:
+        if self.count >= self.limit:
+            raise StopIteration
+        result = DummyIteratorOut(out1=f'str{self.count}', out2=self.count)
+        self.count += 1
+        return result
+
+
+class DummyIterator2Out(TypedDict):
+    out1: str
+    out3: int
+
+
+@pxt.iterator
+class DummyIterator2(pxt.PxtIterator[DummyIterator2Out]):
+    count: int
+    limit: int
+
+    def __init__(self, limit: int) -> None:
+        self.count = 0
+        self.limit = limit
+
+    def __next__(self) -> DummyIterator2Out:
+        if self.count >= self.limit:
+            raise StopIteration
+        result = DummyIterator2Out(out1=f'str{self.count}', out3=self.count)
+        self.count += 1
+        return result
+
+
+def list_store_indexes(t: pxt.Table) -> list[str]:
+    """Return all index names in the store for the given table."""
+    sa_tbl_name = t._tbl_version.get().store_tbl._storage_name()
+    with get_runtime().begin_xact() as conn:
+        result = conn.execute(
+            sql.text(f"SELECT indexname FROM pg_indexes WHERE tablename = '{sa_tbl_name}'")
+        ).fetchall()
+    return [row[0] for row in result]
+
+
+def validate_repr(t: Any, expected: str) -> None:
+    def cleanup(r: str) -> str:
+        r = re.sub(r'-{3,}', '---', r)  # normalize separator lines
+        r = re.sub(r'\.{3,}', '...', r)
+        return re.sub(r'\s+', ' ', r).strip()  # normalize whitespace
+
+    assert cleanup(repr(t)) == cleanup(expected), f'Expected repr: {expected}, actual: {t!r}'
+    t._repr_html_()  # TODO: Is there a good way to test this output?

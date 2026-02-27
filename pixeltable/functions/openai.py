@@ -6,6 +6,7 @@ the [Working with OpenAI](https://docs.pixeltable.com/notebooks/integrations/wor
 """
 
 import base64
+import copy
 import datetime
 import io
 import json
@@ -18,13 +19,16 @@ from typing import TYPE_CHECKING, Any, Callable, Type
 import httpx
 import numpy as np
 import PIL
+from deprecated import deprecated
 
 import pixeltable as pxt
-from pixeltable import env, exprs, type_system as ts
+from pixeltable import env, exceptions as excs, exprs, type_system as ts
 from pixeltable.config import Config
 from pixeltable.func import Batch, Tools
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import parse_duration_str
+from pixeltable.utils.image import to_base64
 from pixeltable.utils.local_store import TempStore
 from pixeltable.utils.system import set_file_descriptor_limit
 
@@ -71,7 +75,7 @@ def _(api_key: str, base_url: str | None = None, api_version: str | None = None)
 
 
 def _openai_client() -> 'openai.AsyncOpenAI':
-    return env.Env.get().get_client('openai')
+    return get_runtime().get_client('openai')
 
 
 # models that share rate limits; see https://platform.openai.com/settings/organization/limits for details
@@ -205,12 +209,13 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
         if not isinstance(exc, openai.APIError) or not hasattr(exc, 'response') or not hasattr(exc.response, 'headers'):
             return
 
-        requests_info, tokens_info = _get_header_info(exc.response.headers)
-        _logger.debug(
-            f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} tokens_info={tokens_info}'
-        )
-        self.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info)
-        self.has_exc = True
+        with self._lock:
+            requests_info, tokens_info = _get_header_info(exc.response.headers)
+            _logger.debug(
+                f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} tokens_info={tokens_info}'
+            )
+            self.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info)
+            self.has_exc = True
 
     def _retry_delay_from_exception(self, exc: Exception) -> float | None:
         try:
@@ -394,6 +399,25 @@ def _is_model_family(model: str, family: str) -> bool:
     return model == family or model.startswith(f'{family}-')
 
 
+def _token_count_for_image(image: PIL.Image.Image) -> int:
+    # calculate image tokens based on
+    # https://platform.openai.com/docs/guides/vision/calculating-costs#calculating-costs
+    # assuming detail='high' (which appears to be the default, according to community forum posts)
+
+    # number of 512x512 crops; ceil(): partial crops still count as full crops
+    crops_width = math.ceil(image.width / 512)
+    crops_height = math.ceil(image.height / 512)
+    total_crops = crops_width * crops_height
+
+    base_tokens = 85  # base cost for the initial 512x512 overview
+    crop_tokens = 170  # cost per additional 512x512 crop
+    img_tokens = base_tokens + (crop_tokens * total_crops)
+
+    return int(
+        img_tokens + 4  # for <im_start>{role/name}\n{content}<im_end>\n
+    )
+
+
 def _chat_completions_get_request_resources(
     messages: list, model: str, model_kwargs: dict[str, Any] | None
 ) -> dict[str, int]:
@@ -410,9 +434,18 @@ def _chat_completions_get_request_resources(
     for message in messages:
         num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
         for key, value in message.items():
-            num_tokens += len(value) / 4
+            if isinstance(value, str):
+                num_tokens += len(value) / 4
+            elif isinstance(value, list):
+                for part in value:
+                    if isinstance(part, dict):
+                        if part.get('type') == 'text' and isinstance(part.get('text'), str):
+                            num_tokens += len(part['text']) / 4
+                        elif part.get('type') == 'image_url' and isinstance(part.get('image_url'), PIL.Image.Image):
+                            num_tokens += _token_count_for_image(part['image_url'])
             if key == 'name':  # if there's a name, the role is omitted
                 num_tokens -= 1  # role is always required and always 1 token
+
     num_tokens += 2  # every reply is primed with <im_start>assistant
     return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
 
@@ -458,7 +491,23 @@ async def chat_completions(
         ...     {'role': 'system', 'content': 'You are a helpful assistant.'},
         ...     {'role': 'user', 'content': tbl.prompt},
         ... ]
-        >>> tbl.add_computed_column(
+        ... tbl.add_computed_column(
+        ...     response=chat_completions(messages, model='gpt-4o-mini')
+        ... )
+
+        You can also include images in the messages list by passing image data directly in the input dictionary, in
+        the `'image_url'` field of the message content, as in this example:
+
+        >>> messages = [
+        ...     {
+        ...         'role': 'user',
+        ...         'content': [
+        ...             {'type': 'text', 'text': "What's in this image?"},
+        ...             {'type': 'image_url', 'image_url': tbl.image},
+        ...         ],
+        ...     }
+        ... ]
+        ... tbl.add_computed_column(
         ...     response=chat_completions(messages, model='gpt-4o-mini')
         ... )
     """
@@ -480,6 +529,20 @@ async def chat_completions(
     if tool_choice is not None and not tool_choice['parallel_tool_calls']:
         model_kwargs['parallel_tool_calls'] = False
 
+    # Serialize any images in `messages`
+    messages = copy.deepcopy(messages)
+    for message in messages:
+        content = message.get('content')
+        if isinstance(content, list):
+            for part in content:
+                if (
+                    isinstance(part, dict)
+                    and part.get('type') == 'image_url'
+                    and isinstance(part.get('image_url'), PIL.Image.Image)
+                ):
+                    b64_encoded_image = to_base64(part['image_url'], format='png')
+                    part['image_url'] = {'url': f'data:image/png;base64,{b64_encoded_image}'}
+
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
     rate_limits_info = env.Env.get().get_resource_pool_info(
@@ -498,43 +561,12 @@ async def chat_completions(
     return json.loads(result.text)
 
 
-def _vision_get_request_resources(
-    prompt: str, image: PIL.Image.Image, model: str, model_kwargs: dict[str, Any] | None = None
-) -> dict[str, int]:
-    if model_kwargs is None:
-        model_kwargs = {}
-
-    max_completion_tokens = model_kwargs.get('max_completion_tokens')
-    max_tokens = model_kwargs.get('max_tokens')
-    n = model_kwargs.get('n')
-
-    completion_tokens = (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model))
-    prompt_tokens = len(prompt) / 4
-
-    # calculate image tokens based on
-    # https://platform.openai.com/docs/guides/vision/calculating-costs#calculating-costs
-    # assuming detail='high' (which appears to be the default, according to community forum posts)
-
-    # number of 512x512 crops; ceil(): partial crops still count as full crops
-    crops_width = math.ceil(image.width / 512)
-    crops_height = math.ceil(image.height / 512)
-    total_crops = crops_width * crops_height
-
-    base_tokens = 85  # base cost for the initial 512x512 overview
-    crop_tokens = 170  # cost per additional 512x512 crop
-    img_tokens = base_tokens + (crop_tokens * total_crops)
-
-    total_tokens = (
-        prompt_tokens
-        + img_tokens
-        + completion_tokens
-        + 4  # for <im_start>{role/name}\n{content}<im_end>\n
-        + 2  # for reply's <im_start>assistant
-    )
-    return {'requests': 1, 'tokens': int(total_tokens)}
-
-
 @pxt.udf(is_deterministic=False)
+@deprecated(
+    reason='vision() is deprecated as a separate API; use chat_completions() instead',
+    version='0.5.18',
+    category=excs.PixeltableDeprecationWarning,
+)
 async def vision(
     prompt: str,
     image: PIL.Image.Image,
@@ -563,7 +595,7 @@ async def vision(
         model: The model to use for OpenAI vision.
 
     Returns:
-        The response from the OpenAI vision API.
+        A dictionary containing the response and associated metadata.
 
     Examples:
         Add a computed column that applies the model `gpt-4o-mini` to an existing Pixeltable column `tbl.image`
@@ -575,44 +607,13 @@ async def vision(
         ...     )
         ... )
     """
-    if model_kwargs is None:
-        model_kwargs = {}
-
-    # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
-    bytes_arr = io.BytesIO()
-    image.save(bytes_arr, format='png')
-    b64_bytes = base64.b64encode(bytes_arr.getvalue())
-    b64_encoded_image = b64_bytes.decode('utf-8')
+    # Since version 0.5.18, this function is deprecated in favor of using `chat_completions()`, which now handles
+    # embedded images.
     messages = [
-        {
-            'role': 'user',
-            'content': [
-                {'type': 'text', 'text': prompt},
-                {'type': 'image_url', 'image_url': {'url': f'data:image/png;base64,{b64_encoded_image}'}},
-            ],
-        }
+        {'role': 'user', 'content': [{'type': 'text', 'text': prompt}, {'type': 'image_url', 'image_url': image}]}
     ]
-
-    # make sure the pool info exists prior to making the request
-    resource_pool = _rate_limits_pool(model)
-    rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_vision_get_request_resources)
-    )
-
-    request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
-    result = await _openai_client().chat.completions.with_raw_response.create(
-        messages=messages,  # type: ignore
-        model=model,
-        **model_kwargs,
-    )
-
-    # _logger.debug(f'vision(): headers={result.headers}')
-    requests_info, tokens_info = _get_header_info(result.headers)
-    is_retry = _runtime_ctx is not None and _runtime_ctx.is_retry
-    rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
-
-    result = json.loads(result.text)
-    return result['choices'][0]['message']['content']
+    response = await chat_completions.py_fn(messages, model=model, model_kwargs=model_kwargs, _runtime_ctx=_runtime_ctx)
+    return response['choices'][0]['message']['content']
 
 
 #####################################
@@ -711,9 +712,7 @@ def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
 
 
 @pxt.udf(is_deterministic=False)
-async def image_generations(
-    prompt: str, *, model: str = 'dall-e-2', model_kwargs: dict[str, Any] | None = None
-) -> PIL.Image.Image:
+async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
     Creates an image given a prompt.
 
@@ -735,7 +734,19 @@ async def image_generations(
             parameters, see: <https://platform.openai.com/docs/api-reference/images/create>
 
     Returns:
-        The generated image.
+        A dictionary containing the generated image data. Images will be deserialized into `PIL.Image.Image` objects,
+        and the result dictionary will have the following form:
+        ```json
+        {
+            "created": 1234567890,
+            "data": [
+                PIL.Image.Image(...),
+                PIL.Image.Image(...),
+                ...
+            ],
+            "usage": <optional usage data, depending on model>
+        }
+        ```
 
     Examples:
         Add a computed column that applies the model `dall-e-2` to an existing
@@ -748,31 +759,41 @@ async def image_generations(
     if model_kwargs is None:
         model_kwargs = {}
 
-    # TODO(aaron-siegel): Decompose CPU/GPU ops into separate functions
-    result = await _openai_client().images.generate(
+    result_model = await _openai_client().images.generate(
         prompt=prompt, model=model, response_format='b64_json', **model_kwargs
     )
-    b64_str = result.data[0].b64_json
-    b64_bytes = base64.b64decode(b64_str)
-    img = PIL.Image.open(io.BytesIO(b64_bytes))
-    img.load()
-    return img
+
+    result = result_model.model_dump()
+
+    # Decode images in response
+    for i in range(len(result['data'])):
+        b64_str = result['data'][i]['b64_json']
+        if b64_str is None:
+            raise excs.Error('Image content is missing in the response.')
+        b64_bytes = base64.b64decode(b64_str)
+        img = PIL.Image.open(io.BytesIO(b64_bytes))
+        img.load()
+        result['data'][i] = img
+
+    return result
 
 
-@image_generations.conditional_return_type
-def _(model_kwargs: dict[str, Any] | None = None) -> ts.ImageType:
-    if model_kwargs is None or 'size' not in model_kwargs:
-        # default size is 1024x1024
-        return ts.ImageType(size=(1024, 1024))
-    size = model_kwargs['size']
-    x_pos = size.find('x')
-    if x_pos == -1:
-        return ts.ImageType()
-    try:
-        width, height = int(size[:x_pos]), int(size[x_pos + 1 :])
-    except ValueError:
-        return ts.ImageType()
-    return ts.ImageType(size=(width, height))
+# TODO: We can resurrect this logic once we have proper typed Json support.
+
+# @image_generations.conditional_return_type
+# def _(model_kwargs: dict[str, Any] | None = None) -> ts.ImageType:
+#     if model_kwargs is None or 'size' not in model_kwargs:
+#         # default size is 1024x1024
+#         return ts.ImageType(size=(1024, 1024))
+#     size = model_kwargs['size']
+#     x_pos = size.find('x')
+#     if x_pos == -1:
+#         return ts.ImageType()
+#     try:
+#         width, height = int(size[:x_pos]), int(size[x_pos + 1 :])
+#     except ValueError:
+#         return ts.ImageType()
+#     return ts.ImageType(size=(width, height))
 
 
 #####################################

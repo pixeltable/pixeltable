@@ -189,9 +189,8 @@ def ffmpeg_segment_cmd(
     if video_encoder_args is not None:
         for k, v in video_encoder_args.items():
             cmd.extend([f'-{k}', str(v)])
-    cmd.extend(['-f', 'segment'])
 
-    # -force_key_frames needs to precede -f segment
+    # -force_key_frames must precede -f segment
     if segment_duration is not None:
         cmd.extend(
             [
@@ -210,6 +209,8 @@ def ffmpeg_segment_cmd(
 
     cmd.extend(
         [
+            '-break_non_keyframes',
+            '1',  # Allow splitting at non-keyframe boundaries for accurate duration
             '-reset_timestamps',
             '1',  # Reset timestamps for each segment
             '-loglevel',

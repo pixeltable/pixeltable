@@ -46,10 +46,24 @@
             <outline text="method|pixeltable.Table.count" />
             <outline text="method|pixeltable.Table.columns" />
             <outline text="method|pixeltable.Table.describe" />
+            <outline text="method|pixeltable.Table.select" />
+            <outline text="method|pixeltable.Table.where" />
+            <outline text="method|pixeltable.Table.join" />
+            <outline text="method|pixeltable.Table.group_by" />
+            <outline text="method|pixeltable.Table.order_by" />
+            <outline text="method|pixeltable.Table.limit" />
+            <outline text="method|pixeltable.Table.distinct" />
+            <outline text="method|pixeltable.Table.sample" />
+            <outline text="method|pixeltable.Table.collect" />
+            <outline text="method|pixeltable.Table.show" />
+            <outline text="method|pixeltable.Table.head" />
+            <outline text="method|pixeltable.Table.tail" />
             <outline text="method|pixeltable.Table.get_metadata" />
             <outline text="method|pixeltable.Table.get_versions" />
             <outline text="method|pixeltable.Table.history" />
             <outline text="method|pixeltable.Table.list_views" />
+            <outline text="method|pixeltable.Table.pull" />
+            <outline text="method|pixeltable.Table.push" />
             <outline text="method|pixeltable.Table.sync" />
             <outline text="method|pixeltable.Table.unlink_external_stores" />
           </outline>
@@ -144,6 +158,7 @@
           <outline text="udf|pixeltable.functions.image.mode" />
         </outline>
         <outline text="module|pixeltable.functions.json">
+          <outline text="udf|pixeltable.functions.json.dumps" />
           <outline text="udf|pixeltable.functions.json.make_list" />
         </outline>
         <outline text="module|pixeltable.functions.math">
@@ -240,6 +255,7 @@
           <outline text="iter|pixeltable.functions.video.video_splitter" />
           <outline text="uda|pixeltable.functions.video.make_video" />
           <outline text="udf|pixeltable.functions.video.clip" />
+          <outline text="udf|pixeltable.functions.video.crop" />
           <outline text="udf|pixeltable.functions.video.concat_videos" />
           <outline text="udf|pixeltable.functions.video.extract_audio" />
           <outline text="udf|pixeltable.functions.video.extract_frame" />
@@ -269,6 +285,10 @@
         <outline text="module|pixeltable.functions.deepseek">
           <outline text="udf|pixeltable.functions.deepseek.chat_completions" />
         </outline>
+        <outline text="module|pixeltable.functions.fabric">
+          <outline text="udf|pixeltable.functions.fabric.chat_completions" />
+          <outline text="udf|pixeltable.functions.fabric.embeddings" />
+        </outline>
         <outline text="module|pixeltable.functions.fal">
           <outline text="udf|pixeltable.functions.fal.run" />
         </outline>
@@ -277,6 +297,7 @@
         </outline>
         <outline text="module|pixeltable.functions.gemini">
           <outline text="udf|pixeltable.functions.gemini.generate_content" />
+          <outline text="udf|pixeltable.functions.gemini.generate_embedding" />
           <outline text="udf|pixeltable.functions.gemini.generate_images" />
           <outline text="udf|pixeltable.functions.gemini.generate_videos" />
           <outline text="func|pixeltable.functions.gemini.invoke_tools" />
@@ -378,6 +399,7 @@
           <outline text="func|pixeltable.io.import_rows" />
           <outline text="func|pixeltable.io.import_huggingface_dataset" />
           <outline text="func|pixeltable.io.export_parquet" />
+          <outline text="func|pixeltable.io.export_sql" />
           <outline text="func|pixeltable.io.export_lancedb" />
           <outline text="func|pixeltable.io.export_images_as_fo_dataset" />
           <outline text="func|pixeltable.io.create_label_studio_project" />

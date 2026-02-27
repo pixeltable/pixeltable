@@ -1,6 +1,6 @@
 import pixeltable as pxt
-from pixeltable.catalog import Catalog
 from pixeltable.catalog.path import Path
+from pixeltable.runtime import get_runtime
 from tests.utils import reload_catalog
 
 
@@ -11,7 +11,7 @@ class TestReplica:
         """
         pure_snapshot = pxt.create_snapshot('pure_snapshot', test_tbl)
         snapshot_view = pxt.create_snapshot('snapshot_view', test_tbl, additional_columns={'extra': pxt.Int})
-        cat = Catalog.get()
+        cat = get_runtime().catalog
 
         with cat.begin_xact(for_write=False):
             md1 = cat.load_replica_md(pure_snapshot)
@@ -27,7 +27,7 @@ class TestReplica:
 
         pxt.drop_table(test_tbl, force=True)
         reload_catalog()
-        cat = Catalog.get()
+        cat = get_runtime().catalog
 
         with cat.begin_xact(for_write=True):
             cat.create_replica(Path.parse('replica_1'), md1)
@@ -53,7 +53,7 @@ class TestReplica:
         v2 > v3 > s31
         s11 > v4 > v5 > s51 > v6 > s61
         """
-        cat = Catalog.get()
+        cat = get_runtime().catalog
 
         t = pxt.create_table('base_tbl', {'c1': pxt.Int})  # Base table
         t.insert({'c1': i} for i in range(10))
@@ -96,7 +96,7 @@ class TestReplica:
 
         pxt.drop_table('base_tbl', force=True)
         reload_catalog()
-        cat = Catalog.get()
+        cat = get_runtime().catalog
 
         for i, md in enumerate(s11_md):
             print(f'\n{i}: {md}')

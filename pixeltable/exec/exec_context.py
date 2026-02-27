@@ -7,6 +7,7 @@ from rich.progress import Column, Progress, TextColumn
 
 from pixeltable import exprs
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 _logger = logging.getLogger('pixeltable')
@@ -86,6 +87,6 @@ class ExecContext:
                 redirect_stderr=False,  # avoid bad tqdm interaction
             )
 
-        self.progress = Env.get().start_progress(create_progress)
+        self.progress = get_runtime().start_progress(create_progress)
         if self.title is not None:
             self.progress.add_task(f'{self.title}:', total_1='', unit_1='', total_2='', unit_2='')
