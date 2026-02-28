@@ -805,18 +805,38 @@ class BinaryType(ColumnType):
 
 
 class JsonType(ColumnType):
-    json_schema: dict[str, Any] | None
-    __validator: jsonschema.protocols.Validator | None
+    type_schema: dict[str, Any] | tuple[Any, ...] | None
 
-    def __init__(self, json_schema: dict[str, Any] | None = None, nullable: bool = False):
+    def __init__(self, type_schema: dict[str, Any] | tuple[Any, ...] | None = None, nullable: bool = False):
         super().__init__(self.Type.JSON, nullable=nullable)
-        self.json_schema = json_schema
-        if json_schema is None:
-            self.__validator = None
+        self.type_schema = self.__validate_type_schema(type_schema)
+
+    def __validate_type_schema(self, type_schema: Any) -> Any:
+        if type_schema is None:
+            return None
+
+        if isinstance(type_schema, dict):
+            validated_schema: dict[str, Any] = {}
+            for key, value in type_schema.items():
+                if not isinstance(key, str):
+                    raise ValueError(f'Invalid type schema: expected keys of type `str`; got type `{type(key).__name__}`')
+                value_type = self.__validate_type_schema(value)
+                validated_schema[key] = value_type
+            return validated_schema
+
+        if isinstance(type_schema, tuple):
+            validated_schema: tuple
+            # We allow ... in a tuple, but only in last position
+            if len(type_schema) > 0 and type_schema[-1] is Ellipsis:
+                validated_schema = tuple(self.__validate_type_schema(item) for item in type_schema[:-1]) + (Ellipsis,)
+                if len(validated_schema) == 0:
+                    raise ValueError('Invalid type schema: tuple with only ... is not allowed')
+            else:
+                validated_schema = tuple(self.__validate_type_schema(item) for item in type_schema)
+            return validated_schema
+
         else:
-            validator_cls = jsonschema.validators.validator_for(json_schema)
-            validator_cls.check_schema(json_schema)
-            self.__validator = validator_cls(json_schema)
+            raise ValueError(f'Invalid type schema: expected dict, tuple, or None, got {type(type_schema).__name__}')
 
     def copy(self, nullable: bool) -> ColumnType:
         return JsonType(json_schema=self.json_schema, nullable=nullable)
