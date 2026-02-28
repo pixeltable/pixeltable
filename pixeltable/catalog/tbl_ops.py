@@ -236,9 +236,9 @@ class SetColumnValueOp(TableOp):
     column_ids: list[int]
 
     def exec(self, tv: TableVersion | None) -> None:
-        assert not Env.get().in_xact
+        assert not get_runtime().in_xact
         cols = [tv.cols_by_id[col_id] for col_id in self.column_ids]
-        with Env.get().begin_xact():
+        with get_runtime().begin_xact():
             tv._populate_default_values(cols)
 
     def undo(self, tv: TableVersion | None) -> None:

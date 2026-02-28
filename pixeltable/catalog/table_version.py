@@ -1000,7 +1000,7 @@ class TableVersion:
         # Ensure sa_tbl is up to date (it should be after add_column calls create_sa_tbl)
         self.store_tbl.create_sa_tbl()
 
-        conn = Env.get().conn
+        conn = get_runtime().conn
 
         # Build UPDATE statement with all default value columns
         update_stmt = sql.update(self.store_tbl.sa_tbl)
