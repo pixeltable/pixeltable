@@ -143,6 +143,7 @@ def search_documents(query_text: str, limit: int = 5):
 
   <Tab title="app.py">
 ```python
+from pydantic import BaseModel
 from fastapi import FastAPI
 import pixeltable as pxt
 from setup_pixeltable import search_documents
@@ -151,10 +152,14 @@ import config
 app = FastAPI()
 docs_table = pxt.get_table(f'{config.APP_NAMESPACE}/documents')
 
+class SearchResult(BaseModel):
+    document: str
+    sim: float
+
 @app.get("/search")
-async def search(query: str, limit: int = 5):
+def search(query: str, limit: int = 5) -> list[SearchResult]:
     results = search_documents(query, limit).collect()
-    return {"results": list(results)}
+    return list(results.to_pydantic(SearchResult))
 ```
   </Tab>
 </Tabs>
@@ -165,6 +170,10 @@ async def search(query: str, limit: int = 5):
 - **Retrieval Queries** (`@pxt.query`): Encapsulate complex retrieval logic as reusable functions.
 - **Idempotency:** Use `if_exists='ignore'` to make `setup_pixeltable.py` safely re-runnable.
 </Note>
+
+<Card title="App Template" icon="github" href="https://github.com/pixeltable/pixeltable-app-template">
+  See this structure in action — a ready-to-clone FastAPI + React app with `setup_pixeltable.py`, `config.py`, `functions.py`, and endpoint routers already wired up.
+</Card>
 
 ## Storage Architecture
 
@@ -205,6 +214,22 @@ For large datasets with remote media, consider increasing file cache size to avo
 file_cache_size_g = 50  # 50 GB cache
 ```
 </Tip>
+
+### References, Not Copies
+
+Unlike vector databases that require ingesting data into their own storage format, Pixeltable stores **references** to external files. Your original media stays in S3/GCS/Azure; only computed results (embeddings, metadata, generated media) are stored locally or in configured cloud buckets.
+
+```mermaid
+flowchart LR
+    S3[S3 / GCS / Azure] -. reference .-> PXT[Pixeltable]
+    PXT --> Meta[Computed Results]
+    PXT -. lazy load .-> S3
+```
+
+This means:
+- **No data duplication** — you don't pay for storage twice.
+- **Schema changes don't require re-upload** — add a column, not a migration script.
+- **Works with existing storage** — point Pixeltable at your current buckets.
 
 **Deployment-Specific Storage Patterns:**
 

@@ -6,13 +6,16 @@ the [Working with Gemini](https://docs.pixeltable.com/notebooks/integrations/wor
 """
 
 import asyncio
+import base64
 import io
 import logging
+import mimetypes
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import PIL.Image
+from tenacity import RetryCallState, retry, retry_if_result, stop_after_delay, wait_exponential
 
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs, type_system as ts
@@ -23,9 +26,18 @@ from pixeltable.utils.http import exponential_backoff, parse_duration_str
 from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
+    from typing import Coroutine
+
     from google import genai
 
 _logger = logging.getLogger('pixeltable')
+
+# Max raw file size (bytes) for inline_data; larger files use the Files API.
+# The API limit is 100MB for the base64-encoded payload, so we use ~75MB raw (75 * 4/3 ≈ 100MB encoded).
+GEMINI_INLINE_VIDEO_LIMIT_BYTES = 75 * 1024**2
+
+# Placeholder key used in first pass for large file uploads.
+_UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 
 
 @env.register_client('gemini')
@@ -102,8 +114,6 @@ async def generate_content(
         >>> tbl.add_computed_column(
         ...     response=generate_content(tbl.prompt, model='gemini-2.5-flash')
         ... )
-
-        Add a computed column that applies the model `gemini-2.5-flash` for image understanding
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -123,8 +133,23 @@ async def generate_content(
             gemini_tools = [__convert_pxt_tool(tool) for tool in tools]
             config_.tools = [types.Tool(function_declarations=gemini_tools)]
 
-    response = await _genai_client().aio.models.generate_content(model=model, contents=contents, config=config_)
-    return response.model_dump()
+    upload_tasks: list[Coroutine[Any, Any, types.File]] = []
+    uploaded: list[types.File] = []
+    client = _genai_client()
+    large_video_paths: list[str] = []
+
+    try:
+        contents = _process_media_contents(contents, client.aio, upload_tasks, large_video_paths)
+        if upload_tasks:
+            uploaded = await asyncio.gather(*upload_tasks)
+            # poll till server finished uploading files (state is ACTIVE)
+            await _poll_until_active(async_client=client.aio, uploaded=uploaded, video_paths=large_video_paths)
+            contents = _replace_upload_placeholders(contents, uploaded)
+        response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
+        return response.model_dump()
+    finally:
+        if uploaded:
+            await asyncio.gather(*[client.aio.files.delete(name=f.name) for f in uploaded], return_exceptions=True)
 
 
 def __convert_pxt_tool(pxt_tool: dict) -> dict:
@@ -412,6 +437,87 @@ def _embedding_config(config: dict | None) -> 'genai.types.EmbedContentConfig':
     from google.genai import types
 
     return types.EmbedContentConfig(**config) if config else types.EmbedContentConfig()
+
+
+def _is_processing(metas: list[Any]) -> bool:
+    return any(m.state != 'ACTIVE' for m in metas)
+
+
+def _handle_polling_timeout(retry_state: RetryCallState) -> None:
+    """Triggered when timeout is reached."""
+    metas = retry_state.outcome.result()
+
+    # Extract video_paths from the keyword arguments
+    video_paths = retry_state.kwargs.get('video_paths', [])
+    stuck_details = []
+    for i, m in enumerate(metas):
+        if m.state.name != 'ACTIVE':
+            # Fallback to index i if for some reason video_paths is missing/short
+            path = video_paths[i]
+            stuck_details.append(f'{path} (ID: {m.name}, State: {m.state.name})')
+
+    detail_str = '\n- '.join(stuck_details)
+    raise excs.Error(f'Timeout: {len(stuck_details)}/{len(metas)} failed to upload large videos :\n- {detail_str}')
+
+
+@retry(
+    retry=retry_if_result(_is_processing),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    stop=stop_after_delay(600),
+    retry_error_callback=_handle_polling_timeout,
+)
+async def _poll_until_active(async_client: Any, uploaded: list[Any], video_paths: list[str]) -> list[Any]:
+    # Collect statuses for all uploaded files
+    metas = await asyncio.gather(*[async_client.files.get(name=f.name) for f in uploaded])
+    for i, m in enumerate(metas):
+        if m.state == 'FAILED':
+            # Fail immediately
+            raise excs.Error(f'Server processing failed for {video_paths[i]} ({m.name})')
+    return metas
+
+
+def _process_media_contents(
+    data: Any, client: 'genai.client.AsyncClient', upload_tasks: list[Any], large_video_paths: list[str]
+) -> Any:
+    """
+    Traverse contents. Inline small video files; for large ones, start an async upload and leave a placeholder.
+    """
+    if isinstance(data, dict):
+        return {k: _process_media_contents(v, client, upload_tasks, large_video_paths) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_process_media_contents(v, client, upload_tasks, large_video_paths) for v in data]
+    if isinstance(data, str):
+        local_path = Path(data).expanduser()
+        if not local_path.exists():
+            return data
+        mime_type, _ = mimetypes.guess_type(str(local_path), strict=False)
+        if mime_type is None or not mime_type.lower().startswith('video/'):
+            return data
+        mime_type = mime_type or 'video/mp4'
+        size_bytes = local_path.stat().st_size
+        if size_bytes <= GEMINI_INLINE_VIDEO_LIMIT_BYTES:
+            data_b64 = base64.b64encode(local_path.read_bytes()).decode('utf-8')
+            return {'inline_data': {'mime_type': mime_type, 'data': data_b64}}
+        # Large file: start upload, add a placeholder
+        task = client.files.upload(file=str(local_path), config={'mime_type': mime_type})
+        upload_tasks.append(task)
+        large_video_paths.append(str(local_path))
+        return {_UPLOAD_PLACEHOLDER_KEY: {'task_id': len(upload_tasks) - 1, 'mime_type': mime_type}}
+    return data
+
+
+def _replace_upload_placeholders(obj: Any, uploaded: list[Any]) -> Any:
+    """Replace placeholders with file_data from gathered uploads."""
+    if isinstance(obj, dict) and _UPLOAD_PLACEHOLDER_KEY in obj:
+        idx = obj[_UPLOAD_PLACEHOLDER_KEY]['task_id']
+        mime_type = obj[_UPLOAD_PLACEHOLDER_KEY]['mime_type']
+        f = uploaded[idx]
+        return {'file_data': {'file_uri': f.uri, 'mime_type': mime_type}}
+    if isinstance(obj, dict):
+        return {k: _replace_upload_placeholders(v, uploaded) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_replace_upload_placeholders(v, uploaded) for v in obj]
+    return obj
 
 
 __all__ = local_public_names(__name__)
