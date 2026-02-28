@@ -373,7 +373,10 @@ class Planner:
         cls.__check_valid_columns(tbl, stored_cols, 'inserted into')
 
         row_builder = exprs.RowBuilder([], stored_cols, [], tbl)
+
+        # create InMemoryDataNode for 'rows'
         plan: exec.ExecNode = exec.InMemoryDataNode(tbl.handle, rows, row_builder, tbl.next_row_id)
+
         plan = cls._add_prefetch_node(tbl.id, row_builder.input_exprs, input_node=plan)
 
         computed_exprs = row_builder.output_exprs - row_builder.input_exprs
@@ -387,7 +390,6 @@ class Planner:
 
         plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
-
         return plan
 
     @classmethod
@@ -418,6 +420,7 @@ class Planner:
             plan = exec.SetDefaultValueNode(plan)
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
+
         plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
 
         return plan

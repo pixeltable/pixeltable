@@ -22,7 +22,6 @@ from pixeltable.exprs.inline_expr import InlineDict
 from pixeltable.func.iterator import GeneratingFunctionCall
 from pixeltable.metadata import schema
 from pixeltable.utils.object_stores import ObjectOps
-from pixeltable.utils.sql import log_explain
 
 from ..func.globals import resolve_symbol
 from .column import Column
@@ -1018,7 +1017,6 @@ class TableVersion:
             default_val = col.col_type.to_stored_value(col.default_value_expr.val)
             update_stmt = update_stmt.values({col.sa_col: default_val})
 
-        log_explain(_logger, update_stmt, conn)
         conn.execute(update_stmt)
 
     def drop_column(self, col: Column) -> None:
