@@ -1,4 +1,4 @@
-# AGENTS.md
+# CLAUDE.md
 
 Instructions for AI coding agents working with the Pixeltable codebase.
 
