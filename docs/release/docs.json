@@ -44,6 +44,14 @@
             "pages": [
               "platform/configuration",
               {
+                "group": "Migrating from...",
+                "pages": [
+                  "migrate/from-diy-data-pipeline",
+                  "migrate/from-rdbms-vectordbs",
+                  "migrate/from-agent-frameworks"
+                ]
+              },
+              {
                 "group": "Integrations",
                 "pages": [
                   "howto/providers/working-with-anthropic",
@@ -280,16 +288,6 @@
               "use-cases/ml-data-wrangling",
               "use-cases/ai-applications",
               "use-cases/agents-mcp"
-            ]
-          },
-          {
-            "group": "Migrating to Pixeltable",
-            "pages": [
-              "migrate/overview",
-              "migrate/from-diy-pipeline",
-              "migrate/from-langchain-pinecone",
-              "migrate/from-lancedb",
-              "migrate/from-langgraph"
             ]
           },
           {

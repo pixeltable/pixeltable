@@ -1,38 +1,41 @@
 ---
-title: 'Coming from LangGraph / CrewAI'
-description: 'How AI agent concepts map from LangGraph and CrewAI to Pixeltable'
+title: 'Agent Frameworks'
+sidebarTitle: 'Agent Frameworks'
+description: 'How AI agent concepts map from LangGraph, CrewAI, and similar frameworks to Pixeltable'
 ---
 
-If you've been building AI agents with LangGraph, CrewAI, or a similar agent framework, this guide shows how those concepts translate to Pixeltable's declarative approach where your agent *is* a table.
+If you've been building AI agents with LangGraph, CrewAI, or a similar agent framework — defining state graphs, tool nodes, conditional edges, and bolting on separate memory stores — this guide shows how Pixeltable replaces the graph DSL with declarative tables where your agent *is* a table.
+
+<Note>**Related use case:** [Agents & MCP](/use-cases/agents-mcp)</Note>
 
 ---
 
 ## Concept Mapping
 
-| LangGraph / CrewAI | Pixeltable | Notes |
+| Agent Framework | Pixeltable | Notes |
 |---|---|---|
-| `StateGraph` / `AgentExecutor` | `pxt.create_table()` with computed columns | Each computed column is a step in the pipeline |
-| Graph nodes (functions) | Computed columns | Dependencies resolved automatically from column references |
+| `StateGraph` / `AgentExecutor` | [`pxt.create_table()`](/tutorials/tables-and-data-operations) with [computed columns](/tutorials/computed-columns) | Each computed column is a step in the pipeline |
+| Graph nodes (functions) | [Computed columns](/tutorials/computed-columns) | Dependencies resolved automatically from column references |
 | Graph edges / conditional routing | Column dependencies | Pixeltable infers the DAG; no explicit wiring needed |
-| `ToolNode` / `@tool` | `pxt.tools()` + `invoke_tools()` | Register UDFs and queries as callable tools |
+| `ToolNode` / `@tool` | [`pxt.tools()` + `invoke_tools()`](/howto/cookbooks/agents/llm-tool-calling) | Register UDFs and queries as callable tools |
 | `bind_tools()` on LLM | Pass `tools=` to `chat_completions()` | Same concept, different syntax |
-| `should_continue()` routing | Computed column logic | Use `@pxt.udf` for conditional branching |
+| `should_continue()` routing | Computed column logic | Use [`@pxt.udf`](/platform/udfs-in-pixeltable) for conditional branching |
 | `MemorySaver` / checkpointer | Tables are persistent by default | Every row, every column, automatically stored |
-| Separate vector DB for RAG context | `add_embedding_index()` + `@pxt.query` | Built-in semantic search, no external service |
+| Separate vector DB for RAG context | [`add_embedding_index()`](/platform/embedding-indexes) + [`@pxt.query`](/platform/udfs-in-pixeltable) | Built-in semantic search, no external service |
 | `asyncio.gather` for parallelism | Independent computed columns | Pixeltable parallelizes automatically |
-| LangSmith for observability | `t.select()` on any column | Every intermediate result is queryable |
+| LangSmith for observability | `t.select()` on any column | Every intermediate result is [queryable](/tutorials/queries-and-expressions) |
 | State resets between runs (CrewAI) | Persistent — data survives restarts | Tables are durable storage |
 
 ---
 
-## Side by Side: Build a Tool-Calling Agent
+## Side by Side: Tool-Calling Agent
 
 ### The LangGraph Approach
 
 A tool-calling agent with memory requires defining a state graph, tool nodes, conditional edges, and a separate memory backend:
 
 ```python
-# Requirements: langgraph, langchain-openai, langchain-core, tavily-python
+# Requirements: langgraph, langchain-openai, langchain-core
 
 from typing import Annotated, Sequence, TypedDict
 from langchain_core.messages import BaseMessage, HumanMessage
@@ -54,7 +57,6 @@ def get_weather(city: str) -> str:
 @tool
 def search_docs(query: str) -> str:
     """Search internal documents."""
-    # Would need a separate vector DB setup here...
     return f'Results for: {query}'
 
 tools = [get_weather, search_docs]
@@ -96,8 +98,6 @@ print(result['messages'][-1].content)
 ### The Same Thing in Pixeltable
 
 ```python
-# Requirements: pixeltable, openai
-
 import pixeltable as pxt
 from pixeltable.functions.openai import chat_completions, invoke_tools
 
@@ -118,29 +118,28 @@ tools = pxt.tools(get_weather, search_docs)
 agent = pxt.create_table('agents.assistant', {'message': pxt.String})
 
 # 3. Add computed columns — each is a step in the pipeline
-# Step 1: LLM decides which tool to call
 agent.add_computed_column(response=chat_completions(
     messages=[{'role': 'user', 'content': agent.message}],
     model='gpt-4o-mini',
     tools=tools,
     tool_choice=tools.choice(required=True),
 ))
-
-# Step 2: Execute the selected tool
 agent.add_computed_column(tool_output=invoke_tools(tools, agent.response))
 
-# Step 3: Generate final answer with tool results
 @pxt.udf
-def build_followup(message: str, tool_output: str) -> list[dict]:
+def build_followup(message: str, tool_output: dict) -> list[dict]:
+    results = [
+        str(r) for vals in (tool_output or {}).values()
+        if vals for r in vals
+    ]
     return [
         {'role': 'user', 'content': message},
-        {'role': 'assistant', 'content': tool_output},
+        {'role': 'assistant', 'content': '\n'.join(results)},
         {'role': 'user', 'content': 'Now answer my original question using that information.'},
     ]
 
 agent.add_computed_column(followup=build_followup(agent.message, agent.tool_output))
-agent.add_computed_column(final=chat_completions(
-    messages=agent.followup, model='gpt-4o-mini'))
+agent.add_computed_column(final=chat_completions(messages=agent.followup, model='gpt-4o-mini'))
 agent.add_computed_column(answer=agent.final.choices[0].message.content)
 
 # 4. Run — insert a row and the full pipeline executes
@@ -149,7 +148,7 @@ agent.select(agent.message, agent.answer).collect()
 
 # ✅ Every result is persistent — survives restarts
 # ✅ Tool results are cached — same input never re-runs
-# ✅ Every intermediate step is queryable: agent.select(agent.tool_output)
+# ✅ Every intermediate step is queryable
 # ✅ No graph DSL to learn
 ```
 
@@ -159,15 +158,13 @@ agent.select(agent.message, agent.answer).collect()
 
 ## What You Gain
 
-- **No graph DSL.** Instead of defining nodes, edges, and conditional routing, you add computed columns. Pixeltable infers the dependency graph.
-- **Persistent by default.** Every conversation turn, tool call, and intermediate result is stored in a table. No checkpointer configuration, no state that disappears between runs.
-- **Built-in caching.** If the same tool is called with the same arguments, the cached result is returned. No manual memoization.
-- **Observability for free.** Every column is queryable. Want to see what tool was selected? `agent.select(agent.response).collect()`. No separate tracing service needed.
-- **RAG without extra infrastructure.** Add an `add_embedding_index()` and a `@pxt.query` retrieval function — no separate vector database.
-- **Automatic parallelism.** Independent computed columns run in parallel without `asyncio.gather`.
-- **MCP integration built-in.** Load tools from any MCP server with `pxt.mcp_udfs()` and combine them with local UDFs and query functions in a single `pxt.tools()` registry. No separate MCP adapter needed.
-- **Test before you commit.** Preview any step on a sample before materializing it: `agent.select(agent.message, test=my_tool(agent.message)).head(3)`. Nothing is stored until you call `add_computed_column()`.
-- **Swap providers freely.** The same agent pipeline works with OpenAI, Anthropic, Gemini, and [20+ other providers](/integrations/frameworks). Change `openai.chat_completions` to `anthropic.messages` — the tool calling and memory patterns stay the same.
+- **No graph DSL.** Add [computed columns](/tutorials/computed-columns) instead of defining nodes, edges, and routing. Pixeltable infers the dependency graph.
+- **Persistent by default.** Every conversation turn, tool call, and intermediate result is stored. No checkpointer, no state that disappears.
+- **Built-in caching.** Same tool call with same arguments returns the cached result.
+- **Observability for free.** Every column is [queryable](/tutorials/queries-and-expressions). `agent.select(agent.tool_output).collect()` — no LangSmith needed.
+- **RAG without extra infrastructure.** Add [`add_embedding_index()`](/platform/embedding-indexes) and a [`@pxt.query`](/platform/udfs-in-pixeltable) retrieval function — no separate vector database.
+- **MCP integration built-in.** Load tools from any MCP server with [`pxt.mcp_udfs()`](/howto/cookbooks/agents/llm-tool-calling) and combine them with local UDFs in a single `pxt.tools()` registry.
+- **Swap providers freely.** Same agent works with OpenAI, Anthropic, Gemini, and [20+ other providers](/integrations/frameworks).
 
 ---
 
@@ -178,39 +175,36 @@ agent.select(agent.message, agent.answer).collect()
 <Tabs>
   <Tab title="LangGraph">
     ```python
-    # Requires a separate memory backend
     from langgraph.checkpoint.memory import MemorySaver
 
     checkpointer = MemorySaver()
     graph = workflow.compile(checkpointer=checkpointer)
-    # State persists during the process, but is lost on restart
+    # In-process only — lost on restart
     # For durable memory, need Redis/Postgres integration
     ```
   </Tab>
   <Tab title="Pixeltable">
     ```python
-    # Tables are durable storage — memory is just another table
+    from pixeltable.functions.openai import embeddings
+
     memories = pxt.create_table('agents.memories', {
-        'content': pxt.String,
-        'timestamp': pxt.Timestamp,
-    })
+        'content': pxt.String, 'timestamp': pxt.Timestamp})
     memories.add_embedding_index('content',
         string_embed=embeddings.using(model='text-embedding-3-small'))
 
     @pxt.query
-    def recall(query: str, top_k: int = 5):
+    def recall(query: str, top_k: int = 5) -> pxt.Query:
         sim = memories.content.similarity(string=query)
         return memories.order_by(sim, asc=False).limit(top_k).select(memories.content)
     ```
   </Tab>
 </Tabs>
 
-### Adding RAG context retrieval
+### Adding RAG to an agent
 
 <Tabs>
   <Tab title="LangGraph">
     ```python
-    # Requires separate vector DB setup
     from langchain_pinecone import PineconeVectorStore
 
     vector_store = PineconeVectorStore(index_name='docs', embedding=embeddings)
@@ -221,20 +215,17 @@ agent.select(agent.message, agent.answer).collect()
         """Search the knowledge base."""
         docs = retriever.get_relevant_documents(query)
         return '\n'.join(d.page_content for d in docs)
-
-    # Must add this tool to the graph, re-compile...
+    # Must add tool to graph, re-compile...
     ```
   </Tab>
   <Tab title="Pixeltable">
     ```python
-    # RAG is a query function — same system, no extra infrastructure
     @pxt.query
-    def search_knowledge_base(query: str):
+    def search_knowledge_base(query: str) -> pxt.Query:
         """Search the knowledge base."""
         sim = chunks.text.similarity(string=query)
         return chunks.order_by(sim, asc=False).limit(5).select(chunks.text)
 
-    # Register alongside other tools
     tools = pxt.tools(get_weather, search_knowledge_base)
     ```
   </Tab>
@@ -245,14 +236,13 @@ agent.select(agent.message, agent.answer).collect()
 <Tabs>
   <Tab title="LangGraph">
     ```python
-    # Requires LangSmith integration
+    # Requires LangSmith (separate service)
     # Set LANGSMITH_API_KEY, LANGSMITH_PROJECT, etc.
     # Then view traces in the LangSmith dashboard
     ```
   </Tab>
   <Tab title="Pixeltable">
     ```python
-    # Every column is a first-class queryable field
     agent.select(
         agent.message,
         agent.response,      # raw LLM response with tool selection
@@ -268,22 +258,16 @@ agent.select(agent.message, agent.answer).collect()
 ## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="Agentic Patterns" icon="diagram-project" href="/howto/cookbooks/agents/agentic-patterns">
-    All 8 agentic patterns implemented as Pixeltable tables
+  <Card title="Agents & MCP" icon="robot" href="/use-cases/agents-mcp">
+    Full use case walkthrough
   </Card>
-  <Card title="Agent Memory" icon="brain" href="/howto/cookbooks/agents/pattern-agent-memory">
-    Persistent memory with semantic search
+  <Card title="Agentic Patterns" icon="diagram-project" href="/howto/cookbooks/agents/agentic-patterns">
+    All 8 agentic patterns as Pixeltable tables
   </Card>
   <Card title="Tool Calling" icon="wrench" href="/howto/cookbooks/agents/llm-tool-calling">
     Register UDFs and queries as LLM tools
   </Card>
-  <Card title="RAG Pipeline" icon="database" href="/howto/cookbooks/agents/pattern-rag-pipeline">
-    Retrieval-augmented generation
-  </Card>
   <Card title="Pixelagent" icon="microchip" href="https://github.com/pixeltable/pixelagent">
-    Lightweight agent framework with built-in memory and tool orchestration
-  </Card>
-  <Card title="Pixelbot" icon="robot" href="https://github.com/pixeltable/pixelbot">
-    Full multimodal AI agent with infinite memory — built on Pixeltable
+    Lightweight agent framework built on Pixeltable
   </Card>
 </CardGroup>

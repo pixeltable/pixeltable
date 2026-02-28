@@ -1,0 +1,321 @@
+---
+title: 'DIY Data Pipeline'
+sidebarTitle: 'DIY Data Pipeline'
+description: 'Replace custom scripts, DVC, Airflow, and manual processing with declarative tables'
+---
+
+If you've been wrangling multimodal data with custom Python scripts, DVC for versioning, Airflow for scheduling, S3 for storage, and manual processing loops with OpenCV, PIL, or ffmpeg — this guide shows how Pixeltable replaces that data plumbing.
+
+<Note>**Related use case:** [Data Wrangling for ML](/use-cases/ml-data-wrangling)</Note>
+
+---
+
+## Concept Mapping
+
+| Your DIY Stack | Pixeltable | Notes |
+|---|---|---|
+| S3 buckets for media files | [`pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`](/platform/type-system) columns | Native media types. Can still [read from and write to S3](/integrations/cloud-storage). |
+| DVC for data versioning | Built-in [`history()`, `revert()`, `create_snapshot()`](/platform/version-control) | Every change is tracked automatically — no `dvc add` ceremony |
+| Airflow / Prefect DAGs for processing | [Computed columns](/tutorials/computed-columns) — execute automatically on new data | The column dependency graph *is* the DAG |
+| Lambda functions or cron scripts | [Computed columns](/tutorials/computed-columns) (`add_computed_column()`) | No scheduling, no triggers to wire up |
+| Custom scripts with OpenCV / PIL / ffmpeg | Computed columns with [`@pxt.udf`](/platform/udfs-in-pixeltable) functions | Define the transform once, it runs on every row |
+| `cv2.VideoCapture()` + frame extraction loops | [`FrameIterator`](/platform/iterators) via `create_view()` | Specify FPS, frames are extracted automatically |
+| Manual retry logic (`tenacity`, `try/except`) | Automatic retries on transient failures | Successful results are cached and never recomputed |
+| Embeddings stored as numpy / Parquet / CSV | [`add_embedding_index()`](/platform/embedding-indexes) | Built-in HNSW-indexed vector search |
+| W&B / MLflow for artifact tracking | Tables store every intermediate result | Every computed column value is persisted and queryable |
+| `torch.utils.data.Dataset` boilerplate | [`to_pytorch_dataset()`](/howto/cookbooks/data/data-export-pytorch) built-in | One-line export to PyTorch DataLoaders |
+| `pd.DataFrame` with file-path columns | Typed table with native [media columns](/platform/type-system) | Media files are first-class types, not strings |
+| Re-run pipeline when data changes | Incremental — only new rows are processed | Existing rows are untouched |
+
+---
+
+## Side by Side: Multimodal Data Pipeline
+
+### The DIY Approach
+
+Processing an image dataset: load files, generate thumbnails, caption with an LLM, embed for search, version with DVC. In practice — custom scripts, manual batching, and keeping everything in sync:
+
+```python
+import pandas as pd
+import numpy as np
+from PIL import Image
+from openai import OpenAI
+from pathlib import Path
+import base64, time
+
+client = OpenAI()
+
+# 1. Load metadata
+image_dir = Path('dataset/images/')
+df = pd.DataFrame([
+    {'filename': f.name, 'path': str(f), 'category': 'unknown'}
+    for f in image_dir.glob('*.jpg')
+])
+
+# 2. Generate thumbnails (manual loop)
+thumb_dir = Path('dataset/thumbnails/')
+thumb_dir.mkdir(exist_ok=True)
+for idx, row in df.iterrows():
+    img = Image.open(row['path'])
+    img.thumbnail((256, 256))
+    img.save(thumb_dir / row['filename'])
+    df.at[idx, 'thumbnail'] = str(thumb_dir / row['filename'])
+
+# 3. Caption images (manual retry, one at a time)
+def caption_image(path, max_retries=3):
+    with open(path, 'rb') as f:
+        b64 = base64.b64encode(f.read()).decode()
+    for attempt in range(max_retries):
+        try:
+            resp = client.chat.completions.create(
+                model='gpt-4o-mini',
+                messages=[{'role': 'user', 'content': [
+                    {'type': 'text', 'text': 'Describe this image in one sentence.'},
+                    {'type': 'image_url', 'image_url': {'url': f'data:image/jpeg;base64,{b64}'}}
+                ]}],
+            )
+            return resp.choices[0].message.content
+        except Exception:
+            if attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+            else:
+                return None
+
+df['caption'] = [caption_image(row['path']) for _, row in df.iterrows()]
+
+# 4. Generate embeddings (batch manually, store as numpy)
+def embed_batch(texts, batch_size=100):
+    all_embs = []
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        resp = client.embeddings.create(input=batch, model='text-embedding-3-small')
+        all_embs.extend([e.embedding for e in resp.data])
+    return np.array(all_embs)
+
+valid = df.dropna(subset=['caption'])
+np.save('dataset/embeddings.npy', embed_batch(valid['caption'].tolist()))
+
+# 5. Persist and version
+df.to_csv('dataset/metadata.csv', index=False)
+# Then: dvc add dataset/ && dvc push && git add && git commit
+
+# ⚠️ Added new images? Re-run the entire pipeline.
+# ⚠️ Changed the model? Re-run everything. DVC tracks snapshots, not transforms.
+# ⚠️ Scheduling this requires Airflow, cron, or manual re-runs.
+```
+
+**Things you're managing:** File I/O, processing loops, retry logic, batching, numpy serialization, DVC versioning, Airflow scheduling, sync between metadata and artifacts.
+
+### The Same Thing in Pixeltable
+
+```python
+import pixeltable as pxt
+from pixeltable.functions.openai import chat_completions, embeddings
+from pathlib import Path
+
+# 1. Create table with native Image type
+images = pxt.create_table('ml.images', {'image': pxt.Image, 'category': pxt.String})
+
+# 2. Add computed columns — each runs automatically on every row
+images.add_computed_column(thumbnail=images.image.resize((256, 256)))
+
+messages = [{'role': 'user', 'content': [
+    {'type': 'text', 'text': 'Describe this image in one sentence.'},
+    {'type': 'image_url', 'image_url': images.image},
+]}]
+images.add_computed_column(response=chat_completions(
+    messages=messages, model='gpt-4o-mini'))
+images.add_computed_column(caption=images.response.choices[0].message.content)
+
+# 3. Add embedding index for search
+images.add_embedding_index('caption',
+    string_embed=embeddings.using(model='text-embedding-3-small'))
+
+# 4. Insert — thumbnails, captions, and embeddings are generated automatically
+images.insert([{'image': str(f), 'category': 'unknown'}
+    for f in Path('dataset/images/').glob('*.jpg')])
+
+# 5. Search
+sim = images.caption.similarity(string='a dog playing in the park')
+images.order_by(sim, asc=False).limit(5).select(images.image, images.caption).collect()
+
+# ✅ New images? Just images.insert([...]) — everything runs automatically.
+# ✅ Changed the model? Drop and re-add the column — only that column recomputes.
+# ✅ Every result is versioned: images.history()
+# ✅ No scheduler — computed columns ARE the pipeline.
+```
+
+---
+
+## What You Gain
+
+- **No scheduler.** [Computed columns](/tutorials/computed-columns) replace Airflow DAGs. Insert new data and every downstream step runs automatically and incrementally.
+- **No DVC.** Every change is tracked automatically. Roll back with `revert()`, inspect with `history()`, or create read-only snapshots. See [Version Control](/platform/version-control).
+- **No processing loops.** Define a [computed column](/tutorials/computed-columns) once — it runs on all existing rows and every future insert, with automatic retries and caching.
+- **No embedding plumbing.** No numpy arrays, no serialization, no brute-force search. [`add_embedding_index()`](/platform/embedding-indexes) handles HNSW-indexed search.
+- **Native media types.** `Image`, `Video`, `Audio`, `Document` are [column types](/platform/type-system) with built-in operations (resize, format conversion, display).
+- **Still works with S3.** Read from and write to S3, GCS, Azure, R2, Tigris. See the [Cloud Storage guide](/integrations/cloud-storage).
+- **Export to training formats.** [`to_pytorch_dataset()`](/howto/cookbooks/data/data-export-pytorch), `pxt.io.export_parquet()`, and `to_coco_dataset()` built-in.
+- **Annotation integrations.** Export to [Label Studio](/howto/using-label-studio-with-pixeltable) or [FiftyOne](/howto/working-with-fiftyone), then sync back.
+- **Works with your deployment stack.** Runs inside Docker, deploys on K8s, exposes tables via [FastAPI](/howto/deployment/overview).
+
+---
+
+## Common Patterns
+
+### Replacing ffmpeg / OpenCV video processing
+
+<Tabs>
+  <Tab title="Custom Script">
+    ```python
+    import cv2
+
+    all_frames = []
+    for _, row in df.iterrows():
+        cap = cv2.VideoCapture(row['path'])
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        interval = int(fps)
+        idx = 0
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret:
+                break
+            if idx % interval == 0:
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                all_frames.append({'video': row['path'], 'frame_idx': idx,
+                    'image': Image.fromarray(rgb)})
+            idx += 1
+        cap.release()
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    from pixeltable.functions.video import frame_iterator
+
+    videos = pxt.create_table('ml.videos', {'video': pxt.Video})
+    frames = pxt.create_view('ml.frames', videos,
+        iterator=frame_iterator(videos.video, fps=1))
+
+    videos.insert([{'video': 'demo.mp4'}])
+    frames.select(frames.frame).head(10)
+    ```
+  </Tab>
+</Tabs>
+
+### Replacing DVC for data versioning
+
+<Tabs>
+  <Tab title="DVC">
+    ```bash
+    dvc add dataset/
+    git add dataset.dvc .gitignore
+    git commit -m "update dataset v3"
+    dvc push
+
+    # Revert
+    git checkout HEAD~1 -- dataset.dvc
+    dvc checkout
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    # See all changes
+    images.history()
+
+    # Create a read-only snapshot of the current state
+    pxt.create_snapshot('ml.images_before_relabeling', images)
+
+    # Undo the last change
+    images.revert()
+    ```
+  </Tab>
+</Tabs>
+
+### Replacing Lambda + S3 triggers
+
+<Tabs>
+  <Tab title="Lambda + S3">
+    ```python
+    def handler(event, context):
+        bucket = event['Records'][0]['s3']['bucket']['name']
+        key = event['Records'][0]['s3']['object']['key']
+        s3.download_file(bucket, key, '/tmp/input.jpg')
+        img = Image.open('/tmp/input.jpg')
+        img.resize((256, 256)).save('/tmp/thumb.jpg')
+        s3.upload_file('/tmp/thumb.jpg', bucket, f'thumbnails/{key}')
+        # Run OpenAI vision, store metadata in DynamoDB...
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions.openai import chat_completions
+
+    images = pxt.create_table('app.images', {'image': pxt.Image})
+    images.add_computed_column(thumbnail=images.image.resize((256, 256)))
+
+    messages = [{'role': 'user', 'content': [
+        {'type': 'text', 'text': 'Describe this image.'},
+        {'type': 'image_url', 'image_url': images.image},
+    ]}]
+    images.add_computed_column(response=chat_completions(
+        messages=messages, model='gpt-4o-mini'))
+    images.add_computed_column(caption=images.response.choices[0].message.content)
+
+    images.insert([{'image': 's3://my-bucket/photos/img001.jpg'}])
+    ```
+  </Tab>
+</Tabs>
+
+### Exporting to PyTorch
+
+<Tabs>
+  <Tab title="Custom Dataset">
+    ```python
+    from torch.utils.data import Dataset, DataLoader
+    from torchvision import transforms
+
+    class ImageDataset(Dataset):
+        def __init__(self, df, transform=None):
+            self.df = df.reset_index(drop=True)
+            self.transform = transform
+        def __len__(self):
+            return len(self.df)
+        def __getitem__(self, idx):
+            img = Image.open(self.df.at[idx, 'path'])
+            if self.transform:
+                img = self.transform(img)
+            return img, self.df.at[idx, 'category']
+
+    loader = DataLoader(ImageDataset(df, transforms.Compose([
+        transforms.Resize((224, 224)), transforms.ToTensor()])), batch_size=32)
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    from torch.utils.data import DataLoader
+
+    ds = images.select(images.image, images.category).to_pytorch_dataset()
+    loader = DataLoader(ds, batch_size=32)
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Data Wrangling for ML" icon="database" href="/use-cases/ml-data-wrangling">
+    Full use case walkthrough
+  </Card>
+  <Card title="Extract Video Frames" icon="film" href="/howto/cookbooks/video/video-extract-frames">
+    Frame extraction with FPS control
+  </Card>
+  <Card title="Export to PyTorch" icon="fire" href="/howto/cookbooks/data/data-export-pytorch">
+    Convert tables to DataLoaders
+  </Card>
+  <Card title="Cloud Storage" icon="cloud" href="/integrations/cloud-storage">
+    S3, GCS, Azure, R2, Tigris
+  </Card>
+</CardGroup>

@@ -1,0 +1,230 @@
+---
+title: 'RDBMS & Vector DBs'
+sidebarTitle: 'RDBMS & Vector DBs'
+description: 'Replace Postgres + Pinecone + LangChain RAG stacks with a single declarative system'
+---
+
+If you're running an AI application with Postgres (or MySQL) for metadata, a vector database like Pinecone, Weaviate, or Chroma for embeddings, and LangChain or LlamaIndex for orchestration — this guide shows how Pixeltable unifies all three into one system.
+
+<Note>**Related use case:** [Backend for AI Apps](/use-cases/ai-applications)</Note>
+
+---
+
+## Concept Mapping
+
+| Your Database Stack | Pixeltable | Notes |
+|---|---|---|
+| Postgres / MySQL for metadata | [`pxt.create_table()`](/tutorials/tables-and-data-operations) with typed columns | Structured and unstructured data in the same table |
+| Pinecone / Weaviate / Chroma for embeddings | [`add_embedding_index()`](/platform/embedding-indexes) | Built-in HNSW vector search — no separate service |
+| S3 for media files (referenced by URL) | [`pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`](/platform/type-system) | Native media types, not just URL strings |
+| ORM (SQLAlchemy, Prisma) for queries | [`.select()`, `.where()`, `.order_by()`, `.collect()`](/tutorials/queries-and-expressions) | Python-native query syntax |
+| LangChain `DocumentLoader` | `insert()`, [`import_csv()`](/howto/cookbooks/data/data-import-csv), [`import_parquet()`](/howto/cookbooks/data/data-import-parquet) | Load from files, URLs, [S3](/integrations/cloud-storage), or [HuggingFace](/howto/cookbooks/data/data-import-huggingface) |
+| `RecursiveCharacterTextSplitter` | [`document_splitter`](/platform/iterators) iterator (via [`create_view`](/platform/views)) | Splits by sentence, heading, page, or token limit |
+| `OpenAIEmbeddings()` | `embeddings.using(model='text-embedding-3-small')` | Passed to [`add_embedding_index()`](/platform/embedding-indexes) |
+| `retriever.get_relevant_documents()` | [`.similarity()`](/platform/embedding-indexes) + `.order_by()` | Returns ranked results as a DataFrame |
+| `create_retrieval_chain()` | [Computed column](/tutorials/computed-columns) with LLM call | Chains retrieval and generation declaratively |
+| `PromptTemplate` | [`@pxt.udf`](/platform/udfs-in-pixeltable) that builds the prompt string | Plain Python function |
+| Keeping Postgres and Pinecone in sync | Automatic — derived columns can't go stale | Pixeltable maintains the dependency graph |
+| Re-index when documents change | Incremental — only new rows are processed | Embeddings, chunks, and LLM calls are cached |
+
+---
+
+## Side by Side: RAG Pipeline
+
+### The Postgres + Pinecone + LangChain Approach
+
+A typical RAG backend: documents in Postgres, embeddings in Pinecone, orchestration with LangChain, and glue code to keep them in sync:
+
+```python
+# Requirements: langchain, langchain-openai, langchain-pinecone,
+#               langchain-community, pinecone-client, sqlalchemy, unstructured
+
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+from langchain_pinecone import PineconeVectorStore
+from langchain.chains import create_retrieval_chain
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.prompts import PromptTemplate
+
+# 1. Load documents
+loader = PyPDFLoader('report.pdf')
+documents = loader.load()
+
+# 2. Split into chunks
+splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+chunks = splitter.split_documents(documents)
+
+# 3. Create embeddings and store in Pinecone
+embeddings = OpenAIEmbeddings(model='text-embedding-3-small')
+vector_store = PineconeVectorStore.from_documents(
+    chunks, embeddings, index_name='my-index'
+)
+retriever = vector_store.as_retriever(search_kwargs={'k': 5})
+
+# 4. Build retrieval chain
+prompt = PromptTemplate.from_template(
+    'Answer based on context:\n{context}\n\nQuestion: {input}'
+)
+llm = ChatOpenAI(model='gpt-4o-mini', temperature=0)
+combine_chain = create_stuff_documents_chain(llm, prompt)
+rag_chain = create_retrieval_chain(retriever, combine_chain)
+
+# 5. Ask a question
+result = rag_chain.invoke({'input': 'What were the key findings?'})
+print(result['answer'])
+
+# ⚠️ Adding new documents means re-running steps 1-3
+# ⚠️ No versioning of chunks or embeddings
+# ⚠️ Pinecone requires separate account + API key
+# ⚠️ Postgres and Pinecone can get out of sync
+```
+
+**Packages involved:** `langchain`, `langchain-openai`, `langchain-pinecone`, `langchain-community`, `pinecone-client`, `sqlalchemy`, `unstructured`
+
+### The Same Thing in Pixeltable
+
+```python
+import pixeltable as pxt
+from pixeltable.functions.openai import chat_completions, embeddings
+from pixeltable.functions.document import document_splitter
+
+# 1. Create document table (with optional metadata columns)
+docs = pxt.create_table('rag.docs', {'pdf': pxt.Document, 'source': pxt.String})
+
+# 2. Split into chunks (view auto-processes new docs)
+chunks = pxt.create_view('rag.chunks', docs,
+    iterator=document_splitter(docs.pdf, separators='sentence,token_limit', limit=300))
+
+# 3. Add embedding index (auto-maintained)
+chunks.add_embedding_index('text',
+    string_embed=embeddings.using(model='text-embedding-3-small'))
+
+# 4. Create retrieval function
+@pxt.query
+def retrieve_context(question: str, top_k: int = 5) -> pxt.Query:
+    sim = chunks.text.similarity(string=question)
+    return chunks.where(sim > 0.3).order_by(sim, asc=False).limit(top_k).select(chunks.text)
+
+# 5. Build the RAG pipeline as computed columns
+qa = pxt.create_table('rag.qa', {'question': pxt.String})
+qa.add_computed_column(context=retrieve_context(qa.question))
+
+@pxt.udf
+def build_prompt(question: str, context: list[dict]) -> str:
+    ctx = '\n\n'.join(c['text'] for c in context)
+    return f'Answer based on context:\n{ctx}\n\nQuestion: {question}'
+
+qa.add_computed_column(prompt=build_prompt(qa.question, qa.context))
+qa.add_computed_column(response=chat_completions(
+    messages=[{'role': 'user', 'content': qa.prompt}], model='gpt-4o-mini'))
+qa.add_computed_column(answer=qa.response.choices[0].message.content)
+
+# 6. Load documents (source column for filtering)
+docs.insert([{'pdf': 'report.pdf', 'source': 'annual_report'}])
+
+# 7. Ask questions — retrieval and generation happen automatically
+qa.insert([{'question': 'What were the key findings?'}])
+qa.select(qa.question, qa.answer).collect()
+
+# ✅ Adding new docs: just docs.insert([...]) — everything auto-updates
+# ✅ Every intermediate result is stored and versioned
+# ✅ No external vector database to manage
+# ✅ Metadata and embeddings can't go out of sync
+```
+
+**Packages involved:** `pixeltable`, `openai`
+
+---
+
+## What You Gain
+
+- **One system instead of three.** No separate Postgres for metadata, Pinecone for embeddings, and S3 for media. Pixeltable handles storage, indexing, and [search](/platform/embedding-indexes) in one place.
+- **No sync bugs.** Chunks, embeddings, and LLM outputs are [computed columns](/tutorials/computed-columns) — they can't go stale because Pixeltable maintains the dependency graph.
+- **No infrastructure.** No vector database account, no API keys for Pinecone/Weaviate/Qdrant, no index provisioning. Everything runs locally.
+- **Incremental by default.** Insert new documents and everything downstream — [chunking](/howto/cookbooks/text/doc-chunk-for-rag), embedding, retrieval — runs automatically on just the new rows.
+- **Built-in persistence.** Every intermediate result (chunks, embeddings, LLM responses) is stored. Restart your server — everything is still there.
+- **Versioning.** `t.history()` to see all changes, `pxt.create_snapshot()` to bookmark state. See [Version Control](/platform/version-control).
+- **Observability for free.** Every column is queryable — context, prompt, response, answer. No separate dashboard needed.
+- **Swap providers in one line.** Same pipeline works with OpenAI, Anthropic, Gemini, and [20+ other providers](/integrations/frameworks).
+
+---
+
+## Common Patterns
+
+### Adding new documents
+
+<Tabs>
+  <Tab title="LangChain + Pinecone">
+    ```python
+    # Must re-run chunking and embedding
+    new_docs = loader.load()
+    new_chunks = splitter.split_documents(new_docs)
+    vector_store.add_documents(new_chunks)
+    # Also update Postgres metadata...
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    docs.insert([{'pdf': 'new_report.pdf', 'source': 'quarterly_report'}])
+    ```
+  </Tab>
+</Tabs>
+
+### Filtering by metadata
+
+<Tabs>
+  <Tab title="Pinecone">
+    ```python
+    retriever = vector_store.as_retriever(
+        search_kwargs={'k': 5, 'filter': {'source': 'annual_report'}}
+    )
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    sim = chunks.text.similarity(string=query)
+    results = (chunks
+        .where((chunks.source == 'annual_report') & (sim > 0.3))
+        .order_by(sim, asc=False)
+        .limit(5)
+        .collect())
+    ```
+  </Tab>
+</Tabs>
+
+### Inspecting what was retrieved
+
+<Tabs>
+  <Tab title="LangChain">
+    ```python
+    # Requires verbose mode or custom callbacks
+    result = rag_chain.invoke({'input': query})
+    print(result['context'])  # if available
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    qa.select(qa.question, qa.context, qa.answer).collect()
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Backend for AI Apps" icon="microchip" href="/use-cases/ai-applications">
+    Full use case walkthrough
+  </Card>
+  <Card title="RAG Pipeline" icon="database" href="/howto/cookbooks/agents/pattern-rag-pipeline">
+    Complete RAG system with chunking and retrieval
+  </Card>
+  <Card title="Chunk Documents" icon="scissors" href="/howto/cookbooks/text/doc-chunk-for-rag">
+    Control chunk size, overlap, and splitting strategies
+  </Card>
+  <Card title="Semantic Search" icon="magnifying-glass" href="/howto/cookbooks/search/search-semantic-text">
+    Search patterns and similarity queries
+  </Card>
+</CardGroup>
