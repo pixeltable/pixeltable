@@ -11,6 +11,7 @@ from pgvector.sqlalchemy import HalfVector  # type: ignore[import-untyped]
 
 from pixeltable import catalog, exprs
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.progress_reporter import ProgressReporter
 
 from .data_row_batch import DataRowBatch
@@ -348,7 +349,7 @@ class SqlNode(ExecNode):
         self.offset = offset
 
     def _log_explain(self, stmt: sql.Select) -> None:
-        conn = Env.get().conn
+        conn = get_runtime().conn
         try:
             # don't set dialect=Env.get().engine.dialect: x % y turns into x %% y, which results in a syntax error
             stmt_str = str(stmt.compile(compile_kwargs={'literal_binds': True}))
@@ -371,7 +372,7 @@ class SqlNode(ExecNode):
                 _logger.debug(f'SqlLookupNode proto-stmt:\n{stmt}')
             self._log_explain(stmt)
 
-            conn = Env.get().conn
+            conn = get_runtime().conn
             result_cursor = conn.execute(stmt)
             for _ in w:
                 pass

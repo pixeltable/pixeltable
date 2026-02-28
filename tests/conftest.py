@@ -16,12 +16,12 @@ from sqlalchemy import orm, text
 
 import pixeltable as pxt
 from pixeltable import exprs, functions as pxtf
-from pixeltable.catalog import Catalog
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.functions.huggingface import clip, sentence_transformer
 from pixeltable.metadata import SystemInfo, create_system_info
 from pixeltable.metadata.schema import Dir, Function, PendingTableOp, Table, TableSchemaVersion, TableVersion
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.filecache import FileCache
 from pixeltable.utils.local_store import LocalStore, TempStore
 from pixeltable.utils.sql import add_option_to_db_url
@@ -178,7 +178,7 @@ def uses_db(init_env: None, request: pytest.FixtureRequest) -> Iterator[None]:
         return
 
     Env.get().user = None
-    Catalog.get().validate_store()
+    get_runtime().catalog.validate_store()
 
 
 def _free_disk_space() -> None:

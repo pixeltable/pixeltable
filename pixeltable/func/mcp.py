@@ -1,4 +1,3 @@
-import asyncio
 import inspect
 from typing import TYPE_CHECKING, Any
 
@@ -12,7 +11,9 @@ if TYPE_CHECKING:
 
 
 def mcp_udfs(url: str) -> list['pxt.func.Function']:
-    return asyncio.run(mcp_udfs_async(url))
+    from pixeltable.runtime import get_runtime
+
+    return get_runtime().run_coro(mcp_udfs_async(url))
 
 
 async def mcp_udfs_async(url: str) -> list['pxt.func.Function']:

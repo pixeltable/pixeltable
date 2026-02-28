@@ -48,6 +48,7 @@ env:
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
   PIXELTABLE_R2_PROFILE: r2_profile
   PIXELTABLE_TIGRIS_PROFILE: tigris_profile
+  PIXELTABLE_VERBOSITY: 0  # Suppress console output; we'll get log messages anyway when we need them
   PXTTEST_COCKROACH_DB_CONNECT_STR: ${{ secrets.PXTTEST_COCKROACH_DB_CONNECT_STR }}
   PXTTEST_COCKROACH_DB_ROOT_CERT: ${{ secrets.PXTTEST_COCKROACH_DB_ROOT_CERT }}
   PXTTEST_IN_CI: 1

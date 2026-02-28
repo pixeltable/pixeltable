@@ -30,6 +30,8 @@ from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
     TESTS_DIR,
+    DummyIterator,
+    DummyIterator2,
     ReloadTester,
     assert_resultset_eq,
     assert_table_metadata_eq,
@@ -43,7 +45,8 @@ from .utils import (
     read_data_file,
     reload_catalog,
     skip_test_if_not_installed,
-    strip_lines,
+    stock_price,
+    validate_repr,
     validate_update_status,
 )
 
@@ -166,11 +169,10 @@ class TestTable:
         assert len(res_before) == 5
 
         # invalid if_exists value is rejected
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error, match=r"if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"
+        ):
             pxt.create_table('test', schema, if_exists='invalid')  # type: ignore[arg-type]
-        assert (
-            "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
-        )
 
         # scenario 1: a table already exists at the path
         with pytest.raises(pxt.Error, match='is an existing'):
@@ -213,10 +215,8 @@ class TestTable:
         assert len(tbl2.select().collect()) == 3
         # if_exists='replace' cannot drop a table with a dependent view.
         # it should raise an error and recommend using 'replace_force'
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='already exists'):
             pxt.create_table('test', schema, if_exists='replace')
-        err_msg = str(exc_info.value).lower()
-        assert 'already exists' in err_msg and 'has dependents' in err_msg and 'replace_force' in err_msg
         # if_exists='replace_force' should drop the existing table
         # and its dependent view.
         tbl = pxt.create_table('test', schema, if_exists='replace_force')
@@ -229,15 +229,12 @@ class TestTable:
 
         pxt.create_dir('dir1')
         # scenario 3: path exists but is not a table
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='is an existing directory'):
             _ = pxt.create_table('dir1', schema)
-        assert 'is an existing' in str(exc_info.value)
         assert len(tbl.select().collect()) == 1
         for ie in ('ignore', 'replace', 'replace_force'):
-            with pytest.raises(pxt.Error) as exc_info:
+            with pytest.raises(pxt.Error, match='already exists'):
                 pxt.create_table('dir1', schema, if_exists=ie)
-            err_msg = str(exc_info.value).lower()
-            assert 'already exists' in err_msg and 'is not a table' in err_msg
             assert len(tbl.select().collect()) == 1, f'with if_exists={ie}'
             assert 'dir1' in pxt.list_dirs(), f'with if_exists={ie}'
 
@@ -987,7 +984,7 @@ class TestTable:
             'Document',
             'Required[Document]',
         ]
-        df = t._col_descriptor()
+        df, _ = t._col_descriptor()
         assert list(df['Type']) == expected_strings + expected_strings
 
     def test_empty_table(self, uses_db: None) -> None:
@@ -2776,117 +2773,223 @@ class TestTable:
         actual_schema = {col: val['type_'] for col, val in metadata['columns'].items()}
         assert expected_schema == actual_schema
 
-    def test_repr(self, test_tbl: pxt.Table, all_mpnet_embed: pxt.Function) -> None:
-        skip_test_if_not_installed('sentence_transformers')
+    def test_repr(self, uses_db: None, test_tbl: pxt.Table, all_mpnet_embed: pxt.Function) -> None:
+        validate_repr(
+            test_tbl,
+            """
+            table 'test_tbl'
+
+             Column Name                            Type    Source           Computed With                      Comment
+            -----------------------------------------------------------------------------------------------------------
+                      c1                Required[String]  test_tbl                          String column with no nulls
+                     c1n                          String  test_tbl
+                      c2                   Required[Int]  test_tbl
+                      c3                 Required[Float]  test_tbl
+                      c4                  Required[Bool]  test_tbl
+                      c5             Required[Timestamp]  test_tbl
+                      c6                  Required[Json]  test_tbl
+                      c7                  Required[Json]  test_tbl
+                      c8  Required[Array[(2, 3), int64]]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
+        )
 
         v = pxt.create_view('test_view', test_tbl)
-        v2 = pxt.create_view('test_subview', v.where(v.c1 != None), comment='This is an intriguing table comment.')
+        validate_repr(
+            v,
+            """
+            view 'test_view' (of 'test_tbl')
 
+             Column Name                            Type    Source           Computed With                      Comment
+            -----------------------------------------------------------------------------------------------------------
+                      c1                Required[String]  test_tbl                          String column with no nulls
+                     c1n                          String  test_tbl
+                      c2                   Required[Int]  test_tbl
+                      c3                 Required[Float]  test_tbl
+                      c4                  Required[Bool]  test_tbl
+                      c5             Required[Timestamp]  test_tbl
+                      c6                  Required[Json]  test_tbl
+                      c7                  Required[Json]  test_tbl
+                      c8  Required[Array[(2, 3), int64]]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
+        )
+
+        # test case: view with additional columns
+        skip_test_if_not_installed('sentence_transformers')
+        v2 = pxt.create_view('test_subview', v.where(v.c1 != None), comment='This is an intriguing table comment.')
         v2.add_computed_column(computed1=v2.c2.apply(lambda x: np.full((3, 4), x), col_type=pxt.Array[(3, 4), pxt.Int]))  # type: ignore[misc]
         v2.add_embedding_index('c1', string_embed=all_mpnet_embed)
         v2._link_external_store(MockProject.create(v2, 'project', {}, {}))
-        v2.describe()
-
-        # test case: view with additional columns
-        r = repr(v2)
-        assert strip_lines(r) == strip_lines(
-            """view 'test_subview' (of 'test_view', 'test_tbl')
+        validate_repr(
+            v2,
+            """
+            view 'test_subview' (of 'test_view', 'test_tbl')
             Where: ~(c1 == None)
 
-            Column Name                            Type           Computed With                      Comment
-              computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
-                     c1                Required[String]                          String column with no nulls
-                    c1n                          String
-                     c2                   Required[Int]
-                     c3                 Required[Float]
-                     c4                  Required[Bool]
-                     c5             Required[Timestamp]
-                     c6                  Required[Json]
-                     c7                  Required[Json]
-                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]
+             Column Name                            Type        Source           Computed With                      Comment
+            ---------------------------------------------------------------------------------------------------------------
+               computed1  Required[Array[(3, 4), int64]]  test_subview            <lambda>(c2)
+            ...............................................................................................................
+                     c1                Required[String]      test_tbl                          String column with no nulls
+                    c1n                          String      test_tbl
+                     c2                   Required[Int]      test_tbl
+                     c3                 Required[Float]      test_tbl
+                     c4                  Required[Bool]      test_tbl
+                     c5             Required[Timestamp]      test_tbl
+                     c6                  Required[Json]      test_tbl
+                     c7                  Required[Json]      test_tbl
+                     c8  Required[Array[(2, 3), int64]]      test_tbl  [[1, 2, 3], [4, 5, 6]]
 
-            Index Name Column  Metric                                          Embedding
-                  idx0     c1  cosine  sentence_transformer(c1, model_id='all-mpnet-b...
+             Index Name Column  Metric                                          Embedding
+            -----------------------------------------------------------------------------
+                   idx0     c1  cosine  sentence_transformer(c1, model_id='all-mpnet-b...
 
-            External Store         Type
-                   project  MockProject
+             External Store         Type
+            ----------------------------
+                    project  MockProject
 
-            Comment: This is an intriguing table comment."""
+            Comment: This is an intriguing table comment.""",  # noqa: E501
         )
-        _ = v2._repr_html_()  # TODO: Is there a good way to test this output?
 
         # test case: snapshot of view
         s1 = pxt.create_snapshot('test_snap1', v2)
-        r = repr(s1)
-        assert strip_lines(r) == strip_lines(
-            """snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
+        validate_repr(
+            s1,
+            """
+            snapshot 'test_snap1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
             Where: ~(c1 == None)
 
-            Column Name                            Type           Computed With                      Comment
-              computed1  Required[Array[(3, 4), int64]]            <lambda>(c2)
-                     c1                Required[String]                          String column with no nulls
-                    c1n                          String
-                     c2                   Required[Int]
-                     c3                 Required[Float]
-                     c4                  Required[Bool]
-                     c5             Required[Timestamp]
-                     c6                  Required[Json]
-                     c7                  Required[Json]
-                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]
+             Column Name                            Type        Source           Computed With                      Comment
+            ---------------------------------------------------------------------------------------------------------------
+               computed1  Required[Array[(3, 4), int64]]  test_subview            <lambda>(c2)
+            ...............................................................................................................
+                     c1                Required[String]      test_tbl                          String column with no nulls
+                    c1n                          String      test_tbl
+                     c2                   Required[Int]      test_tbl
+                     c3                 Required[Float]      test_tbl
+                     c4                  Required[Bool]      test_tbl
+                     c5             Required[Timestamp]      test_tbl
+                     c6                  Required[Json]      test_tbl
+                     c7                  Required[Json]      test_tbl
+                     c8  Required[Array[(2, 3), int64]]      test_tbl  [[1, 2, 3], [4, 5, 6]]
 
-            External Store         Type
-                   project  MockProject
+             External Store         Type
+            ----------------------------
+                    project  MockProject
 
-            Comment: This is an intriguing table comment."""
+            Comment: This is an intriguing table comment.""",  # noqa: E501
         )
 
         # test case: snapshot of base table
         s2 = pxt.create_snapshot('test_snap2', test_tbl)
-        r = repr(s2)
-        assert strip_lines(r) == strip_lines(
-            """snapshot 'test_snap2' (of 'test_tbl:2')
+        validate_repr(
+            s2,
+            """
+            snapshot 'test_snap2' (of 'test_tbl:2')
 
-            Column Name                            Type           Computed With                      Comment
-                     c1                Required[String]                          String column with no nulls
-                    c1n                          String
-                     c2                   Required[Int]
-                     c3                 Required[Float]
-                     c4                  Required[Bool]
-                     c5             Required[Timestamp]
-                     c6                  Required[Json]
-                     c7                  Required[Json]
-                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]"""
+             Column Name                            Type    Source           Computed With                      Comment
+            -----------------------------------------------------------------------------------------------------------
+                     c1                Required[String]  test_tbl                          String column with no nulls
+                    c1n                          String  test_tbl
+                     c2                   Required[Int]  test_tbl
+                     c3                 Required[Float]  test_tbl
+                     c4                  Required[Bool]  test_tbl
+                     c5             Required[Timestamp]  test_tbl
+                     c6                  Required[Json]  test_tbl
+                     c7                  Required[Json]  test_tbl
+                     c8  Required[Array[(2, 3), int64]]  test_tbl  [[1, 2, 3], [4, 5, 6]]""",
         )
 
         # test case: snapshot with additional columns
         s3 = pxt.create_snapshot('test_snap3', test_tbl, additional_columns={'computed1': test_tbl.c2 + test_tbl.c3})
-        r = repr(s3)
-        assert strip_lines(r) == strip_lines(
-            """snapshot 'test_snap3' (of 'test_tbl:2')
+        validate_repr(
+            s3,
+            """
+            snapshot 'test_snap3' (of 'test_tbl:2')
 
-            Column Name                            Type           Computed With                      Comment
-              computed1                 Required[Float]                 c2 + c3
-                     c1                Required[String]                          String column with no nulls
-                    c1n                          String
-                     c2                   Required[Int]
-                     c3                 Required[Float]
-                     c4                  Required[Bool]
-                     c5             Required[Timestamp]
-                     c6                  Required[Json]
-                     c7                  Required[Json]
-                     c8  Required[Array[(2, 3), int64]]  [[1, 2, 3], [4, 5, 6]]"""
+             Column Name                            Type      Source           Computed With                      Comment
+            -------------------------------------------------------------------------------------------------------------
+               computed1                 Required[Float]  test_snap3                 c2 + c3
+            .............................................................................................................
+                     c1                Required[String]    test_tbl                          String column with no nulls
+                    c1n                          String    test_tbl
+                     c2                   Required[Int]    test_tbl
+                     c3                 Required[Float]    test_tbl
+                     c4                  Required[Bool]    test_tbl
+                     c5             Required[Timestamp]    test_tbl
+                     c6                  Required[Json]    test_tbl
+                     c7                  Required[Json]    test_tbl
+                     c8  Required[Array[(2, 3), int64]]    test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
         )
 
-        c = repr(v2.c1)
-        assert strip_lines(c) == strip_lines(
-            """Column
-            'c1'
-            (of table 'test_tbl')
+        validate_repr(
+            v2.c1,
+            """
+            Column 'c1' (of table 'test_tbl')
 
-            Column Name              Type Computed With                      Comment
-                   c1  Required[String]                String column with no nulls"""
+             Column Name              Type    Source Computed With                      Comment
+            -----------------------------------------------------------------------------------
+                      c1  Required[String]  test_tbl                String column with no nulls""",
         )
-        _ = v2.c1._repr_html_()
+
+        iterator_view_1 = pxt.create_view('iterator_view_1', s1, iterator=DummyIterator(s1.c2))
+        validate_repr(
+            iterator_view_1,
+            """
+            view 'iterator_view_1' (of 'test_subview:3', 'test_view:0', 'test_tbl:2')
+
+             Column Name                            Type           Source           Computed With                      Comment
+            ------------------------------------------------------------------------------------------------------------------
+                     pos                   Required[Int]  iterator_view_1           DummyIterator
+                    out1                Required[String]  iterator_view_1           DummyIterator
+                    out2                   Required[Int]  iterator_view_1           DummyIterator
+            ..................................................................................................................
+               computed1  Required[Array[(3, 4), int64]]     test_subview            <lambda>(c2)
+            ..................................................................................................................
+                      c1                Required[String]         test_tbl                          String column with no nulls
+                     c1n                          String         test_tbl
+                      c2                   Required[Int]         test_tbl
+                      c3                 Required[Float]         test_tbl
+                      c4                  Required[Bool]         test_tbl
+                      c5             Required[Timestamp]         test_tbl
+                      c6                  Required[Json]         test_tbl
+                      c7                  Required[Json]         test_tbl
+                      c8  Required[Array[(2, 3), int64]]         test_tbl  [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
+        )
+
+        iterator_view_2 = pxt.create_view(
+            'iterator_view_2',
+            iterator_view_1,
+            iterator=DummyIterator2(iterator_view_1.out2),
+            additional_columns={'iterator_view_2_col_1': '"' + iterator_view_1.out1 + '"'},
+        )
+        iterator_view_2.add_computed_column(iterator_view_2_col_2=stock_price(iterator_view_2.iterator_view_2_col_1))
+        validate_repr(
+            iterator_view_2,
+            """
+            view 'iterator_view_2' (of 'iterator_view_1', 'test_subview:3', 'test_view:0', 'test_tbl:2')
+
+                        Column Name                            Type           Source                       Computed With                      Comment
+            -----------------------------------------------------------------------------------------------------------------------------------------
+                              pos_1                   Required[Int]  iterator_view_2                      DummyIterator2
+                             out1_1                Required[String]  iterator_view_2                      DummyIterator2
+                               out3                   Required[Int]  iterator_view_2                      DummyIterator2
+              iterator_view_2_col_1                Required[String]  iterator_view_2                  ('"' + out1) + '"'
+              iterator_view_2_col_2                 Required[Float]  iterator_view_2  stock_price(iterator_view_2_col_1)
+            .........................................................................................................................................
+                                pos                   Required[Int]  iterator_view_1                       DummyIterator
+                               out1                Required[String]  iterator_view_1                       DummyIterator
+                               out2                   Required[Int]  iterator_view_1                       DummyIterator
+            .........................................................................................................................................
+                          computed1  Required[Array[(3, 4), int64]]     test_subview                        <lambda>(c2)
+            .........................................................................................................................................
+                               c1                Required[String]         test_tbl                                      String column with no nulls
+                              c1n                          String         test_tbl
+                               c2                   Required[Int]         test_tbl
+                               c3                 Required[Float]         test_tbl
+                               c4                  Required[Bool]         test_tbl
+                               c5             Required[Timestamp]         test_tbl
+                               c6                  Required[Json]         test_tbl
+                               c7                  Required[Json]         test_tbl
+                               c8  Required[Array[(2, 3), int64]]         test_tbl            [[1, 2, 3], [4, 5, 6]]""",  # noqa: E501
+        )
 
     def test_common_col_names(self, uses_db: None) -> None:
         """Make sure that commonly used column names don't collide with Table member vars"""

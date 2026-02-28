@@ -21,7 +21,7 @@ from .utils import (
     get_video_files,
     reload_catalog,
     skip_test_if_not_installed,
-    strip_lines,
+    validate_repr,
     validate_update_status,
 )
 
@@ -462,20 +462,20 @@ class TestQuery:
         query = t.select(t.c1, t.c1.upper(), t.c2 + 5).where(t.c2 < 10).group_by(t.c1).order_by(t.c3).limit(10)
         query.describe()
 
-        r = repr(query)
-        assert strip_lines(r) == strip_lines(
-            """Name              Type  Expression
-               c1  Required[String]          c1
-            upper  Required[String]  c1.upper()
-            col_2     Required[Int]      c2 + 5
+        validate_repr(
+            query,
+            """   Name              Type  Expression
+               -------------------------------------
+                    c1  Required[String]          c1
+                 upper  Required[String]  c1.upper()
+                 col_2     Required[Int]      c2 + 5
 
-            From      test_tbl
-            Where      c2 < 10
-            Group By        c1
-            Order By    c3 asc
-            Limit           10"""
+               From      test_tbl
+               Where      c2 < 10
+               Group By        c1
+               Order By    c3 asc
+               Limit           10""",
         )
-        _ = query._repr_html_()  # TODO: Is there a good way to test this output?
 
     def test_count(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl
