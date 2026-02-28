@@ -13,9 +13,6 @@ if [ -z "$PY_VERSION" ]; then
     exit 1
 fi
 
-# Initialize conda in this subshell
-eval "$(conda shell.bash hook)"
-
 # Use a separate Pixeltable DB for these tests
 export PIXELTABLE_HOME=~/.pixeltable
 export PIXELTABLE_DB="isolatednbtests"
@@ -30,15 +27,15 @@ FAILURES=0
 for nb in "$TEST_PATH"/*.ipynb; do
     echo "Testing notebook: $nb"
 
-    echo "Creating conda environment $NB_CONDA_ENV ..."
-    conda create -y --name "$NB_CONDA_ENV" python="$PY_VERSION"
+    echo "Creating mamba environment $NB_CONDA_ENV ..."
+    mamba create -y --name "$NB_CONDA_ENV" python="$PY_VERSION"
 
-    echo "Activating conda environment ..."
-    conda activate "$NB_CONDA_ENV"
-    conda info
+    echo "Activating mamba environment ..."
+    mamba activate "$NB_CONDA_ENV"
+    mamba info
 
     echo "Installing ffmpeg ..."
-    conda install -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
+    mamba install -y -c conda-forge libiconv 'ffmpeg==6.1.1=gpl*'
 
     echo "Installing pytest ..."
     pip install -qU pip
@@ -55,11 +52,11 @@ for nb in "$TEST_PATH"/*.ipynb; do
     echo "Cleaning Hugging Face cache ..."
     rm -rf ~/.cache/huggingface
 
-    echo "Deactivating conda environment ..."
-    conda deactivate
+    echo "Deactivating mamba environment ..."
+    mamba deactivate
 
-    echo "Removing conda environment ..."
-    conda remove -y --name "$NB_CONDA_ENV" --all
+    echo "Removing mamba environment ..."
+    mamba remove -y --name "$NB_CONDA_ENV" --all
 
     echo "Done!"
 done
