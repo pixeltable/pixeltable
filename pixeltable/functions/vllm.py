@@ -79,7 +79,8 @@ def chat_completions(
     if sp is not None:
         chat_kwargs['sampling_params'] = sp
 
-    outputs = llm.chat([messages], **chat_kwargs)  # type: ignore[arg-type]
+    chat_messages: Any = [messages]
+    outputs = llm.chat(chat_messages, **chat_kwargs)
     return _request_output_to_dict(outputs[0])
 
 

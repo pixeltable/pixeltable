@@ -248,6 +248,10 @@ strict_optional = false
 warn_return_any = true
 warn_unused_ignores = true
 
+[[tool.mypy.overrides]]
+module = "vllm.*"
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 addopts = '-v -m "not remote_api and not expensive" --strict-markers'
 markers = [
