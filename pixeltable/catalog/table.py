@@ -391,7 +391,8 @@ class Table(SchemaObject):
         with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
             helper = DescriptionHelper()
             helper.append(self._table_descriptor())
-            helper.append(self._col_descriptor())
+            col_df, separator_idxs = self._col_descriptor()
+            helper.append(col_df, separator_idxs=separator_idxs)
             idxs = self._index_descriptor()
             if not idxs.empty:
                 helper.append(idxs)
@@ -404,17 +405,50 @@ class Table(SchemaObject):
                 helper.append(f'Custom Metadata: {Formatter.summarize_json(self._get_custom_metadata())}')
             return helper
 
-    def _col_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
-        return pd.DataFrame(
-            {
-                'Column Name': col.name,
-                'Type': col.col_type._to_str(as_schema=True),
-                'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
-                'Comment': col.comment if col.comment is not None else '',
-            }
-            for col in self._tbl_version_path.columns()
-            if columns is None or col.name in columns
-        )
+    def _col_descriptor(self, columns: list[str] | None = None) -> tuple[pd.DataFrame, list[int] | None]:
+        """Generates column descriptor DataFrame and a list of vertical separators.
+
+        The DataFrame contains the following columns, in addition to Column Name and Type:
+        - Source: the table from which the column is inherited, or this table's name if the column originates here.
+        - Computed With: The expression that Pixeltable evaluates to fill in this column's values. This could be a
+          Python expression, a UDF call, or an iterator name. Blank if the data in the row is not computed.
+
+        The separators are used to visually group columns by their Source when the table description is rendered.
+
+        Args:
+            columns: List of columns to include, or all columns if None.
+
+        Returns:
+            A tuple of the column descriptor DataFrame, and a list of row indexes after which a vertical separator
+            should be placed.
+        """
+        cols = [col for col in self._tbl_version_path.columns() if columns is None or col.name in columns]
+        col_descriptors: list[dict[str, str]] = []
+        separator_idxs: list[int] = []
+        prev_source: str | None = None
+        for i, col in enumerate(cols):
+            computed_with = col.value_expr.display_str(inline=False) if col.value_expr is not None else ''
+            source_tv = col.get_tbl()
+            if source_tv.is_iterator_column(col) or (source_tv.is_component_view and col.id == 0):
+                # col is an iterator column (including the special "pos" column) of an iterator view. Computed With
+                # should be the iterator class name.
+                assert source_tv.iterator_call is not None
+                computed_with = source_tv.iterator_call.it.name
+
+            col_descriptors.append(
+                {
+                    'Column Name': col.name,
+                    'Type': col.col_type._to_str(as_schema=True),
+                    'Source': source_tv.name,
+                    'Computed With': computed_with,
+                    'Comment': col.comment if col.comment is not None else '',
+                }
+            )
+            # Insert a separator if this column's source is different from the last one.
+            if prev_source is not None and source_tv.name != prev_source:
+                separator_idxs.append(i - 1)
+            prev_source = source_tv.name
+        return pd.DataFrame(col_descriptors), separator_idxs
 
     def _index_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
         from pixeltable import index

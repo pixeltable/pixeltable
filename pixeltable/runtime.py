@@ -7,7 +7,6 @@ import threading
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Callable, Coroutine, Iterator, TypeVar
 
-import nest_asyncio  # type: ignore[import-untyped]
 import sqlalchemy as sql
 from rich.progress import Progress
 from sqlalchemy import orm
@@ -56,6 +55,14 @@ class Runtime:
         self._run_coro_executor = None
         self._clients = {}
 
+    def copy_db_context(self, other: Runtime) -> None:
+        """Copy the db-related state from another Runtime instance."""
+        self.conn = other.conn
+        self.session = other.session
+        self.isolation_level = other.isolation_level
+        self._catalog = other.catalog
+        self._progress = other._progress
+
     @property
     def in_xact(self) -> bool:
         return self.conn is not None
@@ -87,10 +94,6 @@ class Runtime:
             # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
             self._event_loop.slow_callback_duration = 3600
 
-        # TODO: remove unconditional nest_asyncio.apply()
-        if True or Env.get().is_notebook():  # noqa: SIM222
-            # Jupyter notebooks have their own event loop, which we need to patch to allow nested run_until_complete()
-            nest_asyncio.apply(self._event_loop)
         if _logger.isEnabledFor(logging.DEBUG):
             self._event_loop.set_debug(True)
 
