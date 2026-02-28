@@ -201,6 +201,9 @@ qa.select(qa.question, qa.answer).collect()
 - **No sync bugs.** Chunks, embeddings, and LLM outputs are derived columns — they can't get out of sync with the source data because Pixeltable maintains the dependency graph.
 - **Versioning for free.** Every change is tracked. Roll back with `revert()`, inspect with `history()`, or query any past version.
 - **Still works with S3.** Pixeltable reads from and writes to S3, GCS, Azure, R2, and Tigris. You can use `destination='s3://...'` on computed columns to write results back to your buckets.
+- **Multimodal in one row.** Structured data (metadata, labels, scores) and unstructured data (images, embeddings, LLM responses) live in the same table row. No more scattered JSON files, Postgres tables, and S3 paths that you have to keep in sync.
+- **Test before you commit.** Preview any transformation on a sample before adding it as a computed column: `t.select(t.text, summary=summarize(t.text)).head(3)`. Nothing is stored until you call `add_computed_column()`.
+- **Swap providers in one line.** The same pipeline patterns work with OpenAI, Anthropic, Gemini, HuggingFace, Ollama, and [20+ other providers](/integrations/frameworks). Change the model, not the architecture.
 
 ---
 
@@ -241,11 +244,13 @@ qa.select(qa.question, qa.answer).collect()
   </Tab>
   <Tab title="Pixeltable">
     ```python
+    from pixeltable.functions.openai import vision
+
     images = pxt.create_table('app.images', {'image': pxt.Image})
 
     # All of this runs automatically on every insert:
     images.add_computed_column(thumbnail=images.image.resize((256, 256)))
-    images.add_computed_column(caption=openai.vision(
+    images.add_computed_column(caption=vision(
         prompt='Describe this image.', image=images.image, model='gpt-4o-mini'))
 
     # Insert triggers everything — from S3 or anywhere

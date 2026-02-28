@@ -165,6 +165,9 @@ agent.select(agent.message, agent.answer).collect()
 - **Observability for free.** Every column is queryable. Want to see what tool was selected? `agent.select(agent.response).collect()`. No separate tracing service needed.
 - **RAG without extra infrastructure.** Add an `add_embedding_index()` and a `@pxt.query` retrieval function — no separate vector database.
 - **Automatic parallelism.** Independent computed columns run in parallel without `asyncio.gather`.
+- **MCP integration built-in.** Load tools from any MCP server with `pxt.mcp_udfs()` and combine them with local UDFs and query functions in a single `pxt.tools()` registry. No separate MCP adapter needed.
+- **Test before you commit.** Preview any step on a sample before materializing it: `agent.select(agent.message, test=my_tool(agent.message)).head(3)`. Nothing is stored until you call `add_computed_column()`.
+- **Swap providers freely.** The same agent pipeline works with OpenAI, Anthropic, Gemini, and [20+ other providers](/integrations/frameworks). Change `openai.chat_completions` to `anthropic.messages` — the tool calling and memory patterns stay the same.
 
 ---
 
@@ -276,5 +279,11 @@ agent.select(agent.message, agent.answer).collect()
   </Card>
   <Card title="RAG Pipeline" icon="database" href="/howto/cookbooks/agents/pattern-rag-pipeline">
     Retrieval-augmented generation
+  </Card>
+  <Card title="Pixelagent" icon="microchip" href="https://github.com/pixeltable/pixelagent">
+    Lightweight agent framework with built-in memory and tool orchestration
+  </Card>
+  <Card title="Pixelbot" icon="robot" href="https://github.com/pixeltable/pixelbot">
+    Full multimodal AI agent with infinite memory — built on Pixeltable
   </Card>
 </CardGroup>

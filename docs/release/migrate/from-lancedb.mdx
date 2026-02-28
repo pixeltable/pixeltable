@@ -134,6 +134,9 @@ results = frames.order_by(sim, asc=False).limit(5).select(frames.frame).collect(
 - **No pipeline scripts to maintain.** The pipeline *is* the table definition. There's no separate script to re-run when data changes.
 - **Built-in sharing.** `pxt.publish()` and `pxt.replicate()` replace manual dataset upload/download workflows.
 - **Export to training formats.** `to_pytorch_dataset()`, `export_parquet()`, and `to_coco_dataset()` are built-in.
+- **Test before you commit.** Preview any transformation on a sample before materializing it: `frames.select(frames.frame, thumb=frames.frame.resize((256, 256))).head(5)`. Nothing is stored until you call `add_computed_column()`.
+- **Annotation and curation integrations.** Export to [Label Studio](/howto/using-label-studio-with-pixeltable) for human annotation or [FiftyOne](/howto/working-with-fiftyone) for visual curation — then sync results back.
+- **Swap AI providers freely.** Use OpenAI, Anthropic, Gemini, HuggingFace, or [20+ other providers](/integrations/frameworks) for vision analysis, captioning, or classification with the same computed column pattern.
 
 ---
 

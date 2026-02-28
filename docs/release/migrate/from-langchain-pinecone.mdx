@@ -135,6 +135,9 @@ qa.select(qa.question, qa.answer).collect()
 - **Built-in persistence.** Every intermediate result (chunks, embeddings, LLM responses) is stored. Restart your notebook and your data is still there.
 - **Versioning.** Call `t.history()` to see all changes, `pxt.create_snapshot()` to bookmark a state, or query a past version.
 - **No infrastructure.** No Pinecone account, no API keys for the vector database, no index provisioning. Pixeltable manages embedding storage and search locally.
+- **Survives restarts.** Restart your notebook, your script, or your server — all data, chunks, embeddings, and LLM responses are still there. No need to re-index.
+- **Test before you commit.** Preview any transformation on a sample before adding it as a column: `qa.select(qa.question, summary=summarize(qa.question)).head(3)`. Nothing is stored until you call `add_computed_column()`.
+- **Swap providers in one line.** The same pipeline works with Anthropic, Gemini, HuggingFace, Ollama, and [20+ other providers](/integrations/frameworks). Change `openai.chat_completions` to `anthropic.messages` — the rest stays the same.
 
 ---
 

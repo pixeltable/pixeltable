@@ -38,7 +38,7 @@ These guides show how the concepts you already know map to Pixeltable, and walk 
 
 ## What Changes
 
-Across all three use cases, the shift is the same:
+Across all of these, the shift is the same:
 
 | What you manage today | With Pixeltable |
 |---|---|
@@ -57,13 +57,15 @@ Pixeltable replaces the multi-tool stack with a small set of composable primitiv
 
 ```python
 import pixeltable as pxt
+from pixeltable.functions.openai import chat_completions, embeddings
+from pixeltable.functions.document import document_splitter
 
 # 1. Store: typed tables with multimodal columns
 docs = pxt.create_table('app.docs', {'pdf': pxt.Document, 'metadata': pxt.Json})
 
 # 2. Iterate: split documents into chunks (view with iterator)
 chunks = pxt.create_view('app.chunks', docs,
-    iterator=DocumentSplitter.create(document=docs.pdf, separators='sentence,token_limit', limit=300))
+    iterator=document_splitter(docs.pdf, separators='sentence,token_limit', limit=300))
 
 # 3. Index: add embedding index (auto-maintained on insert)
 chunks.add_embedding_index('text', string_embed=embeddings.using(model='text-embedding-3-small'))
@@ -75,13 +77,18 @@ results = chunks.order_by(sim, asc=False).limit(5).collect()
 # 5. Orchestrate: computed columns chain transforms automatically
 qa = pxt.create_table('app.qa', {'question': pxt.String})
 qa.add_computed_column(context=retrieve_context(qa.question))
-qa.add_computed_column(answer=generate_answer(qa.question, qa.context))
+qa.add_computed_column(response=chat_completions(
+    messages=[{'role': 'user', 'content': qa.prompt}], model='gpt-4o-mini'))
+qa.add_computed_column(answer=qa.response.choices[0].message.content)
 
 # Insert a question — context retrieval and answer generation happen automatically
 qa.insert([{'question': 'How do I reset my password?'}])
+
+# Test a transformation before committing it to the table
+qa.select(qa.question, qa.answer).head(3)
 ```
 
-Every intermediate result is stored, versioned, and queryable. Nothing is recomputed unless the source data changes.
+Every intermediate result is stored, versioned, and queryable. Nothing is recomputed unless the source data changes. And the same patterns work with any provider — swap `openai` for `anthropic`, `gemini`, or `huggingface` and the pipeline stays the same.
 
 ---
 
