@@ -418,6 +418,13 @@ class TestSnapshot:
         # should work
         v1.rename_column('v1', 'new_v1')
 
+    def test_snapshot_additional_columns_rejects_defaults(self, uses_db: None) -> None:
+        """create_snapshot raises when additional_columns include default values."""
+        t = pxt.create_table('base_tbl', {'c1': pxt.Int}, if_exists='replace')
+        t.insert([{'c1': 1}])
+        with pytest.raises(pxt.Error, match='Default values are not supported for snapshot additional columns'):
+            pxt.create_snapshot('snap1', t, additional_columns={'s1_int': {'type': pxt.Int, 'default': 100}})
+
     # TODO: Currently, comments and custom_metadata are not persisted for pure snapshots.
     # Should we consider snapshots as non-pure when these are provided?
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
