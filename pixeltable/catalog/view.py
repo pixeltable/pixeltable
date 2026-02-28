@@ -8,8 +8,9 @@ from uuid import UUID
 import pixeltable.exceptions as excs
 import pixeltable.metadata.schema as md_schema
 import pixeltable.type_system as ts
-from pixeltable import catalog, exprs, func
+from pixeltable import exprs, func
 from pixeltable.func.iterator import IteratorOutput
+from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
 from .column import Column
@@ -321,8 +322,8 @@ class View(Table):
         base_tbl_id = self._base_tbl_id
         if base_tbl_id is None:
             return None
-        with catalog.Catalog.get().begin_xact(tbl_id=base_tbl_id, for_write=False):
-            return catalog.Catalog.get().get_table_by_id(base_tbl_id)
+        with get_runtime().catalog.begin_xact(tbl_id=base_tbl_id, for_write=False):
+            return get_runtime().catalog.get_table_by_id(base_tbl_id)
 
     @property
     def _effective_base_versions(self) -> list[int | None]:

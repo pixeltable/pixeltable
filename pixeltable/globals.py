@@ -16,6 +16,7 @@ from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
+from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
@@ -44,7 +45,7 @@ def init(config_overrides: dict[str, Any] | None = None) -> None:
     if config_overrides is None:
         config_overrides = {}
     Config.init(config_overrides)
-    _ = Catalog.get()
+    _ = get_runtime().catalog
 
 
 def create_table(
@@ -234,7 +235,7 @@ def create_table(
     except (TypeError, ValueError) as err:
         raise excs.Error('`custom_metadata` must be JSON-serializable') from err
 
-    tbl, was_created = Catalog.get().create_table(
+    tbl, was_created = get_runtime().catalog.create_table(
         path_obj,
         schema,
         if_exists=if_exists_,
@@ -251,7 +252,7 @@ def create_table(
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         if isinstance(data_source, QueryTableDataConduit):
             query = data_source.pxt_query
-            with Catalog.get().begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            with get_runtime().catalog.begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
                 tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
         elif data_source is not None and not is_direct_query:
             tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
@@ -390,7 +391,7 @@ def create_view(
     except (TypeError, ValueError) as err:
         raise excs.Error('`custom_metadata` must be JSON-serializable') from err
 
-    return Catalog.get().create_view(
+    return get_runtime().catalog.create_view(
         path_obj,
         tbl_version_path,
         select_list=select_list,
@@ -584,7 +585,7 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     """
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     path_obj = catalog.Path.parse(path, allow_versioned_path=True)
-    tbl = Catalog.get().get_table(path_obj, if_not_exists_)
+    tbl = get_runtime().catalog.get_table(path_obj, if_not_exists_)
     return tbl
 
 
@@ -632,7 +633,7 @@ def move(
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.is_ancestor(new_path_obj):
         raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
-    Catalog.get().move(path_obj, new_path_obj, if_exists_, if_not_exists_)
+    get_runtime().catalog.move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
 def drop_table(
@@ -676,7 +677,7 @@ def drop_table(
     if isinstance(table, catalog.Table):
         # if we're dropping a table by handle, we first need to get the current path, then drop the S lock on
         # the Table record, and then get X locks in the correct order (first containing directory, then table)
-        with Catalog.get().begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False):
             tbl_path = table._path()
     else:
         assert isinstance(table, str)
@@ -693,7 +694,7 @@ def drop_table(
     else:
         # Local table
         path_obj = catalog.Path.parse(tbl_path)
-        Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+        get_runtime().catalog.drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
@@ -721,7 +722,7 @@ def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents
         >>> pxt.get_dir_contents('dir1')
     """
     path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
-    catalog_entries = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
+    catalog_entries = get_runtime().catalog.get_dir_contents(path_obj, recursive=recursive)
     dirs: list[str] = []
     tables: list[str] = []
     _assemble_dir_contents(dir_path, catalog_entries, dirs, tables)
@@ -775,7 +776,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
 def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths: bool = False) -> list[str]:
     path_obj = catalog.Path.parse(dir_path, allow_empty_path=True, allow_system_path=allow_system_paths)
-    contents = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
+    contents = get_runtime().catalog.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
 
@@ -828,7 +829,7 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    return Catalog.get().create_dir(path_obj, if_exists=if_exists_, parents=parents)
+    return get_runtime().catalog.create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
@@ -870,7 +871,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     """
     path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    Catalog.get().drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
+    get_runtime().catalog.drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 
 def ls(path: str = '') -> pd.DataFrame:
@@ -886,7 +887,7 @@ def ls(path: str = '') -> pd.DataFrame:
     from pixeltable.catalog import retry_loop
     from pixeltable.metadata import schema
 
-    cat = Catalog.get()
+    cat = get_runtime().catalog
     path_obj = catalog.Path.parse(path, allow_empty_path=True)
     dir_entries = cat.get_dir_contents(path_obj)
 
@@ -975,7 +976,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
         ['my_dir', 'my_dir/sub_dir1']
     """
     path_obj = catalog.Path.parse(path, allow_empty_path=True)  # validate format
-    cat = Catalog.get()
+    cat = get_runtime().catalog
     contents = cat.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Dir)]
 

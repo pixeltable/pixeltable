@@ -16,6 +16,7 @@ import PIL.Image
 import pixeltable as pxt
 from pixeltable import env, exprs, type_system as ts
 from pixeltable.func import Tools
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
@@ -26,15 +27,35 @@ _logger = logging.getLogger('pixeltable')
 
 
 @env.register_client('bedrock')
-def _() -> 'BaseClient':
+def _(api_key: str | None = None, region_name: str | None = None) -> 'BaseClient':
     import boto3
 
-    return boto3.client(service_name='bedrock-runtime')
+    if api_key is not None:
+        # Bedrock API Key (bearer token) authentication.
+        # Create client with placeholder credentials; the actual bearer token
+        # is injected into each request via an event handler.
+        session = boto3.Session(
+            aws_access_key_id='bedrock-api-key',
+            aws_secret_access_key='bedrock-api-key',
+            region_name=region_name or 'us-east-1',
+        )
+        client = session.client('bedrock-runtime')
+
+        def _inject_bearer_token(request: Any, **_kwargs: Any) -> None:
+            request.headers['Authorization'] = f'Bearer {api_key}'
+
+        client.meta.events.register('before-send', _inject_bearer_token)
+        return client
+
+    kwargs: dict[str, Any] = {'service_name': 'bedrock-runtime'}
+    if region_name is not None:
+        kwargs['region_name'] = region_name
+    return boto3.client(**kwargs)
 
 
 # boto3 typing is weird; type information is dynamically defined, so the best we can do for the static checker is `Any`
 def _bedrock_client() -> Any:
-    return env.Env.get().get_client('bedrock')
+    return get_runtime().get_client('bedrock')
 
 
 # Default embedding dimensions for models
