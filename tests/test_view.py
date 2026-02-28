@@ -1191,7 +1191,14 @@ class TestView:
         assert v.where(v.computed_1 == None).count() == 1
 
     def test_additional_columns_with_defaults(self, uses_db: None, reload_tester: ReloadTester) -> None:
-        # Create base table with columns that have default values
+        base_defaults = {'base_int': 10, 'base_str': 'base_default', 'base_json': {'base': 'data'}}
+        v1_defaults = {'v1_int': 100, 'v1_str': 'view_default', 'v1_json': {'view': 'data'}}
+
+        def assert_row_subset(row: dict, expected: dict) -> None:
+            for key, val in expected.items():
+                assert row[key] == val, f'Expected {key}={val!r}, got {row[key]!r}'
+
+        # Create base table and insert rows
         t = pxt.create_table(
             'base_tbl',
             {
@@ -1201,18 +1208,14 @@ class TestView:
                 'base_json': {'type': pxt.Json, 'default': {'base': 'data'}},
             },
         )
-        # Insert rows - they should get default values from base table columns
         t.insert([{'c1': 1}, {'c1': 2}])
 
-        # Verify base table rows have default values
         result = t.select().collect()
         assert len(result) == 2
         for row in result:
-            assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
-            assert row['base_str'] == 'base_default', f"Expected 'base_default', got {row['base_str']}"
-            assert row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {row['base_json']}"
+            assert_row_subset(row, base_defaults)
 
-        # Create view with additional_columns that have default values
+        # Create view with additional_columns
         v1 = pxt.create_view(
             'view1',
             t,
@@ -1220,23 +1223,30 @@ class TestView:
                 'v1_int': {'type': pxt.Int, 'default': 100},
                 'v1_str': {'type': pxt.String, 'default': 'view_default'},
                 'v1_json': {'type': pxt.Json, 'default': {'view': 'data'}},
+                'v1_computed': t.c1 + 1000,
             },
         )
 
-        # Verify view rows have default values from both base table and additional_columns
         result = v1.select().collect()
         assert len(result) == 2
         for row in result:
-            # Base table defaults
-            assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
-            assert row['base_str'] == 'base_default', f"Expected 'base_default', got {row['base_str']}"
-            assert row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {row['base_json']}"
-            # View additional_columns defaults
-            assert row['v1_int'] == 100, f'Expected 100, got {row["v1_int"]}'
-            assert row['v1_str'] == 'view_default', f"Expected 'view_default', got {row['v1_str']}"
-            assert row['v1_json'] == {'view': 'data'}, f"Expected {{'view': 'data'}}, got {row['v1_json']}"
+            assert_row_subset(row, {**base_defaults, **v1_defaults})
+            assert row['v1_computed'] == row['c1'] + 1000
 
-        # Test view of view with additional_columns that have defaults
+        # Update base column c1: only computed column should change
+        t.update({'c1': 100}, where=t.c1 == 1)
+        row_c1_100 = next(r for r in v1.select().collect() if r['c1'] == 100)
+        assert row_c1_100['v1_computed'] == 1100
+        assert_row_subset(row_c1_100, v1_defaults)
+
+        # Update v1_int directly on view
+        v1.update({'v1_int': 999}, where=v1.c1 == 2)
+        result = v1.where(v1.c1 == 2).collect()
+        assert len(result) == 1
+        assert result[0]['v1_int'] == 999
+        assert_row_subset(result[0], {'v1_str': 'view_default', 'v1_json': {'view': 'data'}})
+
+        # View of view
         v2 = pxt.create_view(
             'view2',
             v1,
@@ -1246,38 +1256,30 @@ class TestView:
             },
         )
 
-        # Verify view of view has defaults from base table, parent view, and its own additional_columns
         result = v2.select().collect()
         assert len(result) == 2
         for row in result:
-            # Base table defaults
-            assert row['base_int'] == 10, f'Expected 10, got {row["base_int"]}'
-            assert row['base_str'] == 'base_default', f"Expected 'base_default', got {row['base_str']}"
-            assert row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {row['base_json']}"
-            # Parent view additional_columns defaults
-            assert row['v1_int'] == 100, f'Expected 100, got {row["v1_int"]}'
-            assert row['v1_str'] == 'view_default', f"Expected 'view_default', got {row['v1_str']}"
-            assert row['v1_json'] == {'view': 'data'}, f"Expected {{'view': 'data'}}, got {row['v1_json']}"
-            # This view's additional_columns defaults
-            assert row['v2_int'] == 200, f'Expected 200, got {row["v2_int"]}'
-            assert row['v2_str'] == 'view2_default', f"Expected 'view2_default', got {row['v2_str']}"
+            assert_row_subset(
+                row,
+                {
+                    **base_defaults,
+                    'v1_str': 'view_default',
+                    'v1_json': {'view': 'data'},
+                    'v2_int': 200,
+                    'v2_str': 'view2_default',
+                },
+            )
+            expected_v1_int = 999 if row['c1'] == 2 else 100
+            assert row['v1_int'] == expected_v1_int, f'Expected v1_int={expected_v1_int}, got {row["v1_int"]}'
 
-        # Test inserting new rows into base table - view should get defaults for additional_columns
+        # Insert new row - verify defaults propagate
         t.insert([{'c1': 3}])
         result = v1.select().collect()
         assert len(result) == 3
-        # Find the new row
         new_row = next(r for r in result if r['c1'] == 3)
-        # Base table defaults
-        assert new_row['base_int'] == 10, f'Expected 10, got {new_row["base_int"]}'
-        assert new_row['base_str'] == 'base_default', f"Expected 'base_default', got {new_row['base_str']}"
-        assert new_row['base_json'] == {'base': 'data'}, f"Expected {{'base': 'data'}}, got {new_row['base_json']}"
-        # View additional_columns defaults
-        assert new_row['v1_int'] == 100, f'Expected 100, got {new_row["v1_int"]}'
-        assert new_row['v1_str'] == 'view_default', f"Expected 'view_default', got {new_row['v1_str']}"
-        assert new_row['v1_json'] == {'view': 'data'}, f"Expected {{'view': 'data'}}, got {new_row['v1_json']}"
+        assert_row_subset(new_row, {**base_defaults, **v1_defaults})
+        assert new_row['v1_computed'] == 1003
 
-        # Register stable queries for reload test (after all data modifications)
         reload_tester.run_query(v1.select())
         reload_tester.run_query(v2.select())
         reload_tester.run_reload_test()

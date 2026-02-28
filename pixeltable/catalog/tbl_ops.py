@@ -230,6 +230,7 @@ class CreateStoreColumnsOp(TableOp):
 @dataclasses.dataclass
 class SetColumnValueOp(TableOp):
     """Set values for specified columns."""
+
     needs_tv: ClassVar[bool] = True
     needs_xact: ClassVar[bool] = False
 

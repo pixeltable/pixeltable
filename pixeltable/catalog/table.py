@@ -917,6 +917,10 @@ class Table(SchemaObject):
                 value_expr.bind_rel_paths()
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
+                if 'value' in spec and 'default' in spec:
+                    raise excs.Error(
+                        f"Column {name!r}: 'default' cannot be specified for computed columns (columns with 'value')."
+                    )
                 if 'type' in spec:
                     col_type = ts.ColumnType.normalize_type(
                         spec['type'], nullable_default=True, allow_builtin_types=False

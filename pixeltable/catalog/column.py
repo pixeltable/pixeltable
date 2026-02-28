@@ -118,8 +118,8 @@ class Column:
             else:
                 self._value_expr = value_expr.copy()
                 self.col_type = self._value_expr.col_type
-            if self._value_expr is not None and self.value_expr_dict is None:
-                self.value_expr_dict = self._value_expr.as_dict()
+        if self._value_expr is not None and self.value_expr_dict is None:
+            self.value_expr_dict = self._value_expr.as_dict()
 
         if default_value_expr_dict is not None:
             self._default_value_expr = exprs.Expr.from_dict(self.default_value_expr_dict).as_literal()
@@ -322,7 +322,7 @@ class Column:
     @property
     def has_default_value(self) -> bool:
         """Returns True if column has a default value."""
-        return self.name is not None and self.default_value_expr_dict is not None
+        return not self.is_computed and self.name is not None and self.default_value_expr_dict is not None
 
     @property
     def custom_metadata(self) -> Any:

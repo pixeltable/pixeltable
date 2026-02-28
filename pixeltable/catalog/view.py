@@ -208,7 +208,9 @@ class View(Table):
             ops = [
                 CreateTableMdOp(tbl_id=tbl_id, op_sn=0, num_ops=num_ops, status=OpStatus.PENDING),
                 CreateStoreTableOp(tbl_id=tbl_id, op_sn=1, num_ops=num_ops, status=OpStatus.PENDING),
-                LoadViewOp(tbl_id=tbl_id, op_sn=2, num_ops=num_ops, status=OpStatus.PENDING, view_path=view_path.as_dict()),
+                LoadViewOp(
+                    tbl_id=tbl_id, op_sn=2, num_ops=num_ops, status=OpStatus.PENDING, view_path=view_path.as_dict()
+                ),
             ]
             if has_default_cols:
                 ops.append(
