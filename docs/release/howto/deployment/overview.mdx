@@ -3,6 +3,39 @@ title: "Deployment Overview"
 description: "Choose the right deployment strategy for your Pixeltable application"
 ---
 
+## What Pixeltable Replaces
+
+Most multimodal AI stacks look like this: blob storage for media, a relational database for metadata, a vector database for embeddings, an orchestrator for scheduling, and custom glue code holding it all together.
+
+<Tabs>
+  <Tab title="Traditional Stack">
+
+```mermaid
+flowchart LR
+    S3[S3 / GCS] --> Orch[Airflow / Prefect]
+    Orch --> PG[(PostgreSQL)]
+    Orch --> VDB[(Vector DB)]
+    PG --- Cache[Redis]
+    PG --- Glue[Glue Code]
+    VDB --- Glue
+```
+
+**5+ services to deploy and maintain:** blob storage, orchestrator, relational DB, vector DB, cache — plus custom retry logic, rate limiting, sync scripts, and error handling to wire them together.
+
+  </Tab>
+  <Tab title="With Pixeltable">
+
+```mermaid
+flowchart LR
+    Refs[S3 / GCS] -->|references| CC[Computed Columns]
+    CC --> Query[Query + Search]
+```
+
+**1 Python import.** Storage, orchestration, caching, vector indexing, rate limiting, and retry logic are built in. The infrastructure you don't deploy is infrastructure you don't maintain.
+
+  </Tab>
+</Tabs>
+
 ## Deployment Decision Guide
 
 Pixeltable supports two production deployment patterns. Choose based on your constraints:

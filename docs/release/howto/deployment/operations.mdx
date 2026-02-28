@@ -184,6 +184,39 @@ docs_table.add_computed_column(
 - Version control `setup_pixeltable.py` like database migration scripts.
 - Rollback via `table.revert()` (single operation) or Git revert (complex changes).
 
+### Updating Models
+
+The most common schema evolution is switching an embedding or LLM model. In a traditional stack this requires a migration script, a compute cluster, reprocessing every row, and a maintenance window. In Pixeltable it's one line — the old column keeps working while the new one backfills.
+
+**Traditional approach:**
+```python
+# 1. Write migration script
+# 2. Spin up compute to re-embed all rows (hours of downtime)
+# 3. Swap the column in application code
+# 4. Deploy during maintenance window
+# 5. Monitor for consistency issues
+
+data = db.query("SELECT id, content FROM documents")
+for row in data:
+    new_vec = new_model.encode(row["content"])
+    db.execute("UPDATE documents SET embedding = %s WHERE id = %s", (new_vec, row["id"]))
+```
+
+**Pixeltable approach:**
+```python
+# Add a new computed column. Old column still serves queries — zero downtime.
+docs.add_computed_column(
+    embedding_v2=sentence_transformer(docs.text, model_id='intfloat/e5-large-v2'),
+    if_exists='ignore'
+)
+# Pixeltable backfills in batches, rate-limited, with automatic retries.
+# Switch your queries to embedding_v2 when ready.
+```
+
+<Info>
+Because both columns coexist, you can A/B test retrieval quality before cutting over — no rollback plan needed.
+</Info>
+
 ## Deployment Patterns
 
 **Web Applications:**
