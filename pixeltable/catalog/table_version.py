@@ -431,7 +431,7 @@ class TableVersion:
         id_str = str(self.id)
         ops = [
             DeleteTableMediaFilesOp(tbl_id=id_str, op_sn=0, num_ops=3, status=OpStatus.PENDING),
-            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, status=OpStatus.PENDING),
+            DropStoreTableOp(tbl_id=id_str, op_sn=1, num_ops=3, status=OpStatus.PENDING, is_view=self.is_view),
             DeleteTableMdOp(tbl_id=id_str, op_sn=2, num_ops=3, status=OpStatus.PENDING),
         ]
         return ops

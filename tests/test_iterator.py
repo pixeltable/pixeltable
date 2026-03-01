@@ -10,7 +10,7 @@ import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable import func, type_system as ts
 from pixeltable.iterators.base import ComponentIterator
-from tests.utils import ReloadTester, reload_catalog
+from tests.utils import reload_catalog
 
 
 class MyRow(TypedDict):
@@ -134,14 +134,16 @@ class CustomLegacyIterator(ComponentIterator):
 
 
 class TestIterator:
-    def test_iterator(self, uses_db: None, reload_tester: ReloadTester) -> None:
+    @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
+    def test_iterator(self, uses_db: None, do_reload_catalog: bool) -> None:
         for n, it in enumerate((simple_iterator, class_based_iterator, iterator_with_seek)):
             assert callable(it)
             t = pxt.create_table(f'tbl_{n}', schema={'input': pxt.Int})
             t.insert([{'input': 2}])
             v = pxt.create_view(f'view_{n}', t, iterator=it(t.input))
             t.insert([{'input': 3}, {'input': 5}])
-            rs = reload_tester.run_query(v.order_by(v.input, v.pos))
+            reload_catalog(do_reload_catalog)
+            rs = v.order_by(v.input, v.pos).collect()
             assert list(rs) == [
                 {'acol': None, 'input': 2, 'pos': 0, 'icol': 0, 'scol': 'string 0'},
                 {'acol': None, 'input': 2, 'pos': 1, 'icol': 1, 'scol': 'string 1'},
@@ -167,7 +169,7 @@ class TestIterator:
             with pytest.raises(pxt.Error, match=r'Parameter `str_text` must be a valid identifier.'):
                 it(t.input, str_text='I am not a valid identifier!')
 
-        reload_tester.run_reload_test()
+            pxt.drop_table(t.get_metadata()['name'], force=True)
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_iterator_column_renames(self, uses_db: None, do_reload_catalog: bool) -> None:

@@ -243,17 +243,17 @@ class DeleteTableMediaFilesOp(TableOp):
 
 @dataclasses.dataclass
 class DropStoreTableOp(TableOp):
-    needs_tv: ClassVar[bool] = True
+    needs_tv: ClassVar[bool] = False
     needs_xact: ClassVar[bool] = False
+
+    is_view: bool
 
     def exec(self, tv: TableVersion | None) -> None:
         from pixeltable.store import StoreBase
 
-        # don't reference tv.store_tbl here, it needs to reference the metadata for our base table, which at
-        # this point may not exist anymore
         assert not get_runtime().in_xact
         with get_runtime().begin_xact() as conn:
-            drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(tv.id, tv.is_view)}'
+            drop_stmt = f'DROP TABLE IF EXISTS {StoreBase.storage_name(uuid.UUID(self.tbl_id), self.is_view)}'
             conn.execute(sql.text(drop_stmt))
 
     def undo(self, tv: TableVersion | None) -> None:
