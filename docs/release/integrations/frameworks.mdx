@@ -104,13 +104,23 @@ If you have a framework that you want us to integrate with, please reach out and
 
 ## Embeddings & Reranking
 
-<Card
-  title="Voyage AI"
-  icon="compass"
-  href="/howto/providers/working-with-voyageai"
->
-  High-quality embeddings and reranking for RAG applications
-</Card>
+<CardGroup cols={2}>
+  <Card
+    title="Voyage AI"
+    icon="compass"
+    href="/howto/providers/working-with-voyageai"
+  >
+    High-quality embeddings and reranking for text, images, and video
+  </Card>
+
+  <Card
+    title="Jina AI"
+    icon="magnifying-glass"
+    href="/howto/providers/working-with-jina"
+  >
+    Embeddings and reranking optimized for search and RAG pipelines
+  </Card>
+</CardGroup>
 
 ## Video Understanding
 
@@ -124,7 +134,7 @@ If you have a framework that you want us to integrate with, please reach out and
 
 ## Media Generation
 
-<CardGroup cols={2}>
+<CardGroup cols={3}>
   <Card
     title="fal.ai"
     icon="wand-magic-sparkles"
@@ -139,6 +149,14 @@ If you have a framework that you want us to integrate with, please reach out and
     href="/howto/providers/working-with-reve"
   >
     AI-powered video generation and editing capabilities
+  </Card>
+
+  <Card
+    title="RunwayML"
+    icon="film"
+    href="/sdk/latest/pixeltable/functions/runwayml"
+  >
+    AI video generation with Gen-3 Alpha and other Runway models
   </Card>
 </CardGroup>
 
@@ -205,14 +223,24 @@ If you have a framework that you want us to integrate with, please reach out and
   High-quality speech recognition and transcription using OpenAI's Whisper models
 </Card>
 
-## Data wrangling
+## Enterprise Platforms
+
+<Card
+  title="Microsoft Fabric"
+  icon="microsoft"
+  href="/howto/providers/working-with-fabric"
+>
+  Azure OpenAI integration through Microsoft Fabric for enterprise AI workloads
+</Card>
+
+## Data Wrangling
 
 <Card
   title="Pandas"
   icon="table"
   href="/tutorials/tables-and-data-operations"
 >
-  Import and Export from and to Pandas DataFrames if needed
+  Import and export from and to Pandas DataFrames
 </Card>
 
 ## Usage examples
@@ -281,9 +309,9 @@ If you have a framework that you want us to integrate with, please reach out and
 </Steps>
 
 <Tip>
-  Check our [Github](https://github.com/pixeltable/pixeltable/tree/main/docs/howto/providers) for detailed usage instructions for each integration.
+  Check the [provider notebooks](https://github.com/pixeltable/pixeltable/tree/main/docs/release/howto/providers) for detailed usage instructions for each integration.
 </Tip>
 
 <Note>
-Need help setting up integrations? Join our [Discord community](https://discord.com/invite/QPyqFYx2UN) for support.
+Need help setting up integrations? Join our [Discord community](https://discord.gg/QPyqFYx2UN) for support.
 </Note>
