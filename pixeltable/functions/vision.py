@@ -423,6 +423,66 @@ def draw_bounding_boxes(
     return img_to_draw
 
 
+# The desired signature:
+# bbox: list[int, int, int, int] | list[float, float, float, float], src_format: str, dst_format: str
+@pxt.udf
+def bbox_convert(bbox: list[int | float], src_format: str, dst_format: str) -> list[int | float]:
+    """
+    Convert bounding box from src_format to dst_format.
+
+    Args:
+        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        src_format: Source format, one of 'xyxy', 'xywh', 'cxcywh'.
+        dst_format: Destination format, one of 'xyxy', 'xywh', 'cxcywh'.
+
+    Returns:
+        Bounding box in dst_format.
+    """
+    if src_format == dst_format:
+        return bbox
+    if src_format not in ['xyxy', 'xywh', 'cxcywh']:
+        raise pxt.Error(f'Invalid src_format: {src_format!r}')
+    if dst_format not in ['xyxy', 'xywh', 'cxcywh']:
+        raise pxt.Error(f'Invalid dst_format: {dst_format!r}')
+    if len(bbox) != 4:
+        raise pxt.Error(f'Expected 4-element list for bbox, got {bbox}')
+
+    x1: int | float
+    y1: int | float
+    x2: int | float
+    y2: int | float
+    w: int | float
+    h: int | float
+    cx: int | float
+    cy: int | float
+    if src_format == 'xyxy':
+        x1, y1, x2, y2 = bbox
+        w = x2 - x1
+        h = y2 - y1
+        cx = x1 + w / 2
+        cy = y1 + h / 2
+    if src_format == 'xywh':
+        x1, y1, w, h = bbox
+        x2 = x1 + w
+        y2 = y1 + h
+        cx = x1 + w / 2
+        cy = y1 + h / 2
+    if src_format == 'cxcywh':
+        cx, cy, w, h = bbox
+        x1 = cx - w / 2
+        y1 = cy - h / 2
+        x2 = cx + w / 2
+        y2 = cy + h / 2
+
+    if dst_format == 'xyxy':
+        return [x1, y1, x2, y2]
+    if dst_format == 'xywh':
+        return [x1, y1, w, h]
+    if dst_format == 'cxcywh':
+        return [cx, cy, w, h]
+    raise ValueError(f'Unknown dst_format: {dst_format!r}')
+
+
 def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
     """Get contour mask with specified thickness."""
     assert mask.dtype == bool
