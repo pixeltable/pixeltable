@@ -310,8 +310,7 @@ class RandomTableOps:
         vname = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
         p = random.choice(PRIMES)
         yield f'Create view {vname!r} on {self.tbl_descr(t)}: '
-        # TODO: Change 'ignore' to 'replace-force' after fixing PXT-774
-        pxt.create_view(vname, t.where(t.bc_int % p == 0), if_exists='ignore')
+        pxt.create_view(vname, t.where(t.bc_int % p == 0), if_exists='replace_force')
         yield 'Success.'
 
     def rename_view(self) -> Iterator[str]:
