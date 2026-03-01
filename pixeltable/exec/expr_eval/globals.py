@@ -191,10 +191,33 @@ class ExprEvalCtx:
                 self.slot_evaluators[slot_idx] = DefaultExprEvaluator(expr, dispatcher, self)
 
     def init_rows(self, rows: list[exprs.DataRow]) -> None:
-        """Pre-populate rows with literals and initialize execution state"""
+        """Pre-populate rows with literals and initialize execution state
+
+        Uses 2D numpy arrays for vectorized computation of missing_dependents and missing_slots.
+        """
+        if len(rows) == 0:
+            return
+
+        # Set literals (still per-row since vals is an object array)
         for row in rows:
-            # set literals before missing_dependents/slots
             for slot_idx, val in self.literals.items():
                 row[slot_idx] = val
-            row.missing_dependents = np.sum(self.row_builder.dependencies[row.has_val == False], axis=0)
-            row.missing_slots = self.eval_ctx & (row.has_val == False)
+
+        # Stack has_val for vectorized computation
+        # Shape: (num_rows, num_slots)
+        has_val = np.stack([r.has_val for r in rows], axis=0)
+
+        # Vectorized missing_dependents computation
+        # dependencies[i, j] means expr i depends on expr j
+        # missing_dependents[slot] = count of slots that depend on 'slot' and don't have a value
+        dependencies = self.row_builder.dependencies
+        new_missing_dependents = (~has_val).astype(np.int16) @ dependencies.astype(np.int16)
+
+        # Vectorized missing_slots computation
+        # missing_slots = eval_ctx slots that don't have values yet
+        new_missing_slots = self.eval_ctx & (~has_val)
+
+        # Write back to individual rows
+        for i, row in enumerate(rows):
+            row.missing_dependents = new_missing_dependents[i]
+            row.missing_slots = new_missing_slots[i]

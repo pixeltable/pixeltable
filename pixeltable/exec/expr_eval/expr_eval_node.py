@@ -344,52 +344,107 @@ class ExprEvalNode(ExecNode):
         self.dispatch(rows, exec_ctx)
 
     def dispatch(self, rows: list[exprs.DataRow], exec_ctx: ExprEvalCtx) -> None:
-        """Dispatch rows to slot evaluators, based on materialized dependencies"""
+        """Dispatch rows to slot evaluators, based on materialized dependencies
+
+        Uses 2D numpy arrays for vectorized operations across all rows.
+        """
         if len(rows) == 0 or self.exc_event.is_set():
             return
 
-        # slots ready for evaluation; rows x slots
-        ready_slots = np.zeros((len(rows), exec_ctx.row_builder.num_materialized), dtype=bool)
-        completed_rows = np.zeros(len(rows), dtype=bool)
+        num_rows = len(rows)
+        num_slots = exec_ctx.row_builder.num_materialized
+
+        # Static arrays from row_builder
+        dependencies = exec_ctx.row_builder.dependencies  # (num_slots, num_slots)
+        num_dependencies = exec_ctx.row_builder.num_dependencies  # (num_slots,)
+
+        # Stack row arrays into 2D arrays for vectorized operations
+        # Shape: (num_rows, num_slots)
+        has_val = np.stack([r.has_val for r in rows], axis=0)
+        missing_slots = np.stack([r.missing_slots for r in rows], axis=0)
+        is_scheduled = np.stack([r.is_scheduled for r in rows], axis=0)
+        missing_dependents = np.stack([r.missing_dependents for r in rows], axis=0)
+
+        # ---------- Compute progress (output slot materialization) ----------
         num_computed_outputs = 0
+        if self.eval_ctx is exec_ctx:
+            # Count currently non-materialized output slots (before updating missing_slots)
+            missing_outputs_before = (missing_slots & self.outputs).sum()
+
+            # Update missing_slots: clear slots that now have values
+            missing_slots &= ~has_val
+
+            missing_outputs_after = (missing_slots & self.outputs).sum()
+            num_computed_outputs = missing_outputs_before - missing_outputs_after
+        else:
+            # Update missing_slots: clear slots that now have values
+            missing_slots &= ~has_val
+
+        # ---------- Identify completed rows ----------
+        missing_slot_counts = missing_slots.sum(axis=1)  # (num_rows,)
+        completed_mask = missing_slot_counts == 0
+
+        # ---------- Compute ready slots for non-completed rows ----------
+        # ready_slots: (num_rows, num_slots)
+        ready_slots = np.zeros((num_rows, num_slots), dtype=bool)
+
+        non_completed_mask = ~completed_mask
+        if np.any(non_completed_mask):
+            # Only compute for non-completed rows
+            nc_missing_slots = missing_slots[non_completed_mask]
+            nc_has_val = has_val[non_completed_mask]
+            nc_is_scheduled = is_scheduled[non_completed_mask]
+
+            # missing_dependencies: dependencies needed for missing slots
+            # Shape: (num_nc_rows, num_slots)
+            nc_missing_dependencies = num_dependencies * nc_missing_slots
+
+            # num_mat_dependencies: array of how many dependencies are materialized per slot, per row
+            # has_val @ dependencies.T gives count of materialized dependencies per slot
+            # dependencies[i, j] == True means expr i depends on expr j
+            # dependencies.T[j, i] == True means expr i depends on expr j
+            # We want: for each slot i, count how many of its dependencies have values
+            nc_num_mat_dependencies = nc_has_val.astype(np.int32) @ dependencies.T.astype(np.int32)
+
+            # Ready when all dependencies are materialized
+            nc_num_missing = nc_missing_dependencies - nc_num_mat_dependencies
+            # A slot is ready if it has missing dependencies == 0, isn't already scheduled, and is still missing
+            nc_ready = (nc_num_missing == 0) & (~nc_is_scheduled) & nc_missing_slots
+
+            ready_slots[non_completed_mask] = nc_ready
+
+            # Update is_scheduled for non-completed rows
+            is_scheduled[non_completed_mask] |= nc_ready
+
+        # ---------- GC computation ----------
+        # Compute new missing_dependents for all rows
+        # missing_dependents[i, slot] = count of slots that depend on 'slot' and don't have a value yet
+        # dependencies[i, j] means expr i depends on expr j
+        # For each slot j, we count how many slots i (that don't have values) depend on j
+        # This is: (~has_val) @ dependencies, summing over the first axis
+        new_missing_dependents = (~has_val).astype(np.int16) @ dependencies.astype(np.int16)
+
+        # Identify slots to garbage collect per row
+        gc_targets_2d = (new_missing_dependents == 0) & (missing_dependents > 0) & exec_ctx.gc_targets[np.newaxis, :]
+
+        # ---------- Write back to DataRows and perform GC ----------
         for i, row in enumerate(rows):
-            # row.missing_slots &= row.has_val == False
-            if row.missing_slots.shape != self.outputs.shape:
-                pass
+            row.missing_slots = missing_slots[i]
+            row.is_scheduled = is_scheduled[i]
 
-            if self.eval_ctx is exec_ctx:
-                # if this is the top-level ExprEvalCtx (instead of the one for a JsonMapperDispatcher), we want to count
-                # the newly-materialized output slots
-                missing_outputs = (row.missing_slots & self.outputs).sum()
-                row.missing_slots &= row.has_val == False
-                num_computed_outputs += missing_outputs - (row.missing_slots & self.outputs).sum()
-            else:
-                row.missing_slots &= row.has_val == False
+            # Perform GC clear for slots that are no longer needed
+            if gc_targets_2d[i].any():
+                row.clear(gc_targets_2d[i])
+            row.missing_dependents = new_missing_dependents[i]
 
-            if row.missing_slots.sum() == 0:
-                # all output slots have been materialized
-                completed_rows[i] = True
-            else:
-                # dependencies of missing slots
-                missing_dependencies = exec_ctx.row_builder.num_dependencies * row.missing_slots
-                # determine ready slots that are not yet materialized and not yet scheduled
-                num_mat_dependencies = np.sum(exec_ctx.row_builder.dependencies * row.has_val, axis=1)
-                num_missing = missing_dependencies - num_mat_dependencies
-                ready_slots[i] = (num_missing == 0) & (row.is_scheduled == False) & row.missing_slots
-                row.is_scheduled |= ready_slots[i]
-
-            # clear intermediate values that are no longer needed (ie, all dependents are materialized)
-            missing_dependents = np.sum(exec_ctx.row_builder.dependencies[row.has_val == False], axis=0)
-            gc_targets = (missing_dependents == 0) & (row.missing_dependents > 0) & exec_ctx.gc_targets
-            row.clear(gc_targets)
-            row.missing_dependents = missing_dependents
-
+        # ---------- Progress reporting ----------
         if self.progress_reporter is not None and num_computed_outputs > 0:
-            self.progress_reporter.update(int(num_computed_outputs))
+            self.progress_reporter.update(num_computed_outputs)
 
-        if np.any(completed_rows):
-            completed_idxs = list(completed_rows.nonzero()[0])
-            if rows[i].parent_row is not None:
+        # ---------- Handle completed rows ----------
+        if np.any(completed_mask):
+            completed_idxs = list(completed_mask.nonzero()[0])
+            if rows[0].parent_row is not None:
                 # these are nested rows
                 for i in completed_idxs:
                     row = rows[i]
@@ -402,11 +457,12 @@ class ExprEvalNode(ExecNode):
                 self.completed_event.set()
                 self.num_in_flight -= len(completed_idxs)
 
-        # schedule all ready slots
-        for slot_idx in np.sum(ready_slots, axis=0).nonzero()[0]:
-            ready_rows_v = ready_slots[:, slot_idx].flatten()
-            _ = ready_rows_v.nonzero()
-            ready_rows = [rows[i] for i in ready_rows_v.nonzero()[0]]
+        # ---------- Schedule ready slots ----------
+        # Find slots that have any ready rows
+        slots_with_ready_rows = ready_slots.sum(axis=0).nonzero()[0]
+        for slot_idx in slots_with_ready_rows:
+            ready_row_idxs = ready_slots[:, slot_idx].nonzero()[0]
+            ready_rows = [rows[i] for i in ready_row_idxs]
             _logger.debug(f'Scheduling {len(ready_rows)} rows for slot {slot_idx}')
             exec_ctx.slot_evaluators[slot_idx].schedule(ready_rows, slot_idx)
 
