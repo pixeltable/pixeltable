@@ -19,6 +19,7 @@ _logger = logging.getLogger('pixeltable')
 
 def main() -> None:
     in_ci = os.environ.get('GITHUB_ACTIONS', 'false').lower() == 'true'
+    _logger.info(f'Running in CI: {in_ci}')
     if in_ci:
         grafana_api_key = os.getenv('GRAFANA_API_KEY', '')
         if not grafana_api_key:
