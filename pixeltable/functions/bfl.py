@@ -19,7 +19,7 @@ import aiohttp
 import PIL.Image
 
 import pixeltable as pxt
-from pixeltable.env import Env, register_client
+from pixeltable.env import register_client
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
@@ -47,8 +47,10 @@ class _BflClient:
     session: aiohttp.ClientSession
 
     def __init__(self, api_key: str):
+        from pixeltable.runtime import get_runtime
+
         self.api_key = api_key
-        self.session = Env.get().event_loop.run_until_complete(self._start_session())
+        self.session = get_runtime().event_loop.run_until_complete(self._start_session())
         atexit.register(lambda: asyncio.run(self.session.close()))
 
     async def _start_session(self) -> aiohttp.ClientSession:
@@ -163,7 +165,9 @@ def _(api_key: str) -> _BflClient:
 
 
 def _client() -> _BflClient:
-    return Env.get().get_client('bfl')
+    from pixeltable.runtime import get_runtime
+
+    return get_runtime().get_client('bfl')
 
 
 @pxt.udf(resource_pool='request-rate:bfl')

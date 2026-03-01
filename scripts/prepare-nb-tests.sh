@@ -52,7 +52,6 @@ rm "$TARGET_DIR/llm-tool-calling.ipynb"  # Flaky
 rm -f "$TARGET_DIR/working-with-fabric.ipynb"  # Requires Microsoft Fabric environment
 rm -f "$TARGET_DIR/working-with-tigris.ipynb"  # Requires Tigris environment
 rm "$TARGET_DIR/working-with-bfl.ipynb"  # Expensive (paid API, insufficient credits in CI)
-rm -f "$TARGET_DIR/working-with-tigris.ipynb"  # Requires Tigris environment
 
 # Get a list of all API keys referenced in the notebooks
 REF_API_KEYS=$(grep -hoE '[A-Z0-9_]*_(API|ACCESS)_(KEY|TOKEN)(_[A-Z0-9_]*)?' "$TARGET_DIR"/*.ipynb | sort | uniq)
