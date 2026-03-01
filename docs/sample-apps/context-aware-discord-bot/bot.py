@@ -41,12 +41,16 @@ async def on_message(message):
     await bot.process_commands(message)
     try:
         if message.content:
-            messages.insert([{
-                'channel_id': str(message.channel.id),
-                'username': message.author.name,
-                'content': message.content,
-                'timestamp': datetime.now(tz=timezone.utc),
-            }])
+            messages.insert(
+                [
+                    {
+                        'channel_id': str(message.channel.id),
+                        'username': message.author.name,
+                        'content': message.content,
+                        'timestamp': datetime.now(tz=timezone.utc),
+                    }
+                ]
+            )
     except Exception as e:
         logger.error(f'Failed to store message: {e}')
 
@@ -58,8 +62,7 @@ async def search(ctx, *, query: str):
     try:
         sim = sentences.text.similarity(query)
         results_df = (
-            sentences
-            .order_by(sim, asc=False)
+            sentences.order_by(sim, asc=False)
             .select(text=sentences.text, username=sentences.username, similarity=sim)
             .limit(5)
             .collect()
@@ -80,11 +83,9 @@ async def chat_command(ctx, *, question: str):
     """Chat with context from message history."""
     response_message = await ctx.send('Processing...')
     try:
-        chat.insert([{
-            'channel_id': str(ctx.channel.id),
-            'question': question,
-            'timestamp': datetime.now(tz=timezone.utc),
-        }])
+        chat.insert(
+            [{'channel_id': str(ctx.channel.id), 'question': question, 'timestamp': datetime.now(tz=timezone.utc)}]
+        )
         result = (
             chat.select(chat.question, chat.response, chat.context)
             .order_by(chat.timestamp, asc=False)
@@ -94,9 +95,7 @@ async def chat_command(ctx, *, question: str):
         if len(result) == 0:
             raise ValueError('Failed to generate response')
         embed = formatter.create_chat_embed(
-            question=question,
-            response=result['response'][0],
-            context=result['context'][0],
+            question=question, response=result['response'][0], context=result['context'][0]
         )
         await response_message.edit(content=None, embed=embed)
     except Exception as e:

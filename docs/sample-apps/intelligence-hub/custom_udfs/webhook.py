@@ -18,10 +18,7 @@ def post(url: str, payload: pxt.Json, headers: pxt.Json | None = None) -> pxt.Js
 
     Example:
         >>> t.add_computed_column(
-        ...     hook=webhook.post(
-        ...         'https://hooks.example.com/trigger',
-        ...         t.result_json,
-        ...     )
+        ...     hook=webhook.post('https://hooks.example.com/trigger', t.result_json)
         ... )
     """
     h = {'Content-Type': 'application/json'}

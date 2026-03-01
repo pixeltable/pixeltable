@@ -17,10 +17,7 @@ def send_message(webhook_url: str, content: str, username: str = 'Pixeltable Hub
 
     Example:
         >>> t.add_computed_column(
-        ...     alert=discord.send_message(
-        ...         DISCORD_WEBHOOK_URL,
-        ...         t.summary,
-        ...     )
+        ...     alert=discord.send_message(DISCORD_WEBHOOK_URL, t.summary)
         ... )
     """
     resp = requests.post(

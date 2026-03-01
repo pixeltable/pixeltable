@@ -25,12 +25,7 @@ pxt.create_dir(config.APP_NAMESPACE, if_exists='ignore')
 
 messages = pxt.create_table(
     f'{config.APP_NAMESPACE}.messages',
-    {
-        'channel_id': pxt.String,
-        'username': pxt.String,
-        'content': pxt.String,
-        'timestamp': pxt.Timestamp,
-    },
+    {'channel_id': pxt.String, 'username': pxt.String, 'content': pxt.String, 'timestamp': pxt.Timestamp},
     if_exists='ignore',
 )
 
@@ -56,11 +51,7 @@ print('  Messages: table + sentences view + embedding index')
 
 chat = pxt.create_table(
     f'{config.APP_NAMESPACE}.chat',
-    {
-        'channel_id': pxt.String,
-        'question': pxt.String,
-        'timestamp': pxt.Timestamp,
-    },
+    {'channel_id': pxt.String, 'question': pxt.String, 'timestamp': pxt.Timestamp},
     if_exists='ignore',
 )
 
@@ -69,8 +60,7 @@ chat = pxt.create_table(
 def get_context(question_text: str):
     sim = sentences.text.similarity(question_text)
     return (
-        sentences
-        .order_by(sim, asc=False)
+        sentences.order_by(sim, asc=False)
         .select(text=sentences.text, username=sentences.username, sim=sim)
         .limit(config.SIMILARITY_LIMIT)
     )
@@ -82,9 +72,7 @@ chat.add_computed_column(context=get_context(chat.question), if_exists='ignore')
 @pxt.udf
 def create_prompt(context: list[dict], question: str) -> str:
     context_str = '\n'.join(
-        f'{msg["username"]}: {msg["text"]}'
-        for msg in context
-        if msg['sim'] > config.SIMILARITY_THRESHOLD
+        f'{msg["username"]}: {msg["text"]}' for msg in context if msg['sim'] > config.SIMILARITY_THRESHOLD
     )
     return f'Context:\n{context_str}\n\nQuestion: {question}'
 
@@ -93,10 +81,7 @@ chat.add_computed_column(prompt=create_prompt(chat.context, chat.question), if_e
 
 chat.add_computed_column(
     response=openai.chat_completions(
-        messages=[
-            {'role': 'system', 'content': config.SYSTEM_PROMPT},
-            {'role': 'user', 'content': chat.prompt},
-        ],
+        messages=[{'role': 'system', 'content': config.SYSTEM_PROMPT}, {'role': 'user', 'content': chat.prompt}],
         model=config.LLM_MODEL,
         model_kwargs={
             'temperature': config.LLM_TEMPERATURE,
@@ -104,7 +89,9 @@ chat.add_computed_column(
             'presence_penalty': 0.7,
             'frequency_penalty': 0.5,
         },
-    ).choices[0].message.content,
+    )
+    .choices[0]
+    .message.content,
     if_exists='ignore',
 )
 

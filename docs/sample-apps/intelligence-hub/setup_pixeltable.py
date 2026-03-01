@@ -53,22 +53,13 @@ print('  Sources: table created')
 chunks = pxt.create_view(
     f'{config.APP_NAMESPACE}.chunks',
     sources,
-    iterator=document_splitter(
-        sources.doc,
-        separators='sentence,token_limit',
-        limit=300,
-        overlap=50,
-    ),
+    iterator=document_splitter(sources.doc, separators='sentence,token_limit', limit=300, overlap=50),
     if_exists='ignore',
 )
 
 sentence_embed = sentence_transformer.using(model_id=config.EMBEDDING_MODEL_ID)
 
-chunks.add_embedding_index(
-    'text',
-    string_embed=sentence_embed,
-    if_exists='ignore',
-)
+chunks.add_embedding_index('text', string_embed=sentence_embed, if_exists='ignore')
 
 print('  Chunks: view + embedding index')
 
@@ -77,12 +68,7 @@ print('  Chunks: view + embedding index')
 def search_chunks(query_text: str, n: int = 5):
     """Semantic search across all ingested content."""
     sim = chunks.text.similarity(string=query_text)
-    return (
-        chunks
-        .order_by(sim, asc=False)
-        .limit(n)
-        .select(chunks.text, chunks.title, sim=sim)
-    )
+    return chunks.order_by(sim, asc=False).limit(n).select(chunks.text, chunks.title, sim=sim)
 
 
 # ── 3. AI Processing (Computed Columns) ──────────────────────────────────────
@@ -91,9 +77,10 @@ def search_chunks(query_text: str, n: int = 5):
 if config.USE_OPENAI:
     sources.add_computed_column(
         summary=chat_completions(
-            messages=functions.make_summary_prompt(sources.title, sources.origin),
-            model=config.LLM_MODEL,
-        ).choices[0].message.content,
+            messages=functions.make_summary_prompt(sources.title, sources.origin), model=config.LLM_MODEL
+        )
+        .choices[0]
+        .message.content,
         if_exists='ignore',
     )
     print(f'  LLM: OpenAI ({config.LLM_MODEL})')
@@ -110,15 +97,11 @@ else:
     print(f'  LLM: llama.cpp ({config.LLAMA_REPO_ID})')
 
 # Relevance scoring
-sources.add_computed_column(
-    relevance=functions.score_relevance(sources.summary),
-    if_exists='ignore',
-)
+sources.add_computed_column(relevance=functions.score_relevance(sources.summary), if_exists='ignore')
 
 # Alert text (shared by all notification channels)
 sources.add_computed_column(
-    alert_text=functions.format_alert(sources.title, sources.summary, sources.relevance),
-    if_exists='ignore',
+    alert_text=functions.format_alert(sources.title, sources.summary, sources.relevance), if_exists='ignore'
 )
 
 print('  Processing: summary + relevance + alert_text')
@@ -127,23 +110,19 @@ print('  Processing: summary + relevance + alert_text')
 
 if config.SLACK_WEBHOOK_URL:
     sources.add_computed_column(
-        slack_alert=slack.send_message(config.SLACK_WEBHOOK_URL, sources.alert_text),
-        if_exists='ignore',
+        slack_alert=slack.send_message(config.SLACK_WEBHOOK_URL, sources.alert_text), if_exists='ignore'
     )
     print('  Notifications: Slack enabled')
 
 if config.DISCORD_WEBHOOK_URL:
     sources.add_computed_column(
-        discord_alert=discord.send_message(config.DISCORD_WEBHOOK_URL, sources.alert_text),
-        if_exists='ignore',
+        discord_alert=discord.send_message(config.DISCORD_WEBHOOK_URL, sources.alert_text), if_exists='ignore'
     )
     print('  Notifications: Discord enabled')
 
 if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
     sources.add_computed_column(
-        telegram_alert=telegram.send_message(
-            config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID, sources.alert_text,
-        ),
+        telegram_alert=telegram.send_message(config.TELEGRAM_BOT_TOKEN, config.TELEGRAM_CHAT_ID, sources.alert_text),
         if_exists='ignore',
     )
     print('  Notifications: Telegram enabled')
@@ -152,18 +131,11 @@ if config.TELEGRAM_BOT_TOKEN and config.TELEGRAM_CHAT_ID:
 
 if config.GOOGLE_SHEETS_CREDENTIALS and config.GOOGLE_SHEET_ID:
     sources.add_computed_column(
-        _export_payload=functions.make_export_row(
-            sources.title, sources.origin, sources.summary, sources.relevance,
-        ),
+        _export_payload=functions.make_export_row(sources.title, sources.origin, sources.summary, sources.relevance),
         if_exists='ignore',
     )
-    export_row = google_sheets.make_export_udf(
-        config.GOOGLE_SHEETS_CREDENTIALS, config.GOOGLE_SHEET_ID, 'Results',
-    )
-    sources.add_computed_column(
-        sheet_export=export_row(sources._export_payload),
-        if_exists='ignore',
-    )
+    export_row = google_sheets.make_export_udf(config.GOOGLE_SHEETS_CREDENTIALS, config.GOOGLE_SHEET_ID, 'Results')
+    sources.add_computed_column(sheet_export=export_row(sources._export_payload), if_exists='ignore')
     print('  Export: Google Sheets enabled')
 
 print('\nSchema setup complete.')

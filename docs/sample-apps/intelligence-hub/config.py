@@ -25,8 +25,16 @@ LLAMA_REPO_FILENAME = os.getenv('LLAMA_REPO_FILENAME', '*Q4_K_M.gguf')
 
 RELEVANCE_THRESHOLD = float(os.getenv('RELEVANCE_THRESHOLD', '0.7'))
 RELEVANCE_KEYWORDS = [
-    'AI', 'data', 'pipeline', 'automation', 'multimodal',
-    'vector', 'embedding', 'ETL', 'workflow', 'agent',
+    'AI',
+    'data',
+    'pipeline',
+    'automation',
+    'multimodal',
+    'vector',
+    'embedding',
+    'ETL',
+    'workflow',
+    'agent',
 ]
 
 # ── Notification channels (all optional) ─────────────────────────────────────
@@ -47,5 +55,5 @@ SEED_URLS = [
     {
         'url': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/LICENSE',
         'title': 'Pixeltable License (Apache 2.0)',
-    },
+    }
 ]

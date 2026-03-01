@@ -11,11 +11,16 @@ import pixeltable as pxt
 @pxt.udf
 def make_summary_prompt(title: str | None, origin: str | None) -> list[dict]:
     """Build the messages list for the summarization LLM call."""
-    return [{'role': 'user', 'content': (
-        f'Summarize the following content in 2-3 sentences:\n\n'
-        f'Title: {title or "Untitled"}\n\n'
-        f'This is a {origin or "unknown"} source.'
-    )}]
+    return [
+        {
+            'role': 'user',
+            'content': (
+                f'Summarize the following content in 2-3 sentences:\n\n'
+                f'Title: {title or "Untitled"}\n\n'
+                f'This is a {origin or "unknown"} source.'
+            ),
+        }
+    ]
 
 
 @pxt.udf
@@ -35,24 +40,10 @@ def score_relevance(summary: str | None) -> float:
 def format_alert(title: str | None, summary: str | None, relevance: float | None) -> str:
     """Format a notification message from row data."""
     score = f'{relevance:.0%}' if relevance is not None else 'N/A'
-    return (
-        f'[Intelligence Hub] New item (relevance {score})\n\n'
-        f'*{title or "Untitled"}*\n'
-        f'{summary or "No summary"}'
-    )
+    return f'[Intelligence Hub] New item (relevance {score})\n\n*{title or "Untitled"}*\n{summary or "No summary"}'
 
 
 @pxt.udf
-def make_export_row(
-    title: str | None,
-    origin: str | None,
-    summary: str | None,
-    relevance: float | None,
-) -> pxt.Json:
+def make_export_row(title: str | None, origin: str | None, summary: str | None, relevance: float | None) -> pxt.Json:
     """Build a flat list of values for Google Sheets export."""
-    return [
-        title or '',
-        origin or '',
-        summary or '',
-        f'{relevance:.2f}' if relevance is not None else '0',
-    ]
+    return [title or '', origin or '', summary or '', f'{relevance:.2f}' if relevance is not None else '0']

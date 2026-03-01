@@ -17,16 +17,10 @@ def send_message(webhook_url: str, text: str) -> pxt.Json:
 
     Example:
         >>> t.add_computed_column(
-        ...     alert=slack.send_message(
-        ...         SLACK_WEBHOOK_URL,
-        ...         t.summary,
-        ...     )
+        ...     alert=slack.send_message(SLACK_WEBHOOK_URL, t.summary)
         ... )
     """
     resp = requests.post(
-        webhook_url,
-        data=json.dumps({'text': text}),
-        headers={'Content-Type': 'application/json'},
-        timeout=10,
+        webhook_url, data=json.dumps({'text': text}), headers={'Content-Type': 'application/json'}, timeout=10
     )
     return {'ok': resp.status_code == 200, 'status': resp.status_code}

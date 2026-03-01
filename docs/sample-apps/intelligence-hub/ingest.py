@@ -28,14 +28,19 @@ def _now() -> datetime:
 # Insert URLs directly -- Pixeltable fetches + parses HTML via pxt.Document.
 
 for item in config.SEED_URLS:
-    sources.insert([{
-        'url': item['url'],
-        'title': item['title'],
-        'doc': item['url'],
-        'origin': 'web',
-        'metadata': {},
-        'timestamp': _now(),
-    }], on_error='ignore')
+    sources.insert(
+        [
+            {
+                'url': item['url'],
+                'title': item['title'],
+                'doc': item['url'],
+                'origin': 'web',
+                'metadata': {},
+                'timestamp': _now(),
+            }
+        ],
+        on_error='ignore',
+    )
     print(f'  Web: inserted "{item["title"]}"')
 
 
@@ -44,9 +49,7 @@ for item in config.SEED_URLS:
 
 if config.GOOGLE_SHEETS_CREDENTIALS and config.GOOGLE_SHEET_ID:
     try:
-        sheet_rows = google_sheets.import_rows(
-            config.GOOGLE_SHEETS_CREDENTIALS, config.GOOGLE_SHEET_ID,
-        )
+        sheet_rows = google_sheets.import_rows(config.GOOGLE_SHEETS_CREDENTIALS, config.GOOGLE_SHEET_ID)
         mapped = [
             {
                 'url': row.get('url', ''),

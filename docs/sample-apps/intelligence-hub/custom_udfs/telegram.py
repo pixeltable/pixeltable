@@ -15,9 +15,7 @@ def send_message(bot_token: str, chat_id: str, text: str) -> pxt.Json:
 
     Example:
         >>> t.add_computed_column(
-        ...     alert=telegram.send_message(
-        ...         BOT_TOKEN, CHAT_ID, t.summary,
-        ...     )
+        ...     alert=telegram.send_message(BOT_TOKEN, CHAT_ID, t.summary)
         ... )
     """
     url = f'https://api.telegram.org/bot{bot_token}/sendMessage'

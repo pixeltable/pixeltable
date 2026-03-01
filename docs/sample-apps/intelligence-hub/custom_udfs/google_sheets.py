@@ -11,11 +11,7 @@ from typing import Any
 import pixeltable as pxt
 
 
-def import_rows(
-    credentials_path: str,
-    spreadsheet_id: str,
-    sheet_name: str = 'Sheet1',
-) -> list[dict[str, Any]]:
+def import_rows(credentials_path: str, spreadsheet_id: str, sheet_name: str = 'Sheet1') -> list[dict[str, Any]]:
     """Read all rows from a Google Sheet and return them as dicts.
 
     This is a plain helper (not a UDF) meant to be called once to seed
@@ -32,11 +28,7 @@ def import_rows(
     return sheet.get_all_records()
 
 
-def make_export_udf(
-    credentials_path: str,
-    spreadsheet_id: str,
-    sheet_name: str = 'Results',
-) -> pxt.func.Function:
+def make_export_udf(credentials_path: str, spreadsheet_id: str, sheet_name: str = 'Results') -> pxt.func.Function:
     """Create a UDF that appends a row to a Google Sheet.
 
     Configuration (credentials, sheet ID) is captured in the closure
