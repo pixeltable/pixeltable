@@ -745,6 +745,7 @@ class Env:
         self.__register_package('torchvision')
         self.__register_package('transformers')
         self.__register_package('twelvelabs')
+        self.__register_package('vllm')
         self.__register_package('voyageai')
         self.__register_package('whisper', library_name='openai-whisper')
         self.__register_package('whisperx')

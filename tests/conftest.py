@@ -56,6 +56,7 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     _logger.info(f'Running Pixeltable test: {current_test}')
     pxtf.huggingface._model_cache.clear()
     pxtf.huggingface._processor_cache.clear()
+    pxtf.vllm._model_cache.clear()
 
 
 def pytest_runtest_teardown(item: pytest.Item) -> None:
