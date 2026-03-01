@@ -28,11 +28,11 @@ sequenceDiagram
 ## Features
 
 - **Multimodal Data Support**: Process and analyze documents, videos, and audio files
-- **Advanced Processing**: Leverages [Pixeltable's data types and formats](https://docs.pixeltable.com/data-types-and-formats)
+- **Advanced Processing**: Leverages [Pixeltable's type system](https://docs.pixeltable.com/platform/type-system)
 - **Flexible LLM Integration**: 
-  - Default: [OpenAI](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-openai.ipynb)
-  - Alternative options: [Ollama](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-ollama.ipynb), [LLama.cpp](https://github.com/pixeltable/pixeltable/blob/release/docs/notebooks/integrations/working-with-llama-cpp.ipynb)
-- **Local Processing Options**: Use [Whisper/WhisperX](https://docs.pixeltable.com/examples/search/audio) for local transcription
+  - Default: [OpenAI](https://docs.pixeltable.com/integrations/openai)
+  - Alternative options: [Ollama](https://docs.pixeltable.com/integrations/ollama), [Llama.cpp](https://docs.pixeltable.com/integrations/llama-cpp)
+- **Local Processing Options**: Use [Whisper/WhisperX](https://docs.pixeltable.com/integrations/whisper) for local transcription
 
 ## Deployment Options
 
@@ -105,3 +105,10 @@ Current AWS deployment has the following limitations:
 - No Session Management: Each request is treated independently
 - No Ephemeral Storage Management: Container storage isn't cleaned automatically
 - Cost Considerations: Includes billable AWS services (Fargate, NAT Gateway, ALB, CloudWatch)
+
+## Learn More
+
+- [Pixeltable Documentation](https://docs.pixeltable.com/)
+- [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template)
+- [Deployment Guide](https://docs.pixeltable.com/howto/deployment/overview)
+- [Discord Community](https://discord.gg/QPyqFYx2UN)

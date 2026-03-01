@@ -161,6 +161,12 @@ sequenceDiagram
 - Analysis timeout: Verify API keys
 - Image processing: Check screenshot format
 
-## ⚠️ Disclaimer
+## Learn More
+
+- [Pixeltable Documentation](https://docs.pixeltable.com/)
+- [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template)
+- [Discord Community](https://discord.gg/QPyqFYx2UN)
+
+## Disclaimer
 
 This application is for educational and research purposes only. Do not use it to make financial decisions. Always consult with a licensed financial advisor before making any investment decisions.
