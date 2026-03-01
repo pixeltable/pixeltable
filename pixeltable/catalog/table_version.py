@@ -6,7 +6,7 @@ import itertools
 import logging
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 from uuid import UUID
 
 import jsonschema.exceptions
@@ -325,7 +325,9 @@ class TableVersion:
             index_cols: list[Column] = []
             for col in (c for c in cols if cls._is_btree_indexable(c)):
                 idx = index.BtreeIndex()
-                val_col, undo_col = cls._create_index_columns(col, idx, 0, tbl_handle, id_cb=lambda: next(column_ids))
+                val_col, undo_col = Column.create_index_columns(
+                    tbl_handle, col, idx, next(column_ids), next(column_ids), 0
+                )
                 index_cols.extend([val_col, undo_col])
 
                 idx_id = next(index_ids)
@@ -482,17 +484,12 @@ class TableVersion:
                 else None
             )
 
-            stores_cellmd: bool | None = None  # None: determined by the column properties (in the Column c'tor)
             sa_col_type: sql.types.TypeEngine | None = None
             if col_md.id in val_col_idxs:
                 idx = val_col_idxs[col_md.id]
-                # for index value columns, the index gets to override the default
-                stores_cellmd = idx.records_value_errors()
                 sa_col_type = idx.get_index_sa_type(col_type)
             elif col_md.id in undo_col_idxs:
                 idx = undo_col_idxs[col_md.id]
-                # for index undo columns, we never store cellmd
-                stores_cellmd = False
                 sa_col_type = idx.get_index_sa_type(col_type)
 
             # Iterator columns are those produced by the component view's iterator. The special pos (id=0) column
@@ -509,7 +506,7 @@ class TableVersion:
                 sa_col_type=sa_col_type,
                 schema_version_add=col_md.schema_version_add,
                 schema_version_drop=col_md.schema_version_drop,
-                stores_cellmd=stores_cellmd,
+                stores_cellmd=col_md.stores_cellmd,
                 value_expr_dict=col_md.value_expr,
                 tbl_handle=self.handle,
                 destination=col_md.destination,
@@ -633,49 +630,6 @@ class TableVersion:
         status = self._add_index(col, idx_name=None, idx=index.BtreeIndex())
         return status
 
-    @classmethod
-    def _create_index_columns(
-        cls,
-        col: Column,
-        idx: index.IndexBase,
-        schema_version: int,
-        tbl_handle: TableVersionHandle,
-        id_cb: Callable[[], int],
-    ) -> tuple[Column, Column]:
-        """Create value and undo columns for the given index.
-        Args:
-            idx:  index for which columns will be created.
-        Returns:
-            A tuple containing the value column and the undo column, both of which are nullable.
-        """
-        value_expr = idx.create_value_expr(col)
-        val_col = Column(
-            col_id=id_cb(),
-            name=None,
-            computed_with=value_expr,
-            sa_col_type=idx.get_index_sa_type(value_expr.col_type),
-            stored=True,
-            stores_cellmd=idx.records_value_errors(),
-            schema_version_add=schema_version,
-            schema_version_drop=None,
-        )
-        val_col.col_type = val_col.col_type.copy(nullable=True)
-        val_col.tbl_handle = tbl_handle
-
-        undo_col = Column(
-            col_id=id_cb(),
-            name=None,
-            col_type=val_col.col_type,
-            sa_col_type=val_col.sa_col_type,
-            stored=True,
-            stores_cellmd=False,
-            schema_version_add=schema_version,
-            schema_version_drop=None,
-        )
-        undo_col.col_type = undo_col.col_type.copy(nullable=True)
-        undo_col.tbl_handle = tbl_handle
-        return val_col, undo_col
-
     def _create_index_md(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
     ) -> int:
@@ -718,8 +672,8 @@ class TableVersion:
         self.store_tbl.create_index(idx_id)
 
     def _add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
-        val_col, undo_col = self._create_index_columns(
-            col, idx, self.schema_version, self.handle, id_cb=self.next_col_id
+        val_col, undo_col = Column.create_index_columns(
+            self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
         )
         # add the columns and update the metadata
         # TODO support on_error='abort' for indices; it's tricky because of the way metadata changes are entangled
@@ -779,8 +733,8 @@ class TableVersion:
             all_cols.append(col)
             if col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex()
-                val_col, undo_col = self._create_index_columns(
-                    col, idx, self.schema_version, self.handle, id_cb=self.next_col_id
+                val_col, undo_col = Column.create_index_columns(
+                    self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
                 )
                 index_cols[col] = (idx, val_col, undo_col)
                 all_cols.append(val_col)
@@ -801,6 +755,7 @@ class TableVersion:
                 value_expr=col.value_expr.as_dict() if col.value_expr is not None else None,
                 stored=col.stored,
                 destination=col._explicit_destination,
+                stores_cellmd=col.stores_cellmd,
             )
             self._tbl_md.column_md[col.id] = col_md
 
@@ -854,8 +809,8 @@ class TableVersion:
             all_cols.append(col)
             if col.name is not None and self._is_btree_indexable(col):
                 idx = index.BtreeIndex()
-                val_col, undo_col = self._create_index_columns(
-                    col, idx, self.schema_version, self.handle, id_cb=self.next_col_id
+                val_col, undo_col = Column.create_index_columns(
+                    self.handle, col, idx, self.next_col_id(), self.next_col_id(), self.schema_version
                 )
                 index_cols[col] = (idx, val_col, undo_col)
                 all_cols.append(val_col)

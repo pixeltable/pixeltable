@@ -111,8 +111,10 @@ class Project(ExternalStore, abc.ABC):
 
         if len(stored_proxies_needed) > 0:
             _logger.info(f'Creating stored proxies for columns: {[col.name for col in stored_proxies_needed]}')
+            stored_proxies_ids = {col.col_id for col in self.stored_proxies}
+            assert not any(col.id in stored_proxies_ids for col in stored_proxies_needed)
             # Create stored proxies for columns that need one
-            proxy_cols = [self.create_stored_proxy(col) for col in stored_proxies_needed]
+            proxy_cols = [Column.create_stored_proxy_column(col) for col in stored_proxies_needed]
             # Add the columns; this will also update table metadata.
             tbl_version.add_columns(proxy_cols, print_stats=False, on_error='ignore')
             self.stored_proxies.update(
@@ -130,27 +132,6 @@ class Project(ExternalStore, abc.ABC):
             _logger.info(f'Removing stored proxies for columns: {[col.get().name for col in deletions_needed]}')
             tbl_version._drop_columns(col.get() for col in deletions_needed)
             self.stored_proxies.clear()
-
-    def create_stored_proxy(self, col: Column) -> Column:
-        """
-        Creates a proxy column for the specified column. The proxy column will be created in the specified
-        `TableVersion`.
-        """
-        from pixeltable import exprs
-
-        assert (
-            col.col_type.is_media_type() and not (col.is_stored and col.is_computed) and col not in self.stored_proxies
-        )
-        proxy_col = Column(
-            name=None,
-            # Force images in the proxy column to be materialized inside the media store, in a normalized format.
-            # TODO(aaron-siegel): This is a temporary solution and it will be replaced by a proper `destination`
-            #   parameter for computed columns. Among other things, this solution does not work for video or audio.
-            #   Once `destination` is implemented, it can be replaced with a simple `ColumnRef`.
-            computed_with=exprs.ColumnRef(col).apply(lambda x: x, col_type=col.col_type),
-            stored=True,
-        )
-        return proxy_col
 
     @property
     def col_mapping(self) -> dict[ColumnHandle, str]:
