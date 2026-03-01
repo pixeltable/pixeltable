@@ -14,8 +14,8 @@
 ## Setup
 
 ```bash
-pip install -r requirements.txt    # Installs Pixeltable, Whisper, Click, PyTubeFix
-python init.py                     # Initialize tables and CLIP indices
+uv sync              # or: pip install -e .
+python init.py       # Initialize tables and CLIP indices
 ```
 
 ## Quick Demo
@@ -159,9 +159,11 @@ Status:
 - `tempfile.mktemp()`: Standard Python temporary file handling for YouTube downloads
 - Eliminates startup overhead for repeated operations
 
-## API Documentation
+## Learn More
 
-- [Video Functions](https://pixeltable.github.io/pixeltable/pixeltable/functions/video/)
-- [Image Functions](https://pixeltable.github.io/pixeltable/pixeltable/functions/image/) 
-- [CLIP Integration](https://pixeltable.github.io/pixeltable/pixeltable/functions/huggingface/#pixeltable.functions.huggingface.clip)
-- [Pixeltable Documentation](https://docs.pixeltable.com)
+- [Pixeltable Documentation](https://docs.pixeltable.com/)
+- [Video Functions Reference](https://docs.pixeltable.com/sdk/latest/pixeltable/functions/video)
+- [Image Functions Reference](https://docs.pixeltable.com/sdk/latest/pixeltable/functions/image)
+- [CLIP Integration](https://docs.pixeltable.com/integrations/hugging-face)
+- [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template)
+- [Discord Community](https://discord.gg/QPyqFYx2UN)

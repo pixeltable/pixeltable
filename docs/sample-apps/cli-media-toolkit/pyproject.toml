@@ -1,0 +1,11 @@
+[project]
+name = "cli-media-toolkit"
+version = "0.1.0"
+description = "CLI media processing toolkit powered by Pixeltable"
+requires-python = ">=3.10"
+dependencies = [
+    "pixeltable>=0.4",
+    "pytubefix>=9.1",
+    "click>=8.0",
+    "openai-whisper",
+]

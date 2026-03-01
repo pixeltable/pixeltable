@@ -54,8 +54,7 @@ sequenceDiagram
 
 ## ⚙️ Installation & Setup
 
-1.  **Venv:** `python -m venv venv && source venv/bin/activate` (or `venv\Scripts\activate` on Windows)
-2.  **Install:** `pip install -r requirements.txt`
+1.  **Install:** `uv sync` (or `pip install -e .`)
 3.  **Configure `.env` and add your credentials.
     ```dotenv
     # Reddit API Credentials (Script App Type)
@@ -160,4 +159,10 @@ Reddit Bot finished.
 *   **👍👎 Feedback Loop:** Allow users to rate answers (`!good_answer`).
 *   **🌐 Multi-Subreddit / Conditional Logic:** Monitor more subs with varying rules.
 
-See [Pixeltable examples](https://docs.pixeltable.com/examples/use-cases) for different implementations of the above that you can add to this Reddit bot from maintaining short-term and long-term memory to additional interactions.
+See [Pixeltable cookbooks](https://docs.pixeltable.com/howto/cookbooks) for patterns you can add to this bot (short-term/long-term memory, tool calling, multimodal RAG).
+
+## Learn More
+
+- [Pixeltable Documentation](https://docs.pixeltable.com/)
+- [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template)
+- [Discord Community](https://discord.gg/QPyqFYx2UN)
