@@ -1,0 +1,257 @@
+---
+title: 'DIY Data Pipeline'
+sidebarTitle: 'DIY Data Pipeline'
+description: 'Replace custom scripts, DVC, Airflow, and manual processing with declarative tables'
+---
+
+If you've been wrangling multimodal data with custom Python scripts, DVC for versioning, Airflow for scheduling, and manual processing loops — this guide shows how Pixeltable replaces that plumbing with declarative tables.
+
+<Note>**Related use case:** [Data Wrangling for ML](/use-cases/ml-data-wrangling)</Note>
+
+---
+
+## Concept Mapping
+
+| Your DIY Stack | Pixeltable Equivalent |
+|---|---|
+| S3 buckets for media files | [`pxt.Image`, `pxt.Video`, `pxt.Audio`](/platform/type-system) columns — can still [read from S3](/integrations/cloud-storage) |
+| DVC for data versioning | Built-in [`history()`, `revert()`, `create_snapshot()`](/platform/version-control) |
+| Airflow / cron for scheduling | [Computed columns](/tutorials/computed-columns) — run automatically on insert |
+| Custom scripts with OpenCV / PIL | [`@pxt.udf`](/platform/udfs-in-pixeltable) functions as computed columns |
+| `cv2.VideoCapture()` + frame loops | [`frame_iterator`](/platform/iterators) via `create_view()` |
+| Manual retry logic (`tenacity`) | Automatic retries with result caching |
+| Embeddings as numpy / Parquet | [`add_embedding_index()`](/platform/embedding-indexes) with HNSW search |
+| `torch.utils.data.Dataset` boilerplate | [`to_pytorch_dataset()`](/howto/cookbooks/data/data-export-pytorch) — one line |
+| Re-run pipeline when data changes | Incremental — only new rows are processed |
+
+---
+
+## Side by Side: Image Processing Pipeline
+
+Process images: generate thumbnails, caption with an LLM, embed for search, version everything.
+
+<Tabs>
+  <Tab title="Custom Scripts">
+    ```python
+    import pandas as pd
+    import numpy as np
+    from PIL import Image
+    from openai import OpenAI
+    from pathlib import Path
+    import base64, time
+
+    client = OpenAI()
+
+    # Load metadata
+    image_dir = Path('dataset/images/')
+    df = pd.DataFrame([
+        {'filename': f.name, 'path': str(f), 'category': 'unknown'}
+        for f in image_dir.glob('*.jpg')
+    ])
+
+    # Generate thumbnails (manual loop)
+    thumb_dir = Path('dataset/thumbnails/')
+    thumb_dir.mkdir(exist_ok=True)
+    for idx, row in df.iterrows():
+        img = Image.open(row['path'])
+        img.thumbnail((256, 256))
+        img.save(thumb_dir / row['filename'])
+        df.at[idx, 'thumbnail'] = str(thumb_dir / row['filename'])
+
+    # Caption images (manual retry, one at a time)
+    def caption_image(path, max_retries=3):
+        with open(path, 'rb') as f:
+            b64 = base64.b64encode(f.read()).decode()
+        for attempt in range(max_retries):
+            try:
+                resp = client.chat.completions.create(
+                    model='gpt-4o-mini',
+                    messages=[{'role': 'user', 'content': [
+                        {'type': 'text', 'text': 'Describe this image in one sentence.'},
+                        {'type': 'image_url', 'image_url': {
+                            'url': f'data:image/jpeg;base64,{b64}'}}
+                    ]}],
+                )
+                return resp.choices[0].message.content
+            except Exception:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                else:
+                    return None
+
+    df['caption'] = [caption_image(row['path']) for _, row in df.iterrows()]
+
+    # Generate embeddings (batch manually, store as numpy)
+    valid = df.dropna(subset=['caption'])
+    resp = client.embeddings.create(
+        input=valid['caption'].tolist(), model='text-embedding-3-small')
+    np.save('dataset/embeddings.npy', [e.embedding for e in resp.data])
+
+    # Persist and version
+    df.to_csv('dataset/metadata.csv', index=False)
+    # Then: dvc add dataset/ && dvc push && git add && git commit
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions.openai import chat_completions, embeddings
+    from pathlib import Path
+
+    images = pxt.create_table('ml.images', {
+        'image': pxt.Image, 'category': pxt.String})
+
+    images.add_computed_column(thumbnail=images.image.resize((256, 256)))
+
+    messages = [{'role': 'user', 'content': [
+        {'type': 'text', 'text': 'Describe this image in one sentence.'},
+        {'type': 'image_url', 'image_url': images.image},
+    ]}]
+    images.add_computed_column(response=chat_completions(
+        messages=messages, model='gpt-4o-mini'))
+    images.add_computed_column(
+        caption=images.response.choices[0].message.content)
+
+    images.add_embedding_index('caption',
+        string_embed=embeddings.using(model='text-embedding-3-small'))
+
+    images.insert([{'image': str(f), 'category': 'unknown'}
+        for f in Path('dataset/images/').glob('*.jpg')])
+
+    sim = images.caption.similarity(string='a dog playing in the park')
+    images.order_by(sim, asc=False).limit(5) \
+        .select(images.image, images.caption).collect()
+    ```
+  </Tab>
+</Tabs>
+
+### What Changes
+
+| | Custom Scripts | Pixeltable |
+|---|---|---|
+| **New images** | Re-run the entire pipeline | `images.insert([...])` — everything downstream runs |
+| **Change model** | Re-run everything; DVC tracks snapshots, not transforms | Drop and re-add the column — only that column recomputes |
+| **Versioning** | `dvc add` + `git commit` ceremony | Automatic — `images.history()`, `pxt.create_snapshot()` |
+| **Scheduling** | Airflow, cron, or manual re-runs | Not needed — computed columns run on insert |
+| **Retries** | `try/except` with backoff in every function | Built-in; successful results are cached |
+| **Search** | Brute-force numpy, or set up a vector DB | `add_embedding_index()` with HNSW |
+| **PyTorch export** | Custom `Dataset` class | `images.to_pytorch_dataset()` |
+
+---
+
+## Common Patterns
+
+### Video frame extraction
+
+<Tabs>
+  <Tab title="OpenCV">
+    ```python
+    import cv2
+    from PIL import Image
+
+    cap = cv2.VideoCapture('demo.mp4')
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    frames, idx = [], 0
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
+        if idx % int(fps) == 0:
+            frames.append(Image.fromarray(
+                cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)))
+        idx += 1
+    cap.release()
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    from pixeltable.functions.video import frame_iterator
+
+    videos = pxt.create_table('ml.videos', {'video': pxt.Video})
+    frames = pxt.create_view('ml.frames', videos,
+        iterator=frame_iterator(videos.video, fps=1))
+
+    videos.insert([{'video': 'demo.mp4'}])
+    frames.select(frames.frame).head(10)
+    ```
+  </Tab>
+</Tabs>
+
+### Data versioning
+
+<Tabs>
+  <Tab title="DVC">
+    ```bash
+    dvc add dataset/
+    git add dataset.dvc .gitignore
+    git commit -m "update dataset v3"
+    dvc push
+
+    # Revert
+    git checkout HEAD~1 -- dataset.dvc
+    dvc checkout
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    images.history()
+    pxt.create_snapshot('ml.images_before_relabeling', images)
+    images.revert()
+    ```
+  </Tab>
+</Tabs>
+
+### PyTorch export
+
+<Tabs>
+  <Tab title="Custom Dataset">
+    ```python
+    from torch.utils.data import Dataset, DataLoader
+    from torchvision import transforms
+
+    class ImageDataset(Dataset):
+        def __init__(self, df, transform=None):
+            self.df = df.reset_index(drop=True)
+            self.transform = transform
+        def __len__(self):
+            return len(self.df)
+        def __getitem__(self, idx):
+            img = Image.open(self.df.at[idx, 'path'])
+            if self.transform:
+                img = self.transform(img)
+            return img, self.df.at[idx, 'category']
+
+    loader = DataLoader(ImageDataset(df, transforms.Compose([
+        transforms.Resize((224, 224)), transforms.ToTensor()])),
+        batch_size=32)
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    from torch.utils.data import DataLoader
+
+    ds = images.select(images.image, images.category) \
+        .to_pytorch_dataset()
+    loader = DataLoader(ds, batch_size=32)
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Data Wrangling for ML" icon="database" href="/use-cases/ml-data-wrangling">
+    Full use case walkthrough
+  </Card>
+  <Card title="Extract Video Frames" icon="film" href="/howto/cookbooks/video/video-extract-frames">
+    Frame extraction with FPS control
+  </Card>
+  <Card title="Export to PyTorch" icon="fire" href="/howto/cookbooks/data/data-export-pytorch">
+    Convert tables to DataLoaders
+  </Card>
+  <Card title="Cloud Storage" icon="cloud" href="/integrations/cloud-storage">
+    S3, GCS, Azure, R2, Tigris
+  </Card>
+</CardGroup>

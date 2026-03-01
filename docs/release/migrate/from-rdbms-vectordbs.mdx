@@ -1,0 +1,201 @@
+---
+title: 'RDBMS & Vector DBs'
+sidebarTitle: 'RDBMS & Vector DBs'
+description: 'Replace Postgres + Pinecone + LangChain RAG stacks with a single declarative system'
+---
+
+If you're running a RAG application with Postgres for metadata, a vector database like Pinecone or Weaviate for embeddings, and LangChain for orchestration — this guide shows how Pixeltable unifies all three.
+
+<Note>**Related use case:** [Backend for AI Apps](/use-cases/ai-applications)</Note>
+
+---
+
+## Concept Mapping
+
+| Your Database Stack | Pixeltable Equivalent |
+|---|---|
+| Postgres / MySQL for metadata | [`pxt.create_table()`](/tutorials/tables-and-data-operations) with typed columns |
+| Pinecone / Weaviate / Chroma for embeddings | [`add_embedding_index()`](/platform/embedding-indexes) — built-in HNSW search |
+| S3 for media files (referenced by URL) | [`pxt.Image`, `pxt.Video`, `pxt.Document`](/platform/type-system) native types |
+| ORM (SQLAlchemy, Prisma) | [`.select()`, `.where()`, `.order_by()`](/tutorials/queries-and-expressions) |
+| LangChain `DocumentLoader` | `insert()`, [`import_csv()`](/howto/cookbooks/data/data-import-csv), [import from S3](/integrations/cloud-storage) |
+| `RecursiveCharacterTextSplitter` | [`document_splitter`](/platform/iterators) iterator via `create_view()` |
+| `retriever.get_relevant_documents()` | [`.similarity()`](/platform/embedding-indexes) + `.order_by()` |
+| `create_retrieval_chain()` | [Computed column](/tutorials/computed-columns) with LLM call |
+| Keeping Postgres and Pinecone in sync | Automatic — derived columns can't go stale |
+
+---
+
+## Side by Side: RAG Pipeline
+
+Load documents, chunk, embed, retrieve, and generate answers.
+
+<Tabs>
+  <Tab title="LangChain + Pinecone">
+    ```python
+    from langchain_community.document_loaders import PyPDFLoader
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+    from langchain_pinecone import PineconeVectorStore
+    from langchain.chains import create_retrieval_chain
+    from langchain.chains.combine_documents import create_stuff_documents_chain
+    from langchain.prompts import PromptTemplate
+
+    # Load and chunk
+    documents = PyPDFLoader('report.pdf').load()
+    chunks = RecursiveCharacterTextSplitter(
+        chunk_size=1000, chunk_overlap=200
+    ).split_documents(documents)
+
+    # Embed and store in Pinecone
+    embeddings = OpenAIEmbeddings(model='text-embedding-3-small')
+    vector_store = PineconeVectorStore.from_documents(
+        chunks, embeddings, index_name='my-index')
+    retriever = vector_store.as_retriever(search_kwargs={'k': 5})
+
+    # Build chain
+    prompt = PromptTemplate.from_template(
+        'Answer based on context:\n{context}\n\nQuestion: {input}')
+    llm = ChatOpenAI(model='gpt-4o-mini', temperature=0)
+    rag_chain = create_retrieval_chain(
+        retriever,
+        create_stuff_documents_chain(llm, prompt))
+
+    result = rag_chain.invoke({'input': 'What were the key findings?'})
+    print(result['answer'])
+    ```
+
+    **Packages:** `langchain`, `langchain-openai`, `langchain-pinecone`, `pinecone-client`, `sqlalchemy`
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    import pixeltable as pxt
+    from pixeltable.functions.openai import chat_completions, embeddings
+    from pixeltable.functions.document import document_splitter
+
+    docs = pxt.create_table('rag.docs', {
+        'pdf': pxt.Document, 'source': pxt.String})
+
+    chunks = pxt.create_view('rag.chunks', docs,
+        iterator=document_splitter(
+            docs.pdf, separators='sentence,token_limit', limit=300))
+
+    chunks.add_embedding_index('text',
+        string_embed=embeddings.using(model='text-embedding-3-small'))
+
+    @pxt.query
+    def retrieve(question: str, top_k: int = 5) -> pxt.Query:
+        sim = chunks.text.similarity(string=question)
+        return chunks.order_by(sim, asc=False) \
+            .limit(top_k).select(chunks.text)
+
+    qa = pxt.create_table('rag.qa', {'question': pxt.String})
+    qa.add_computed_column(context=retrieve(qa.question))
+
+    @pxt.udf
+    def build_prompt(question: str, context: list[dict]) -> str:
+        ctx = '\n\n'.join(c['text'] for c in context)
+        return f'Answer based on context:\n{ctx}\n\nQuestion: {question}'
+
+    qa.add_computed_column(prompt=build_prompt(qa.question, qa.context))
+    qa.add_computed_column(response=chat_completions(
+        messages=[{'role': 'user', 'content': qa.prompt}],
+        model='gpt-4o-mini'))
+    qa.add_computed_column(
+        answer=qa.response.choices[0].message.content)
+
+    docs.insert([{'pdf': 'report.pdf', 'source': 'annual_report'}])
+    qa.insert([{'question': 'What were the key findings?'}])
+    qa.select(qa.question, qa.answer).collect()
+    ```
+
+    **Packages:** `pixeltable`, `openai`
+  </Tab>
+</Tabs>
+
+### What Changes
+
+| | LangChain + Pinecone | Pixeltable |
+|---|---|---|
+| **New documents** | Re-run chunking, embedding, and Pinecone upsert | `docs.insert([...])` — chunks, embeddings, and index update automatically |
+| **Infrastructure** | Postgres + Pinecone account + API keys | Single local system, no external services |
+| **Sync issues** | Postgres metadata and Pinecone vectors can drift | Impossible — derived columns are always consistent |
+| **Intermediate results** | Ephemeral unless you add logging | Every column is stored and queryable: `qa.select(qa.context).collect()` |
+| **Versioning** | Not built-in | `t.history()`, `pxt.create_snapshot()` |
+| **Swap providers** | Rewrite chain with new provider classes | Change the model string — same pipeline |
+
+---
+
+## Common Patterns
+
+### Adding new documents
+
+<Tabs>
+  <Tab title="LangChain + Pinecone">
+    ```python
+    new_docs = PyPDFLoader('new_report.pdf').load()
+    new_chunks = splitter.split_documents(new_docs)
+    vector_store.add_documents(new_chunks)
+    # Also update Postgres metadata...
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    docs.insert([{'pdf': 'new_report.pdf', 'source': 'quarterly'}])
+    ```
+  </Tab>
+</Tabs>
+
+### Filtering by metadata
+
+<Tabs>
+  <Tab title="Pinecone">
+    ```python
+    retriever = vector_store.as_retriever(
+        search_kwargs={'k': 5, 'filter': {'source': 'annual_report'}})
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    sim = chunks.text.similarity(string=query)
+    results = (chunks
+        .where((chunks.source == 'annual_report') & (sim > 0.3))
+        .order_by(sim, asc=False).limit(5).collect())
+    ```
+  </Tab>
+</Tabs>
+
+### Inspecting what was retrieved
+
+<Tabs>
+  <Tab title="LangChain">
+    ```python
+    result = rag_chain.invoke({'input': query})
+    print(result['context'])  # if available
+    ```
+  </Tab>
+  <Tab title="Pixeltable">
+    ```python
+    qa.select(qa.question, qa.context, qa.answer).collect()
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Backend for AI Apps" icon="microchip" href="/use-cases/ai-applications">
+    Full use case walkthrough
+  </Card>
+  <Card title="RAG Pipeline" icon="database" href="/howto/cookbooks/agents/pattern-rag-pipeline">
+    Complete RAG system with chunking and retrieval
+  </Card>
+  <Card title="Chunk Documents" icon="scissors" href="/howto/cookbooks/text/doc-chunk-for-rag">
+    Control chunk size, overlap, and splitting strategies
+  </Card>
+  <Card title="Semantic Search" icon="magnifying-glass" href="/howto/cookbooks/search/search-semantic-text">
+    Search patterns and similarity queries
+  </Card>
+</CardGroup>
