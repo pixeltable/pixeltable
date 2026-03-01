@@ -33,6 +33,26 @@ We provide instruction files for AI coding agents (Cursor, Claude Code, Windsurf
 
 Add these to your project or point your AI assistant to them for better Pixeltable code generation.
 
+### Claude Code Skill
+
+For [Claude Code](https://docs.anthropic.com/en/docs/agents-and-tools/claude-code/overview) users, we publish a dedicated skill that Claude discovers automatically when you ask about Pixeltable. It uses progressive disclosure — Claude loads a concise `SKILL.md` with core patterns first, then pulls in the full `API_REFERENCE.md` (all provider signatures, end-to-end templates, FastAPI best practices) only when needed.
+
+<Card title="Pixeltable Skill for Claude Code" icon="github" href="https://github.com/pixeltable/pixeltable-skill">
+  Auto-discoverable skill: tables, computed columns, embeddings, UDFs, 15+ AI providers, and app patterns
+</Card>
+
+Install as a plugin or copy the skill folder:
+
+```bash
+# Plugin install (recommended — auto-updates)
+/plugin marketplace add pixeltable/pixeltable-skill
+/plugin install pixeltable-skill@pixeltable-skill
+
+# Or manual install (global)
+git clone https://github.com/pixeltable/pixeltable-skill.git /tmp/pxt-skill
+cp -r /tmp/pxt-skill/skills/pixeltable-skill ~/.claude/skills/
+```
+
 ---
 
 ## Plain text docs
