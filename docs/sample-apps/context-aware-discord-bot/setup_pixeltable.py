@@ -6,14 +6,13 @@ Run once to initialize the database schema:
 Can also be imported and called from bot.py on startup.
 """
 
+import config
 import numpy as np
 
-import config
 import pixeltable as pxt
 from pixeltable.functions import openai
 from pixeltable.functions.huggingface import sentence_transformer
 from pixeltable.iterators.string import StringSplitter
-
 
 # ── Clean slate ───────────────────────────────────────────────────────────────
 

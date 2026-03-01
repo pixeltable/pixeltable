@@ -8,13 +8,12 @@ Run:
 import logging
 from datetime import datetime, timezone
 
+import config
 import discord
 from discord.ext import commands
+from message_formatter import MessageFormatter
 
 import pixeltable as pxt
-
-import config
-from message_formatter import MessageFormatter
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('pixeltable-bot')
@@ -30,7 +29,7 @@ chat = pxt.get_table(f'{config.APP_NAMESPACE}.chat')
 
 
 @bot.event
-async def on_ready():
+async def on_ready():  # noqa: RUF029
     logger.info(f'Bot logged in as {bot.user.name}')
 
 

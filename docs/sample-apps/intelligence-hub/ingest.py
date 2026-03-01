@@ -10,12 +10,11 @@ Re-run at any time to add more data -- all computed columns
 import os
 from datetime import datetime, timezone
 
+import config
+import custom_udfs.google_sheets as google_sheets
 import pandas as pd
 
 import pixeltable as pxt
-
-import config
-import custom_udfs.google_sheets as google_sheets
 
 sources = pxt.get_table(f'{config.APP_NAMESPACE}.sources')
 

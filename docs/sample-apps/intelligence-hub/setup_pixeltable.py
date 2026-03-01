@@ -10,19 +10,19 @@ import config
 import functions
 
 import pixeltable as pxt
+from pixeltable.functions.document import document_splitter
 from pixeltable.functions.huggingface import sentence_transformer
 from pixeltable.functions.uuid import uuid7
-from pixeltable.functions.document import document_splitter
 
 if config.USE_OPENAI:
     from pixeltable.functions.openai import chat_completions
 else:
     from pixeltable.functions.llama_cpp import create_chat_completion
 
-import custom_udfs.slack as slack
 import custom_udfs.discord as discord
-import custom_udfs.telegram as telegram
 import custom_udfs.google_sheets as google_sheets
+import custom_udfs.slack as slack
+import custom_udfs.telegram as telegram
 
 # ── Clean slate ───────────────────────────────────────────────────────────────
 
