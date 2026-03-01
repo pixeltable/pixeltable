@@ -1935,7 +1935,7 @@ class Table(SchemaObject):
 
         # Construct the metadata change description dictionary
         md_list = [(vers_md.version_md.version, vers_md.schema_version_md.columns) for vers_md in vers_list]
-        md_dict = MetadataUtils._create_md_change_dict(md_list)
+        md_dict = MetadataUtils.create_md_change_dict(md_list)
 
         # Construct report lines
         if len(vers_list) > n:

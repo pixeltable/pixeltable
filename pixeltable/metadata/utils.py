@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import fields
+
 from pixeltable.metadata import schema
 
 
@@ -20,28 +22,82 @@ class MetadataUtils:
             return 'Initial Version'
         if old_md == new_md:
             return ''
-        added = {k: v.name for k, v in new_md.items() if k not in old_md}
-        changed = {
-            k: f'{old_md[k].name!r} to {v.name!r}'
-            for k, v in new_md.items()
-            if k in old_md and old_md[k].name != v.name
-        }
-        deleted = {k: v.name for k, v in old_md.items() if k not in new_md}
-        if len(added) == 0 and len(changed) == 0 and len(deleted) == 0:
+        # Tracks whether any system columns (e.g. index columns) differ between the two versions
+        system_columns_differ = False
+        # added, altered, and dropped track diffs of user-visible columns only. That's what we want to report to users
+        # in the end.
+        added, dropped = [], []
+        altered = {}
+
+        for col_id, new_col in new_md.items():
+            if col_id not in old_md:
+                system_columns_differ |= new_col.name is None
+                if new_col.name is not None:
+                    added.append(new_col.name)
+            else:
+                old_col = old_md[col_id]
+                diff = cls._diff_col(old_col, new_col)
+                if diff:
+                    if old_col.name is not None:
+                        assert new_col.name is not None, "A user-visible column can't become a system column"
+                        altered[old_col.name] = diff
+                    else:
+                        assert new_col.name is None, "A system column can't become user-visible"
+                        system_columns_differ = True
+
+        for col_id, old_col in old_md.items():
+            if col_id in new_md:
+                continue
+            system_columns_differ |= old_col.name is None
+            if old_col.name is not None:
+                dropped.append(old_col.name)
+
+        user_visible_changes = len(added) > 0 or len(altered) > 0 or len(dropped) > 0
+        if not user_visible_changes:
+            if system_columns_differ:
+                # Currently this shouldn't happen, but if in the future we start supporting some kind of schema
+                # change that only involves system columns, we'll need to implement a user-friendly way to report
+                # it here.
+                raise AssertionError(
+                    'System-only schema evolution without user-visible changes are not currently supported'
+                )
             return ''
+
         # Format the result
         t = []
-        if len(added) > 0:
-            t.append('Added: ' + ', '.join(added.values()))
-        if len(changed) > 0:
-            t.append('Renamed: ' + ', '.join(changed.values()))
-        if len(deleted) > 0:
-            t.append('Deleted: ' + ', '.join(deleted.values()))
-        r = ', '.join(t)
-        return r
+        if added:
+            t.append('Added: ' + ', '.join(added))
+        if altered:
+            t.append('Altered: ' + ', '.join((f'{name} ({desc})' for name, desc in altered.items())))
+        if dropped:
+            t.append('Dropped: ' + ', '.join(dropped))
+        return ', '.join(t)
 
     @classmethod
-    def _create_md_change_dict(cls, md_list: list[tuple[int, dict[int, schema.SchemaColumn]]] | None) -> dict[int, str]:
+    def _diff_col(cls, old: schema.SchemaColumn, new: schema.SchemaColumn) -> str | None:
+        """Compares two SchemaColumn objects and returns a string describing the differences, or None if they are
+        the same.
+        """
+        assert len(fields(old)) == 9, 'This method needs to be updated whenever SchemaColumn changes'
+        diff = []
+        # Note: we ignore pos because columns changing places are not very interesting to users, and because they are
+        # usually a side effect of other changes such as drop column.
+        if old.name != new.name:
+            diff.append(f'renamed to {new.name}')
+        assert old.is_pk == new.is_pk, 'Not implemented: describe a primary key change'
+        assert old.col_type == new.col_type, 'Not implemented: describe a column type change'
+        assert old.value_expr == new.value_expr, 'Not implemented: describe a value expression change'
+        assert old.media_validation == new.media_validation, 'Not implemented: describe a media validation change'
+        assert old.destination == new.destination, 'Not implemented: describe a destination change'
+        assert old.comment == new.comment, 'Not implemented: describe a comment change'
+        assert old.custom_metadata == new.custom_metadata, 'Not implemented: describe a custom metadata change'
+
+        if diff:
+            return ', '.join(diff)
+        return None
+
+    @classmethod
+    def create_md_change_dict(cls, md_list: list[tuple[int, dict[int, schema.SchemaColumn]]] | None) -> dict[int, str]:
         """Return a dictionary of schema changes by version
         Args:
             md_list: a list of tuples, each containing a version number and a metadata dictionary.
