@@ -162,6 +162,7 @@ class Catalog:
 
     Caching and invalidation of metadata:
     - Catalog caches TableVersion instances in order to avoid excessive metadata loading
+    - Any updates to the metadata need to include clearing/invalidating the metadata cache
     - for any specific table version (ie, combination of id and effective version) there can be only a single
       Tableversion instance in circulation; the reason is that each TV instance has its own store_tbl.sa_tbl, and
       mixing multiple instances of sqlalchemy Table objects in the same query (for the same underlying table) leads to
@@ -617,17 +618,14 @@ class Catalog:
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
         for tbl_id in self._roll_forward_ids:
-            try:
-                # TODO: handle replicas
-                exc = self._finalize_pending_ops(tbl_id)
-                if exc is not None:
-                    raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
-            finally:
-                self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
+            # TODO: handle replicas
+            exc = self._finalize_pending_ops(tbl_id)
+            if exc is not None:
+                raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """
-        Finalizes all pending ops for the given table.
+        Finalizes all pending ops for the given table, and clears the table version cache for that table.
 
         During tbl_state == ROLLFORWARD (error-free path):
         - executes all remaining pending ops in order op_sn and updates their status to COMPLETED
@@ -641,7 +639,7 @@ class Catalog:
         - this process starts with the first pending op, because it could have been partially executed
         - when done, deletes all table ops and resets tbl_state to LIVE
 
-        that exception.
+        If an exception occurred during finalization, that exception is returned.
         """
         num_retries = 0
         is_rollback = False
@@ -819,6 +817,8 @@ class Catalog:
                         f'finalize_pending_ops({tbl_id}:{tbl_version}): {"undo" if is_rollback else "exec"} of {op!s} '
                         f'caught {e}'
                     )
+            finally:
+                self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
 
             num_retries = 0
 
@@ -1502,6 +1502,7 @@ class Catalog:
             .where(schema.Table.id == str(tbl_id))
             .values({schema.Table.additional_md: schema.Table.additional_md.op('||')(additional_md)})
         )
+        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
         result = conn.execute(q)
         assert result.rowcount == 1, result.rowcount
 
@@ -2379,6 +2380,7 @@ class Catalog:
             .where(schema.Table.id == tbl_id)
             .values(md=schema.Table.md.op('||')(version_updates))
         )
+        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
         status = conn.execute(update_stmt)
         assert status.rowcount == 1, status.rowcount
 
@@ -2407,6 +2409,7 @@ class Catalog:
         status = conn.execute(sql.delete(schema.TableVersion).where(schema.TableVersion.tbl_id == tbl_id))
         assert status.rowcount > 0
         _ = conn.execute(sql.delete(schema.PendingTableOp).where(schema.PendingTableOp.tbl_id == tbl_id))
+        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
         status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
         assert status.rowcount == 1, status.rowcount
 
