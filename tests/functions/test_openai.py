@@ -1,4 +1,5 @@
 import os
+import time
 
 import pytest
 
@@ -9,6 +10,14 @@ from pixeltable.config import Config
 
 from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
+
+
+@pxt.udf(is_deterministic=False)
+def _throughput_test_prompt(word1: str, word2: str) -> list[dict[str, str]]:
+    return [
+        {'role': 'system', 'content': 'You are a helpful assistant. Be concise.'},
+        {'role': 'user', 'content': f'Use "{word1}" and "{word2}" in one short sentence.'},
+    ]
 
 
 @pytest.mark.remote_api
@@ -486,3 +495,122 @@ class TestOpenai:
         validate_update_status(t.insert(input='Where did the game of Backgammon originate?'), 1)
         result = t.collect()
         assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']
+
+    @pytest.mark.expensive
+    def test_chat_completions_throughput(self, uses_db: None) -> None:
+        """
+        Performance test: sends N chat_completions requests and reports throughput.
+
+        Runs two back-to-back trials to surface the token-estimate performance bug:
+          Trial 1 (constrained):   max_tokens=20  — scheduler estimate ≈ actual usage
+          Trial 2 (unconstrained): no max_tokens  — scheduler uses _default_max_tokens()
+                                                    which is 16384 for gpt-4o-mini, causing
+                                                    severe under-utilization of available TPM
+
+        Run with:
+            pytest -m "remote_api and expensive" tests/functions/test_openai.py::TestOpenai::test_chat_completions_throughput -s
+        """
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import chat_completions
+
+        with open('tests/data/random_words', encoding='utf-8') as f:
+            wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
+
+        n = 1
+        model = 'gpt-4o'  # cheapest model; each row costs ~$0.0001
+
+        def _run_trial(label: str, max_tokens: int | None) -> tuple[float, int]:
+            import random
+            t = pxt.create_table('perf_tbl', {'word1': pxt.String, 'word2': pxt.String})
+            t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
+            model_kwargs = {'max_tokens': max_tokens} if max_tokens is not None else None
+            t.add_computed_column(
+                response=chat_completions(t.prompt, model=model, model_kwargs=model_kwargs)
+            )
+            rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
+            t0 = time.monotonic()
+            status = t.insert(rows, on_error='ignore')
+            elapsed = time.monotonic() - t0
+            pxt.drop_table('perf_tbl')
+            print(
+                f'\n  [{label}]'
+                f'\n    rows={n}, errors={status.num_excs}'
+                f'\n    elapsed={elapsed:.2f}s  ({n / elapsed:.2f} req/s)'
+            )
+            return elapsed, status.num_excs
+
+        elapsed_constrained, errs_constrained = _run_trial('constrained   max_tokens=20', max_tokens=20)
+        elapsed_unconstrained, errs_unconstrained = _run_trial('unconstrained no max_tokens', max_tokens=None)
+
+        print(
+            f'\n  speedup (constrained / unconstrained): '
+            f'{elapsed_unconstrained / elapsed_constrained:.1f}x'
+        )
+
+        # Both trials should complete without total failure
+        assert errs_constrained < n, 'All requests failed in constrained trial'
+        assert errs_unconstrained < n, 'All requests failed in unconstrained trial'
+
+    @pytest.mark.expensive
+    def test_chat_completions_429_recovery(self, uses_db: None) -> None:
+        """
+        Stress test that deliberately triggers 429 rate-limit errors and verifies recovery.
+
+        Strategy: send N rows with max_tokens=500, which causes the scheduler to fire many
+        concurrent requests. Each request consumes ~500 tokens, so a 200k TPM account
+        exhausts within the first ~400 requests. Once 429s start arriving, the retry logic
+        (RateLimitsScheduler._exec) kicks in.
+
+        What to look for in output:
+          - errors=0  (all rows eventually succeed after retries)
+          - retries>0 (429s were encountered and retried)
+          - elapsed  (inflated by Bug 1: estimated_resource_refill_delay returns a delay
+                      much shorter than the actual window reset time, causing repeated
+                      429->retry->429 cascades before the window resets)
+
+        Approximate cost: ~$0.05 for 200 rows on gpt-4o-mini.
+
+        Run with:
+            pytest -m "remote_api and expensive" tests/functions/test_openai.py::TestOpenai::test_chat_completions_429_recovery -s -v
+        """
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import chat_completions
+
+        with open('tests/data/random_words', encoding='utf-8') as f:
+            wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
+
+        import random
+
+        n = 2000
+        model = 'gpt-4o-mini'
+        # Large enough output to exhaust TPM quickly; small enough to stay cheap
+        max_tokens = 500
+
+        t = pxt.create_table('test_429_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
+        t.add_computed_column(
+            response=chat_completions(
+                t.prompt, model=model, model_kwargs={'max_tokens': max_tokens, 'temperature': 0.7}
+            )
+        )
+
+        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
+
+        t0 = time.monotonic()
+        status = t.insert(rows, on_error='ignore')
+        elapsed = time.monotonic() - t0
+
+        succeeded = n - status.num_excs
+        print(
+            f'\n  model={model}, max_tokens={max_tokens}, rows={n}'
+            f'\n  succeeded={succeeded}, errors={status.num_excs}'
+            f'\n  elapsed={elapsed:.2f}s  ({succeeded / elapsed:.2f} req/s)'
+        )
+
+        # All rows must eventually succeed; permanent failures indicate the retry
+        # logic is broken, not just slow
+        assert status.num_excs == 0, (
+            f'{status.num_excs} rows failed permanently — retries did not recover them'
+        )
