@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import random
-import re
 import sys
 import time
 from argparse import ArgumentParser
@@ -314,7 +313,7 @@ class RandomTableOps:
         try:
             pxt.create_view(vname, t.where(t.bc_int % p == 0), if_exists='replace_force')
         except pxt.Error as e:
-            if re.search(r"with the same name as one of the view's own ancestors", str(e)):
+            if "with the same name as one of the view's own ancestors" in str(e):
                 yield f'Expected error: {e}'
                 return
             raise
