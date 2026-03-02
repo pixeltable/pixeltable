@@ -107,7 +107,7 @@ def generate_matrix(args: argparse.Namespace) -> None:
                     'py',
                     'ubuntu-24.04',
                     '3.10',
-                    pytest_options=f'--reruns 2 tests/test_{module}.py',
+                    pytest_options=f'--reruns 2 -m cockroachdb tests/test_{module}.py',
                     pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
                 )
                 for module in cockroach_test_modules
