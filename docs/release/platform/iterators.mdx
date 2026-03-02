@@ -208,17 +208,17 @@ Iterators are powerful tools for processing large media files. They work seamles
         audio_table,
         iterator=audio_splitter(
             audio=audio_table.audio,
-            chunk_duration_sec=30.0,  # Split into 30-second chunks
-            overlap_sec=2.0,          # 2-second overlap between chunks
-            min_chunk_duration_sec=5.0 # Drop last chunk if < 5 seconds
+            duration=30.0,  # Split into 30-second chunks
+            overlap=2.0,          # 2-second overlap between chunks
+            min_segment_duration=5.0 # Drop last chunk if < 5 seconds
         )
     )
     ```
 
     ### Parameters
-    - `chunk_duration_sec` (float): Duration of each audio chunk in seconds
-    - `overlap_sec` (float, default: 0.0): Overlap duration between consecutive chunks in seconds
-    - `min_chunk_duration_sec` (float, default: 0.0): Minimum duration threshold - the last chunk will be dropped if it's shorter than this value
+    - `duration` (float): Duration of each audio chunk in seconds
+    - `overlap` (float, default: 0.0): Overlap duration between consecutive chunks in seconds
+    - `min_segment_duration` (float, default: 0.0): Minimum duration threshold - the last chunk will be dropped if it's shorter than this value
 
     ### Returns
     For each chunk, yields:
@@ -316,7 +316,7 @@ Iterators are powerful tools for processing large media files. They work seamles
         audio_table,
         iterator=audio_splitter(
             audio=audio_table.audio,
-            chunk_duration_sec=30.0
+            duration=30.0
         )
     )
 

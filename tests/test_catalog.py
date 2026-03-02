@@ -176,3 +176,68 @@ class TestCatalog:
                 view2      view       1              test_dir/tbl
             '''
         ).strip('\n').replace('|', '')  # fmt: skip
+
+    def test_cross_type_replacement(self, uses_db: None) -> None:
+        """Test that tables, views, and snapshots can replace each other with if_exists='replace'.
+
+        This tests the path collision handling logic: dirs can only collide with dirs,
+        but all table subtypes (table, view, snapshot) can collide with each other.
+        """
+        base_table = pxt.create_table('base', {'c1': pxt.Int})
+
+        # One lambda per create_x with expected columns
+        creators = {
+            'table': (lambda: pxt.create_table('target', {'c2': pxt.String}, if_exists='replace'), ['c2']),
+            'view': (
+                lambda: pxt.create_view(
+                    'target', base_table, additional_columns={'c3': pxt.String}, if_exists='replace'
+                ),
+                ['c3', 'c1'],
+            ),
+            'snapshot': (lambda: pxt.create_snapshot('target', base_table, if_exists='replace'), ['c1']),
+        }
+
+        # Test all permutations: each table subtype can replace any table subtype
+        for existing_creator, _ in creators.values():
+            for replacing_creator, expected_cols in creators.values():
+                existing_creator()
+                assert 'target' in pxt.list_tables()
+                result = replacing_creator()
+                assert 'target' in pxt.list_tables()
+                assert result.columns() == expected_cols
+
+        # Verify cross-type replacement is blocked in both directions for every table subtype
+        pxt.drop_table('target')
+        pxt.create_dir('target')
+        for creator, _ in creators.values():
+            # dirs cannot be replaced by table subtypes
+            with pytest.raises(excs.Error, match='expected a table, view or snapshot'):
+                creator()
+            # table subtypes cannot be replaced by dirs
+            pxt.drop_dir('target')
+            creator()
+            with pytest.raises(excs.Error, match='expected a directory'):
+                pxt.create_dir('target', if_exists='replace')
+            pxt.drop_table('target')
+            pxt.create_dir('target')
+
+    def test_table_op_from_dict_needs_xact(self) -> None:
+        """Verifies that a TableOp can be correctly deserialized from a dict that includes the legacy 'needs_xact'
+        field"""
+        from pixeltable.catalog.tbl_ops import CreateTableMdOp, TableOp
+
+        # notice needs_xact that is no longer included in the output of to_dict
+        # however, for backward compatibility it needs to continue to be accepted
+        op = TableOp.from_dict(
+            {
+                'op_sn': 0,
+                'status': 0,
+                'tbl_id': 'b8037eea-404d-47c9-97fc-b4976bbb5466',
+                'num_ops': 2,
+                '_classname': 'CreateTableMdOp',
+                'needs_xact': True,
+            }
+        )
+        assert isinstance(op, CreateTableMdOp)
+        assert op.needs_xact  # now a ClassVar
+        assert 'needs_xact' not in op.to_dict()

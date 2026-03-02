@@ -25,6 +25,7 @@ import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs, type_system as ts
 from pixeltable.config import Config
 from pixeltable.func import Batch, Tools
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import parse_duration_str
 from pixeltable.utils.image import to_base64
@@ -74,7 +75,7 @@ def _(api_key: str, base_url: str | None = None, api_version: str | None = None)
 
 
 def _openai_client() -> 'openai.AsyncOpenAI':
-    return env.Env.get().get_client('openai')
+    return get_runtime().get_client('openai')
 
 
 # models that share rate limits; see https://platform.openai.com/settings/organization/limits for details
@@ -208,12 +209,13 @@ class OpenAIRateLimitsInfo(env.RateLimitsInfo):
         if not isinstance(exc, openai.APIError) or not hasattr(exc, 'response') or not hasattr(exc.response, 'headers'):
             return
 
-        requests_info, tokens_info = _get_header_info(exc.response.headers)
-        _logger.debug(
-            f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} tokens_info={tokens_info}'
-        )
-        self.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info)
-        self.has_exc = True
+        with self._lock:
+            requests_info, tokens_info = _get_header_info(exc.response.headers)
+            _logger.debug(
+                f'record_exc(): request_ts: {request_ts}, requests_info={requests_info} tokens_info={tokens_info}'
+            )
+            self.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info)
+            self.has_exc = True
 
     def _retry_delay_from_exception(self, exc: Exception) -> float | None:
         try:
