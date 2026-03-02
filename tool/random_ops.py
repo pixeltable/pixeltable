@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import random
+import re
 import sys
 import time
 from argparse import ArgumentParser
@@ -310,7 +311,13 @@ class RandomTableOps:
         vname = f'view_{n}'  # This will occasionally lead to name collisions, which is intended
         p = random.choice(PRIMES)
         yield f'Create view {vname!r} on {self.tbl_descr(t)}: '
-        pxt.create_view(vname, t.where(t.bc_int % p == 0), if_exists='replace_force')
+        try:
+            pxt.create_view(vname, t.where(t.bc_int % p == 0), if_exists='replace_force')
+        except pxt.Error as e:
+            if re.search(r"with the same name as one of the view's own ancestors", str(e)):
+                yield f'Expected error: {e}'
+                return
+            raise
         yield 'Success.'
 
     def rename_view(self) -> Iterator[str]:
