@@ -487,11 +487,14 @@ def _process_media_contents(
     if isinstance(data, list):
         return [_process_media_contents(v, client, upload_tasks, large_video_paths) for v in data]
     if isinstance(data, str):
-        local_path = Path(data).expanduser()
-        if not local_path.exists():
-            return data
-        mime_type, _ = mimetypes.guess_type(str(local_path), strict=False)
+        mime_type, _ = mimetypes.guess_type(data, strict=False)
         if mime_type is None or not mime_type.lower().startswith('video/'):
+            return data
+        local_path = Path(data).expanduser()
+        try:
+            if not local_path.exists():
+                return data
+        except (OSError, ValueError):
             return data
         mime_type = mime_type or 'video/mp4'
         size_bytes = local_path.stat().st_size
