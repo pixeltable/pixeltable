@@ -660,11 +660,14 @@ class Catalog:
                     q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
                     row = conn.execute(q).one_or_none()
                     if row is None:
+                        _logger.debug(f'Finalize pending ops({tbl_id}): table not found, exiting')
                         return None
                     tbl_md = schema.md_from_dict(schema.TableMd, row.md)
+                    _logger.debug(f'Finalize pending ops({tbl_id}): table state: {tbl_md.tbl_state}')
                     if tbl_md.tbl_state == schema.TableState.LIVE:
                         # nothing left to do
                         return None
+                    assert tbl_md.tbl_state in (schema.TableState.ROLLFORWARD, schema.TableState.ROLLBACK)
                     is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
                     tbl_version = tbl_md.current_version if tbl_md.is_snapshot else None
 
@@ -717,7 +720,10 @@ class Catalog:
                             )
                         )
                     )
-                    _logger.debug(f'finalize_pending_ops({tbl_id}): finalizing op {op!s}')
+                    _logger.debug(
+                        f'Finalize pending ops({tbl_id}): finalizing op {op!s}; is_rollback={is_rollback}, '
+                        f'is_final_op={is_final_op}, transactional={op.needs_xact}'
+                    )
 
                     if op.needs_xact:
                         tv = (
@@ -741,6 +747,7 @@ class Catalog:
                         if tv is not None:
                             self.mark_modified_tvs(tv.handle)
 
+                        _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                         if is_final_op:
                             status = conn.execute(reset_tbl_state_stmt)
                             status = conn.execute(delete_ops_stmt)
@@ -770,6 +777,7 @@ class Catalog:
                 with self.begin_xact(
                     tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
                 ) as conn:
+                    _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                     if is_final_op:
                         conn.execute(reset_tbl_state_stmt)
                         conn.execute(delete_ops_stmt)
@@ -777,7 +785,8 @@ class Catalog:
                     else:
                         conn.execute(update_op_stmt)
 
-            except AssertionError:
+            except AssertionError as e:
+                _logger.error(f'Finalize pending ops({tbl_id}): assertion error: {e}', exc_info=True)
                 # we need to make sure not to swallow asserts
                 raise
 
@@ -786,6 +795,7 @@ class Catalog:
                 # logic of begin_xact()?
                 if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                     num_retries += 1
+                    _logger.debug(f'Finalize pending ops({tbl_id}): retriable error: {e.orig}')
                     log_msg: str
                     if op is not None:
                         log_msg = f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
@@ -795,16 +805,17 @@ class Catalog:
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
                 else:
+                    _logger.error(f'Finalize pending ops({tbl_id}): non-retriable error {e}', exc_info=True)
                     # TODO: what to do with this?
                     raise
 
             except Exception as e:
                 if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
+                    _logger.error(
+                        f'Finalize pending ops({tbl_id}): aborting statement due to error: {e}', exc_info=True
+                    )
                     # we got an error for the last op and can abort this statement: switch to rollback mode
                     exc = e
-                    _logger.debug(
-                        f'finalize_pending_ops({tbl_id}:{tbl_version}): exec of {op!s} caught {e}; aborting statement'
-                    )
                     with self.begin_xact(
                         tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
                     ) as conn:
@@ -817,10 +828,7 @@ class Catalog:
                         assert status.rowcount == 1
                 else:
                     # log this error but keep going
-                    _logger.debug(
-                        f'finalize_pending_ops({tbl_id}:{tbl_version}): {"undo" if is_rollback else "exec"} of {op!s} '
-                        f'caught {e}'
-                    )
+                    _logger.error(f'Finalize pending ops({tbl_id}): caught error: {e} but continuing', exc_info=True)
             finally:
                 self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
 
