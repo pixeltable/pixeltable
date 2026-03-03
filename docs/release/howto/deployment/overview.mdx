@@ -36,6 +36,57 @@ flowchart LR
   </Tab>
 </Tabs>
 
+### Systems Pixeltable Replaces
+
+You don't install, configure, or manage these — Pixeltable handles them natively.
+
+| Without Pixeltable | What you'd need | With Pixeltable |
+|---|---|---|
+| **PostgreSQL / MySQL** | Install DB, write DDL, manage migrations, connection pooling, ORMs | `pxt.create_table('name', {'col': pxt.String, 'img': pxt.Image})` — schema is Python, persistent across sessions, versioned |
+| **Pinecone / Weaviate / Qdrant** | Separate vector DB, sync embeddings manually, manage indexes, handle consistency | `table.add_embedding_index('content', string_embed=sentence_transformer.using(model_id='...'))` — one line, auto-maintained on insert/update/delete |
+| **S3 client / blob management** | `boto3`, bucket config, upload/download logic, URL signing, cache management | Pixeltable's type system (`pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`) handles media transparently — reference files (local or remote) and Pixeltable manages caching. Use `destination='s3://...'` on computed columns to route generated media to cloud buckets |
+| **Airflow / Prefect / Celery** | DAG definitions, worker processes, scheduling, retry logic, monitoring | Computed columns execute automatically when data is inserted or updated — no orchestrator, no workers, no DAGs. Dependency chains between computed columns resolve automatically |
+| **LangChain / LlamaIndex** (RAG) | Retriever setup, chain definitions, vector store adapters, prompt templating for retrieval | `@pxt.query` for retrieval functions + `.similarity()` for semantic search + computed column chaining for the full RAG pipeline |
+| **pandas / polars** (multimodal experimentation) | Separate notebook workflow, no persistence, manual parallelism, results lost between sessions, no path to production | `t.sample(5).select(t.text, summary=my_udf(t.text)).collect()` to test on a sample; `add_computed_column()` to commit to the full dataset. Automatic parallelization of API calls, built-in caching, and incremental updates — [same code from experiment to production](/howto/cookbooks/core/dev-iterative-workflow) |
+| **DVC / MLflow / W&B** | Data versioning setup, experiment tracking infrastructure, artifact management, separate UI | Built-in [`history()`](/platform/version-control), [`revert()`](/platform/version-control), time travel queries (`table:N`), and [snapshots](/platform/version-control) — all automatic with zero configuration |
+| **Custom retry / rate-limit / caching** | Per-provider wrapper code, Redis or Memcached, request queues, deduplication logic | Built into every [API integration](/integrations/frameworks); computed results cached automatically and only recomputed for new or changed rows |
+| **Custom ETL / glue code** | Scripts wiring data extraction, transformation, loading, error handling, retries | Declarative schema — define the table, its computed columns, and the relationships. Pixeltable handles execution, caching, and incremental updates |
+
+### Tools Pixeltable Abstracts
+
+These tools run under the hood, but you interact through a cleaner interface. This is a sample — Pixeltable wraps [30+ AI providers](/integrations/frameworks), [dozens of built-in functions](/sdk/latest/image) for media and data processing, and supports any Python library via [`@pxt.udf`](/platform/udfs-in-pixeltable).
+
+| Tool | Raw usage | Through Pixeltable |
+|---|---|---|
+| **FFmpeg** | Install binary, subprocess calls, format conversion, frame seeking | [`extract_audio(video, format='mp3')`](/sdk/latest/video#func-extract_audio) for audio; [`frame_iterator(video, fps=1)`](/sdk/latest/video#cls-frame_iterator) for frame extraction via `pxt.create_view()` |
+| **Pillow/PIL** | `Image.open()`, resize, convert, encode, save, handle formats | [`pixeltable.functions.image`](/sdk/latest/image) module: `resize()`, `crop()`, `thumbnail()`, `b64_encode()`, `rotate()`, `blend()`, plus `width()`, `height()`, `get_metadata()` |
+| **spaCy** | `pip install spacy`, download model, load pipeline, parse documents | [`document_splitter(doc, separators='sentence')`](/sdk/latest/document#cls-document_splitter) — spaCy runs under the hood (configurable via `spacy_model` parameter). Also supports `'heading'`, `'paragraph'`, `'page'`, `'token_limit'`, `'char_limit'` separators |
+| **sentence-transformers** | Load model, tokenize, encode batches, normalize vectors | [`sentence_transformer.using(model_id='intfloat/e5-large-v2')`](/sdk/latest/huggingface#func-sentence_transformer) passed to `add_embedding_index()`. Pixeltable handles model loading, batching, and index maintenance |
+| **OpenAI CLIP** | Load model, preprocess images/text differently, encode, handle multimodal alignment | [`clip.using(model_id='openai/clip-vit-base-patch32')`](/sdk/latest/huggingface#func-clip) — multimodal embedding index that accepts both image and text queries for cross-modal search |
+| **OpenAI Whisper** | API key setup, audio format handling, chunking long files, parsing responses | [`openai.transcriptions(audio=table.audio_col, model='whisper-1')`](/sdk/latest/openai#func-transcriptions) as a computed column — automatic rate limiting, caching. Also supports local Whisper via [`whisper.transcribe()`](/sdk/latest/whisper) |
+| **Anthropic Claude tool calling** | Construct messages, define tool schemas as JSON, parse tool_use blocks, execute tools, re-call with results | [`anthropic.messages()`](/sdk/latest/anthropic) + [`anthropic.invoke_tools()`](/sdk/latest/anthropic) + [`pxt.tools()`](/howto/cookbooks/agents/llm-tool-calling) — all as chained computed columns. Tool schemas derived automatically from `@pxt.udf` function signatures |
+| **+ many more** | | See the full [SDK Reference](/sdk/latest/pixeltable), [AI Integrations](/integrations/frameworks), [Cookbooks](/howto/cookbooks/agents/pattern-rag-pipeline), and [Cheat Sheet](/howto/deployment/cheatsheet) |
+
+### What Pixeltable Doesn't Replace
+
+You still need these — Pixeltable is a data layer, not a full application framework.
+
+| Tool | Why you still need it |
+|---|---|
+| **FastAPI / Flask / Django** | Pixeltable is a data layer, not a web server — you need an HTTP framework to serve your API |
+| **Pydantic** | Request/response validation for your API endpoints (Pixeltable's `.to_pydantic()` bridges the two) |
+| **React / Vue / frontend** | UI layer — Pixeltable has no frontend |
+| **Docker / Kubernetes / Terraform** | Deployment infrastructure — Pixeltable runs *inside* your containers, it doesn't provision them |
+| **Authentication / authorization** | User management, API keys, OAuth — outside Pixeltable's scope |
+| **Domain-specific UDFs** | Business logic you write as `@pxt.udf` functions (e.g., web search, custom scoring) — Pixeltable provides the framework, you provide the logic |
+
+<Tip>
+**Migrating from a specific stack?** See the step-by-step migration guides with side-by-side code comparisons:
+- [From DIY Data Pipelines](/migrate/from-diy-data-pipeline) — replace custom scripts, DVC, Airflow, and manual processing
+- [From RDBMS & Vector DBs](/migrate/from-rdbms-vectordbs) — replace Postgres + Pinecone + LangChain RAG stacks
+- [From Agent Frameworks](/migrate/from-agent-frameworks) — replace LangGraph, CrewAI, and similar agent DSLs
+</Tip>
+
 ## Deployment Decision Guide
 
 Pixeltable supports two production deployment patterns. Choose based on your constraints:

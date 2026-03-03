@@ -11,16 +11,16 @@
 The only open source Python library providing declarative data infrastructure for building multimodal AI applications, enabling incremental storage, transformation, indexing, retrieval, and orchestration of data.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-0530AD.svg)](https://opensource.org/licenses/Apache-2.0)
+[![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
 [![tests status](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/pytest.yml)
 [![nightly status](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/nightly.yml)
-[![stress-tests status](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml/badge.svg)](https://github.com/pixeltable/pixeltable/actions/workflows/stress-tests.yml)
-[![PyPI Package](https://img.shields.io/pypi/v/pixeltable?color=4D148C)](https://pypi.org/project/pixeltable/)
-[![My Discord (1306431018890166272)](https://img.shields.io/badge/💬-Discord-%235865F2.svg)](https://discord.gg/QPyqFYx2UN)
+[![Documentation](https://img.shields.io/badge/Docs-docs.pixeltable.com-0530AD)](https://docs.pixeltable.com/)
+[![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?logo=discord&logoColor=white)](https://discord.gg/QPyqFYx2UN)
 
 [**Quick Start**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
 [**API Reference**](https://docs.pixeltable.com/sdk/latest/pixeltable) |
-[**Sample Apps**](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps) |
+[**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) |
 [**Discord Community**](https://discord.gg/QPyqFYx2UN)
 
 ---
@@ -31,7 +31,7 @@ The only open source Python library providing declarative data infrastructure fo
 pip install pixeltable
 ```
 
-Pixeltable replaces the complex multi-system architecture needed for AI applications with a single declarative table interface that natively handles multimodal data like images, videos, and documents.
+> **Want a deploy-ready app?** The [**Pixeltable Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) is a production-ready FastAPI + React reference architecture with multimodal upload, cross-modal search, and a tool-calling agent — all wired through Pixeltable computed columns. Includes Docker Compose, Helm, Terraform (EKS/GKE/AKS), and AWS CDK configs.
 
 ## Demo
 
@@ -45,7 +45,6 @@ With Pixeltable, you define your *entire* data processing and AI workflow declar
 Focus on your application logic, not the data plumbing.
 
 ```python
-
 # Installation
 pip install -qU torch transformers openai pixeltable
 
@@ -93,19 +92,23 @@ results = t.select(
 ).collect()
 ```
 
-## What Pixeltable Handles
+## What Pixeltable Replaces
 
-When you run the code above, Pixeltable automatically handles data storage, transformation, AI inference, vector indexing, incremental updates, and versioning. See [Key Principles](#key-principles) for details.
+Pixeltable collapses the typical multimodal AI stack into a single Python import. See [Key Principles](#key-principles) and the [deployment guide](https://docs.pixeltable.com/howto/deployment/overview) for details.
 
-| You Write | Pixeltable Does |
-|-----------|-----------------|
-| `pxt.Image`, `pxt.Video`, `pxt.Document` columns | Stores media, handles formats, caches from URLs |
-| `add_computed_column(fn(...))` | Runs incrementally, caches results, retries failures |
-| `add_embedding_index(column)` | Manages vector storage, keeps index in sync |
-| `@pxt.udf` / `@pxt.query` | Creates reusable functions with dependency tracking |
-| `table.insert(...)` | Triggers all dependent computations automatically |
-| `table.select(...).collect()` | Returns structured + unstructured data together |
-| *(nothing—it's automatic)* | Versions all data and schema changes for time-travel |
+| Traditional Tool | What You'd Manage | Pixeltable Equivalent |
+|---|---|---|
+| PostgreSQL / MySQL | Schema DDL, migrations, connection pooling | `pxt.create_table()` — schema is Python, versioned |
+| Pinecone / Weaviate / Qdrant | Separate vector DB, embedding sync | `add_embedding_index()` — one line, auto-maintained |
+| S3 client / blob storage | boto3, upload/download, URL signing, caching | `pxt.Image` / `pxt.Video` / `pxt.Audio` / `pxt.Document` types with transparent caching; `destination='s3://...'` for cloud routing |
+| Airflow / Prefect / Celery | DAG definitions, workers, retry logic | Computed columns trigger on insert — no orchestrator |
+| LangChain / LlamaIndex (RAG) | Retriever setup, chain definitions, vector adapters | `@pxt.query` + `.similarity()` + computed column chaining |
+| pandas / polars (for multimodal) | Separate notebook workflow, no persistence, manual parallelism, no path to production | `t.sample(5).select(t.text, summary=my_udf(t.text)).collect()` to experiment on a sample; `add_computed_column()` to commit. Automatic parallelization, caching, and incremental updates — same code from prototype to production |
+| DVC / MLflow / W&B | Data versioning setup, experiment tracking, artifact management | Built-in `history()`, `revert()`, time travel queries (`table:N`), snapshots — all automatic, no config |
+| Custom retry / rate-limit / caching | Per-provider wrappers, Redis, request queues | Built into every API integration; computed results cached and only recomputed for new/changed rows |
+| Custom ETL / glue code | Scripts wiring extraction, transformation, loading | Declarative schema; Pixeltable handles execution, caching, incremental updates |
+
+On top of these, Pixeltable ships with [built-in functions](https://docs.pixeltable.com/sdk/latest/pixeltable) for media processing (FFmpeg, Pillow, spaCy), embeddings (sentence-transformers, CLIP), and [30+ AI providers](https://docs.pixeltable.com/integrations/frameworks) (OpenAI, Anthropic, Gemini, Ollama, and more) — so common operations work out of the box. For anything domain-specific, wrap your own logic with [`@pxt.udf`](https://docs.pixeltable.com/platform/udfs-in-pixeltable). You still write the application layer (FastAPI, React, Docker).
 
 **Deployment options:** Pixeltable can serve as your [full backend](https://docs.pixeltable.com/howto/deployment/overview) (managing media locally or syncing with S3/GCS/Azure, plus built-in vector search and orchestration) or as an [orchestration layer](https://docs.pixeltable.com/howto/deployment/overview) alongside your existing infrastructure.
 
@@ -176,9 +179,12 @@ t.add_computed_column(
 [Create views with iterators](https://docs.pixeltable.com/platform/views) to explode one row into many (video→frames, doc→chunks, audio→segments).
 
 ```python
+from pixeltable.functions.video import frame_iterator
+from pixeltable.functions.document import document_splitter
+
 # Document chunking with overlap & metadata
 chunks = pxt.create_view('chunks', docs,
-   iterator=DocumentSplitter.create(
+   iterator=document_splitter(
        document=docs.doc,
        separators='sentence,token_limit',
        overlap=50, limit=500
@@ -186,7 +192,7 @@ chunks = pxt.create_view('chunks', docs,
 
 # Video frame extraction
 frames = pxt.create_view('frames', videos,
-   iterator=FrameIterator.create(video=videos.video, fps=0.5))
+   iterator=frame_iterator(video=videos.video, fps=0.5))
 ```
 
 → [Views](https://docs.pixeltable.com/platform/views) · [Iterators](https://docs.pixeltable.com/platform/iterators) · [RAG Pipeline](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline)
@@ -251,13 +257,13 @@ t.add_computed_column(
 </details>
 
 <details>
-<summary><b>Query & Experiment:</b> SQL-like Python Querying</summary>
+<summary><b>Query & Experiment:</b> The Best Path from Prototype to Production</summary>
 <br>
 
-[Familiar syntax](https://docs.pixeltable.com/tutorials/queries-and-expressions) combined with powerful AI capabilities. **Test transformations before committing:**
+Unlike pandas/polars, Pixeltable [persists everything](https://docs.pixeltable.com/tutorials/queries-and-expressions), parallelizes API calls automatically, caches results, and turns your experiment into production with one line change. **No separate notebook → pipeline handoff:**
 
 ```python
-# Query data
+# Explore with a familiar DSL — filter, sample, apply UDFs ephemerally
 results = (
    t.where(t.score > 0.8)
    .order_by(t.timestamp)
@@ -266,12 +272,14 @@ results = (
    .collect()
 )
 
-# Test transformation on sample BEFORE adding column
-t.select(t.text, summary=summarize(t.text)).head(3)  # Nothing stored
-t.add_computed_column(summary=summarize(t.text))      # Now commit
+# Sample 5 rows and test a UDF — nothing stored, API calls parallelized and cached
+t.sample(5).select(t.text, summary=summarize(t.text)).collect()
+
+# Happy? One line to commit — runs on full dataset, skips already-cached rows
+t.add_computed_column(summary=summarize(t.text))
 ```
 
-→ [Queries & Expressions](https://docs.pixeltable.com/tutorials/queries-and-expressions) · [Iterative Development](https://docs.pixeltable.com/howto/deployment/operations)
+→ [Queries & Expressions](https://docs.pixeltable.com/tutorials/queries-and-expressions) · [Iterative Workflow](https://docs.pixeltable.com/howto/cookbooks/core/dev-iterative-workflow) · [Version Control](https://docs.pixeltable.com/platform/version-control)
 </details>
 
 <details>
@@ -319,11 +327,12 @@ pxt.export_images_as_fo_dataset(table, table.image)   # FiftyOne
 
 | Fundamentals | Cookbooks | Providers | Sample Apps |
 |:-------------|:----------|:----------|:------------|
-| [![Colab](https://img.shields.io/badge/10--Minute_Tour-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/overview/ten-minute-tour.ipynb) | [![Colab](https://img.shields.io/badge/RAG_Pipeline-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/use-cases/rag-demo.ipynb) | [![OpenAI](https://img.shields.io/badge/OpenAI-74aa9c?logo=openai&logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-openai.ipynb) | [![Gradio](https://img.shields.io/badge/Prompt_Studio-FF7C00?logo=gradio&logoColor=white)](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/prompt-engineering-studio-gradio-application) |
-| [![Colab](https://img.shields.io/badge/Tables_&_Operations-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/tutorials/tables-and-data-operations.ipynb) | [![Colab](https://img.shields.io/badge/Tool--Calling_Agents-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/llm-tool-calling.ipynb) | [![Anthropic](https://img.shields.io/badge/Anthropic-191919?logo=anthropic&logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-anthropic.ipynb) | [![GitHub](https://img.shields.io/badge/Image%2FText_Search-181717?logo=github&logoColor=white)](https://github.com/pixeltable/pixeltable/tree/release/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi) |
-| [![Colab](https://img.shields.io/badge/Computed_Columns-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/tutorials/computed-columns.ipynb) | [![Colab](https://img.shields.io/badge/Object_Detection-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/use-cases/object-detection-in-videos.ipynb) | [![Gemini](https://img.shields.io/badge/Gemini-8E75B2?logo=googlegemini&logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-gemini.ipynb) | [![Discord](https://img.shields.io/badge/Discord_Bot-5865F2?logo=discord&logoColor=white)](https://github.com/pixeltable/pixeltable/blob/release/docs/sample-apps/context-aware-discord-bot) |
-| [![Colab](https://img.shields.io/badge/UDFs-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/platform/udfs-in-pixeltable.ipynb) | [![Colab](https://img.shields.io/badge/Embedding_Indexes-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/platform/embedding-indexes.ipynb) | [![Ollama](https://img.shields.io/badge/Ollama-000000?logo=ollama&logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-ollama.ipynb) | [![Terminal](https://img.shields.io/badge/CLI_Media_Toolkit-4D4D4D?logo=gnubash&logoColor=white)](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/cli-media-toolkit) |
-| [**All →**](https://docs.pixeltable.com/overview/ten-minute-tour) | [**All →**](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline) | [**All →**](https://docs.pixeltable.com/integrations/frameworks) | [**All →**](https://github.com/pixeltable/pixeltable/tree/release/docs/sample-apps) |
+| [![Colab](https://img.shields.io/badge/10--Minute_Tour-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/overview/ten-minute-tour.ipynb) | [![Colab](https://img.shields.io/badge/Agentic_Patterns-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/agentic-patterns.ipynb) | [![OpenAI](https://img.shields.io/badge/OpenAI-74aa9c?logo=openai&logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-openai.ipynb) | [![GitHub](https://img.shields.io/badge/Starter_Kit-181717?logo=github&logoColor=white)](https://github.com/pixeltable/pixeltable-starter-kit) |
+| [![Colab](https://img.shields.io/badge/Computed_Columns-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/tutorials/computed-columns.ipynb) | [![Colab](https://img.shields.io/badge/RAG_Pipeline-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/use-cases/rag-demo.ipynb) | [![Anthropic](https://img.shields.io/badge/Anthropic-191919?logo=anthropic&logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-anthropic.ipynb) | [![GitHub](https://img.shields.io/badge/JFK_Files_MCP-181717?logo=github&logoColor=white)](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/jfk-files-mcp-server) |
+| [![Colab](https://img.shields.io/badge/Tables_&_Operations-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/tutorials/tables-and-data-operations.ipynb) | [![Colab](https://img.shields.io/badge/Tool--Calling_Agents-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/cookbooks/agents/llm-tool-calling.ipynb) | [![Gemini](https://img.shields.io/badge/Gemini-8E75B2?logo=googlegemini&logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-gemini.ipynb) | [![GitHub](https://img.shields.io/badge/Image%2FText_Search-181717?logo=github&logoColor=white)](https://github.com/pixeltable/pixeltable/tree/release/docs/sample-apps/text-and-image-similarity-search-nextjs-fastapi) |
+| [![Colab](https://img.shields.io/badge/UDFs-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/platform/udfs-in-pixeltable.ipynb) | [![Colab](https://img.shields.io/badge/Audio_Transcription-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/use-cases/audio-transcriptions.ipynb) | [![Ollama](https://img.shields.io/badge/Ollama-000000?logo=ollama&logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-ollama.ipynb) | [![GitHub](https://img.shields.io/badge/Multimodal_Chat-181717?logo=github&logoColor=white)](https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/multimodal-chat) |
+| [![Colab](https://img.shields.io/badge/Embedding_Indexes-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/platform/embedding-indexes.ipynb) | [![Colab](https://img.shields.io/badge/Object_Detection-FFDE59?logo=googlecolab&logoColor=000)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/use-cases/object-detection-in-videos.ipynb) | [![DeepSeek](https://img.shields.io/badge/DeepSeek-0A6DC2?logoColor=white)](https://colab.research.google.com/github/pixeltable/pixeltable/blob/release/docs/release/howto/providers/working-with-deepseek.ipynb) | [![Discord](https://img.shields.io/badge/Discord_Bot-5865F2?logo=discord&logoColor=white)](https://github.com/pixeltable/pixeltable/blob/release/docs/sample-apps/context-aware-discord-bot) |
+| [**All →**](https://docs.pixeltable.com/overview/ten-minute-tour) | [**All →**](https://docs.pixeltable.com/howto/cookbooks/agents/pattern-rag-pipeline) | [**22 providers →**](https://docs.pixeltable.com/integrations/frameworks) | [**All →**](https://github.com/pixeltable/pixeltable/tree/release/docs/sample-apps) |
 
 ## External Storage and Pixeltable Cloud
 
