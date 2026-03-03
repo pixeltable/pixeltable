@@ -1,13 +1,11 @@
 from pathlib import Path
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from pixeltable.functions.gemini import _process_media_contents
 
 from ..utils import (
     ensure_s3_pytest_resources_access,
@@ -48,17 +46,30 @@ class TestGemini:
             )
             t.add_computed_column(output2=generate_content(t.contents, model=model, config=config))
 
-        validate_update_status(t.insert(contents='Write a sentence about a magic backpack.'), expected_rows=1)
+        long_text = 'Pixeltable is an amazing tool for multimodal data. ' * 200 + '.mp4'  # 6000+ chars
+        validate_update_status(
+            t.insert(
+                [
+                    {'contents': 'Write a sentence about a magic backpack.'},
+                    {'contents': 'Create a summary of: ' + long_text},
+                ]
+            ),
+            expected_rows=2,
+        )
         results = t.collect()
 
         text = results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         print(text)
-
+        assert text
         if model != 'gemini-3-pro-preview':
             assert 'backpack' in text  # sanity check (gemini-3-pro is so "creative" that it often omits this word)
             text2 = results['output2'][0]['candidates'][0]['content']['parts'][0]['text']
             print(text2)
             assert 'backpack' in text2
+
+        text = results['output'][1]['candidates'][0]['content']['parts'][0]['text']
+        print(text)
+        assert text
 
     def test_generate_content_multimodal(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
@@ -269,22 +280,3 @@ class TestGemini:
         sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
-
-
-def test_process_media_contents_text_passthrough() -> None:  # Test uses mock - client is not needed
-    upload_tasks: list[Any] = []
-    large_video_paths: list[str] = []
-    client = MagicMock()
-
-    # Plain small text
-    assert _process_media_contents('hello world', client, upload_tasks, large_video_paths) == 'hello world'
-
-    # Long text
-    long_text = 'x' * 10_000 + '.mp4'
-    assert _process_media_contents(long_text, client, upload_tasks, large_video_paths) == long_text
-
-    # Text that ends with a video extension but doesn't exist on disk
-    assert (
-        _process_media_contents('some random text.mp4', client, upload_tasks, large_video_paths)
-        == 'some random text.mp4'
-    )
