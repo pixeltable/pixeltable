@@ -1,14 +1,13 @@
 from pathlib import Path
-from unittest.mock import patch
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
-from unittest.mock import MagicMock
 from pixeltable.functions.gemini import _process_media_contents
-from typing import Any
 
 from ..utils import (
     ensure_s3_pytest_resources_access,
@@ -281,9 +280,11 @@ def test_process_media_contents_text_passthrough() -> None:  # Test uses mock - 
     assert _process_media_contents('hello world', client, upload_tasks, large_video_paths) == 'hello world'
 
     # Long text
-    long_text = 'x' * 10_000 + ".mp4"
+    long_text = 'x' * 10_000 + '.mp4'
     assert _process_media_contents(long_text, client, upload_tasks, large_video_paths) == long_text
 
     # Text that ends with a video extension but doesn't exist on disk
-    assert _process_media_contents('some random text.mp4', client, upload_tasks,
-                                       large_video_paths) == 'some random text.mp4'
+    assert (
+        _process_media_contents('some random text.mp4', client, upload_tasks, large_video_paths)
+        == 'some random text.mp4'
+    )
