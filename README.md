@@ -92,9 +92,9 @@ results = t.select(
 ).collect()
 ```
 
-## What Pixeltable Handles
+## What Pixeltable Does
 
-When you run the code above, Pixeltable automatically handles data storage, transformation, AI inference, vector indexing, incremental updates, and versioning. See [Key Principles](#key-principles) for details.
+When you run the code above, Pixeltable handles storage, orchestration, indexing, versioning, and inference — automatically. Here's the lifecycle:
 
 | You Write | Pixeltable Does |
 |-----------|-----------------|
@@ -103,28 +103,25 @@ When you run the code above, Pixeltable automatically handles data storage, tran
 | `add_embedding_index(column)` | Manages vector storage, keeps index in sync |
 | `@pxt.udf` / `@pxt.query` | Creates reusable functions with dependency tracking |
 | `table.insert(...)` | Triggers all dependent computations automatically |
+| `t.sample(5).select(t.text, summary=udf(t.text))` | Experiment on a sample — nothing stored, calls parallelized and cached |
 | `table.select(...).collect()` | Returns structured + unstructured data together |
 | *(nothing — it's automatic)* | Versions all data and schema changes for time-travel |
 
-<details>
-<summary><b>What this replaces in a traditional stack</b></summary>
-<br>
+That single workflow replaces most of the typical AI stack:
 
 | Instead of … | Pixeltable gives you … |
 |---|---|
 | PostgreSQL / MySQL | `pxt.create_table()` — schema is Python, versioned automatically |
 | Pinecone / Weaviate / Qdrant | `add_embedding_index()` — one line, stays in sync |
-| S3 / boto3 / blob storage | `pxt.Image` / `Video` / `Audio` / `Document` types with caching and optional `destination='s3://…'` |
+| S3 / boto3 / blob storage | `pxt.Image` / `Video` / `Audio` / `Document` types with caching; `destination='s3://…'` for cloud routing |
 | Airflow / Prefect / Celery | Computed columns trigger on insert — no orchestrator needed |
 | LangChain / LlamaIndex (RAG) | `@pxt.query` + `.similarity()` + computed column chaining |
-| pandas / polars (multimodal) | `.sample()`, ephemeral UDFs, then `add_computed_column()` to commit — same code, prototype to production |
+| pandas / polars (multimodal) | `.sample()`, ephemeral UDFs, then `add_computed_column()` to commit — prototype to production |
 | DVC / MLflow / W&B | Built-in `history()`, `revert()`, time travel (`table:N`), snapshots |
 | Custom retry / rate-limit / caching | Built into every AI integration; results cached, only new rows recomputed |
 | Custom ETL / glue code | Declarative schema — Pixeltable handles execution, caching, incremental updates |
 
-</details>
-
-On top of these, Pixeltable ships with [built-in functions](https://docs.pixeltable.com/sdk/latest/pixeltable) for media processing (FFmpeg, Pillow, spaCy), embeddings (sentence-transformers, CLIP), and [30+ AI providers](https://docs.pixeltable.com/integrations/frameworks) (OpenAI, Anthropic, Gemini, Ollama, and more) — so common operations work out of the box. For anything domain-specific, wrap your own logic with [`@pxt.udf`](https://docs.pixeltable.com/platform/udfs-in-pixeltable). You still write the application layer (FastAPI, React, Docker).
+On top of these, Pixeltable ships with [built-in functions](https://docs.pixeltable.com/sdk/latest/pixeltable) for media processing (FFmpeg, Pillow, spaCy), embeddings (sentence-transformers, CLIP), and [30+ AI providers](https://docs.pixeltable.com/integrations/frameworks) (OpenAI, Anthropic, Gemini, Ollama, and more). For anything domain-specific, wrap your own logic with [`@pxt.udf`](https://docs.pixeltable.com/platform/udfs-in-pixeltable). You still write the application layer (FastAPI, React, Docker).
 
 **Deployment options:** Pixeltable can serve as your [full backend](https://docs.pixeltable.com/howto/deployment/overview) (managing media locally or syncing with S3/GCS/Azure, plus built-in vector search and orchestration) or as an [orchestration layer](https://docs.pixeltable.com/howto/deployment/overview) alongside your existing infrastructure.
 
