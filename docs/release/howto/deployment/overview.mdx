@@ -40,17 +40,17 @@ flowchart LR
 
 You don't install, configure, or manage these — Pixeltable handles them natively.
 
-| Without Pixeltable | What you'd need | With Pixeltable |
-|---|---|---|
-| **PostgreSQL / MySQL** | Install DB, write DDL, manage migrations, connection pooling, ORMs | `pxt.create_table('name', {'col': pxt.String, 'img': pxt.Image})` — schema is Python, persistent across sessions, versioned |
-| **Pinecone / Weaviate / Qdrant** | Separate vector DB, sync embeddings manually, manage indexes, handle consistency | `table.add_embedding_index('content', string_embed=sentence_transformer.using(model_id='...'))` — one line, auto-maintained on insert/update/delete |
-| **S3 client / blob management** | `boto3`, bucket config, upload/download logic, URL signing, cache management | Pixeltable's type system (`pxt.Image`, `pxt.Video`, `pxt.Audio`, `pxt.Document`) handles media transparently — reference files (local or remote) and Pixeltable manages caching. Use `destination='s3://...'` on computed columns to route generated media to cloud buckets |
-| **Airflow / Prefect / Celery** | DAG definitions, worker processes, scheduling, retry logic, monitoring | Computed columns execute automatically when data is inserted or updated — no orchestrator, no workers, no DAGs. Dependency chains between computed columns resolve automatically |
-| **LangChain / LlamaIndex** (RAG) | Retriever setup, chain definitions, vector store adapters, prompt templating for retrieval | `@pxt.query` for retrieval functions + `.similarity()` for semantic search + computed column chaining for the full RAG pipeline |
-| **pandas / polars** (multimodal experimentation) | Separate notebook workflow, no persistence, manual parallelism, results lost between sessions, no path to production | `t.sample(5).select(t.text, summary=my_udf(t.text)).collect()` to test on a sample; `add_computed_column()` to commit to the full dataset. Automatic parallelization of API calls, built-in caching, and incremental updates — [same code from experiment to production](/howto/cookbooks/core/dev-iterative-workflow) |
-| **DVC / MLflow / W&B** | Data versioning setup, experiment tracking infrastructure, artifact management, separate UI | Built-in [`history()`](/platform/version-control), [`revert()`](/platform/version-control), time travel queries (`table:N`), and [snapshots](/platform/version-control) — all automatic with zero configuration |
-| **Custom retry / rate-limit / caching** | Per-provider wrapper code, Redis or Memcached, request queues, deduplication logic | Built into every [API integration](/integrations/frameworks); computed results cached automatically and only recomputed for new or changed rows |
-| **Custom ETL / glue code** | Scripts wiring data extraction, transformation, loading, error handling, retries | Declarative schema — define the table, its computed columns, and the relationships. Pixeltable handles execution, caching, and incremental updates |
+| Instead of … | With Pixeltable … |
+|---|---|
+| **PostgreSQL / MySQL** | `pxt.create_table()` — schema is Python, versioned automatically |
+| **Pinecone / Weaviate / Qdrant** | `add_embedding_index()` — one line, auto-maintained on insert/update/delete |
+| **S3 / boto3 / blob storage** | `pxt.Image` / `Video` / `Audio` / `Document` types with transparent caching; `destination='s3://…'` for cloud routing |
+| **Airflow / Prefect / Celery** | Computed columns trigger on insert — no orchestrator, no workers, no DAGs |
+| **LangChain / LlamaIndex** (RAG) | `@pxt.query` + `.similarity()` + computed column chaining |
+| **pandas / polars** (multimodal) | `.sample()`, ephemeral UDFs, then `add_computed_column()` to commit — [same code, prototype to production](/howto/cookbooks/core/dev-iterative-workflow) |
+| **DVC / MLflow / W&B** | Built-in [`history()`](/platform/version-control), [`revert()`](/platform/version-control), time travel (`table:N`), [snapshots](/platform/version-control) — zero config |
+| **Custom retry / rate-limit / caching** | Built into every [AI integration](/integrations/frameworks); results cached, only new rows recomputed |
+| **Custom ETL / glue code** | Declarative schema — Pixeltable handles execution, caching, incremental updates |
 
 ### Tools Pixeltable Abstracts
 
