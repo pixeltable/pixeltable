@@ -428,8 +428,8 @@ class ExprEvalNode(ExecNode):
         # This is: (~has_val) @ dependencies, summing over the first axis
         new_missing_dependents = (~has_val).astype(np.int16) @ dependencies.astype(np.int16)
 
-        # Identify slots to garbage collect per row
-        gc_targets_2d = (new_missing_dependents == 0) & (missing_dependents > 0) & exec_ctx.gc_targets[np.newaxis, :]
+        # gc_targets[i, j] = Boolean mask where slot j can be garbage collected for row i if True
+        gc_targets = (new_missing_dependents == 0) & (missing_dependents > 0) & exec_ctx.gc_targets[np.newaxis, :]
 
         # ---------- Write back to DataRows and perform GC ----------
         for i, row in enumerate(rows):
@@ -437,8 +437,8 @@ class ExprEvalNode(ExecNode):
             row.is_scheduled = is_scheduled[i]
 
             # Perform GC clear for slots that are no longer needed
-            if gc_targets_2d[i].any():
-                row.clear(gc_targets_2d[i])
+            if gc_targets[i].any():
+                row.clear(gc_targets[i])
             row.missing_dependents = new_missing_dependents[i]
 
 
