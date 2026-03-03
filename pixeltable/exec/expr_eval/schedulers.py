@@ -142,7 +142,10 @@ class RateLimitsScheduler(Scheduler):
 
     @property
     def _resources(self) -> Collection[str]:
-        return self.pool_info.resource_limits.keys() if self.pool_info is not None else []
+        if self.pool_info is None:
+            return []
+        with self.pool_info._lock:
+            return list(self.pool_info.resource_limits.keys())
 
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
         kwargs_batch = request.fn_call.get_param_values(self.get_request_resources_param_names, request.rows)
@@ -156,20 +159,23 @@ class RateLimitsScheduler(Scheduler):
     def _resource_delay(self, request_resources: dict[str, int]) -> float:
         """For the provided resources and usage, attempts to estimate the time to wait until sufficient resources are
         available."""
-        highest_wait = 0.0
-        highest_wait_resource = None
-        for resource, usage in request_resources.items():
-            info = self.pool_info.resource_limits[resource]
-            # Note: usage and est_usage are estimated costs of requests, and it may be way off (for example, if max
-            # tokens is unspecified for an openAI request).
-            time_until = info.estimated_resource_refill_delay(
-                math.ceil(info.limit * env.TARGET_RATE_LIMIT_RESOURCE_FRACT + usage + self.est_usage.get(resource, 0))
-            )
-            if time_until is not None and highest_wait < time_until:
-                highest_wait = time_until
-                highest_wait_resource = resource
-        _logger.debug(f'Determined wait time of {highest_wait:.1f}s for resource {highest_wait_resource}')
-        return highest_wait
+        with self.pool_info._lock:
+            highest_wait = 0.0
+            highest_wait_resource = None
+            for resource, usage in request_resources.items():
+                info = self.pool_info.resource_limits[resource]
+                # Note: usage and est_usage are estimated costs of requests, and it may be way off (for example, if
+                # max tokens is unspecified for an openAI request).
+                time_until = info.estimated_resource_refill_delay(
+                    math.ceil(
+                        info.limit * env.TARGET_RATE_LIMIT_RESOURCE_FRACT + usage + self.est_usage.get(resource, 0)
+                    )
+                )
+                if time_until is not None and highest_wait < time_until:
+                    highest_wait = time_until
+                    highest_wait_resource = resource
+            _logger.debug(f'Determined wait time of {highest_wait:.1f}s for resource {highest_wait_resource}')
+            return highest_wait
 
     async def _exec(self, request: FnCallArgs, exec_ctx: ExprEvalCtx, num_retries: int, is_task: bool) -> None:
         assert all(not row.has_val[request.fn_call.slot_idx] for row in request.rows)
