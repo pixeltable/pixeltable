@@ -92,9 +92,23 @@ results = t.select(
 ).collect()
 ```
 
-## What Pixeltable Replaces
+## What Pixeltable Handles
 
-Pixeltable collapses the typical multimodal AI stack into a single Python import. See [Key Principles](#key-principles) and the [deployment guide](https://docs.pixeltable.com/howto/deployment/overview) for details.
+When you run the code above, Pixeltable automatically handles data storage, transformation, AI inference, vector indexing, incremental updates, and versioning. See [Key Principles](#key-principles) for details.
+
+| You Write | Pixeltable Does |
+|-----------|-----------------|
+| `pxt.Image`, `pxt.Video`, `pxt.Document` columns | Stores media, handles formats, caches from URLs |
+| `add_computed_column(fn(...))` | Runs incrementally, caches results, retries failures |
+| `add_embedding_index(column)` | Manages vector storage, keeps index in sync |
+| `@pxt.udf` / `@pxt.query` | Creates reusable functions with dependency tracking |
+| `table.insert(...)` | Triggers all dependent computations automatically |
+| `table.select(...).collect()` | Returns structured + unstructured data together |
+| *(nothing — it's automatic)* | Versions all data and schema changes for time-travel |
+
+<details>
+<summary><b>What this replaces in a traditional stack</b></summary>
+<br>
 
 | Instead of … | Pixeltable gives you … |
 |---|---|
@@ -107,6 +121,8 @@ Pixeltable collapses the typical multimodal AI stack into a single Python import
 | DVC / MLflow / W&B | Built-in `history()`, `revert()`, time travel (`table:N`), snapshots |
 | Custom retry / rate-limit / caching | Built into every AI integration; results cached, only new rows recomputed |
 | Custom ETL / glue code | Declarative schema — Pixeltable handles execution, caching, incremental updates |
+
+</details>
 
 On top of these, Pixeltable ships with [built-in functions](https://docs.pixeltable.com/sdk/latest/pixeltable) for media processing (FFmpeg, Pillow, spaCy), embeddings (sentence-transformers, CLIP), and [30+ AI providers](https://docs.pixeltable.com/integrations/frameworks) (OpenAI, Anthropic, Gemini, Ollama, and more) — so common operations work out of the box. For anything domain-specific, wrap your own logic with [`@pxt.udf`](https://docs.pixeltable.com/platform/udfs-in-pixeltable). You still write the application layer (FastAPI, React, Docker).
 
