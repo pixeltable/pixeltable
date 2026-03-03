@@ -725,6 +725,7 @@ class Catalog:
                                 TableVersionKey(tbl_id, tbl_version, None),
                                 check_pending_ops=False,
                                 validate_initialized=True,
+                                convert_db_excs=False,
                             )
                             if op.needs_tv
                             else None
@@ -751,7 +752,10 @@ class Catalog:
                 # this op runs outside of a transaction
                 tv = (
                     self.get_tbl_version(
-                        TableVersionKey(tbl_id, tbl_version, None), check_pending_ops=False, validate_initialized=True
+                        TableVersionKey(tbl_id, tbl_version, None),
+                        check_pending_ops=False,
+                        validate_initialized=True,
+                        convert_db_excs=False,
                     )
                     if op.needs_tv
                     else None
@@ -1785,7 +1789,12 @@ class Catalog:
         return result
 
     def get_tbl_version(
-        self, key: TableVersionKey, *, check_pending_ops: bool = True, validate_initialized: bool = False
+        self,
+        key: TableVersionKey,
+        *,
+        check_pending_ops: bool = True,
+        validate_initialized: bool = False,
+        convert_db_excs: bool = True,
     ) -> TableVersion | None:
         """
         Returns the TableVersion instance for the given table and version and updates the cache.
@@ -1795,7 +1804,7 @@ class Catalog:
         """
         # we need a transaction here, if we're not already in one; if this starts a new transaction,
         # the returned TableVersion instance will not be validated
-        with self.begin_xact(for_write=False) as conn:
+        with self.begin_xact(for_write=False, convert_db_excs=convert_db_excs) as conn:
             tv = self._tbl_versions.get(key)
             if tv is None:
                 tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
