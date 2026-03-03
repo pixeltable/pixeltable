@@ -32,8 +32,6 @@ The only open source Python library providing declarative data infrastructure fo
 pip install pixeltable
 ```
 
-> **Want a deploy-ready app?** The [**Pixeltable Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) is a production-ready FastAPI + React reference architecture with multimodal upload, cross-modal search, and a tool-calling agent — all wired through Pixeltable computed columns. Includes Docker Compose, Helm, Terraform (EKS/GKE/AKS), and AWS CDK configs.
-
 ## Demo
 
 https://github.com/user-attachments/assets/b50fd6df-5169-4881-9dbe-1b6e5d06cede
