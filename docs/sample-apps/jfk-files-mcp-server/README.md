@@ -133,5 +133,5 @@ Pixeltable handles the entire workflow from data ingest to search, allowing you 
 - [Pixeltable Documentation](https://docs.pixeltable.com/)
 - [MCP Servers Documentation](https://docs.pixeltable.com/libraries/mcp)
 - [MCP Server (Developer Edition)](https://github.com/pixeltable/mcp-server-pixeltable-developer)
-- [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template)
+- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)
 - [Discord Community](https://discord.gg/QPyqFYx2UN)

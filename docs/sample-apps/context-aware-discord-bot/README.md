@@ -206,4 +206,4 @@ More examples available on our [Hugging Face Spaces](https://huggingface.co/Pixe
 - [Issue Tracker](https://github.com/pixeltable/pixeltable/issues)
 - [Discord Community](https://discord.gg/QPyqFYx2UN)
 - [Discussions](https://github.com/pixeltable/pixeltable/discussions)
-- [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template)
+- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)

@@ -100,7 +100,7 @@ INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ## Learn More
 
 - [Pixeltable Documentation](https://docs.pixeltable.com/)
-- [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template)
+- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)
 - [Embedding Indexes Guide](https://docs.pixeltable.com/platform/embedding-indexes)
 - [Discord Community](https://discord.gg/QPyqFYx2UN)
 

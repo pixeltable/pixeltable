@@ -171,8 +171,8 @@ def search(query: str, limit: int = 5) -> list[SearchResult]:
 - **Idempotency:** Use `if_exists='ignore'` to make `setup_pixeltable.py` safely re-runnable.
 </Note>
 
-<Card title="App Template" icon="github" href="https://github.com/pixeltable/pixeltable-app-template">
-  See this structure in action — a ready-to-clone FastAPI + React app with `setup_pixeltable.py`, `config.py`, `functions.py`, and endpoint routers already wired up.
+<Card title="Pixeltable Starter Kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
+  See this structure in action — a production-ready FastAPI + React app with `setup_pixeltable.py`, `config.py`, `functions.py`, and endpoint routers already wired up. Includes deployment configs for Docker, Helm, Terraform (EKS/GKE/AKS), and AWS CDK.
 </Card>
 
 ## Storage Architecture
@@ -242,6 +242,13 @@ This means:
 - Pixeltable IS the RDBMS (embedded PostgreSQL, not replaceable).
 - Requires persistent volume at `~/.pixeltable` (pgdata, media, file_cache).
 - Media Store configurable to S3/GCS/Azure buckets for generated files.
+
+All [Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) deployment configs set `PIXELTABLE_HOME=/data/pixeltable` pointing to persistent storage (Docker volumes, K8s PVCs, or EFS). For large media workloads, configure external blob storage:
+
+```bash
+PIXELTABLE_INPUT_MEDIA_DEST=s3://your-bucket/input    # or gs:// or az://
+PIXELTABLE_OUTPUT_MEDIA_DEST=s3://your-bucket/output
+```
 
 ## Dependency Management
 

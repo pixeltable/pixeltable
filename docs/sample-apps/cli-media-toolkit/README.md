@@ -165,5 +165,5 @@ Status:
 - [Video Functions Reference](https://docs.pixeltable.com/sdk/latest/pixeltable/functions/video)
 - [Image Functions Reference](https://docs.pixeltable.com/sdk/latest/pixeltable/functions/image)
 - [CLIP Integration](https://docs.pixeltable.com/integrations/hugging-face)
-- [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template)
+- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)
 - [Discord Community](https://discord.gg/QPyqFYx2UN)

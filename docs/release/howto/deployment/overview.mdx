@@ -273,9 +273,16 @@ def get_document(doc_id: int):
 
 ## Get Started
 
-<Card title="App Template" icon="rocket" href="https://github.com/pixeltable/pixeltable-app-template">
-  A ready-to-clone skeleton app with a FastAPI backend and React frontend — multimodal upload, cross-modal search, and a tool-calling agent, all wired through Pixeltable computed columns.
+<Card title="Pixeltable Starter Kit" icon="rocket" href="https://github.com/pixeltable/pixeltable-starter-kit">
+  A production-ready starter app with a FastAPI backend and React frontend — multimodal upload, cross-modal search, and a tool-calling agent, all wired through Pixeltable computed columns. Includes deployment configs for Docker Compose, Helm, Terraform (EKS/GKE/AKS), and AWS CDK.
 </Card>
+
+The starter kit contains two reference architectures matching the deployment strategies above:
+
+| Architecture | Pattern | What it demonstrates |
+|---|---|---|
+| **Starter Kit** (main app) | Pixeltable as **full backend** | FastAPI + React with persistent storage, multimodal upload, cross-modal search, tool-calling agent |
+| **[Orchestration Pipeline](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/pipeline)** | Pixeltable as **ephemeral processing engine** | Batch ingest, computed column processing, `export_sql` to serving DB, media routing to cloud buckets |
 
 ## Next Steps
 

@@ -228,7 +228,7 @@ intelligence-hub/
   README.md
 ```
 
-Following the [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template) conventions:
+Following the [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) conventions:
 
 | File | Role |
 |------|------|
@@ -291,12 +291,12 @@ This sample app shows one pattern (content monitoring + notifications), but the 
 
 The only things that change are the data sources (swap `ingest.py`), the processing logic (swap `functions.py`), and the output channels (swap `custom_udfs/`). The Pixeltable pattern -- tables, computed columns, views, embedding indexes -- stays the same.
 
-To add a full web UI on top of this pipeline, see the [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template) (FastAPI + React).
+To add a full web UI on top of this pipeline, see the [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) (FastAPI + React).
 
 ## Learn More
 
 - [Pixeltable Documentation](https://docs.pixeltable.com/)
-- [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template) -- full-stack app skeleton
+- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit) -- full-stack starter app with deployment configs
 - [Discord Bot Sample App](../context-aware-discord-bot/) -- RAG + computed columns
 - [Reddit Bot Sample App](../reddit-agentic-bot/) -- agentic workflow + tools
 - [JFK Files MCP Server](../jfk-files-mcp-server/) -- document search + MCP

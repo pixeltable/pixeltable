@@ -360,7 +360,8 @@ t.add_computed_column(
 
 | Project | Description |
 |:--------|:------------|
-| [**Pixelbot**](https://github.com/pixeltable/pixelbot) | Multimodal Infinite Memory AI Agent — a complete E2E AI app powered by Pixeltable |
+| [**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) | Production-ready FastAPI + React app with deployment configs for Docker, Helm, Terraform (EKS/GKE/AKS), and AWS CDK |
+| [**Pixelbot**](https://github.com/pixeltable/pixelbot) | Multimodal AI agent, an interactive data studio with on-demand ML inference, media generation, and a database explore |
 | [**Pixelagent**](https://github.com/pixeltable/pixelagent) | Lightweight agent framework with built-in memory and tool orchestration |
 | [**Pixelmemory**](https://github.com/pixeltable/pixelmemory) | Persistent memory layer for AI applications |
 | [**MCP Server**](https://github.com/pixeltable/mcp-server-pixeltable-developer) | Model Context Protocol server for Claude, Cursor, and other AI IDEs |

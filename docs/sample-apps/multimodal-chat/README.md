@@ -109,6 +109,6 @@ Current AWS deployment has the following limitations:
 ## Learn More
 
 - [Pixeltable Documentation](https://docs.pixeltable.com/)
-- [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template)
+- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)
 - [Deployment Guide](https://docs.pixeltable.com/howto/deployment/overview)
 - [Discord Community](https://discord.gg/QPyqFYx2UN)

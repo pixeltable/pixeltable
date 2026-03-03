@@ -164,7 +164,7 @@ sequenceDiagram
 ## Learn More
 
 - [Pixeltable Documentation](https://docs.pixeltable.com/)
-- [Pixeltable App Template](https://github.com/pixeltable/pixeltable-app-template)
+- [Pixeltable Starter Kit](https://github.com/pixeltable/pixeltable-starter-kit)
 - [Discord Community](https://discord.gg/QPyqFYx2UN)
 
 ## Disclaimer
