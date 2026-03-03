@@ -16,7 +16,7 @@ t.select(
 import colorsys
 import hashlib
 from collections import defaultdict
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import PIL.Image
@@ -426,7 +426,12 @@ def draw_bounding_boxes(
 # The desired signature:
 # bbox: list[int, int, int, int] | list[float, float, float, float], src_format: str, dst_format: str
 @pxt.udf
-def bbox_convert(bbox: list[int | float], src_format: str, dst_format: str) -> list[int | float]:
+def bbox_convert(
+    bbox: list[int | float],
+    *,
+    src_format: Literal['xyxy', 'xywh', 'cxcywh'],
+    dst_format: Literal['xyxy', 'xywh', 'cxcywh'],
+) -> list[int | float]:
     """
     Convert bounding box from src_format to dst_format.
 
@@ -517,6 +522,72 @@ def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
         )
 
     return boundaries
+
+
+@pxt.udf
+def bbox_resize(
+    bbox: list[int | float],
+    format: Literal['xyxy', 'xywh', 'cxcywh'],
+    *,
+    width: int | float | None = None,
+    height: int | float | None = None,
+    aspect: str | float | None = None,
+    crop: bool | None = None,
+    pad: bool | None = None,
+) -> list[int | float]:
+    """
+    Resize a bounding box:
+
+    - to a specified width or height (the other dimension is scaled to maintain the aspect ratio)
+    - to a specified aspect ratio
+
+    Only one of `width`, `height`, or `aspect` can be specified.
+
+    Args:
+        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
+        width: Target width.
+        height: Target height.
+        aspect: Target aspect ratio. Either a float, such as 16/9, or a string such as '16:9'. Resizes either the width
+            or height to match the specified aspect ratio, maintaining the other dimension. Requires exactly one of
+            `crop` or `pad` to be True.
+        crop: Only valid for `aspect`. If True, shrinks the box to fit the aspect ratio.
+        pad: Only valid for `aspect`. If True, extends the box to fit the aspect ratio.
+    """
+    pass
+
+
+@pxt.udf
+def bbox_scale(
+    bbox: list[int | float], format: Literal['xyxy', 'xywh', 'cxcywh'], *, factor: float
+) -> list[int | float]:
+    """
+    Re-scale a bounding box.
+
+    Args:
+        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
+        factor: Scale factor to apply to the box dimensions.
+    """
+    pass
+
+
+@pxt.udf
+def bbox_pad(
+    bbox: list[int | float], format: Literal['xyxy', 'xywh', 'cxcywh'], *, padding: list[int | float] | None = None
+) -> list[int | float]:
+    """
+    Pad a bounding box.
+
+    Args:
+        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
+        padding: Add padding to the box. A list of 1, 2, 3, or 4 values. If 1 value, add padding to all sides. If 2
+            values, add padding to the top/bottom and left/right. If 3 values, add padding to the top, left/right, and
+            bottom. If 4 values, add padding to the top, right, bottom, and left.
+
+    """
+    pass
 
 
 @pxt.udf
