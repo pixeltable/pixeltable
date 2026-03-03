@@ -41,6 +41,10 @@ class RateLimitsScheduler(Scheduler):
     pool_info: env.RateLimitsInfo | None
     est_usage: dict[str, int]  # value per resource; accumulated estimates since the last util. report
 
+    # Per-request estimated costs stored when a task is fired, keyed by id(request).
+    # Looked up and removed in _exec's finally block so we subtract only that request's contribution from est_usage.
+    _inflight_costs: dict[int, dict[str, int]]
+
     num_in_flight: int  # unfinished tasks
     request_completed: asyncio.Event
 
@@ -56,6 +60,7 @@ class RateLimitsScheduler(Scheduler):
         self.dispatcher.register_task(loop_task)
         self.pool_info = None  # initialized in _main_loop by the first request
         self.est_usage = {}
+        self._inflight_costs = {}
         self.num_in_flight = 0
         self.request_completed = asyncio.Event()
         self.total_requests = 0
@@ -125,6 +130,8 @@ class RateLimitsScheduler(Scheduler):
             # we have a new in-flight request
             for resource, val in request_resources.items():
                 self.est_usage[resource] = self.est_usage.get(resource, 0) + val
+            # Remember this request's individual cost so _exec can subtract only its share on completion.
+            self._inflight_costs[id(item.request)] = request_resources
             _logger.debug(f'creating task for {self.resource_pool}')
             self.num_in_flight += 1
             task = asyncio.create_task(self._exec(item.request, item.exec_ctx, item.num_retries, is_task=True))
@@ -196,9 +203,6 @@ class RateLimitsScheduler(Scheduler):
                 f'in {end_ts - start_ts}, batch_size={len(request.rows)}'
             )
 
-            # purge accumulated usage estimate, now that we have a new report
-            self.est_usage = dict.fromkeys(self._resources, 0)
-
             self.dispatcher.dispatch(request.rows, exec_ctx)
         except Exception as exc:
             _logger.exception(f'scheduler {self.resource_pool}: exception in slot {request.fn_call.slot_idx}: {exc}')
@@ -240,6 +244,12 @@ class RateLimitsScheduler(Scheduler):
         finally:
             _logger.debug(f'Scheduler stats: #requests={self.total_requests}, #retried={self.total_retried}')
             if is_task:
+                # Subtract only this request's estimated cost from est_usage.
+                # Other in-flight requests still hold capacity the API hasn't confirmed yet,
+                # so their estimates must stay. est_usage naturally reaches ~0 when all requests finish.
+                estimated_cost = self._inflight_costs.pop(id(request), {})
+                for resource, cost in estimated_cost.items():
+                    self.est_usage[resource] = max(0, self.est_usage.get(resource, 0) - cost)
                 self.num_in_flight -= 1
                 self.request_completed.set()
 
