@@ -253,7 +253,7 @@ class Catalog:
                 if base.effective_version is None:
                     key = TableVersionKey(base.id, None, None)
                     base_tv = self._tbl_versions.get(key, None)
-                    if base_tv is not None and not base_tv.is_validated:
+                    if base_tv is not None and base_tv.is_validated:
                         mutable_view_ids = ', '.join(str(tv.id) for tv in self._tbl_versions[key].mutable_views)
                         mutable_view_names = ', '.join(
                             tv._tbl_version.name
