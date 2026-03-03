@@ -22,8 +22,7 @@ The only open source Python library providing declarative data infrastructure fo
 [**Quick Start**](https://docs.pixeltable.com/overview/quick-start) |
 [**Documentation**](https://docs.pixeltable.com/) |
 [**API Reference**](https://docs.pixeltable.com/sdk/latest/pixeltable) |
-[**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit) |
-[**Discord Community**](https://discord.gg/QPyqFYx2UN)
+[**Starter Kit**](https://github.com/pixeltable/pixeltable-starter-kit)
 
 ---
 
