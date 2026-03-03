@@ -75,7 +75,7 @@ def create_table(
 
     Args:
         path: Pixeltable path (qualified name) of the table, such as `'my_table'` or `'my_dir/my_subdir/my_table'`.
-        schema: Schema for the new table, mapping column names to Pixeltable types.
+        schema: Schema for the new table, mapping column names to Pixeltable types or column specifications.
         source: A data source (file, URL, Table, Query, or list of rows) to import from.
         source_format: Must be used in conjunction with a `source`.
             If specified, then the given format will be used to read the source data. (Otherwise,
@@ -130,6 +130,17 @@ def create_table(
 
         >>> tbl = pxt.create_table(
         ...     'my_table', schema={'col1': pxt.Int, 'col2': pxt.String}
+        ... )
+
+        Create a table with columns that have default values:
+
+        >>> tbl = pxt.create_table(
+        ...     'my_table',
+        ...     schema={
+        ...         'id': pxt.Int,
+        ...         'status': {'type': pxt.String, 'default': 'pending'},
+        ...         'count': {'type': pxt.Int, 'default': 0},
+        ...     },
         ... )
 
         Create a table from a select statement over an existing table `orig_table` (this will create a new table

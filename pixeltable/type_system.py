@@ -495,6 +495,10 @@ class ColumnType:
         self.validate_literal(val)
         return val
 
+    def to_stored_value(self, val: Any) -> Any:
+        """Convert in-memory value to the format stored in the database (e.g. arrays as bytes)."""
+        return val
+
     def print_value(self, val: Any) -> str:
         return str(val)
 
@@ -1161,6 +1165,15 @@ class ArrayType(ColumnType):
             # declared for this type, rather than assume float64
             return np.array(val, dtype=self.dtype)
         return val
+
+    def to_stored_value(self, val: Any) -> Any:
+        """Arrays are stored as bytes (np.save) in the database."""
+        if val is None:
+            return None
+        assert isinstance(val, np.ndarray)
+        buffer = io.BytesIO()
+        np.save(buffer, val, allow_pickle=False)
+        return buffer.getvalue()
 
     @classmethod
     def to_sa_type(cls) -> sql.types.TypeEngine:

@@ -36,6 +36,7 @@ from ..utils.filecache import FileCache
 from .column import Column
 from .globals import (
     _ROWID_COLUMN_NAME,
+    MAX_DEFAULT_VALUE_SIZE,
     IfExistsParam,
     IfNotExistsParam,
     MediaValidation,
@@ -556,7 +557,7 @@ class Table(SchemaObject):
         Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add computed
         columns, use [`add_computed_column()`][pixeltable.catalog.Table.add_computed_column] instead.
 
-        The format of the `schema` argument is a dict mapping column names to their types.
+        The format of the `schema` argument is a dict mapping column names to their types or column specifications.
 
         Args:
             schema: A dictionary mapping column names to a `type` or a [`ColumnSpec`][pixeltable.ColumnSpec] dict.
@@ -594,7 +595,10 @@ class Table(SchemaObject):
             ...         'stored': True,
             ...         'media_validation': 'on_write',
             ...     },
-            ...     'new_col_2': pxt.String,
+            ...     'new_col_2': {
+            ...		    'type': pxt.String,
+            ...		    'default': 'empty'
+            ...     }
             ... }
             ... tbl.add_columns(schema)
         """
@@ -632,6 +636,7 @@ class Table(SchemaObject):
     def add_column(
         self,
         *,
+        default: Any = None,
         if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
         **kwargs: type | ColumnSpec,
     ) -> UpdateStatus:
@@ -660,6 +665,11 @@ class Table(SchemaObject):
 
             >>> tbl.add_column(new_col=pxt.Int)
 
+            Add a column with a default value:
+
+            >>> tbl.add_column(new_col=pxt.Int, default=0)
+
+            Alternatively, this can also be expressed as:
             Add a column with column metadata using a dict:
 
             >>> tbl.add_column(
@@ -692,12 +702,23 @@ class Table(SchemaObject):
                 f'add_column() requires exactly one keyword argument of the form `col_name=col_type`; '
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
             )
-        col_type = next(iter(kwargs.values()))
-        if not isinstance(col_type, (ts.ColumnType, type, _GenericAlias, dict)):
+        col_name, col_spec = next(iter(kwargs.items()))
+
+        if isinstance(col_spec, dict):
+            # Dict format (for options like 'stored', 'media_validation', etc.)
+            schema = kwargs
+        elif isinstance(col_spec, (ts.ColumnType, type, _GenericAlias)):
+            # Type format - with or without default
+            if default is not None:
+                schema = {col_name: ColumnSpec(type=col_spec, default=default)}
+            else:
+                schema = kwargs
+        else:
             raise excs.Error(
-                'The argument to add_column() must be a type; did you intend to use add_computed_column() instead?'
+                'The argument to add_column() must be a type or a dict; '
+                'did you intend to use add_computed_column() instead?'
             )
-        return self.add_columns(kwargs, if_exists=if_exists)
+        return self.add_columns(schema, if_exists=if_exists)
 
     def add_computed_column(
         self,
@@ -811,6 +832,11 @@ class Table(SchemaObject):
 
         if 'type' not in spec and 'value' not in spec:
             raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
+        # Check if computed column has default (not allowed)
+        if 'value' in spec and 'default' in spec:
+            raise excs.Error(f"Column {name!r}: 'default' cannot be specified for computed columns")
+        if 'default' in spec and 'type' not in spec:
+            raise excs.Error(f"Column {name!r}: 'type' must be specified when 'default' is provided")
 
         if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
             raise excs.Error(f"Column {name!r}: 'type' must be a type; got {spec['type']}")
@@ -821,6 +847,18 @@ class Table(SchemaObject):
                 raise excs.Error(f"Column {name!r}: 'value' must be a Pixeltable expression.")
             if 'type' in spec:
                 raise excs.Error(f"Column {name!r}: 'type' is redundant if 'value' is specified")
+
+        if 'default' in spec:
+            default_expr = exprs.Expr.from_object(spec['default'])
+            if default_expr is None:
+                raise excs.Error(f"Column {name!r}: 'default' must be a Pixeltable expression or a constant value.")
+            # Only constant defaults are supported
+            if not isinstance(default_expr, exprs.Literal):
+                raise excs.Error(f'Column {name!r}: Default values must be constants.')
+            if 'value' in spec:
+                raise excs.Error(
+                    f"Column {name!r}: 'default' cannot be specified for computed columns (columns with 'value')"
+                )
 
         if 'media_validation' in spec:
             _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name!r}: media_validation')
@@ -845,12 +883,51 @@ class Table(SchemaObject):
                 ) from err
 
     @classmethod
+    def _validate_json_default_value_expr(cls, value_expr: exprs.Expr, name: str, max_size: int) -> None:
+        """Validate that a default value expression is valid for storage in metadata."""
+        import json
+
+        if value_expr.col_type.is_json_type():
+            json_val = value_expr.val
+
+            def _is_scalar_json_value(element: Any) -> bool:
+                if element is None:
+                    return True
+                if isinstance(element, (str, int, float, bool)):
+                    return True
+                if isinstance(element, list):
+                    return all(_is_scalar_json_value(v) for v in element)
+                if isinstance(element, dict):
+                    return all(isinstance(k, str) and _is_scalar_json_value(v) for k, v in element.items())
+                return False
+
+            if not _is_scalar_json_value(json_val):
+                raise excs.Error(
+                    f'Column {name!r}: JSON default values can only contain scalar JSON types '
+                    f'(strings, numbers, booleans, lists, dicts). Custom Pixeltable types like UUID, '
+                    f'Timestamp, and Date are not allowed in JSON defaults.'
+                )
+
+        try:
+            value_expr_dict = value_expr.as_dict()
+            serialized_size = len(json.dumps(value_expr_dict))
+            if serialized_size > max_size:
+                raise excs.Error(
+                    f'Column {name!r}: Default value is too large ({serialized_size} bytes). '
+                    f'Maximum size is {max_size} bytes.'
+                )
+        except (TypeError, ValueError) as e:
+            raise excs.Error(f'Column {name!r}: Default value given is not JSON serializable: {e}') from e
+
+    @classmethod
     def _create_columns(cls, schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> list[Column]:
         """Construct list of Columns, given schema"""
         columns: list[Column] = []
         for name, spec in schema.items():
             col_type: ts.ColumnType | None = None
             value_expr: exprs.Expr | None = None
+            value_expr_dict: dict[str, Any] | None = None
+            default_value_expr_dict: dict[str, Any] | None = None
             primary_key: bool = False
             media_validation: catalog.MediaValidation | None = None
             stored = True
@@ -867,15 +944,62 @@ class Table(SchemaObject):
                 value_expr.bind_rel_paths()
             elif isinstance(spec, dict):
                 cls._validate_column_spec(name, spec)
+                if 'value' in spec and 'default' in spec:
+                    raise excs.Error(
+                        f"Column {name!r}: 'default' cannot be specified for computed columns (columns with 'value')."
+                    )
                 if 'type' in spec:
                     col_type = ts.ColumnType.normalize_type(
                         spec['type'], nullable_default=True, allow_builtin_types=False
                     )
-                value_expr = spec.get('value')
-                if value_expr is not None and isinstance(value_expr, exprs.Expr):
-                    # create copy so we can modify it
-                    value_expr = value_expr.copy()
-                    value_expr.bind_rel_paths()
+
+                # Check for 'value' (computed column) or 'default' (column with default value)
+                if 'value' in spec:
+                    # Computed column
+                    value_expr = spec.get('value')
+                    if value_expr is not None and isinstance(value_expr, exprs.Expr):
+                        # create copy so we can modify it
+                        value_expr = value_expr.copy()
+                        value_expr.bind_rel_paths()
+                elif 'default' in spec:
+                    # Column with default value
+                    default_expr_obj = spec['default']
+                    default_value_expr = exprs.Expr.from_object(default_expr_obj)
+                    default_value_expr = default_value_expr.copy()
+                    default_value_expr.bind_rel_paths()
+
+                    assert isinstance(default_value_expr, exprs.Literal)
+
+                    assert col_type is not None
+                    if col_type.is_media_type():
+                        raise excs.Error(
+                            f'Column {name!r}: Default values are not supported for media types '
+                            f'(Image, Video, Audio, Document). Only supported for scalar types, '
+                            f'simple JSON, Array, and Binary.'
+                        )
+                    # Ensure the column type is one that Literal supports
+                    if not (
+                        col_type.is_scalar_type()
+                        or col_type.is_json_type()
+                        or col_type.is_array_type()
+                        or col_type.is_binary_type()
+                    ):
+                        raise excs.Error(
+                            f'Column {name!r}: Default values are only supported for scalar types '
+                            f'(String, Int, Float, Bool, Timestamp, Date, UUID), simple JSON, '
+                            f'Array, and Binary.'
+                        )
+                    # Ensure the default value's type is compatible with the column type
+                    default_type = default_value_expr.col_type
+                    if not col_type.is_supertype_of(default_type, ignore_nullable=True):
+                        raise excs.Error(
+                            f'Column {name!r}: Default value type {default_type} is not compatible '
+                            f'with column type {col_type}.'
+                        )
+
+                    cls._validate_json_default_value_expr(default_value_expr, name, MAX_DEFAULT_VALUE_SIZE)
+                    default_value_expr_dict = default_value_expr.as_dict()
+
                 stored = spec.get('stored', True)
                 primary_key = spec.get('primary_key', False)
                 media_validation_str = spec.get('media_validation')
@@ -899,6 +1023,8 @@ class Table(SchemaObject):
                 is_pk=primary_key,
                 media_validation=media_validation,
                 destination=destination,
+                value_expr_dict=value_expr_dict,
+                default_value_expr_dict=default_value_expr_dict,
                 custom_metadata=custom_metadata,
                 comment=comment,
             )

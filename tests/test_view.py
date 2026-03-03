@@ -1201,6 +1201,100 @@ class TestView:
         # computed view column for new row is null
         assert v.where(v.computed_1 == None).count() == 1
 
+    def test_additional_columns_with_defaults(self, uses_db: None, reload_tester: ReloadTester) -> None:
+        base_defaults = {'base_int': 10, 'base_str': 'base_default', 'base_json': {'base': 'data'}}
+        v1_defaults = {'v1_int': 100, 'v1_str': 'view_default', 'v1_json': {'view': 'data'}}
+
+        def assert_row_subset(row: dict, expected: dict) -> None:
+            for key, val in expected.items():
+                assert row[key] == val, f'Expected {key}={val!r}, got {row[key]!r}'
+
+        # Create base table and insert rows
+        t = pxt.create_table(
+            'base_tbl',
+            {
+                'c1': pxt.Int,
+                'base_int': {'type': pxt.Int, 'default': 10},
+                'base_str': {'type': pxt.String, 'default': 'base_default'},
+                'base_json': {'type': pxt.Json, 'default': {'base': 'data'}},
+            },
+        )
+        t.insert([{'c1': 1}, {'c1': 2}])
+
+        result = t.select().collect()
+        assert len(result) == 2
+        for row in result:
+            assert_row_subset(row, base_defaults)
+
+        # Create view with additional_columns
+        v1 = pxt.create_view(
+            'view1',
+            t,
+            additional_columns={
+                'v1_int': {'type': pxt.Int, 'default': 100},
+                'v1_str': {'type': pxt.String, 'default': 'view_default'},
+                'v1_json': {'type': pxt.Json, 'default': {'view': 'data'}},
+                'v1_computed': t.c1 + 1000,
+            },
+        )
+
+        result = v1.select().collect()
+        assert len(result) == 2
+        for row in result:
+            assert_row_subset(row, {**base_defaults, **v1_defaults})
+            assert row['v1_computed'] == row['c1'] + 1000
+
+        # Update base column c1: only computed column should change
+        t.update({'c1': 100}, where=t.c1 == 1)
+        row_c1_100 = next(r for r in v1.select().collect() if r['c1'] == 100)
+        assert row_c1_100['v1_computed'] == 1100
+        assert_row_subset(row_c1_100, v1_defaults)
+
+        # Update v1_int directly on view
+        v1.update({'v1_int': 999}, where=v1.c1 == 2)
+        result = v1.where(v1.c1 == 2).collect()
+        assert len(result) == 1
+        assert result[0]['v1_int'] == 999
+        assert_row_subset(result[0], {'v1_str': 'view_default', 'v1_json': {'view': 'data'}})
+
+        # View of view
+        v2 = pxt.create_view(
+            'view2',
+            v1,
+            additional_columns={
+                'v2_int': {'type': pxt.Int, 'default': 200},
+                'v2_str': {'type': pxt.String, 'default': 'view2_default'},
+            },
+        )
+
+        result = v2.select().collect()
+        assert len(result) == 2
+        for row in result:
+            assert_row_subset(
+                row,
+                {
+                    **base_defaults,
+                    'v1_str': 'view_default',
+                    'v1_json': {'view': 'data'},
+                    'v2_int': 200,
+                    'v2_str': 'view2_default',
+                },
+            )
+            expected_v1_int = 999 if row['c1'] == 2 else 100
+            assert row['v1_int'] == expected_v1_int, f'Expected v1_int={expected_v1_int}, got {row["v1_int"]}'
+
+        # Insert new row - verify defaults propagate
+        t.insert([{'c1': 3}])
+        result = v1.select().collect()
+        assert len(result) == 3
+        new_row = next(r for r in result if r['c1'] == 3)
+        assert_row_subset(new_row, {**base_defaults, **v1_defaults})
+        assert new_row['v1_computed'] == 1003
+
+        reload_tester.run_query(v1.select())
+        reload_tester.run_query(v2.select())
+        reload_tester.run_reload_test()
+
     def test_drop_base_column(self, uses_db: None) -> None:
         t = self.create_tbl()
         # create view with computed columns

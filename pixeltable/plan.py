@@ -390,7 +390,6 @@ class Planner:
 
         plan.set_ctx(exec.ExecContext(row_builder, batch_size=0, ignore_errors=ignore_errors))
         plan = cls._add_save_node(plan)
-
         return plan
 
     @classmethod
@@ -409,12 +408,16 @@ class Planner:
 
         # Modify the plan RowBuilder to register the output columns
         needs_cell_materialization = False
+        has_default_value_cols = False
         for col_name, expr in zip(query.schema.keys(), query._select_list_exprs):
             assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
             needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
+            has_default_value_cols = col.has_default_value
 
+        if has_default_value_cols:
+            plan = exec.SetDefaultValueNode(plan)
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
 
@@ -848,11 +851,19 @@ class Planner:
             plan = exec.ExprEvalNode(
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )
+            if propagates_insert:
+                # Fill default values for additional columns of the view
+                view_additional_with_defaults = [
+                    c for c in stored_cols if c.get_tbl().id == target.id and not c.is_computed and c.has_default_value
+                ]
+                if view_additional_with_defaults:
+                    plan = exec.SetDefaultValueNode(plan, columns_with_defaults=view_additional_with_defaults)
 
         exec_ctx.ignore_errors = True
         plan.set_ctx(exec_ctx)
         if any(c.col_type.supports_file_offloading() for c in stored_cols):
             plan = exec.CellMaterializationNode(plan)
+
         plan = cls._add_save_node(plan)
 
         return plan, len(row_builder.default_eval_ctx.target_exprs)
