@@ -107,15 +107,6 @@ class RateLimitsScheduler(Scheduler):
             completed_aw: asyncio.Task | None = None
             wait_for_reset: asyncio.Task | None = None
             if resource_delay > 0:
-                # Some resource or resources are nearing depletion
-
-                if self.num_in_flight > 0:
-                    # a completed request can free up capacity
-                    self.request_completed.clear()
-                    completed_aw = asyncio.create_task(self.request_completed.wait())
-                    aws.append(completed_aw)
-                    _logger.debug(f'waiting for completed request for {self.resource_pool}')
-
                 # Schedule a sleep until sufficient resources are available
                 wait_for_reset = asyncio.create_task(asyncio.sleep(resource_delay))
                 aws.append(wait_for_reset)

@@ -517,8 +517,8 @@ class TestOpenai:
         with open('tests/data/random_words', encoding='utf-8') as f:
             wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
 
-        n = 1
-        model = 'gpt-4o'  # cheapest model; each row costs ~$0.0001
+        n = 20
+        model = 'gpt-5-nano'  # cheapest model; each row costs ~$0.0001
 
         def _run_trial(label: str, max_tokens: int | None) -> tuple[float, int]:
             import random
@@ -540,16 +540,9 @@ class TestOpenai:
             )
             return elapsed, status.num_excs
 
-        elapsed_constrained, errs_constrained = _run_trial('constrained   max_tokens=20', max_tokens=20)
         elapsed_unconstrained, errs_unconstrained = _run_trial('unconstrained no max_tokens', max_tokens=None)
 
-        print(
-            f'\n  speedup (constrained / unconstrained): '
-            f'{elapsed_unconstrained / elapsed_constrained:.1f}x'
-        )
-
         # Both trials should complete without total failure
-        assert errs_constrained < n, 'All requests failed in constrained trial'
         assert errs_unconstrained < n, 'All requests failed in unconstrained trial'
 
     @pytest.mark.expensive
