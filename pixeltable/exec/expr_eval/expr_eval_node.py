@@ -383,7 +383,7 @@ class ExprEvalNode(ExecNode):
         # ---------- Progress reporting ----------
         if self.progress_reporter is not None and num_computed_outputs > 0:
             self.progress_reporter.update(num_computed_outputs)
-            
+
         # ---------- Identify completed rows ----------
         missing_slot_counts = missing_slots.sum(axis=1)  # (num_rows,)
         completed_mask = missing_slot_counts == 0
@@ -440,7 +440,6 @@ class ExprEvalNode(ExecNode):
             if gc_targets[i].any():
                 row.clear(gc_targets[i])
             row.missing_dependents = new_missing_dependents[i]
-
 
         # ---------- Handle completed rows ----------
         if np.any(completed_mask):
