@@ -252,7 +252,7 @@ markers = [
     "expensive: marks tests as expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "corrupts_db: marks tests as corrupting the database and disables the database validation after the test",
-    "cockroachdb: tests to run against CockroachDB",
+    "cockroachdb: marks tests to run against CockroachDB in merge queue",
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)
