@@ -20,6 +20,7 @@ from tenacity import RetryCallState, retry, retry_if_result, stop_after_delay, w
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs, type_system as ts
 from pixeltable.func import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import exponential_backoff, parse_duration_str
 from pixeltable.utils.local_store import TempStore
@@ -47,7 +48,7 @@ def _(api_key: str) -> 'genai.client.Client':
 
 
 def _genai_client() -> 'genai.client.Client':
-    return env.Env.get().get_client('gemini')
+    return get_runtime().get_client('gemini')
 
 
 class GeminiRateLimitsInfo(env.RateLimitsInfo):

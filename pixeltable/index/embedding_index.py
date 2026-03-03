@@ -178,11 +178,6 @@ class EmbeddingIndex(IndexBase):
         stmt = Env.get().dbms.create_vector_index_stmt(store_index_name, sa_value_col, metric=metric)
         return stmt
 
-    def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
-        """Drop the index on the index value column"""
-        # TODO: implement
-        raise NotImplementedError()
-
     def similarity_clause(self, val_column: catalog.Column, item: exprs.Literal) -> sql.ColumnElement:
         """Create a ColumnElement that represents '<val_column> <op> <item>'"""
         assert item.col_type._type in self.embeddings

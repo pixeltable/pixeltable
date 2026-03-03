@@ -273,7 +273,7 @@ Destinations are resolved in this order:
     t = pxt.create_table('app/audio', {'audio': pxt.Audio})
 
     t.add_computed_column(
-        segments=pxt.functions.video.audio_splitter(t.audio, chunk_duration_sec=30),
+        segments=pxt.functions.video.audio_splitter(t.audio, duration=30),
         destination='https://s3.us-west-004.backblazeb2.com/my-bucket/segments/'
     )
     ```
