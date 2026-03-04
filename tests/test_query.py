@@ -967,7 +967,7 @@ class TestQuery:
 
         row_count = 100000
 
-        t.insert([{'c1': i, 'c2': f'str_{i}'} for i in range(row_count)])
+        t.insert({'c1': i, 'c2': f'str_{i}'} for i in range(row_count))
 
         def select_inexpensive() -> None:
             res = t.select(t.c1, t.c2, isascii(t.c2), isalpha(t.c2)).collect()
