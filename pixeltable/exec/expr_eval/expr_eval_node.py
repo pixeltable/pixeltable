@@ -358,7 +358,7 @@ class ExprEvalNode(ExecNode):
         dependencies = exec_ctx.row_builder.dependencies  # (num_slots, num_slots)
         num_dependencies = exec_ctx.row_builder.num_dependencies  # (num_slots,)
 
-        # Stack row arrays into 2D arrays for vectorized operations
+        # Stack row arrays into 2D arrays
         # Shape: (num_rows, num_slots)
         has_val = np.stack([r.has_val for r in rows], axis=0)
         missing_slots = np.stack([r.missing_slots for r in rows], axis=0)
