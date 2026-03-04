@@ -112,8 +112,9 @@ class _ReveClient:
                         f'{resp}'
                     )
                     if resp.content_type == 'application/json':
-                        json_body = (await resp.read()).decode('utf-8')
-                        _logger.info(f'Response body: {json_body[:1024]}{"..." if len(json_body) > 1024 else ""}')
+                        json_body = await resp.text(errors='replace')
+                        json_body = json_body if len(json_body) <= 1024 else json_body[:1024] + '...'
+                        _logger.info(f'Response body: {json_body}')
                     raise ReveUnexpectedError(
                         f'Reve request failed with status code {resp.status} and error code {error_code}'
                     )
