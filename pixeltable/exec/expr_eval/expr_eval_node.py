@@ -405,7 +405,7 @@ class ExprEvalNode(ExecNode):
             # dependencies[i, j] == True means expr i depends on expr j
             # dependencies.T[j, i] == True means expr i depends on expr j
             # We want: for each slot i, count how many of its dependencies have values
-            nc_num_mat_dependencies = nc_has_val.astype(np.int32) @ dependencies.T.astype(np.int32)
+            nc_num_mat_dependencies = nc_has_val.astype(np.int16) @ dependencies.T.astype(np.int16)
 
             # Ready when all dependencies are materialized
             nc_num_missing = nc_missing_dependencies - nc_num_mat_dependencies
