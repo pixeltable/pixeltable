@@ -366,23 +366,20 @@ class ExprEvalNode(ExecNode):
         missing_dependents = np.stack([r.missing_dependents for r in rows], axis=0)
 
         # ---------- Compute progress (output slot materialization) ----------
-        num_computed_outputs = 0
-        if self.eval_ctx is exec_ctx:
+        report_progress = self.progress_reporter is not None and self.eval_ctx is exec_ctx
+        if report_progress:
             # Count currently non-materialized output slots (before updating missing_slots)
             missing_outputs_before = (missing_slots & self.outputs).sum()
 
-            # Update missing_slots: clear slots that now have values
-            missing_slots &= ~has_val
-
-            missing_outputs_after = (missing_slots & self.outputs).sum()
-            num_computed_outputs = missing_outputs_before - missing_outputs_after
-        else:
-            # Update missing_slots: clear slots that now have values
-            missing_slots &= ~has_val
+        # Update missing_slots: clear slots that now have values
+        missing_slots &= ~has_val
 
         # ---------- Progress reporting ----------
-        if self.progress_reporter is not None and num_computed_outputs > 0:
-            self.progress_reporter.update(num_computed_outputs)
+        if report_progress:
+            missing_outputs_after = (missing_slots & self.outputs).sum()
+            num_computed_outputs = missing_outputs_before - missing_outputs_after
+            if num_computed_outputs > 0:
+                self.progress_reporter.update(num_computed_outputs)
 
         # ---------- Identify completed rows ----------
         missing_slot_counts = missing_slots.sum(axis=1)  # (num_rows,)
