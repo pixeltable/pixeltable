@@ -365,7 +365,7 @@ class ExprEvalNode(ExecNode):
         is_scheduled = np.stack([r.is_scheduled for r in rows], axis=0)
         missing_dependents = np.stack([r.missing_dependents for r in rows], axis=0)
 
-        # ---------- Compute progress (output slot materialization) ----------
+        # Compute progress (output slot materialization)
         report_progress = self.progress_reporter is not None and self.eval_ctx is exec_ctx
         if report_progress:
             # Count currently non-materialized output slots (before updating missing_slots)
@@ -374,18 +374,18 @@ class ExprEvalNode(ExecNode):
         # Update missing_slots: clear slots that now have values
         missing_slots &= ~has_val
 
-        # ---------- Progress reporting ----------
+        # Progress reporting
         if report_progress:
             missing_outputs_after = (missing_slots & self.outputs).sum()
             num_computed_outputs = missing_outputs_before - missing_outputs_after
             if num_computed_outputs > 0:
                 self.progress_reporter.update(num_computed_outputs)
 
-        # ---------- Identify completed rows ----------
+        # Identify completed rows
         missing_slot_counts = missing_slots.sum(axis=1)  # (num_rows,)
         completed_mask = missing_slot_counts == 0
 
-        # ---------- Compute ready slots for non-completed rows ----------
+        # Compute ready slots for non-completed rows
         # ready_slots: (num_rows, num_slots)
         ready_slots = np.zeros((num_rows, num_slots), dtype=bool)
 
@@ -417,7 +417,7 @@ class ExprEvalNode(ExecNode):
             # Update is_scheduled for non-completed rows
             is_scheduled[non_completed_mask] |= nc_ready
 
-        # ---------- GC computation ----------
+        # GC computation 
         # Compute new missing_dependents for all rows
         # missing_dependents[i, slot] = count of slots that depend on 'slot' and don't have a value yet
         # dependencies[i, j] means expr i depends on expr j
@@ -428,7 +428,7 @@ class ExprEvalNode(ExecNode):
         # gc_targets[i, j] = Boolean mask where slot j can be garbage collected for row i if True
         gc_targets = (new_missing_dependents == 0) & (missing_dependents > 0) & exec_ctx.gc_targets[np.newaxis, :]
 
-        # ---------- Write back to DataRows and perform GC ----------
+        # Write back to DataRows and perform GC
         for i, row in enumerate(rows):
             row.missing_slots = missing_slots[i]
             row.is_scheduled = is_scheduled[i]
@@ -438,7 +438,7 @@ class ExprEvalNode(ExecNode):
                 row.clear(gc_targets[i])
             row.missing_dependents = new_missing_dependents[i]
 
-        # ---------- Handle completed rows ----------
+        # Handle completed rows
         if np.any(completed_mask):
             completed_idxs = list(completed_mask.nonzero()[0])
             if rows[0].parent_row is not None:
@@ -454,7 +454,7 @@ class ExprEvalNode(ExecNode):
                 self.completed_event.set()
                 self.num_in_flight -= len(completed_idxs)
 
-        # ---------- Schedule ready slots ----------
+        # Schedule ready slots
         # Find slots that have any ready rows
         slots_with_ready_rows = ready_slots.sum(axis=0).nonzero()[0]
         for slot_idx in slots_with_ready_rows:
