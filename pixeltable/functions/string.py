@@ -50,12 +50,6 @@ def casefold(self: str) -> str:
     return self.casefold()
 
 
-@casefold.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # casefold is more aggressive than lower() for Unicode, but lower() is a good approximation
-    return sql.func.lower(self)
-
-
 @pxt.udf(is_method=True)
 def center(self: str, width: int, fillchar: str = ' ') -> str:
     """
@@ -382,13 +376,6 @@ def isidentifier(self: str) -> bool:
     return self.isidentifier()
 
 
-@isidentifier.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # Python identifier: starts with letter/underscore, followed by letters/digits/underscores
-    # This covers ASCII identifiers; full Unicode identifier support would require more complex logic
-    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[A-Za-z_][A-Za-z0-9_]*$'))
-
-
 @pxt.udf(is_method=True)
 def islower(self: str) -> bool:
     """
@@ -445,18 +432,6 @@ def istitle(self: str) -> bool:
     Equivalent to [`str.istitle()`](https://docs.python.org/3/library/stdtypes.html#str.istitle)
     """
     return self.istitle()
-
-
-@istitle.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # Python's istitle: uppercase follows uncased (including digits), lowercase follows cased
-    # PostgreSQL's initcap doesn't capitalize after digits, so we use the same marker approach as title()
-    # Insert marker after digits before letters to force initcap to see word boundaries
-    with_markers = sql.func.regexp_replace(self, r'([0-9])([a-zA-Z])', r'\1¤\2', 'g')
-    titled = sql.func.initcap(with_markers)
-    titled_clean = sql.func.replace(titled, '¤', '')
-    # String is titlecased if it equals its titled form and has at least one letter
-    return sql.and_(self.op('~')('[A-Za-z]'), self == titled_clean)
 
 
 @pxt.udf(is_method=True)
