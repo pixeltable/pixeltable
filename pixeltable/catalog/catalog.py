@@ -248,24 +248,20 @@ class Catalog:
             assert anchor_tbl_id is None or tbl_version.is_replica
 
             if tbl_version.is_view and tbl_version.is_mutable and tbl_version.is_validated:
-                # make sure this mutable view is recorded in a mutable base
                 base = tbl_version.base
-                assert base is not None
+                assert base is not None, f'View {tbl_version.id} is missing base'
                 if base.effective_version is None:
                     key = TableVersionKey(base.id, None, None)
-                    assert key in self._tbl_versions
-                    base_tv = self._tbl_versions[key]
-                    if not base_tv.is_validated:
-                        continue
-                    mutable_view_ids = ', '.join(str(tv.id) for tv in self._tbl_versions[key].mutable_views)
-                    mutable_view_names = ', '.join(
-                        tv._tbl_version.name
-                        for tv in self._tbl_versions[key].mutable_views
-                        if tv._tbl_version is not None
-                    )
-                    assert tbl_version.handle in self._tbl_versions[key].mutable_views, (
-                        f'{tbl_version.name} ({tbl_version.id}) missing in {mutable_view_ids} ({mutable_view_names})'
-                    )
+                    base_tv = self._tbl_versions.get(key, None)
+                    if base_tv is not None and base_tv.is_validated and tbl_version.handle not in base_tv.mutable_views:
+                        mutable_view_ids = ', '.join(str(tv.id) for tv in base_tv.mutable_views)
+                        mutable_view_names = ', '.join(
+                            tv._tbl_version.name for tv in base_tv.mutable_views if tv._tbl_version is not None
+                        )
+                        raise AssertionError(
+                            f'{tbl_version.name} ({tbl_version.id}) missing in '
+                            f'{mutable_view_ids} ({mutable_view_names})'
+                        )
 
             if len(tbl_version.mutable_views) > 0:
                 # make sure we also loaded mutable view metadata, which is needed to detect column dependencies
