@@ -70,7 +70,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: random-ops-log${{ matrix.options }}
-          path: ~/.pixeltable/random-ops.log
+          path: ~/.pixeltable/logs/random-ops.log
 
   performance-tests:
     runs-on: ubuntu-large
