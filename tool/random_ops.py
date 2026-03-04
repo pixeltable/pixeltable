@@ -152,7 +152,9 @@ class RandomTableOps:
                 record.worker_id = worker_id
                 return True
 
-        random_ops_log_handler = logging.FileHandler(Config.get().home / 'logs' / 'random-ops.log')
+        log_path = Config.get().home / 'logs' / 'random-ops.log'
+        os.makedirs(log_path.parent, exist_ok=True)
+        random_ops_log_handler = logging.FileHandler(log_path)
         random_ops_log_handler.setLevel(logging.DEBUG)
         random_ops_log_handler.addFilter(WorkerIdFilter())
         formatter = logging.Formatter(
