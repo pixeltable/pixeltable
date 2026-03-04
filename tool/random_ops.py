@@ -14,6 +14,7 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.config import Config
+from pixeltable.env import Env
 from tool.worker_harness import run_workers
 
 # List of table operations that can be performed by RandomTableOps.
@@ -100,7 +101,7 @@ class RandomTableOps:
     - If the operation supports only base tables, carry out the operation on the selected table.
     - If the operation supports views and the table has at least one view, then: 50% of the time, carry out the
         operation on the selected base table; 50% of the time, carry it out on a random view of the selected table.
-    - Capture the outcome of the operation in $PIXELTABLE_HOME/random-ops.log and on the console.
+    - Capture the outcome of the operation in $PIXELTABLE_HOME/logs/random-ops.log and on the console.
     - Sleep for a short random time (0.1 to 0.5 seconds) before starting the next iteration.
     """
 
@@ -145,18 +146,36 @@ class RandomTableOps:
             cumulative_weight += float(weight)
             self.random_ops.append((cumulative_weight / total_weight, getattr(self, op_name)))
 
-        handler = logging.FileHandler(Config.get().home / 'random-ops.log')
-        handler.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(message)s')
-        handler.setFormatter(formatter)
-        self.logger.setLevel(logging.INFO)
-        self.logger.addHandler(handler)
-        self.logger.propagate = False
+        # This is necessary to include worker_id in all (including pixeltable) log records
+        class WorkerIdFilter(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
+                record.worker_id = worker_id
+                return True
+
+        log_path = Config.get().home / 'logs' / 'random-ops.log'
+        os.makedirs(log_path.parent, exist_ok=True)
+        random_ops_log_handler = logging.FileHandler(log_path)
+        random_ops_log_handler.setLevel(logging.DEBUG)
+        random_ops_log_handler.addFilter(WorkerIdFilter())
+        formatter = logging.Formatter(
+            '%(asctime)s %(process)d [Worker %(worker_id)02d] '
+            '%(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
+        )
+        random_ops_log_handler.setFormatter(formatter)
+
+        self.logger.setLevel(logging.DEBUG)
+        self.logger.addHandler(random_ops_log_handler)
+        self.logger.propagate = False  # prevents double logging to stdout
+
+        logging.getLogger('pixeltable').setLevel(logging.DEBUG)
+        logging.getLogger('pixeltable').addHandler(random_ops_log_handler)
+
+        Env.get().set_log_level(logging.DEBUG)
 
     def emit(self, op: Callable, msg: Any) -> None:
         line = f'[{datetime.now()}] [Worker {self.worker_id:02d}] [{op.__name__:19s}]: {msg}'
         print(line)
-        self.logger.info(line)
+        self.logger.info('[%s]: %s', op.__name__, msg)
 
     @classmethod
     def tbl_descr(cls, t: pxt.Table) -> str:
@@ -496,8 +515,6 @@ def main() -> None:
         for i in range(args.workers)
     ]
 
-    # Remove old logfile, if one exists
-    (Config.get().home / 'random-ops.log').unlink(missing_ok=True)
     run_workers(args.workers, args.duration, worker_args=worker_args)
 
 
