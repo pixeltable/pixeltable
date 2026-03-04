@@ -451,47 +451,40 @@ def bboxes_convert(
     if dst_format not in ['xyxy', 'xywh', 'cxcywh']:
         raise pxt.Error(f'Invalid dst_format: {dst_format!r}')
 
-    result: list[list[int | float]] = []
-    for bbox in bboxes:
-        if len(bbox) != 4:
-            raise pxt.Error(f'Expected 4-element list for bbox, got {bbox}')
+    arr = np.array(bboxes)
+    if arr.ndim != 2 or arr.shape[1] != 4:
+        raise pxt.Error(f'Expected Nx4 array of bounding boxes, got shape {arr.shape}')
 
-        x1: int | float
-        y1: int | float
-        x2: int | float
-        y2: int | float
-        w: int | float
-        h: int | float
-        cx: int | float
-        cy: int | float
-        if src_format == 'xyxy':
-            x1, y1, x2, y2 = bbox
-            w = x2 - x1
-            h = y2 - y1
-            cx = x1 + w / 2
-            cy = y1 + h / 2
-        if src_format == 'xywh':
-            x1, y1, w, h = bbox
-            x2 = x1 + w
-            y2 = y1 + h
-            cx = x1 + w / 2
-            cy = y1 + h / 2
-        if src_format == 'cxcywh':
-            cx, cy, w, h = bbox
-            x1 = cx - w / 2
-            y1 = cy - h / 2
-            x2 = cx + w / 2
-            y2 = cy + h / 2
+    c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
 
-        if dst_format == 'xyxy':
-            result.append([x1, y1, x2, y2])
-        elif dst_format == 'xywh':
-            result.append([x1, y1, w, h])
-        elif dst_format == 'cxcywh':
-            result.append([cx, cy, w, h])
-        else:
-            raise ValueError(f'Unknown dst_format: {dst_format!r}')
-    return result
+    if src_format == 'xyxy':
+        x1, y1, x2, y2 = c0, c1, c2, c3
+        w = x2 - x1
+        h = y2 - y1
+        cx = x1 + w / 2
+        cy = y1 + h / 2
+    elif src_format == 'xywh':
+        x1, y1, w, h = c0, c1, c2, c3
+        x2 = x1 + w
+        y2 = y1 + h
+        cx = x1 + w / 2
+        cy = y1 + h / 2
+    else:  # cxcywh
+        cx, cy, w, h = c0, c1, c2, c3
+        x1 = cx - w / 2
+        y1 = cy - h / 2
+        x2 = cx + w / 2
+        y2 = cy + h / 2
+
+    result: np.ndarray
+    if dst_format == 'xyxy':
+        result = np.column_stack([x1, y1, x2, y2])
+    elif dst_format == 'xywh':
+        result = np.column_stack([x1, y1, w, h])
+    else:  # cxcywh
+        result = np.column_stack([cx, cy, w, h])
+
+    return result.tolist()
 
 
 def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
