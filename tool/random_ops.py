@@ -513,7 +513,6 @@ def main() -> None:
         for i in range(args.workers)
     ]
 
-    # Remove old logfile, if one exists
     run_workers(args.workers, args.duration, worker_args=worker_args)
 
 
