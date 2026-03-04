@@ -458,66 +458,22 @@ class TableVersion:
 
         # initialize IndexBase instances and collect sa_col_types
         idxs: dict[int, index.IndexBase] = {}
-        val_col_idxs: dict[int, index.IndexBase] = {}  # key: id of value column
-        undo_col_idxs: dict[int, index.IndexBase] = {}  # key: id of undo column
+        idxs_with_md: list[tuple[schema.IndexMd, index.IndexBase]] = []
         for md in self.tbl_md.index_md.values():
             cls_name = md.class_fqn.rsplit('.', 1)[-1]
             cls = getattr(index, cls_name)
             idx = cls.from_dict(md.init_args)
             idxs[md.id] = idx
-            val_col_idxs[md.index_val_col_id] = idx
-            undo_col_idxs[md.index_val_undo_col_id] = idx
+            idxs_with_md.append((md, idx))
 
         # initialize Columns
-        self.cols = []
+        self.cols = self._init_cols_from_md(idxs_with_md)
         self.cols_by_name = {}
         self.cols_by_id = {}
-        # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
-        # point backward.
-        sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
-        for col_md in sorted_column_md:
-            col_type = ts.ColumnType.from_dict(col_md.col_type)
-            schema_col_md = self.schema_version_md.columns.get(col_md.id)
-            media_val = (
-                MediaValidation[schema_col_md.media_validation.upper()]
-                if schema_col_md is not None and schema_col_md.media_validation is not None
-                else None
-            )
-
-            sa_col_type: sql.types.TypeEngine | None = None
-            if col_md.id in val_col_idxs:
-                idx = val_col_idxs[col_md.id]
-                sa_col_type = idx.get_index_sa_type(col_type)
-            elif col_md.id in undo_col_idxs:
-                idx = undo_col_idxs[col_md.id]
-                sa_col_type = idx.get_index_sa_type(col_type)
-
-            # Iterator columns are those produced by the component view's iterator. The special pos (id=0) column
-            # is not considered an iterator column.
-            is_iterator_col = self.is_component_view and col_md.id > 0 and col_md.id < self.num_iterator_cols + 1
-            col = Column(
-                col_id=col_md.id,
-                name=schema_col_md.name if schema_col_md is not None else None,
-                col_type=col_type,
-                is_pk=col_md.is_pk,
-                is_iterator_col=is_iterator_col,
-                stored=col_md.stored,
-                media_validation=media_val,
-                sa_col_type=sa_col_type,
-                schema_version_add=col_md.schema_version_add,
-                schema_version_drop=col_md.schema_version_drop,
-                stores_cellmd=col_md.stores_cellmd,
-                value_expr_dict=col_md.value_expr,
-                tbl_handle=self.handle,
-                destination=col_md.destination,
-                custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
-                comment=schema_col_md.comment if schema_col_md is not None else '',
-            )
-
-            self.cols.append(col)
+        for col in self.cols:
             # populate lookup structures before Expr.from_dict()
-            if col_md.schema_version_add <= self.schema_version and (
-                col_md.schema_version_drop is None or col_md.schema_version_drop > self.schema_version
+            if col.schema_version_add <= self.schema_version and (
+                col.schema_version_drop is None or col.schema_version_drop > self.schema_version
             ):
                 if col.name is not None:
                     self.cols_by_name[col.name] = col
@@ -571,6 +527,57 @@ class TableVersion:
             self.store_tbl = StoreView(self)
         else:
             self.store_tbl = StoreTable(self)
+
+    def _init_cols_from_md(self, indexes: list[tuple[schema.IndexMd, index.IndexBase]]) -> list[Column]:
+        # value column id -> index
+        val_col_idxs = {idx_md.index_val_col_id: idx for idx_md, idx in indexes}
+        # undo column id -> index
+        undo_col_idxs = {idx_md.index_val_undo_col_id: idx for idx_md, idx in indexes}
+
+        # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
+        # point backward.
+        sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
+        cols = []
+        for col_md in sorted_column_md:
+            col_type = ts.ColumnType.from_dict(col_md.col_type)
+            schema_col_md = self.schema_version_md.columns.get(col_md.id)
+            media_val = (
+                MediaValidation[schema_col_md.media_validation.upper()]
+                if schema_col_md is not None and schema_col_md.media_validation is not None
+                else None
+            )
+
+            sa_col_type: sql.types.TypeEngine | None = None
+            if col_md.id in val_col_idxs:
+                idx = val_col_idxs[col_md.id]
+                sa_col_type = idx.get_index_sa_type(col_type)
+            elif col_md.id in undo_col_idxs:
+                idx = undo_col_idxs[col_md.id]
+                sa_col_type = idx.get_index_sa_type(col_type)
+
+            # Iterator columns are those produced by the component view's iterator. The special pos (id=0) column
+            # is not considered an iterator column.
+            is_iterator_col = self.is_component_view and col_md.id > 0 and col_md.id < self.num_iterator_cols + 1
+            col = Column(
+                col_id=col_md.id,
+                name=schema_col_md.name if schema_col_md is not None else None,
+                col_type=col_type,
+                is_pk=col_md.is_pk,
+                is_iterator_col=is_iterator_col,
+                stored=col_md.stored,
+                media_validation=media_val,
+                sa_col_type=sa_col_type,
+                schema_version_add=col_md.schema_version_add,
+                schema_version_drop=col_md.schema_version_drop,
+                stores_cellmd=col_md.stores_cellmd,
+                value_expr_dict=col_md.value_expr,
+                tbl_handle=self.handle,
+                destination=col_md.destination,
+                custom_metadata=schema_col_md.custom_metadata if schema_col_md is not None else None,
+                comment=schema_col_md.comment if schema_col_md is not None else '',
+            )
+            cols.append(col)
+        return cols
 
     def _lookup_column(self, qid: QColumnId) -> Column | None:
         """
