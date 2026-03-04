@@ -30,7 +30,7 @@ class TestGemini:
 
         from pixeltable.functions.gemini import generate_content
 
-        t = pxt.create_table('test_tbl', {'contents': pxt.String})
+        t = pxt.create_table('test_tbl', {'contents': pxt.String, 'row_id': pxt.Int})
         t.add_computed_column(output=generate_content(t.contents, model=model))
 
         if model != 'gemini-3-pro-preview':
@@ -50,13 +50,13 @@ class TestGemini:
         validate_update_status(
             t.insert(
                 [
-                    {'contents': 'Write a sentence about a magic backpack.'},
-                    {'contents': 'Create a summary of: ' + long_text},
+                    {'contents': 'Write a sentence about a magic backpack.', 'row_id': 0},
+                    {'contents': 'Create a summary of: ' + long_text, 'row_id': 1},
                 ]
             ),
             expected_rows=2,
         )
-        results = t.collect()
+        results = t.order_by(t.row_id).collect()
 
         text = results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         print(text)
