@@ -9,15 +9,6 @@ from argparse import ArgumentParser
 from datetime import datetime
 from typing import Any, Callable, Iterator
 
-_worker_id: int = -1
-
-
-# This is necessary to include worker_id in all (including pixeltable) log records
-class WorkerIdFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        record.worker_id = _worker_id  # type: ignore[attr-defined]
-        return True
-
 import numpy as np
 import PIL.Image
 
@@ -129,8 +120,6 @@ class RandomTableOps:
         exclude_ops: list[str],
         config: RandomTableOpsConfig,
     ) -> None:
-        global _worker_id
-        _worker_id = worker_id
         self.worker_id = worker_id
         self.read_only = read_only
         self.config = config
@@ -156,17 +145,24 @@ class RandomTableOps:
             cumulative_weight += float(weight)
             self.random_ops.append((cumulative_weight / total_weight, getattr(self, op_name)))
 
+        # This is necessary to include worker_id in all (including pixeltable) log records
+        class WorkerIdFilter(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
+                record.worker_id = worker_id
+                return True
+
         random_ops_log_handler = logging.FileHandler(Config.get().home / 'logs' / 'random-ops.log')
         random_ops_log_handler.setLevel(logging.INFO)
         random_ops_log_handler.addFilter(WorkerIdFilter())
         formatter = logging.Formatter(
-            '%(asctime)s %(process)d [Worker %(worker_id)02d] %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
+            '%(asctime)s %(process)d [Worker %(worker_id)02d] '
+            '%(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
         )
         random_ops_log_handler.setFormatter(formatter)
 
         self.logger.setLevel(logging.INFO)
         self.logger.addHandler(random_ops_log_handler)
-        self.logger.propagate = False # prevents double logging to stdout
+        self.logger.propagate = False  # prevents double logging to stdout
 
         logging.getLogger('pixeltable').setLevel(logging.DEBUG)
         logging.getLogger('pixeltable').addHandler(random_ops_log_handler)

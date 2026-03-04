@@ -6,8 +6,10 @@ from pixeltable.config import Config
 from tool.random_ops import TABLE_OPS
 
 LINE_PARSER = re.compile(
-    r'^(?P<timestamp>.+) (?P<pid>\d+) \[Worker (?P<worker_id>\d+)\] INFO random_ops .+\[(?P<operation>.+?)\]: (?P<message>.*)$'
+    r'^(?P<timestamp>.+) (?P<pid>\d+) \[Worker (?P<worker_id>\d+)\] '
+    r'INFO random_ops .+\[(?P<operation>.+?)\]: (?P<message>.*)$'
 )
+
 
 class StatsPrinter:
     num_operations: dict[str, dict[int, int]]
@@ -59,7 +61,7 @@ class StatsPrinter:
     def print_stats(self) -> None:
         # TODO this is a hack. Instead of having to parse the log file, random_ops.py should just output a stats json
         # somewhere.
-        with open(Config.get().home / 'logs'/'random-ops.log', encoding='utf-8') as fp:
+        with open(Config.get().home / 'logs' / 'random-ops.log', encoding='utf-8') as fp:
             while True:
                 line = fp.readline()
                 if line == '':
