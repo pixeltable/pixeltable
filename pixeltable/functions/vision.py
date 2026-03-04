@@ -426,66 +426,72 @@ def draw_bounding_boxes(
 # The desired signature:
 # bbox: list[int, int, int, int] | list[float, float, float, float], src_format: str, dst_format: str
 @pxt.udf
-def bbox_convert(
-    bbox: list[int | float],
+def bboxes_convert(
+    bboxes: list[list[int | float]],
     *,
     src_format: Literal['xyxy', 'xywh', 'cxcywh'],
     dst_format: Literal['xyxy', 'xywh', 'cxcywh'],
-) -> list[int | float]:
+) -> list[list[int | float]]:
     """
-    Convert bounding box from src_format to dst_format.
+    Convert a list of bounding boxes from src_format to dst_format.
 
     Args:
-        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
+            coordinates in [0, 1].
         src_format: Source format, one of 'xyxy', 'xywh', 'cxcywh'.
         dst_format: Destination format, one of 'xyxy', 'xywh', 'cxcywh'.
 
     Returns:
-        Bounding box in dst_format.
+        List of bounding boxes in dst_format.
     """
     if src_format == dst_format:
-        return bbox
+        return bboxes
     if src_format not in ['xyxy', 'xywh', 'cxcywh']:
         raise pxt.Error(f'Invalid src_format: {src_format!r}')
     if dst_format not in ['xyxy', 'xywh', 'cxcywh']:
         raise pxt.Error(f'Invalid dst_format: {dst_format!r}')
-    if len(bbox) != 4:
-        raise pxt.Error(f'Expected 4-element list for bbox, got {bbox}')
 
-    x1: int | float
-    y1: int | float
-    x2: int | float
-    y2: int | float
-    w: int | float
-    h: int | float
-    cx: int | float
-    cy: int | float
-    if src_format == 'xyxy':
-        x1, y1, x2, y2 = bbox
-        w = x2 - x1
-        h = y2 - y1
-        cx = x1 + w / 2
-        cy = y1 + h / 2
-    if src_format == 'xywh':
-        x1, y1, w, h = bbox
-        x2 = x1 + w
-        y2 = y1 + h
-        cx = x1 + w / 2
-        cy = y1 + h / 2
-    if src_format == 'cxcywh':
-        cx, cy, w, h = bbox
-        x1 = cx - w / 2
-        y1 = cy - h / 2
-        x2 = cx + w / 2
-        y2 = cy + h / 2
+    result: list[list[int | float]] = []
+    for bbox in bboxes:
+        if len(bbox) != 4:
+            raise pxt.Error(f'Expected 4-element list for bbox, got {bbox}')
 
-    if dst_format == 'xyxy':
-        return [x1, y1, x2, y2]
-    if dst_format == 'xywh':
-        return [x1, y1, w, h]
-    if dst_format == 'cxcywh':
-        return [cx, cy, w, h]
-    raise ValueError(f'Unknown dst_format: {dst_format!r}')
+        x1: int | float
+        y1: int | float
+        x2: int | float
+        y2: int | float
+        w: int | float
+        h: int | float
+        cx: int | float
+        cy: int | float
+        if src_format == 'xyxy':
+            x1, y1, x2, y2 = bbox
+            w = x2 - x1
+            h = y2 - y1
+            cx = x1 + w / 2
+            cy = y1 + h / 2
+        if src_format == 'xywh':
+            x1, y1, w, h = bbox
+            x2 = x1 + w
+            y2 = y1 + h
+            cx = x1 + w / 2
+            cy = y1 + h / 2
+        if src_format == 'cxcywh':
+            cx, cy, w, h = bbox
+            x1 = cx - w / 2
+            y1 = cy - h / 2
+            x2 = cx + w / 2
+            y2 = cy + h / 2
+
+        if dst_format == 'xyxy':
+            result.append([x1, y1, x2, y2])
+        elif dst_format == 'xywh':
+            result.append([x1, y1, w, h])
+        elif dst_format == 'cxcywh':
+            result.append([cx, cy, w, h])
+        else:
+            raise ValueError(f'Unknown dst_format: {dst_format!r}')
+    return result
 
 
 def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
@@ -525,17 +531,17 @@ def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
 
 
 @pxt.udf
-def bbox_resize(
-    bbox: list[int | float],
+def bboxes_resize(
+    bboxes: list[list[int | float]],
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
     width: int | float | None = None,
     height: int | float | None = None,
     aspect: str | float | None = None,
     aspect_mode: Literal['crop', 'pad'] | None = None,
-) -> list[int | float]:
+) -> list[list[int | float]]:
     """
-    Resize a bounding box (center-anchored):
+    Resize a list of bounding boxes (center-anchored):
 
     - to a specified width or height (the other dimension is scaled to maintain the aspect ratio)
     - to a specified aspect ratio
@@ -543,7 +549,8 @@ def bbox_resize(
     Only one of `width`, `height`, or `aspect` can be specified.
 
     Args:
-        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
+            coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         width: Target width.
         height: Target height.
@@ -554,39 +561,40 @@ def bbox_resize(
             `pad`, extends the undersized dimension to match the aspect ratio.
 
     Returns:
-        Resized bounding box in the same format as the input.
+        List of resized bounding boxes in the same format as the input.
     """
     pass
 
 
 @pxt.udf
-def bbox_scale(
-    bbox: list[int | float],
+def bboxes_scale(
+    bboxes: list[list[int | float]],
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
     factor: float | None = None,
     x_factor: float | None = None,
     y_factor: float | None = None,
-) -> list[int | float]:
+) -> list[list[int | float]]:
     """
-    Re-scale a bounding box (center-anchored).
+    Re-scale a list of bounding boxes (center-anchored).
 
     Args:
-        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
+            coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         factor: Scale factor to apply to both box dimensions.
         x_factor: Scale factor to apply to the box width.
         y_factor: Scale factor to apply to the box height.
 
     Returns:
-        Scaled bounding box in the same format as the input.
+        List of scaled bounding boxes in the same format as the input.
     """
     pass
 
 
 @pxt.udf
-def bbox_pad(
-    bbox: list[int | float],
+def bboxes_pad(
+    bboxes: list[list[int | float]],
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
     top: int | None = None,
@@ -595,12 +603,13 @@ def bbox_pad(
     right: int | None = None,
     x: int | None = None,
     y: int | None = None,
-) -> list[int | float]:
+) -> list[list[int | float]]:
     """
-    Pad a bounding box.
+    Pad a list of bounding boxes.
 
     Args:
-        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
+            coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         top: Amount to pad at the top.
         bottom: Amount to pad at the bottom.
@@ -610,26 +619,27 @@ def bbox_pad(
         y: Amount to pad at the top and bottom.
 
     Returns:
-        Padded bounding box in the same format as the input.
+        List of padded bounding boxes in the same format as the input.
     """
     pass
 
 
 @pxt.udf
-def bbox_clip_to_canvas(
-    bbox: list[int | float],
+def bboxes_clip_to_canvas(
+    bboxes: list[list[int | float]],
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
     width: int | None = None,
     height: int | None = None,
     min_visibility: float = 0.0,
     min_area: float = 0.0,
-) -> list[int | float]:
+) -> list[list[int | float]]:
     """
-    Clip a bounding box to a canvas of specified size.
+    Clip a list of bounding boxes to a canvas of specified size.
 
     Args:
-        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
+            coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         width: Canvas width in absolute pixels.
         height: Canvas height in absolute pixels.
@@ -638,26 +648,27 @@ def bbox_clip_to_canvas(
         min_area: Minimum area of the bounding box after clipping. If the area is less than this value, returns None.
 
     Returns:
-        Clipped bounding box in the same format as the input.
+        List of clipped bounding boxes in the same format as the input.
     """
     pass
 
 
 @pxt.udf
-def bbox_crop_canvas(
-    bbox: list[int | float],
+def bboxes_crop_canvas(
+    bboxes: list[list[int | float]],
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
     canvas_width: int | None = None,
     canvas_height: int | None = None,
     canvas_region: list[int | float],
     canvas_region_format: Literal['xyxy', 'xywh', 'cxcywh'],
-) -> list[int | float]:
+) -> list[list[int | float]]:
     """
-    Adjust a bounding box to account for a canvas crop.
+    Adjust a list of bounding boxes to account for a canvas crop.
 
     Args:
-        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
+            coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         canvas_width: Canvas width.
         canvas_height: Canvas height.
@@ -666,26 +677,27 @@ def bbox_crop_canvas(
         canvas_region_format: Format of the `canvas_region` coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
 
     Returns:
-        Adjusted bounding box in the same format as the input. It can extend beyond the canvas boundaries.
+        List of adjusted bounding boxes in the same format as the input. They can extend beyond the canvas boundaries.
     """
     pass
 
 
 @pxt.udf
-def bbox_resize_canvas(
-    bbox: list[int | float],
+def bboxes_resize_canvas(
+    bboxes: list[list[int | float]],
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
     new_canvas_width: int | float,
     new_canvas_height: int | float,
     canvas_width: int | None = None,
     canvas_height: int | None = None,
-) -> list[int | float]:
+) -> list[list[int | float]]:
     """
-    Adjust a bounding box to account for a canvas resize.
+    Adjust a list of bounding boxes to account for a canvas resize.
 
     Args:
-        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
+            coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         new_canvas_width: New canvas width, either absolute pixels or relative to the original canvas width.
         new_canvas_height: New canvas height, either absolute pixels or relative to the original canvas width.
@@ -693,7 +705,7 @@ def bbox_resize_canvas(
         canvas_height: Original canvas height in absolute pixels.
 
     Returns:
-        Adjusted bounding box in the same format as the input.
+        List of adjusted bounding boxes in the same format as the input.
     """
     pass
 
