@@ -238,9 +238,7 @@ class Column:
         else:
             raise excs.Error(f'Invalid spec for column {name!r}: {type(spec)}')
 
-        stores_cellmd = stored and (
-            value_expr is not None or col_type.is_media_type() or col_type.supports_file_offloading()
-        )
+        stores_cellmd = cls.should_store_cellmd(col_type=col_type, is_stored=stored, is_computed=value_expr is not None)
         column = cls(
             name,
             col_type=col_type,
