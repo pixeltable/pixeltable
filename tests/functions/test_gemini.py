@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -6,7 +7,15 @@ import pytest
 import pixeltable as pxt
 import pixeltable.type_system as ts
 
-from ..utils import get_image_files, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    ensure_s3_pytest_resources_access,
+    get_image_files,
+    get_test_video_files,
+    rerun,
+    skip_test_if_no_client,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 from .tool_utils import run_tool_invocations_test
 
 
@@ -64,6 +73,41 @@ class TestGemini:
         results = t.order_by(t.id).collect()
         assert 'French horn' in results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         assert 'truck' in results['output'][1]['candidates'][0]['content']['parts'][0]['text']
+
+    def test_generate_content_video(self, uses_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        ensure_s3_pytest_resources_access()
+
+        from google.genai import types
+
+        from pixeltable.functions.gemini import generate_content
+
+        video_files = get_test_video_files()[:2]
+        video_files.append('s3://pxt-test/pytest-resources/large_videos/6mb.mp4')
+        video_files.append('s3://pxt-test/pytest-resources/large_videos/35mb.mp4')
+
+        t = pxt.create_table('test_tbl', {'id': pxt.Int, 'video': pxt.Video})
+        config = types.GenerateContentConfig(
+            media_resolution='MEDIA_RESOLUTION_LOW', system_instruction='Analyze the visual content only. Ignore audio.'
+        )
+        t.add_computed_column(
+            output=generate_content(
+                [t.video, "understand what's happening in this video and create a short title"],
+                model='gemini-2.5-flash',
+                config=config,
+            )
+        )
+        with patch('pixeltable.functions.gemini.GEMINI_INLINE_VIDEO_LIMIT_BYTES', 1024**2):
+            validate_update_status(
+                t.insert({'id': n, 'video': video_file} for n, video_file in enumerate(video_files)), expected_rows=4
+            )
+            results = t.collect()
+
+        for i in range(4):
+            text = results['output'][i]['candidates'][0]['content']['parts'][0]['text'].lower()
+            print(f'Video analysis result id={i}: {text}')
+            assert text and not any(word in text for word in ['failed', 'unable', 'invalid'])
 
     def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
