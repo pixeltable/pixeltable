@@ -12,7 +12,8 @@ from pydantic import BaseModel, field_validator, model_validator
 # to determine request/response format and maintain backward compatibility.
 PROTOCOL_VERSION = 1
 
-_PXT_URL_PREFIXES = (
+_PXT_URI_PREFIXES = (
+    'pxt://',
     'https://www.pixeltable.com/t/',
     'http://www.pixeltable.com/t/',
     'https://pixeltable.com/t/',
@@ -173,11 +174,16 @@ class PxtUri(BaseModel):
 
     @classmethod
     def _normalize_uri(cls, uri: str) -> str:
-        """Convert a Pixeltable HTTPS URL to a pxt:// URI, or return unchanged."""
-        for prefix in _PXT_URL_PREFIXES:
+        """Normalize a pxt:// URI or Pixeltable HTTPS URL to a canonical pxt:// URI."""
+        for prefix in _PXT_URI_PREFIXES:
             if uri.startswith(prefix):
                 return 'pxt://' + uri[len(prefix) :]
-        return uri
+        return uri  # will fail validation downstream
+
+    @classmethod
+    def is_pxt_uri(cls, uri: str) -> bool:
+        """Return True if the string is a recognized Pixeltable URI or URL."""
+        return any(uri.startswith(prefix) for prefix in _PXT_URI_PREFIXES)
 
 
 class RequestBaseModel(BaseModel, ABC):

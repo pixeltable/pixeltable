@@ -511,8 +511,12 @@ def publish(
     """
     try:
         pxt_uri = PxtUri(destination_uri)
-    except ValueError:
-        raise excs.Error("`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
+    except ValueError as e:
+        raise excs.Error(
+            "`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"
+            "(e.g. 'pxt://org:db/path/to/table') or Pixeltable URL "
+            "(https://pixeltable.com/t/org:db/path/to/table).'"
+        ) from e
 
     if isinstance(source, str):
         source = get_table(source)
@@ -537,8 +541,12 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     """
     try:
         pxt_uri = PxtUri(remote_uri)
-    except ValueError:
-        raise excs.Error("`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
+    except ValueError as e:
+        raise excs.Error(
+            "`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"
+            "(e.g. 'pxt://org:db/path/to/table') or Pixeltable URL "
+            "(https://pixeltable.com/t/org:db/path/to/table).'"
+        ) from e
     return share.pull_replica(local_path, pxt_uri)
 
 
@@ -678,14 +686,14 @@ def drop_table(
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
-    try:
+    if PxtUri.is_pxt_uri(tbl_path):
         pxt_uri = PxtUri(tbl_path)
         # Remote table
         if force:
             raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
         # TODO: Handle if_not_exists properly
-        share.delete_replica(str(pxt_uri))
-    except ValueError:
+        share.delete_replica(pxt_uri)
+    else:
         # Local table
         path_obj = catalog.Path.parse(tbl_path)
         get_runtime().catalog.drop_table(path_obj, force=force, if_not_exists=if_not_exists_)

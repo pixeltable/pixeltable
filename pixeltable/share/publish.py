@@ -328,14 +328,14 @@ def _download_from_presigned_url(
         session.close()
 
 
-def delete_replica(dest_path: str, version: int | None = None) -> None:
+def delete_replica(dest_uri: PxtUri, version: int | None = None) -> None:
     """Delete cloud replica"""
-    delete_request = DeleteRequest(table_uri=PxtUri(uri=dest_path), version=version)
+    delete_request = DeleteRequest(table_uri=dest_uri, version=version)
     response = requests.post(PIXELTABLE_API_URL, data=delete_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
         raise excs.Error(f'Error deleting replica: {response.text}')
     DeleteResponse.model_validate(response.json())
-    Env.get().console_logger.info(f'Deleted replica at: {dest_path}')
+    Env.get().console_logger.info(f'Deleted replica at: {dest_uri}')
 
 
 def list_table_versions(table_uri: str) -> list[dict[str, Any]]:
@@ -361,7 +361,7 @@ def _api_headers(require_api_key: bool = True) -> dict[str, str]:
             )
         _logger.warning(
             'No Pixeltable API key found; proceeding in read-only mode with limited functionality. '
-            'To enable full access, Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
+            'To enable full access, set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
             f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
             'For details, see https://docs.pixeltable.com/platform/configuration'
         )
