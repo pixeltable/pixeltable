@@ -16,7 +16,7 @@ _logger = logging.getLogger('pixeltable')
 
 
 def report_benchmarks_to_grafana(json_path: str, grafana_instance_id: str, grafana_token: str) -> None:
-    with open(json_path) as f:
+    with open(json_path, encoding='utf-8') as f:
         data = json.load(f)
 
     commit_info = data.get('commit_info', {})
