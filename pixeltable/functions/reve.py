@@ -7,6 +7,7 @@ or as `api_key` in the `reve` section of the Pixeltable config file.
 import logging
 import re
 from io import BytesIO
+from typing import Any
 
 import aiohttp
 import PIL.Image
@@ -159,7 +160,7 @@ async def create(
 
         >>> t.add_computed_column(img=reve.create(t.prompt, aspect_ratio='1:1'))
     """
-    payload: dict = {'prompt': prompt}
+    payload: dict[str, Any] = {'prompt': prompt}
     if aspect_ratio is not None:
         payload['aspect_ratio'] = aspect_ratio
     if version is not None:
@@ -200,7 +201,7 @@ async def edit(
         ...     )
         ... )
     """
-    payload: dict = {'edit_instruction': edit_instruction, 'reference_image': to_base64(image)}
+    payload: dict[str, Any] = {'edit_instruction': edit_instruction, 'reference_image': to_base64(image)}
     if version is not None:
         payload['version'] = version
     if model_kwargs is not None:
@@ -254,7 +255,7 @@ async def remix(
     if len(images) == 0:
         raise pxt.Error('Must include at least 1 reference image')
 
-    payload: dict = {'prompt': prompt, 'reference_images': [to_base64(img) for img in images]}
+    payload: dict[str, Any] = {'prompt': prompt, 'reference_images': [to_base64(img) for img in images]}
     if version is not None:
         payload['version'] = version
     if aspect_ratio is not None:
