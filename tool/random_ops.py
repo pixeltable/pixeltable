@@ -14,6 +14,7 @@ import PIL.Image
 
 import pixeltable as pxt
 from pixeltable.config import Config
+from pixeltable.env import Env
 from tool.worker_harness import run_workers
 
 # List of table operations that can be performed by RandomTableOps.
@@ -152,7 +153,7 @@ class RandomTableOps:
                 return True
 
         random_ops_log_handler = logging.FileHandler(Config.get().home / 'logs' / 'random-ops.log')
-        random_ops_log_handler.setLevel(logging.INFO)
+        random_ops_log_handler.setLevel(logging.DEBUG)
         random_ops_log_handler.addFilter(WorkerIdFilter())
         formatter = logging.Formatter(
             '%(asctime)s %(process)d [Worker %(worker_id)02d] '
@@ -160,12 +161,14 @@ class RandomTableOps:
         )
         random_ops_log_handler.setFormatter(formatter)
 
-        self.logger.setLevel(logging.INFO)
+        self.logger.setLevel(logging.DEBUG)
         self.logger.addHandler(random_ops_log_handler)
         self.logger.propagate = False  # prevents double logging to stdout
 
         logging.getLogger('pixeltable').setLevel(logging.DEBUG)
         logging.getLogger('pixeltable').addHandler(random_ops_log_handler)
+
+        Env.get().set_log_level(logging.DEBUG)
 
     def emit(self, op: Callable, msg: Any) -> None:
         line = f'[{datetime.now()}] [PID {os.getpid()}] [Worker {self.worker_id:02d}] [{op.__name__:19s}]: {msg}'
