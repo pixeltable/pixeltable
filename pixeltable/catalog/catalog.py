@@ -812,6 +812,12 @@ class Catalog:
                     raise
 
             except Exception as e:
+                if 'Table was dropped' in str(e):
+                    # TODO 'Table was dropped' should be a separate exception type, or there should be some other, less
+                    # brittle way to detect this error.
+                    _logger.error(f'Finalize pending ops({tbl_id}): table was dropped', exc_info=True)
+                    raise
+
                 if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
                     _logger.error(
                         f'Finalize pending ops({tbl_id}): aborting statement due to error: {e} of type {type(e)}',
@@ -829,11 +835,6 @@ class Catalog:
                         )
                         status = conn.execute(stmt)
                         assert status.rowcount == 1
-                elif 'Table was dropped' in str(e):
-                    # TODO 'Table was dropped' should be a separate exception type, or there should be some other, less
-                    # brittle way to detect this error.
-                    _logger.error(f'Finalize pending ops({tbl_id}): table was dropped', exc_info=True)
-                    raise
                 else:
                     # log this error but keep going
                     _logger.error(
