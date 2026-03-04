@@ -509,7 +509,10 @@ def publish(
             - `'public'`: Anyone can access this replica.
             - `'private'`: Only the host organization can access.
     """
-    pxt_uri = PxtUri(destination_uri)  # validates and normalizes
+    try:
+        pxt_uri = PxtUri(destination_uri)
+    except ValueError:
+        raise excs.Error("`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
 
     if isinstance(source, str):
         source = get_table(source)
@@ -532,8 +535,10 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     Returns:
         A handle to the newly created local replica table.
     """
-    pxt_uri = PxtUri(remote_uri)
-
+    try:
+        pxt_uri = PxtUri(remote_uri)
+    except ValueError:
+        raise excs.Error("`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
     return share.pull_replica(local_path, pxt_uri)
 
 
