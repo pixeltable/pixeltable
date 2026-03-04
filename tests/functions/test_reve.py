@@ -53,7 +53,7 @@ class TestReve:
             else {
                 'aspect_ratio': '16:9',
                 'version': 'latest-fast',
-                'kwargs': {'postprocessing': [{'process': 'fit_image', 'max_dim': 256}]},
+                'kwargs': {'postprocessing': [{'process': 'fit_image', 'max_dim': 256}], 'test_time_scaling': 1},
             }
         )
         t.add_computed_column(
