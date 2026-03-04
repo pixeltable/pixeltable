@@ -17,6 +17,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
+from pixeltable.share.protocol import PxtUri
 from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
@@ -508,13 +509,12 @@ def publish(
             - `'public'`: Anyone can access this replica.
             - `'private'`: Only the host organization can access.
     """
-    if not destination_uri.startswith('pxt://'):
-        raise excs.Error("`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
+    pxt_uri = PxtUri(destination_uri)  # validates and normalizes
 
     if isinstance(source, str):
         source = get_table(source)
 
-    share.push_replica(destination_uri, source, bucket_name, access)
+    share.push_replica(pxt_uri, source, bucket_name, access)
 
 
 def replicate(remote_uri: str, local_path: str) -> catalog.Table:
@@ -532,10 +532,9 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     Returns:
         A handle to the newly created local replica table.
     """
-    if not remote_uri.startswith('pxt://'):
-        raise excs.Error("`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
+    pxt_uri = PxtUri(remote_uri)
 
-    return share.pull_replica(local_path, remote_uri)
+    return share.pull_replica(local_path, pxt_uri)
 
 
 def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:

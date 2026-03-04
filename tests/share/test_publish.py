@@ -72,7 +72,7 @@ class TestPublish:
         skip_test_if_no_pxt_credentials()
 
         tbl = pxt.create_table('tbl', {'icol': pxt.Int, 'scol': pxt.String})
-        remote_uri = f'pxt://pxt-test/test_{uuid.uuid4().hex}'
+        remote_uri = f'https://pixeltable.com/t/pxt-test/test_{uuid.uuid4().hex}'
         pxt.publish(tbl, remote_uri)
         result_sets: list[pxt.ResultSet] = []
         for version in range(1, 8):

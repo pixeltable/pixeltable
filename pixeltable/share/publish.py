@@ -72,14 +72,17 @@ PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.
 
 
 def push_replica(
-    dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, access: Literal['public', 'private'] = 'private'
+    dest_tbl_uri: PxtUri,
+    src_tbl: pxt.Table,
+    bucket: str | None = None,
+    access: Literal['public', 'private'] = 'private',
 ) -> str:
     _logger.info(f'Publishing replica for {src_tbl._name!r} to: {dest_tbl_uri}')
 
     packager = TablePackager(src_tbl)
     # Create the publish request using packager's bundle_md
     publish_request = PublishRequest(
-        table_uri=PxtUri(uri=dest_tbl_uri),
+        table_uri=dest_tbl_uri,
         pxt_version=packager.bundle_md['pxt_version'],
         pxt_md_version=packager.bundle_md['pxt_md_version'],
         md=[TableVersionMd.from_dict(md_dict) for md_dict in packager.bundle_md['md']],
@@ -123,7 +126,7 @@ def push_replica(
     Env.get().console_logger.info('Finalizing replica ...')
     # Use preview data from packager's bundle_md (set during package())
     finalize_request = FinalizeRequest(
-        table_uri=PxtUri(uri=dest_tbl_uri),
+        table_uri=dest_tbl_uri,
         upload_id=upload_id,
         datafile=bundle.name,
         size=bundle.stat().st_size,
@@ -170,9 +173,8 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
         )
 
 
-def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
-    parsed_uri = PxtUri(src_tbl_uri)
-    clone_request = ReplicateRequest(table_uri=parsed_uri)
+def pull_replica(dest_path: str, src_tbl_uri: PxtUri) -> pxt.Table:
+    clone_request = ReplicateRequest(table_uri=src_tbl_uri)
     response = requests.post(
         PIXELTABLE_API_URL, data=clone_request.model_dump_json(), headers=_api_headers(require_api_key=False)
     )
@@ -215,7 +217,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
         dest_path, {'pxt_version': pxt.__version__, 'pxt_md_version': clone_response.pxt_md_version, 'md': md_list}
     )
 
-    tbl = restorer.restore(bundle_path, pxt_uri, explicit_version=parsed_uri.version)
+    tbl = restorer.restore(bundle_path, pxt_uri, explicit_version=src_tbl_uri.version)
     Env.get().console_logger.info(f'Created local replica {tbl._path()!r} from URI: {src_tbl_uri}')
     return tbl
 
