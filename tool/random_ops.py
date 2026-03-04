@@ -171,7 +171,7 @@ class RandomTableOps:
         Env.get().set_log_level(logging.DEBUG)
 
     def emit(self, op: Callable, msg: Any) -> None:
-        line = f'[{datetime.now()}] [PID {os.getpid()}] [Worker {self.worker_id:02d}] [{op.__name__:19s}]: {msg}'
+        line = f'[{datetime.now()}] [Worker {self.worker_id:02d}] [{op.__name__:19s}]: {msg}'
         print(line)
         self.logger.info('[%s]: %s', op.__name__, msg)
 
