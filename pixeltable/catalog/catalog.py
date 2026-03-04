@@ -795,7 +795,7 @@ class Catalog:
                 # logic of begin_xact()?
                 if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                     num_retries += 1
-                    _logger.debug(f'Finalize pending ops({tbl_id}): retriable error: {e.orig}')
+                    _logger.debug(f'Finalize pending ops({tbl_id}): retriable error: {e.orig} of type {type(e.orig)}')
                     log_msg: str
                     if op is not None:
                         log_msg = f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
@@ -805,14 +805,14 @@ class Catalog:
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
                 else:
-                    _logger.error(f'Finalize pending ops({tbl_id}): non-retriable error {e}', exc_info=True)
+                    _logger.error(f'Finalize pending ops({tbl_id}): non-retriable error {e} of type {type(e)}', exc_info=True)
                     # TODO: what to do with this?
                     raise
 
             except Exception as e:
                 if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
                     _logger.error(
-                        f'Finalize pending ops({tbl_id}): aborting statement due to error: {e}', exc_info=True
+                        f'Finalize pending ops({tbl_id}): aborting statement due to error: {e} of type {type(e)}', exc_info=True
                     )
                     # we got an error for the last op and can abort this statement: switch to rollback mode
                     exc = e
@@ -826,9 +826,12 @@ class Catalog:
                         )
                         status = conn.execute(stmt)
                         assert status.rowcount == 1
+                elif 'Table was dropped' in str(e):
+                    _logger.error(f'Finalize pending ops({tbl_id}): table was dropped', exc_info=True)
+                    raise
                 else:
                     # log this error but keep going
-                    _logger.error(f'Finalize pending ops({tbl_id}): caught error: {e} but continuing', exc_info=True)
+                    _logger.error(f'Finalize pending ops({tbl_id}): caught error: {e} of type {type(e)} but continuing', exc_info=True)
             finally:
                 self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
 
