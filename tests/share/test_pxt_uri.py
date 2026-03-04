@@ -209,7 +209,7 @@ class TestPxtUri:
     @pytest.mark.parametrize(
         'invalid_url',
         [
-            'https://evil.com/t/org/table',  # wrong domain
+            'https://noop.com/t/org/table',  # wrong domain
             'https://notpixeltable.com/t/org/table',  # wrong domain
             'https://pixeltable.com/org/table',  # missing /t/ prefix
             'https://pixeltable.com/t/',  # missing org
