@@ -1,5 +1,6 @@
 import logging
 import subprocess
+import sys
 import time
 from typing import Iterator
 
@@ -52,7 +53,7 @@ def init_mcp_server(init_env: None) -> Iterator[None]:
     skip_test_if_not_installed('mcp')
 
     _logger.info('Starting MCP server pytest fixture.')
-    mcp_process = subprocess.Popen(['python', 'tests/example_mcp_server.py'])
+    mcp_process = subprocess.Popen([sys.executable, 'tests/example_mcp_server.py'])
     time.sleep(5)  # Wait for the MCP server to start
     yield
 

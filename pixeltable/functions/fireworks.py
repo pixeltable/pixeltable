@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import pixeltable as pxt
 from pixeltable import env
 from pixeltable.config import Config
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ def _(api_key: str) -> 'fireworks.client.Fireworks':
 
 
 def _fireworks_client() -> 'fireworks.client.Fireworks':
-    return env.Env.get().get_client('fireworks')
+    return get_runtime().get_client('fireworks')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:fireworks')

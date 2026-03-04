@@ -17,10 +17,10 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exprs, functions as pxtf
-from pixeltable.catalog import Catalog
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
-from pixeltable.functions.video import frame_iterator
+from pixeltable.functions.video import legacy_frame_iterator
+from pixeltable.runtime import get_runtime
 
 from .utils import (
     ReloadTester,
@@ -131,7 +131,7 @@ class TestExprs:
         _ = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
         sql_elements = exprs.SqlElementCache()
         # Expr.sql_expr() needs to run in the context of a transaction
-        with Catalog.get().begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False):
             e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
             assert len(e.clauses) == 2
 
@@ -1208,7 +1208,7 @@ class TestExprs:
 
         # ordering conflict between frame extraction and window fn
         base_t = pxt.create_table('videos', {'video': pxt.Video, 'c2': pxt.Int})
-        v = pxt.create_view('frame_view', base_t, iterator=frame_iterator(base_t.video, fps=0))
+        v = pxt.create_view('frame_view', base_t, iterator=legacy_frame_iterator(base_t.video))
         # compatible ordering
         _ = v.select(v.frame, pxtf.sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
         with pytest.raises(pxt.Error):
