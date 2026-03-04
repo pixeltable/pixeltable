@@ -673,13 +673,14 @@ def drop_table(
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
-    if tbl_path.startswith('pxt://'):
+    try:
+        pxt_uri = PxtUri(tbl_path)
         # Remote table
         if force:
             raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
         # TODO: Handle if_not_exists properly
-        share.delete_replica(tbl_path)
-    else:
+        share.delete_replica(str(pxt_uri))
+    except ValueError:
         # Local table
         path_obj = catalog.Path.parse(tbl_path)
         get_runtime().catalog.drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
