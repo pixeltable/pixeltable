@@ -532,11 +532,10 @@ def bbox_resize(
     width: int | float | None = None,
     height: int | float | None = None,
     aspect: str | float | None = None,
-    crop: bool | None = None,
-    pad: bool | None = None,
+    aspect_mode: Literal['crop', 'pad'] | None = None,
 ) -> list[int | float]:
     """
-    Resize a bounding box:
+    Resize a bounding box (center-anchored):
 
     - to a specified width or height (the other dimension is scaled to maintain the aspect ratio)
     - to a specified aspect ratio
@@ -551,30 +550,51 @@ def bbox_resize(
         aspect: Target aspect ratio. Either a float, such as 16/9, or a string such as '16:9'. Resizes either the width
             or height to match the specified aspect ratio, maintaining the other dimension. Requires exactly one of
             `crop` or `pad` to be True.
-        crop: Only valid for `aspect`. If True, shrinks the box to fit the aspect ratio.
-        pad: Only valid for `aspect`. If True, extends the box to fit the aspect ratio.
+        aspect_mode: Only valid for `aspect`. If `crop`, reduces the oversized dimension to match the aspect ratio. If
+            `pad`, extends the undersized dimension to match the aspect ratio.
+
+    Returns:
+        Resized bounding box in the same format as the input.
     """
     pass
 
 
 @pxt.udf
 def bbox_scale(
-    bbox: list[int | float], format: Literal['xyxy', 'xywh', 'cxcywh'], *, factor: float
+    bbox: list[int | float],
+    format: Literal['xyxy', 'xywh', 'cxcywh'],
+    *,
+    factor: float | None = None,
+    x_factor: float | None = None,
+    y_factor: float | None = None,
 ) -> list[int | float]:
     """
-    Re-scale a bounding box.
+    Re-scale a bounding box (center-anchored).
 
     Args:
         bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
-        factor: Scale factor to apply to the box dimensions.
+        factor: Scale factor to apply to both box dimensions.
+        x_factor: Scale factor to apply to the box width.
+        y_factor: Scale factor to apply to the box height.
+
+    Returns:
+        Scaled bounding box in the same format as the input.
     """
     pass
 
 
 @pxt.udf
 def bbox_pad(
-    bbox: list[int | float], format: Literal['xyxy', 'xywh', 'cxcywh'], *, padding: list[int | float] | None = None
+    bbox: list[int | float],
+    format: Literal['xyxy', 'xywh', 'cxcywh'],
+    *,
+    top: int | None = None,
+    bottom: int | None = None,
+    left: int | None = None,
+    right: int | None = None,
+    x: int | None = None,
+    y: int | None = None,
 ) -> list[int | float]:
     """
     Pad a bounding box.
@@ -582,10 +602,98 @@ def bbox_pad(
     Args:
         bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
-        padding: Add padding to the box. A list of 1, 2, 3, or 4 values. If 1 value, add padding to all sides. If 2
-            values, add padding to the top/bottom and left/right. If 3 values, add padding to the top, left/right, and
-            bottom. If 4 values, add padding to the top, right, bottom, and left.
+        top: Amount to pad at the top.
+        bottom: Amount to pad at the bottom.
+        left: Amount to pad at the left.
+        right: Amount to pad at the right.
+        x: Amount to pad at the left and right.
+        y: Amount to pad at the top and bottom.
 
+    Returns:
+        Padded bounding box in the same format as the input.
+    """
+    pass
+
+
+@pxt.udf
+def bbox_clip_to_canvas(
+    bbox: list[int | float],
+    format: Literal['xyxy', 'xywh', 'cxcywh'],
+    *,
+    width: int | None = None,
+    height: int | None = None,
+    min_visibility: float = 0.0,
+    min_area: float = 0.0,
+) -> list[int | float]:
+    """
+    Clip a bounding box to a canvas of specified size.
+
+    Args:
+        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
+        width: Canvas width in absolute pixels.
+        height: Canvas height in absolute pixels.
+        min_visibility: Minimum fraction of the bounding box that must be visible after clipping. If the visibility
+            is less than this value, returns None.
+        min_area: Minimum area of the bounding box after clipping. If the area is less than this value, returns None.
+
+    Returns:
+        Clipped bounding box in the same format as the input.
+    """
+    pass
+
+
+@pxt.udf
+def bbox_crop_canvas(
+    bbox: list[int | float],
+    format: Literal['xyxy', 'xywh', 'cxcywh'],
+    *,
+    canvas_width: int | None = None,
+    canvas_height: int | None = None,
+    canvas_region: list[int | float],
+    canvas_region_format: Literal['xyxy', 'xywh', 'cxcywh'],
+) -> list[int | float]:
+    """
+    Adjust a bounding box to account for a canvas crop.
+
+    Args:
+        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
+        canvas_width: Canvas width.
+        canvas_height: Canvas height.
+        canvas_region: Canvas region that was cropped, either specified with absolute pixel coordinates or relative
+            coordinates, in the format specified by `canvas_region_format`.
+        canvas_region_format: Format of the `canvas_region` coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
+
+    Returns:
+        Adjusted bounding box in the same format as the input. It can extend beyond the canvas boundaries.
+    """
+    pass
+
+
+@pxt.udf
+def bbox_resize_canvas(
+    bbox: list[int | float],
+    format: Literal['xyxy', 'xywh', 'cxcywh'],
+    *,
+    new_canvas_width: int | float,
+    new_canvas_height: int | float,
+    canvas_width: int | None = None,
+    canvas_height: int | None = None,
+) -> list[int | float]:
+    """
+    Adjust a bounding box to account for a canvas resize.
+
+    Args:
+        bbox: Bounding box, either specified with absolute pixel coordinates or relative coordinates in [0, 1].
+        format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
+        new_canvas_width: New canvas width, either absolute pixels or relative to the original canvas width.
+        new_canvas_height: New canvas height, either absolute pixels or relative to the original canvas width.
+        canvas_width: Original canvas width in absolute pixels.
+        canvas_height: Original canvas height in absolute pixels.
+
+    Returns:
+        Adjusted bounding box in the same format as the input.
     """
     pass
 
