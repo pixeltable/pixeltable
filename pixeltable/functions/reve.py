@@ -136,7 +136,7 @@ def _client() -> _ReveClient:
 # but when it does, we can revisit this choice.
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
 async def create(
-    prompt: str, *, aspect_ratio: str | None = None, version: str | None = None, kwargs: dict | None = None
+    prompt: str, *, aspect_ratio: str | None = None, version: str | None = None, model_kwargs: dict | None = None
 ) -> PIL.Image.Image:
     """
     Creates an image from a text prompt.
@@ -148,7 +148,7 @@ async def create(
         prompt: prompt describing the desired image
         aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
         version: specific model version to use. Latest if not specified.
-        kwargs: additional keyword arguments to pass to the Reve API.
+        model_kwargs: additional keyword arguments to pass to the Reve API.
 
     Returns:
         A generated image
@@ -163,8 +163,8 @@ async def create(
         payload['aspect_ratio'] = aspect_ratio
     if version is not None:
         payload['version'] = version
-    if kwargs is not None:
-        payload.update(kwargs)
+    if model_kwargs is not None:
+        payload.update(model_kwargs)
 
     result = await _client()._post('/v1/image/create', payload=payload)
     return result
@@ -172,7 +172,7 @@ async def create(
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
 async def edit(
-    image: PIL.Image.Image, edit_instruction: str, *, version: str | None = None, kwargs: dict | None = None
+    image: PIL.Image.Image, edit_instruction: str, *, version: str | None = None, model_kwargs: dict | None = None
 ) -> PIL.Image.Image:
     """
     Edits images based on a text prompt.
@@ -184,7 +184,7 @@ async def edit(
         image: image to edit
         edit_instruction: text prompt describing the desired edit
         version: specific model version to use. Latest if not specified.
-        kwargs: additional keyword arguments to pass to the Reve API.
+        model_kwargs: additional keyword arguments to pass to the Reve API.
 
     Returns:
         A generated image
@@ -202,8 +202,8 @@ async def edit(
     payload: dict = {'edit_instruction': edit_instruction, 'reference_image': to_base64(image)}
     if version is not None:
         payload['version'] = version
-    if kwargs is not None:
-        payload.update(kwargs)
+    if model_kwargs is not None:
+        payload.update(model_kwargs)
 
     result = await _client()._post('/v1/image/edit', payload=payload)
     return result
@@ -216,7 +216,7 @@ async def remix(
     *,
     aspect_ratio: str | None = None,
     version: str | None = None,
-    kwargs: dict | None = None,
+    model_kwargs: dict | None = None,
 ) -> PIL.Image.Image:
     """
     Creates images based on a text prompt and reference images.
@@ -231,7 +231,7 @@ async def remix(
         images: list of reference images
         aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
         version: specific model version to use. Latest by default.
-        kwargs: additional keyword arguments to pass to the Reve API.
+        model_kwargs: additional keyword arguments to pass to the Reve API.
 
     Returns:
         A generated image
@@ -258,8 +258,8 @@ async def remix(
         payload['version'] = version
     if aspect_ratio is not None:
         payload['aspect_ratio'] = aspect_ratio
-    if kwargs is not None:
-        payload.update(kwargs)
+    if model_kwargs is not None:
+        payload.update(model_kwargs)
     result = await _client()._post('/v1/image/remix', payload=payload)
     return result
 

@@ -24,7 +24,7 @@ class TestReve:
         kwargs = (
             {}
             if default_params
-            else {'version': 'latest', 'kwargs': {'postprocessing': [{'process': 'fit_image', 'max_dim': 256}]}}
+            else {'version': 'latest', 'model_kwargs': {'postprocessing': [{'process': 'fit_image', 'max_dim': 256}]}}
         )
         t.add_computed_column(
             just_logo=(reve.edit(t.pixeltable_logo, 'extract the company logo and drop the name', **kwargs))
@@ -37,7 +37,7 @@ class TestReve:
             else {
                 'aspect_ratio': '1:1',
                 'version': 'latest',
-                'kwargs': {'postprocessing': [{'process': 'fit_image', 'max_dim': 256}], 'test_time_scaling': 1},
+                'model_kwargs': {'postprocessing': [{'process': 'fit_image', 'max_dim': 256}], 'test_time_scaling': 1},
             }
         )
         t.add_computed_column(
@@ -53,7 +53,7 @@ class TestReve:
             else {
                 'aspect_ratio': '16:9',
                 'version': 'latest-fast',
-                'kwargs': {'postprocessing': [{'process': 'fit_image', 'max_dim': 256}], 'test_time_scaling': 1},
+                'model_kwargs': {'postprocessing': [{'process': 'fit_image', 'max_dim': 256}], 'test_time_scaling': 1},
             }
         )
         t.add_computed_column(
