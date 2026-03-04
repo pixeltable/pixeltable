@@ -150,10 +150,20 @@ class View(Table):
                     updated_outputs[unique_name] = output_info
                 iterator_call = dataclasses.replace(iterator_call, outputs=updated_outputs)
 
-            iterator_cols = [
-                Column.create_iterator_column(col_name, output_info.col_type, is_stored=output_info.is_stored)
-                for col_name, output_info in iterator_call.outputs.items()
-            ]
+            iterator_cols = []
+            for col_name, output_info in iterator_call.outputs.items():
+                stores_cellmd = Column.should_store_cellmd(
+                    col_type=output_info.col_type, is_stored=output_info.is_stored, is_computed=False
+                )
+                iterator_cols.append(
+                    Column(
+                        col_name,
+                        col_type=output_info.col_type,
+                        is_iterator_col=True,
+                        stored=output_info.is_stored,
+                        stores_cellmd=stores_cellmd,
+                    )
+                )
 
             columns = iterator_cols + columns
 

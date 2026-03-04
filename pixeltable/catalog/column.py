@@ -151,6 +151,14 @@ class Column:
         self._comment = comment
 
     @classmethod
+    def should_store_cellmd(cls, *, col_type: ts.ColumnType, is_stored: bool, is_computed: bool) -> bool:
+        """Returns whether a column with the given properties should have an accessory store column for cell metadata.
+
+        This logic applies to regular user columns as well as iterator columns. Do not use it with index columns.
+        """
+        return is_stored and (is_computed or col_type.is_media_type() or col_type.supports_file_offloading())
+
+    @classmethod
     def create_index_columns(
         cls,
         tbl_handle: TableVersionHandle,
@@ -247,11 +255,6 @@ class Column:
         )
         ObjectOps.validate_destination(column.destination, column.name)
         return column
-
-    @classmethod
-    def create_iterator_column(cls, name: str, col_type: ts.ColumnType, is_stored: bool) -> Column:
-        stores_cellmd = is_stored and (col_type.is_media_type() or col_type.supports_file_offloading())
-        return Column(name, col_type=col_type, is_iterator_col=True, stored=is_stored, stores_cellmd=stores_cellmd)
 
     @classmethod
     def _validate_column_spec(cls, name: str, spec: ColumnSpec) -> None:
