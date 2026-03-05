@@ -52,7 +52,7 @@ class Env:
     _instance: Env | None = None
     __initializing: bool = False
     _init_lock: threading.RLock = threading.RLock()
-    _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
+    _log_fmt_str = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Path | None
     _file_cache_dir: Path | None  # cached object files with external URL
