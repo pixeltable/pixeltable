@@ -295,9 +295,7 @@ class ColumnRef(Expr):
                         f'got `{type(vector).__name__}`'
                     )
                 if vector.ndim != 1:
-                    raise excs.Error(
-                        f'similarity(vector=...): expected 1-dimensional array; got shape {vector.shape}'
-                    )
+                    raise excs.Error(f'similarity(vector=...): expected 1-dimensional array; got shape {vector.shape}')
                 # Validate dtype is float (any float type: float16, float32, float64)
                 if not np.issubdtype(vector.dtype, np.floating):
                     raise excs.Error(f'similarity(vector=...): expected float array; got dtype {vector.dtype}')
