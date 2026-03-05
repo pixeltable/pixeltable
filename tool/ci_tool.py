@@ -74,7 +74,11 @@ def generate_matrix(args: argparse.Namespace) -> None:
     # Exclude expensive tests on everything except Ubuntu
     configs.extend(
         MatrixConfig(
-            'full', 'py', os, '3.10', pytest_options="-m 'not benchmark'" if os.startswith('ubuntu') else "-m 'not expensive and not benchmark'"
+            'full',
+            'py',
+            os,
+            '3.10',
+            pytest_options="-m 'not benchmark'" if os.startswith('ubuntu') else "-m 'not expensive and not benchmark'",
         )
         for os in (
             # Same as BASIC_PLATFORMS, but upgrade the Ubuntu VM for non-PR triggers.
