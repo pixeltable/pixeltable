@@ -162,6 +162,7 @@ class Catalog:
 
     Caching and invalidation of metadata:
     - Catalog caches TableVersion instances in order to avoid excessive metadata loading
+    - Any updates to the metadata need to include clearing/invalidating the metadata cache
     - for any specific table version (ie, combination of id and effective version) there can be only a single
       Tableversion instance in circulation; the reason is that each TV instance has its own store_tbl.sa_tbl, and
       mixing multiple instances of sqlalchemy Table objects in the same query (for the same underlying table) leads to
@@ -247,24 +248,20 @@ class Catalog:
             assert anchor_tbl_id is None or tbl_version.is_replica
 
             if tbl_version.is_view and tbl_version.is_mutable and tbl_version.is_validated:
-                # make sure this mutable view is recorded in a mutable base
                 base = tbl_version.base
-                assert base is not None
+                assert base is not None, f'View {tbl_version.id} is missing base'
                 if base.effective_version is None:
                     key = TableVersionKey(base.id, None, None)
-                    assert key in self._tbl_versions
-                    base_tv = self._tbl_versions[key]
-                    if not base_tv.is_validated:
-                        continue
-                    mutable_view_ids = ', '.join(str(tv.id) for tv in self._tbl_versions[key].mutable_views)
-                    mutable_view_names = ', '.join(
-                        tv._tbl_version.name
-                        for tv in self._tbl_versions[key].mutable_views
-                        if tv._tbl_version is not None
-                    )
-                    assert tbl_version.handle in self._tbl_versions[key].mutable_views, (
-                        f'{tbl_version.name} ({tbl_version.id}) missing in {mutable_view_ids} ({mutable_view_names})'
-                    )
+                    base_tv = self._tbl_versions.get(key, None)
+                    if base_tv is not None and base_tv.is_validated and tbl_version.handle not in base_tv.mutable_views:
+                        mutable_view_ids = ', '.join(str(tv.id) for tv in base_tv.mutable_views)
+                        mutable_view_names = ', '.join(
+                            tv._tbl_version.name for tv in base_tv.mutable_views if tv._tbl_version is not None
+                        )
+                        raise AssertionError(
+                            f'{tbl_version.name} ({tbl_version.id}) missing in '
+                            f'{mutable_view_ids} ({mutable_view_names})'
+                        )
 
             if len(tbl_version.mutable_views) > 0:
                 # make sure we also loaded mutable view metadata, which is needed to detect column dependencies
@@ -617,17 +614,14 @@ class Catalog:
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
         for tbl_id in self._roll_forward_ids:
-            try:
-                # TODO: handle replicas
-                exc = self._finalize_pending_ops(tbl_id)
-                if exc is not None:
-                    raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
-            finally:
-                self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
+            # TODO: handle replicas
+            exc = self._finalize_pending_ops(tbl_id)
+            if exc is not None:
+                raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """
-        Finalizes all pending ops for the given table.
+        Finalizes all pending ops for the given table, and clears the table version cache for that table.
 
         During tbl_state == ROLLFORWARD (error-free path):
         - executes all remaining pending ops in order op_sn and updates their status to COMPLETED
@@ -641,7 +635,7 @@ class Catalog:
         - this process starts with the first pending op, because it could have been partially executed
         - when done, deletes all table ops and resets tbl_state to LIVE
 
-        that exception.
+        If an exception occurred during finalization, that exception is returned.
         """
         num_retries = 0
         is_rollback = False
@@ -662,11 +656,14 @@ class Catalog:
                     q = sql.select(schema.Table.md).where(schema.Table.id == tbl_id).with_for_update()
                     row = conn.execute(q).one_or_none()
                     if row is None:
+                        _logger.debug(f'Finalize pending ops({tbl_id}): table not found, exiting')
                         return None
                     tbl_md = schema.md_from_dict(schema.TableMd, row.md)
+                    _logger.debug(f'Finalize pending ops({tbl_id}): table state: {tbl_md.tbl_state}')
                     if tbl_md.tbl_state == schema.TableState.LIVE:
                         # nothing left to do
                         return None
+                    assert tbl_md.tbl_state in (schema.TableState.ROLLFORWARD, schema.TableState.ROLLBACK)
                     is_rollback = tbl_md.tbl_state == schema.TableState.ROLLBACK
                     tbl_version = tbl_md.current_version if tbl_md.is_snapshot else None
 
@@ -719,7 +716,10 @@ class Catalog:
                             )
                         )
                     )
-                    _logger.debug(f'finalize_pending_ops({tbl_id}): finalizing op {op!s}')
+                    _logger.debug(
+                        f'Finalize pending ops({tbl_id}): finalizing op {op!s}; is_rollback={is_rollback}, '
+                        f'is_final_op={is_final_op}, transactional={op.needs_xact}'
+                    )
 
                     if op.needs_xact:
                         tv = (
@@ -727,6 +727,7 @@ class Catalog:
                                 TableVersionKey(tbl_id, tbl_version, None),
                                 check_pending_ops=False,
                                 validate_initialized=True,
+                                convert_db_excs=False,
                             )
                             if op.needs_tv
                             else None
@@ -742,6 +743,7 @@ class Catalog:
                         if tv is not None:
                             self.mark_modified_tvs(tv.handle)
 
+                        _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                         if is_final_op:
                             status = conn.execute(reset_tbl_state_stmt)
                             status = conn.execute(delete_ops_stmt)
@@ -753,7 +755,10 @@ class Catalog:
                 # this op runs outside of a transaction
                 tv = (
                     self.get_tbl_version(
-                        TableVersionKey(tbl_id, tbl_version, None), check_pending_ops=False, validate_initialized=True
+                        TableVersionKey(tbl_id, tbl_version, None),
+                        check_pending_ops=False,
+                        validate_initialized=True,
+                        convert_db_excs=False,
                     )
                     if op.needs_tv
                     else None
@@ -768,6 +773,7 @@ class Catalog:
                 with self.begin_xact(
                     tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
                 ) as conn:
+                    _logger.debug(f'Finalize pending ops({tbl_id}): op {op!s} done, updating status')
                     if is_final_op:
                         conn.execute(reset_tbl_state_stmt)
                         conn.execute(delete_ops_stmt)
@@ -775,7 +781,8 @@ class Catalog:
                     else:
                         conn.execute(update_op_stmt)
 
-            except AssertionError:
+            except AssertionError as e:
+                _logger.error(f'Finalize pending ops({tbl_id}): assertion error: {e}', exc_info=True)
                 # we need to make sure not to swallow asserts
                 raise
 
@@ -784,6 +791,7 @@ class Catalog:
                 # logic of begin_xact()?
                 if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
                     num_retries += 1
+                    _logger.debug(f'Finalize pending ops({tbl_id}): retriable error: {e.orig} of type {type(e.orig)}')
                     log_msg: str
                     if op is not None:
                         log_msg = f'finalize_pending_ops(): retrying ({num_retries}) op {op!s} after {type(e.orig)}'
@@ -793,16 +801,26 @@ class Catalog:
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
                 else:
+                    _logger.error(
+                        f'Finalize pending ops({tbl_id}): non-retriable error {e} of type {type(e)}', exc_info=True
+                    )
                     # TODO: what to do with this?
                     raise
 
             except Exception as e:
+                if 'Table was dropped' in str(e):
+                    # TODO 'Table was dropped' should be a separate exception type, or there should be some other, less
+                    # brittle way to detect this error.
+                    _logger.error(f'Finalize pending ops({tbl_id}): table was dropped', exc_info=True)
+                    raise
+
                 if not is_rollback and tbl_md is not None and tbl_md.pending_stmt.can_abort():
+                    _logger.error(
+                        f'Finalize pending ops({tbl_id}): aborting statement due to error: {e} of type {type(e)}',
+                        exc_info=True,
+                    )
                     # we got an error for the last op and can abort this statement: switch to rollback mode
                     exc = e
-                    _logger.debug(
-                        f'finalize_pending_ops({tbl_id}:{tbl_version}): exec of {op!s} caught {e}; aborting statement'
-                    )
                     with self.begin_xact(
                         tbl_id=tbl_id, for_write=True, convert_db_excs=False, finalize_pending_ops=False
                     ) as conn:
@@ -815,10 +833,12 @@ class Catalog:
                         assert status.rowcount == 1
                 else:
                     # log this error but keep going
-                    _logger.debug(
-                        f'finalize_pending_ops({tbl_id}:{tbl_version}): {"undo" if is_rollback else "exec"} of {op!s} '
-                        f'caught {e}'
+                    _logger.error(
+                        f'Finalize pending ops({tbl_id}): caught error: {e} of type {type(e)} but continuing',
+                        exc_info=True,
                     )
+            finally:
+                self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
 
             num_retries = 0
 
@@ -1502,6 +1522,7 @@ class Catalog:
             .where(schema.Table.id == str(tbl_id))
             .values({schema.Table.additional_md: schema.Table.additional_md.op('||')(additional_md)})
         )
+        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
         result = conn.execute(q)
         assert result.rowcount == 1, result.rowcount
 
@@ -1784,7 +1805,12 @@ class Catalog:
         return result
 
     def get_tbl_version(
-        self, key: TableVersionKey, *, check_pending_ops: bool = True, validate_initialized: bool = False
+        self,
+        key: TableVersionKey,
+        *,
+        check_pending_ops: bool = True,
+        validate_initialized: bool = False,
+        convert_db_excs: bool = True,
     ) -> TableVersion | None:
         """
         Returns the TableVersion instance for the given table and version and updates the cache.
@@ -1794,7 +1820,7 @@ class Catalog:
         """
         # we need a transaction here, if we're not already in one; if this starts a new transaction,
         # the returned TableVersion instance will not be validated
-        with self.begin_xact(for_write=False) as conn:
+        with self.begin_xact(for_write=False, convert_db_excs=convert_db_excs) as conn:
             tv = self._tbl_versions.get(key)
             if tv is None:
                 tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
@@ -2389,6 +2415,7 @@ class Catalog:
             .where(schema.Table.id == tbl_id)
             .values(md=schema.Table.md.op('||')(version_updates))
         )
+        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
         status = conn.execute(update_stmt)
         assert status.rowcount == 1, status.rowcount
 
@@ -2417,6 +2444,7 @@ class Catalog:
         status = conn.execute(sql.delete(schema.TableVersion).where(schema.TableVersion.tbl_id == tbl_id))
         assert status.rowcount > 0
         _ = conn.execute(sql.delete(schema.PendingTableOp).where(schema.PendingTableOp.tbl_id == tbl_id))
+        self._clear_tv_cache(TableVersionKey(tbl_id, None, None))
         status = conn.execute(sql.delete(schema.Table).where(schema.Table.id == tbl_id))
         assert status.rowcount == 1, status.rowcount
 

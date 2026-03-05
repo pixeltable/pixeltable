@@ -120,6 +120,9 @@ class ColumnMd:
     # if True, the column is present in the stored table
     stored: bool | None
 
+    # Indicates if this column has another accessory column that stores cell metadata such as execution errors
+    stores_cellmd: bool
+
     def is_live_in_version(self, schema_version: int) -> bool:
         """Returns True if the column is live in the given schema version."""
         return self.schema_version_add <= schema_version and (

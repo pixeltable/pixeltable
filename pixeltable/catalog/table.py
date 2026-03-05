@@ -5,7 +5,6 @@ import builtins
 import datetime
 import json
 import logging
-from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 from uuid import UUID
@@ -28,20 +27,12 @@ from pixeltable.metadata.utils import MetadataUtils
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.formatter import Formatter
-from pixeltable.utils.object_stores import ObjectOps
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .column import Column
-from .globals import (
-    _ROWID_COLUMN_NAME,
-    IfExistsParam,
-    IfNotExistsParam,
-    MediaValidation,
-    is_system_column_name,
-    is_valid_identifier,
-)
+from .globals import _ROWID_COLUMN_NAME, IfExistsParam, IfNotExistsParam, MediaValidation, is_valid_identifier
 from .schema_object import SchemaObject
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
@@ -391,7 +382,8 @@ class Table(SchemaObject):
         with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
             helper = DescriptionHelper()
             helper.append(self._table_descriptor())
-            helper.append(self._col_descriptor())
+            col_df, separator_idxs = self._col_descriptor()
+            helper.append(col_df, separator_idxs=separator_idxs)
             idxs = self._index_descriptor()
             if not idxs.empty:
                 helper.append(idxs)
@@ -404,17 +396,50 @@ class Table(SchemaObject):
                 helper.append(f'Custom Metadata: {Formatter.summarize_json(self._get_custom_metadata())}')
             return helper
 
-    def _col_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
-        return pd.DataFrame(
-            {
-                'Column Name': col.name,
-                'Type': col.col_type._to_str(as_schema=True),
-                'Computed With': col.value_expr.display_str(inline=False) if col.value_expr is not None else '',
-                'Comment': col.comment if col.comment is not None else '',
-            }
-            for col in self._tbl_version_path.columns()
-            if columns is None or col.name in columns
-        )
+    def _col_descriptor(self, columns: list[str] | None = None) -> tuple[pd.DataFrame, list[int] | None]:
+        """Generates column descriptor DataFrame and a list of vertical separators.
+
+        The DataFrame contains the following columns, in addition to Column Name and Type:
+        - Source: the table from which the column is inherited, or this table's name if the column originates here.
+        - Computed With: The expression that Pixeltable evaluates to fill in this column's values. This could be a
+          Python expression, a UDF call, or an iterator name. Blank if the data in the row is not computed.
+
+        The separators are used to visually group columns by their Source when the table description is rendered.
+
+        Args:
+            columns: List of columns to include, or all columns if None.
+
+        Returns:
+            A tuple of the column descriptor DataFrame, and a list of row indexes after which a vertical separator
+            should be placed.
+        """
+        cols = [col for col in self._tbl_version_path.columns() if columns is None or col.name in columns]
+        col_descriptors: list[dict[str, str]] = []
+        separator_idxs: list[int] = []
+        prev_source: str | None = None
+        for i, col in enumerate(cols):
+            computed_with = col.value_expr.display_str(inline=False) if col.value_expr is not None else ''
+            source_tv = col.get_tbl()
+            if source_tv.is_iterator_column(col) or (source_tv.is_component_view and col.id == 0):
+                # col is an iterator column (including the special "pos" column) of an iterator view. Computed With
+                # should be the iterator class name.
+                assert source_tv.iterator_call is not None
+                computed_with = source_tv.iterator_call.it.name
+
+            col_descriptors.append(
+                {
+                    'Column Name': col.name,
+                    'Type': col.col_type._to_str(as_schema=True),
+                    'Source': source_tv.name,
+                    'Computed With': computed_with,
+                    'Comment': col.comment if col.comment is not None else '',
+                }
+            )
+            # Insert a separator if this column's source is different from the last one.
+            if prev_source is not None and source_tv.name != prev_source:
+                separator_idxs.append(i - 1)
+            prev_source = source_tv.name
+        return pd.DataFrame(col_descriptors), separator_idxs
 
     def _index_descriptor(self, columns: list[str] | None = None) -> pd.DataFrame:
         from pixeltable import index
@@ -585,7 +610,7 @@ class Table(SchemaObject):
             result = UpdateStatus()
             if len(schema) == 0:
                 return result
-            new_cols = self._create_columns(schema)
+            new_cols = [Column.create(name, spec) for name, spec in schema.items()]
             for new_col in new_cols:
                 self._verify_column(new_col)
 
@@ -753,7 +778,7 @@ class Table(SchemaObject):
                 assert cols_to_ignore[0] == col_name
                 return result
 
-            new_col = self._create_columns({col_name: col_schema})[0]
+            new_col = Column.create(col_name, col_schema)
             self._verify_column(new_col)
             assert self._tbl_version is not None
             result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
@@ -761,143 +786,9 @@ class Table(SchemaObject):
             return result
 
     @classmethod
-    def _validate_column_spec(cls, name: str, spec: ColumnSpec) -> None:
-        """Check integrity of user-supplied Column spec
-
-        We unfortunately can't use something like jsonschema for validation, because this isn't strictly a JSON schema
-        (on account of containing Python Callables or Exprs).
-        """
-        assert isinstance(spec, dict)
-
-        # We cannot use get_type_hints() here since ColumnSpec doesn't import exprs outside of a TYPE_CHECKING block
-        valid_keys = ColumnSpec.__annotations__.keys()
-        for k in spec:
-            if k not in valid_keys:
-                raise excs.Error(f'Column {name!r}: invalid key {k!r}')
-
-        if 'type' not in spec and 'value' not in spec:
-            raise excs.Error(f"Column {name!r}: 'type' or 'value' must be specified")
-
-        if 'type' in spec and not isinstance(spec['type'], (ts.ColumnType, type, _GenericAlias)):
-            raise excs.Error(f"Column {name!r}: 'type' must be a type; got {spec['type']}")
-
-        if 'value' in spec:
-            value_expr = exprs.Expr.from_object(spec['value'])
-            if value_expr is None:
-                raise excs.Error(f"Column {name!r}: 'value' must be a Pixeltable expression.")
-            if 'type' in spec:
-                raise excs.Error(f"Column {name!r}: 'type' is redundant if 'value' is specified")
-
-        if 'media_validation' in spec:
-            _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name!r}: media_validation')
-
-        if 'stored' in spec and not isinstance(spec['stored'], bool):
-            raise excs.Error(f"Column {name!r}: 'stored' must be a bool; got {spec['stored']}")
-
-        if 'comment' in spec and not isinstance(spec['comment'], str):
-            raise excs.Error(f"Column {name!r}: 'comment' must be a string; got {spec['comment']}")
-
-        d = spec.get('destination')
-        if d is not None and not isinstance(d, (str, Path)):
-            raise excs.Error(f'Column {name!r}: `destination` must be a string or path; got {d}')
-
-        if 'custom_metadata' in spec:
-            # we require custom_metadata to be JSON-serializable
-            try:
-                json.dumps(spec['custom_metadata'])
-            except (TypeError, ValueError) as err:
-                raise excs.Error(
-                    f'Column {name!r}: `custom_metadata` must be JSON-serializable; got Error: {err}'
-                ) from err
-
-    @classmethod
-    def _create_columns(cls, schema: Mapping[str, type | ColumnSpec | exprs.Expr]) -> list[Column]:
-        """Construct list of Columns, given schema"""
-        columns: list[Column] = []
-        for name, spec in schema.items():
-            col_type: ts.ColumnType | None = None
-            value_expr: exprs.Expr | None = None
-            primary_key: bool = False
-            media_validation: catalog.MediaValidation | None = None
-            stored = True
-            destination: str | Path | None = None
-            custom_metadata: Any = None
-            comment: str | None = None
-
-            # TODO: Should we fully deprecate passing ts.ColumnType here?
-            if isinstance(spec, (ts.ColumnType, type, _GenericAlias)):
-                col_type = ts.ColumnType.normalize_type(spec, nullable_default=True, allow_builtin_types=False)
-            elif isinstance(spec, exprs.Expr):
-                # create copy so we can modify it
-                value_expr = spec.copy()
-                value_expr.bind_rel_paths()
-            elif isinstance(spec, dict):
-                cls._validate_column_spec(name, spec)
-                if 'type' in spec:
-                    col_type = ts.ColumnType.normalize_type(
-                        spec['type'], nullable_default=True, allow_builtin_types=False
-                    )
-                value_expr = spec.get('value')
-                if value_expr is not None and isinstance(value_expr, exprs.Expr):
-                    # create copy so we can modify it
-                    value_expr = value_expr.copy()
-                    value_expr.bind_rel_paths()
-                stored = spec.get('stored', True)
-                primary_key = spec.get('primary_key', False)
-                media_validation_str = spec.get('media_validation')
-                media_validation = (
-                    catalog.MediaValidation[media_validation_str.upper()] if media_validation_str is not None else None
-                )
-                destination = spec.get('destination')
-                custom_metadata = spec.get('custom_metadata')
-                comment = spec.get('comment')
-                if comment == '':
-                    comment = None
-
-            else:
-                raise excs.Error(f'Invalid value for column {name!r}')
-
-            column = Column(
-                name,
-                col_type=col_type,
-                computed_with=value_expr,
-                stored=stored,
-                is_pk=primary_key,
-                media_validation=media_validation,
-                destination=destination,
-                custom_metadata=custom_metadata,
-                comment=comment,
-            )
-            # Validate the column's resolved_destination. This will ensure that if the column uses a default (global)
-            # media destination, it gets validated at this time.
-            ObjectOps.validate_destination(column.destination, column.name)
-            columns.append(column)
-
-        return columns
-
-    @classmethod
-    def validate_column_name(cls, name: str) -> None:
-        """Check that a name is usable as a pixeltable column name"""
-        if is_system_column_name(name) or is_python_keyword(name):
-            raise excs.Error(f'{name!r} is a reserved name in Pixeltable; please choose a different column name.')
-        if not is_valid_identifier(name):
-            raise excs.Error(f'Invalid column name: {name}')
-
-    @classmethod
     def _verify_column(cls, col: Column) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
-        cls.validate_column_name(col.name)
-        if col.stored is False and not col.is_computed:
-            raise excs.Error(f'Column {col.name!r}: `stored={col.stored}` only applies to computed columns')
-        if col.stored is False and col.has_window_fn_call():
-            raise excs.Error(
-                (
-                    f'Column {col.name!r}: `stored={col.stored}` is not valid for image columns computed with a '
-                    f'streaming function'
-                )
-            )
-        if col._explicit_destination is not None and not (col.stored and col.is_computed):
-            raise excs.Error(f'Column {col.name!r}: `destination` property only applies to stored computed columns')
+        col.verify()
 
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:
@@ -1167,7 +1058,7 @@ class Table(SchemaObject):
 
             # idx_name must be a valid pixeltable column name
             if idx_name is not None:
-                Table.validate_column_name(idx_name)
+                Column.validate_name(idx_name)
 
             # validate EmbeddingIndex args
             idx = EmbeddingIndex(

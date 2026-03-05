@@ -19,7 +19,7 @@ DURATION="$2"
 PIXELTABLE_HOME=${PIXELTABLE_HOME:-~/.pixeltable}
 
 # Remove the log of the previous run
-rm -f "$PIXELTABLE_HOME"/random-ops.log
+rm -f "$PIXELTABLE_HOME"/logs/random-ops.log
 
 # Drop the previous database if exists
 export PIXELTABLE_DB="random_ops"
