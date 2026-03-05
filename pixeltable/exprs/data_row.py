@@ -188,7 +188,6 @@ class DataRow:
 
     def clear(self, slot_idxs: np.ndarray | None = None) -> None:
         if slot_idxs is not None:
-            self.has_val[slot_idxs] = False
             self.vals[slot_idxs] = None
             self.excs[slot_idxs] = None
             self.file_urls[slot_idxs] = None
