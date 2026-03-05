@@ -186,9 +186,8 @@ class TestPublish:
     def test_replicate_without_api_key(self, uses_db: None) -> None:
         with (
             patch.object(type(Env.get()), 'pxt_api_key', new_callable=PropertyMock, return_value=None),
+            patch('pixeltable.share.publish.requests.post'),
             pytest.warns(pxt.PixeltableWarning, match='No Pixeltable API key found'),
         ):
-            try:
+            with pytest.raises(pxt.Error):
                 pxt.replicate('pxt://pxt-test/nonexistent_table', 'local_replica')
-            except pxt.Error:
-                pass
