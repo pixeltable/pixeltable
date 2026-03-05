@@ -398,7 +398,7 @@ class ExprEvalNode(ExecNode):
 
             # missing_dependencies: dependencies needed for missing slots
             # Shape: (num_nc_rows, num_slots)
-            nc_missing_dependencies = num_dependencies * nc_missing_slots  # (num_nc_rows, num_slots)
+            nc_missing_dependencies = num_dependencies * nc_missing_slots
 
             # num_mat_dependencies: array of how many dependencies are materialized per slot, per row
             # has_val @ dependencies.T gives count of materialized dependencies per slot
