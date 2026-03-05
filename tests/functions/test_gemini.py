@@ -369,9 +369,7 @@ class TestGemini:
 
         t = pxt.create_table('test_429_tbl', {'word1': pxt.String, 'word2': pxt.String})
         t.add_computed_column(prompt=_gemini_throughput_test_prompt(t.word1, t.word2))
-        t.add_computed_column(
-            response=generate_content(t.prompt, model=model, config={'max_output_tokens': 50})
-        )
+        t.add_computed_column(response=generate_content(t.prompt, model=model, config={'max_output_tokens': 50}))
 
         rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
 
@@ -388,6 +386,4 @@ class TestGemini:
 
         # All rows must eventually succeed; permanent failures mean retries are exhausted
         # (MAX_RETRIES=10) or the retry delay logic is broken
-        assert status.num_excs == 0, (
-            f'{status.num_excs} rows failed permanently — retries did not recover them'
-        )
+        assert status.num_excs == 0, f'{status.num_excs} rows failed permanently — retries did not recover them'

@@ -522,12 +522,11 @@ class TestOpenai:
 
         def _run_trial(label: str, max_tokens: int | None) -> tuple[float, int]:
             import random
+
             t = pxt.create_table('perf_tbl', {'word1': pxt.String, 'word2': pxt.String})
             t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
             model_kwargs = {'max_tokens': max_tokens} if max_tokens is not None else None
-            t.add_computed_column(
-                response=chat_completions(t.prompt, model=model, model_kwargs=model_kwargs)
-            )
+            t.add_computed_column(response=chat_completions(t.prompt, model=model, model_kwargs=model_kwargs))
             rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
             t0 = time.monotonic()
             status = t.insert(rows, on_error='ignore')
@@ -604,6 +603,4 @@ class TestOpenai:
 
         # All rows must eventually succeed; permanent failures indicate the retry
         # logic is broken, not just slow
-        assert status.num_excs == 0, (
-            f'{status.num_excs} rows failed permanently — retries did not recover them'
-        )
+        assert status.num_excs == 0, f'{status.num_excs} rows failed permanently — retries did not recover them'
