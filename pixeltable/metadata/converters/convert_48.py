@@ -33,7 +33,7 @@ def _substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     return (k, new_d)
 
 
-@register_converter(version=47)
+@register_converter(version=48)
 def _(engine: sql.engine.Engine) -> None:
     """Migrate SimilarityExpr from serialized col_ref (indexed_col) to tbl_version_key + idx_name."""
     convert_table_md(engine, substitution_fn=_substitute_md)

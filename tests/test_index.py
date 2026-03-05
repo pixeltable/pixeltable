@@ -1051,7 +1051,7 @@ class TestIndex:
                 )
 
             # search by embedding vector on - should work with all embedding indices
-            sim = col.similarity(embedding=best_vec, idx=idx_name)
+            sim = col.similarity(vector=best_vec, idx=idx_name)
             query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
             res = reload_tester.run_query(query)
             assert len(res) == 3

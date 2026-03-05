@@ -5,11 +5,11 @@ from uuid import UUID
 
 import sqlalchemy as sql
 
-import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.catalog.table_version import TableVersionKey
 
+from ..runtime import get_runtime
 from .column_ref import ColumnRef
 from .data_row import DataRow
 from .expr import Expr
@@ -55,7 +55,7 @@ class SimilarityExpr(Expr):
             # During deserialization
             assert self.table_version_key is not None
             assert self.col_id is not None
-            tv = catalog.Catalog.get().get_tbl_version(
+            tv = get_runtime().catalog.get_tbl_version(
                 self.table_version_key, check_pending_ops=False, validate_initialized=False
             )
             column = tv.cols_by_id[self.col_id]
@@ -89,7 +89,7 @@ class SimilarityExpr(Expr):
         assert self.idx_name is not None
         assert self.col_id is not None
 
-        tbl_version = catalog.Catalog.get().get_tbl_version(self.table_version_key, validate_initialized=True)
+        tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
         col = tbl_version.cols_by_id[self.col_id]
         return f'{col.name}.{self.idx_name}.similarity({self.components[0]})'
 
@@ -125,7 +125,7 @@ class SimilarityExpr(Expr):
     def _resolve_idx(self) -> 'TableVersion.IndexInfo':
         from pixeltable.index import EmbeddingIndex
 
-        tbl_version = catalog.Catalog.get().get_tbl_version(self.table_version_key, validate_initialized=True)
+        tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
         idx_info = tbl_version.idxs_by_name[self.idx_name]
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info

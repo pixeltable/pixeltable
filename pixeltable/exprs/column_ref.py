@@ -182,7 +182,7 @@ class ColumnRef(Expr):
         image: str | PIL.Image.Image | None = None,
         audio: str | None = None,
         video: str | None = None,
-        embedding: np.ndarray | None = None,
+        vector: np.ndarray | None = None,
         idx: str | None = None,
     ) -> Expr:
         from .similarity_expr import SimilarityExpr
@@ -195,7 +195,7 @@ class ColumnRef(Expr):
                 '  .similarity(image=...)\n'
                 '  .similarity(audio=...)\n'
                 '  .similarity(video=...)\n'
-                '  .similarity(embedding=...)',
+                '  .similarity(vector=...)',
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -205,7 +205,7 @@ class ColumnRef(Expr):
             + (image is not None)
             + (audio is not None)
             + (video is not None)
-            + (embedding is not None)
+            + (vector is not None)
         )
 
         if item is not None and arg_count != 0:
@@ -283,26 +283,26 @@ class ColumnRef(Expr):
                 video_path = fetch_url(video, allow_local_file=True)
                 expr = Literal(str(video_path), ts.VideoType())
 
-        if embedding is not None:
-            if isinstance(embedding, Expr):
-                if not embedding.col_type.is_array_type():
-                    raise excs.Error(f'similarity(embedding=...): expected `Array`; got `{embedding.col_type}`')
-                expr = embedding
+        if vector is not None:
+            if isinstance(vector, Expr):
+                if not vector.col_type.is_array_type():
+                    raise excs.Error(f'similarity(embedding=...): expected `Array`; got `{vector.col_type}`')
+                expr = vector
             else:
-                if not isinstance(embedding, np.ndarray):
+                if not isinstance(vector, np.ndarray):
                     raise excs.Error(
                         f'similarity(embedding=...): expected `numpy.ndarray`, or array `Expr`; '
-                        f'got `{type(embedding).__name__}`'
+                        f'got `{type(vector).__name__}`'
                     )
-                if embedding.ndim != 1:
+                if vector.ndim != 1:
                     raise excs.Error(
-                        f'similarity(embedding=...): expected 1-dimensional array; got shape {embedding.shape}'
+                        f'similarity(embedding=...): expected 1-dimensional array; got shape {vector.shape}'
                     )
                 # Validate dtype is float (any float type: float16, float32, float64)
-                if not np.issubdtype(embedding.dtype, np.floating):
-                    raise excs.Error(f'similarity(embedding=...): expected float array; got dtype {embedding.dtype}')
-                col_type = ts.ColumnType.infer_literal_type(embedding)
-                expr = Literal(embedding, col_type=col_type)
+                if not np.issubdtype(vector.dtype, np.floating):
+                    raise excs.Error(f'similarity(embedding=...): expected float array; got dtype {vector.dtype}')
+                col_type = ts.ColumnType.infer_literal_type(vector)
+                expr = Literal(vector, col_type=col_type)
 
         return SimilarityExpr(expr, col_ref=self, idx_name=idx)
 
