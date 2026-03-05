@@ -206,14 +206,15 @@ class TestPxtUri:
         assert uri.org == 'org'
 
     def test_reject_invalid_urls(self) -> None:
-        invalid_urls = [
-            'https://noop.com/t/org/table',  # wrong domain
-            'https://notpixeltable.com/t/org/table',  # wrong domain
-            'https://pixeltable.com/org/table',  # missing /t/ prefix
-            'https://pixeltable.com/t/',  # missing org
-            'ftp://pixeltable.com/t/org/table',  # unsupported scheme
-            'http://org_name/table',  # not a pixeltable domain
-        ]
-        for url in invalid_urls:
-            with pytest.raises(ValueError):
-                PxtUri(url)
+        with pytest.raises(ValueError, match=r'Invalid URI .* Expected a pxt:// URI or a Pixeltable URL'):
+            PxtUri('https://noop.com/t/org/table')  # wrong domain
+        with pytest.raises(ValueError, match=r'Invalid URI .* Expected a pxt:// URI or a Pixeltable URL'):
+            PxtUri('https://notpixeltable.com/t/org/table')  # wrong domain but with pixeltable.com in it
+        with pytest.raises(ValueError, match=r'Invalid URI .* Expected a pxt:// URI or a Pixeltable URL'):
+            PxtUri('https://pixeltable.com/org/table')  # missing /t/ prefix
+        with pytest.raises(ValueError, match='URI must have an organization'):
+            PxtUri('https://pixeltable.com/t/')  # missing org
+        with pytest.raises(ValueError, match=r'Invalid URI .* Expected a pxt:// URI or a Pixeltable URL'):
+            PxtUri('ftp://pixeltable.com/t/org/table')  # unsupported scheme
+        with pytest.raises(ValueError, match=r'Invalid URI .* Expected a pxt:// URI or a Pixeltable URL'):
+            PxtUri('http://t/org/table')  # missing domain

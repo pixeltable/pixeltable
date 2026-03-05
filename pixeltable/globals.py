@@ -1103,6 +1103,6 @@ def _parse_pxt_uri(uri_str: str, param_name: str) -> PxtUri:
     except ValueError as e:
         raise excs.Error(
             f"`{param_name}` must be a remote Pixeltable URI with the prefix 'pxt://'"
-            " (e.g. 'pxt://org:db/path/to/table') or a pixeltable.com URL"
+            " (such as 'pxt://org:db/path/to/table') or a pixeltable.com URL"
             ' (such as https://pixeltable.com/t/org:db/path/to/table).'
         ) from e
