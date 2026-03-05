@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import abc
+import dataclasses
 import datetime
 import enum
 import io
+import itertools
 import json
 import types
 import typing
@@ -805,63 +807,92 @@ class BinaryType(ColumnType):
 
 
 class JsonType(ColumnType):
-    type_schema: dict[str, Any] | tuple[Any, ...] | None
+    type_schema: TypeSchema | None
 
-    def __init__(self, type_schema: dict[str, Any] | tuple[Any, ...] | None = None, nullable: bool = False):
+    def __init__(self, type_arg: Any = None, nullable: bool = False):
         super().__init__(self.Type.JSON, nullable=nullable)
-        self.type_schema = self.__validate_type_schema(type_schema)
+        type_schema = self.__validate_type_schema(type_arg)
+        if isinstance(type_schema, ColumnType):
+            # ColumnTypes can appear recursively inside JsonType schemas, but not directly as the type argument
+            raise excs.Error(f'Invalid type schema: expected a JSON type schema; got `{type_schema}`')
+        self.type_schema = type_schema
 
-    def __validate_type_schema(self, type_schema: Any) -> Any:
-        if type_schema is None:
+    def __validate_type_schema(self, type_arg: Any) -> TypeSchema | ColumnType | None:
+        if type_arg is None:
             return None
 
-        if isinstance(type_schema, dict):
-            validated_schema: dict[str, Any] = {}
+        type_schema: JsonType.TypeSchema | ColumnType | None
+
+        if isinstance(type_arg, type):
+            if hasattr(type_arg, '__orig_bases__') and type_arg.__orig_bases__ == (typing.TypedDict,):
+                # It's a TypedDict.
+                return JsonType.TypeSchema(
+                    content={key: ColumnType.from_python_type(value) for key, value in type_arg.__annotations__.items()},
+                    is_open_dict=not getattr(type_arg, '__total__', True),
+                    optional_keys=list(getattr(type_arg, '__optional_keys__', [])),
+                )
+
+            # if issubclass(type_schema, pydantic.BaseModel):
+            #     # It's a pydantic BaseModel.
+            #     type_schema = type_schema.model_fields
+
+            # if typing.get_origin(type_schema) is list:
+            #     # It's a subscripted list; the validated schema is a variadic tuple.
+            #     type_schema = (typing.get_args(type_schema)[0], ...)
+
+            # if typing.get_origin(type_schema) is tuple:
+            #     # It's a subscripted tuple.
+            #     type_schema = typing.get_args(type_schema)
+
+        if isinstance(type_arg, dict):
+            # "Convenience" dictionary; all keys are assumed to be required, and the dict is assumed to be closed.
+            content: dict[str, Any] = {}
             for key, value in type_schema.items():
                 if not isinstance(key, str):
                     raise ValueError(f'Invalid type schema: expected keys of type `str`; got type `{type(key).__name__}`')
-                value_type = self.__validate_type_schema(value)
-                validated_schema[key] = value_type
-            return validated_schema
+                content[key] = self.__validate_type_schema(value)
+            return JsonType.TypeSchema(content)
 
-        if isinstance(type_schema, tuple):
-            validated_schema: tuple
+        if isinstance(type_arg, tuple):
             # We allow ... in a tuple, but only in last position
-            if len(type_schema) > 0 and type_schema[-1] is Ellipsis:
-                validated_schema = tuple(self.__validate_type_schema(item) for item in type_schema[:-1]) + (Ellipsis,)
-                if len(validated_schema) == 0:
-                    raise ValueError('Invalid type schema: tuple with only ... is not allowed')
-            else:
-                validated_schema = tuple(self.__validate_type_schema(item) for item in type_schema)
-            return validated_schema
+            variadic_type = None
+            if len(type_arg) > 0 and type_arg[-1] is Ellipsis:
+                if len(type_arg) == 1:
+                    raise ValueError('Invalid type schema: tuple with only `...` is not allowed')
+                variadic_type = type_arg[-2]
+                type_arg = type_arg[:-2]
 
-        else:
-            raise ValueError(f'Invalid type schema: expected dict, tuple, or None, got {type(type_schema).__name__}')
+            if Ellipsis in type_arg:
+                raise ValueError('Invalid type schema: `...` allowed only in last position')
+
+            return JsonType.TypeSchema(content=[self.__validate_type_schema(item) for item in type_arg], variadic_type=variadic_type)
+
+        # Anything else: Convert it to a ColumnType instance in the usual fashion.
+
+        col_type = ColumnType.from_python_type(type_schema)
+        if col_type is None:
+            raise ValueError(f'Invalid type schema: expected `dict`, `tuple`, or a valid Pixeltable type; got `{type(type_schema).__name__}`')
+        return col_type
 
     def copy(self, nullable: bool) -> ColumnType:
-        return JsonType(json_schema=self.json_schema, nullable=nullable)
+        return JsonType(type_schema=self.type_schema, nullable=nullable)
 
     def matches(self, other: ColumnType) -> bool:
-        return isinstance(other, JsonType) and self.json_schema == other.json_schema
+        return isinstance(other, JsonType) and self.type_schema == other.type_schema
 
     def _as_dict(self) -> dict:
         result = super()._as_dict()
-        if self.json_schema is not None:
-            result.update({'json_schema': self.json_schema})
+        if self.type_schema is not None:
+            result.update({'type_schema': self.type_schema})
         return result
 
     @classmethod
     def _from_dict(cls, d: dict) -> ColumnType:
-        return cls(json_schema=d.get('json_schema'), nullable=d['nullable'])
+        return cls(type_schema=d.get('type_schema'), nullable=d['nullable'])
 
     @classmethod
     def to_sa_type(cls) -> sql.types.TypeEngine:
         return sql.dialects.postgresql.JSONB()
-
-    def _to_json_schema(self) -> dict[str, Any]:
-        if self.json_schema is None:
-            return {}
-        return self.json_schema
 
     def print_value(self, val: Any) -> str:
         val_type = self.infer_literal_type(val)
@@ -910,102 +941,85 @@ class JsonType(ColumnType):
         if not isinstance(other, JsonType):
             return None
 
-        if self.json_schema is None or other.json_schema is None:
-            return JsonType(nullable=(self.nullable or other.nullable))
-
-        superschema = self.__superschema(self.json_schema, other.json_schema)
-
         return JsonType(
-            json_schema=(None if len(superschema) == 0 else superschema), nullable=(self.nullable or other.nullable)
+            type_schema=self.__superschema(self.type_schema, other.type_schema), nullable=(self.nullable or other.nullable)
         )
 
     @classmethod
-    def __superschema(cls, a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None:
-        # Defining a general type hierarchy over all JSON schemas would be a challenging problem. In order to keep
-        # things manageable, we only define a hierarchy among "conforming" schemas, which provides enough generality
-        # for the most important use cases (unions for type inference, validation of inline exprs). A schema is
-        # considered to be conforming if either:
-        # (i) it is a scalar (string, integer, number, boolean) or dictionary (object) type; or
-        # (ii) it is an "anyOf" schema of one of the above types and the exact schema {'type': 'null'}.
-        # Conforming schemas are organized into a type hierarchy in an internally consistent way. Nonconforming
-        # schemas are allowed, but they are isolates in the type hierarchy: a nonconforming schema has no proper
-        # subtypes, and its only proper supertype is an unconstrained JsonType().
-        #
-        # There is some subtlety in the handling of nullable fields. Nullable fields are represented in JSON
-        # schemas as (for example) {'anyOf': [{'type': 'string'}, {'type': 'null'}]}. When finding the supertype
-        # of schemas that might be nullable, we first unpack the 'anyOf's, find the supertype of the underlyings,
-        # then reapply the 'anyOf' if appropriate. The top-level schema (i.e., JsonType.json_schema) is presumed
-        # to NOT be in this form (since nullability is indicated by the `nullable` field of the JsonType object),
-        # so this subtlety is applicable only to types that occur in subfields.
-        #
-        # There is currently no special handling of lists; distinct schemas with type 'array' will union to the
-        # generic {'type': 'array'} schema. This could be a TODO item if there is a need for it in the future.
-
+    def __superschema(cls, a: TypeSchema | None, b: TypeSchema | None) -> TypeSchema | None:
         if a == b:
             return a
+        if a is None or b is None:
+            return None
 
-        if 'properties' in a and 'properties' in b:
-            a_props = a['properties']
-            b_props = b['properties']
-            a_req = a.get('required', [])
-            b_req = b.get('required', [])
-            super_props = {}
-            super_req = []
-            for key, a_prop_schema in a_props.items():
-                if key in b_props:  # in both a and b
-                    prop_schema = cls.__superschema_with_nulls(a_prop_schema, b_props[key])
-                    super_props[key] = prop_schema
-                    if key in a_req and key in b_req:
-                        super_req.append(key)
-                else:  # in a but not b
-                    # Add it to the supertype schema as optional (regardless of its status in a)
-                    super_props[key] = a_prop_schema
-            for key, b_prop_schema in b_props.items():
-                if key not in a_props:  # in b but not a
-                    super_props[key] = b_prop_schema
-            schema = {'type': 'object', 'properties': super_props}
-            if len(super_req) > 0:
-                schema['required'] = super_req
-            return schema
+        if isinstance(a.content, list) and isinstance(b.content, list):
+            variadic_type = None
+            if a.variadic_type is not None:
+                variadic_type = a.variadic_type
+                if b.variadic_type is not None:
+                    variadic_type = variadic_type.supertype(b.variadic_type)
+                    if variadic_type is None:
+                        return None  # incompatible variadic types
+            else:
+                variadic_type = b.variadic_type
 
-        a_type = a.get('type')
-        b_type = b.get('type')
+            joined_content = []
+            for item_a, item_b in itertools.zip_longest(a.content, b.content):
+                if item_a is None:
+                    assert item_b is not None
+                    # We're past the end of a's type args, so item_b only "fits" if a is variadic
+                    if a.variadic_type is None:
+                        return None
+                    variadic_type = variadic_type.supertype(item_b)
+                    if variadic_type is None:
+                        return None  # variadic type is incompatible with the extra item_b
+                elif item_b is None:
+                    assert item_a is not None
+                    # Same thing in reverse
+                    if b.variadic_type is None:
+                        return None
+                    variadic_type = variadic_type.supertype(item_a)
+                    if variadic_type is None:
+                        return None  # variadic type is incompatible with the extra item_a
+                else:
+                    item_supertype = item_a.supertype(item_b)
+                    if item_supertype is None:
+                        return None
+                    joined_content.append(item_supertype)
 
-        if a_type in ('string', 'integer', 'number', 'boolean', 'object', 'array') and a_type == b_type:
-            # a and b both have the same type designation, but are not identical. This can happen if
-            # (for example) they have validators or other attributes that differ. In this case, we
-            # generalize to {'type': t}, where t is their shared type, with no other qualifications.
-            return {'type': a_type}
+            return JsonType.TypeSchema(content=joined_content, variadic_type=variadic_type)
 
-        return {}  # Unresolvable type conflict; the supertype is an unrestricted JsonType.
+        if isinstance(a, dict) and isinstance(b, dict):
+            is_open_dict = a.is_open_dict or b.is_open_dict
+            content: dict[str, ColumnType] = {}
+            optional_keys: list[str] = []
+            for key, item_a in a.content.items():
+                if key in b.content:
+                    item_supertype = item_a.supertype(b.content[key])
+                    if item_supertype is None:
+                        is_open_dict = True  # incompatible types for this key, so it's forced to be an open dict
+                    else:
+                        content[key] = item_supertype
+                        if key in a.optional_keys or key in b.optional_keys:
+                            optional_keys.append(key)
+                else:
+                    content[key] = item_a
+                    optional_keys.append(key)
+            for key, item_b in b.content.items():
+                if key not in a.content:
+                    content[key] = item_b
+                    optional_keys.append(key)
 
-    @classmethod
-    def __superschema_with_nulls(cls, a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None:
-        a, a_nullable = cls.__unpack_null_from_schema(a)
-        b, b_nullable = cls.__unpack_null_from_schema(b)
+            return JsonType.TypeSchema(content=content, is_open_dict=is_open_dict, optional_keys=optional_keys)
 
-        result = cls.__superschema(a, b)
-        if len(result) > 0 and (a_nullable or b_nullable):
-            # if len(result) == 0, then null is implicitly accepted; otherwise, we need to explicitly allow it
-            return {'anyOf': [result, {'type': 'null'}]}
-        return result
+        return None
 
-    @classmethod
-    def __unpack_null_from_schema(cls, s: dict[str, Any]) -> tuple[dict[str, Any], bool]:
-        if 'anyOf' in s and len(s['anyOf']) == 2 and {'type': 'null'} in s['anyOf']:
-            try:
-                return next(s for s in s['anyOf'] if s != {'type': 'null'}), True
-            except StopIteration:
-                pass
-        return s, False
-
-    def _to_base_str(self) -> str:
-        if self.json_schema is None:
-            return 'Json'
-        elif 'title' in self.json_schema:
-            return f'Json[{self.json_schema["title"]}]'
-        else:
-            return f'Json[{self.json_schema}]'
+    @dataclasses.dataclass(frozen=True)
+    class TypeSchema:
+        content: list[ColumnType] | dict[str, ColumnType]
+        variadic_type: ColumnType | None = None
+        is_open_dict: bool = False
+        optional_keys: list[str] | None = None
 
 
 ARRAY_SUPPORTED_NUMPY_DTYPES = [
@@ -1478,7 +1492,7 @@ class Json(_PxtType):
             raise TypeError('Json type parameter must be a dict')
 
         # The JsonType initializer will validate the JSON Schema.
-        return typing.Annotated[Any, JsonType(json_schema=item, nullable=False)]
+        return typing.Annotated[Any, JsonType(type_schema=item, nullable=False)]
 
     @classmethod
     def as_col_type(cls, nullable: bool) -> ColumnType:
