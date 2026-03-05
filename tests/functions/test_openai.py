@@ -299,10 +299,7 @@ class TestOpenai:
             pxt.exceptions.PixeltableDeprecationWarning,
             match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) instead',
         ):
-            validate_update_status(
-                t.insert([{'img': SAMPLE_IMAGE_URL}, {'img': SAMPLE_IMAGE_URL}]),
-                expected_rows=2,
-            )
+            validate_update_status(t.insert([{'img': SAMPLE_IMAGE_URL}, {'img': SAMPLE_IMAGE_URL}]), expected_rows=2)
         result = t.collect()
         assert len(result) == 2
         for row in result:
