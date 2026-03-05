@@ -274,6 +274,40 @@ class TestOpenai:
         assert 'broccoli' in result['response'][0].lower()
         assert 'broccoli' in result['response_2'][0]['choices'][0]['message']['content'].lower()
 
+    def test_shared_rate_limits_pool_different_signatures(self, uses_db: None) -> None:
+        """Test that functions sharing a rate-limits pool with different get_request_resources signatures
+        don't crash the scheduler.
+
+        The RateLimitsScheduler caches get_request_resources param names from the pool (which uses
+        chat_completions' signature: messages, model, model_kwargs). When a vision FunctionCall is
+        processed through the rate-limited path, the scheduler tries to extract 'messages' from
+        vision's signature (prompt, image, model, model_kwargs), causing an AssertionError.
+
+        The bug triggers when vision hits _get_request_resources (i.e., not the first synchronous
+        request). Inserting 2+ rows ensures the second vision call goes through the rate-limited path.
+
+        Regression test for PXT-1052.
+        """
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import vision
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(response=vision(prompt="What's in this image?", image=t.img, model='gpt-4o-mini'))
+        # Insert 2 rows: first initializes the pool synchronously, second goes through _get_request_resources
+        with pytest.warns(
+            pxt.exceptions.PixeltableDeprecationWarning,
+            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) instead',
+        ):
+            validate_update_status(
+                t.insert([{'img': SAMPLE_IMAGE_URL}, {'img': SAMPLE_IMAGE_URL}]),
+                expected_rows=2,
+            )
+        result = t.collect()
+        assert len(result) == 2
+        for row in result:
+            assert len(row['response']) > 0
+
     def test_embeddings(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
