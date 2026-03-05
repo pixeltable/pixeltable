@@ -129,8 +129,8 @@ class TestMigration:
                     self._verify_v33()
                 if old_version >= 45:
                     self._verify_v45()
-                if old_version >= 48:
-                    self._verify_v48()
+                if old_version >= 49:
+                    self._verify_v49()
                 # self._verify_v24(old_version)
 
                 pxt.drop_table('sample_table', force=True)
@@ -369,7 +369,7 @@ class TestMigration:
         assert no_comment.get_metadata()['custom_metadata'] in (None, '')
 
     @classmethod
-    def _verify_v48(cls) -> None:
+    def _verify_v49(cls) -> None:
         def has_column_ref_in_similarity(value: Any) -> bool:
             if isinstance(value, dict):
                 if value.get('_classname') == 'SimilarityExpr' and 'table_version_key' not in value:
