@@ -188,7 +188,6 @@ class TestPxtUri:
         assert str(uri) == 'pxt://org:db/table:5'
 
     def test_normalize_uuid_url(self) -> None:
-        """Test that UUID-based HTTPS URLs are normalized correctly."""
         test_uuid = '550e8400-e29b-41d4-a716-446655440000'
         uri = PxtUri(f'https://pixeltable.com/t/org:db/{test_uuid}')
         assert uri.id == UUID(test_uuid)
@@ -206,17 +205,15 @@ class TestPxtUri:
         assert str(uri) == 'pxt://org:db/table'
         assert uri.org == 'org'
 
-    @pytest.mark.parametrize(
-        'invalid_url',
-        [
+    def test_reject_invalid_urls(self) -> None:
+        invalid_urls = [
             'https://noop.com/t/org/table',  # wrong domain
             'https://notpixeltable.com/t/org/table',  # wrong domain
             'https://pixeltable.com/org/table',  # missing /t/ prefix
             'https://pixeltable.com/t/',  # missing org
             'ftp://pixeltable.com/t/org/table',  # unsupported scheme
             'http://org_name/table',  # not a pixeltable domain
-        ],
-    )
-    def test_reject_invalid_urls(self, invalid_url: str) -> None:
-        with pytest.raises(ValueError):
-            PxtUri(invalid_url)
+        ]
+        for url in invalid_urls:
+            with pytest.raises(ValueError):
+                PxtUri(url)

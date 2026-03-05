@@ -4,6 +4,7 @@ import logging
 import os
 import urllib.parse
 import urllib.request
+import warnings
 from pathlib import Path
 from types import TracebackType
 from typing import Any, BinaryIO, Literal
@@ -357,13 +358,15 @@ def _api_headers(require_api_key: bool = True) -> dict[str, str]:
                 'A Pixeltable API key is required to use this feature. '
                 'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
                 f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
-                'For details, see https://docs.pixeltable.com/platform/configuration'
+                'For details, see https://docs.pixeltable.com/use-cases/get-started'
             )
-        _logger.warning(
+        warnings.warn(
             'No Pixeltable API key found; proceeding in read-only mode with limited functionality. '
             'To enable full access, set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
             f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
-            'For details, see https://docs.pixeltable.com/platform/configuration'
+            'For details, see https://docs.pixeltable.com/use-cases/get-started',
+            category=excs.PixeltableWarning,
+            stacklevel=2,
         )
     else:
         headers['X-api-key'] = api_key

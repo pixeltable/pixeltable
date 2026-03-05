@@ -509,14 +509,7 @@ def publish(
             - `'public'`: Anyone can access this replica.
             - `'private'`: Only the host organization can access.
     """
-    try:
-        pxt_uri = PxtUri(destination_uri)
-    except ValueError as e:
-        raise excs.Error(
-            "`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"
-            "(e.g. 'pxt://org:db/path/to/table') or Pixeltable URL "
-            "(https://pixeltable.com/t/org:db/path/to/table).'"
-        ) from e
+    pxt_uri = _parse_pxt_uri(destination_uri, 'destination_uri')
 
     if isinstance(source, str):
         source = get_table(source)
@@ -539,14 +532,7 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     Returns:
         A handle to the newly created local replica table.
     """
-    try:
-        pxt_uri = PxtUri(remote_uri)
-    except ValueError as e:
-        raise excs.Error(
-            "`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"
-            "(e.g. 'pxt://org:db/path/to/table') or Pixeltable URL "
-            "(https://pixeltable.com/t/org:db/path/to/table).'"
-        ) from e
+    pxt_uri = _parse_pxt_uri(remote_uri, 'remote_uri')
     return share.pull_replica(local_path, pxt_uri)
 
 
@@ -1108,3 +1094,15 @@ class DirContents(TypedDict):
     """List of directory paths contained in this directory."""
     tables: list[str]
     """List of table paths contained in this directory."""
+
+
+def _parse_pxt_uri(uri_str: str, param_name: str) -> PxtUri:
+    """Parse a URI string into a PxtUri, raising a user-friendly error on failure."""
+    try:
+        return PxtUri(uri_str)
+    except ValueError as e:
+        raise excs.Error(
+            f"`{param_name}` must be a remote Pixeltable URI with the prefix 'pxt://'"
+            " (e.g. 'pxt://org:db/path/to/table') or a pixeltable.com URL"
+            ' (such as https://pixeltable.com/t/org:db/path/to/table).'
+        ) from e

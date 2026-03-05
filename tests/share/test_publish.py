@@ -1,8 +1,10 @@
 import uuid
+from unittest.mock import PropertyMock, patch
 
 import pytest
 
 import pixeltable as pxt
+from pixeltable.env import Env
 from tests.conftest import clean_db
 from tests.utils import (
     assert_resultset_eq,
@@ -180,3 +182,13 @@ class TestPublish:
             pxt.publish('tbl', 'not-a-uri')
         with pytest.raises(pxt.Error, match=r"`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"):
             pxt.replicate('not-a-uri', 'replica')
+
+    def test_replicate_without_api_key(self, uses_db: None) -> None:
+        with (
+            patch.object(type(Env.get()), 'pxt_api_key', new_callable=PropertyMock, return_value=None),
+            pytest.warns(pxt.PixeltableWarning, match='No Pixeltable API key found'),
+        ):
+            try:
+                pxt.replicate('pxt://pxt-test/nonexistent_table', 'local_replica')
+            except pxt.Error:
+                pass
