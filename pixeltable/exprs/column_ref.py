@@ -213,7 +213,7 @@ class ColumnRef(Expr):
 
         if arg_count > 1:
             raise excs.Error(
-                'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., embedding=...'
+                'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., vector=...'
             )
 
         expr: Expr
@@ -286,21 +286,21 @@ class ColumnRef(Expr):
         if vector is not None:
             if isinstance(vector, Expr):
                 if not vector.col_type.is_array_type():
-                    raise excs.Error(f'similarity(embedding=...): expected `Array`; got `{vector.col_type}`')
+                    raise excs.Error(f'similarity(vector=...): expected `Array`; got `{vector.col_type}`')
                 expr = vector
             else:
                 if not isinstance(vector, np.ndarray):
                     raise excs.Error(
-                        f'similarity(embedding=...): expected `numpy.ndarray`, or array `Expr`; '
+                        f'similarity(vector=...): expected `numpy.ndarray`, or array `Expr`; '
                         f'got `{type(vector).__name__}`'
                     )
                 if vector.ndim != 1:
                     raise excs.Error(
-                        f'similarity(embedding=...): expected 1-dimensional array; got shape {vector.shape}'
+                        f'similarity(vector=...): expected 1-dimensional array; got shape {vector.shape}'
                     )
                 # Validate dtype is float (any float type: float16, float32, float64)
                 if not np.issubdtype(vector.dtype, np.floating):
-                    raise excs.Error(f'similarity(embedding=...): expected float array; got dtype {vector.dtype}')
+                    raise excs.Error(f'similarity(vector=...): expected float array; got dtype {vector.dtype}')
                 col_type = ts.ColumnType.infer_literal_type(vector)
                 expr = Literal(vector, col_type=col_type)
 
