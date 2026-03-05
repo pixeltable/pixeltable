@@ -22,6 +22,7 @@ from pixeltable.catalog.table_metadata import (
     TableMetadata,
     VersionMetadata,
 )
+from pixeltable.catalog.tbl_ops import catalog_op
 from pixeltable.metadata import schema
 from pixeltable.metadata.utils import MetadataUtils
 from pixeltable.runtime import get_runtime
@@ -216,6 +217,7 @@ class Table(SchemaObject):
             views.extend(t for view in views for t in view._get_views(recursive=True, mutable_only=mutable_only))
         return views
 
+    @catalog_op
     def select(self, *items: Any, **named_items: Any) -> 'pxt.Query':
         """Select columns or expressions from this table.
 
