@@ -183,11 +183,9 @@ class TestPublish:
         with pytest.raises(pxt.Error, match=r"`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"):
             pxt.replicate('not-a-uri', 'replica')
 
-    def test_replicate_without_api_key(self, uses_db: None) -> None:
+    def test_replicate_public_dataset_without_api_key(self, uses_db: None) -> None:
         with (
-            patch.object(type(Env.get()), 'pxt_api_key', new_callable=PropertyMock, return_value=None),
-            patch('pixeltable.share.publish.requests.post'),
             pytest.warns(pxt.PixeltableWarning, match='No Pixeltable API key found'),
-            pytest.raises(pxt.Error),
+            patch.object(type(Env.get()), 'pxt_api_key', new_callable=PropertyMock, return_value=None),
         ):
-            pxt.replicate('pxt://pxt-test/nonexistent_table', 'local_replica')
+            pxt.replicate('pxt://pixeltable:main/pixelbot-video-audio-chunks', 'local_replica')
