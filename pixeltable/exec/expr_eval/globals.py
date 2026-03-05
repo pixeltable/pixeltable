@@ -209,8 +209,8 @@ class ExprEvalCtx:
 
         # Vectorized missing_dependents computation
         # dependencies[i, j] means expr i depends on expr j
-        # new_missing_dependents[i, slot] = for row i, count of exprs that depend on 'slot' and don't yet have a value
-        # Cast bool to int16 for matrix multiplication (bool @ bool is not supported by numpy)
+        # new_missing_dependents[i, slot] = for row i, count of exprs that depend on 'slot' and don't have a value
+        # bool -> int16: bool @ bool does boolean ops (True + True = True), not arithmetic
         dependencies = self.row_builder.dependencies  # (num_slots, num_slots)
         new_missing_dependents = (~has_val).astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
 
