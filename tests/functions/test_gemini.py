@@ -1,3 +1,4 @@
+import logging
 import random
 import time
 from pathlib import Path
@@ -19,6 +20,8 @@ from ..utils import (
     validate_update_status,
 )
 from .tool_utils import run_tool_invocations_test
+
+_logger = logging.getLogger('pixeltable')
 
 
 @pytest.mark.remote_api
@@ -298,16 +301,11 @@ class TestGemini:
         t.add_computed_column(response=generate_content(t.prompt, model=model))
         rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
         t0 = time.monotonic()
-        status = t.insert(rows, on_error='ignore')
+        t.insert(rows)
         elapsed = time.monotonic() - t0
         pxt.drop_table('perf_tbl')
 
-        succeeded = n - status.num_excs
-        print(
-            f'\n  rows={n}, errors={status.num_excs}'
-            f'\n  elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
-        )
-        assert status.num_excs < n, 'All requests failed'
+        _logger.debug(f'rows={n}, elapsed={elapsed:.2f}s  ({n / max(elapsed, 0.001):.2f} req/s)')
 
     @pytest.mark.expensive
     def test_generate_content_429_recovery(self, uses_db: None) -> None:
@@ -354,12 +352,9 @@ class TestGemini:
         elapsed = time.monotonic() - t0
 
         succeeded = n - status.num_excs
-        print(
-            f'\n  model={model}, rows={n}'
-            f'\n  succeeded={succeeded}, errors={status.num_excs}'
-            f'\n  elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
+        _logger.debug(
+            f'model={model}, rows={n}, succeeded={succeeded}, errors={status.num_excs}, '
+            f'elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
         )
 
-        # All rows must eventually succeed; permanent failures mean retries are exhausted
-        # (MAX_RETRIES=10) or the retry delay logic is broken
         assert status.num_excs == 0, f'{status.num_excs} rows failed permanently — retries did not recover them'

@@ -1,3 +1,4 @@
+import logging
 import os
 import random
 import time
@@ -11,6 +12,8 @@ from pixeltable.config import Config
 
 from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
+
+_logger = logging.getLogger('pixeltable')
 
 
 @pxt.udf
@@ -525,16 +528,11 @@ class TestOpenai:
         t.add_computed_column(response=chat_completions(t.prompt, model=model))
         rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
         t0 = time.monotonic()
-        status = t.insert(rows, on_error='ignore')
+        t.insert(rows)
         elapsed = time.monotonic() - t0
         pxt.drop_table('perf_tbl')
 
-        succeeded = n - status.num_excs
-        print(
-            f'\n  rows={n}, errors={status.num_excs}'
-            f'\n  elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
-        )
-        assert status.num_excs < n, 'All requests failed'
+        _logger.debug(f'rows={n}, elapsed={elapsed:.2f}s  ({n / max(elapsed, 0.001):.2f} req/s)')
 
     @pytest.mark.expensive
     def test_chat_completions_429_recovery(self, uses_db: None) -> None:
@@ -583,14 +581,12 @@ class TestOpenai:
         elapsed = time.monotonic() - t0
 
         succeeded = n - status.num_excs
-        print(
-            f'\n  model={model}, max_tokens={max_tokens}, rows={n}'
-            f'\n  succeeded={succeeded}, errors={status.num_excs}'
-            f'\n  elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
+        _logger.debug(
+            f'model={model}, max_tokens={max_tokens}, rows={n}, '
+            f'succeeded={succeeded}, errors={status.num_excs}, '
+            f'elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
         )
 
-        # All rows must eventually succeed; permanent failures indicate the retry
-        # logic is broken, not just slow
         assert status.num_excs == 0, f'{status.num_excs} rows failed permanently — retries did not recover them'
 
     def test_shared_rate_limits_pool_different_signatures(self, uses_db: None) -> None:
