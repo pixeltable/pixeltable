@@ -85,23 +85,6 @@ export interface SearchResults {
   columns: { name: string; table: string; type: string; is_computed: boolean }[];
 }
 
-// Directory summary
-export interface DirectorySummary {
-  path: string;
-  table_count: number;
-  total_rows: number;
-  total_errors: number;
-  tables: {
-    path: string;
-    name: string;
-    type: string;
-    row_count: number;
-    column_count: number;
-    error_count: number;
-    version: number;
-  }[];
-}
-
 // Information Schema types
 export interface TableErrors {
   table_path: string;

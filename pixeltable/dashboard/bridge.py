@@ -210,44 +210,6 @@ def get_directory_tree() -> list[dict[str, Any]]:
     return root_children
 
 
-def get_directory_summary(dir_path: str) -> dict[str, Any]:
-    """Get summary stats for a directory: table count, total rows, errors."""
-    prefix = f'{dir_path}/' if dir_path else ''
-    all_tables = pxt.list_tables(dir_path, recursive=True)
-    tables: list[dict[str, Any]] = []
-    total_rows = 0
-    total_errors = 0
-
-    for tbl_path in sorted(all_tables):
-        try:
-            tbl = pxt.get_table(tbl_path)
-            md = tbl.get_metadata()
-            row_count = tbl.count()
-            err_count = _version_error_total(tbl)
-            total_rows += row_count
-            total_errors += err_count
-            name = tbl_path[len(prefix):] if prefix and tbl_path.startswith(prefix) else tbl_path
-            tables.append({
-                'path': tbl_path,
-                'name': name,
-                'type': _table_kind(md),
-                'row_count': row_count,
-                'column_count': len(md['columns']),
-                'error_count': err_count,
-                'version': md['version'],
-            })
-        except Exception as e:
-            _logger.debug('Failed to summarize %s: %s', tbl_path, e)
-
-    return {
-        'path': dir_path,
-        'table_count': len(tables),
-        'total_rows': total_rows,
-        'total_errors': total_errors,
-        'tables': tables,
-    }
-
-
 # ── Table metadata / data ────────────────────────────────────────────────────
 
 def get_table_metadata(table_path: str) -> dict[str, Any]:
@@ -684,11 +646,9 @@ def get_pipeline() -> dict[str, Any]:
                     'embedding': str(idx_info.get('parameters', {}).get('embedding', ''))[:120],
                 })
 
-            # Version history (last 10)
             versions: list[dict[str, Any]] = []
             try:
-                raw_versions = tbl.get_versions()
-                for v in raw_versions[:10]:
+                for v in tbl.get_versions():
                     versions.append({
                         'version': v['version'],
                         'created_at': v['created_at'].isoformat() if v.get('created_at') else None,

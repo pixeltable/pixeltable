@@ -5,7 +5,6 @@ import type {
   TableErrors,
   SearchResults,
   PipelineResponse,
-  DirectorySummary,
 } from '@/types';
 
 const API_BASE = '/api';
@@ -82,6 +81,3 @@ export async function getStatus(): Promise<SystemStatus> {
   return fetchJson<SystemStatus>(`${API_BASE}/status`);
 }
 
-export async function getDirectorySummary(path: string): Promise<DirectorySummary> {
-  return fetchJson<DirectorySummary>(`${API_BASE}/dirs/${encodeURIComponent(path)}`);
-}
