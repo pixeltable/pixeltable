@@ -141,8 +141,8 @@ class TestMigration:
         _logger.info(f'Verified DB dumps with versions: {versions_found}')
         assert VERSION in versions_found, (
             f'No DB dump found for current schema version {VERSION}. You can generate one with:\n'
-            f'`python tool/create_test_db_dump.py`\n'
-            f'`mv target/*.dump.gz target/*.toml tests/data/dbdumps`'
+            f'`rm target/*.dump.gz target/*.toml; python tool/create_test_db_dump.py'
+            f' && mv target/*.dump.gz target/*.toml tests/data/dbdumps`'
         )
         assert VERSION in VERSION_NOTES, (
             f'No version notes found for current schema version {VERSION}. '
