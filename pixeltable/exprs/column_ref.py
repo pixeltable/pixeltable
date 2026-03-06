@@ -182,7 +182,7 @@ class ColumnRef(Expr):
         image: str | PIL.Image.Image | None = None,
         audio: str | None = None,
         video: str | None = None,
-        vector: np.ndarray | None = None,
+        query_vector: np.ndarray | None = None,
         idx: str | None = None,
     ) -> Expr:
         from .similarity_expr import SimilarityExpr
@@ -195,7 +195,7 @@ class ColumnRef(Expr):
                 '  .similarity(image=...)\n'
                 '  .similarity(audio=...)\n'
                 '  .similarity(video=...)\n'
-                '  .similarity(vector=...)',
+                '  .similarity(query_vector=...)',
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -205,7 +205,7 @@ class ColumnRef(Expr):
             + (image is not None)
             + (audio is not None)
             + (video is not None)
-            + (vector is not None)
+            + (query_vector is not None)
         )
 
         if item is not None and arg_count != 0:
@@ -213,7 +213,7 @@ class ColumnRef(Expr):
 
         if arg_count > 1:
             raise excs.Error(
-                'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., vector=...'
+                'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., query_vector=...'
             )
 
         expr: Expr
@@ -283,24 +283,27 @@ class ColumnRef(Expr):
                 video_path = fetch_url(video, allow_local_file=True)
                 expr = Literal(str(video_path), ts.VideoType())
 
-        if vector is not None:
-            if isinstance(vector, Expr):
-                if not vector.col_type.is_array_type():
-                    raise excs.Error(f'similarity(vector=...): expected `Array`; got `{vector.col_type}`')
-                expr = vector
+        if query_vector is not None:
+            if isinstance(query_vector, Expr):
+                if not query_vector.col_type.is_array_type():
+                    raise excs.Error(f'similarity(query_vector=...): expected `Array`; got `{query_vector.col_type}`')
+                expr = query_vector
             else:
-                if not isinstance(vector, np.ndarray):
+                if not isinstance(query_vector, np.ndarray):
                     raise excs.Error(
-                        f'similarity(vector=...): expected `numpy.ndarray`, or array `Expr`; '
-                        f'got `{type(vector).__name__}`'
+                        f'similarity(query_vector=...): expected `numpy.ndarray`, or array `Expr`; '
+                        f'got `{type(query_vector).__name__}`'
                     )
-                if vector.ndim != 1:
-                    raise excs.Error(f'similarity(vector=...): expected 1-dimensional array; got shape {vector.shape}')
-                # Validate dtype is float (any float type: float16, float32, float64)
-                if not np.issubdtype(vector.dtype, np.floating):
-                    raise excs.Error(f'similarity(vector=...): expected float array; got dtype {vector.dtype}')
-                col_type = ts.ColumnType.infer_literal_type(vector)
-                expr = Literal(vector, col_type=col_type)
+                if query_vector.ndim != 1:
+                    raise excs.Error(
+                        f'similarity(query_vector=...): expected 1-dimensional array; got shape {query_vector.shape}'
+                    )
+                if not np.issubdtype(query_vector.dtype, np.floating):
+                    raise excs.Error(
+                        f'similarity(query_vector=...): expected float array; got dtype {query_vector.dtype}'
+                    )
+                col_type = ts.ColumnType.infer_literal_type(query_vector)
+                expr = Literal(query_vector, col_type=col_type)
 
         return SimilarityExpr(expr, col_ref=self, idx_name=idx)
 

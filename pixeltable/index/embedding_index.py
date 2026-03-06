@@ -67,9 +67,9 @@ class EmbeddingIndex(IndexBase):
         video_embed: func.Function | None = None,
         column: catalog.Column | None = None,  # Used for validation when the indexed column is an array.
     ):
-        # Skip validation in two cases:
-        # 1. column is None: deserialization path, no need to validate
-        # 2. column is an array type: similarity search uses the raw vector directly, no embedding function needed
+        # Embedding functions are not required in two cases:
+        # 1. column is None: deserialization path
+        # 2. column is an array type: similarity search uses the raw vector directly
         if (
             column is not None
             and column.col_type._type != ts.ColumnType.Type.ARRAY
@@ -111,16 +111,31 @@ class EmbeddingIndex(IndexBase):
                 if resolved_fn is not None:
                     self.embeddings[embed_type] = resolved_fn
 
-        if embed and len(self.embeddings) == 0:
+        if embed is not None and len(self.embeddings) == 0:
             # `embed` was specified and contains no matching signatures.
             raise excs.Error(
                 f'The function `{embed.name}` is not a valid embedding: '
                 'it must take a single string, image, audio or video parameter'
             )
 
-        # Now validate the return types of the embedding functions.
+        # Validate array column shape
+        array_column_shape: tuple[int, ...] | None = None
+        if column is not None and isinstance(column.col_type, ts.ArrayType):
+            array_column_shape = column.col_type.shape
+            if (
+                array_column_shape is None
+                or len(array_column_shape) != 1
+                or array_column_shape[0] is None
+                or array_column_shape[0] <= 0
+            ):
+                raise excs.Error(
+                    f'Column {column.name!r} must be a 1-dimensional array with a specific length '
+                    f'for an embedding index.'
+                )
+
+        # Validate the return types of the embedding functions.
         for _, embed_fn in self.embeddings.items():
-            self._validate_embedding_fn(embed_fn, column=column)
+            self._validate_embedding_fn(embed_fn, array_column_shape=array_column_shape)
 
         self.metric = self.Metric[metric.upper()]
         try:
@@ -200,22 +215,20 @@ class EmbeddingIndex(IndexBase):
         # TODO: implement
         raise NotImplementedError()
 
-    def _validate_similarity_input_vector(
-        self, input_vector: np.ndarray, val_column: catalog.Column, query_type: ts.ColumnType.Type
-    ) -> None:
-        """Validate the input vector used in the similarity clause matches the index column dimensions."""
-        if input_vector.ndim != 1:
-            raise excs.Error(f'Similarity input vector must be 1-dimensional; got shape {input_vector.shape}')
-        assert isinstance(val_column.col_type, ts.ArrayType), 'val_column must be ArrayType for embedding index'
-        col_shape = val_column.col_type.shape
-        assert col_shape is not None and len(col_shape) == 1 and col_shape[0] is not None, (
-            'val_column must have known 1D shape (enforced by get_index_sa_type)'
-        )
-        expected_len = col_shape[0]
-        if input_vector.shape[0] != expected_len:
+    def _validate_query_vector(self, query_vector: np.ndarray, val_column: catalog.Column) -> None:
+        """Validate that the query vector matches the index column dimensions."""
+        if query_vector.ndim != 1:
             raise excs.Error(
-                f'Similarity input vector length {input_vector.shape[0]} does not match '
-                f'indexed column {val_column.name!r} dimension {expected_len}'
+                f'similarity(query_vector=...): expected 1-dimensional array; got {query_vector.ndim}-dimensional array'
+            )
+        assert isinstance(val_column.col_type, ts.ArrayType)
+        col_shape = val_column.col_type.shape
+        assert col_shape is not None and len(col_shape) == 1 and col_shape[0] is not None
+        expected_len = col_shape[0]
+        if query_vector.shape[0] != expected_len:
+            raise excs.Error(
+                f'similarity(query_vector=...): query vector length {query_vector.shape[0]} does not match '
+                f'indexed column {val_column.name!r} length {expected_len}'
             )
 
     def similarity_clause(self, val_column: catalog.Column, item: exprs.Literal) -> sql.ColumnElement:
@@ -223,11 +236,12 @@ class EmbeddingIndex(IndexBase):
         if item.col_type._type == ts.ColumnType.Type.ARRAY:
             # Array value is already a vector; no embedding function needed.
             embedding = item.val
+            assert isinstance(embedding, np.ndarray)
+            self._validate_query_vector(embedding, val_column)
         else:
             assert item.col_type._type in self.embeddings
             embedding = self.embeddings[item.col_type._type].exec([item.val], {})
-        assert isinstance(embedding, np.ndarray)
-        self._validate_similarity_input_vector(embedding, val_column, item.col_type._type)
+            assert isinstance(embedding, np.ndarray)
 
         # In arithmetic operations between floats and ints (or between vector and int), CockroachDB requires an explicit
         # cast. Otherwise the query fails.
@@ -246,11 +260,12 @@ class EmbeddingIndex(IndexBase):
         if item.col_type._type == ts.ColumnType.Type.ARRAY:
             # Array value is already a vector; no embedding function needed.
             embedding = item.val
+            assert isinstance(embedding, np.ndarray)
+            self._validate_query_vector(embedding, val_column)
         else:
             assert item.col_type._type in self.embeddings
             embedding = self.embeddings[item.col_type._type].exec([item.val], {})
-        assert isinstance(embedding, np.ndarray)
-        self._validate_similarity_input_vector(embedding, val_column, item.col_type._type)
+            assert isinstance(embedding, np.ndarray)
 
         if self.metric == self.Metric.COSINE:
             result = val_column.sa_col.cosine_distance(embedding)
@@ -295,8 +310,13 @@ class EmbeddingIndex(IndexBase):
         return None
 
     @classmethod
-    def _validate_embedding_fn(cls, embed_fn: func.Function, column: catalog.Column | None = None) -> None:
-        """Validate the given embedding function."""
+    def _validate_embedding_fn(cls, embed_fn: func.Function, array_column_shape: tuple[int, ...] | None = None) -> None:
+        """Validate the given embedding function.
+
+        Args:
+            embed_fn: The embedding function to validate.
+            array_column_shape: Shape of the indexed array column, or None if the indexed column is not an array.
+        """
         assert not embed_fn.is_polymorphic
 
         return_type = embed_fn.signature.return_type
@@ -320,23 +340,11 @@ class EmbeddingIndex(IndexBase):
                 f'it returns an array of invalid length {shape[0]}'
             )
 
-        # Deserialization when no column context is passed, skip column-specific validation.
-        if column is None:
-            return
-
-        # Indexing an array column with precomputed embeddings
-        if isinstance(column.col_type, ts.ArrayType):
-            col_shape = column.col_type.shape
-            if col_shape is None or len(col_shape) != 1 or col_shape[0] is None or col_shape[0] <= 0:
-                raise excs.Error(
-                    f'Column {column.name!r} must be a 1-dimensional array of a specific length for an embedding index.'
-                )
-            # If function is not identity (with shape None) and has a fixed shape then it must match the column shape
-            if shape is not None and shape[0] is not None and shape != col_shape:
-                raise excs.Error(
-                    f'The function `{embed_fn.name}` returns an array with shape {shape}, '
-                    f'but column {column.name!r} has shape {col_shape}'
-                )
+        if array_column_shape is not None and shape != array_column_shape:
+            raise excs.Error(
+                f'The function `{embed_fn.name}` returns an array with shape {shape}, '
+                f'but indexed column has shape {array_column_shape}'
+            )
 
     def as_dict(self) -> dict:
         d: dict[str, Any] = {'metric': self.metric.name.lower(), 'precision': self.precision.value}

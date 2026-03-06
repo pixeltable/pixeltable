@@ -991,13 +991,17 @@ class TestIndex:
         skip_test_if_not_installed('transformers')
 
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
+
         t = pxt.create_table('array_embedding_test', {'id': pxt.Int, 'text': pxt.String})
         validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
+
         precomputed_embeddings = t.select(emb=e5_embed(t.text)).collect()['emb']
         dim = len(precomputed_embeddings[0])
         precomputed_embeddings_f64 = [v.astype(np.float64) for v in precomputed_embeddings]
+
         t.add_column(precomputed_embeddings=pxt.Array[(dim,), np.float32])  # type: ignore[misc]
         t.add_column(precomputed_embeddings_f64=pxt.Array[(dim,), np.float64])  # type: ignore[misc]
+
         for i in range(len(texts)):
             validate_update_status(
                 t.where(t.id == i).update(
@@ -1008,13 +1012,17 @@ class TestIndex:
                 ),
                 expected_rows=1,
             )
+
         t.add_computed_column(embedding=e5_embed(t.text))
+
         # embedding index on text column
         t.add_embedding_index('text', idx_name='emd_idx_text', embedding=e5_embed, metric='cosine', precision='fp32')
+
         # embedding index on computed column
         t.add_embedding_index(
             'embedding', idx_name='emb_idx_computed', embedding=e5_embed, metric='cosine', precision='fp32'
         )
+
         # f32 precomputed embedding with string embedding function
         t.add_embedding_index(
             'precomputed_embeddings',
@@ -1023,13 +1031,15 @@ class TestIndex:
             metric='cosine',
             precision='fp32',
         )
+
         # f64 precomputed embedding column without any embedding function, should be searchable by vector
         t.add_embedding_index(
             'precomputed_embeddings_f64', idx_name='emb_idx_stored64', metric='cosine', precision='fp32'
         )
+
         best = 'a cat sitting on a mat'
         best_vec = precomputed_embeddings[texts.index(best)]
-        # Test string similarity on computed column and array columns with string embedding function
+
         for col_name, idx_name, has_string_embed_fn in [
             ('text', 'emd_idx_text', True),
             ('embedding', 'emb_idx_computed', True),
@@ -1050,8 +1060,8 @@ class TestIndex:
                     f'{col_name}:{idx_name}: similarity scores must be descending; got {sim_vals}'
                 )
 
-            # search by embedding vector on - should work with all embedding indices
-            sim = col.similarity(vector=best_vec, idx=idx_name)
+            # search by embedding vector; should work with all embedding indices
+            sim = col.similarity(query_vector=best_vec, idx=idx_name)
             query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
             res = reload_tester.run_query(query)
             assert len(res) == 3
@@ -1071,12 +1081,21 @@ class TestIndex:
     def test_array_embedding_index_validation_errors(self, uses_db: None) -> None:
         t = pxt.create_table(
             'arr_val_test',
-            {'id': pxt.Int, 'vec': pxt.Array[(384,), np.float32]},  # type: ignore[misc]
+            {
+                'id': pxt.Int,
+                'vec': pxt.Array[(384,), np.float32],  # type: ignore[misc]
+                'vec2d': pxt.Array[(10, 10), np.float32],  # type: ignore[misc]
+            },
             if_exists='replace',
         )
-        t.insert([{'id': 0, 'vec': np.zeros(384, dtype=np.float32)}])
+        t.insert([{'id': 0, 'vec': np.zeros(384, dtype=np.float32), 'vec2d': np.zeros((10, 10), dtype=np.float32)}])
+
         with pytest.raises(pxt.Error, match='shape'):
             t.add_embedding_index('vec', embedding=self._embed_wrong_shape)
+
+        # 2D array columns should be rejected
+        with pytest.raises(pxt.Error, match='1-dimensional'):
+            t.add_embedding_index('vec2d')
 
     @pytest.mark.parametrize('index_type', ['btree', 'embedding'])
     def test_drop_index(self, index_type: str, uses_db: None, request: pytest.FixtureRequest) -> None:

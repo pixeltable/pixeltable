@@ -67,7 +67,8 @@ class SimilarityExpr(Expr):
             idx_info = tv.get_idx(column, None, EmbeddingIndex)
             self.idx_name = idx_info.name
         else:
-            # Look up index by name
+            # Look up index by name, not by id, so that the expr is still valid when the index
+            # gets dropped and re-created
             idx_info = tv.idxs_by_name.get(idx_name)
             if idx_info is None:
                 raise excs.Error(f'Index {idx_name!r} not found for column {column.name!r}')
