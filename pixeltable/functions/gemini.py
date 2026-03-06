@@ -480,18 +480,29 @@ def _process_media_contents(
     data: Any, client: 'genai.client.AsyncClient', upload_tasks: list[Any], large_video_paths: list[str]
 ) -> Any:
     """
-    Traverse contents. Inline small video files; for large ones, start an async upload and leave a placeholder.
+    Recursively traverse a nested content structure (dict/list/str) and process video file paths.
+
+    - Strings that are not local video file paths are returned unchanged.
+    - Small video files (<= GEMINI_INLINE_VIDEO_LIMIT_BYTES) are base64-encoded inline.
+    - Large video files are queued for async upload and replaced with a placeholder dict
+      (keyed by _UPLOAD_PLACEHOLDER_KEY) to be resolved later by _replace_upload_placeholders.
+
+    Returns the same nested structure with video path strings replaced by inline_data or placeholder dicts.
     """
     if isinstance(data, dict):
         return {k: _process_media_contents(v, client, upload_tasks, large_video_paths) for k, v in data.items()}
     if isinstance(data, list):
         return [_process_media_contents(v, client, upload_tasks, large_video_paths) for v in data]
     if isinstance(data, str):
-        local_path = Path(data).expanduser()
-        if not local_path.exists():
-            return data
-        mime_type, _ = mimetypes.guess_type(str(local_path), strict=False)
+        # Check if string is a file path containing video
+        mime_type, _ = mimetypes.guess_type(data, strict=False)
         if mime_type is None or not mime_type.lower().startswith('video/'):
+            return data
+        local_path = Path(data).expanduser()
+        try:
+            if not local_path.exists():
+                return data
+        except (OSError, ValueError):
             return data
         mime_type = mime_type or 'video/mp4'
         size_bytes = local_path.stat().st_size
@@ -507,7 +518,11 @@ def _process_media_contents(
 
 
 def _replace_upload_placeholders(obj: Any, uploaded: list[Any]) -> Any:
-    """Replace placeholders with file_data from gathered uploads."""
+    """
+    Recursively traverse a nested content structure (dict/list/str) and resolve upload placeholders.
+
+    Returns the same nested structure with all placeholders replaced by file_data dicts.
+    """
     if isinstance(obj, dict) and _UPLOAD_PLACEHOLDER_KEY in obj:
         idx = obj[_UPLOAD_PLACEHOLDER_KEY]['task_id']
         mime_type = obj[_UPLOAD_PLACEHOLDER_KEY]['mime_type']

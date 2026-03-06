@@ -35,7 +35,7 @@ class TestGemini:
 
         from pixeltable.functions.gemini import generate_content
 
-        t = pxt.create_table('test_tbl', {'contents': pxt.String})
+        t = pxt.create_table('test_tbl', {'contents': pxt.String, 'row_id': pxt.Int})
         t.add_computed_column(output=generate_content(t.contents, model=model))
 
         if model != 'gemini-3-pro-preview':
@@ -51,17 +51,30 @@ class TestGemini:
             )
             t.add_computed_column(output2=generate_content(t.contents, model=model, config=config))
 
-        validate_update_status(t.insert(contents='Write a sentence about a magic backpack.'), expected_rows=1)
-        results = t.collect()
+        long_text = 'Pixeltable is an amazing tool for multimodal data. ' * 200 + '.mp4'  # 6000+ chars
+        validate_update_status(
+            t.insert(
+                [
+                    {'contents': 'Write a sentence about a magic backpack.', 'row_id': 0},
+                    {'contents': 'Create a summary of: ' + long_text, 'row_id': 1},
+                ]
+            ),
+            expected_rows=2,
+        )
+        results = t.order_by(t.row_id).collect()
 
         text = results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         print(text)
-
+        assert text
         if model != 'gemini-3-pro-preview':
             assert 'backpack' in text  # sanity check (gemini-3-pro is so "creative" that it often omits this word)
             text2 = results['output2'][0]['candidates'][0]['content']['parts'][0]['text']
             print(text2)
             assert 'backpack' in text2
+
+        text = results['output'][1]['candidates'][0]['content']['parts'][0]['text']
+        print(text)
+        assert text
 
     def test_generate_content_multimodal(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
