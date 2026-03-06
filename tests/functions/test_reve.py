@@ -19,32 +19,53 @@ class TestReve:
         skip_test_if_no_client('reve')
 
         t = pxt.create_table('test_tbl', {'pixeltable_logo': pxt.Image})
+
+        # Edit
+        kwargs = (
+            {}
+            if default_params
+            else {'version': 'latest', 'model_kwargs': {'postprocessing': [{'process': 'fit_image', 'max_dim': 256}]}}
+        )
         t.add_computed_column(
-            just_logo=(
-                reve.edit(
-                    t.pixeltable_logo,
-                    'extract the company logo and drop the name',
-                    **({} if default_params else {'version': 'latest'}),
-                )
-            )
+            just_logo=(reve.edit(t.pixeltable_logo, 'extract the company logo and drop the name', **kwargs))
+        )
+
+        # Create
+        kwargs = (
+            {}
+            if default_params
+            else {
+                'aspect_ratio': '1:1',
+                'version': 'latest',
+                'model_kwargs': {'postprocessing': [{'process': 'fit_image', 'max_dim': 256}], 'test_time_scaling': 1},
+            }
         )
         t.add_computed_column(
             city_skyline=(
-                reve.create(
-                    'A futuristic city skyline with at night with a skyscraper featured prominently',
-                    **({} if default_params else {'aspect_ratio': '1:1', 'version': 'latest'}),
-                )
+                reve.create('A futuristic city skyline with at night with a skyscraper featured prominently', **kwargs)
             )
+        )
+
+        # Remix
+        kwargs = (
+            {}
+            if default_params
+            else {
+                'aspect_ratio': '16:9',
+                'version': 'latest-fast',
+                'model_kwargs': {'postprocessing': [{'process': 'fit_image', 'max_dim': 256}], 'test_time_scaling': 1},
+            }
         )
         t.add_computed_column(
             city_skyline_with_pxt=(
                 reve.remix(
                     'Put a company logo from <img>0</img> on the skyscraper from <img>1</img>',
                     images=[t.just_logo, t.city_skyline],
-                    **({} if default_params else {'aspect_ratio': '16:9', 'version': 'latest'}),
+                    **kwargs,
                 )
             )
         )
+
         validate_update_status(t.insert(pixeltable_logo='./docs/resources/pixeltable-logo-large.png'), expected_rows=1)
         for row in t.select().collect():
             _logger.info('original logo: %s', row['pixeltable_logo'].filename)
