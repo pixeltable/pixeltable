@@ -54,9 +54,15 @@ _logger = logging.getLogger('pixeltable')
 # (from another process), we detect and reuse it.  If it's occupied by
 # a different service, we auto-pick a free port (like Ray).
 
-_dashboard_thread: threading.Thread | None = None
-_dashboard_disabled: bool = False        # set by init(dashboard=False)
-_dashboard_port_override: int | None = None  # set by init(dashboard_port=N)
+
+class _DashboardState:
+    """Mutable namespace for dashboard auto-start state (avoids `global` statements)."""
+    thread: threading.Thread | None = None
+    disabled: bool = False
+    port_override: int | None = None
+
+
+_dashboard = _DashboardState()
 
 
 def _probe_dashboard_port(port: int) -> str | None:
@@ -113,10 +119,8 @@ def _start_dashboard_background(port: int) -> None:
     """
     import time
 
-    global _dashboard_thread
-
     # Fast path: thread already running in *this* process
-    if _dashboard_thread is not None and _dashboard_thread.is_alive():
+    if _dashboard.thread is not None and _dashboard.thread.is_alive():
         _logger.info('Dashboard already running')
         print(f'  Dashboard already running at http://localhost:{port}')
         return
@@ -134,7 +138,7 @@ def _start_dashboard_background(port: int) -> None:
         _logger.info('Port %s in use; dashboard will use port %s instead', original_port, port)
 
     # Port is free — start the server
-    _thread_error: list[str] = []
+    startup_errors: list[str] = []
     actual_port = port  # capture for the closure / print below
 
     def _run() -> None:
@@ -142,18 +146,18 @@ def _start_dashboard_background(port: int) -> None:
             from pixeltable.dashboard.server import run_server
             run_server(port=actual_port)
         except Exception as e:
-            _thread_error.append(str(e))
+            startup_errors.append(str(e))
             _logger.error(f'Dashboard server error: {e}')
 
-    _dashboard_thread = threading.Thread(target=_run, daemon=True, name='pixeltable-dashboard')
-    _dashboard_thread.start()
+    _dashboard.thread = threading.Thread(target=_run, daemon=True, name='pixeltable-dashboard')
+    _dashboard.thread.start()
 
     # Give the server time to bind (imports + event loop setup)
     time.sleep(1.0)
-    if _dashboard_thread.is_alive():
+    if _dashboard.thread.is_alive():
         print(f'  Pixeltable Dashboard: http://localhost:{actual_port}')
-    elif _thread_error:
-        print(f'  Warning: Dashboard failed to start — {_thread_error[0]}')
+    elif startup_errors:
+        print(f'  Warning: Dashboard failed to start — {startup_errors[0]}')
     else:
         print('  Warning: Dashboard failed to start — check logs for details.')
 
@@ -165,17 +169,17 @@ def _auto_start_dashboard() -> None:
     mechanism, which runs on *every* init path (explicit ``pxt.init()``
     or lazy first-use).
     """
-    if _dashboard_disabled:
+    if _dashboard.disabled:
         return
     # Check env var (default: ON)
     if os.environ.get('PIXELTABLE_DASHBOARD', '1') == '0':
         return
     port_str = os.environ.get('PIXELTABLE_DASHBOARD_PORT', '8080')
     try:
-        port = _dashboard_port_override or int(port_str)
+        port = _dashboard.port_override or int(port_str)
     except ValueError:
         _logger.warning('Invalid PIXELTABLE_DASHBOARD_PORT=%r, using default 8080', port_str)
-        port = _dashboard_port_override or 8080
+        port = _dashboard.port_override or 8080
     _start_dashboard_background(port)
 
 
@@ -208,16 +212,14 @@ def init(
         >>> pxt.init(dashboard=False)           # no dashboard
         >>> pxt.init(dashboard_port=9090)       # custom port
     """
-    global _dashboard_disabled, _dashboard_port_override
-
     # Set overrides *before* Catalog.get() triggers the post-init callback
     if dashboard is True:
-        _dashboard_disabled = False
+        _dashboard.disabled = False
         os.environ['PIXELTABLE_DASHBOARD'] = '1'
     elif dashboard is False:
-        _dashboard_disabled = True
+        _dashboard.disabled = True
     if dashboard_port is not None:
-        _dashboard_port_override = dashboard_port
+        _dashboard.port_override = dashboard_port
 
     if config_overrides is None:
         config_overrides = {}

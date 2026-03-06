@@ -88,13 +88,36 @@ offsets are slow (SQL scans all preceding rows). Keyset pagination needs API cha
 
 **CSV export.** Media → URLs, JSON → strings. Default limit 100k rows.
 
-## Dev
+## Packaging & Deployment
 
-`pxt.init()` spawns the server in a daemon thread (`globals.py`). Serves the
-pre-built SPA from `pixeltable/dashboard/static/`.
+**Users need zero frontend tooling.** The SPA is pre-built to `pixeltable/dashboard/static/`
+and shipped inside the Python wheel as a build artifact (`pyproject.toml: artifacts`).
+`pip install pixeltable` includes the static files — no Node.js, no npm, no build step.
+
+The `dashboard/` source directory (TypeScript, React, Tailwind) is excluded from the
+Python package. It only exists for development.
+
+If the `static/` directory is missing (dev checkout without a build), the server renders
+a fallback HTML page with build instructions instead of crashing.
+
+## Auto-start
+
+`pxt.init()` spawns the server in a daemon thread (`globals.py`). On by default (like Ray).
+
+| Control | Effect |
+|---------|--------|
+| `pxt.init(dashboard=False)` | Disable for this session |
+| `pxt.init(dashboard=True)` | Force-start (overrides env var) |
+| `PIXELTABLE_DASHBOARD=0` | Disable via env var |
+| `PIXELTABLE_DASHBOARD_PORT=9090` | Change default port |
+
+Port conflicts are auto-detected: reuses existing Pixeltable dashboards, picks a free
+port if occupied by another service.
+
+## Dev
 
 ```
 cd dashboard && npm run dev    # hot reload on :5173, proxied to :8080
-npm run build                  # production build → static/
+npm run build                  # production build → pixeltable/dashboard/static/
 python _start_dashboard.py     # standalone backend
 ```
