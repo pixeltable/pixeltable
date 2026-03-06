@@ -1,3 +1,4 @@
+import random
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -21,7 +22,7 @@ from .tool_utils import run_tool_invocations_test
 
 
 @pxt.udf(is_deterministic=False)
-def _gemini_throughput_test_prompt(word1: str, word2: str) -> str:
+def _throughput_test_prompt(word1: str, word2: str) -> str:
     return f'Use "{word1}" and "{word2}" in one short sentence. Be very concise.'
 
 
@@ -279,16 +280,13 @@ class TestGemini:
         """
         Performance test: sends N generate_content requests and reports throughput.
 
-        Runs two back-to-back trials to expose a key difference from OpenAI's scheduler:
-        GeminiRateLimitsInfo._get_request_resources() always returns {}, so the
-        RateLimitsScheduler has no resource estimates to track. It fires all requests
-        immediately with no pre-throttling, regardless of max_output_tokens.
-
-        On the free tier (15 RPM for gemini-2.0-flash), this means 429s arrive quickly
-        once the window is exhausted.
+        Verifies that the scheduler can drive requests through without total failure.
+        Unlike OpenAI, GeminiRateLimitsInfo.get_request_resources() returns {}, so the
+        scheduler has no token-level estimates and relies on retry logic for any 429s.
 
         Run with:
-            pytest -m "remote_api and expensive" tests/functions/test_gemini.py::TestGemini::test_generate_content_throughput -s
+            pytest -m "remote_api and expensive" \
+                tests/functions/test_gemini.py::TestGemini::test_generate_content_throughput -s
         """
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -297,40 +295,24 @@ class TestGemini:
         with open('tests/data/random_words', encoding='utf-8') as f:
             wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
 
-        import random
-
         n = 30
         model = 'gemini-2.0-flash'
 
-        def _run_trial(label: str, max_output_tokens: int | None) -> tuple[float, int]:
-            t = pxt.create_table('perf_tbl', {'word1': pxt.String, 'word2': pxt.String})
-            t.add_computed_column(prompt=_gemini_throughput_test_prompt(t.word1, t.word2))
-            config = {'max_output_tokens': max_output_tokens} if max_output_tokens is not None else None
-            t.add_computed_column(response=generate_content(t.prompt, model=model, config=config))
-            rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
-            t0 = time.monotonic()
-            status = t.insert(rows, on_error='ignore')
-            elapsed = time.monotonic() - t0
-            pxt.drop_table('perf_tbl')
-            print(
-                f'\n  [{label}]'
-                f'\n    rows={n}, errors={status.num_excs}'
-                f'\n    elapsed={elapsed:.2f}s  ({n / elapsed:.2f} req/s)'
-            )
-            return elapsed, status.num_excs
+        t = pxt.create_table('perf_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
+        t.add_computed_column(response=generate_content(t.prompt, model=model))
+        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
+        t0 = time.monotonic()
+        status = t.insert(rows, on_error='ignore')
+        elapsed = time.monotonic() - t0
+        pxt.drop_table('perf_tbl')
 
-        elapsed_constrained, errs_constrained = _run_trial('constrained   max_output_tokens=20', max_output_tokens=20)
-        elapsed_unconstrained, errs_unconstrained = _run_trial('unconstrained no config', max_output_tokens=None)
-
+        succeeded = n - status.num_excs
         print(
-            f'\n  speedup (constrained / unconstrained): '
-            f'{elapsed_unconstrained / elapsed_constrained:.1f}x'
-            f'\n  NOTE: Unlike OpenAI, Gemini returns {{}} from get_request_resources(),'
-            f'\n        so the scheduler fires requests with no token pre-throttling in both trials.'
+            f'\n  rows={n}, errors={status.num_excs}'
+            f'\n  elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
         )
-
-        assert errs_constrained < n, 'All requests failed in constrained trial'
-        assert errs_unconstrained < n, 'All requests failed in unconstrained trial'
+        assert status.num_excs < n, 'All requests failed'
 
     @pytest.mark.expensive
     def test_generate_content_429_recovery(self, uses_db: None) -> None:
@@ -349,10 +331,11 @@ class TestGemini:
 
         What to look for in output:
           - errors=0  (all rows eventually succeed after retries)
-          - elapsed   (longer than n/RPM seconds due to retry waits and est_usage reset bug)
+          - elapsed   (longer than n/RPM seconds due to retry waits)
 
         Run with:
-            pytest -m "remote_api and expensive" tests/functions/test_gemini.py::TestGemini::test_generate_content_429_recovery -s -v
+            pytest -m "remote_api and expensive" \
+                tests/functions/test_gemini.py::TestGemini::test_generate_content_429_recovery -s -v
         """
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -361,14 +344,12 @@ class TestGemini:
         with open('tests/data/random_words', encoding='utf-8') as f:
             wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
 
-        import random
-
         n = 30
         # gemini-2.5-flash free tier: ~10 RPM — 30 rows guarantees 429s immediately
         model = 'gemini-2.5-flash'
 
         t = pxt.create_table('test_429_tbl', {'word1': pxt.String, 'word2': pxt.String})
-        t.add_computed_column(prompt=_gemini_throughput_test_prompt(t.word1, t.word2))
+        t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
         t.add_computed_column(response=generate_content(t.prompt, model=model, config={'max_output_tokens': 50}))
 
         rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
@@ -381,7 +362,7 @@ class TestGemini:
         print(
             f'\n  model={model}, rows={n}'
             f'\n  succeeded={succeeded}, errors={status.num_excs}'
-            f'\n  elapsed={elapsed:.2f}s  ({succeeded / elapsed:.2f} req/s)'
+            f'\n  elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
         )
 
         # All rows must eventually succeed; permanent failures mean retries are exhausted

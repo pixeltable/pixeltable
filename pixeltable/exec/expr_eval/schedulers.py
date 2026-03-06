@@ -7,7 +7,7 @@ import logging
 import math
 import sys
 import time
-from typing import Awaitable, Collection
+from typing import Collection
 
 from pixeltable import env, func
 from pixeltable.config import Config
@@ -39,14 +39,13 @@ class RateLimitsScheduler(Scheduler):
 
     # scheduling-related state
     pool_info: env.RateLimitsInfo | None
-    est_usage: dict[str, int]  # value per resource; accumulated estimates since the last util. report
+    est_usage: dict[str, int]  # value per resource; running sum of estimated costs for in-flight requests
 
     # Per-request estimated costs stored when a task is fired, keyed by id(request).
     # Looked up and removed in _exec's finally block so we subtract only that request's contribution from est_usage.
     _inflight_costs: dict[int, dict[str, int]]
 
     num_in_flight: int  # unfinished tasks
-    request_completed: asyncio.Event
 
     total_requests: int
     total_retried: int
@@ -62,7 +61,6 @@ class RateLimitsScheduler(Scheduler):
         self.est_usage = {}
         self._inflight_costs = {}
         self.num_in_flight = 0
-        self.request_completed = asyncio.Event()
         self.total_requests = 0
         self.total_retried = 0
         self.get_request_resources_param_names = []
@@ -108,22 +106,9 @@ class RateLimitsScheduler(Scheduler):
             # check rate limits
             request_resources = self._get_request_resources(item.request)
             resource_delay = self._resource_delay(request_resources)
-            aws: list[Awaitable[None]] = []
-            completed_aw: asyncio.Task | None = None
-            wait_for_reset: asyncio.Task | None = None
             if resource_delay > 0:
-                # Schedule a sleep until sufficient resources are available
-                wait_for_reset = asyncio.create_task(asyncio.sleep(resource_delay))
-                aws.append(wait_for_reset)
                 _logger.debug(f'waiting {resource_delay:.1f}s for resource availability')
-
-            if len(aws) > 0:
-                # we have something to wait for
-                done, pending = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
-                for task in pending:
-                    task.cancel()
-                if completed_aw in done:
-                    _logger.debug(f'wait(): completed request for {self.resource_pool}')
+                await asyncio.sleep(resource_delay)
                 # re-evaluate current capacity for current item
                 continue
 
@@ -254,7 +239,6 @@ class RateLimitsScheduler(Scheduler):
                 for resource, cost in estimated_cost.items():
                     self.est_usage[resource] = max(0, self.est_usage.get(resource, 0) - cost)
                 self.num_in_flight -= 1
-                self.request_completed.set()
 
 
 class RequestRateScheduler(Scheduler):
