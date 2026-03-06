@@ -3,10 +3,10 @@ import pathlib
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pyarrow.parquet as pa_parquet
 import pytest
 
-import pyarrow as pa
 import pixeltable as pxt
 from pixeltable.utils.arrow import to_pydict
 
@@ -334,10 +334,7 @@ class TestParquet:
         pa.parquet.write_table(img_data, str(img_pq))
 
         img_t = pxt.create_table(
-            'valid_images',
-            source=str(img_pq),
-            source_format='parquet',
-            schema_overrides={'image_path': pxt.Image},
+            'valid_images', source=str(img_pq), source_format='parquet', schema_overrides={'image_path': pxt.Image}
         )
         assert img_t.count() == 3
 
@@ -347,7 +344,7 @@ class TestParquet:
         pa.parquet.write_table(bad_data, str(bad_pq))
 
         # on_error='abort' fails
-        with pytest.raises(Exception):
+        with pytest.raises(pxt.Error, match='No such file or directory'):
             _ = pxt.create_table(
                 'bad_data_tbl',
                 source=str(bad_pq),
@@ -357,14 +354,17 @@ class TestParquet:
             )
 
         # on_error='ignore' succeeds
-        t_bad = pxt.create_table(
+        error_t = pxt.create_table(
             'bad_ignore',
             source=str(bad_pq),
             source_format='parquet',
             schema_overrides={'image_path': pxt.Image},
             on_error='ignore',
         )
-        assert t_bad.count() == 3
+        assert error_t.count() == 3
+        errors = error_t.select(msg=error_t.image_path.errormsg).where(error_t.image_path.errormsg != None).collect()
+        assert len(errors) == 1
+        assert 'No such file or directory' in errors[0]['msg']
 
     def test_export_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})  # type: ignore[misc]
