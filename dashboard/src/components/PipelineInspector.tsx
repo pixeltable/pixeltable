@@ -595,7 +595,7 @@ function NodeFinder({
     <div ref={ref} className="relative">
       <button
         onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 0) }}
-        className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-border/60 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card shadow-sm text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
       >
         <SearchIcon className="h-3 w-3" />
         <span>Find table…</span>
@@ -834,12 +834,6 @@ function PipelineInspectorInner() {
             </div>
           )}
 
-          <div className="border-l border-border/40 h-4 mx-1" />
-          <NodeFinder
-            nodes={pipeline?.nodes ?? []}
-            onSelect={handleSelect}
-          />
-
           {/* Auto-refresh + manual refresh */}
           <div className="ml-auto flex items-center gap-2">
             {lastRefreshed && (
@@ -876,6 +870,10 @@ function PipelineInspectorInner() {
       {/* Flow + Detail */}
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 relative min-h-0">
+          {/* Floating node finder */}
+          <div className="absolute top-3 left-3 z-10">
+            <NodeFinder nodes={pipeline?.nodes ?? []} onSelect={handleSelect} />
+          </div>
           <ReactFlow
             nodes={nodes}
             edges={edges}
