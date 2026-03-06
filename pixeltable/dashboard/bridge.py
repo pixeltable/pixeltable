@@ -37,10 +37,12 @@ def _version_error_total(tbl: Table) -> int:
 
 
 def _column_error_counts(tbl: Table, col_meta: dict[str, Any]) -> dict[str, int]:
-    """Count rows with errors per computed column. Returns {col_name: count}."""
+    """Count rows with errors per computed or media column. Returns {col_name: count}."""
     counts: dict[str, int] = {}
     for col_name, info in col_meta.items():
-        if info.get('computed_with') is None:
+        is_computed = info.get('computed_with') is not None
+        is_media = _is_media_type(info.get('type_', ''))
+        if not is_computed and not is_media:
             continue
         try:
             col_ref = getattr(tbl, col_name)
@@ -113,7 +115,7 @@ def _build_select(
             select_dict[url_key] = col_ref.fileurl
             media_url_cols[col_name] = url_key
 
-        if include_errors and is_computed:
+        if include_errors and (is_computed or is_media):
             try:
                 et_key = f'{col_name}__errortype'
                 em_key = f'{col_name}__errormsg'
