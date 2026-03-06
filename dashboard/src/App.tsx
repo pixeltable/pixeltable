@@ -410,38 +410,38 @@ export default function App() {
             </a>
           )}
 
-          {/* Theme + Collapse */}
-          <div className="flex items-center gap-0.5">
-            <button
-              className={cn(
-                'flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
-                sidebarOpen ? 'flex-1' : 'justify-center flex-1',
-              )}
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-            >
-              {sidebarOpen ? (
-                <>
-                  <PanelLeftClose className="h-[15px] w-[15px] shrink-0" />
-                  <span>Collapse</span>
-                </>
-              ) : (
-                <PanelLeftOpen className="h-[15px] w-[15px] shrink-0" />
-              )}
-            </button>
-            <button
-              onClick={toggleTheme}
-              className="flex items-center justify-center rounded-lg p-[7px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground shrink-0"
-              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
-            >
-              {dark ? <Sun className="h-[15px] w-[15px]" /> : <Moon className="h-[15px] w-[15px]" />}
-            </button>
-          </div>
+          {/* Collapse toggle */}
+          <button
+            className={cn(
+              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
+              sidebarOpen ? '' : 'justify-center',
+            )}
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+          >
+            {sidebarOpen ? (
+              <>
+                <PanelLeftClose className="h-[15px] w-[15px] shrink-0" />
+                <span>Collapse</span>
+              </>
+            ) : (
+              <PanelLeftOpen className="h-[15px] w-[15px] shrink-0" />
+            )}
+          </button>
 
         </div>
       </aside>
 
       {/* ── Main Content ────────────────────────────────────────────── */}
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
+        <div className="flex items-center justify-end px-4 py-1.5 border-b border-border/40 shrink-0">
+          <button
+            onClick={toggleTheme}
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            {dark ? 'Light mode' : 'Dark mode'}
+          </button>
+        </div>
         <Routes>
           <Route path="/" element={<div className="flex-1 overflow-auto h-full"><WelcomeView /></div>} />
           <Route path="/lineage" element={<PipelineInspector />} />
