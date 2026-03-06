@@ -11,6 +11,7 @@ import pixeltable as pxt
 from pixeltable.utils.arrow import to_pydict
 
 from ..utils import (
+    SAMPLE_IMAGE_URL,
     ensure_s3_pytest_resources_access,
     get_image_files,
     make_test_arrow_table,
@@ -328,23 +329,25 @@ class TestParquet:
     def test_import_images(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         valid_images = get_image_files()
 
-        # Parquet with only valid image paths — should import without errors
-        img_data = pa.table({'image_path': [str(f) for f in valid_images[:3]]})
+        # Parquet with valid image paths/URLs
+        img_data = pa.table({'image_path': [str(f) for f in valid_images[:3]] + [SAMPLE_IMAGE_URL]})
         img_pq = tmp_path / 'valid.parquet'
-        pa.parquet.write_table(img_data, str(img_pq))
+        pa_parquet.write_table(img_data, str(img_pq))
 
         img_t = pxt.create_table(
             'valid_images', source=str(img_pq), source_format='parquet', schema_overrides={'image_path': pxt.Image}
         )
-        assert img_t.count() == 3
+        assert img_t.count() == 4
 
-        # Parquet with some invalid image paths
-        bad_data = pa.table({'image_path': [str(valid_images[0]), 'not_a_real_image.jpg', str(valid_images[1])]})
+        # Parquet with invalid local path and invalid URL
+        bad_data = pa.table(
+            {'image_path': [valid_images[0], 'not_a_real_image.jpg', 'https://httpbin.org/status/404', valid_images[1]]}
+        )
         bad_pq = tmp_path / 'bad.parquet'
-        pa.parquet.write_table(bad_data, str(bad_pq))
+        pa_parquet.write_table(bad_data, str(bad_pq))
 
         # on_error='abort' fails
-        with pytest.raises(pxt.Error, match='No such file or directory'):
+        with pytest.raises(pxt.Error):
             _ = pxt.create_table(
                 'bad_data_tbl',
                 source=str(bad_pq),
@@ -361,10 +364,9 @@ class TestParquet:
             schema_overrides={'image_path': pxt.Image},
             on_error='ignore',
         )
-        assert error_t.count() == 3
+        assert error_t.count() == 4
         errors = error_t.select(msg=error_t.image_path.errormsg).where(error_t.image_path.errormsg != None).collect()
-        assert len(errors) == 1
-        assert 'No such file or directory' in errors[0]['msg']
+        assert len(errors) == 2
 
     def test_export_array(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         t = pxt.create_table('test_array1', {'idx': pxt.Int, 'a1': pxt.Array[(10, 10), np.int64]})  # type: ignore[misc]
