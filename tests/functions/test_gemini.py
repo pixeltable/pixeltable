@@ -21,11 +21,6 @@ from ..utils import (
 from .tool_utils import run_tool_invocations_test
 
 
-@pxt.udf(is_deterministic=False)
-def _throughput_test_prompt(word1: str, word2: str) -> str:
-    return f'Use "{word1}" and "{word2}" in one short sentence. Be very concise.'
-
-
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestGemini:
@@ -299,7 +294,7 @@ class TestGemini:
         model = 'gemini-2.0-flash'
 
         t = pxt.create_table('perf_tbl', {'word1': pxt.String, 'word2': pxt.String})
-        t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
+        t.add_computed_column(prompt='Use "' + t.word1 + '" and "' + t.word2 + '" in one short sentence.')
         t.add_computed_column(response=generate_content(t.prompt, model=model))
         rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
         t0 = time.monotonic()
@@ -349,7 +344,7 @@ class TestGemini:
         model = 'gemini-2.5-flash'
 
         t = pxt.create_table('test_429_tbl', {'word1': pxt.String, 'word2': pxt.String})
-        t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
+        t.add_computed_column(prompt='Use "' + t.word1 + '" and "' + t.word2 + '" in one short sentence.')
         t.add_computed_column(response=generate_content(t.prompt, model=model, config={'max_output_tokens': 50}))
 
         rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]

@@ -13,7 +13,7 @@ from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_i
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
 
 
-@pxt.udf(is_deterministic=False)
+@pxt.udf
 def _throughput_test_prompt(word1: str, word2: str) -> list[dict[str, str]]:
     return [
         {'role': 'system', 'content': 'You are a helpful assistant. Be concise.'},
