@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
 
@@ -39,13 +40,180 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
+# ── Dashboard auto-start (Ray model: ON by default, opt-out) ─────────────
+#
+# The dashboard starts automatically the first time Pixeltable initialises
+# (either via an explicit ``pxt.init()`` or lazily on the first API call).
+#
+# Control via:
+#   pxt.init(dashboard=False)            # disable for this session
+#   PIXELTABLE_DASHBOARD=0               # disable via env var
+#   PIXELTABLE_DASHBOARD_PORT=9090       # change default port
+#
+# If the preferred port is already occupied by a Pixeltable dashboard
+# (from another process), we detect and reuse it.  If it's occupied by
+# a different service, we auto-pick a free port (like Ray).
 
-def init(config_overrides: dict[str, Any] | None = None) -> None:
-    """Initializes the Pixeltable environment."""
+_dashboard_thread: threading.Thread | None = None
+_dashboard_disabled: bool = False        # set by init(dashboard=False)
+_dashboard_port_override: int | None = None  # set by init(dashboard_port=N)
+
+
+def _probe_dashboard_port(port: int) -> str | None:
+    """Check if a Pixeltable dashboard is already listening on *port*.
+
+    Returns:
+        ``'pixeltable'`` if a Pixeltable dashboard responds on the port,
+        ``'other'`` if the port is occupied by something else,
+        ``None`` if the port is free.
+    """
+    import json
+    import urllib.request
+
+    try:
+        resp = urllib.request.urlopen(f'http://localhost:{port}/api/health', timeout=1)
+        data = json.loads(resp.read().decode())
+        if data.get('status') == 'ok':
+            return 'pixeltable'
+        return 'other'
+    except urllib.error.HTTPError:
+        # Got an HTTP response (e.g. 404) → port is occupied by something else
+        return 'other'
+    except urllib.error.URLError as e:
+        # ConnectionRefusedError → port is genuinely free
+        if isinstance(e.reason, ConnectionRefusedError):
+            return None
+        # Other URL errors (e.g. timeout on a slow service) → treat as occupied
+        return 'other'
+    except Exception:
+        # Unexpected error → assume occupied to be safe
+        return 'other'
+
+
+def _find_free_port() -> int:
+    """Ask the OS for a free port on localhost."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
+
+
+def _start_dashboard_background(port: int) -> None:
+    """Start the dashboard server in a daemon thread.
+
+    The thread is marked *daemon* so it is torn down automatically when
+    the main process exits — no explicit shutdown step required.
+
+    Before spawning a thread, probes the port to detect dashboards started
+    by other Python processes (or other services occupying the port).
+    If the port is occupied by a non-Pixeltable service, automatically
+    picks a free port (like Ray).
+    """
+    import time
+
+    global _dashboard_thread
+
+    # Fast path: thread already running in *this* process
+    if _dashboard_thread is not None and _dashboard_thread.is_alive():
+        _logger.info('Dashboard already running')
+        print(f'  Dashboard already running at http://localhost:{port}')
+        return
+
+    # Probe the port — another process may already be serving the dashboard
+    probe = _probe_dashboard_port(port)
+    if probe == 'pixeltable':
+        _logger.info('Pixeltable Dashboard already running on port %s (another process)', port)
+        print(f'  Pixeltable Dashboard (already running): http://localhost:{port}')
+        return
+    if probe == 'other':
+        # Port occupied by something else — auto-pick a free port (like Ray)
+        original_port = port
+        port = _find_free_port()
+        _logger.info('Port %s in use; dashboard will use port %s instead', original_port, port)
+
+    # Port is free — start the server
+    _thread_error: list[str] = []
+    actual_port = port  # capture for the closure / print below
+
+    def _run():
+        try:
+            from pixeltable.dashboard.server import run_server
+            run_server(port=actual_port)
+        except Exception as e:
+            _thread_error.append(str(e))
+            _logger.error(f'Dashboard server error: {e}')
+
+    _dashboard_thread = threading.Thread(target=_run, daemon=True, name='pixeltable-dashboard')
+    _dashboard_thread.start()
+
+    # Give the server time to bind (imports + event loop setup)
+    time.sleep(1.0)
+    if _dashboard_thread.is_alive():
+        print(f'  Pixeltable Dashboard: http://localhost:{actual_port}')
+    elif _thread_error:
+        print(f'  Warning: Dashboard failed to start — {_thread_error[0]}')
+    else:
+        print('  Warning: Dashboard failed to start — check logs for details.')
+
+
+def _auto_start_dashboard() -> None:
+    """Post-init callback: start the dashboard unless disabled.
+
+    Called from ``Env._set_up_runtime()`` via the post-init callback
+    mechanism, which runs on *every* init path (explicit ``pxt.init()``
+    or lazy first-use).
+    """
+    if _dashboard_disabled:
+        return
+    # Check env var (default: ON)
+    if os.environ.get('PIXELTABLE_DASHBOARD', '1') == '0':
+        return
+    port = _dashboard_port_override or int(os.environ.get('PIXELTABLE_DASHBOARD_PORT', '8080'))
+    _start_dashboard_background(port)
+
+
+# Register the callback so the dashboard starts on first Pixeltable init
+Env._post_init_callbacks.append(_auto_start_dashboard)
+
+
+def init(
+    config_overrides: dict[str, Any] | None = None,
+    *,
+    dashboard: bool | None = None,
+    dashboard_port: int | None = None,
+) -> None:
+    """Initializes the Pixeltable environment.
+
+    Args:
+        config_overrides: Optional dictionary of configuration overrides.
+        dashboard: Whether to start the dashboard server.
+            ``None`` (default) — auto-start if dependencies are available
+            (same as Ray's ``include_dashboard=None``).
+            ``True`` — force-start the dashboard.
+            ``False`` — disable the dashboard for this session.
+        dashboard_port: Port number for the dashboard server.
+            Defaults to ``8080``, or the ``PIXELTABLE_DASHBOARD_PORT`` env var.
+            If the port is occupied, a free port is chosen automatically.
+
+    Example:
+        >>> import pixeltable as pxt
+        >>> pxt.init()                         # dashboard starts automatically
+        >>> pxt.init(dashboard=False)           # no dashboard
+        >>> pxt.init(dashboard_port=9090)       # custom port
+    """
+    global _dashboard_disabled, _dashboard_port_override
+
+    # Set overrides *before* Catalog.get() triggers the post-init callback
+    if dashboard is False:
+        _dashboard_disabled = True
+    if dashboard_port is not None:
+        _dashboard_port_override = dashboard_port
+
     if config_overrides is None:
         config_overrides = {}
     Config.init(config_overrides)
-    _ = get_runtime().catalog
+    _ = get_runtime().catalog  # triggers Env._set_up() → _set_up_runtime() → _auto_start_dashboard()
 
 
 def create_table(

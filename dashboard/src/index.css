@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── Kandinsky Design System ─────────────────────────────────────────────── */
+
+@layer base {
+  :root {
+    /* Brand */
+    --kandinsky-yellow: 42 98% 48%;      /* #F1AE03 */
+    --kandinsky-red: 9 97% 44%;          /* #DC2404 (via --destructive) */
+
+    /* Semantic Dark Theme (aligned with Pixelbot dark) */
+    --background: 0 0% 4%;              /* #0a0a0a */
+    --foreground: 0 0% 93%;             /* #ececec */
+
+    --card: 0 0% 7%;                    /* #111111 */
+    --card-foreground: 0 0% 93%;
+
+    --primary: var(--kandinsky-yellow);
+    --primary-foreground: 0 0% 4%;
+
+    --secondary: 0 0% 9%;              /* #161616 */
+    --secondary-foreground: 0 0% 93%;
+
+    --muted: 0 0% 8%;                  /* #141414 */
+    --muted-foreground: 0 0% 64%;      /* #a3a3a3 — 7.5:1 on bg */
+
+    --accent: 0 0% 10%;                /* #1a1a1a */
+    --accent-foreground: 0 0% 93%;
+
+    --destructive: var(--kandinsky-red);
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 16%;                /* #282828 */
+    --input: 0 0% 17%;                 /* #2a2a2a */
+    --ring: var(--kandinsky-yellow);
+
+    --radius: 0.5rem;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+      "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    min-height: 100vh;
+    min-height: 100dvh;
+    line-height: 1.6;
+  }
+
+  * {
+    border-color: hsl(var(--border));
+    box-sizing: border-box;
+  }
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+  }
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+  }
+
+*::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--border));
+  border-radius: 3px;
+  }
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--muted-foreground));
+  }
+
+/* ─── Animations ─────────────────────────────────────────────────────────── */
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+/* ─── Selection ──────────────────────────────────────────────────────────── */
+
+::selection {
+  background: hsl(var(--primary) / 0.3);
+  color: hsl(var(--foreground));
+}
+
+/* ─── Focus visible ──────────────────────────────────────────────────────── */
+
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
