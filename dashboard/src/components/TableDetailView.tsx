@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getTableMetadata, getTableData, getTableErrors, getPipeline } from '@/api/client'
+import { getTableMetadata, getTableData, getPipeline } from '@/api/client'
 import { useDebounce } from '@/hooks/useApi'
 import type {
   PipelineColumn, CellError, DataRow,
@@ -1304,12 +1304,12 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
       .finally(() => setMetaLoading(false))
   }, [tablePath])
 
-  // Fetch error count
+  // Derive error count from metadata versions
   useEffect(() => {
-    getTableErrors(tablePath)
-      .then(e => setTotalErrors(e.total_errors))
-      .catch(() => setTotalErrors(0))
-  }, [tablePath])
+    if (metadata?.versions?.length) {
+      setTotalErrors(metadata.versions.reduce((s, v) => s + v.errors, 0))
+    }
+  }, [metadata])
 
   // Fetch pipeline data lazily when lineage tab is opened
   useEffect(() => {

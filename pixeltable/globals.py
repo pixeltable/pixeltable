@@ -57,6 +57,7 @@ _logger = logging.getLogger('pixeltable')
 
 class _DashboardState:
     """Mutable namespace for dashboard auto-start state (avoids `global` statements)."""
+
     thread: threading.Thread | None = None
     disabled: bool = False
     port_override: int | None = None
@@ -144,6 +145,7 @@ def _start_dashboard_background(port: int) -> None:
     def _run() -> None:
         try:
             from pixeltable.dashboard.server import run_server
+
             run_server(port=actual_port)
         except Exception as e:
             startup_errors.append(str(e))
@@ -188,10 +190,7 @@ Env._post_init_callbacks.append(_auto_start_dashboard)
 
 
 def init(
-    config_overrides: dict[str, Any] | None = None,
-    *,
-    dashboard: bool | None = None,
-    dashboard_port: int | None = None,
+    config_overrides: dict[str, Any] | None = None, *, dashboard: bool | None = None, dashboard_port: int | None = None
 ) -> None:
     """Initializes the Pixeltable environment.
 
@@ -208,9 +207,9 @@ def init(
 
     Example:
         >>> import pixeltable as pxt
-        >>> pxt.init()                         # dashboard starts automatically
-        >>> pxt.init(dashboard=False)           # no dashboard
-        >>> pxt.init(dashboard_port=9090)       # custom port
+        >>> pxt.init()  # dashboard starts automatically
+        >>> pxt.init(dashboard=False)  # no dashboard
+        >>> pxt.init(dashboard_port=9090)  # custom port
     """
     # Set overrides *before* Catalog.get() triggers the post-init callback
     if dashboard is True:

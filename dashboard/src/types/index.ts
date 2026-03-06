@@ -85,14 +85,6 @@ export interface SearchResults {
   columns: { name: string; table: string; type: string; is_computed: boolean }[];
 }
 
-// Information Schema types
-export interface TableErrors {
-  table_path: string;
-  column_error_counts: Record<string, number>;
-  total_errors: number;
-  samples: { column: string; errortype: string | null; errormsg: string | null }[];
-}
-
 // ── Pipeline Inspector ──────────────────────────────────────────────────────
 
 export interface PipelineColumn {

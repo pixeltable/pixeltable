@@ -2,7 +2,6 @@ import type {
   TreeNode,
   TableMetadata,
   TableData,
-  TableErrors,
   SearchResults,
   PipelineResponse,
 } from '@/types';
@@ -54,11 +53,6 @@ export async function search(query: string, limit = 50): Promise<SearchResults> 
 
 export async function getPipeline(): Promise<PipelineResponse> {
   return fetchJson<PipelineResponse>(`${API_BASE}/pipeline`);
-}
-
-export async function getTableErrors(path: string, limit = 20): Promise<TableErrors> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  return fetchJson<TableErrors>(`${API_BASE}/tables/${encodeURIComponent(path)}/errors?${params}`);
 }
 
 interface SystemConfig {

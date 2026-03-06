@@ -5,6 +5,7 @@ Usage:
     import pixeltable as pxt
     pxt.dashboard.serve()  # Opens browser to http://localhost:8080
 """
+
 from __future__ import annotations
 
 import logging

@@ -4,6 +4,7 @@ Bridge layer between Pixeltable internal APIs and the Dashboard REST API.
 This module translates Pixeltable's internal data structures into JSON-serializable
 formats suitable for the dashboard frontend.
 """
+
 from __future__ import annotations
 
 import base64
@@ -25,6 +26,7 @@ _logger = logging.getLogger('pixeltable.dashboard')
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _version_error_total(tbl: Table) -> int:
     """Sum errors across all versions of a table (cheap, no row scans)."""
@@ -65,12 +67,14 @@ def _extract_indices(raw_indices: dict[str, Any]) -> list[dict[str, Any]]:
     for idx_name, idx_info in raw_indices.items():
         idx_columns = idx_info.get('columns', [])
         column_str = ', '.join(idx_columns) if idx_columns else idx_info.get('column', '')
-        indices.append({
-            'name': idx_info.get('name', idx_name),
-            'column': column_str,
-            'type_': idx_info.get('index_type', idx_info.get('type_', 'Unknown')),
-            'parameters': idx_info.get('parameters', {}),
-        })
+        indices.append(
+            {
+                'name': idx_info.get('name', idx_name),
+                'column': column_str,
+                'type_': idx_info.get('index_type', idx_info.get('type_', 'Unknown')),
+                'parameters': idx_info.get('parameters', {}),
+            }
+        )
     return indices
 
 
@@ -84,10 +88,7 @@ def _is_media_type(col_type: str) -> bool:
 
 
 def _build_select(
-    tbl: Table,
-    col_meta: dict[str, Any],
-    *,
-    include_errors: bool = False,
+    tbl: Table, col_meta: dict[str, Any], *, include_errors: bool = False
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, str], dict[str, tuple[str, str]]]:
     """Build column info list, select dict, media URL map, and error column map.
 
@@ -102,12 +103,7 @@ def _build_select(
         col_type = col_info.get('type_', 'Unknown')
         is_media = _is_media_type(col_type)
         is_computed = col_info.get('computed_with') is not None
-        columns.append({
-            'name': col_name,
-            'type': col_type,
-            'is_media': is_media,
-            'is_computed': is_computed,
-        })
+        columns.append({'name': col_name, 'type': col_type, 'is_media': is_media, 'is_computed': is_computed})
 
         col_ref = getattr(tbl, col_name)
         select_dict[col_name] = col_ref
@@ -141,6 +137,7 @@ def _resolve_fileurl(fileurl: str, http_address: str) -> str:
 
 # ── Directory / tree ─────────────────────────────────────────────────────────
 
+
 def get_directory_tree() -> list[dict[str, Any]]:
     """
     Get the complete directory tree with all tables/views/snapshots.
@@ -157,12 +154,7 @@ def get_directory_tree() -> list[dict[str, Any]]:
     # First pass: create all directory nodes
     for dir_path in sorted(all_dirs):
         parts = dir_path.split('/')
-        node = {
-            'name': parts[-1],
-            'path': dir_path,
-            'type': 'directory',
-            'children': [],
-        }
+        node = {'name': parts[-1], 'path': dir_path, 'type': 'directory', 'children': []}
         dir_nodes[dir_path] = node
 
         if len(parts) == 1:
@@ -194,13 +186,7 @@ def get_directory_tree() -> list[dict[str, Any]]:
         except Exception:
             pass
 
-        table_node = {
-            'name': tbl_name,
-            'path': tbl_path,
-            'type': kind,
-            'version': version,
-            'error_count': error_count,
-        }
+        table_node = {'name': tbl_name, 'path': tbl_path, 'type': kind, 'version': version, 'error_count': error_count}
 
         if parent_path and parent_path in dir_nodes:
             dir_nodes[parent_path]['children'].append(table_node)
@@ -212,6 +198,7 @@ def get_directory_tree() -> list[dict[str, Any]]:
 
 # ── Table metadata / data ────────────────────────────────────────────────────
 
+
 def get_table_metadata(table_path: str) -> dict[str, Any]:
     """
     Get detailed metadata for a table including schema, indices, and lineage info.
@@ -222,30 +209,34 @@ def get_table_metadata(table_path: str) -> dict[str, Any]:
 
     columns = []
     for col_name, col_info in md['columns'].items():
-        columns.append({
-            'name': col_info.get('name', col_name),
-            'type': col_info.get('type_', 'Unknown'),
-            'is_computed': col_info.get('computed_with') is not None,
-            'computed_with': col_info.get('computed_with'),
-            'is_stored': col_info.get('is_stored', True),
-            'is_primary_key': col_info.get('is_primary_key', False),
-            'defined_in': col_info.get('defined_in'),
-            'version_added': col_info.get('version_added', 0),
-            'comment': col_info.get('comment') or None,
-        })
+        columns.append(
+            {
+                'name': col_info.get('name', col_name),
+                'type': col_info.get('type_', 'Unknown'),
+                'is_computed': col_info.get('computed_with') is not None,
+                'computed_with': col_info.get('computed_with'),
+                'is_stored': col_info.get('is_stored', True),
+                'is_primary_key': col_info.get('is_primary_key', False),
+                'defined_in': col_info.get('defined_in'),
+                'version_added': col_info.get('version_added', 0),
+                'comment': col_info.get('comment') or None,
+            }
+        )
 
     versions: list[dict[str, Any]] = []
     try:
         for v in tbl.get_versions():
-            versions.append({
-                'version': v['version'],
-                'created_at': v['created_at'].isoformat() if v.get('created_at') else None,
-                'change_type': v.get('change_type'),
-                'inserts': v.get('inserts', 0),
-                'updates': v.get('updates', 0),
-                'deletes': v.get('deletes', 0),
-                'errors': v.get('errors', 0),
-            })
+            versions.append(
+                {
+                    'version': v['version'],
+                    'created_at': v['created_at'].isoformat() if v.get('created_at') else None,
+                    'change_type': v.get('change_type'),
+                    'inserts': v.get('inserts', 0),
+                    'updates': v.get('updates', 0),
+                    'deletes': v.get('deletes', 0),
+                    'errors': v.get('errors', 0),
+                }
+            )
     except Exception:
         pass
 
@@ -280,9 +271,7 @@ def get_table_data(
     md = tbl.get_metadata()
     http_address = Env.get().http_address
 
-    columns, select_dict, media_url_cols, error_cols = _build_select(
-        tbl, md['columns'], include_errors=True,
-    )
+    columns, select_dict, media_url_cols, error_cols = _build_select(tbl, md['columns'], include_errors=True)
 
     query = tbl.select(**select_dict)
 
@@ -322,6 +311,7 @@ def get_table_data(
                 elif value is not None:
                     try:
                         from PIL import Image as PILImage
+
                         if isinstance(value, PILImage.Image):
                             buf = io.BytesIO()
                             fmt = 'JPEG' if value.mode == 'RGB' else 'PNG'
@@ -351,10 +341,7 @@ def get_table_data(
                 etype = row.get(et_key)
                 emsg = row.get(em_key)
                 if etype is not None:
-                    cell_errors[col_name] = {
-                        'error_type': str(etype),
-                        'error_msg': str(emsg) if emsg else '',
-                    }
+                    cell_errors[col_name] = {'error_type': str(etype), 'error_msg': str(emsg) if emsg else ''}
 
         if cell_errors:
             row_data['_errors'] = cell_errors
@@ -370,6 +357,7 @@ def get_table_data(
 
 
 # ── CSV export ────────────────────────────────────────────────────────────────
+
 
 def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
     """Export a table as CSV bytes. Media columns export their file URL."""
@@ -405,46 +393,8 @@ def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
     return buf.getvalue().encode('utf-8')
 
 
-# ── Table errors ─────────────────────────────────────────────────────────────
-
-def get_table_errors(table_path: str, limit: int = 20) -> dict[str, Any]:
-    """Get per-column error details for a table: counts and sample error messages."""
-    tbl = pxt.get_table(table_path)
-    md = tbl.get_metadata()
-    col_meta = md.get('columns', {})
-
-    col_errors = _column_error_counts(tbl, col_meta)
-    samples: list[dict[str, Any]] = []
-
-    for col_name, count in col_errors.items():
-        if count == 0:
-            continue
-        try:
-            col_ref = getattr(tbl, col_name)
-            rows = list(
-                tbl.select(col_ref.errortype, col_ref.errormsg)
-                .where(col_ref.errortype != None)
-                .limit(limit)
-                .collect()
-            )
-            for r in rows:
-                samples.append({
-                    'column': col_name,
-                    'errortype': r.get(f'{col_name}_errortype'),
-                    'errormsg': r.get(f'{col_name}_errormsg'),
-                })
-        except Exception as e:
-            _logger.debug(f'Could not fetch error samples for {table_path}.{col_name}: {e}')
-
-    return {
-        'table_path': table_path,
-        'column_error_counts': col_errors,
-        'total_errors': sum(col_errors.values()),
-        'samples': samples[:limit],
-    }
-
-
 # ── Search ───────────────────────────────────────────────────────────────────
+
 
 def search(query: str, limit: int = 50) -> dict[str, Any]:
     """
@@ -452,21 +402,13 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
     """
     query_lower = query.lower()
 
-    results: dict[str, Any] = {
-        'query': query,
-        'directories': [],
-        'tables': [],
-        'columns': [],
-    }
+    results: dict[str, Any] = {'query': query, 'directories': [], 'tables': [], 'columns': []}
 
     # Search directories
     all_dirs = pxt.list_dirs('', recursive=True)
     for dir_path in all_dirs:
         if query_lower in dir_path.lower():
-            results['directories'].append({
-                'path': dir_path,
-                'name': dir_path.split('/')[-1],
-            })
+            results['directories'].append({'path': dir_path, 'name': dir_path.split('/')[-1]})
             if len(results['directories']) >= limit:
                 break
 
@@ -485,30 +427,24 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
             except Exception:
                 # If we can't get metadata, record table match with defaults
                 if table_matches and len(results['tables']) < limit:
-                    results['tables'].append({
-                        'path': tbl_path,
-                        'name': tbl_name,
-                        'type': 'table',
-                    })
+                    results['tables'].append({'path': tbl_path, 'name': tbl_name, 'type': 'table'})
                 continue
 
         if table_matches and len(results['tables']) < limit and tbl_md:
-            results['tables'].append({
-                'path': tbl_path,
-                'name': tbl_name,
-                'type': _table_kind(tbl_md),
-            })
+            results['tables'].append({'path': tbl_path, 'name': tbl_name, 'type': _table_kind(tbl_md)})
 
         # Search columns within this table (reuse tbl_md)
         if tbl_md and len(results['columns']) < limit:
             for col_name, col_info in tbl_md['columns'].items():
                 if query_lower in col_name.lower():
-                    results['columns'].append({
-                        'name': col_name,
-                        'table': tbl_path,
-                        'type': col_info.get('type_', 'Unknown'),
-                        'is_computed': col_info.get('computed_with') is not None,
-                    })
+                    results['columns'].append(
+                        {
+                            'name': col_name,
+                            'table': tbl_path,
+                            'type': col_info.get('type_', 'Unknown'),
+                            'is_computed': col_info.get('computed_with') is not None,
+                        }
+                    )
                     if len(results['columns']) >= limit:
                         break
 
@@ -520,14 +456,55 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
 _FUNC_CALL_RE = re.compile(r'(\w+)\s*\(')
 _COL_REF_RE = re.compile(r'\b(\w+)\b')
 
-_SKIP_FUNC_NAMES = frozenset({
-    'model', 'config', 'type', 'object', 'items', 'str', 'get', 'text',
-    'int', 'float', 'bool', 'list', 'dict', 'set', 'tuple', 'len',
-    'range', 'print', 'format', 'join', 'split', 'strip', 'lower',
-    'upper', 'replace', 'append', 'extend', 'keys', 'values', 'update',
-    'pop', 'map', 'filter', 'sorted', 'enumerate', 'zip', 'any', 'all',
-    'sum', 'min', 'max', 'abs', 'isinstance', 'hasattr', 'getattr',
-})
+_SKIP_FUNC_NAMES = frozenset(
+    {
+        'model',
+        'config',
+        'type',
+        'object',
+        'items',
+        'str',
+        'get',
+        'text',
+        'int',
+        'float',
+        'bool',
+        'list',
+        'dict',
+        'set',
+        'tuple',
+        'len',
+        'range',
+        'print',
+        'format',
+        'join',
+        'split',
+        'strip',
+        'lower',
+        'upper',
+        'replace',
+        'append',
+        'extend',
+        'keys',
+        'values',
+        'update',
+        'pop',
+        'map',
+        'filter',
+        'sorted',
+        'enumerate',
+        'zip',
+        'any',
+        'all',
+        'sum',
+        'min',
+        'max',
+        'abs',
+        'isinstance',
+        'hasattr',
+        'getattr',
+    }
+)
 
 
 def _extract_func_name(computed_with: str | None) -> str | None:
@@ -541,12 +518,33 @@ def _extract_func_name(computed_with: str | None) -> str | None:
     return None
 
 
-_BUILTIN_PREFIXES = frozenset({
-    'openai', 'anthropic', 'together', 'fireworks', 'mistral', 'replicate',
-    'huggingface', 'bedrock', 'ollama', 'whisper', 'label_studio',
-    'string', 'image', 'video', 'audio', 'timestamp', 'json', 'math',
-    'nos', 'sentence_transformer', 'yolox', 'detr', 'clip',
-})
+_BUILTIN_PREFIXES = frozenset(
+    {
+        'openai',
+        'anthropic',
+        'together',
+        'fireworks',
+        'mistral',
+        'replicate',
+        'huggingface',
+        'bedrock',
+        'ollama',
+        'whisper',
+        'label_studio',
+        'string',
+        'image',
+        'video',
+        'audio',
+        'timestamp',
+        'json',
+        'math',
+        'nos',
+        'sentence_transformer',
+        'yolox',
+        'detr',
+        'clip',
+    }
+)
 
 
 def _classify_func(computed_with: str | None) -> str:
@@ -639,25 +637,29 @@ def get_pipeline() -> dict[str, Any]:
             raw_indices = md.get('indices', {})
             indices: list[dict[str, Any]] = []
             for idx_name, idx_info in raw_indices.items():
-                indices.append({
-                    'name': idx_name,
-                    'columns': idx_info.get('columns', []),
-                    'type': idx_info.get('index_type', 'unknown'),
-                    'embedding': str(idx_info.get('parameters', {}).get('embedding', ''))[:120],
-                })
+                indices.append(
+                    {
+                        'name': idx_name,
+                        'columns': idx_info.get('columns', []),
+                        'type': idx_info.get('index_type', 'unknown'),
+                        'embedding': str(idx_info.get('parameters', {}).get('embedding', ''))[:120],
+                    }
+                )
 
             versions: list[dict[str, Any]] = []
             try:
                 for v in tbl.get_versions():
-                    versions.append({
-                        'version': v['version'],
-                        'created_at': v['created_at'].isoformat() if v.get('created_at') else None,
-                        'change_type': v.get('change_type'),
-                        'inserts': v.get('inserts', 0),
-                        'updates': v.get('updates', 0),
-                        'deletes': v.get('deletes', 0),
-                        'errors': v.get('errors', 0),
-                    })
+                    versions.append(
+                        {
+                            'version': v['version'],
+                            'created_at': v['created_at'].isoformat() if v.get('created_at') else None,
+                            'change_type': v.get('change_type'),
+                            'inserts': v.get('inserts', 0),
+                            'updates': v.get('updates', 0),
+                            'deletes': v.get('deletes', 0),
+                            'errors': v.get('errors', 0),
+                        }
+                    )
             except Exception:
                 pass
 
@@ -665,53 +667,53 @@ def get_pipeline() -> dict[str, Any]:
             is_view = md.get('is_view', False)
             iterator_type = _detect_iterator(columns) if is_view else None
 
-            nodes.append({
-                'path': path,
-                'name': short_name,
-                'is_view': is_view,
-                'base': base_path,
-                'row_count': row_count,
-                'version': md.get('version', 0),
-                'total_errors': table_error_total,
-                'columns': columns,
-                'indices': indices,
-                'versions': versions,
-                'computed_count': len(computed_cols),
-                'insertable_count': len(columns) - len(computed_cols),
-                'iterator_type': iterator_type,
-            })
+            nodes.append(
+                {
+                    'path': path,
+                    'name': short_name,
+                    'is_view': is_view,
+                    'base': base_path,
+                    'row_count': row_count,
+                    'version': md.get('version', 0),
+                    'total_errors': table_error_total,
+                    'columns': columns,
+                    'indices': indices,
+                    'versions': versions,
+                    'computed_count': len(computed_cols),
+                    'insertable_count': len(columns) - len(computed_cols),
+                    'iterator_type': iterator_type,
+                }
+            )
 
             if is_view and base_path:
-                edges.append({
-                    'source': base_path,
-                    'target': path,
-                    'type': 'view',
-                    'label': iterator_type or 'view',
-                })
+                edges.append({'source': base_path, 'target': path, 'type': 'view', 'label': iterator_type or 'view'})
 
         except Exception as e:
             _logger.warning(f'Pipeline: could not inspect {path}: {e}')
-            nodes.append({
-                'path': path,
-                'name': path.rsplit('/', 1)[-1],
-                'is_view': False,
-                'base': None,
-                'row_count': 0,
-                'version': 0,
-                'total_errors': 0,
-                'columns': [],
-                'indices': [],
-                'versions': [],
-                'computed_count': 0,
-                'insertable_count': 0,
-                'iterator_type': None,
-                'error': str(e)[:200],
-            })
+            nodes.append(
+                {
+                    'path': path,
+                    'name': path.rsplit('/', 1)[-1],
+                    'is_view': False,
+                    'base': None,
+                    'row_count': 0,
+                    'version': 0,
+                    'total_errors': 0,
+                    'columns': [],
+                    'indices': [],
+                    'versions': [],
+                    'computed_count': 0,
+                    'insertable_count': 0,
+                    'iterator_type': None,
+                    'error': str(e)[:200],
+                }
+            )
 
     return {'nodes': nodes, 'edges': edges}
 
 
 # ── Status ───────────────────────────────────────────────────────────────────
+
 
 def get_status() -> dict[str, Any]:
     """

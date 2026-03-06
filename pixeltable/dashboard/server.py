@@ -7,6 +7,7 @@ No asyncio, no event loop, no third-party server dependency.
 
 Designed to bind to 127.0.0.1 only — never expose to the network.
 """
+
 from __future__ import annotations
 
 import json
@@ -26,12 +27,9 @@ _logger = logging.getLogger('pixeltable.dashboard')
 
 DASHBOARD_DIST_PATH = Path(__file__).parent / 'static'
 
-_ALLOWED_ORIGINS = frozenset({
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-    'http://localhost:8080',
-    'http://127.0.0.1:8080',
-})
+_ALLOWED_ORIGINS = frozenset(
+    {'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:8080', 'http://127.0.0.1:8080'}
+)
 
 # ── Routing table ────────────────────────────────────────────────────────────
 #
@@ -44,6 +42,7 @@ Route = tuple[re.Pattern[str], Any]  # (pattern, handler_fn)
 
 class _RawResponse(NamedTuple):
     """Wrapper for non-JSON responses (e.g. CSV downloads)."""
+
     body: bytes
     content_type: str
     filename: str
@@ -51,6 +50,7 @@ class _RawResponse(NamedTuple):
 
 def _route_health(_m: re.Match, _q: dict) -> dict:
     import pixeltable
+
     return {'status': 'ok', 'version': getattr(pixeltable, '__version__', 'unknown')}
 
 
@@ -72,12 +72,6 @@ def _route_search(_m: re.Match, q: dict) -> dict:
         return {'query': '', 'directories': [], 'tables': [], 'columns': []}
     limit = min(int(q.get('limit', '50')), 100)
     return bridge.search(query, limit=limit)
-
-
-def _route_table_errors(m: re.Match, q: dict) -> dict:
-    path = unquote(m.group('path'))
-    limit = min(int(q.get('limit', '20')), 100)
-    return bridge.get_table_errors(path, limit=limit)
 
 
 def _route_table_data(m: re.Match, q: dict) -> dict:
@@ -112,13 +106,13 @@ _API_ROUTES: list[Route] = [
     (re.compile(r'^/api/status$'), _route_status),
     (re.compile(r'^/api/search$'), _route_search),
     (re.compile(r'^/api/tables/(?P<path>.+)/export$'), _route_table_export),
-    (re.compile(r'^/api/tables/(?P<path>.+)/errors$'), _route_table_errors),
     (re.compile(r'^/api/tables/(?P<path>.+)/data$'), _route_table_data),
     (re.compile(r'^/api/tables/(?P<path>.+)$'), _route_table_meta),
 ]
 
 
 # ── Request Handler ──────────────────────────────────────────────────────────
+
 
 class _DashboardHandler(BaseHTTPRequestHandler):
     """Handles GET requests: API routes + SPA static files."""
@@ -248,11 +242,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         # Try to serve the exact file (for /assets/*, /logo.png, etc.)
         if path != '/':
             file_path = DASHBOARD_DIST_PATH / path.lstrip('/')
-            if (
-                file_path.exists()
-                and file_path.is_file()
-                and DASHBOARD_DIST_PATH in file_path.resolve().parents
-            ):
+            if file_path.exists() and file_path.is_file() and DASHBOARD_DIST_PATH in file_path.resolve().parents:
                 self._send_file(file_path)
                 return
 
@@ -284,11 +274,13 @@ class _DashboardHandler(BaseHTTPRequestHandler):
 
 # ── Server entry point ───────────────────────────────────────────────────────
 
+
 class _QuietServer(ThreadingHTTPServer):
     """ThreadingHTTPServer that silences BrokenPipeError tracebacks."""
 
     def handle_error(self, request: Any, client_address: Any) -> None:
         import sys
+
         exc = sys.exc_info()[1]
         if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
             return

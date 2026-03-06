@@ -25,7 +25,7 @@ no async, no third-party server. Binds `127.0.0.1:8080`.
 | File | Purpose |
 |------|---------|
 | `main.tsx` | React entry point |
-| `App.tsx` | Sidebar layout, routing (`/`, `/table/*`, `/lineage`), search modal |
+| `App.tsx` | Sidebar layout, routing (`/`, `/table/*`, `/dir/*`, `/lineage`), search modal, directory view |
 | `api/client.ts` | Typed `fetch` wrappers for all API endpoints |
 | `types/index.ts` | TypeScript interfaces matching every API response shape |
 | `hooks/useApi.ts` | `useDebounce` hook |
@@ -34,7 +34,7 @@ no async, no third-party server. Binds `127.0.0.1:8080`.
 | `lib/func-styles.ts` | UDF function type styling (builtin/custom/query) |
 | `lib/python-highlight.tsx` | Lightweight Python syntax highlighter (used by schema + pipeline) |
 | `lib/column-lineage.ts` | Builds ReactFlow DAG from column dependency metadata |
-| `components/TableDetailView.tsx` | **Main workhorse.** Table/gallery views, media lightbox, JSON viewer, filters, pagination, CSV export, schema tab, expanded row modal |
+| `components/TableDetailView.tsx` | **Main workhorse.** Data/Lineage/History tabs, media lightbox, JSON viewer, filters, pagination, CSV export, schema chips, expanded row modal |
 | `components/DirectoryTree.tsx` | Sidebar explorer tree with error indicators |
 | `components/PipelineInspector.tsx` | Full-page lineage graph + column detail sidebar |
 | `components/ColumnFlowDiagram.tsx` | Per-table column DAG (used in both TableDetail and Pipeline) |
@@ -51,14 +51,13 @@ All `GET`-only. Defined in `server.py`, implemented in `bridge.py`.
 | `/api/status` | System config: home, DB URL, cache paths, table count |
 | `/api/search?q=` | Matching dirs, tables, columns |
 | `/api/pipeline` | DAG nodes + edges for all tables (lineage view) |
-| `/api/tables/{path}` | Schema: columns, indices, versions, base table |
-| `/api/tables/{path}/data?offset=&limit=&order_by=&order_desc=` | Paginated rows with resolved media URLs |
-| `/api/tables/{path}/errors?limit=` | Per-column error counts + sample messages |
+| `/api/tables/{path}` | Schema, columns, indices, versions, media_validation, base table |
+| `/api/tables/{path}/data?offset=&limit=&order_by=&order_desc=&errors_only=` | Paginated rows with resolved media URLs and per-cell errors |
 | `/api/tables/{path}/export` | CSV file download (default 100k rows) |
 
 ## User Flows
 
-1. **Navigate**: Sidebar directory tree (filterable, collapsible) → click table → schema + data
+1. **Navigate**: Sidebar directory tree (filterable, collapsible) → click directory → summary view; click table → schema + data
 2. **Search**: ⌘K spotlight across dirs, tables, columns → keyboard navigate → Enter to open
 3. **Schema**: Collapsible column chips (compact pills or expanded table with expressions, indices)
 4. **Data**: Table view with server-side sort, pagination, client-side filters + text search (current page only). Gallery grid auto-appears for media-heavy tables.
@@ -66,6 +65,7 @@ All `GET`-only. Defined in `server.py`, implemented in `bridge.py`.
 6. **JSON**: Truncated JSON cells → expandable tree viewer with search, expand/collapse, and path copy
 7. **Row Detail**: Gallery card → expanded row modal (media + all fields), ←→ navigation
 8. **Lineage**: Per-table tab: base→current→derived chain + column dependency DAG. Full-page pipeline graph of all tables.
+11. **History**: Per-table version history tab showing inserts, updates, deletes, errors per version.
 9. **Export**: CSV download (up to 100k rows), Python SDK snippet copy
 10. **Live Monitoring**: Auto-refresh toggle (10s polling), manual refresh, timestamp
 
