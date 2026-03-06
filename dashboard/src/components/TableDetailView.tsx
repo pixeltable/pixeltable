@@ -227,7 +227,7 @@ function JsonNode({ keyName, value, depth, expandLevel, searchMatch, path }: {
     return (
       <div className="group/node flex items-baseline gap-1 py-[1px] hover:bg-accent/20 rounded-sm" style={{ paddingLeft: depth * 16 }}>
         {keyName !== undefined && (
-          <span className={cn('text-purple-300/80 shrink-0', keyMatches && HL)} title={currentPath} onClick={copyPath} role="button">
+          <span className={cn('text-purple-300 opacity-80 shrink-0', keyMatches && HL)} title={currentPath} onClick={copyPath} role="button">
             {keyName}<span className="text-muted-foreground/40">:</span>
           </span>
         )}
@@ -253,7 +253,7 @@ function JsonNode({ keyName, value, depth, expandLevel, searchMatch, path }: {
       >
         <ChevronRight className={cn('h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform duration-150', isOpen && 'rotate-90')} />
         {keyName !== undefined && (
-          <span className={cn('text-purple-300/80 shrink-0', keyMatches && HL)} title={currentPath}>
+          <span className={cn('text-purple-300 opacity-80 shrink-0', keyMatches && HL)} title={currentPath}>
             {keyName}<span className="text-muted-foreground/40">:</span>
           </span>
         )}
@@ -1222,20 +1222,20 @@ function HistoryPanel({ versions }: { versions: Pick<VersionInfo, 'version' | 'c
                   )}
                 </td>
                 <td className="py-1.5 px-2 text-right tabular-nums">
-                  {v.inserts > 0 ? <span className="text-emerald-400">+{v.inserts.toLocaleString()}</span> : <span className="text-muted-foreground/30">0</span>}
+                  {v.inserts > 0 ? <span className="text-emerald-400">+{v.inserts.toLocaleString()}</span> : <span className="text-muted-foreground/50">0</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right tabular-nums">
-                  {v.updates > 0 ? <span className="text-blue-400">{v.updates.toLocaleString()}</span> : <span className="text-muted-foreground/30">0</span>}
+                  {v.updates > 0 ? <span className="text-blue-400">{v.updates.toLocaleString()}</span> : <span className="text-muted-foreground/50">0</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right tabular-nums">
-                  {v.deletes > 0 ? <span className="text-red-400">-{v.deletes.toLocaleString()}</span> : <span className="text-muted-foreground/30">0</span>}
+                  {v.deletes > 0 ? <span className="text-red-400">-{v.deletes.toLocaleString()}</span> : <span className="text-muted-foreground/50">0</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right tabular-nums">
                   {v.errors > 0 ? (
                     <span className="text-destructive flex items-center justify-end gap-1">
                       <AlertTriangle className="h-3 w-3" />{v.errors.toLocaleString()}
                     </span>
-                  ) : <span className="text-muted-foreground/30">0</span>}
+                  ) : <span className="text-muted-foreground/50">0</span>}
                 </td>
                 <td className="py-1.5 px-2 text-right text-muted-foreground">
                   {v.created_at ? new Date(v.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}

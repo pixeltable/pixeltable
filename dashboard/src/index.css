@@ -18,7 +18,7 @@
     --card-foreground: 0 0% 9%;
 
     --primary: var(--kandinsky-yellow);
-    --primary-foreground: 0 0% 100%;
+    --primary-foreground: 0 0% 9%;
 
     --secondary: 0 0% 96%;             /* #f5f5f5 */
     --secondary-foreground: 0 0% 9%;
@@ -135,10 +135,16 @@
   outline-offset: 2px;
 }
 
-/* ─── Light mode overrides for hardcoded accent colors ───────────────────── */
+/* ─── Light mode: shift accent colors to darker shades for contrast ──────── */
 
 :root:not(.dark) .text-emerald-400 { color: rgb(5 150 105); }
 :root:not(.dark) .text-blue-400 { color: rgb(37 99 235); }
 :root:not(.dark) .text-purple-400 { color: rgb(124 58 237); }
-:root:not(.dark) .text-amber-400 { color: rgb(217 119 6); }
+:root:not(.dark) .text-purple-300 { color: rgb(124 58 237); }
+:root:not(.dark) .text-amber-400 { color: rgb(180 83 9); }
 :root:not(.dark) .text-red-400 { color: rgb(220 38 38); }
+:root:not(.dark) .text-orange-400 { color: rgb(194 65 12); }
+:root:not(.dark) .text-orange-300 { color: rgb(194 65 12); }
+:root:not(.dark) .text-cyan-400 { color: rgb(8 145 178); }
+:root:not(.dark) .text-yellow-400 { color: rgb(161 98 7); }
+:root:not(.dark) .text-green-500 { color: rgb(22 163 74); }
