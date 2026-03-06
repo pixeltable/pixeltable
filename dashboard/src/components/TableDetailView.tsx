@@ -4,7 +4,7 @@ import { getTableMetadata, getTableData, getTableErrors, getPipeline } from '@/a
 import { useDebounce } from '@/hooks/useApi'
 import type {
   PipelineColumn, CellError, DataRow,
-  TableMetadata, TableData, DataColumn, ColumnInfo, IndexInfo,
+  TableMetadata, TableData, DataColumn, ColumnInfo, IndexInfo, VersionInfo,
   PipelineNode as PipelineNodeType, PipelineEdge,
 } from '@/types'
 import { cn } from '@/lib/utils'
@@ -15,7 +15,7 @@ import {
   RefreshCw, Zap, Key, Download,
   Info, Eye, Camera, Copy,
   GitBranch, ArrowRight, ExternalLink,
-  AlertTriangle,
+  AlertTriangle, Clock,
 } from 'lucide-react'
 import { ColumnFlowDiagram } from './ColumnFlowDiagram'
 import { ColumnTypeBadge, ColumnTypeIcon } from '@/lib/column-types'
@@ -1158,6 +1158,97 @@ function LineagePanel({ tablePath, pipelineData, pipelineColumns, onTableClick, 
   )
 }
 
+// ── History Panel ─────────────────────────────────────────────────────────
+
+function HistoryPanel({ versions }: { versions: VersionInfo[] }) {
+  if (versions.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
+        <Clock className="h-8 w-8 text-muted-foreground/20 mb-2" />
+        <p className="text-xs">No version history available</p>
+      </div>
+    )
+  }
+
+  const totalInserts = versions.reduce((s, v) => s + v.inserts, 0)
+  const totalErrors = versions.reduce((s, v) => s + v.errors, 0)
+
+  return (
+    <div className="flex flex-col h-full overflow-auto">
+      <div className="px-5 py-3 border-b border-border/30 flex items-center gap-4">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+          Version History
+        </span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">{versions.length} versions</span>
+        <span className="text-[11px] text-muted-foreground tabular-nums">{totalInserts.toLocaleString()} total inserts</span>
+        {totalErrors > 0 && (
+          <span className="text-[11px] text-destructive tabular-nums flex items-center gap-1">
+            <AlertTriangle className="h-3 w-3" />{totalErrors.toLocaleString()} errors
+          </span>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-auto px-5 py-3">
+        <table className="w-full text-[11px]">
+          <thead className="sticky top-0 bg-background z-10">
+            <tr className="border-b border-border/30 text-left text-muted-foreground">
+              <th className="py-1.5 px-2 font-medium w-16">Version</th>
+              <th className="py-1.5 px-2 font-medium">Change</th>
+              <th className="py-1.5 px-2 font-medium text-right">Inserts</th>
+              <th className="py-1.5 px-2 font-medium text-right">Updates</th>
+              <th className="py-1.5 px-2 font-medium text-right">Deletes</th>
+              <th className="py-1.5 px-2 font-medium text-right">Errors</th>
+              <th className="py-1.5 px-2 font-medium text-right">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {versions.map(v => (
+              <tr key={v.version} className="border-b border-border/20 hover:bg-accent/20 transition-colors">
+                <td className="py-1.5 px-2 font-mono font-medium text-foreground">v{v.version}</td>
+                <td className="py-1.5 px-2">
+                  {v.change_type ? (
+                    <span className={cn(
+                      'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
+                      v.change_type === 'schema_change' ? 'bg-purple-500/10 text-purple-400' :
+                      v.change_type === 'insert' ? 'bg-emerald-500/10 text-emerald-400' :
+                      v.change_type === 'update' ? 'bg-blue-500/10 text-blue-400' :
+                      v.change_type === 'delete' ? 'bg-red-500/10 text-red-400' :
+                      'bg-accent text-muted-foreground'
+                    )}>
+                      {v.change_type.replace(/_/g, ' ')}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground/50">—</span>
+                  )}
+                </td>
+                <td className="py-1.5 px-2 text-right tabular-nums">
+                  {v.inserts > 0 ? <span className="text-emerald-400">+{v.inserts.toLocaleString()}</span> : <span className="text-muted-foreground/30">0</span>}
+                </td>
+                <td className="py-1.5 px-2 text-right tabular-nums">
+                  {v.updates > 0 ? <span className="text-blue-400">{v.updates.toLocaleString()}</span> : <span className="text-muted-foreground/30">0</span>}
+                </td>
+                <td className="py-1.5 px-2 text-right tabular-nums">
+                  {v.deletes > 0 ? <span className="text-red-400">-{v.deletes.toLocaleString()}</span> : <span className="text-muted-foreground/30">0</span>}
+                </td>
+                <td className="py-1.5 px-2 text-right tabular-nums">
+                  {v.errors > 0 ? (
+                    <span className="text-destructive flex items-center justify-end gap-1">
+                      <AlertTriangle className="h-3 w-3" />{v.errors.toLocaleString()}
+                    </span>
+                  ) : <span className="text-muted-foreground/30">0</span>}
+                </td>
+                <td className="py-1.5 px-2 text-right text-muted-foreground">
+                  {v.created_at ? new Date(v.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export function TableDetailView({ tablePath }: { tablePath: string }) {
@@ -1195,7 +1286,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   const [schemaExpanded, setSchemaExpanded] = useState(true)
   const [pipelineColumns, setPipelineColumns] = useState<PipelineColumn[] | null>(null)
   const [pipelineData, setPipelineData] = useState<{ nodes: PipelineNodeType[]; edges: PipelineEdge[] } | null>(null)
-  const [contentTab, setContentTab] = useState<'data' | 'lineage'>('data')
+  const [contentTab, setContentTab] = useState<'data' | 'lineage' | 'history'>('data')
   const [totalErrors, setTotalErrors] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -1385,6 +1476,14 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
               <GitBranch className="h-3 w-3" />
               Lineage
             </button>
+            <button
+              onClick={() => setContentTab('history')}
+              className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors',
+                contentTab === 'history' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
+            >
+              <Clock className="h-3 w-3" />
+              History
+            </button>
           </div>
 
           {contentTab === 'data' && data && (
@@ -1565,6 +1664,10 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
             onTableClick={(path) => navigate(`/table/${path}`)}
             onViewFullLineage={() => navigate('/lineage')}
           />
+        </div>
+      ) : contentTab === 'history' ? (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <HistoryPanel versions={metadata?.versions ?? []} />
         </div>
       ) : (
       <div className="flex flex-1 min-h-0 overflow-hidden">

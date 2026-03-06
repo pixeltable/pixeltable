@@ -51,13 +51,16 @@ function DirectoryView() {
   const navigate = useNavigate()
   const [summary, setSummary] = useState<DirectorySummary | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!dirPath) return
     setLoading(true)
+    setError(null)
+    setSummary(null)
     getDirectorySummary(dirPath)
       .then(setSummary)
-      .catch(console.error)
+      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load directory'))
       .finally(() => setLoading(false))
   }, [dirPath])
 
@@ -67,12 +70,22 @@ function DirectoryView() {
       <div className="w-5 h-5 border-2 border-k-yellow border-t-transparent rounded-full animate-spin" />
     </div>
   )
+  if (error) return (
+    <div className="flex flex-col items-center justify-center h-64 gap-3 text-center">
+      <AlertTriangle className="h-8 w-8 text-destructive/50" />
+      <p className="text-sm text-muted-foreground">{error}</p>
+      <button
+        onClick={() => { setError(null); setLoading(true); getDirectorySummary(dirPath).then(setSummary).catch(e => setError(e instanceof Error ? e.message : 'Failed')).finally(() => setLoading(false)) }}
+        className="text-xs text-k-yellow hover:underline"
+      >Retry</button>
+    </div>
+  )
   if (!summary) return null
 
   return (
     <div className="flex flex-col h-full p-6 animate-fade-in">
       <div className="flex items-center gap-3 mb-6">
-        <FolderOpen className="h-5 w-5 text-muted-foreground/60" />
+        <FolderOpen className="h-5 w-5 text-k-yellow/60" />
         <h2 className="text-lg font-semibold text-foreground">{dirPath.split('/').pop()}</h2>
         <span className="text-xs text-muted-foreground font-mono">{dirPath}</span>
       </div>

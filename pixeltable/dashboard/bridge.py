@@ -272,6 +272,21 @@ def get_table_metadata(table_path: str) -> dict[str, Any]:
             'comment': col_info.get('comment') or None,
         })
 
+    versions: list[dict[str, Any]] = []
+    try:
+        for v in tbl.get_versions():
+            versions.append({
+                'version': v['version'],
+                'created_at': v['created_at'].isoformat() if v.get('created_at') else None,
+                'change_type': v.get('change_type'),
+                'inserts': v.get('inserts', 0),
+                'updates': v.get('updates', 0),
+                'deletes': v.get('deletes', 0),
+                'errors': v.get('errors', 0),
+            })
+    except Exception:
+        pass
+
     return {
         'path': md['path'],
         'name': md['name'],
@@ -284,6 +299,7 @@ def get_table_metadata(table_path: str) -> dict[str, Any]:
         'columns': columns,
         'indices': _extract_indices(md.get('indices', {})),
         'media_validation': md['media_validation'],
+        'versions': versions,
     }
 
 

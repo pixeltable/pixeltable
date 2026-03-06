@@ -28,6 +28,16 @@ export interface IndexInfo {
   parameters: Record<string, unknown>;
 }
 
+export interface VersionInfo {
+  version: number;
+  created_at: string | null;
+  change_type: string | null;
+  inserts: number;
+  updates: number;
+  deletes: number;
+  errors: number;
+}
+
 export interface TableMetadata {
   path: string;
   name: string;
@@ -40,6 +50,7 @@ export interface TableMetadata {
   columns: ColumnInfo[];
   indices: IndexInfo[];
   media_validation: string;
+  versions: VersionInfo[];
 }
 
 export interface DataColumn {
