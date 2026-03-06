@@ -137,7 +137,7 @@ def _start_dashboard_background(port: int) -> None:
     _thread_error: list[str] = []
     actual_port = port  # capture for the closure / print below
 
-    def _run():
+    def _run() -> None:
         try:
             from pixeltable.dashboard.server import run_server
             run_server(port=actual_port)

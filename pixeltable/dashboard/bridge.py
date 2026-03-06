@@ -18,6 +18,7 @@ from typing import Any
 
 import pixeltable as pxt
 from pixeltable.catalog.table import Table
+from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.env import Env
 
 _logger = logging.getLogger('pixeltable.dashboard')
@@ -47,13 +48,13 @@ def _column_error_counts(tbl: Table, col_meta: dict[str, Any]) -> dict[str, int]
     return counts
 
 
-def _table_kind(md: dict[str, Any]) -> str:
+def _table_kind(md: TableMetadata) -> str:
     """Determine the kind of a table from its metadata dict."""
-    if md.get('is_replica'):
+    if md['is_replica']:
         return 'replica'
-    if md.get('is_snapshot'):
+    if md['is_snapshot']:
         return 'snapshot'
-    if md.get('is_view'):
+    if md['is_view']:
         return 'view'
     return 'table'
 
