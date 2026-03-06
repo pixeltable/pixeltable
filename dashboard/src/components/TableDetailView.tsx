@@ -833,7 +833,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                   <th className="py-1.5 px-2 font-medium">Name</th>
                   <th className="py-1.5 px-2 font-medium">Type</th>
                   <th className="py-1.5 px-2 font-medium">Expression</th>
-                  <th className="py-1.5 px-2 font-medium">Added</th>
+                  <th className="py-1.5 px-2 font-medium">Info</th>
                 </tr>
               </thead>
               <tbody>
@@ -858,8 +858,13 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                         <span className="text-muted-foreground/60 text-[11px]">—</span>
                       )}
                     </td>
-                    <td className="py-1.5 px-2 text-[11px] text-muted-foreground tabular-nums">
-                      v{col.version_added}
+                    <td className="py-1.5 px-2 text-[11px] text-muted-foreground">
+                      <span className="tabular-nums">v{col.version_added}</span>
+                      {col.comment && (
+                        <span className="ml-2 text-muted-foreground/60 italic" title={col.comment}>
+                          {col.comment.length > 40 ? col.comment.slice(0, 40) + '…' : col.comment}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -980,6 +985,12 @@ function TableHeader({ metadata, onTableClick, totalErrors }: { metadata: TableM
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Info className="h-3 w-3" />
             <span className="tabular-nums">{metadata.indices.length} idx</span>
+          </span>
+        )}
+        {metadata.media_validation && (
+          <span className="text-[10px] text-muted-foreground/70 bg-muted/30 px-1.5 py-0.5 rounded border border-border/30"
+            title={`Media validation: ${metadata.media_validation}`}>
+            {metadata.media_validation}
           </span>
         )}
         {metadata.created_at && (
@@ -1179,6 +1190,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [expandedRow, data])
   const [autoRefresh, setAutoRefresh] = useState(false)
+  const [errorsOnly, setErrorsOnly] = useState(false)
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null)
   const [schemaExpanded, setSchemaExpanded] = useState(true)
   const [pipelineColumns, setPipelineColumns] = useState<PipelineColumn[] | null>(null)
@@ -1224,11 +1236,11 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   const fetchData = useCallback(() => {
     setDataLoading(true)
     setDataError(null)
-    getTableData(tablePath, { offset: page * pageSize, limit: pageSize, orderBy: orderBy || undefined, orderDesc })
+    getTableData(tablePath, { offset: page * pageSize, limit: pageSize, orderBy: orderBy || undefined, orderDesc, errorsOnly })
       .then(d => { setData(d); setLastRefreshed(new Date()) })
       .catch(e => setDataError(e instanceof Error ? e.message : 'Failed to load data'))
       .finally(() => setDataLoading(false))
-  }, [tablePath, page, pageSize, orderBy, orderDesc])
+  }, [tablePath, page, pageSize, orderBy, orderDesc, errorsOnly])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -1247,7 +1259,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
 
   // Reset on table change
   useEffect(() => {
-    setPage(0); setFilters({}); setAutoRefresh(false)
+    setPage(0); setFilters({}); setAutoRefresh(false); setErrorsOnly(false)
     setSchemaExpanded(true); setTotalErrors(0)
     setPipelineColumns(null); setPipelineData(null)
     setContentTab('data'); setSearchQuery('')
@@ -1469,6 +1481,23 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
                 <Rows3 className="h-3.5 w-3.5" />
               </button>
             </div>
+          )}
+
+          {/* Error rows only toggle */}
+          {totalErrors > 0 && (
+            <button
+              onClick={() => { setErrorsOnly(!errorsOnly); setPage(0) }}
+              className={cn(
+                'flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors',
+                errorsOnly
+                  ? 'bg-destructive/15 text-destructive border border-destructive/30'
+                  : 'hover:bg-accent text-muted-foreground',
+              )}
+              title="Show only rows with errors"
+            >
+              <AlertTriangle className="h-3 w-3" />
+              {errorsOnly && 'Errors'}
+            </button>
           )}
 
           {/* Faceted filter toggle */}

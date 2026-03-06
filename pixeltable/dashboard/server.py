@@ -58,6 +58,11 @@ def _route_dirs(_m: re.Match, _q: dict) -> list:
     return bridge.get_directory_tree()
 
 
+def _route_dir_summary(m: re.Match, _q: dict) -> dict:
+    path = unquote(m.group('path'))
+    return bridge.get_directory_summary(path)
+
+
 def _route_pipeline(_m: re.Match, _q: dict) -> dict:
     return bridge.get_pipeline()
 
@@ -88,6 +93,7 @@ def _route_table_data(m: re.Match, q: dict) -> dict:
         limit=min(int(q.get('limit', '50')), 500),
         order_by=q.get('order_by'),
         order_desc=q.get('order_desc', 'false').lower() == 'true',
+        errors_only=q.get('errors_only', 'false').lower() == 'true',
     )
 
 
@@ -106,6 +112,7 @@ def _route_table_export(m: re.Match, q: dict) -> _RawResponse:
 # Order matters: more specific patterns first.
 _API_ROUTES: list[Route] = [
     (re.compile(r'^/api/health$'), _route_health),
+    (re.compile(r'^/api/dirs/(?P<path>.+)$'), _route_dir_summary),
     (re.compile(r'^/api/dirs$'), _route_dirs),
     (re.compile(r'^/api/pipeline$'), _route_pipeline),
     (re.compile(r'^/api/status$'), _route_status),

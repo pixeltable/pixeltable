@@ -18,6 +18,7 @@ export interface ColumnInfo {
   is_primary_key: boolean;
   defined_in: string | null;
   version_added: number;
+  comment: string | null;
 }
 
 export interface IndexInfo {
@@ -71,6 +72,23 @@ export interface SearchResults {
   directories: { path: string; name: string }[];
   tables: { path: string; name: string; type: string }[];
   columns: { name: string; table: string; type: string; is_computed: boolean }[];
+}
+
+// Directory summary
+export interface DirectorySummary {
+  path: string;
+  table_count: number;
+  total_rows: number;
+  total_errors: number;
+  tables: {
+    path: string;
+    name: string;
+    type: string;
+    row_count: number;
+    column_count: number;
+    error_count: number;
+    version: number;
+  }[];
 }
 
 // Information Schema types

@@ -5,6 +5,7 @@ import type {
   TableErrors,
   SearchResults,
   PipelineResponse,
+  DirectorySummary,
 } from '@/types';
 
 const API_BASE = '/api';
@@ -33,6 +34,7 @@ export async function getTableData(
     limit?: number;
     orderBy?: string;
     orderDesc?: boolean;
+    errorsOnly?: boolean;
   } = {}
 ): Promise<TableData> {
   const params = new URLSearchParams();
@@ -40,6 +42,7 @@ export async function getTableData(
   if (options.limit !== undefined) params.set('limit', String(options.limit));
   if (options.orderBy) params.set('order_by', options.orderBy);
   if (options.orderDesc) params.set('order_desc', 'true');
+  if (options.errorsOnly) params.set('errors_only', 'true');
 
   const query = params.toString();
   return fetchJson<TableData>(`${API_BASE}/tables/${encodeURIComponent(path)}/data${query ? `?${query}` : ''}`);
@@ -77,4 +80,8 @@ export interface SystemStatus {
 
 export async function getStatus(): Promise<SystemStatus> {
   return fetchJson<SystemStatus>(`${API_BASE}/status`);
+}
+
+export async function getDirectorySummary(path: string): Promise<DirectorySummary> {
+  return fetchJson<DirectorySummary>(`${API_BASE}/dirs/${encodeURIComponent(path)}`);
 }

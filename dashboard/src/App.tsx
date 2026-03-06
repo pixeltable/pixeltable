@@ -4,9 +4,9 @@ import { DirectoryTree } from '@/components/DirectoryTree'
 import { TableDetailView } from '@/components/TableDetailView'
 import { SearchPanel } from '@/components/SearchPanel'
 import { PipelineInspector } from '@/components/PipelineInspector'
-import { getDirectoryTree, getStatus } from '@/api/client'
+import { getDirectoryTree, getStatus, getDirectorySummary } from '@/api/client'
 import type { SystemStatus } from '@/api/client'
-import type { TreeNode } from '@/types'
+import type { TreeNode, DirectorySummary } from '@/types'
 import { cn } from '@/lib/utils'
 import {
   Search,
@@ -16,8 +16,10 @@ import {
   PanelLeftOpen,
   ExternalLink,
   BookOpen,
-  MessageSquare,
   CircleDot,
+  FolderOpen,
+  AlertTriangle,
+  MessageSquare,
 } from 'lucide-react'
 
 // ── Table View ──────────────────────────────────────────────────────────────
@@ -40,6 +42,95 @@ function TableView() {
   }
 
   return <TableDetailView tablePath={tablePath} />
+}
+
+// ── Directory View ──────────────────────────────────────────────────────────
+
+function DirectoryView() {
+  const { '*': dirPath } = useParams()
+  const navigate = useNavigate()
+  const [summary, setSummary] = useState<DirectorySummary | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    if (!dirPath) return
+    setLoading(true)
+    getDirectorySummary(dirPath)
+      .then(setSummary)
+      .catch(console.error)
+      .finally(() => setLoading(false))
+  }, [dirPath])
+
+  if (!dirPath) return null
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="w-5 h-5 border-2 border-k-yellow border-t-transparent rounded-full animate-spin" />
+    </div>
+  )
+  if (!summary) return null
+
+  return (
+    <div className="flex flex-col h-full p-6 animate-fade-in">
+      <div className="flex items-center gap-3 mb-6">
+        <FolderOpen className="h-5 w-5 text-muted-foreground/60" />
+        <h2 className="text-lg font-semibold text-foreground">{dirPath.split('/').pop()}</h2>
+        <span className="text-xs text-muted-foreground font-mono">{dirPath}</span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="rounded-lg border border-border/40 bg-card/40 p-4">
+          <div className="text-2xl font-semibold tabular-nums">{summary.table_count}</div>
+          <div className="text-xs text-muted-foreground mt-1">Tables</div>
+        </div>
+        <div className="rounded-lg border border-border/40 bg-card/40 p-4">
+          <div className="text-2xl font-semibold tabular-nums">{summary.total_rows.toLocaleString()}</div>
+          <div className="text-xs text-muted-foreground mt-1">Total rows</div>
+        </div>
+        <div className="rounded-lg border border-border/40 bg-card/40 p-4">
+          <div className={cn('text-2xl font-semibold tabular-nums', summary.total_errors > 0 && 'text-destructive')}>
+            {summary.total_errors.toLocaleString()}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">Errors</div>
+        </div>
+      </div>
+
+      {summary.tables.length > 0 && (
+        <div className="rounded-lg border border-border/40 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border/30 bg-muted/20">
+                <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Table</th>
+                <th className="text-left py-2 px-3 text-xs font-medium text-muted-foreground">Type</th>
+                <th className="text-right py-2 px-3 text-xs font-medium text-muted-foreground">Rows</th>
+                <th className="text-right py-2 px-3 text-xs font-medium text-muted-foreground">Columns</th>
+                <th className="text-right py-2 px-3 text-xs font-medium text-muted-foreground">Errors</th>
+                <th className="text-right py-2 px-3 text-xs font-medium text-muted-foreground">Version</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.tables.map(t => (
+                <tr key={t.path} className="border-b border-border/20 hover:bg-accent/20 transition-colors cursor-pointer"
+                  onClick={() => navigate(`/table/${t.path}`)}>
+                  <td className="py-2 px-3 font-mono text-xs font-medium">{t.name}</td>
+                  <td className="py-2 px-3 text-xs text-muted-foreground">{t.type}</td>
+                  <td className="py-2 px-3 text-xs tabular-nums text-right">{t.row_count.toLocaleString()}</td>
+                  <td className="py-2 px-3 text-xs tabular-nums text-right">{t.column_count}</td>
+                  <td className="py-2 px-3 text-xs tabular-nums text-right">
+                    {t.error_count > 0 ? (
+                      <span className="text-destructive flex items-center justify-end gap-1">
+                        <AlertTriangle className="h-3 w-3" />{t.error_count}
+                      </span>
+                    ) : '—'}
+                  </td>
+                  <td className="py-2 px-3 text-xs tabular-nums text-right text-muted-foreground">v{t.version}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ── Welcome View ────────────────────────────────────────────────────────────
@@ -197,6 +288,12 @@ export default function App() {
                   <span className="text-[10px] text-muted-foreground/60">Tables</span>
                   <span className="text-foreground font-medium tabular-nums">{status.total_tables}</span>
                 </div>
+                {status.total_errors > 0 && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground/60">Errors</span>
+                    <span className="text-destructive font-medium tabular-nums">{status.total_errors}</span>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -316,7 +413,7 @@ export default function App() {
           <Route path="/" element={<div className="flex-1 overflow-auto h-full"><WelcomeView /></div>} />
           <Route path="/lineage" element={<PipelineInspector />} />
           <Route path="/table/*" element={<div className="flex-1 flex flex-col h-full"><TableView /></div>} />
-          <Route path="/dir/*" element={<div className="flex-1 overflow-auto h-full"><WelcomeView /></div>} />
+          <Route path="/dir/*" element={<div className="flex-1 overflow-auto h-full"><DirectoryView /></div>} />
         </Routes>
       </main>
 

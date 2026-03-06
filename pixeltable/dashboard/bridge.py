@@ -210,6 +210,44 @@ def get_directory_tree() -> list[dict[str, Any]]:
     return root_children
 
 
+def get_directory_summary(dir_path: str) -> dict[str, Any]:
+    """Get summary stats for a directory: table count, total rows, errors."""
+    prefix = f'{dir_path}/' if dir_path else ''
+    all_tables = pxt.list_tables(dir_path, recursive=True)
+    tables: list[dict[str, Any]] = []
+    total_rows = 0
+    total_errors = 0
+
+    for tbl_path in sorted(all_tables):
+        try:
+            tbl = pxt.get_table(tbl_path)
+            md = tbl.get_metadata()
+            row_count = tbl.count()
+            err_count = _version_error_total(tbl)
+            total_rows += row_count
+            total_errors += err_count
+            name = tbl_path[len(prefix):] if prefix and tbl_path.startswith(prefix) else tbl_path
+            tables.append({
+                'path': tbl_path,
+                'name': name,
+                'type': _table_kind(md),
+                'row_count': row_count,
+                'column_count': len(md['columns']),
+                'error_count': err_count,
+                'version': md['version'],
+            })
+        except Exception as e:
+            _logger.debug('Failed to summarize %s: %s', tbl_path, e)
+
+    return {
+        'path': dir_path,
+        'table_count': len(tables),
+        'total_rows': total_rows,
+        'total_errors': total_errors,
+        'tables': tables,
+    }
+
+
 # ── Table metadata / data ────────────────────────────────────────────────────
 
 def get_table_metadata(table_path: str) -> dict[str, Any]:
@@ -231,6 +269,7 @@ def get_table_metadata(table_path: str) -> dict[str, Any]:
             'is_primary_key': col_info.get('is_primary_key', False),
             'defined_in': col_info.get('defined_in'),
             'version_added': col_info.get('version_added', 0),
+            'comment': col_info.get('comment') or None,
         })
 
     return {
@@ -254,6 +293,7 @@ def get_table_data(
     limit: int = 50,
     order_by: str | None = None,
     order_desc: bool = False,
+    errors_only: bool = False,
 ) -> dict[str, Any]:
     """
     Get paginated data from a table with media URLs resolved.
@@ -267,11 +307,26 @@ def get_table_data(
     )
 
     query = tbl.select(**select_dict)
+
+    if errors_only and error_cols:
+        error_predicates = []
+        for col_name in error_cols:
+            try:
+                col_ref = getattr(tbl, col_name)
+                error_predicates.append(col_ref.errortype != None)
+            except Exception:
+                pass
+        if error_predicates:
+            combined = error_predicates[0]
+            for pred in error_predicates[1:]:
+                combined |= pred
+            query = query.where(combined)
+
     if order_by and hasattr(tbl, order_by):
         col = getattr(tbl, order_by)
         query = query.order_by(col, asc=not order_desc)
 
-    total_count = tbl.count()
+    total_count = tbl.count() if not errors_only else None
     results = list(query.limit(limit, offset=offset if offset else None).collect())
 
     rows = []
@@ -330,7 +385,7 @@ def get_table_data(
     return {
         'columns': columns,
         'rows': rows,
-        'total_count': total_count,
+        'total_count': total_count if total_count is not None else len(rows),
         'offset': offset,
         'limit': limit,
     }
@@ -508,6 +563,28 @@ def _extract_func_name(computed_with: str | None) -> str | None:
     return None
 
 
+_BUILTIN_PREFIXES = frozenset({
+    'openai', 'anthropic', 'together', 'fireworks', 'mistral', 'replicate',
+    'huggingface', 'bedrock', 'ollama', 'whisper', 'label_studio',
+    'string', 'image', 'video', 'audio', 'timestamp', 'json', 'math',
+    'nos', 'sentence_transformer', 'yolox', 'detr', 'clip',
+})
+
+
+def _classify_func(computed_with: str | None) -> str:
+    """Classify a computed_with expression as builtin, custom_udf, or unknown."""
+    if not computed_with:
+        return 'unknown'
+    if '.apply(' in computed_with or 'lambda ' in computed_with:
+        return 'custom_udf'
+    first_call = _FUNC_CALL_RE.search(computed_with)
+    if first_call:
+        name = first_call.group(1)
+        if name.split('.')[0] in _BUILTIN_PREFIXES or name.split('_')[0] in _BUILTIN_PREFIXES:
+            return 'builtin'
+    return 'unknown'
+
+
 def _parse_deps(computed_with: str | None, all_cols: set[str], own_name: str = '') -> list[str]:
     """Extract column names referenced in a computed_with expression."""
     if not computed_with:
@@ -571,7 +648,7 @@ def get_pipeline() -> dict[str, Any]:
                     'defined_in': defined_in,
                     'defined_in_self': defined_in == short_name,
                     'func_name': func_name,
-                    'func_type': None,
+                    'func_type': _classify_func(cw_str) if is_computed else None,
                     'error_count': col_errors.get(col_name, 0),
                 }
 
