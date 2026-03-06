@@ -10,33 +10,57 @@
     --kandinsky-yellow: 42 98% 48%;      /* #F1AE03 */
     --kandinsky-red: 9 97% 44%;          /* #DC2404 (via --destructive) */
 
-    /* Semantic Dark Theme (aligned with Pixelbot dark) */
+    /* Light Theme */
+    --background: 0 0% 98%;             /* #fafafa */
+    --foreground: 0 0% 9%;              /* #171717 */
+
+    --card: 0 0% 100%;                  /* #ffffff */
+    --card-foreground: 0 0% 9%;
+
+    --primary: var(--kandinsky-yellow);
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 96%;             /* #f5f5f5 */
+    --secondary-foreground: 0 0% 9%;
+
+    --muted: 0 0% 96%;                 /* #f5f5f5 */
+    --muted-foreground: 0 0% 45%;      /* #737373 */
+
+    --accent: 0 0% 93%;                /* #ededed */
+    --accent-foreground: 0 0% 9%;
+
+    --destructive: var(--kandinsky-red);
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 87%;                /* #dedede */
+    --input: 0 0% 87%;
+    --ring: var(--kandinsky-yellow);
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
     --background: 0 0% 4%;              /* #0a0a0a */
     --foreground: 0 0% 93%;             /* #ececec */
 
     --card: 0 0% 7%;                    /* #111111 */
     --card-foreground: 0 0% 93%;
 
-    --primary: var(--kandinsky-yellow);
     --primary-foreground: 0 0% 4%;
 
     --secondary: 0 0% 9%;              /* #161616 */
     --secondary-foreground: 0 0% 93%;
 
     --muted: 0 0% 8%;                  /* #141414 */
-    --muted-foreground: 0 0% 64%;      /* #a3a3a3 — 7.5:1 on bg */
+    --muted-foreground: 0 0% 64%;      /* #a3a3a3 */
 
     --accent: 0 0% 10%;                /* #1a1a1a */
     --accent-foreground: 0 0% 93%;
 
-    --destructive: var(--kandinsky-red);
     --destructive-foreground: 0 0% 100%;
 
     --border: 0 0% 16%;                /* #282828 */
     --input: 0 0% 17%;                 /* #2a2a2a */
-    --ring: var(--kandinsky-yellow);
-
-    --radius: 0.5rem;
   }
 
   html {
@@ -71,20 +95,20 @@
 *::-webkit-scrollbar {
   width: 6px;
   height: 6px;
-  }
+}
 
 *::-webkit-scrollbar-track {
   background: transparent;
-  }
+}
 
 *::-webkit-scrollbar-thumb {
   background-color: hsl(var(--border));
   border-radius: 3px;
-  }
+}
 
 *::-webkit-scrollbar-thumb:hover {
   background-color: hsl(var(--muted-foreground));
-  }
+}
 
 /* ─── Animations ─────────────────────────────────────────────────────────── */
 
@@ -110,3 +134,11 @@
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
+
+/* ─── Light mode overrides for hardcoded accent colors ───────────────────── */
+
+:root:not(.dark) .text-emerald-400 { color: rgb(5 150 105); }
+:root:not(.dark) .text-blue-400 { color: rgb(37 99 235); }
+:root:not(.dark) .text-purple-400 { color: rgb(124 58 237); }
+:root:not(.dark) .text-amber-400 { color: rgb(217 119 6); }
+:root:not(.dark) .text-red-400 { color: rgb(220 38 38); }

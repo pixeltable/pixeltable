@@ -20,6 +20,8 @@ import {
   FolderOpen,
   AlertTriangle,
   MessageSquare,
+  Sun,
+  Moon,
 } from 'lucide-react'
 
 // ── Table View ──────────────────────────────────────────────────────────────
@@ -196,12 +198,27 @@ function WelcomeView() {
 
 // ── Main App ────────────────────────────────────────────────────────────────
 
+function useTheme() {
+  const [dark, setDark] = useState(() => {
+    if (typeof window === 'undefined') return true
+    const stored = localStorage.getItem('pxt-theme')
+    if (stored) return stored === 'dark'
+    return window.matchMedia('(prefers-color-scheme: dark)').matches
+  })
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
+    localStorage.setItem('pxt-theme', dark ? 'dark' : 'light')
+  }, [dark])
+  return [dark, () => setDark(d => !d)] as const
+}
+
 export default function App() {
   const [tree, setTree] = useState<TreeNode[]>([])
   const [loading, setLoading] = useState(true)
   const [searchOpen, setSearchOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [status, setStatus] = useState<SystemStatus | null>(null)
+  const [dark, toggleTheme] = useTheme()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -211,7 +228,6 @@ export default function App() {
       .catch(console.error)
       .finally(() => setLoading(false))
 
-    // Fetch system status (version, environment, health)
     getStatus().then(setStatus).catch(console.error)
   }, [])
 
@@ -394,23 +410,32 @@ export default function App() {
             </a>
           )}
 
-          {/* Collapse toggle */}
-          <button
-            className={cn(
-              'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
-              sidebarOpen ? '' : 'justify-center',
-            )}
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-          >
-            {sidebarOpen ? (
-              <>
-                <PanelLeftClose className="h-[15px] w-[15px] shrink-0" />
-                <span>Collapse</span>
-              </>
-            ) : (
-              <PanelLeftOpen className="h-[15px] w-[15px] shrink-0" />
-            )}
-          </button>
+          {/* Theme + Collapse */}
+          <div className="flex items-center gap-0.5">
+            <button
+              className={cn(
+                'flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground',
+                sidebarOpen ? 'flex-1' : 'justify-center flex-1',
+              )}
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              {sidebarOpen ? (
+                <>
+                  <PanelLeftClose className="h-[15px] w-[15px] shrink-0" />
+                  <span>Collapse</span>
+                </>
+              ) : (
+                <PanelLeftOpen className="h-[15px] w-[15px] shrink-0" />
+              )}
+            </button>
+            <button
+              onClick={toggleTheme}
+              className="flex items-center justify-center rounded-lg p-[7px] text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground shrink-0"
+              title={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+            >
+              {dark ? <Sun className="h-[15px] w-[15px]" /> : <Moon className="h-[15px] w-[15px]" />}
+            </button>
+          </div>
 
         </div>
       </aside>
