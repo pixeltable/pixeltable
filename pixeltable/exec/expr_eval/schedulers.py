@@ -233,8 +233,6 @@ class RateLimitsScheduler(Scheduler):
             _logger.debug(f'Scheduler stats: #requests={self.total_requests}, #retried={self.total_retried}')
             if is_task:
                 # Subtract only this request's estimated cost from est_usage.
-                # Other in-flight requests still hold capacity the API hasn't confirmed yet,
-                # so their estimates must stay. est_usage naturally reaches ~0 when all requests finish.
                 estimated_cost = self._inflight_costs.pop(id(request), {})
                 for resource, cost in estimated_cost.items():
                     self.est_usage[resource] = max(0, self.est_usage.get(resource, 0) - cost)
