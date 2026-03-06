@@ -1160,7 +1160,7 @@ function LineagePanel({ tablePath, pipelineData, pipelineColumns, onTableClick, 
 
 // ── History Panel ─────────────────────────────────────────────────────────
 
-function HistoryPanel({ versions }: { versions: VersionInfo[] }) {
+function HistoryPanel({ versions }: { versions: Pick<VersionInfo, 'version' | 'created_at' | 'change_type' | 'inserts' | 'updates' | 'deletes' | 'errors'>[] }) {
   if (versions.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
@@ -1313,7 +1313,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
 
   // Fetch pipeline data lazily when lineage tab is opened
   useEffect(() => {
-    if (contentTab !== 'lineage' || pipelineData) return
+    if ((contentTab !== 'lineage' && contentTab !== 'history') || pipelineData) return
     getPipeline()
       .then(p => {
         setPipelineData(p)
@@ -1667,7 +1667,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
         </div>
       ) : contentTab === 'history' ? (
         <div className="flex-1 min-h-0 overflow-hidden">
-          <HistoryPanel versions={metadata?.versions ?? []} />
+          <HistoryPanel versions={pipelineData?.nodes.find(n => n.path === tablePath)?.versions ?? []} />
         </div>
       ) : (
       <div className="flex flex-1 min-h-0 overflow-hidden">
