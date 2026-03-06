@@ -384,32 +384,6 @@ export default function App() {
 
         {/* ── Sidebar Footer ─────────────────────────────────────────── */}
         <div className="px-2 pb-2 space-y-0.5 shrink-0">
-          {sidebarOpen && (
-            <a
-              href="https://docs.pixeltable.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-            >
-              <BookOpen className="h-[15px] w-[15px] shrink-0" />
-              <span>Docs</span>
-              <ExternalLink className="h-3 w-3 ml-auto opacity-40" />
-            </a>
-          )}
-
-          {sidebarOpen && (
-            <a
-              href="https://github.com/pixeltable/pixeltable/issues"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
-            >
-              <MessageSquare className="h-[15px] w-[15px] shrink-0" />
-              <span>Feedback</span>
-              <ExternalLink className="h-3 w-3 ml-auto opacity-40" />
-            </a>
-          )}
-
           {/* Collapse toggle */}
           <button
             className={cn(
@@ -433,7 +407,26 @@ export default function App() {
 
       {/* ── Main Content ────────────────────────────────────────────── */}
       <main className="flex-1 flex flex-col min-h-0 overflow-hidden">
-        <div className="flex items-center justify-end px-4 py-1.5 border-b border-border/40 shrink-0">
+        <div className="flex items-center justify-end gap-1 px-4 py-1.5 border-b border-border/40 shrink-0">
+          <a
+            href="https://docs.pixeltable.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <BookOpen className="h-3.5 w-3.5" />
+            Docs
+          </a>
+          <a
+            href="https://github.com/pixeltable/pixeltable/issues"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Feedback
+          </a>
+          <div className="w-px h-3.5 bg-border/40 mx-0.5" />
           <button
             onClick={toggleTheme}
             className="flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
