@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ReactFlow,
+  ReactFlowProvider,
+  useReactFlow,
   Background,
   Controls,
   type Node,
@@ -551,9 +553,115 @@ function buildLayout(
   }))
 }
 
+// ── Node Finder ──────────────────────────────────────────────────────────────
+
+function NodeFinder({
+  nodes,
+  onSelect,
+}: {
+  nodes: PipelineNodeType[]
+  onSelect: (path: string) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const reactFlow = useReactFlow()
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as HTMLElement)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onClickOutside)
+    return () => document.removeEventListener('mousedown', onClickOutside)
+  }, [])
+
+  const filtered = useMemo(() => {
+    if (!query) return nodes
+    const q = query.toLowerCase()
+    return nodes.filter((n) => n.name.toLowerCase().includes(q) || n.path.toLowerCase().includes(q))
+  }, [nodes, query])
+
+  function handlePick(path: string) {
+    onSelect(path)
+    setOpen(false)
+    setQuery('')
+    setTimeout(() => {
+      reactFlow.fitView({ nodes: [{ id: path }], duration: 400, padding: 0.6 })
+    }, 50)
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => { setOpen(!open); setTimeout(() => inputRef.current?.focus(), 0) }}
+        className="flex items-center gap-1.5 px-2 py-1 rounded-md border border-border/60 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+      >
+        <SearchIcon className="h-3 w-3" />
+        <span>Find table…</span>
+      </button>
+
+      {open && (
+        <div className="absolute top-full left-0 mt-1 w-64 bg-card border border-border rounded-lg shadow-lg z-50 overflow-hidden">
+          <div className="px-2 py-1.5 border-b border-border">
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search tables & views…"
+              className="w-full bg-transparent text-xs text-foreground placeholder:text-muted-foreground/60 outline-none"
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') setOpen(false)
+                if (e.key === 'Enter' && filtered.length > 0) handlePick(filtered[0].path)
+              }}
+            />
+          </div>
+          <div className="max-h-60 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-xs text-muted-foreground text-center">No matches</div>
+            ) : (
+              filtered.map((n) => (
+                <button
+                  key={n.path}
+                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left hover:bg-accent transition-colors"
+                  onClick={() => handlePick(n.path)}
+                >
+                  {n.is_view ? (
+                    <Eye className="h-3 w-3 text-purple-400 shrink-0" />
+                  ) : (
+                    <Table2 className="h-3 w-3 text-blue-400 shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs text-foreground truncate">{n.name}</div>
+                    <div className="text-[10px] text-muted-foreground truncate">{n.path}</div>
+                  </div>
+                  <span className="text-[10px] text-muted-foreground tabular-nums shrink-0">
+                    {n.row_count.toLocaleString()}
+                  </span>
+                  {n.total_errors > 0 && (
+                    <AlertTriangle className="h-2.5 w-2.5 text-destructive shrink-0" />
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main Component ───────────────────────────────────────────────────────────
 
 export function PipelineInspector() {
+  return (
+    <ReactFlowProvider>
+      <PipelineInspectorInner />
+    </ReactFlowProvider>
+  )
+}
+
+function PipelineInspectorInner() {
   const navigate = useNavigate()
   const [pipeline, setPipeline] = useState<PipelineResponse | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -726,6 +834,12 @@ export function PipelineInspector() {
             </div>
           )}
 
+          <div className="border-l border-border/40 h-4 mx-1" />
+          <NodeFinder
+            nodes={pipeline?.nodes ?? []}
+            onSelect={handleSelect}
+          />
+
           {/* Auto-refresh + manual refresh */}
           <div className="ml-auto flex items-center gap-2">
             {lastRefreshed && (
@@ -775,7 +889,7 @@ export function PipelineInspector() {
             maxZoom={1.5}
             proOptions={{ hideAttribution: true }}
           >
-            <Background color="#1a1a1a" gap={24} size={1} />
+            <Background color="hsl(var(--border))" gap={24} size={1} />
             <Controls
               className="!bg-card !border-border !rounded-lg [&>button]:!bg-card [&>button]:!border-border/60 [&>button]:!text-muted-foreground [&>button:hover]:!bg-accent"
             />
