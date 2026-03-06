@@ -369,14 +369,14 @@ class ExprEvalNode(ExecNode):
         report_progress = self.progress_reporter is not None and self.eval_ctx is exec_ctx
         if report_progress:
             # Count currently non-materialized output slots (before updating missing_slots)
-            missing_outputs_before = (missing_slots & self.outputs).sum()  # scalar
+            missing_outputs_before: np.int64 = (missing_slots & self.outputs).sum()
 
         # Update missing_slots: clear slots that now have values
         missing_slots &= ~has_val  # (num_rows, num_slots)
 
         # Progress reporting
         if report_progress:
-            missing_outputs_after = (missing_slots & self.outputs).sum()  # scalar
+            missing_outputs_after: np.int64 = (missing_slots & self.outputs).sum()
             num_computed_outputs = int(missing_outputs_before - missing_outputs_after)
             if num_computed_outputs > 0:
                 self.progress_reporter.update(num_computed_outputs)
