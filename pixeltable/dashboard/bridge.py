@@ -259,7 +259,7 @@ def get_table_data(
     """
     tbl = pxt.get_table(table_path)
     md = tbl.get_metadata()
-    http_address = Env.get()._http_address
+    http_address = Env.get().http_address
 
     columns, select_dict, media_url_cols, error_cols = _build_select(
         tbl, md['columns'], include_errors=True,
@@ -341,7 +341,7 @@ def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
     """Export a table as CSV bytes. Media columns export their file URL."""
     tbl = pxt.get_table(table_path)
     md = tbl.get_metadata()
-    http_address = Env.get()._http_address
+    http_address = Env.get().http_address
 
     columns, select_dict, media_url_cols, _ = _build_select(tbl, md['columns'])
     col_names = [c['name'] for c in columns]

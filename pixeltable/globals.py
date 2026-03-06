@@ -68,6 +68,7 @@ def _probe_dashboard_port(port: int) -> str | None:
         ``None`` if the port is free.
     """
     import json
+    import urllib.error
     import urllib.request
 
     try:
@@ -169,7 +170,12 @@ def _auto_start_dashboard() -> None:
     # Check env var (default: ON)
     if os.environ.get('PIXELTABLE_DASHBOARD', '1') == '0':
         return
-    port = _dashboard_port_override or int(os.environ.get('PIXELTABLE_DASHBOARD_PORT', '8080'))
+    port_str = os.environ.get('PIXELTABLE_DASHBOARD_PORT', '8080')
+    try:
+        port = _dashboard_port_override or int(port_str)
+    except ValueError:
+        _logger.warning('Invalid PIXELTABLE_DASHBOARD_PORT=%r, using default 8080', port_str)
+        port = _dashboard_port_override or 8080
     _start_dashboard_background(port)
 
 
@@ -205,7 +211,10 @@ def init(
     global _dashboard_disabled, _dashboard_port_override
 
     # Set overrides *before* Catalog.get() triggers the post-init callback
-    if dashboard is False:
+    if dashboard is True:
+        _dashboard_disabled = False
+        os.environ['PIXELTABLE_DASHBOARD'] = '1'
+    elif dashboard is False:
         _dashboard_disabled = True
     if dashboard_port is not None:
         _dashboard_port_override = dashboard_port

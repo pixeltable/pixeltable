@@ -674,7 +674,7 @@ class Env:
             try:
                 cb()
             except Exception as e:
-                self._logger.warning(f'Post-init callback failed: {e}')
+                self._logger.warning('Post-init callback failed: %s', e, exc_info=True)
 
     @property
     def default_video_encoder(self) -> str | None:

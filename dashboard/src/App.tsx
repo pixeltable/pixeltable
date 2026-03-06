@@ -124,14 +124,14 @@ export default function App() {
         setSearchOpen(true)
       }
       if (e.key === 'Escape') setSearchOpen(false)
-      }
+    }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [])
 
   const handleSelectItem = (path: string, type: string) => {
     navigate(type === 'directory' ? `/dir/${path}` : `/table/${path}`)
-    }
+  }
 
   const handleSearchSelect = (path: string, type: string) => {
     setSearchOpen(false)

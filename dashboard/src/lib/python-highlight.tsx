@@ -1,3 +1,5 @@
+import type React from 'react'
+
 const PY_TOKENS: [RegExp, string][] = [
   [/('[^']*'|"[^"]*")/g, 'text-emerald-400'],
   [/\b(\d+\.?\d*)\b/g, 'text-blue-400'],
