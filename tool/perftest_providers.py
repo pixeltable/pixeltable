@@ -28,11 +28,6 @@ class ProviderConfig:
     kwargs: dict[str, Any]
 
 
-def get_random_words(wordlist: list[str], k: int = 2) -> list[str]:
-    """Get k random words from the wordlist."""
-    return random.sample(wordlist, k=k)
-
-
 def create_provider_configs(max_tokens: int) -> dict[str, ProviderConfig]:
     """Create configuration for each supported provider."""
     from google.genai.types import GenerateContentConfigDict

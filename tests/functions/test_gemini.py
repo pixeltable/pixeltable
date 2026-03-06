@@ -313,7 +313,7 @@ class TestGemini:
         Stress test that deliberately triggers 429 rate-limit errors on the Gemini free tier
         and verifies that the retry logic recovers all rows.
 
-        Why 429s happen: GeminiRateLimitsInfo._get_request_resources() returns {}, so
+        Why 429s happen: GeminiRateLimitsInfo.get_request_resources() returns {}, so
         RateLimitsScheduler._resource_delay() has nothing to iterate and always returns 0.
         All N requests fire concurrently. On the free tier (~10 RPM for gemini-2.5-flash),
         the first ~10 succeed and the rest receive 429s.

@@ -546,7 +546,6 @@ class TestOpenai:
 
         What to look for in output:
           - errors=0  (all rows eventually succeed after retries)
-          - retries>0 (429s were encountered and retried)
 
         Approximate cost: ~$0.50 for 2000 rows on gpt-4o-mini.
 
