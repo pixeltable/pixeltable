@@ -10,6 +10,7 @@ TEST_IMAGE_PATH = TESTS_DIR / 'data' / 'images' / 'sewing-threads.heic'
 
 
 @pytest.mark.remote_api
+@pytest.mark.expensive
 @rerun(reruns=3, reruns_delay=8)
 class TestBfl:
     def test_generate(self, uses_db: None) -> None:
