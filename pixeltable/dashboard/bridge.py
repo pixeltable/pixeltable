@@ -25,7 +25,7 @@ from pixeltable.env import Env
 try:
     from PIL import Image as PILImage
 except ImportError:
-    PILImage = None  # type: ignore[assignment,misc]
+    PILImage = None
 
 _logger = logging.getLogger('pixeltable.dashboard')
 
