@@ -130,9 +130,6 @@ class TestVision:
         # TODO: test font and font_size parameters in a system-independent way
 
     def test_bboxes_resize(self, uses_db: None) -> None:
-        t = pxt.create_table('bbox_tbl', {'id': pxt.Int})
-        t.insert([{'id': 1}])
-
         def to_bbox(cx, cy, w, h, fmt):
             if fmt == 'xyxy':
                 return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
@@ -141,27 +138,74 @@ class TestVision:
             else:  # cxcywh
                 return [cx, cy, w, h]
 
-        # (input_cxcywh, resize_kwargs, expected_cxcywh, use_float)
-        test_cases = [
-            ((150, 200, 100, 200), {'width': 50}, (150, 200, 50, 100), False),
-            ((150, 200, 100, 200), {'height': 100}, (150, 200, 50, 100), False),
-            ((200, 100, 400, 200), {'aspect': '1:1', 'aspect_mode': 'crop'}, (200, 100, 200, 200), False),
-            ((200, 100, 400, 200), {'aspect': '1:1', 'aspect_mode': 'pad'}, (200, 100, 400, 400), False),
-            ((200, 100, 400, 200), {'aspect_f': 1.0, 'aspect_mode': 'crop'}, (200, 100, 200, 200), False),
-            ((0.3, 0.5, 0.4, 0.6), {'width_f': 0.2}, (0.3, 0.5, 0.2, 0.3), True),
-            ((0.3, 0.5, 0.4, 0.6), {'height_f': 0.3}, (0.3, 0.5, 0.2, 0.3), True),
+        def expected_resize(cx, cy, w, h, **kwargs):
+            """Reference implementation: compute expected (cx, cy, w, h) after resize."""
+            if 'width' in kwargs or 'width_f' in kwargs:
+                target_w = kwargs.get('width') or kwargs.get('width_f')
+                scale = target_w / w
+                return (cx, cy, target_w, h * scale)
+            if 'height' in kwargs or 'height_f' in kwargs:
+                target_h = kwargs.get('height') or kwargs.get('height_f')
+                scale = target_h / h
+                return (cx, cy, w * scale, target_h)
+            aspect_f = kwargs.get('aspect_f')
+            if aspect_f is None:
+                aw, ah = kwargs['aspect'].split(':')
+                aspect_f = int(aw) / int(ah)
+            cur = w / h
+            if kwargs['aspect_mode'] == 'crop':
+                if cur > aspect_f:
+                    return (cx, cy, h * aspect_f, h)
+                return (cx, cy, w, w / aspect_f)
+            else:  # pad
+                if cur > aspect_f:
+                    return (cx, cy, w, w / aspect_f)
+                return (cx, cy, h * aspect_f, h)
+
+        # 5 boxes in canonical (cx, cy, w, h) form
+        abs_boxes = [
+            (150, 200, 100, 200),
+            (200, 100, 400, 200),
+            (50, 50, 40, 60),
+            (300, 300, 200, 100),
+            (100, 100, 80, 80),
+        ]
+        rel_boxes = [
+            (0.3, 0.5, 0.4, 0.6),
+            (0.5, 0.5, 0.2, 0.2),
+            (0.7, 0.3, 0.1, 0.4),
+            (0.2, 0.8, 0.3, 0.1),
+            (0.9, 0.1, 0.1, 0.1),
+        ]
+
+        # (resize_kwargs, use_float)
+        resize_targets = [
+            ({'width': 50}, False),
+            ({'height': 100}, False),
+            ({'aspect': '1:1', 'aspect_mode': 'crop'}, False),
+            ({'aspect': '1:1', 'aspect_mode': 'pad'}, False),
+            ({'aspect_f': 1.0, 'aspect_mode': 'crop'}, False),
+            ({'width_f': 0.2}, True),
+            ({'height_f': 0.3}, True),
         ]
 
         formats = ['xyxy', 'xywh', 'cxcywh']
+        tbl_idx = 0
         for fmt in formats:
-            for input_cxcywh, kwargs, expected_cxcywh, use_float in test_cases:
-                input_bbox = to_bbox(*input_cxcywh, fmt)
+            for kwargs, use_float in resize_targets:
+                boxes = rel_boxes if use_float else abs_boxes
+                input_bboxes = [to_bbox(*b, fmt) for b in boxes]
                 if not use_float:
-                    input_bbox = [int(x) for x in input_bbox]
-                expected_bbox = to_bbox(*expected_cxcywh, fmt)
-                result = t.select(bboxes_resize([input_bbox], fmt, **kwargs)).collect()
+                    input_bboxes = [[int(x) for x in bb] for bb in input_bboxes]
+                expected_bboxes = [to_bbox(*expected_resize(*b, **kwargs), fmt) for b in boxes]
+
+                tbl = pxt.create_table(f'bbox_tbl_{tbl_idx}', {'bboxes': pxt.Json})
+                tbl.insert([{'bboxes': input_bboxes}])
+                tbl_idx += 1
+
+                result = tbl.select(bboxes_resize(tbl.bboxes, fmt, **kwargs)).collect()
                 np.testing.assert_allclose(
-                    result[0, 0], [expected_bbox], err_msg=f'format={fmt}, kwargs={kwargs}'
+                    result[0, 0], expected_bboxes, err_msg=f'format={fmt}, kwargs={kwargs}'
                 )
 
     def test_bboxes_resize_errors(self, uses_db: None) -> None:
