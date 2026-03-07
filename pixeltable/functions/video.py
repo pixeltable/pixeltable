@@ -500,10 +500,10 @@ def segment_video(
             _handle_ffmpeg_error(e)
 
 
-def _concat_videos(videos: list[str]) -> str:
+def _concat_videos(videos: list[str], error_prefix: str) -> str:
     Env.get().require_binary('ffmpeg')
     if len(videos) == 0:
-        raise pxt.Error('concat_videos(): empty argument list')
+        raise pxt.Error(f'{error_prefix}: empty argument list')
 
     # Check that all videos have the same resolution
     resolutions: list[tuple[int, int]] = []
@@ -511,7 +511,7 @@ def _concat_videos(videos: list[str]) -> str:
         metadata = av_utils.get_metadata(str(video))
         video_stream = next((stream for stream in metadata['streams'] if stream['type'] == 'video'), None)
         if video_stream is None:
-            raise pxt.Error(f'concat_videos(): file {video!r} has no video stream')
+            raise pxt.Error(f'{error_prefix}: file {video!r} has no video stream')
         resolutions.append((video_stream['width'], video_stream['height']))
 
     # check for divergence
@@ -519,7 +519,7 @@ def _concat_videos(videos: list[str]) -> str:
     for i, (x, y) in enumerate(resolutions[1:], start=1):
         if (x0, y0) != (x, y):
             raise pxt.Error(
-                f'concat_videos(): requires that all videos have the same resolution, but:'
+                f'{error_prefix}: requires that all videos have the same resolution, but:'
                 f'\n  video 0 ({videos[0]!r}): {x0}x{y0}'
                 f'\n  video {i} ({videos[i]!r}): {x}x{y}.'
             )
@@ -607,7 +607,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     Returns:
         A new video containing the merged videos.
     """
-    return _concat_videos(videos)
+    return _concat_videos(videos, error_prefix='concat_videos()')
 
 
 @pxt.uda(requires_order_by=True)
@@ -641,7 +641,7 @@ class concat_videos_agg(pxt.Aggregator):
     def value(self) -> pxt.Video:
         if len(self.videos) == 0:
             raise pxt.Error('concat_videos_agg(): no videos to concatenate')
-        return _concat_videos(self.videos)
+        return _concat_videos(self.videos, error_prefix='concat_videos_agg()')
 
 
 @pxt.udf
