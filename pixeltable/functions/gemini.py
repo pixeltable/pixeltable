@@ -73,7 +73,10 @@ def _(
                 kwargs['project'] = project
             if location is not None:
                 kwargs['location'] = location
-    return genai.Client(**kwargs)
+    try:
+        return genai.Client(**kwargs)
+    except ValueError as exc:
+        raise excs.Error(f'`gemini` client: {exc}') from exc
 
 
 def _genai_client() -> 'genai.client.Client':
