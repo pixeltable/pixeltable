@@ -10,7 +10,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
-from pixeltable.functions.video import frame_iterator, legacy_frame_iterator, video_splitter
+from pixeltable.functions.video import frame_iterator, legacy_frame_iterator, video_splitter, concat_videos_agg
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -631,28 +631,34 @@ class TestVideo:
             )
 
     def test_concat_videos_agg(self, uses_db: None) -> None:
-        video_filepaths = get_video_files()[:3]  # Use first 3 videos
-        from pixeltable.functions.video import concat_videos_agg
+        video_filepaths = get_video_files()[:3]
+        t = pxt.create_table('concat_agg_test', {'video': pxt.Video})
+        t.insert({'video': p} for p in video_filepaths)
 
-        # basic test: aggregate videos from multiple rows into one
-        t = pxt.create_table('concat_agg_test', {'video': pxt.Video, 'pos': pxt.Int})
-        t.insert({'video': p, 'pos': i} for i, p in enumerate(video_filepaths))
+        # split each video into segments, then reassemble with group_by
+        segments = pxt.create_view(
+            'segments', t, iterator=video_splitter(t.video, duration=5.0)
+        )
+        result = (
+            segments
+            .select(concat_videos_agg(segments.pos, segments.video_segment))
+            .group_by(t)
+            .collect()
+        )
+        assert len(result) == len(video_filepaths)
 
-        result = t.select(concat_videos_agg(t.pos, t.video)).collect()
-        assert len(result) == 1
-        concat_path = result[0, 0]
-        assert concat_path is not None
-
-        # verify the concatenated duration is approximately the sum of the individual durations
-        durations = t.select(t.video.get_duration()).collect().to_pandas()
-        expected_total = durations.iloc[:, 0].sum()
+        # verify reassembled durations match the originals
         from pixeltable.utils import av as av_utils
-        actual_total = av_utils.get_video_duration(concat_path)
-        assert abs(actual_total - expected_total) < 0.5
+        orig_durations = sorted(
+            t.select(t.video.get_duration()).collect().to_pandas().iloc[:, 0]
+        )
+        concat_durations = sorted(
+            av_utils.get_video_duration(result[i, 0]) for i in range(len(result))
+        )
+        for orig, concat in zip(orig_durations, concat_durations):
+            assert abs(orig - concat) < 0.5
 
     def test_concat_videos_agg_mixed_formats(self, uses_db: None, tmp_path: Path) -> None:
-        from pixeltable.functions.video import concat_videos_agg
-
         # mixed audio
         no_audio = generate_test_video(tmp_path, duration=1.0, has_audio=False)
         with_audio = generate_test_video(tmp_path, duration=1.5, has_audio=True)

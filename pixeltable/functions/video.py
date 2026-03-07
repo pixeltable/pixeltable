@@ -626,7 +626,7 @@ class concat_videos_agg(pxt.Aggregator):
     Examples:
         Concatenate all videos in a table, ordered by timestamp:
 
-        >>> tbl.select(concat_videos_agg(tbl.video, order_by=tbl.timestamp)).collect()
+        >>> tbl.select(concat_videos_agg(tbl.timestamp, tbl.video)).collect()
     """
 
     videos: list[str]
