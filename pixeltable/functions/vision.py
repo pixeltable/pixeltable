@@ -16,6 +16,7 @@ t.select(
 import colorsys
 import hashlib
 import itertools
+import re
 from collections import defaultdict
 from typing import Any, Literal
 
@@ -497,6 +498,7 @@ def bboxes_convert(
 
 
 ASPECT_RATIO_RE = re.compile(r'(\d+):(\d+)')
+
 
 @pxt.udf
 def bboxes_resize(
