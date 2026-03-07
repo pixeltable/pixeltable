@@ -6,10 +6,12 @@ the [Working with Gemini](https://docs.pixeltable.com/notebooks/integrations/wor
 
 Two authentication modes are supported:
 
-- **API key** (Google AI Studio): set `GEMINI_API_KEY`.
-- **Vertex AI**: set `GOOGLE_GENAI_USE_VERTEXAI=True` and configure your Google Cloud project
-  via `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` (defaults to ``us-central1``).
-  An API key is optional when Application Default Credentials (ADC) are available.
+- **API key** (Google AI Studio): set ``GEMINI_API_KEY`` (or ``[gemini].api_key`` in config.toml).
+- **Vertex AI**: set ``GEMINI_VERTEXAI=True`` and optionally ``GEMINI_PROJECT`` / ``GEMINI_LOCATION``
+  (or their ``[gemini]`` config.toml equivalents).  The standard Google env vars
+  (``GOOGLE_GENAI_USE_VERTEXAI``, ``GOOGLE_CLOUD_PROJECT``, ``GOOGLE_CLOUD_LOCATION``) are also
+  recognised by the SDK.  An API key is optional when Application Default Credentials (ADC) are
+  available.
 """
 
 import asyncio
@@ -53,15 +55,6 @@ def _create_genai_client(
 ) -> 'genai.client.Client':
     from google import genai
 
-    # Fall back to standard Google env vars when the Pixeltable config system
-    # didn't resolve them (i.e. when GEMINI_VERTEXAI etc. are not set).
-    if vertexai is None:
-        vertexai = os.environ.get('GOOGLE_GENAI_USE_VERTEXAI', '').lower() in ('true', '1')
-    if project is None:
-        project = os.environ.get('GOOGLE_CLOUD_PROJECT')
-    if location is None:
-        location = os.environ.get('GOOGLE_CLOUD_LOCATION')
-
     kwargs: dict[str, Any] = {}
     if api_key is not None:
         kwargs['api_key'] = api_key
@@ -82,13 +75,6 @@ def _create_genai_client(
                 os.environ.setdefault('GOOGLE_CLOUD_PROJECT', project)
             if location is not None:
                 os.environ.setdefault('GOOGLE_CLOUD_LOCATION', location)
-    elif api_key is None:
-        raise excs.Error(
-            '`gemini` client not initialized: neither `api_key` nor Vertex AI mode is configured.\n'
-            'To fix this, set the `GEMINI_API_KEY` environment variable or `[gemini].api_key` in\n'
-            '$PIXELTABLE_HOME/config.toml for API key auth, or enable Vertex AI via\n'
-            '`GEMINI_VERTEXAI=True` / `GOOGLE_GENAI_USE_VERTEXAI=True` (or `[gemini].vertexai` in config.toml).'
-        )
 
     return genai.Client(**kwargs)
 
