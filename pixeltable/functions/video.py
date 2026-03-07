@@ -500,21 +500,7 @@ def segment_video(
             _handle_ffmpeg_error(e)
 
 
-@pxt.udf(is_method=True)
-def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
-    """
-    Merge multiple videos into a single video.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        videos: List of videos to merge.
-
-    Returns:
-        A new video containing the merged videos.
-    """
+def _concat_videos(videos: list[str]) -> str:
     Env.get().require_binary('ffmpeg')
     if len(videos) == 0:
         raise pxt.Error('concat_videos(): empty argument list')
@@ -604,6 +590,58 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         _handle_ffmpeg_error(e)
     finally:
         filelist_path.unlink()
+
+
+@pxt.udf(is_method=True)
+def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
+    """
+    Merge multiple videos into a single video.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        videos: List of videos to merge.
+
+    Returns:
+        A new video containing the merged videos.
+    """
+    return _concat_videos(videos)
+
+
+@pxt.uda(requires_order_by=True)
+class concat_videos_agg(pxt.Aggregator):
+    """
+    Aggregate function that concatenates videos into a single video.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+    - All videos must have the same resolution
+
+    Returns:
+        A new video containing all input videos concatenated in order.
+
+    Examples:
+        Concatenate all videos in a table, ordered by timestamp:
+
+        >>> tbl.select(concat_videos_agg(tbl.video, order_by=tbl.timestamp)).collect()
+    """
+
+    videos: list[str]
+
+    def __init__(self) -> None:
+        self.videos = []
+
+    def update(self, video: pxt.Video) -> None:
+        if video is not None:
+            self.videos.append(str(video))
+
+    def value(self) -> pxt.Video:
+        if len(self.videos) == 0:
+            raise pxt.Error('concat_videos_agg(): no videos to concatenate')
+        return _concat_videos(self.videos)
 
 
 @pxt.udf

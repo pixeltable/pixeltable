@@ -630,6 +630,58 @@ class TestVideo:
                 concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
             )
 
+    def test_concat_videos_agg(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()[:3]  # Use first 3 videos
+        from pixeltable.functions.video import concat_videos_agg
+
+        # basic test: aggregate videos from multiple rows into one
+        t = pxt.create_table('concat_agg_test', {'video': pxt.Video, 'pos': pxt.Int})
+        t.insert({'video': p, 'pos': i} for i, p in enumerate(video_filepaths))
+
+        result = t.select(concat_videos_agg(t.pos, t.video)).collect()
+        assert len(result) == 1
+        concat_path = result[0, 0]
+        assert concat_path is not None
+
+        # verify the concatenated duration is approximately the sum of the individual durations
+        durations = t.select(t.video.get_duration()).collect().to_pandas()
+        expected_total = durations.iloc[:, 0].sum()
+        from pixeltable.utils import av as av_utils
+        actual_total = av_utils.get_video_duration(concat_path)
+        assert abs(actual_total - expected_total) < 0.5
+
+    def test_concat_videos_agg_mixed_formats(self, uses_db: None, tmp_path: Path) -> None:
+        from pixeltable.functions.video import concat_videos_agg
+
+        # mixed audio
+        no_audio = generate_test_video(tmp_path, duration=1.0, has_audio=False)
+        with_audio = generate_test_video(tmp_path, duration=1.5, has_audio=True)
+
+        t = pxt.create_table('test_agg_mixed_audio', {'video': pxt.Video, 'pos': pxt.Int})
+        t.insert([
+            {'video': no_audio, 'pos': 0},
+            {'video': with_audio, 'pos': 1},
+            {'video': no_audio, 'pos': 2},
+        ])
+        result = t.select(concat_videos_agg(t.pos, t.video)).collect()
+        assert len(result) == 1
+        concat_path = result[0, 0]
+        from pixeltable.utils import av as av_utils
+        duration = av_utils.get_video_duration(concat_path)
+        assert abs(duration - (1.0 + 1.5 + 1.0)) < 0.2
+
+        # error case: mixed resolutions
+        low_res = generate_test_video(tmp_path, duration=0.5, size='176x144', has_audio=False)
+        high_res = generate_test_video(tmp_path, duration=0.5, size='1920x1080', has_audio=False)
+
+        t2 = pxt.create_table('test_agg_resolution', {'video': pxt.Video, 'pos': pxt.Int})
+        t2.insert([
+            {'video': low_res, 'pos': 0},
+            {'video': high_res, 'pos': 1},
+        ])
+        with pytest.raises(pxt.Error, match='requires that all videos have the same resolution'):
+            t2.select(concat_videos_agg(t2.pos, t2.video)).collect()
+
     def _validate_splitter_segments(
         self,
         base: pxt.Table,
