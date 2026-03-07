@@ -457,6 +457,14 @@ def bboxes_convert(
 
     c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
 
+    x1: np.ndarray
+    y1: np.ndarray
+    x2: np.ndarray
+    y2: np.ndarray
+    w: np.ndarray
+    h: np.ndarray
+    cx: np.ndarray
+    cy: np.ndarray
     if src_format == 'xyxy':
         x1, y1, x2, y2 = c0, c1, c2, c3
         w = x2 - x1
@@ -485,42 +493,6 @@ def bboxes_convert(
         result = np.column_stack([cx, cy, w, h])
 
     return result.tolist()
-
-
-def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
-    """Get contour mask with specified thickness."""
-    assert mask.dtype == bool
-    # find interior pixels: those with all 8 neighbors in the mask (8: include diagonals)
-    padded = np.pad(mask, 1, mode='constant', constant_values=False)
-    interior = (
-        padded[1:-1, 1:-1]
-        & padded[:-2, 1:-1]
-        & padded[2:, 1:-1]
-        & padded[1:-1, :-2]
-        & padded[1:-1, 2:]
-        & padded[:-2, :-2]
-        & padded[:-2, 2:]
-        & padded[2:, :-2]
-        & padded[2:, 2:]
-    )
-    boundaries = mask & ~interior
-
-    for _ in range(thickness - 1):
-        # binary dilation to all 8 neighbors
-        padded = np.pad(boundaries, 1, mode='constant', constant_values=False)
-        boundaries = (
-            padded[1:-1, 1:-1]
-            | padded[:-2, 1:-1]
-            | padded[2:, 1:-1]
-            | padded[1:-1, :-2]
-            | padded[1:-1, 2:]
-            | padded[:-2, :-2]
-            | padded[:-2, 2:]
-            | padded[2:, :-2]
-            | padded[2:, 2:]
-        )
-
-    return boundaries
 
 
 @pxt.udf
@@ -556,7 +528,66 @@ def bboxes_resize(
     Returns:
         List of resized bounding boxes in the same format as the input.
     """
-    pass
+    num_specified = sum(x is not None for x in [width, height, aspect])
+    if num_specified != 1:
+        raise pxt.Error('Exactly one of width, height, or aspect must be specified')
+    if aspect is not None and aspect_mode is None:
+        raise pxt.Error("aspect_mode ('crop' or 'pad') is required when aspect is specified")
+    if aspect is None and aspect_mode is not None:
+        raise pxt.Error('aspect_mode is only valid when aspect is specified')
+
+    arr = np.array(bboxes)
+    if arr.ndim != 2 or arr.shape[1] != 4:
+        raise pxt.Error(f'Expected Nx4 array of bounding boxes, got shape {arr.shape}')
+
+    c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
+
+    # Convert to cx, cy, w, h
+    if format == 'xyxy':
+        w, h = c2 - c0, c3 - c1
+        cx, cy = c0 + w / 2, c1 + h / 2
+    elif format == 'xywh':
+        w, h = c2, c3
+        cx, cy = c0 + w / 2, c1 + h / 2
+    elif format == 'cxcywh':
+        cx, cy, w, h = c0, c1, c2, c3
+    else:
+        raise pxt.Error(f'Invalid format: {format!r}')
+
+    if width is not None:
+        scale = width / w
+        w = np.full_like(w, width)
+        h = h * scale
+    elif height is not None:
+        scale = height / h
+        h = np.full_like(h, height)
+        w = w * scale
+    else:
+        if isinstance(aspect, str):
+            parts = aspect.split(':')
+            aspect = float(parts[0]) / float(parts[1])
+        current_aspect = w / h
+        if aspect_mode == 'crop':
+            # Reduce the oversized dimension
+            too_wide = current_aspect > aspect
+            new_w = np.where(too_wide, h * aspect, w)
+            new_h = np.where(too_wide, h, w / aspect)
+        else:  # pad
+            # Extend the undersized dimension
+            too_wide = current_aspect > aspect
+            new_w = np.where(too_wide, w, h * aspect)
+            new_h = np.where(too_wide, w / aspect, h)
+        w, h = new_w, new_h
+
+    # Convert back to original format
+    if format == 'xyxy':
+        result = np.column_stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2])
+    elif format == 'xywh':
+        result = np.column_stack([cx - w / 2, cy - h / 2, w, h])
+    else:  # cxcywh
+        result = np.column_stack([cx, cy, w, h])
+
+    return result.tolist()
 
 
 @pxt.udf
@@ -701,6 +732,42 @@ def bboxes_resize_canvas(
         List of adjusted bounding boxes in the same format as the input.
     """
     pass
+
+
+def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
+    """Get contour mask with specified thickness."""
+    assert mask.dtype == bool
+    # find interior pixels: those with all 8 neighbors in the mask (8: include diagonals)
+    padded = np.pad(mask, 1, mode='constant', constant_values=False)
+    interior = (
+        padded[1:-1, 1:-1]
+        & padded[:-2, 1:-1]
+        & padded[2:, 1:-1]
+        & padded[1:-1, :-2]
+        & padded[1:-1, 2:]
+        & padded[:-2, :-2]
+        & padded[:-2, 2:]
+        & padded[2:, :-2]
+        & padded[2:, 2:]
+    )
+    boundaries = mask & ~interior
+
+    for _ in range(thickness - 1):
+        # binary dilation to all 8 neighbors
+        padded = np.pad(boundaries, 1, mode='constant', constant_values=False)
+        boundaries = (
+            padded[1:-1, 1:-1]
+            | padded[:-2, 1:-1]
+            | padded[2:, 1:-1]
+            | padded[1:-1, :-2]
+            | padded[1:-1, 2:]
+            | padded[:-2, :-2]
+            | padded[:-2, 2:]
+            | padded[2:, :-2]
+            | padded[2:, 2:]
+        )
+
+    return boundaries
 
 
 @pxt.udf
