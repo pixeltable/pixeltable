@@ -2,10 +2,11 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import skip_test_if_not_installed, validate_update_status
+from ..utils import rerun, skip_test_if_not_installed, validate_update_status
 
 
 @pytest.mark.expensive
+@rerun(reruns=3, reruns_delay=15)
 class TestVllm:
     def test_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('vllm')

@@ -5,6 +5,7 @@ Provides integration with vLLM for high-throughput inference with large language
 supporting chat completions and text generation with HuggingFace models.
 """
 
+import json
 from typing import TYPE_CHECKING, Any
 
 import pixeltable as pxt
@@ -69,7 +70,7 @@ def chat_completions(
         ...     )
         ... )
     """
-    Env.get().require_package('vllm')
+    Env.get().require_package('vllm', min_version=[0, 6, 0])
     import vllm
 
     llm = _lookup_model(model, engine_kwargs or {})
@@ -125,7 +126,7 @@ def generate(
         ...     result=generate(t.prompt, model='Qwen/Qwen2.5-0.5B-Instruct')
         ... )
     """
-    Env.get().require_package('vllm')
+    Env.get().require_package('vllm', min_version=[0, 6, 0])
     import vllm
 
     llm = _lookup_model(model, engine_kwargs or {})
@@ -142,7 +143,7 @@ def generate(
 def _lookup_model(model: str, engine_kwargs: dict[str, Any]) -> 'vllm.LLM':
     import vllm
 
-    kwargs_key = tuple(sorted(engine_kwargs.items())) if engine_kwargs else ()
+    kwargs_key = json.dumps(engine_kwargs, sort_keys=True, default=str) if engine_kwargs else ''
     key = (model, kwargs_key)
     if key not in _model_cache:
         _model_cache[key] = vllm.LLM(model=model, **engine_kwargs)
