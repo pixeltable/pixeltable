@@ -3,6 +3,8 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.video import frame_iterator
+from pixeltable.functions.vision import bboxes_draw, eval_detections, mean_ap, overlay_segmentation
+from pixeltable.functions.yolox import yolox
 
 from ..utils import get_image_files, get_video_files, skip_test_if_not_installed
 
@@ -10,7 +12,6 @@ from ..utils import get_image_files, get_video_files, skip_test_if_not_installed
 class TestVision:
     def test_eval(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
-        from pixeltable.functions.yolox import yolox
 
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view
@@ -22,7 +23,6 @@ class TestVision:
         v.add_computed_column(detections_a=yolox(v.frame_s, model_id='yolox_nano'))
         v.add_computed_column(detections_b=yolox(v.frame_s, model_id='yolox_s'))
         v.add_computed_column(gt=yolox(v.frame_s, model_id='yolox_m'))
-        from pixeltable.functions.vision import draw_bounding_boxes, eval_detections, mean_ap
 
         _ = v.select(
             eval_detections(
@@ -48,12 +48,11 @@ class TestVision:
         _ = v.select(mean_ap(v.eval_b)).show()[0, 0]
 
         _ = v.select(
-            draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
+            bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
         ).collect()
 
     def test_draw_bounding_boxes(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
-        from pixeltable.functions.yolox import yolox
 
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view
@@ -64,22 +63,18 @@ class TestVision:
         v.add_computed_column(frame_s=v.frame.resize([640, 480]))
         v.add_computed_column(detections_a=yolox(v.frame_s, model_id='yolox_nano'))
 
-        from pixeltable.functions.vision import draw_bounding_boxes
-
         # default label colors
         _ = v.select(
-            draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
+            bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
         ).collect()
         _ = v.select(
-            draw_bounding_boxes(
-                v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=False, width=3
-            )
+            bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=False, width=3)
         ).collect()
         for color in ['red', '#FF0000FF']:
             for alpha in [None, 0.5]:
                 for fill_alpha in [None, 0.3]:
                     _ = v.select(
-                        draw_bounding_boxes(
+                        bboxes_draw(
                             v.frame_s,
                             boxes=v.detections_a.bboxes,
                             labels=v.detections_a.labels,
@@ -96,7 +91,7 @@ class TestVision:
                 _ = (
                     v.where(v.pos == 0)
                     .select(
-                        draw_bounding_boxes(
+                        bboxes_draw(
                             v.frame_s,
                             boxes=v.detections_a.bboxes,
                             labels=v.detections_a.labels,
@@ -112,7 +107,7 @@ class TestVision:
         with pytest.raises(pxt.Error) as exc_info:
             # multiple color specifications
             _ = v.select(
-                draw_bounding_boxes(
+                bboxes_draw(
                     v.frame_s,
                     boxes=v.detections_a.bboxes,
                     labels=v.detections_a.labels,
@@ -124,12 +119,12 @@ class TestVision:
 
         with pytest.raises(pxt.Error) as exc_info:
             # labels don't match boxes
-            _ = v.select(draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, labels=[2])).collect()
+            _ = v.select(bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, labels=[2])).collect()
         assert 'number of boxes and labels must match' in str(exc_info.value).lower()
 
         with pytest.raises(pxt.Error) as exc_info:
             # box_colors don't match boxes
-            _ = v.select(draw_bounding_boxes(v.frame_s, boxes=v.detections_a.bboxes, box_colors=['red'])).collect()
+            _ = v.select(bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, box_colors=['red'])).collect()
         assert 'number of boxes and box colors must match' in str(exc_info.value).lower()
 
         # TODO: test font and font_size parameters in a system-independent way
@@ -138,7 +133,6 @@ class TestVision:
         skip_test_if_not_installed('transformers')
 
         from pixeltable.functions.huggingface import detr_for_segmentation
-        from pixeltable.functions.vision import overlay_segmentation
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
         t.add_computed_column(

@@ -298,7 +298,7 @@ def __create_label_colors(labels: list[Any]) -> dict[Any, str]:
 
 
 @pxt.udf
-def draw_bounding_boxes(
+def bboxes_draw(
     img: PIL.Image.Image,
     boxes: list[list[int]],
     *,
