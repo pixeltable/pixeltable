@@ -15,6 +15,7 @@ t.select(
 
 import colorsys
 import hashlib
+import itertools
 from collections import defaultdict
 from typing import Any, Literal
 
@@ -495,15 +496,20 @@ def bboxes_convert(
     return result.tolist()
 
 
+ASPECT_RATIO_RE = re.compile(r'(\d+):(\d+)')
+
 @pxt.udf
 def bboxes_resize(
-    bboxes: list[list[int | float]],
+    bboxes: list,  # should be: list[list[int]] | list[list[float]]
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
-    width: int | float | None = None,
-    height: int | float | None = None,
-    aspect: str | float | None = None,
-    aspect_mode: Literal['crop', 'pad'] | None = None,
+    width: int | None = None,
+    width_f: float | None = None,
+    height: int | None = None,
+    height_f: float | None = None,
+    aspect: str | None = None,
+    aspect_f: float | None = None,
+    aspect_mode: str | None = None,  # should be Literal['crop', 'pad'] | None
 ) -> list[list[int | float]]:
     """
     Resize a list of bounding boxes (center-anchored):
@@ -517,32 +523,58 @@ def bboxes_resize(
         bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
             coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
-        width: Target width.
-        height: Target height.
-        aspect: Target aspect ratio. Either a float, such as 16/9, or a string such as '16:9'. Resizes either the width
+        width: Target width in absolute pixels. Requires bboxes to be specified with absolute pixel coordinates.
+        width_f: Target width as a float. Requires bboxes to be specified with relative coordinates in [0, 1].
+        height: Target height in absolute pixels. Requires bboxes to be specified with absolute pixel coordinates.
+        height_f: Target height as a float. Requires bboxes to be specified with relative coordinates in [0, 1].
+        aspect: Target aspect ratio as a string 'W:H' (e.g., '16:9'). Resizes either the width
             or height to match the specified aspect ratio, maintaining the other dimension. Requires exactly one of
             `crop` or `pad` to be True.
-        aspect_mode: Only valid for `aspect`. If `crop`, reduces the oversized dimension to match the aspect ratio. If
-            `pad`, extends the undersized dimension to match the aspect ratio.
+        aspect_f: Target aspect ratio as a float.
+        aspect_mode: Either 'crop' or 'pad'. Only valid for `aspect`/`aspect_f`. If `crop`, reduces the oversized
+            dimension to match the aspect ratio. If `pad`, extends the undersized dimension to match the aspect ratio.
 
     Returns:
         List of resized bounding boxes in the same format as the input.
     """
-    num_specified = sum(x is not None for x in [width, height, aspect])
-    if num_specified != 1:
-        raise pxt.Error('Exactly one of width, height, or aspect must be specified')
-    if aspect is not None and aspect_mode is None:
+    if width is not None and width_f is not None:
+        raise pxt.Error('Only one of width or width_f can be specified')
+    if height is not None and height_f is not None:
+        raise pxt.Error('Only one of height or height_f can be specified')
+    if aspect is not None and aspect_f is not None:
+        raise pxt.Error('Only one of aspect or aspect_f can be specified')
+    if aspect is not None:
+        match = ASPECT_RATIO_RE.match(aspect)
+        if match is None:
+            raise pxt.Error(f'Invalid aspect ratio: {aspect!r}; expected "W:H"')
+        aspect_f = float(match.group(1)) / float(match.group(2))
+    has_width = width is not None or width_f is not None
+    has_height = height is not None or height_f is not None
+    has_aspect = aspect is not None or aspect_f is not None
+    if has_width + has_height + has_aspect != 1:
+        raise pxt.Error('Exactly one of width/width_f, height/height_f, or aspect/aspect_f must be specified')
+    if has_aspect and aspect_mode is None:
         raise pxt.Error("aspect_mode ('crop' or 'pad') is required when aspect is specified")
-    if aspect is None and aspect_mode is not None:
+    if not has_aspect and aspect_mode is not None:
         raise pxt.Error('aspect_mode is only valid when aspect is specified')
 
-    arr = np.array(bboxes)
-    if arr.ndim != 2 or arr.shape[1] != 4:
-        raise pxt.Error(f'Expected Nx4 array of bounding boxes, got shape {arr.shape}')
+    # check that bboxes are either all int or all float
+    is_absolute = all(isinstance(x, int) for x in itertools.chain.from_iterable(bboxes))
+    is_relative = all(isinstance(x, float) for x in itertools.chain.from_iterable(bboxes))
+    if not (is_absolute or is_relative):
+        raise pxt.Error('Bounding box coordinates must be either all int or all float')
+    if not all(len(b) == 4 for b in bboxes):
+        raise pxt.Error('Each bounding box must have exactly 4 coordinates')
+    arr = np.array(bboxes, dtype=np.float64)
+    assert arr.ndim == 2 and arr.shape[1] == 4
 
     c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
 
     # Convert to cx, cy, w, h
+    w: np.ndarray
+    h: np.ndarray
+    cx: np.ndarray
+    cy: np.ndarray
     if format == 'xyxy':
         w, h = c2 - c0, c3 - c1
         cx, cy = c0 + w / 2, c1 + h / 2
@@ -554,29 +586,30 @@ def bboxes_resize(
     else:
         raise pxt.Error(f'Invalid format: {format!r}')
 
-    if width is not None:
-        scale = width / w
-        w = np.full_like(w, width)
+    # Resolve the target width/height
+    target_w = width if width is not None else width_f
+    target_h = height if height is not None else height_f
+
+    if target_w is not None:
+        scale = target_w / w
+        w = np.full_like(w, target_w)
         h = h * scale
-    elif height is not None:
-        scale = height / h
-        h = np.full_like(h, height)
+    elif target_h is not None:
+        scale = target_h / h
+        h = np.full_like(h, target_h)
         w = w * scale
     else:
-        if isinstance(aspect, str):
-            parts = aspect.split(':')
-            aspect = float(parts[0]) / float(parts[1])
         current_aspect = w / h
         if aspect_mode == 'crop':
             # Reduce the oversized dimension
-            too_wide = current_aspect > aspect
-            new_w = np.where(too_wide, h * aspect, w)
-            new_h = np.where(too_wide, h, w / aspect)
+            too_wide = current_aspect > aspect_f
+            new_w = np.where(too_wide, h * aspect_f, w)
+            new_h = np.where(too_wide, h, w / aspect_f)
         else:  # pad
             # Extend the undersized dimension
-            too_wide = current_aspect > aspect
-            new_w = np.where(too_wide, w, h * aspect)
-            new_h = np.where(too_wide, w / aspect, h)
+            too_wide = current_aspect > aspect_f
+            new_w = np.where(too_wide, w, h * aspect_f)
+            new_h = np.where(too_wide, w / aspect_f, h)
         w, h = new_w, new_h
 
     # Convert back to original format
@@ -592,7 +625,7 @@ def bboxes_resize(
 
 @pxt.udf
 def bboxes_scale(
-    bboxes: list[list[int | float]],
+    bboxes: list,
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
     factor: float | None = None,
@@ -618,7 +651,7 @@ def bboxes_scale(
 
 @pxt.udf
 def bboxes_pad(
-    bboxes: list[list[int | float]],
+    bboxes: list,
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
     top: int | None = None,
@@ -650,7 +683,7 @@ def bboxes_pad(
 
 @pxt.udf
 def bboxes_clip_to_canvas(
-    bboxes: list[list[int | float]],
+    bboxes: list,
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
     width: int | None = None,
@@ -679,12 +712,12 @@ def bboxes_clip_to_canvas(
 
 @pxt.udf
 def bboxes_crop_canvas(
-    bboxes: list[list[int | float]],
+    bboxes: list,
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
     canvas_width: int | None = None,
     canvas_height: int | None = None,
-    canvas_region: list[int | float],
+    canvas_region: list,
     canvas_region_format: Literal['xyxy', 'xywh', 'cxcywh'],
 ) -> list[list[int | float]]:
     """
@@ -708,23 +741,32 @@ def bboxes_crop_canvas(
 
 @pxt.udf
 def bboxes_resize_canvas(
-    bboxes: list[list[int | float]],
+    bboxes: list,
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
-    new_canvas_width: int | float,
-    new_canvas_height: int | float,
+    new_canvas_width: int | None = None,
+    new_canvas_height: int | None = None,
+    canvas_scale: float | None = None,
+    canvas_scale_x: float | None = None,
+    canvas_scale_y: float | None = None,
     canvas_width: int | None = None,
     canvas_height: int | None = None,
 ) -> list[list[int | float]]:
     """
-    Adjust a list of bounding boxes to account for a canvas resize.
+    Adjust a list of bounding boxes to account for a canvas resize. The resize operation can be expressed
+
+    - as absolute pixel dimensions (new_canvas_width, new_canvas_height)
+    - as relative dimensions (canvas_scale, canvas_scale_x, canvas_scale_y)
 
     Args:
         bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
             coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
-        new_canvas_width: New canvas width, either absolute pixels or relative to the original canvas width.
-        new_canvas_height: New canvas height, either absolute pixels or relative to the original canvas width.
+        new_canvas_width: New canvas width in absolute pixels. Requires canvas_width/canvas_height to be specified.
+        new_canvas_height: New canvas height in absolute pixels. Requires canvas_width/canvas_height to be specified.
+        canvas_scale: Scale factor to apply to both canvas dimensions.
+        canvas_scale_x: Scale factor to apply to the canvas width.
+        canvas_scale_y: Scale factor to apply to the canvas height.
         canvas_width: Original canvas width in absolute pixels.
         canvas_height: Original canvas height in absolute pixels.
 
