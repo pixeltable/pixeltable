@@ -10,7 +10,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
-from pixeltable.functions.video import frame_iterator, legacy_frame_iterator, video_splitter, concat_videos_agg
+from pixeltable.functions.video import concat_videos_agg, frame_iterator, legacy_frame_iterator, video_splitter
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -632,61 +632,49 @@ class TestVideo:
 
     def test_concat_videos_agg(self, uses_db: None) -> None:
         video_filepaths = get_video_files()[:3]
-        t = pxt.create_table('concat_agg_test', {'video': pxt.Video})
-        t.insert({'video': p} for p in video_filepaths)
+        t = pxt.create_table('concat_agg_test', {'id': pxt.Int, 'video': pxt.Video})
+        t.insert({'id': i, 'video': p} for i, p in enumerate(video_filepaths))
 
         # split each video into segments, then reassemble with group_by
-        segments = pxt.create_view(
-            'segments', t, iterator=video_splitter(t.video, duration=5.0)
-        )
+        segments = pxt.create_view('segments', t, iterator=video_splitter(t.video, duration=5.0))
         result = (
-            segments
-            .select(concat_videos_agg(segments.pos, segments.video_segment))
-            .group_by(t)
+            segments.select(segments.id, video=concat_videos_agg(segments.pos, segments.video_segment))
+            .group_by(segments.id)
             .collect()
         )
         assert len(result) == len(video_filepaths)
 
         # verify reassembled durations match the originals
-        from pixeltable.utils import av as av_utils
-        orig_durations = sorted(
-            t.select(t.video.get_duration()).collect().to_pandas().iloc[:, 0]
+        u = pxt.create_table('concat_results', {'id': pxt.Int, 'video': pxt.Video})
+        u.insert(list(result))
+        u.add_computed_column(duration=u.video.get_duration())
+        orig_durations = t.select(duration=t.video.get_duration()).order_by(t.id).collect()
+        concat_durations = u.select(u.duration).order_by(u.id).collect()
+        assert all(
+            abs(orig - concat) < 0.1 for orig, concat in zip(orig_durations['duration'], concat_durations['duration'])
         )
-        concat_durations = sorted(
-            av_utils.get_video_duration(result[i, 0]) for i in range(len(result))
-        )
-        for orig, concat in zip(orig_durations, concat_durations):
-            assert abs(orig - concat) < 0.5
 
     def test_concat_videos_agg_mixed_formats(self, uses_db: None, tmp_path: Path) -> None:
         # mixed audio
         no_audio = generate_test_video(tmp_path, duration=1.0, has_audio=False)
         with_audio = generate_test_video(tmp_path, duration=1.5, has_audio=True)
 
-        t = pxt.create_table('test_agg_mixed_audio', {'video': pxt.Video, 'pos': pxt.Int})
-        t.insert([
-            {'video': no_audio, 'pos': 0},
-            {'video': with_audio, 'pos': 1},
-            {'video': no_audio, 'pos': 2},
-        ])
-        result = t.select(concat_videos_agg(t.pos, t.video)).collect()
+        t = pxt.create_table('test_agg_mixed_audio', {'id': pxt.Int, 'video': pxt.Video})
+        t.insert([{'id': 0, 'video': no_audio}, {'id': 1, 'video': with_audio}, {'id': 2, 'video': no_audio}])
+        concat_output = concat_videos_agg(t.id, t.video)
+        result = t.select(output=concat_output, duration=concat_output.get_duration()).collect()
         assert len(result) == 1
-        concat_path = result[0, 0]
-        from pixeltable.utils import av as av_utils
-        duration = av_utils.get_video_duration(concat_path)
-        assert abs(duration - (1.0 + 1.5 + 1.0)) < 0.2
+        concat_duration = result[0]['duration']
+        assert abs(concat_duration - (1.0 + 1.5 + 1.0)) < 0.2
 
         # error case: mixed resolutions
         low_res = generate_test_video(tmp_path, duration=0.5, size='176x144', has_audio=False)
         high_res = generate_test_video(tmp_path, duration=0.5, size='1920x1080', has_audio=False)
 
-        t2 = pxt.create_table('test_agg_resolution', {'video': pxt.Video, 'pos': pxt.Int})
-        t2.insert([
-            {'video': low_res, 'pos': 0},
-            {'video': high_res, 'pos': 1},
-        ])
+        t2 = pxt.create_table('test_agg_resolution', {'id': pxt.Int, 'video': pxt.Video})
+        t2.insert([{'id': 0, 'video': low_res}, {'id': 1, 'video': high_res}])
         with pytest.raises(pxt.Error, match='requires that all videos have the same resolution'):
-            t2.select(concat_videos_agg(t2.pos, t2.video)).collect()
+            t2.select(concat_videos_agg(t2.id, t2.video)).collect()
 
     def _validate_splitter_segments(
         self,

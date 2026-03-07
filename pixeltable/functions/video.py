@@ -613,7 +613,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
 @pxt.uda(requires_order_by=True)
 class concat_videos_agg(pxt.Aggregator):
     """
-    Aggregate function that concatenates videos into a single video.
+    Aggregate function that merges videos into a single video.
 
     __Requirements:__
 
