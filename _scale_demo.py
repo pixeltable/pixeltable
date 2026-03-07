@@ -3,7 +3,8 @@ Insert 5000 images into a table to test dashboard scale/pagination.
 Uses picsum.photos with varied IDs for distinct thumbnails.
 """
 
-import sys, os
+import os
+import sys
 
 sys.path.insert(0, os.path.dirname(__file__))
 

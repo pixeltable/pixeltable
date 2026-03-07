@@ -4,38 +4,38 @@ Creates deep dependency chains, multiple views, and cross-column lineage
 to stress-test the dashboard lineage graph.
 """
 
-import pixeltable as pxt
 import datetime as dt
-import shutil
 import os
+import shutil
 
+import pixeltable as pxt
 from _pipeline_udfs import (
-    # Vision
-    detect_objects,
-    count_detections,
-    check_person,
-    classify_scene,
+    analyze_sentiment,
+    assess_complexity,
     assess_risk,
-    estimate_pose,
+    chain_of_thought,
+    check_person,
     classify_action,
+    classify_scene,
+    classify_topic,
+    compute_readability,
+    count_detections,
     # NLP
     detect_language,
-    analyze_sentiment,
+    # Vision
+    detect_objects,
+    estimate_pose,
+    evaluate_confidence,
+    execute_action,
     extract_entities,
-    summarize_text,
-    classify_topic,
-    score_quality,
-    compute_readability,
     extract_phrases,
+    flag_issues,
+    generate_plan,
+    make_decision,
     # Agent
     parse_intent,
-    assess_complexity,
-    generate_plan,
-    chain_of_thought,
-    evaluate_confidence,
-    make_decision,
-    execute_action,
-    flag_issues,
+    score_quality,
+    summarize_text,
 )
 
 DB_DIR = '/tmp/pxt_pipeline_demo'

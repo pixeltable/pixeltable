@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """Populate a fresh Pixeltable instance with rich demo data for the dashboard."""
 
-import os, datetime as dt, random, math, hashlib
+import datetime as dt
+import hashlib
+import math
+import os
+import random
 
 os.environ['PIXELTABLE_HOME'] = '/tmp/pxt_dashboard_demo'
 

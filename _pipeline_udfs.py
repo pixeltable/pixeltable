@@ -3,11 +3,12 @@ Complex pipeline UDFs — vision, NLP, and agent chains.
 Must live in a named module (not __main__) for Pixeltable >= 0.5.20.
 """
 
-import pixeltable as pxt
-import json
 import hashlib
+import json
+
 import numpy as np
 
+import pixeltable as pxt
 
 # ── Embedding UDF (lightweight mock for indexing) ────────────────────────────
 
