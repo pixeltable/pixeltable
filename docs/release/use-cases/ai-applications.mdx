@@ -87,7 +87,7 @@ Add multimodal intelligence to applications with two deployment patterns.
       <Step title="Process Media">
         Extract frames, transcribe audio, chunk documents
 
-        [`FrameIterator`](/platform/iterators), [`DocumentSplitter`](/platform/iterators), [`AudioSplitter`](/platform/iterators)
+        [`frame_iterator()`](/platform/iterators), [`document_splitter()`](/platform/iterators), [`AudioSplitter`](/platform/iterators)
 
         <CardGroup cols={2}>
           <Card title="Extract Video Frames" href="/howto/cookbooks/video/video-extract-frames">
@@ -278,7 +278,7 @@ Add multimodal intelligence to applications with two deployment patterns.
 
     ```python
     # Everything in one place: storage + compute + retrieval
-    docs.add_computed_column(chunks=DocumentSplitter(docs.pdf))
+    docs.add_computed_column(chunks=document_splitter(docs.pdf))
     docs.add_embedding_index('chunks', string_embed=e5_embed)
 
     # Query with full lineage
