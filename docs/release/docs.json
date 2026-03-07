@@ -44,6 +44,14 @@
             "pages": [
               "platform/configuration",
               {
+                "group": "Migrating from...",
+                "pages": [
+                  "migrate/from-diy-data-pipeline",
+                  "migrate/from-rdbms-vectordbs",
+                  "migrate/from-agent-frameworks"
+                ]
+              },
+              {
                 "group": "Integrations",
                 "pages": [
                   "howto/providers/working-with-anthropic",
