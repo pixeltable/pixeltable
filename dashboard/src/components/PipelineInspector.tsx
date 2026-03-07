@@ -675,6 +675,7 @@ function PipelineInspectorInner() {
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const fetchPipeline = useCallback(() => {
+    setIsLoading(true)
     getPipeline()
       .then((data) => {
         setPipeline(data)

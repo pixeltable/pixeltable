@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { search } from '@/api/client'
-import { useDebounce } from '@/hooks/useApi'
+import { useDebounce } from '@/hooks/useDebounce'
 import { cn } from '@/lib/utils'
 import type { SearchResults } from '@/types'
 import {
@@ -173,13 +173,13 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
 
   const debouncedQuery = useDebounce(query, 200)
 
-  const flattenedResults: SearchResultItem[] = results
+  const flattenedResults = useMemo<SearchResultItem[]>(() => results
     ? [
         ...results.directories.map(d => ({ type: 'directory' as const, name: d.name, path: d.path })),
         ...results.tables.map(t => ({ type: 'table' as const, name: t.name, path: t.path, subtype: t.type })),
         ...results.columns.map(c => ({ type: 'column' as const, name: c.name, path: c.table, extra: c.type })),
       ]
-    : []
+    : [], [results])
 
   useEffect(() => {
     if (!debouncedQuery.trim()) { setResults(null); return }

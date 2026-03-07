@@ -121,6 +121,10 @@ class _DashboardHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:
         _logger.debug(fmt, *args)
 
+    def _cors_origin(self) -> str:
+        origin = self.headers.get('Origin', '')
+        return origin if origin in _ALLOWED_ORIGINS else ''
+
     def handle(self) -> None:
         try:
             super().handle()
@@ -128,10 +132,8 @@ class _DashboardHandler(BaseHTTPRequestHandler):
             pass
 
     def do_OPTIONS(self) -> None:
-        origin = self.headers.get('Origin', '')
-        allowed = origin if origin in _ALLOWED_ORIGINS else ''
         self.send_response(HTTPStatus.NO_CONTENT)
-        self.send_header('Access-Control-Allow-Origin', allowed)
+        self.send_header('Access-Control-Allow-Origin', self._cors_origin())
         self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
         self.send_header('Access-Control-Allow-Headers', 'Content-Type')
         self.end_headers()
@@ -196,8 +198,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
 
     def _send_json(self, data: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(data, default=str).encode()
-        origin = self.headers.get('Origin', '')
-        allowed = origin if origin in _ALLOWED_ORIGINS else ''
+        allowed = self._cors_origin()
 
         self.send_response(status)
         self.send_header('Content-Type', 'application/json')
@@ -212,8 +213,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         self._safe_write(body)
 
     def _send_raw(self, resp: _RawResponse) -> None:
-        origin = self.headers.get('Origin', '')
-        allowed = origin if origin in _ALLOWED_ORIGINS else ''
+        allowed = self._cors_origin()
 
         self.send_response(HTTPStatus.OK)
         self.send_header('Content-Type', resp.content_type)

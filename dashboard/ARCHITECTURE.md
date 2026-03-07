@@ -4,120 +4,81 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 
 ## Stack
 
-**Backend:** Python stdlib `http.server.ThreadingHTTPServer`. One thread per request,
-no async, no third-party server. Binds `127.0.0.1:8080`.
+**Backend:** stdlib `ThreadingHTTPServer` — one thread per request, no async, no deps. Binds `127.0.0.1:8080`.
+**Frontend:** React 18 + Vite + TypeScript + Tailwind. `@xyflow/react` + `dagre` for DAGs. No state library.
 
-**Frontend:** React 18 + Vite + TypeScript + Tailwind CSS. `lucide-react` icons.
-`dagre` + `@xyflow/react` for DAG layout. No state library — just hooks.
+## Backend (`pixeltable/dashboard/`)
 
-## Files
+| File | Role |
+|------|------|
+| `__init__.py` | `pxt.dashboard.serve()` — opens browser + starts server |
+| `server.py` | HTTP routing, static serving, CORS, error suppression |
+| `bridge.py` | Pixeltable → JSON. Shared: `_build_select`, `_format_versions`, `_resolve_fileurl` |
 
-### Backend (`pixeltable/dashboard/`)
+## Frontend (`dashboard/src/`)
 
-| File | Purpose |
-|------|---------|
-| `__init__.py` | Public API: `pxt.dashboard.serve()` opens browser + starts server |
-| `server.py` | HTTP routing, static file serving, CORS, error suppression |
-| `bridge.py` | Translates Pixeltable internals → JSON dicts. Shared helpers: `_build_select`, `_resolve_fileurl`, `_is_media_type` |
+| File | Role |
+|------|------|
+| `App.tsx` | Sidebar, routing (`/`, `/table/*`, `/dir/*`, `/lineage`), theme toggle |
+| `api/client.ts` | Typed fetch wrappers |
+| `types/index.ts` | TS interfaces matching API shapes |
+| `hooks/useDebounce.ts` | Debounce hook |
+| `lib/column-types.tsx` | Type→icon/color map |
+| `lib/python-highlight.tsx` | Python syntax highlighter |
+| `lib/column-lineage.ts` | Column dependency DAG builder |
+| `components/TableDetailView.tsx` | Data/Lineage/History tabs, lightbox, JSON viewer, filters, pagination, export |
+| `components/PipelineInspector.tsx` | Pipeline graph + node finder + detail sidebar |
+| `components/ColumnFlowDiagram.tsx` | Per-table column DAG |
+| `components/DirectoryTree.tsx` | Sidebar explorer with error indicators |
+| `components/SearchPanel.tsx` | Cmd+K search |
 
-### Frontend (`dashboard/src/`)
+## API (GET only)
 
-| File | Purpose |
-|------|---------|
-| `main.tsx` | React entry point |
-| `App.tsx` | Sidebar layout, routing (`/`, `/table/*`, `/dir/*`, `/lineage`), search modal, directory view |
-| `api/client.ts` | Typed `fetch` wrappers for all API endpoints |
-| `types/index.ts` | TypeScript interfaces matching every API response shape |
-| `hooks/useApi.ts` | `useDebounce` hook |
-| `lib/utils.ts` | `cn()` — Tailwind class merger |
-| `lib/column-types.tsx` | Single source for type→icon/color mapping (used by TableDetail + ColumnFlowDiagram) |
-| `lib/func-styles.ts` | UDF function type styling (builtin/custom/query) |
-| `lib/python-highlight.tsx` | Lightweight Python syntax highlighter (used by schema + pipeline) |
-| `lib/column-lineage.ts` | Builds ReactFlow DAG from column dependency metadata |
-| `components/TableDetailView.tsx` | **Main workhorse.** Data/Lineage/History tabs, media lightbox, JSON viewer, filters, pagination, CSV export, schema chips, expanded row modal |
-| `components/DirectoryTree.tsx` | Sidebar explorer tree with error indicators |
-| `components/PipelineInspector.tsx` | Full-page lineage graph + column detail sidebar |
-| `components/ColumnFlowDiagram.tsx` | Per-table column DAG (used in both TableDetail and Pipeline) |
-| `components/SearchPanel.tsx` | Cmd+K search across dirs, tables, columns |
-
-## API Endpoints
-
-All `GET`-only. Defined in `server.py`, implemented in `bridge.py`.
-
-| Endpoint | What it returns |
-|----------|-----------------|
-| `/api/health` | `{ status, version }` |
-| `/api/dirs` | Full directory tree with error counts |
-| `/api/status` | System config: home, DB URL, cache paths, table count |
-| `/api/search?q=` | Matching dirs, tables, columns |
-| `/api/pipeline` | DAG nodes + edges for all tables (lineage view) |
-| `/api/tables/{path}` | Schema, columns, indices, versions, media_validation, base table |
-| `/api/tables/{path}/data?offset=&limit=&order_by=&order_desc=&errors_only=` | Paginated rows with resolved media URLs and per-cell errors |
-| `/api/tables/{path}/export` | CSV file download (default 100k rows) |
+| Endpoint | Returns | Params |
+|----------|---------|--------|
+| `/api/health` | `{status, version}` | — |
+| `/api/dirs` | Directory tree + error counts | — |
+| `/api/status` | Version, config, total_tables, total_errors | — |
+| `/api/search` | Matching dirs, tables, columns | `q`, `limit` (50, max 100) |
+| `/api/pipeline` | DAG nodes + edges | — |
+| `/api/tables/{path}` | Schema, columns, indices, versions | — |
+| `/api/tables/{path}/data` | Paginated rows, media URLs, per-cell errors | `offset`, `limit` (50, max 500), `order_by`, `order_desc`, `errors_only` |
+| `/api/tables/{path}/export` | CSV download | `limit` (100k default, 1M max) |
 
 ## User Flows
 
-1. **Navigate**: Sidebar directory tree (filterable, collapsible) → click directory → summary view; click table → schema + data
-2. **Search**: ⌘K spotlight across dirs, tables, columns → keyboard navigate → Enter to open
-3. **Schema**: Collapsible column chips (compact pills or expanded table with expressions, indices)
-4. **Data**: Table view with server-side sort, pagination, client-side filters + text search (current page only). Gallery grid auto-appears for media-heavy tables.
-5. **Media**: Cell thumbnails → click → fullscreen lightbox with ←→ arrow navigation. Unstored PIL images render as inline base64. External docs open in new tab.
-6. **JSON**: Truncated JSON cells → expandable tree viewer with search, expand/collapse, and path copy
-7. **Row Detail**: Gallery card → expanded row modal (media + all fields), ←→ navigation
-8. **Lineage**: Per-table tab: base→current→derived chain + column dependency DAG. Full-page pipeline graph of all tables.
-11. **History**: Per-table version history tab showing inserts, updates, deletes, errors per version.
-9. **Export**: CSV download (up to 100k rows), Python SDK snippet copy
-10. **Live Monitoring**: Auto-refresh toggle (10s polling), manual refresh, timestamp
+1. **Navigate** — sidebar tree → directory summary or table detail
+2. **Search** — Cmd+K spotlight → keyboard navigate → Enter
+3. **Schema** — collapsible column chips or expanded table with expressions
+4. **Data** — server-side sort, SQL OFFSET pagination, client-side filters (current page)
+5. **Media** — thumbnails → lightbox with arrow nav; unstored PIL → base64
+6. **JSON** — truncated cells → tree viewer with search + path copy
+7. **Lineage** — per-table column DAG + full pipeline graph with node finder
+8. **History** — per-table version tab (inserts/updates/deletes/errors)
+9. **Export** — CSV (100k default), SDK snippet copy
+10. **Live** — auto-refresh (10s), manual refresh
 
 ## Key Decisions
 
-**Sorting: server-side.** `order_by` → Pixeltable `query.order_by()` → SQL. Correct across pages.
-
-**Filtering + search: client-side.** `useMemo` on current page rows only. UI shows
-"(this page)". Pushing server-side would mean translating 4 filter types into
-`where()` clauses — not worth it for v1.
-
-**Pagination: SQL OFFSET.** `query.limit(n, offset=k)`. Fast for early pages; deep
-offsets are slow (SQL scans all preceding rows). Keyset pagination needs API changes.
-
-**Media URLs: three paths.** (1) Stored: `file://` → HTTP via media server.
-(2) Unstored PIL: inline base64. (3) External: passthrough (docs open in new tab).
-
-**Error suppression.** `BrokenPipeError` silenced at server + handler level.
-`PixeltableWarning` suppressed during API calls.
-
-**CSV export.** Media → URLs, JSON → strings. Default limit 100k rows.
-
-## Packaging & Deployment
-
-**Users need zero frontend tooling.** The SPA is pre-built to `pixeltable/dashboard/static/`
-and shipped inside the Python wheel as a build artifact (`pyproject.toml: artifacts`).
-`pip install pixeltable` includes the static files — no Node.js, no npm, no build step.
-
-The `dashboard/` source directory (TypeScript, React, Tailwind) is excluded from the
-Python package. It only exists for development.
-
-If the `static/` directory is missing (dev checkout without a build), the server renders
-a fallback HTML page with build instructions instead of crashing.
+**Sort:** server-side `query.order_by()` → SQL. **Filter:** client-side on current page only. **Pagination:** SQL OFFSET (`query.limit(n, offset=k)`); deep pages slow. `errors_only` returns page-size total. **Media:** stored `file://` → HTTP proxy, unstored PIL → base64, external → passthrough. **Errors:** `BrokenPipeError`/`ConnectionResetError` silenced; `PixeltableWarning` suppressed during API calls. **CSV:** media → URLs, JSON → strings.
 
 ## Auto-start
 
-`pxt.init()` spawns the server in a daemon thread (`globals.py`). On by default (like Ray).
+`pxt.init()` spawns server in a daemon thread. On by default.
 
 | Control | Effect |
 |---------|--------|
-| `pxt.init(dashboard=False)` | Disable for this session |
-| `pxt.init(dashboard=True)` | Force-start (overrides env var) |
-| `PIXELTABLE_DASHBOARD=0` | Disable via env var |
-| `PIXELTABLE_DASHBOARD_PORT=9090` | Change default port |
+| `dashboard=False` | disable this session |
+| `dashboard=True` | force-start |
+| `dashboard_port=9090` | custom port |
+| `PIXELTABLE_DASHBOARD=0` | disable via env |
+| `PIXELTABLE_DASHBOARD_PORT=N` | env port override |
 
-Port conflicts are auto-detected: reuses existing Pixeltable dashboards, picks a free
-port if occupied by another service.
+Port conflicts auto-detected. Pre-built static ships in the wheel; no Node.js needed.
 
 ## Dev
 
 ```
-cd dashboard && npm run dev    # hot reload on :5173, proxied to :8080
-npm run build                  # production build → pixeltable/dashboard/static/
-python _start_dashboard.py     # standalone backend
+cd dashboard && npm run dev   # :5173 hot reload → :8080 backend
+npm run build                 # → pixeltable/dashboard/static/
 ```

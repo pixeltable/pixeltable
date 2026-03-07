@@ -22,6 +22,11 @@ from pixeltable.catalog.table import Table
 from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.env import Env
 
+try:
+    from PIL import Image as PILImage
+except ImportError:
+    PILImage = None  # type: ignore[assignment,misc]
+
 _logger = logging.getLogger('pixeltable.dashboard')
 
 
@@ -78,6 +83,27 @@ def _extract_indices(raw_indices: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return indices
+
+
+def _format_versions(tbl: Table) -> list[dict[str, Any]]:
+    """Build a serialisable list of version dicts from a table's version history."""
+    versions: list[dict[str, Any]] = []
+    try:
+        for v in tbl.get_versions():
+            versions.append(
+                {
+                    'version': v['version'],
+                    'created_at': v['created_at'].isoformat() if v.get('created_at') else None,
+                    'change_type': v.get('change_type'),
+                    'inserts': v.get('inserts', 0),
+                    'updates': v.get('updates', 0),
+                    'deletes': v.get('deletes', 0),
+                    'errors': v.get('errors', 0),
+                }
+            )
+    except Exception:
+        pass
+    return versions
 
 
 _MEDIA_TYPES = frozenset({'image', 'video', 'audio', 'document'})
@@ -172,21 +198,17 @@ def get_directory_tree() -> list[dict[str, Any]]:
         tbl_name = parts[-1]
         parent_path = '/'.join(parts[:-1]) if len(parts) > 1 else ''
 
+        error_count = 0
         try:
             tbl = pxt.get_table(tbl_path)
             md = tbl.get_metadata()
             kind = _table_kind(md)
             version = md['version'] if kind != 'snapshot' else None
+            error_count = _version_error_total(tbl)
         except Exception as e:
             _logger.warning(f'Failed to get metadata for {tbl_path}: {e}')
             kind = 'table'
             version = None
-
-        error_count = 0
-        try:
-            error_count = _version_error_total(tbl)
-        except Exception:
-            pass
 
         table_node = {'name': tbl_name, 'path': tbl_path, 'type': kind, 'version': version, 'error_count': error_count}
 
@@ -225,23 +247,6 @@ def get_table_metadata(table_path: str) -> dict[str, Any]:
             }
         )
 
-    versions: list[dict[str, Any]] = []
-    try:
-        for v in tbl.get_versions():
-            versions.append(
-                {
-                    'version': v['version'],
-                    'created_at': v['created_at'].isoformat() if v.get('created_at') else None,
-                    'change_type': v.get('change_type'),
-                    'inserts': v.get('inserts', 0),
-                    'updates': v.get('updates', 0),
-                    'deletes': v.get('deletes', 0),
-                    'errors': v.get('errors', 0),
-                }
-            )
-    except Exception:
-        pass
-
     return {
         'path': md['path'],
         'name': md['name'],
@@ -254,7 +259,7 @@ def get_table_metadata(table_path: str) -> dict[str, Any]:
         'columns': columns,
         'indices': _extract_indices(md.get('indices', {})),
         'media_validation': md['media_validation'],
-        'versions': versions,
+        'versions': _format_versions(tbl),
     }
 
 
@@ -310,10 +315,8 @@ def get_table_data(
                 fileurl = row.get(media_url_cols.get(col_name, ''))
                 if fileurl:
                     row_data[col_name] = _resolve_fileurl(fileurl, http_address)
-                elif value is not None:
+                elif value is not None and PILImage is not None:
                     try:
-                        from PIL import Image as PILImage
-
                         if isinstance(value, PILImage.Image):
                             buf = io.BytesIO()
                             fmt = 'JPEG' if value.mode == 'RGB' else 'PNG'
@@ -648,23 +651,6 @@ def get_pipeline() -> dict[str, Any]:
                     }
                 )
 
-            versions: list[dict[str, Any]] = []
-            try:
-                for v in tbl.get_versions():
-                    versions.append(
-                        {
-                            'version': v['version'],
-                            'created_at': v['created_at'].isoformat() if v.get('created_at') else None,
-                            'change_type': v.get('change_type'),
-                            'inserts': v.get('inserts', 0),
-                            'updates': v.get('updates', 0),
-                            'deletes': v.get('deletes', 0),
-                            'errors': v.get('errors', 0),
-                        }
-                    )
-            except Exception:
-                pass
-
             base_path = md.get('base')
             is_view = md.get('is_view', False)
             iterator_type = _detect_iterator(columns) if is_view else None
@@ -680,7 +666,7 @@ def get_pipeline() -> dict[str, Any]:
                     'total_errors': table_error_total,
                     'columns': columns,
                     'indices': indices,
-                    'versions': versions,
+                    'versions': _format_versions(tbl),
                     'computed_count': len(computed_cols),
                     'insertable_count': len(columns) - len(computed_cols),
                     'iterator_type': iterator_type,

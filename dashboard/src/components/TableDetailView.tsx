@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getTableMetadata, getTableData, getPipeline } from '@/api/client'
-import { useDebounce } from '@/hooks/useApi'
+import { useDebounce } from '@/hooks/useDebounce'
 import type {
   PipelineColumn, CellError, DataRow,
   TableMetadata, TableData, DataColumn, ColumnInfo, IndexInfo, VersionInfo,
@@ -1287,7 +1287,6 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   const [pipelineColumns, setPipelineColumns] = useState<PipelineColumn[] | null>(null)
   const [pipelineData, setPipelineData] = useState<{ nodes: PipelineNodeType[]; edges: PipelineEdge[] } | null>(null)
   const [contentTab, setContentTab] = useState<'data' | 'lineage' | 'history'>('data')
-  const [totalErrors, setTotalErrors] = useState(0)
   const [searchQuery, setSearchQuery] = useState('')
   const refreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -1304,12 +1303,10 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
       .finally(() => setMetaLoading(false))
   }, [tablePath])
 
-  // Derive error count from metadata versions
-  useEffect(() => {
-    if (metadata?.versions?.length) {
-      setTotalErrors(metadata.versions.reduce((s, v) => s + v.errors, 0))
-    }
-  }, [metadata])
+  const totalErrors = useMemo(
+    () => metadata?.versions?.reduce((s, v) => s + v.errors, 0) ?? 0,
+    [metadata],
+  )
 
   // Fetch pipeline data lazily when lineage tab is opened
   useEffect(() => {
@@ -1351,7 +1348,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   // Reset on table change
   useEffect(() => {
     setPage(0); setFilters({}); setAutoRefresh(false); setErrorsOnly(false)
-    setSchemaExpanded(true); setTotalErrors(0)
+    setSchemaExpanded(true)
     setPipelineColumns(null); setPipelineData(null)
     setContentTab('data'); setSearchQuery('')
   }, [tablePath])
