@@ -19,7 +19,6 @@ import base64
 import io
 import logging
 import mimetypes
-import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -50,7 +49,8 @@ GEMINI_INLINE_VIDEO_LIMIT_BYTES = 75 * 1024**2
 _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 
 
-def _create_genai_client(
+@env.register_client('gemini')
+def _(
     api_key: str | None = None, vertexai: bool | None = None, project: str | None = None, location: str | None = None
 ) -> 'genai.client.Client':
     from google import genai
@@ -60,30 +60,15 @@ def _create_genai_client(
         kwargs['api_key'] = api_key
     if vertexai:
         kwargs['vertexai'] = True
+        # ADC auth: project/location go directly to the constructor.
+        # API-key auth: the SDK rejects project/location alongside api_key,
+        # but reads GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_LOCATION from env.
         if api_key is None:
-            # ADC auth: pass project/location directly to the constructor.
             if project is not None:
                 kwargs['project'] = project
             if location is not None:
                 kwargs['location'] = location
-        else:
-            # API-key auth: the SDK treats project/location and api_key as
-            # mutually exclusive constructor args, but reads GOOGLE_CLOUD_*
-            # env vars internally.  Propagate config values so that settings
-            # from config.toml / GEMINI_PROJECT / GEMINI_LOCATION are honoured.
-            if project is not None:
-                os.environ.setdefault('GOOGLE_CLOUD_PROJECT', project)
-            if location is not None:
-                os.environ.setdefault('GOOGLE_CLOUD_LOCATION', location)
-
     return genai.Client(**kwargs)
-
-
-@env.register_client('gemini')
-def _(
-    api_key: str | None = None, vertexai: bool | None = None, project: str | None = None, location: str | None = None
-) -> 'genai.client.Client':
-    return _create_genai_client(api_key=api_key, vertexai=vertexai, project=project, location=location)
 
 
 def _genai_client() -> 'genai.client.Client':
