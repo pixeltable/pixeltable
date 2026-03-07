@@ -49,7 +49,7 @@ jobs:
           - "datasets boto3 openpyxl tiktoken pymupdf mistune spacy 'markitdown[pptx,docx,xlsx]'"
           - "label_studio_sdk"
           - "pixeltable-yolox"
-          - "'whisperx>=3.7.4' timm"
+          - "'whisperx>=3.7.4' 'transformers<5' timm"
         os: [ubuntu-24.04]
         include:
           # Test the basic pixeltable installation on other platforms.
