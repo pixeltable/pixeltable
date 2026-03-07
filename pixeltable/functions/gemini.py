@@ -53,6 +53,10 @@ _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 def _(
     api_key: str | None = None, vertexai: bool | None = None, project: str | None = None, location: str | None = None
 ) -> 'genai.client.Client':
+    """Resolved from GEMINI_API_KEY / GEMINI_VERTEXAI / GEMINI_PROJECT / GEMINI_LOCATION
+    env vars (or [gemini] section of config.toml) by the register_client machinery.
+    The SDK also reads the standard GOOGLE_CLOUD_* / GOOGLE_GENAI_USE_VERTEXAI env vars
+    on its own, so users who already have those set don't need GEMINI_* equivalents."""
     from google import genai
 
     kwargs: dict[str, Any] = {}
@@ -60,9 +64,10 @@ def _(
         kwargs['api_key'] = api_key
     if vertexai:
         kwargs['vertexai'] = True
-        # ADC auth: project/location go directly to the constructor.
-        # API-key auth: the SDK rejects project/location alongside api_key,
-        # but reads GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_LOCATION from env.
+        # Only pass project/location for ADC (no api_key).  The SDK constructor
+        # raises ValueError when both api_key and project/location are given;
+        # with an API key it reads GOOGLE_CLOUD_PROJECT / GOOGLE_CLOUD_LOCATION
+        # from the environment instead.
         if api_key is None:
             if project is not None:
                 kwargs['project'] = project
