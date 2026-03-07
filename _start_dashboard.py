@@ -7,6 +7,7 @@ Usage:
   # or just:
   python _start_dashboard.py   (uses ~/.pixeltable by default)
 """
+
 import os
 import sys
 import time
@@ -20,6 +21,7 @@ else:
     print('Using default PIXELTABLE_HOME (~/.pixeltable)')
 
 import pixeltable as pxt
+
 pxt.init()
 
 print(f'\nDashboard: http://localhost:8080')

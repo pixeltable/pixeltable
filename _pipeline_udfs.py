@@ -2,6 +2,7 @@
 Complex pipeline UDFs — vision, NLP, and agent chains.
 Must live in a named module (not __main__) for Pixeltable >= 0.5.20.
 """
+
 import pixeltable as pxt
 import json
 import hashlib
@@ -9,6 +10,7 @@ import numpy as np
 
 
 # ── Embedding UDF (lightweight mock for indexing) ────────────────────────────
+
 
 @pxt.udf
 def mock_embed(text: str) -> pxt.Array[(8,), pxt.Float]:
@@ -23,6 +25,7 @@ def mock_embed(text: str) -> pxt.Array[(8,), pxt.Float]:
 
 
 # ── Vision UDFs ──────────────────────────────────────────────────────────────
+
 
 @pxt.udf
 def detect_objects(image_url: str) -> pxt.Json:
@@ -95,6 +98,7 @@ def classify_action(pose_label: str, scene_type: str) -> str:
 
 # ── NLP UDFs ─────────────────────────────────────────────────────────────────
 
+
 @pxt.udf
 def detect_language(body: str) -> str:
     if any(c > '\u4e00' for c in body[:50]):
@@ -107,7 +111,9 @@ def detect_language(body: str) -> str:
 @pxt.udf
 def analyze_sentiment(body: str) -> str:
     lower = body.lower()
-    pos = sum(1 for w in ['great', 'excellent', 'amazing', 'wonderful', 'love', 'best', 'fantastic', 'powerful'] if w in lower)
+    pos = sum(
+        1 for w in ['great', 'excellent', 'amazing', 'wonderful', 'love', 'best', 'fantastic', 'powerful'] if w in lower
+    )
     neg = sum(1 for w in ['bad', 'terrible', 'awful', 'hate', 'worst', 'poor', 'boring', 'fails'] if w in lower)
     return 'positive' if pos > neg else ('negative' if neg > pos else 'neutral')
 
@@ -132,7 +138,17 @@ def summarize_text(body: str) -> str:
 def classify_topic(title: str, body: str) -> str:
     text = (title + ' ' + body).lower()
     topics = {
-        'technology': ['ai', 'machine learning', 'data', 'software', 'algorithm', 'model', 'neural', 'pixeltable', 'compute'],
+        'technology': [
+            'ai',
+            'machine learning',
+            'data',
+            'software',
+            'algorithm',
+            'model',
+            'neural',
+            'pixeltable',
+            'compute',
+        ],
         'science': ['research', 'experiment', 'hypothesis', 'study', 'discovery', 'physics', 'biology'],
         'business': ['revenue', 'market', 'startup', 'invest', 'growth', 'company', 'profit'],
         'health': ['medical', 'patient', 'treatment', 'health', 'clinical', 'disease'],
@@ -171,6 +187,7 @@ def extract_phrases(summary: str, entities_json: pxt.Json) -> pxt.Json:
 
 
 # ── Agent UDFs ───────────────────────────────────────────────────────────────
+
 
 @pxt.udf
 def parse_intent(instruction: str) -> str:

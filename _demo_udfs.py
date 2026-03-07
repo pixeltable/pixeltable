@@ -1,4 +1,5 @@
 """UDFs for the multimodal demo — must live in a named module (not __main__)."""
+
 import pixeltable as pxt
 
 
