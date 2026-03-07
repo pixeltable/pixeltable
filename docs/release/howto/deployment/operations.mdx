@@ -225,33 +225,54 @@ Because both columns coexist, you can A/B test retrieval quality before cutting 
 - Pixeltable uses connection pooling internally
 - Use sync (`def`) endpoint handlers for concurrent request support
 
-<Card title="App Template" icon="github" href="https://github.com/pixeltable/pixeltable-app-template">
-  Clone a working FastAPI + React app with multimodal upload, search, and agent endpoints already configured.
+<Card title="Pixeltable Starter Kit" icon="github" href="https://github.com/pixeltable/pixeltable-starter-kit">
+  Clone a production-ready FastAPI + React app with multimodal upload, search, and agent endpoints — plus deployment configs for Docker Compose, Helm, Terraform, and AWS CDK.
 </Card>
 
-**Batch Processing:**
+**Batch Processing / Orchestration Pipeline:**
 - Schedule via `cron`, Airflow, AWS EventBridge, GCP Cloud Scheduler
 - Isolate batch workloads from real-time serving (separate containers/instances)
 - Use Pixeltable's incremental computation to process only new data
+- The starter kit includes an [orchestration pipeline](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/pipeline) example that uses `export_sql` and the `destination` parameter for ephemeral batch processing
 
 **Containers:**
 - Docker provides reproducible builds across environments
-- **Full Backend:** Mount persistent volume at `~/.pixeltable`
+- **Full Backend:** Mount persistent volume at `~/.pixeltable` (or set `PIXELTABLE_HOME`)
 - **Kubernetes:** Use `ReadWriteOnce` PVC (single-pod write access)
 - Docker Compose or Kubernetes for multi-container deployments
+- The starter kit includes a [multi-stage Dockerfile](https://github.com/pixeltable/pixeltable-starter-kit/blob/main/Dockerfile) and ready-to-use deployment configs:
+
+| Method | Directory | Use case |
+|---|---|---|
+| **Docker Compose** | [root](https://github.com/pixeltable/pixeltable-starter-kit/blob/main/docker-compose.yml) | Local / single server |
+| **Helm** | [`deploy/helm/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/deploy/helm) | Any existing K8s cluster |
+| **Terraform (EKS)** | [`deploy/terraform-k8s/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/deploy/terraform-k8s) | AWS from scratch |
+| **Terraform (GKE)** | [`deploy/terraform-gke/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/deploy/terraform-gke) | GCP from scratch |
+| **Terraform (AKS)** | [`deploy/terraform-aks/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/deploy/terraform-aks) | Azure from scratch |
+| **AWS CDK** | [`deploy/aws-cdk/`](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/deploy/aws-cdk) | ECS Fargate + EFS |
 
 ```dockerfile
-# Dockerfile for Pixeltable application
-FROM python:3.11-slim
+# Multi-stage Dockerfile (from the starter kit)
+FROM node:20-slim AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
 
+FROM python:3.12-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential libpq-dev curl && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-# Initialize schema and start application
-CMD python setup_pixeltable.py && uvicorn app:app --host 0.0.0.0
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv sync --frozen --no-dev --python /usr/local/bin/python3
+COPY backend/ ./
+COPY --from=frontend-build /app/backend/static ./static
+ENV PIXELTABLE_HOME=/data/pixeltable
+EXPOSE 8000
+CMD ["sh", "-c", "uv run python setup_pixeltable.py && uv run uvicorn main:app --host 0.0.0.0 --port 8000 --workers 4"]
 ```
 
 ## Environment Management

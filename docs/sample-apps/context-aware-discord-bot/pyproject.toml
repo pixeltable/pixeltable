@@ -1,0 +1,12 @@
+[project]
+name = "context-aware-discord-bot"
+version = "0.1.0"
+description = "Discord bot with incremental RAG powered by Pixeltable"
+requires-python = ">=3.10"
+dependencies = [
+    "pixeltable>=0.4",
+    "discord.py>=2.0",
+    "openai>=1.0",
+    "python-dotenv",
+    "sentence-transformers",
+]
