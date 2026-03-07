@@ -1,5 +1,6 @@
+import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
@@ -17,6 +18,95 @@ from ..utils import (
     validate_update_status,
 )
 from .tool_utils import run_tool_invocations_test
+
+
+class TestGeminiClientFactory:
+    """Unit tests for the Gemini client factory (no remote API calls)."""
+
+    def setup_method(self) -> None:
+        skip_test_if_not_installed('google.genai')
+
+    @patch.dict(os.environ, {}, clear=False)
+    @patch('google.genai.Client')
+    def test_api_key_auth(self, mock_client_cls: MagicMock) -> None:
+        """API-key-only via explicit api_key argument; Vertex env vars are absent."""
+        os.environ.pop('GOOGLE_GENAI_USE_VERTEXAI', None)
+        os.environ.pop('GOOGLE_CLOUD_PROJECT', None)
+        os.environ.pop('GOOGLE_CLOUD_LOCATION', None)
+
+        from pixeltable.functions.gemini import _create_genai_client
+
+        _create_genai_client('my-api-key')
+        mock_client_cls.assert_called_once_with(api_key='my-api-key')
+
+    @patch.dict(os.environ, {}, clear=False)
+    @patch('google.genai.Client')
+    def test_vertex_with_api_key_propagates_env(self, mock_client_cls: MagicMock) -> None:
+        """Vertex AI + API key: project/location are propagated to GOOGLE_CLOUD_*
+        env vars (not passed as constructor args, since the SDK rejects both)."""
+        os.environ.pop('GOOGLE_GENAI_USE_VERTEXAI', None)
+        os.environ.pop('GOOGLE_CLOUD_PROJECT', None)
+        os.environ.pop('GOOGLE_CLOUD_LOCATION', None)
+
+        from pixeltable.functions.gemini import _create_genai_client
+
+        _create_genai_client(api_key='my-key', vertexai=True, project='pxt-proj', location='europe-west1')
+        mock_client_cls.assert_called_once_with(api_key='my-key', vertexai=True)
+        assert os.environ['GOOGLE_CLOUD_PROJECT'] == 'pxt-proj'
+        assert os.environ['GOOGLE_CLOUD_LOCATION'] == 'europe-west1'
+
+    @patch.dict(
+        os.environ,
+        {
+            'GOOGLE_GENAI_USE_VERTEXAI': 'True',
+            'GOOGLE_CLOUD_PROJECT': 'my-project',
+            'GOOGLE_CLOUD_LOCATION': 'us-central1',
+        },
+    )
+    @patch('google.genai.Client')
+    def test_vertex_api_key_does_not_override_existing_env(self, mock_client_cls: MagicMock) -> None:
+        """Vertex AI + API key: existing GOOGLE_CLOUD_* env vars are NOT overwritten."""
+        from pixeltable.functions.gemini import _create_genai_client
+
+        _create_genai_client('my-api-key', vertexai=True, project='other-proj', location='other-loc')
+        mock_client_cls.assert_called_once_with(api_key='my-api-key', vertexai=True)
+        assert os.environ['GOOGLE_CLOUD_PROJECT'] == 'my-project'
+        assert os.environ['GOOGLE_CLOUD_LOCATION'] == 'us-central1'
+
+    @patch.dict(os.environ, {'GOOGLE_GENAI_USE_VERTEXAI': 'True', 'GOOGLE_CLOUD_PROJECT': 'my-project'})
+    @patch('google.genai.Client')
+    def test_vertex_adc_without_api_key(self, mock_client_cls: MagicMock) -> None:
+        """Vertex AI ADC (no API key): project/location ARE passed to the constructor."""
+        os.environ.pop('GOOGLE_CLOUD_LOCATION', None)
+
+        from pixeltable.functions.gemini import _create_genai_client
+
+        _create_genai_client(None)
+        mock_client_cls.assert_called_once_with(vertexai=True, project='my-project')
+
+    @patch.dict(
+        os.environ,
+        {'GOOGLE_GENAI_USE_VERTEXAI': 'True', 'GOOGLE_CLOUD_PROJECT': 'env-proj', 'GOOGLE_CLOUD_LOCATION': 'env-loc'},
+    )
+    @patch('google.genai.Client')
+    def test_vertex_adc_params_override_google_env(self, mock_client_cls: MagicMock) -> None:
+        """ADC mode: Pixeltable config params take priority over Google env vars."""
+        from pixeltable.functions.gemini import _create_genai_client
+
+        _create_genai_client(api_key=None, vertexai=True, project='cfg-proj', location='cfg-loc')
+        mock_client_cls.assert_called_once_with(vertexai=True, project='cfg-proj', location='cfg-loc')
+
+    @patch.dict(os.environ, {}, clear=False)
+    def test_no_credentials_raises(self) -> None:
+        """Neither API key nor Vertex AI configured -> clear error."""
+        os.environ.pop('GOOGLE_GENAI_USE_VERTEXAI', None)
+        os.environ.pop('GOOGLE_CLOUD_PROJECT', None)
+        os.environ.pop('GOOGLE_CLOUD_LOCATION', None)
+
+        from pixeltable.functions.gemini import _create_genai_client
+
+        with pytest.raises(pxt.Error, match=r'neither.*api_key.*nor.*Vertex AI'):
+            _create_genai_client()
 
 
 @pytest.mark.remote_api

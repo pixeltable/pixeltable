@@ -27,6 +27,14 @@ tts-1 = 500  # OpenAI uses a per-model rate limit configuration (see below for d
 api_key = 'my-mistral-api-key'
 rate_limit = 600  # Mistral uses a single rate limit for all models
 
+[gemini]
+# Google AI Studio (API key auth):
+api_key = 'my-gemini-api-key'
+# Vertex AI (ADC auth) — replace the above with the following:
+# vertexai = true
+# project = 'my-gcp-project'
+# location = 'us-central1'
+
 [label_studio]
 url = 'http://localhost:8080/'
 api_key = 'my-label-studio-api-key'
@@ -63,7 +71,10 @@ api_key = 'my-label-studio-api-key'
 | DEEPSEEK_API_KEY | [deepseek]<br/>api_key | (string) API key to use for Deepseek services |
 | FAL_API_KEY | [fal]<br/>api_key | (string) API key to use for fal.ai services |
 | FIREWORKS_API_KEY | [fireworks]<br/>api_key | (string) API key to use for Fireworks AI services |
-| GEMINI_API_KEY | [gemini]<br/>api_key | (string) API key to use for Google Gemini services |
+| GEMINI_API_KEY | [gemini]<br/>api_key | (string, optional) API key to use for Google Gemini services. Required unless Vertex AI mode is enabled. |
+| GEMINI_VERTEXAI | [gemini]<br/>vertexai | (bool, optional) Set to `true` to use Vertex AI instead of Google AI Studio. Also accepts `GOOGLE_GENAI_USE_VERTEXAI`. |
+| GEMINI_PROJECT | [gemini]<br/>project | (string, optional) Google Cloud project ID for Vertex AI. Also accepts `GOOGLE_CLOUD_PROJECT`. |
+| GEMINI_LOCATION | [gemini]<br/>location | (string, optional) Google Cloud location for Vertex AI (e.g. `us-central1`). Also accepts `GOOGLE_CLOUD_LOCATION`. |
 | GROQ_API_KEY | [groq]<br/>api_key | (string) API key to use for Groq AI services |
 | HF_AUTH_TOKEN | [hf]<br/>auth_token | (string) Hugging Face auth token for use with Hugging Face services |
 | LABEL_STUDIO_API_KEY | [label_studio]<br/>api_key | (string) API key to use for Label Studio |

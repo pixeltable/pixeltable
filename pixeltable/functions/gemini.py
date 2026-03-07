@@ -3,6 +3,13 @@ Pixeltable UDFs
 that wrap various endpoints from the Google Gemini API. In order to use them, you must
 first `pip install google-genai` and configure your Gemini credentials, as described in
 the [Working with Gemini](https://docs.pixeltable.com/notebooks/integrations/working-with-gemini) tutorial.
+
+Two authentication modes are supported:
+
+- **API key** (Google AI Studio): set `GEMINI_API_KEY`.
+- **Vertex AI**: set `GOOGLE_GENAI_USE_VERTEXAI=True` and configure your Google Cloud project
+  via `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` (defaults to ``us-central1``).
+  An API key is optional when Application Default Credentials (ADC) are available.
 """
 
 import asyncio
@@ -10,6 +17,7 @@ import base64
 import io
 import logging
 import mimetypes
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -40,11 +48,56 @@ GEMINI_INLINE_VIDEO_LIMIT_BYTES = 75 * 1024**2
 _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 
 
-@env.register_client('gemini')
-def _(api_key: str) -> 'genai.client.Client':
+def _create_genai_client(
+    api_key: str | None = None, vertexai: bool | None = None, project: str | None = None, location: str | None = None
+) -> 'genai.client.Client':
     from google import genai
 
-    return genai.client.Client(api_key=api_key)
+    # Fall back to standard Google env vars when the Pixeltable config system
+    # didn't resolve them (i.e. when GEMINI_VERTEXAI etc. are not set).
+    if vertexai is None:
+        vertexai = os.environ.get('GOOGLE_GENAI_USE_VERTEXAI', '').lower() in ('true', '1')
+    if project is None:
+        project = os.environ.get('GOOGLE_CLOUD_PROJECT')
+    if location is None:
+        location = os.environ.get('GOOGLE_CLOUD_LOCATION')
+
+    kwargs: dict[str, Any] = {}
+    if api_key is not None:
+        kwargs['api_key'] = api_key
+    if vertexai:
+        kwargs['vertexai'] = True
+        if api_key is None:
+            # ADC auth: pass project/location directly to the constructor.
+            if project is not None:
+                kwargs['project'] = project
+            if location is not None:
+                kwargs['location'] = location
+        else:
+            # API-key auth: the SDK treats project/location and api_key as
+            # mutually exclusive constructor args, but reads GOOGLE_CLOUD_*
+            # env vars internally.  Propagate config values so that settings
+            # from config.toml / GEMINI_PROJECT / GEMINI_LOCATION are honoured.
+            if project is not None:
+                os.environ.setdefault('GOOGLE_CLOUD_PROJECT', project)
+            if location is not None:
+                os.environ.setdefault('GOOGLE_CLOUD_LOCATION', location)
+    elif api_key is None:
+        raise excs.Error(
+            '`gemini` client not initialized: neither `api_key` nor Vertex AI mode is configured.\n'
+            'To fix this, set the `GEMINI_API_KEY` environment variable or `[gemini].api_key` in\n'
+            '$PIXELTABLE_HOME/config.toml for API key auth, or enable Vertex AI via\n'
+            '`GEMINI_VERTEXAI=True` / `GOOGLE_GENAI_USE_VERTEXAI=True` (or `[gemini].vertexai` in config.toml).'
+        )
+
+    return genai.Client(**kwargs)
+
+
+@env.register_client('gemini')
+def _(
+    api_key: str | None = None, vertexai: bool | None = None, project: str | None = None, location: str | None = None
+) -> 'genai.client.Client':
+    return _create_genai_client(api_key=api_key, vertexai=vertexai, project=project, location=location)
 
 
 def _genai_client() -> 'genai.client.Client':
@@ -146,7 +199,7 @@ async def generate_content(
             await _poll_until_active(async_client=client.aio, uploaded=uploaded, video_paths=large_video_paths)
             contents = _replace_upload_placeholders(contents, uploaded)
         response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
-        return response.model_dump()
+        return response.model_dump(mode='json')
     finally:
         if uploaded:
             await asyncio.gather(*[client.aio.files.delete(name=f.name) for f in uploaded], return_exceptions=True)
