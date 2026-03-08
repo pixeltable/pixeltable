@@ -5,6 +5,7 @@ import pixeltable as pxt
 from pixeltable.functions.video import frame_iterator
 from pixeltable.functions.vision import bboxes_draw, bboxes_resize, eval_detections, mean_ap, overlay_segmentation
 from pixeltable.functions.yolox import yolox
+
 from ..utils import get_image_files, get_video_files, skip_test_if_not_installed, validate_update_status
 
 
@@ -160,10 +161,31 @@ class TestVision:
 
             # height
             res = t.select(out=bboxes_resize(t.bboxes, fmt, height=100)).collect()
+            assert all(get_h(b, fmt) == 100 for b in res['out'][0])
+            assert all(
+                get_aspect(b1, fmt) == pytest.approx(get_aspect(b2, fmt), rel=0.01)
+                for b1, b2 in zip(input_bboxes, res['out'][0])
+            )
+
+            # aspect 16:9 crop
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect='16:9', aspect_mode='crop')).collect()
+            assert all(get_aspect(b, fmt) == pytest.approx(16 / 9, abs=1) for b in res['out'][0])
+            assert all(crop_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
+
+            # aspect 9:16 pad
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect='9:16', aspect_mode='pad')).collect()
+            assert all(get_aspect(b, fmt) == pytest.approx(9 / 16, abs=1) for b in res['out'][0])
+            assert all(pad_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
+
+            # aspect_f 16/9 crop
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=16 / 9, aspect_mode='crop')).collect()
+            assert all(get_aspect(b, fmt) == pytest.approx(16 / 9, abs=1) for b in res['out'][0])
+            assert all(crop_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
+
+            # aspect_f 9/16 pad
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=9 / 16, aspect_mode='pad')).collect()
+            assert all(get_aspect(b, fmt) == pytest.approx(9 / 16, abs=1) for b in res['out'][0])
+            assert all(pad_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
             pxt.drop_table(t)
 
@@ -171,12 +193,39 @@ class TestVision:
             t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
+            # width_f
             res = t.select(out=bboxes_resize(t.bboxes, fmt, width_f=0.2)).collect()
+            assert all(get_w(b, fmt) == pytest.approx(0.2) for b in res['out'][0])
+            assert all(
+                get_aspect(b1, fmt) == pytest.approx(get_aspect(b2, fmt)) for b1, b2 in zip(input_bboxes, res['out'][0])
+            )
+
+            # height_f
             res = t.select(out=bboxes_resize(t.bboxes, fmt, height_f=0.3)).collect()
+            assert all(get_h(b, fmt) == pytest.approx(0.3) for b in res['out'][0])
+            assert all(
+                get_aspect(b1, fmt) == pytest.approx(get_aspect(b2, fmt)) for b1, b2 in zip(input_bboxes, res['out'][0])
+            )
+
+            # aspect 16:9 crop (relative)
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect='16:9', aspect_mode='crop')).collect()
+            assert all(get_aspect(b, fmt) == pytest.approx(16 / 9) for b in res['out'][0])
+            assert all(crop_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
+
+            # aspect 9:16 pad (relative)
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect='9:16', aspect_mode='pad')).collect()
+            assert all(get_aspect(b, fmt) == pytest.approx(9 / 16) for b in res['out'][0])
+            assert all(pad_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
+
+            # aspect_f 16/9 crop (relative)
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=16 / 9, aspect_mode='crop')).collect()
+            assert all(get_aspect(b, fmt) == pytest.approx(16 / 9) for b in res['out'][0])
+            assert all(crop_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
+
+            # aspect_f 9/16 pad (relative)
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=9 / 16, aspect_mode='pad')).collect()
+            assert all(get_aspect(b, fmt) == pytest.approx(9 / 16) for b in res['out'][0])
+            assert all(pad_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
             pxt.drop_table(t)
 
@@ -302,3 +351,13 @@ def get_h(box: list, fmt: str) -> int | float:
 
 def get_aspect(box: list, fmt: str) -> float:
     return get_w(box, fmt) / get_h(box, fmt)
+
+
+def crop_invariant(b_in: list, b_out: list, fmt: str) -> bool:
+    """Crop: no dimension grows. Allows +1 tolerance for rounding."""
+    return get_w(b_out, fmt) <= get_w(b_in, fmt) + 1 and get_h(b_out, fmt) <= get_h(b_in, fmt) + 1
+
+
+def pad_invariant(b_in: list, b_out: list, fmt: str) -> bool:
+    """Pad: no dimension shrinks. Allows -1 tolerance for rounding."""
+    return get_w(b_out, fmt) >= get_w(b_in, fmt) - 1 and get_h(b_out, fmt) >= get_h(b_in, fmt) - 1
