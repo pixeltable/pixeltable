@@ -3,7 +3,14 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.functions.video import frame_iterator
-from pixeltable.functions.vision import bboxes_draw, bboxes_resize, eval_detections, mean_ap, overlay_segmentation
+from pixeltable.functions.vision import (
+    bboxes_convert,
+    bboxes_draw,
+    bboxes_resize,
+    eval_detections,
+    mean_ap,
+    overlay_segmentation,
+)
 from pixeltable.functions.yolox import yolox
 
 from ..utils import get_image_files, get_video_files, skip_test_if_not_installed, validate_update_status
@@ -237,6 +244,10 @@ class TestVision:
         with pytest.raises(pxt.Error, match='Exactly one of'):
             t.select(bboxes_resize(t.bboxes, 'xyxy')).collect()
 
+        # invalid format
+        with pytest.raises(pxt.Error, match='Invalid format'):
+            t.select(bboxes_resize(t.bboxes, 'coco', width=50)).collect()
+
         # multiple size parameters
         with pytest.raises(pxt.Error, match='Exactly one of'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=50, height=50)).collect()
@@ -276,6 +287,79 @@ class TestVision:
         t_bad.insert([{'bboxes': [[100, 100, 200]]}])
         with pytest.raises(pxt.Error, match='exactly 4 coordinates'):
             t_bad.select(bboxes_resize(t_bad.bboxes, 'xyxy', width=50)).collect()
+
+    def test_bboxes_convert(self, uses_db: None) -> None:
+        abs_boxes = [
+            (150, 200, 100, 200),
+            (200, 100, 400, 200),
+            (50, 50, 40, 60),
+            (300, 300, 200, 100),
+            (100, 100, 80, 80),
+        ]
+        rel_boxes = [
+            (0.3, 0.5, 0.4, 0.6),
+            (0.5, 0.5, 0.2, 0.2),
+            (0.7, 0.3, 0.1, 0.4),
+            (0.2, 0.8, 0.3, 0.1),
+            (0.9, 0.1, 0.1, 0.1),
+        ]
+
+        formats = ['xyxy', 'xywh', 'cxcywh']
+
+        for boxes, label in [(abs_boxes, 'abs'), (rel_boxes, 'rel')]:
+            for src_fmt in formats:
+                input_bboxes = [convert_fmt(*b, src_fmt) for b in boxes]
+                t = pxt.create_table(f'convert_{label}', {'bboxes': pxt.Json})
+                validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
+
+                # identity: same format returns input unchanged
+                res = t.select(out=bboxes_convert(t.bboxes, src_format=src_fmt, dst_format=src_fmt)).collect()
+                assert res['out'][0] == input_bboxes
+
+                for dst_fmt in formats:
+                    if dst_fmt == src_fmt:
+                        continue
+
+                    # convert src -> dst
+                    res = t.select(out=bboxes_convert(t.bboxes, src_format=src_fmt, dst_format=dst_fmt)).collect()
+                    converted = res['out'][0]
+
+                    # width and height preserved
+                    assert all(
+                        get_w(b_out, dst_fmt) == pytest.approx(get_w(b_in, src_fmt), abs=1e-9)
+                        for b_in, b_out in zip(input_bboxes, converted)
+                    )
+                    assert all(
+                        get_h(b_out, dst_fmt) == pytest.approx(get_h(b_in, src_fmt), abs=1e-9)
+                        for b_in, b_out in zip(input_bboxes, converted)
+                    )
+
+                    # round-trip: convert back dst -> src, should match original
+                    res_rt = t.select(
+                        out=bboxes_convert(
+                            bboxes_convert(t.bboxes, src_format=src_fmt, dst_format=dst_fmt),
+                            src_format=dst_fmt,
+                            dst_format=src_fmt,
+                        )
+                    ).collect()
+                    assert all(
+                        all(v_rt == pytest.approx(v_in, abs=1e-9) for v_in, v_rt in zip(b_in, b_rt))
+                        for b_in, b_rt in zip(input_bboxes, res_rt['out'][0])
+                    )
+
+                pxt.drop_table(t)
+
+    def test_bboxes_convert_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('convert_err', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='Invalid src_format'):
+            t.select(bboxes_convert(t.bboxes, src_format='coco', dst_format='xyxy')).collect()
+        with pytest.raises(pxt.Error, match='Invalid dst_format'):
+            t.select(bboxes_convert(t.bboxes, src_format='xyxy', dst_format='coco')).collect()
+        t.delete()
+
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+
 
     def test_overlay_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')

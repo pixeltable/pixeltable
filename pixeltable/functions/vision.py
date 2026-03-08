@@ -425,15 +425,23 @@ def bboxes_draw(
     return img_to_draw
 
 
-# The desired signature:
-# bbox: list[int, int, int, int] | list[float, float, float, float], src_format: str, dst_format: str
+def _validate_bboxes(bboxes: list, error_prefix: str) -> bool:
+    """Check that bboxes are either all int or all float. Return True for absolute, False for relative."""
+    is_absolute = all(isinstance(x, int) for x in itertools.chain.from_iterable(bboxes))
+    is_relative = all(isinstance(x, float) for x in itertools.chain.from_iterable(bboxes))
+    if not (is_absolute or is_relative):
+        raise pxt.Error(f'{error_prefix}: bounding box coordinates must be either all int or all float')
+    if not all(len(b) == 4 for b in bboxes):
+        raise pxt.Error(f'{error_prefix}: each bounding box must have exactly 4 coordinates')
+    return is_absolute
+
 @pxt.udf
 def bboxes_convert(
-    bboxes: list[list[int | float]],
+    bboxes: list,  # should be list[list[int | float]]
     *,
     src_format: Literal['xyxy', 'xywh', 'cxcywh'],
     dst_format: Literal['xyxy', 'xywh', 'cxcywh'],
-) -> list[list[int | float]]:
+) -> list:
     """
     Convert a list of bounding boxes from src_format to dst_format.
 
@@ -453,10 +461,9 @@ def bboxes_convert(
     if dst_format not in ['xyxy', 'xywh', 'cxcywh']:
         raise pxt.Error(f'Invalid dst_format: {dst_format!r}')
 
+    _ = _validate_bboxes(bboxes, 'bboxes_convert()')
     arr = np.array(bboxes)
-    if arr.ndim != 2 or arr.shape[1] != 4:
-        raise pxt.Error(f'Expected Nx4 array of bounding boxes, got shape {arr.shape}')
-
+    assert arr.ndim == 2 and arr.shape[1] == 4
     c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
 
     x1: np.ndarray
@@ -512,7 +519,7 @@ def bboxes_resize(
     aspect: str | None = None,
     aspect_f: float | None = None,
     aspect_mode: str | None = None,  # should be Literal['crop', 'pad'] | None
-) -> list[list[int | float]]:
+) -> list:
     """
     Resize a list of bounding boxes (center-anchored):
 
@@ -561,16 +568,9 @@ def bboxes_resize(
     if not has_aspect and aspect_mode is not None:
         raise pxt.Error('aspect_mode is only valid when aspect is specified')
 
-    # check that bboxes are either all int or all float
-    is_absolute = all(isinstance(x, int) for x in itertools.chain.from_iterable(bboxes))
-    is_relative = all(isinstance(x, float) for x in itertools.chain.from_iterable(bboxes))
-    if not (is_absolute or is_relative):
-        raise pxt.Error('Bounding box coordinates must be either all int or all float')
-    if not all(len(b) == 4 for b in bboxes):
-        raise pxt.Error('Each bounding box must have exactly 4 coordinates')
+    is_absolute = _validate_bboxes(bboxes, 'bboxes_resize()')
     arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4
-
     c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
 
     # Convert to cx, cy, w, h
@@ -653,7 +653,7 @@ def bboxes_scale(
     factor: float | None = None,
     x_factor: float | None = None,
     y_factor: float | None = None,
-) -> list[list[int | float]]:
+) -> list:
     """
     Re-scale a list of bounding boxes (center-anchored).
 
@@ -668,7 +668,7 @@ def bboxes_scale(
     Returns:
         List of scaled bounding boxes in the same format as the input.
     """
-    pass
+    return []
 
 
 @pxt.udf
@@ -682,7 +682,7 @@ def bboxes_pad(
     right: int | None = None,
     x: int | None = None,
     y: int | None = None,
-) -> list[list[int | float]]:
+) -> list:
     """
     Pad a list of bounding boxes.
 
@@ -700,7 +700,7 @@ def bboxes_pad(
     Returns:
         List of padded bounding boxes in the same format as the input.
     """
-    pass
+    return []
 
 
 @pxt.udf
@@ -712,7 +712,7 @@ def bboxes_clip_to_canvas(
     height: int | None = None,
     min_visibility: float = 0.0,
     min_area: float = 0.0,
-) -> list[list[int | float]]:
+) -> list:
     """
     Clip a list of bounding boxes to a canvas of specified size.
 
@@ -729,7 +729,7 @@ def bboxes_clip_to_canvas(
     Returns:
         List of clipped bounding boxes in the same format as the input.
     """
-    pass
+    return []
 
 
 @pxt.udf
@@ -741,7 +741,7 @@ def bboxes_crop_canvas(
     canvas_height: int | None = None,
     canvas_region: list,
     canvas_region_format: Literal['xyxy', 'xywh', 'cxcywh'],
-) -> list[list[int | float]]:
+) -> list:
     """
     Adjust a list of bounding boxes to account for a canvas crop.
 
@@ -758,7 +758,7 @@ def bboxes_crop_canvas(
     Returns:
         List of adjusted bounding boxes in the same format as the input. They can extend beyond the canvas boundaries.
     """
-    pass
+    return []
 
 
 @pxt.udf
@@ -773,7 +773,7 @@ def bboxes_resize_canvas(
     canvas_scale_y: float | None = None,
     canvas_width: int | None = None,
     canvas_height: int | None = None,
-) -> list[list[int | float]]:
+) -> list:
     """
     Adjust a list of bounding boxes to account for a canvas resize. The resize operation can be expressed
 
@@ -795,7 +795,7 @@ def bboxes_resize_canvas(
     Returns:
         List of adjusted bounding boxes in the same format as the input.
     """
-    pass
+    return []
 
 
 def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
