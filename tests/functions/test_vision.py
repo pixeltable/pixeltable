@@ -1,3 +1,5 @@
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -12,7 +14,6 @@ from pixeltable.functions.vision import (
     overlay_segmentation,
 )
 from pixeltable.functions.yolox import yolox
-
 from ..utils import get_image_files, get_video_files, skip_test_if_not_installed, validate_update_status
 
 
@@ -276,17 +277,8 @@ class TestVision:
         with pytest.raises(pxt.Error, match='aspect_mode is only valid'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=50, aspect_mode='crop')).collect()
 
-        # mixed int/float coordinates
-        t_mixed = pxt.create_table('bbox_mixed', {'bboxes': pxt.Json})
-        t_mixed.insert([{'bboxes': [[100, 100.0, 200, 300]]}])
-        with pytest.raises(pxt.Error, match='either all int or all float'):
-            t_mixed.select(bboxes_resize(t_mixed.bboxes, 'xyxy', width=50)).collect()
+        self._test_bbox_validation(t, bboxes_resize(t.bboxes, 'xyxy', width=50))
 
-        # wrong number of coordinates
-        t_bad = pxt.create_table('bbox_bad', {'bboxes': pxt.Json})
-        t_bad.insert([{'bboxes': [[100, 100, 200]]}])
-        with pytest.raises(pxt.Error, match='exactly 4 coordinates'):
-            t_bad.select(bboxes_resize(t_bad.bboxes, 'xyxy', width=50)).collect()
 
     def test_bboxes_convert(self, uses_db: None) -> None:
         abs_boxes = [
@@ -358,8 +350,27 @@ class TestVision:
             t.select(bboxes_convert(t.bboxes, src_format='xyxy', dst_format='coco')).collect()
         t.delete()
 
-        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        self._test_bbox_validation(t, bboxes_convert(t.bboxes, src_format='xyxy', dst_format='xywh'))
 
+    def _test_bbox_validation(self, t: pxt.Table, udf_call: Any) -> None:
+        """Test that the bboxes parameter gets validated."""
+        # Mixed int/float within a single box
+        t.insert([{'bboxes': [[10, 20.0, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='either all int or all float'):
+            t.select(udf_call).collect()
+        t.delete()
+
+        # Mixed absolute/relative across boxes
+        t.insert([{'bboxes': [[10, 20, 30, 40], [0.1, 0.2, 0.3, 0.4]]}])
+        with pytest.raises(pxt.Error, match='either all int or all float'):
+            t.select(udf_call).collect()
+        t.delete()
+
+        # Wrong coordinate count
+        t.insert([{'bboxes': [[10, 20, 30]]}])
+        with pytest.raises(pxt.Error, match='exactly 4 coordinates'):
+            t.select(udf_call).collect()
+        t.delete()
 
     def test_overlay_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
