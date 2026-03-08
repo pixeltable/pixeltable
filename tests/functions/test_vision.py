@@ -1,5 +1,3 @@
-from typing import Any
-
 import numpy as np
 import pytest
 
@@ -7,8 +5,7 @@ import pixeltable as pxt
 from pixeltable.functions.video import frame_iterator
 from pixeltable.functions.vision import bboxes_draw, bboxes_resize, eval_detections, mean_ap, overlay_segmentation
 from pixeltable.functions.yolox import yolox
-
-from ..utils import get_image_files, get_video_files, skip_test_if_not_installed
+from ..utils import get_image_files, get_video_files, skip_test_if_not_installed, validate_update_status
 
 
 class TestVision:
@@ -132,96 +129,56 @@ class TestVision:
         # TODO: test font and font_size parameters in a system-independent way
 
     def test_bboxes_resize(self, uses_db: None) -> None:
-        def to_bbox(cx: float, cy: float, w: float, h: float, fmt: str) -> list[float]:
-            if fmt == 'xyxy':
-                return [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
-            elif fmt == 'xywh':
-                return [cx - w / 2, cy - h / 2, w, h]
-            else:  # cxcywh
-                return [cx, cy, w, h]
-
-        def expected_resize(
-            cx: float, cy: float, w: float, h: float, **kwargs: Any
-        ) -> tuple[float, float, float, float]:
-            """Reference implementation: compute expected (cx, cy, w, h) after resize."""
-            if 'width' in kwargs or 'width_f' in kwargs:
-                target_w = kwargs.get('width') or kwargs.get('width_f')
-                scale = target_w / w
-                return (cx, cy, target_w, h * scale)
-            if 'height' in kwargs or 'height_f' in kwargs:
-                target_h = kwargs.get('height') or kwargs.get('height_f')
-                scale = target_h / h
-                return (cx, cy, w * scale, target_h)
-            aspect_f = kwargs.get('aspect_f')
-            if aspect_f is None:
-                aw, ah = kwargs['aspect'].split(':')
-                aspect_f = int(aw) / int(ah)
-            cur = w / h
-            if kwargs['aspect_mode'] == 'crop':
-                if cur > aspect_f:
-                    return (cx, cy, h * aspect_f, h)
-                return (cx, cy, w, w / aspect_f)
-            else:  # pad
-                if cur > aspect_f:
-                    return (cx, cy, w, w / aspect_f)
-                return (cx, cy, h * aspect_f, h)
-
-        coord_types: list[tuple[str, list[tuple[float, ...]], list[dict[str, Any]]]] = [
-            (
-                'abs',
-                [
-                    (150, 200, 100, 200),
-                    (200, 100, 400, 200),
-                    (50, 50, 40, 60),
-                    (300, 300, 200, 100),
-                    (100, 100, 80, 80),
-                ],
-                [
-                    {'width': 50},
-                    {'height': 100},
-                    {'aspect': '1:1', 'aspect_mode': 'crop'},
-                    {'aspect': '1:1', 'aspect_mode': 'pad'},
-                    {'aspect_f': 1.0, 'aspect_mode': 'crop'},
-                ],
-            ),
-            (
-                'rel',
-                [
-                    (0.3, 0.5, 0.4, 0.6),
-                    (0.5, 0.5, 0.2, 0.2),
-                    (0.7, 0.3, 0.1, 0.4),
-                    (0.2, 0.8, 0.3, 0.1),
-                    (0.9, 0.1, 0.1, 0.1),
-                ],
-                [
-                    {'width_f': 0.2},
-                    {'height_f': 0.3},
-                    {'aspect': '1:1', 'aspect_mode': 'crop'},
-                    {'aspect': '1:1', 'aspect_mode': 'pad'},
-                    {'aspect_f': 1.0, 'aspect_mode': 'crop'},
-                ],
-            ),
+        # absolute coordinates, in cxcywh format
+        abs_boxes = [
+            (150, 200, 100, 200),
+            (200, 100, 400, 200),
+            (50, 50, 40, 60),
+            (300, 300, 200, 100),
+            (100, 100, 80, 80),
+        ]
+        # relative coordinates, in cxcywh format
+        rel_boxes = [
+            (0.3, 0.5, 0.4, 0.6),
+            (0.5, 0.5, 0.2, 0.2),
+            (0.7, 0.3, 0.1, 0.4),
+            (0.2, 0.8, 0.3, 0.1),
+            (0.9, 0.1, 0.1, 0.1),
         ]
 
         formats = ['xyxy', 'xywh', 'cxcywh']
-        tbl_idx = 0
+        # test case for each parameter against each format
         for fmt in formats:
-            for coord_name, boxes, resize_targets in coord_types:
-                is_abs = coord_name == 'abs'
-                input_bboxes = [to_bbox(*b, fmt) for b in boxes]
-                if is_abs:
-                    input_bboxes = [[int(x) for x in bb] for bb in input_bboxes]
+            input_bboxes = [convert_fmt(*b, fmt) for b in abs_boxes]
+            t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
-                tbl = pxt.create_table(f'bbox_tbl_{tbl_idx}', {'bboxes': pxt.Json})
-                tbl.insert([{'bboxes': input_bboxes}])
-                tbl_idx += 1
+            # width
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, width=50)).collect()
+            assert all(get_w(b, fmt) == 50 for b in res['out'][0])
+            assert all(get_aspect(b1, fmt) == get_aspect(b2, fmt) for b1, b2 in zip(input_bboxes, res['out'][0]))
 
-                for kwargs in resize_targets:
-                    expected_bboxes = [to_bbox(*expected_resize(*b, **kwargs), fmt) for b in boxes]
-                    result = tbl.select(bboxes_resize(tbl.bboxes, fmt, **kwargs)).collect()
-                    np.testing.assert_allclose(
-                        result[0, 0], expected_bboxes, err_msg=f'format={fmt}, coords={coord_name}, kwargs={kwargs}'
-                    )
+            # height
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, height=100)).collect()
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect='16:9', aspect_mode='crop')).collect()
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect='9:16', aspect_mode='pad')).collect()
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=16 / 9, aspect_mode='crop')).collect()
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=9 / 16, aspect_mode='pad')).collect()
+
+            pxt.drop_table(t)
+
+            input_bboxes = [convert_fmt(*b, fmt) for b in rel_boxes]
+            t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
+
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, width_f=0.2)).collect()
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, height_f=0.3)).collect()
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect='16:9', aspect_mode='crop')).collect()
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect='9:16', aspect_mode='pad')).collect()
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=16 / 9, aspect_mode='crop')).collect()
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=9 / 16, aspect_mode='pad')).collect()
+
+            pxt.drop_table(t)
 
     def test_bboxes_resize_errors(self, uses_db: None) -> None:
         t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json})
@@ -252,7 +209,7 @@ class TestVision:
             t.select(bboxes_resize(t.bboxes, 'xyxy', aspect='bad', aspect_mode='crop')).collect()
 
         # aspect without aspect_mode
-        with pytest.raises(pxt.Error, match='aspect_mode.*required'):
+        with pytest.raises(pxt.Error, match=r'aspect_mode.*required'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', aspect='1:1')).collect()
 
         # aspect_mode without aspect
@@ -294,3 +251,54 @@ class TestVision:
 
         # test draw_contours
         _ = t.select(overlay_segmentation(t.img, segmentation_map, draw_contours=True, contour_thickness=2)).collect()
+
+
+# rudimentary bounding box utility functions for result validation
+
+
+def convert_fmt(cx: float, cy: float, w: float, h: float, fmt: str) -> list:
+    result: list
+    if fmt == 'xyxy':
+        result = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
+    elif fmt == 'xywh':
+        result = [cx - w / 2, cy - h / 2, w, h]
+    else:  # cxcywh
+        result = [cx, cy, w, h]
+    if cx < 1.0:
+        # relative coords
+        return result
+    else:
+        # absolute coords
+        return [round(x) for x in result]
+
+
+def get_w(box: list, fmt: str) -> int | float:
+    result: float
+    if fmt == 'xyxy':
+        result = box[2] - box[0]
+    elif fmt == 'xywh':
+        result = box[2]
+    else:  # cxcywh
+        result = box[2]
+    if box[0] < 1.0:
+        return result
+    else:
+        return round(result)
+
+
+def get_h(box: list, fmt: str) -> int | float:
+    result: float
+    if fmt == 'xyxy':
+        result = box[3] - box[1]
+    elif fmt == 'xywh':
+        result = box[3]
+    else:  # cxcywh
+        result = box[3]
+    if box[0] < 1.0:
+        return result
+    else:
+        return round(result)
+
+
+def get_aspect(box: list, fmt: str) -> float:
+    return get_w(box, fmt) / get_h(box, fmt)

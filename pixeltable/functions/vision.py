@@ -539,6 +539,7 @@ def bboxes_resize(
     Returns:
         List of resized bounding boxes in the same format as the input.
     """
+    # TODO: this is a lot of repeated per-call validation; find a way to do this at plan generation time, where possible
     if width is not None and width_f is not None:
         raise pxt.Error('Only one of width or width_f can be specified')
     if height is not None and height_f is not None:
@@ -595,11 +596,11 @@ def bboxes_resize(
     if target_w is not None:
         scale = target_w / w
         w = np.full_like(w, target_w)
-        h = h * scale
+        h *= scale
     elif target_h is not None:
         scale = target_h / h
         h = np.full_like(h, target_h)
-        w = w * scale
+        w *= scale
     else:
         current_aspect = w / h
         if aspect_mode == 'crop':
@@ -614,14 +615,33 @@ def bboxes_resize(
             new_h = np.where(too_wide, w / aspect_f, h)
         w, h = new_w, new_h
 
-    # Convert back to original format
+    # Convert back to original format.
+    # For absolute coordinates, round w/h first, then derive positions from rounded
+    # dimensions so that x2-x1==round(w) (xyxy) and x+w is consistent (xywh).
+    if is_absolute:
+        # don't use round() here, it rounds to the nearest even number
+        w = np.floor(w + 0.5)
+        h = np.floor(h + 0.5)
+
     if format == 'xyxy':
-        result = np.column_stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2])
+        if is_absolute:
+            x1 = np.floor(cx - w / 2 + 0.5)
+            y1 = np.floor(cy - h / 2 + 0.5)
+            result = np.column_stack([x1, y1, x1 + w, y1 + h]).astype(int)
+        else:
+            result = np.column_stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2])
     elif format == 'xywh':
-        result = np.column_stack([cx - w / 2, cy - h / 2, w, h])
+        if is_absolute:
+            x1 = np.floor(cx - w / 2 + 0.5)
+            y1 = np.floor(cy - h / 2 + 0.5)
+            result = np.column_stack([x1, y1, w, h]).astype(int)
+        else:
+            result = np.column_stack([cx - w / 2, cy - h / 2, w, h])
     else:  # cxcywh
         result = np.column_stack([cx, cy, w, h])
-
+        if is_absolute:
+            result = np.floor(result + 0.5).astype(int)
+    _ = result.tolist()
     return result.tolist()
 
 
