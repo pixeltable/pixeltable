@@ -8,7 +8,7 @@ from pixeltable.functions import vision as pxtv
 
 t = pxt.get_table(...)
 t.select(
-    pxtv.draw_bounding_boxes(t.img, boxes=t.boxes, label=t.labels)
+    pxtv.bboxes_draw(t.img, boxes=t.boxes, label=t.labels)
 ).collect()
 ```
 """
