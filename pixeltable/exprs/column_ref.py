@@ -65,12 +65,15 @@ class ColumnRef(Expr):
     base_rowid: Sequence[Any | None]
     iterator: Iterator
     pos_idx: int
+    
+    for_insert: bool  # if True, this column is being inserted into a table
 
     def __init__(
         self,
         col: catalog.Column,
         reference_tbl: catalog.TableVersionPath | None = None,
         perform_validation: bool | None = None,
+        for_insert: bool | None = None,
     ):
         super().__init__(col.col_type)
         self.col = col
@@ -97,8 +100,13 @@ class ColumnRef(Expr):
                 )
         else:
             assert perform_validation is None or not perform_validation
+
+        self.for_insert = for_insert if for_insert is not None else False
+
         if self.perform_validation:
-            non_validating_col_ref = ColumnRef(col, perform_validation=False)
+            non_validating_col_ref = ColumnRef(
+                col, perform_validation=False, for_insert=for_insert
+            )
             self.components = [non_validating_col_ref]
         self.id = self._create_id()
 
@@ -117,6 +125,7 @@ class ColumnRef(Expr):
             ('tbl_id', self.col.tbl_handle.id),
             ('col_id', self.col.id),
             ('perform_validation', self.perform_validation),
+            ('for_insert', self.for_insert),
         ]
 
     # override
@@ -390,11 +399,16 @@ class ColumnRef(Expr):
                 return
 
         if not self.is_unstored_iter_col:
-            # supply default
-            if self.col.has_default_value:
-                data_row[self.slot_idx] = self.col.default_value_expr.val
-            else:
-                data_row[self.slot_idx] = None
+            # Only fill default when the slot has no value and this ref is used in insert/view propagation
+            if not data_row.has_val[self.slot_idx]:
+                if (
+                    self.for_insert
+                    and self.col.has_default_value
+                    and self.col.default_value_expr is not None
+                ):
+                    data_row[self.slot_idx] = self.col.default_value_expr.val
+                else:
+                    data_row[self.slot_idx] = None
             return
 
         # if this is a new base row, we need to instantiate a new iterator
