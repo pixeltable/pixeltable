@@ -430,10 +430,12 @@ def bboxes_draw(
 
 def _validate_bboxes(bboxes: list, error_prefix: str) -> bool:
     """Check that bboxes are either all int or all float. Return True for absolute, False for relative."""
-    is_absolute = all(isinstance(x, int) for x in itertools.chain.from_iterable(bboxes))
-    is_relative = all(isinstance(x, float) for x in itertools.chain.from_iterable(bboxes))
+    is_absolute = all(isinstance(x, int) and x >= 0 for x in itertools.chain.from_iterable(bboxes))
+    is_relative = all(isinstance(x, float) and 0.0 <= x <= 1.0 for x in itertools.chain.from_iterable(bboxes))
     if not (is_absolute or is_relative):
-        raise pxt.Error(f'{error_prefix}: bounding box coordinates must be either all int or all float')
+        raise pxt.Error(
+            f'{error_prefix}: bounding box coordinates must be either all int (>= 0) or all float (in [0, 1])'
+        )
     if not all(len(b) == 4 for b in bboxes):
         raise pxt.Error(f'{error_prefix}: each bounding box must have exactly 4 coordinates')
     return is_absolute
@@ -468,7 +470,7 @@ def bboxes_convert(
     if src_format == dst_format:
         return bboxes
 
-    _ = _validate_bboxes(bboxes, 'bboxes_convert()')
+    is_absolute = _validate_bboxes(bboxes, 'bboxes_convert()')
     arr = np.array(bboxes)
     assert arr.ndim == 2 and arr.shape[1] == 4
     c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
@@ -508,6 +510,8 @@ def bboxes_convert(
     else:  # cxcywh
         result = np.column_stack([cx, cy, w, h])
 
+    if is_absolute:
+        result = result.astype(int)
     return result.tolist()
 
 

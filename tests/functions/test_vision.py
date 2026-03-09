@@ -60,7 +60,7 @@ class TestVision:
             bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, labels=v.detections_a.labels, fill=True)
         ).collect()
 
-    def test_draw_bounding_boxes(self, uses_db: None) -> None:
+    def test_bboxes_draw(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
 
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
