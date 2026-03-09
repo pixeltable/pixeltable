@@ -638,9 +638,9 @@ class concat_videos_agg(pxt.Aggregator):
         if video is not None:
             self.videos.append(str(video))
 
-    def value(self) -> pxt.Video:
+    def value(self) -> pxt.Video | None:
         if len(self.videos) == 0:
-            raise pxt.Error('concat_videos_agg(): no videos to concatenate')
+            return None
         return _concat_videos(self.videos, error_prefix='concat_videos_agg()')
 
 
