@@ -42,12 +42,12 @@ class Function(ABC):
     __resolved_fns: list[Self]
 
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
-    # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
+    # Overridden for specific Function instances via the to_sql() decorator. The override must accept the same
     # parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
     _to_sql: Callable[..., sql.ColumnElement | None]
 
     # Returns the resource pool to use for calling this function with the given arguments.
-    # Overriden for specific Function instances via the resource_pool() decorator. The override must accept a subset
+    # Overridden for specific Function instances via the resource_pool() decorator. The override must accept a subset
     # of the parameters of the original function, with the same type.
     _resource_pool: Callable[..., str | None]
 

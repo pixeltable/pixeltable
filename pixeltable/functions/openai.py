@@ -615,10 +615,12 @@ async def vision(
 
 @vision.resource_estimator
 def _(prompt: str, image: PIL.Image.Image, model: str, model_kwargs: dict[str, Any] | None = None) -> dict[str, int]:
-    completion_tokens = _default_max_tokens(model)
+    if model_kwargs is None:
+        model_kwargs = {}
+    max_tokens = model_kwargs.get('max_tokens') or _default_max_tokens(model)
     # 4 tokens message overhead + prompt text + image tokens + 2 tokens reply priming
     num_tokens = 4 + len(prompt) / 4 + _token_count_for_image(image) + 2
-    return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
+    return {'requests': 1, 'tokens': int(num_tokens) + max_tokens}
 
 
 #####################################

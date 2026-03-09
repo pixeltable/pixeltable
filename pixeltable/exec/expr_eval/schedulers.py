@@ -7,7 +7,7 @@ import logging
 import math
 import sys
 import time
-from typing import Awaitable, Callable, Collection
+from typing import Awaitable, Collection
 
 from pixeltable import env, func
 from pixeltable.config import Config
@@ -45,9 +45,6 @@ class RateLimitsScheduler(Scheduler):
     total_requests: int
     total_retried: int
 
-    # Cache of inspected param names per estimator function (to avoid repeated inspect.signature calls)
-    _estimator_param_cache: dict[int, list[str]]
-
     TIME_FORMAT = '%H:%M.%S %f'
     MAX_RETRIES = 10
 
@@ -61,7 +58,6 @@ class RateLimitsScheduler(Scheduler):
         self.request_completed = asyncio.Event()
         self.total_requests = 0
         self.total_retried = 0
-        self._estimator_param_cache = {}
 
     @classmethod
     def matches(cls, resource_pool: str) -> bool:
@@ -145,17 +141,9 @@ class RateLimitsScheduler(Scheduler):
         with self.pool_info._lock:
             return list(self.pool_info.resource_limits.keys())
 
-    def _get_estimator_param_names(self, estimator: Callable) -> list[str]:
-        """Get parameter names for an estimator function, caching results by function identity."""
-        key = id(estimator)
-        if key not in self._estimator_param_cache:
-            sig = inspect.signature(estimator)
-            self._estimator_param_cache[key] = [p.name for p in sig.parameters.values()]
-        return self._estimator_param_cache[key]
-
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
         estimator = request.fn_call.fn._resource_estimator
-        param_names = self._get_estimator_param_names(estimator)
+        param_names = [p.name for p in inspect.signature(estimator).parameters.values()]
         if len(param_names) == 0:
             return estimator()
         kwargs_batch = request.fn_call.get_param_values(param_names, request.rows)
