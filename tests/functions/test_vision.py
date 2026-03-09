@@ -14,6 +14,7 @@ from pixeltable.functions.vision import (
     overlay_segmentation,
 )
 from pixeltable.functions.yolox import yolox
+
 from ..utils import get_image_files, get_video_files, skip_test_if_not_installed, validate_update_status
 
 
@@ -112,7 +113,7 @@ class TestVision:
                     .collect()
                 )
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='Only one of'):
             # multiple color specifications
             _ = v.select(
                 bboxes_draw(
@@ -123,23 +124,20 @@ class TestVision:
                     color='red',
                 )
             ).collect()
-        assert 'only one of' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='Number of boxes and labels must match'):
             # labels don't match boxes
             _ = v.select(bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, labels=[2])).collect()
-        assert 'number of boxes and labels must match' in str(exc_info.value).lower()
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='Number of boxes and box colors must match'):
             # box_colors don't match boxes
             _ = v.select(bboxes_draw(v.frame_s, boxes=v.detections_a.bboxes, box_colors=['red'])).collect()
-        assert 'number of boxes and box colors must match' in str(exc_info.value).lower()
 
         # TODO: test font and font_size parameters in a system-independent way
 
     def test_bboxes_resize(self, uses_db: None) -> None:
         # absolute coordinates, in cxcywh format
-        abs_boxes = [
+        abs_boxes: list[tuple[int, int, int, int]] = [
             (150, 200, 100, 200),
             (200, 100, 400, 200),
             (50, 50, 40, 60),
@@ -147,7 +145,7 @@ class TestVision:
             (100, 100, 80, 80),
         ]
         # relative coordinates, in cxcywh format
-        rel_boxes = [
+        rel_boxes: list[tuple[float, float, float, float]] = [
             (0.3, 0.5, 0.4, 0.6),
             (0.5, 0.5, 0.2, 0.2),
             (0.7, 0.3, 0.1, 0.4),
@@ -158,6 +156,13 @@ class TestVision:
         formats = ['xyxy', 'xywh', 'cxcywh']
         # test case for each parameter against each format
         for fmt in formats:
+            # corner case: empty list
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, width=50)).collect()
+            assert res['out'][0] == []
+            pxt.drop_table(t)
+
             input_bboxes = [convert_fmt(*b, fmt) for b in abs_boxes]
             t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
@@ -279,7 +284,6 @@ class TestVision:
 
         self._test_bbox_validation(t, bboxes_resize(t.bboxes, 'xyxy', width=50))
 
-
     def test_bboxes_convert(self, uses_db: None) -> None:
         abs_boxes = [
             (150, 200, 100, 200),
@@ -298,10 +302,17 @@ class TestVision:
 
         formats = ['xyxy', 'xywh', 'cxcywh']
 
-        for boxes, label in [(abs_boxes, 'abs'), (rel_boxes, 'rel')]:
-            for src_fmt in formats:
-                input_bboxes = [convert_fmt(*b, src_fmt) for b in boxes]
-                t = pxt.create_table(f'convert_{label}', {'bboxes': pxt.Json})
+        for src_fmt in formats:
+            # corner case: empty list
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
+            res = t.select(out=bboxes_convert(t.bboxes, src_format=src_fmt, dst_format=src_fmt)).collect()
+            assert res['out'][0] == []
+            pxt.drop_table(t)
+
+            for boxes in [abs_boxes, rel_boxes]:
+                input_bboxes = [convert_fmt(*b, src_fmt) for b in boxes]  # type: ignore
+                t = pxt.create_table('convert', {'bboxes': pxt.Json})
                 validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
                 # identity: same format returns input unchanged
@@ -400,7 +411,7 @@ class TestVision:
 # rudimentary bounding box utility functions for result validation
 
 
-def convert_fmt(cx: float, cy: float, w: float, h: float, fmt: str) -> list:
+def convert_fmt(cx: float | int, cy: float | int, w: float | int, h: float | int, fmt: str) -> list:
     result: list
     if fmt == 'xyxy':
         result = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]

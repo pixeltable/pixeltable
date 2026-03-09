@@ -347,6 +347,9 @@ def bboxes_draw(
     Returns:
         The image with bounding boxes drawn on it.
     """
+    if len(boxes) == 0:
+        return img
+
     color_params = sum([color is not None, box_colors is not None])
     if color_params > 1:
         raise ValueError("Only one of 'color' or 'box_colors' can be set")
@@ -435,6 +438,7 @@ def _validate_bboxes(bboxes: list, error_prefix: str) -> bool:
         raise pxt.Error(f'{error_prefix}: each bounding box must have exactly 4 coordinates')
     return is_absolute
 
+
 @pxt.udf
 def bboxes_convert(
     bboxes: list,  # should be list[list[int | float]]
@@ -454,12 +458,15 @@ def bboxes_convert(
     Returns:
         List of bounding boxes in dst_format.
     """
-    if src_format == dst_format:
-        return bboxes
+    if len(bboxes) == 0:
+        return []
+
     if src_format not in ['xyxy', 'xywh', 'cxcywh']:
         raise pxt.Error(f'Invalid src_format: {src_format!r}')
     if dst_format not in ['xyxy', 'xywh', 'cxcywh']:
         raise pxt.Error(f'Invalid dst_format: {dst_format!r}')
+    if src_format == dst_format:
+        return bboxes
 
     _ = _validate_bboxes(bboxes, 'bboxes_convert()')
     arr = np.array(bboxes)
@@ -537,15 +544,17 @@ def bboxes_resize(
         height: Target height in absolute pixels. Requires bboxes to be specified with absolute pixel coordinates.
         height_f: Target height as a float. Requires bboxes to be specified with relative coordinates in [0, 1].
         aspect: Target aspect ratio as a string 'W:H' (e.g., '16:9'). Resizes either the width
-            or height to match the specified aspect ratio, maintaining the other dimension. Requires exactly one of
-            `crop` or `pad` to be True.
-        aspect_f: Target aspect ratio as a float.
+            or height to match the specified aspect ratio, maintaining the other dimension. Requires `aspect_mode`.
+        aspect_f: Target aspect ratio as a float. Requires `aspect_mode`.
         aspect_mode: Either 'crop' or 'pad'. Only valid for `aspect`/`aspect_f`. If `crop`, reduces the oversized
             dimension to match the aspect ratio. If `pad`, extends the undersized dimension to match the aspect ratio.
 
     Returns:
         List of resized bounding boxes in the same format as the input.
     """
+    if len(bboxes) == 0:
+        return []
+
     # TODO: this is a lot of repeated per-call validation; find a way to do this at plan generation time, where possible
     if width is not None and width_f is not None:
         raise pxt.Error('Only one of width or width_f can be specified')
@@ -668,7 +677,7 @@ def bboxes_scale(
     Returns:
         List of scaled bounding boxes in the same format as the input.
     """
-    return []
+    raise NotImplementedError()
 
 
 @pxt.udf
@@ -700,7 +709,7 @@ def bboxes_pad(
     Returns:
         List of padded bounding boxes in the same format as the input.
     """
-    return []
+    raise NotImplementedError()
 
 
 @pxt.udf
@@ -729,7 +738,7 @@ def bboxes_clip_to_canvas(
     Returns:
         List of clipped bounding boxes in the same format as the input.
     """
-    return []
+    raise NotImplementedError()
 
 
 @pxt.udf
@@ -758,7 +767,7 @@ def bboxes_crop_canvas(
     Returns:
         List of adjusted bounding boxes in the same format as the input. They can extend beyond the canvas boundaries.
     """
-    return []
+    raise NotImplementedError()
 
 
 @pxt.udf
@@ -795,7 +804,7 @@ def bboxes_resize_canvas(
     Returns:
         List of adjusted bounding boxes in the same format as the input.
     """
-    return []
+    raise NotImplementedError()
 
 
 def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
