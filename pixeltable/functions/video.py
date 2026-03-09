@@ -500,13 +500,11 @@ def segment_video(
             _handle_ffmpeg_error(e)
 
 
-def _concat_videos(videos: list[str], error_prefix: str) -> str:
-    """Concatenate videos and return the path to the output video.
-
-    Requires a non-empty list of videos.
-    """
+def _concat_videos(videos: list[str], error_prefix: str) -> str | None:
+    """Concatenate videos and return the path to the output video, or None for an empty list"""
     Env.get().require_binary('ffmpeg')
-    assert len(videos) > 0
+    if len(videos) == 0:
+        return None
 
     # Check that all videos have the same resolution
     resolutions: list[tuple[int, int]] = []
@@ -608,11 +606,10 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video | None:
         videos: List of videos to merge.
 
     Returns:
-        A new video containing the merged videos.
+        A new video containing the merged videos, or None if the input list is empty.
     """
     Env.get().require_binary('ffmpeg')
-    if len(videos) == 0:
-        return None
+    videos = [v for v in videos if v is not None]
     return _concat_videos(videos, error_prefix='concat_videos()')
 
 
@@ -627,7 +624,7 @@ class concat_videos_agg(pxt.Aggregator):
     - All videos must have the same resolution
 
     Returns:
-        A new video containing all input videos concatenated in order.
+        A new video containing all input videos concatenated in order, or None if all inputs are None.
 
     Examples:
         Concatenate all videos in a table, ordered by timestamp:
@@ -646,8 +643,6 @@ class concat_videos_agg(pxt.Aggregator):
             self.videos.append(str(video))
 
     def value(self) -> pxt.Video | None:
-        if len(self.videos) == 0:
-            return None
         return _concat_videos(self.videos, error_prefix='concat_videos_agg()')
 
 

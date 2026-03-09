@@ -576,15 +576,16 @@ class TestVideo:
         )
         assert status.num_excs == 0
         res = u.select(
-            u.v1.get_metadata().streams[0].duration_seconds,
-            u.v2.get_metadata().streams[0].duration_seconds,
-            u.v3.get_metadata().streams[0].duration_seconds,
-            u.concat.get_metadata().streams[0].duration_seconds,
-        ).collect()
-        # Verify all videos were concatenated
-        durations = res.to_pandas().iloc[0]
-        concat_duration = durations.iloc[3]
-        assert concat_duration is not None
+            d1=u.v1.get_duration(), d2=u.v2.get_duration(), d3=u.v3.get_duration(), d_concat=u.concat.get_duration()
+        ).collect()[0]
+        input_duration = res['d1'] + res['d2'] + res['d3']
+        concat_duration = res['d_concat']
+        assert pytest.approx(input_duration, abs=0.1) == concat_duration
+
+        # empty inputs
+        validate_update_status(u.insert([{'v1': None, 'v2': None, 'v3': None}]), expected_rows=1)
+        res = u.where(u.v1 == None).select(u.concat).collect()
+        assert res[0]['concat'] is None
 
     def test_concat_videos_mixed_formats(self, uses_db: None, tmp_path: Path) -> None:
         from pixeltable.functions.video import concat_videos
