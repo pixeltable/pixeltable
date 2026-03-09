@@ -491,6 +491,7 @@ def bboxes_convert(
         result = np.column_stack([c0 - c2 / 2, c1 - c3 / 2, c2, c3])
 
     if is_absolute:
+        # don't use round() here, it rounds to the nearest even number
         result = np.floor(result + 0.5).astype(int)
     return result.tolist()
 
