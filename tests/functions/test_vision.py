@@ -308,7 +308,7 @@ class TestVision:
             (50, 50, 40, 60),
             (300, 300, 200, 100),
             (100, 100, 80, 80),
-            (100, 100, 31, 41),   # odd w and h: exercises rounding in cxcywh conversion
+            (100, 100, 31, 41),  # odd w and h: exercises rounding in cxcywh conversion
         ]
         rel_boxes = [
             (0.3, 0.5, 0.4, 0.6),
@@ -446,7 +446,7 @@ def convert_fmt(cx: float | int, cy: float | int, w: float | int, h: float | int
         return result
     else:
         # absolute coords
-        return [int(math.floor(x + 0.5)) for x in result]
+        return [math.floor(x + 0.5) for x in result]
 
 
 def get_w(box: list, fmt: str) -> int | float:

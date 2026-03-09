@@ -547,7 +547,7 @@ def bboxes_resize(
     if aspect is not None and aspect_f is not None:
         raise pxt.Error('Only one of aspect or aspect_f can be specified')
     if aspect is not None:
-        match = ASPECT_RATIO_RE.match(aspect)
+        match = ASPECT_RATIO_RE.fullmatch(aspect)
         if match is None:
             raise pxt.Error(f'Invalid aspect ratio: {aspect!r}; expected "W:H"')
         aspect_f = float(match.group(1)) / float(match.group(2))
@@ -744,10 +744,10 @@ def bboxes_crop_canvas(
     bboxes: list,
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
-    canvas_width: int | None = None,
-    canvas_height: int | None = None,
     canvas_region: list,
     canvas_region_format: Literal['xyxy', 'xywh', 'cxcywh'],
+    canvas_width: int | None = None,
+    canvas_height: int | None = None,
 ) -> list:
     """
     Adjust a list of bounding boxes to account for a canvas crop.
