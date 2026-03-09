@@ -14,7 +14,6 @@ from pixeltable.functions.vision import (
     mean_ap,
     overlay_segmentation,
 )
-from pixeltable.functions.yolox import yolox
 
 from ..utils import get_image_files, get_video_files, skip_test_if_not_installed, validate_update_status
 
@@ -22,6 +21,7 @@ from ..utils import get_image_files, get_video_files, skip_test_if_not_installed
 class TestVision:
     def test_eval(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
+        from pixeltable.functions.yolox import yolox
 
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view
@@ -63,6 +63,7 @@ class TestVision:
 
     def test_bboxes_draw(self, uses_db: None) -> None:
         skip_test_if_not_installed('yolox')
+        from pixeltable.functions.yolox import yolox
 
         video_t = pxt.create_table('video_tbl', {'video': pxt.Video})
         # create frame view
