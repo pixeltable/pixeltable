@@ -347,7 +347,7 @@ class TestParquet:
         pa_parquet.write_table(bad_data, str(bad_pq))
 
         # on_error='abort' fails
-        with pytest.raises(pxt.Error):
+        with pytest.raises(pxt.Error, match='Failed to download'):
             _ = pxt.create_table(
                 'bad_data_tbl',
                 source=str(bad_pq),
