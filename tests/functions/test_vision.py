@@ -287,6 +287,24 @@ class TestVision:
         with pytest.raises(pxt.Error, match='aspect_mode is only valid'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=50, aspect_mode='crop')).collect()
 
+        # width_f with absolute boxes
+        with pytest.raises(pxt.Error, match='width_f/height_f require relative'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', width_f=0.5)).collect()
+
+        # height_f with absolute boxes
+        with pytest.raises(pxt.Error, match='width_f/height_f require relative'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', height_f=0.5)).collect()
+
+        # width with relative boxes
+        t_rel = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
+        t_rel.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
+        with pytest.raises(pxt.Error, match='width/height require absolute'):
+            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width=50)).collect()
+
+        # height with relative boxes
+        with pytest.raises(pxt.Error, match='width/height require absolute'):
+            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height=50)).collect()
+
     def test_bboxes_resize_degenerate(self, uses_db: None) -> None:
         degenerate_boxes = [
             [10, 20, 10, 40],  # zero width (xyxy)

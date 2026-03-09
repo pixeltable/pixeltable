@@ -564,6 +564,10 @@ def bboxes_resize(
         raise pxt.Error('aspect_mode is only valid when aspect is specified')
 
     is_absolute = _validate_bboxes(bboxes, 'bboxes_resize()')
+    if is_absolute and (width_f is not None or height_f is not None):
+        raise pxt.Error('bboxes_resize(): width_f/height_f require relative coordinates, but bboxes use absolute pixels')
+    if not is_absolute and (width is not None or height is not None):
+        raise pxt.Error('bboxes_resize(): width/height require absolute pixel coordinates, but bboxes use relative coordinates')
     arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4
     c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
