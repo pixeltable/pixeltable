@@ -471,47 +471,27 @@ def bboxes_convert(
         return bboxes
 
     is_absolute = _validate_bboxes(bboxes, 'bboxes_convert()')
-    arr = np.array(bboxes)
+    arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4
     c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
 
-    x1: np.ndarray
-    y1: np.ndarray
-    x2: np.ndarray
-    y2: np.ndarray
-    w: np.ndarray
-    h: np.ndarray
-    cx: np.ndarray
-    cy: np.ndarray
-    if src_format == 'xyxy':
-        x1, y1, x2, y2 = c0, c1, c2, c3
-        w = x2 - x1
-        h = y2 - y1
-        cx = x1 + w / 2
-        cy = y1 + h / 2
-    elif src_format == 'xywh':
-        x1, y1, w, h = c0, c1, c2, c3
-        x2 = x1 + w
-        y2 = y1 + h
-        cx = x1 + w / 2
-        cy = y1 + h / 2
-    else:  # cxcywh
-        cx, cy, w, h = c0, c1, c2, c3
-        x1 = cx - w / 2
-        y1 = cy - h / 2
-        x2 = cx + w / 2
-        y2 = cy + h / 2
-
     result: np.ndarray
-    if dst_format == 'xyxy':
-        result = np.column_stack([x1, y1, x2, y2])
-    elif dst_format == 'xywh':
-        result = np.column_stack([x1, y1, w, h])
-    else:  # cxcywh
-        result = np.column_stack([cx, cy, w, h])
+    if src_format == 'xyxy' and dst_format == 'xywh':
+        result = np.column_stack([c0, c1, c2 - c0, c3 - c1])
+    elif src_format == 'xyxy' and dst_format == 'cxcywh':
+        w, h = c2 - c0, c3 - c1
+        result = np.column_stack([c0 + w / 2, c1 + h / 2, w, h])
+    elif src_format == 'xywh' and dst_format == 'xyxy':
+        result = np.column_stack([c0, c1, c0 + c2, c1 + c3])
+    elif src_format == 'xywh' and dst_format == 'cxcywh':
+        result = np.column_stack([c0 + c2 / 2, c1 + c3 / 2, c2, c3])
+    elif src_format == 'cxcywh' and dst_format == 'xyxy':
+        result = np.column_stack([c0 - c2 / 2, c1 - c3 / 2, c0 + c2 / 2, c1 + c3 / 2])
+    else:  # cxcywh -> xywh
+        result = np.column_stack([c0 - c2 / 2, c1 - c3 / 2, c2, c3])
 
     if is_absolute:
-        result = result.astype(int)
+        result = np.floor(result + 0.5).astype(int)
     return result.tolist()
 
 

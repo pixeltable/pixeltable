@@ -339,7 +339,6 @@ class TestVision:
                     if dst_fmt == src_fmt:
                         continue
 
-                    # convert src -> dst
                     res = t.select(out=bboxes_convert(t.bboxes, src_format=src_fmt, dst_format=dst_fmt)).collect()
                     converted = res['out'][0]
 
@@ -383,13 +382,13 @@ class TestVision:
         """Test that the bboxes parameter gets validated."""
         # Mixed int/float within a single box
         t.insert([{'bboxes': [[10, 20.0, 30, 40]]}])
-        with pytest.raises(pxt.Error, match='either all int or all float'):
+        with pytest.raises(pxt.Error, match=r'either all int.*or all float'):
             t.select(udf_call).collect()
         t.delete()
 
         # Mixed absolute/relative across boxes
         t.insert([{'bboxes': [[10, 20, 30, 40], [0.1, 0.2, 0.3, 0.4]]}])
-        with pytest.raises(pxt.Error, match='either all int or all float'):
+        with pytest.raises(pxt.Error, match=r'either all int.*or all float'):
             t.select(udf_call).collect()
         t.delete()
 
