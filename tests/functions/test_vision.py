@@ -1,3 +1,4 @@
+import math
 from typing import Any
 
 import numpy as np
@@ -307,6 +308,7 @@ class TestVision:
             (50, 50, 40, 60),
             (300, 300, 200, 100),
             (100, 100, 80, 80),
+            (100, 100, 31, 41),   # odd w and h: exercises rounding in cxcywh conversion
         ]
         rel_boxes = [
             (0.3, 0.5, 0.4, 0.6),
@@ -352,7 +354,12 @@ class TestVision:
                         for b_in, b_out in zip(input_bboxes, converted)
                     )
 
-                    # round-trip: convert back dst -> src, should match original
+                    # round-trip: convert back dst -> src, should match original;
+                    # cxcywh with odd integer dimensions can shift position by 1
+                    # (half-pixel center rounded to int), so relax tolerance
+                    uses_cxcywh = 'cxcywh' in (src_fmt, dst_fmt)
+                    is_abs = boxes is abs_boxes
+                    delta = 1 if (uses_cxcywh and is_abs) else 1e-9
                     res_rt = t.select(
                         out=bboxes_convert(
                             bboxes_convert(t.bboxes, src_format=src_fmt, dst_format=dst_fmt),
@@ -361,7 +368,7 @@ class TestVision:
                         )
                     ).collect()
                     assert all(
-                        all(v_rt == pytest.approx(v_in, abs=1e-9) for v_in, v_rt in zip(b_in, b_rt))
+                        all(v_rt == pytest.approx(v_in, abs=delta) for v_in, v_rt in zip(b_in, b_rt))
                         for b_in, b_rt in zip(input_bboxes, res_rt['out'][0])
                     )
 
@@ -439,7 +446,7 @@ def convert_fmt(cx: float | int, cy: float | int, w: float | int, h: float | int
         return result
     else:
         # absolute coords
-        return [round(x) for x in result]
+        return [int(math.floor(x + 0.5)) for x in result]
 
 
 def get_w(box: list, fmt: str) -> int | float:
