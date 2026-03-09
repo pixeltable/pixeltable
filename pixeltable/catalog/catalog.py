@@ -72,7 +72,6 @@ def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api
 # grows uncontrollably
 _MAX_RETRIES = -1
 
-
 T = TypeVar('T')
 
 
