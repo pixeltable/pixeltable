@@ -270,6 +270,10 @@ class TestVision:
         with pytest.raises(pxt.Error, match='Only one of aspect or aspect_f'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', aspect='1:1', aspect_f=1.0, aspect_mode='crop')).collect()
 
+        # invalid aspect mode
+        with pytest.raises(pxt.Error, match='Invalid aspect_mode'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect_f=16 / 9, aspect_mode='other')).collect()
+
         # invalid aspect ratio string
         with pytest.raises(pxt.Error, match='Invalid aspect ratio'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', aspect='bad', aspect_mode='crop')).collect()
@@ -281,6 +285,18 @@ class TestVision:
         # aspect_mode without aspect
         with pytest.raises(pxt.Error, match='aspect_mode is only valid'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=50, aspect_mode='crop')).collect()
+
+    def test_bboxes_resize_degenerate(self, uses_db: None) -> None:
+        degenerate_boxes = [
+            [10, 20, 10, 40],  # zero width (xyxy)
+            [10, 20, 30, 20],  # zero height (xyxy)
+            [10, 20, 10, 20],  # zero width and height (xyxy)
+            [30, 40, 10, 20],  # negative width and height (xyxy, x2<x1, y2<y1)
+        ]
+        t = pxt.create_table('degenerate', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': degenerate_boxes}])
+        res = t.select(out=bboxes_resize(t.bboxes, 'xyxy', width=50)).collect()
+        assert res['out'][0] == degenerate_boxes  # all passed through unchanged
 
         self._test_bbox_validation(t, bboxes_resize(t.bboxes, 'xyxy', width=50))
 

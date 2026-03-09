@@ -8,7 +8,7 @@ from pixeltable.functions import vision as pxtv
 
 t = pxt.get_table(...)
 t.select(
-    pxtv.bboxes_draw(t.img, boxes=t.boxes, label=t.labels)
+    pxtv.bboxes_draw(t.img, boxes=t.boxes, labels=t.labels)
 ).collect()
 ```
 """
@@ -567,6 +567,8 @@ def bboxes_resize(
         if match is None:
             raise pxt.Error(f'Invalid aspect ratio: {aspect!r}; expected "W:H"')
         aspect_f = float(match.group(1)) / float(match.group(2))
+    if aspect_mode is not None and aspect_mode not in ['crop', 'pad']:
+        raise pxt.Error(f'Invalid aspect_mode: {aspect_mode!r}; expected "crop" or "pad"')
     has_width = width is not None or width_f is not None
     has_height = height is not None or height_f is not None
     has_aspect = aspect is not None or aspect_f is not None
@@ -597,6 +599,15 @@ def bboxes_resize(
         cx, cy, w, h = c0, c1, c2, c3
     else:
         raise pxt.Error(f'Invalid format: {format!r}')
+
+    valid = (w > 0) & (h > 0)
+    orig: np.ndarray | None = None
+    if not valid.all():
+        # save original array for invalid boxes to pass through unchanged
+        orig = arr.copy()
+    # Replace invalid dimensions with 1.0 to avoid division by zero
+    w = np.where(valid, w, 1.0)
+    h = np.where(valid, h, 1.0)
 
     # Resolve the target width/height
     target_w = width if width is not None else width_f
@@ -650,7 +661,10 @@ def bboxes_resize(
         result = np.column_stack([cx, cy, w, h])
         if is_absolute:
             result = np.floor(result + 0.5).astype(int)
-    _ = result.tolist()
+
+    if not valid.all():
+        # leave invalid boxes as-is
+        result[~valid] = orig[~valid]
     return result.tolist()
 
 
