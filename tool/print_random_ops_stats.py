@@ -6,7 +6,7 @@ from pixeltable.config import Config
 from tool.random_ops import TABLE_OPS
 
 LINE_PARSER = re.compile(
-    r'^(?P<timestamp>.+) (?P<pid>\d+) \[Worker (?P<worker_id>\d+)\] (?P<thread_name>\w+) '
+    r'^(?P<timestamp>.+) (?P<pid>\d+) \[Worker (?P<worker_id>\d+)\] (?P<thread_name>\S+) '
     r'INFO random_ops .+\[(?P<operation>.+?)\]: (?P<message>.*)$'
 )
 
