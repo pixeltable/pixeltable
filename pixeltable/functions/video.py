@@ -501,9 +501,12 @@ def segment_video(
 
 
 def _concat_videos(videos: list[str], error_prefix: str) -> str:
+    """Concatenate videos and return the path to the output video.
+
+    Requires a non-empty list of videos.
+    """
     Env.get().require_binary('ffmpeg')
-    if len(videos) == 0:
-        raise pxt.Error(f'{error_prefix}: empty argument list')
+    assert len(videos) > 0
 
     # Check that all videos have the same resolution
     resolutions: list[tuple[int, int]] = []
@@ -535,7 +538,7 @@ def _concat_videos(videos: list[str], error_prefix: str) -> str:
     try:
         # First attempt: fast copy without re-encoding (works for compatible formats)
         cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', str(filelist_path), '-c', 'copy', '-y', str(output_path)]
-        _logger.debug(f'concat_videos(): {" ".join(cmd)}')
+        _logger.debug(f'_concat_videos(): {" ".join(cmd)}')
         try:
             _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return str(output_path)
@@ -593,7 +596,7 @@ def _concat_videos(videos: list[str], error_prefix: str) -> str:
 
 
 @pxt.udf(is_method=True)
-def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
+def concat_videos(videos: list[pxt.Video]) -> pxt.Video | None:
     """
     Merge multiple videos into a single video.
 
@@ -607,6 +610,9 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     Returns:
         A new video containing the merged videos.
     """
+    Env.get().require_binary('ffmpeg')
+    if len(videos) == 0:
+        return None
     return _concat_videos(videos, error_prefix='concat_videos()')
 
 
@@ -632,6 +638,7 @@ class concat_videos_agg(pxt.Aggregator):
     videos: list[str]
 
     def __init__(self) -> None:
+        Env.get().require_binary('ffmpeg')
         self.videos = []
 
     def update(self, video: pxt.Video) -> None:

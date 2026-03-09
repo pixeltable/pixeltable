@@ -656,20 +656,17 @@ class TestVideo:
 
         # empty group: all-None videos should produce None
         e = pxt.create_table('concat_empty', {'id': pxt.Int, 'video': pxt.Video, 'pos': pxt.Int})
-        e.insert([
-            {'id': 0, 'video': video_filepaths[0], 'pos': 0},
-            {'id': 1, 'video': None, 'pos': 0},
-            {'id': 1, 'video': None, 'pos': 1},
-        ])
-        result = (
-            e.select(e.id, video=concat_videos_agg(e.pos, e.video))
-            .group_by(e.id)
-            .order_by(e.id)
-            .collect()
+        e.insert(
+            [
+                {'id': 0, 'video': video_filepaths[0], 'pos': 0},
+                {'id': 1, 'video': None, 'pos': 0},
+                {'id': 1, 'video': None, 'pos': 1},
+            ]
         )
+        result = e.select(e.id, video=concat_videos_agg(e.pos, e.video)).group_by(e.id).order_by(e.id).collect()
         assert len(result) == 2
         assert result[0]['video'] is not None  # id 0: has a video
-        assert result[1]['video'] is None       # id 1: empty group returns None
+        assert result[1]['video'] is None  # id 1: empty group returns None
 
     def test_concat_videos_agg_mixed_formats(self, uses_db: None, tmp_path: Path) -> None:
         # mixed audio
