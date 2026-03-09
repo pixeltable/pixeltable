@@ -51,6 +51,11 @@ class Function(ABC):
     # of the parameters of the original function, with the same type.
     _resource_pool: Callable[..., str | None]
 
+    # Returns estimated resources needed for a specific request as a dict (key: resource name, value: estimated cost).
+    # Overridden for specific Function instances via the resource_estimator() decorator. The override must accept a
+    # subset of the parameters of the original function.
+    _resource_estimator: Callable[..., dict[str, int]]
+
     def __init__(
         self,
         signatures: list[Signature],
@@ -71,6 +76,7 @@ class Function(ABC):
         self.__resolved_fns = []
         self._to_sql = self.__default_to_sql
         self._resource_pool = self.__default_resource_pool
+        self._resource_estimator = self.__default_resource_estimator
 
     @property
     def is_valid(self) -> bool:
@@ -428,6 +434,18 @@ class Function(ABC):
 
     def __default_resource_pool(self) -> str | None:
         return None
+
+    def resource_estimator(self, fn: Callable[..., dict[str, int]]) -> Callable[..., dict[str, int]]:
+        """Instance decorator for specifying the resource estimator of this function.
+
+        The decorated function accepts a subset of this function's parameters and returns a dict mapping
+        resource names to estimated costs for a single request.
+        """
+        self._resource_estimator = fn
+        return fn
+
+    def __default_resource_estimator(self) -> dict[str, int]:
+        return {}
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):

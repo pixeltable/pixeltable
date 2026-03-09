@@ -125,7 +125,7 @@ class FunctionCall(Expr):
         bindings = fn.signature.py_signature.bind(*self.arg_idxs, **self.kwarg_idxs)
         self.bound_idxs = bindings.arguments
 
-        # Separately generate bound_args for purposes of determining the resource pool.
+        # Separately generate bound_args for purposes of determining the resource pool and estimator.
         bindings = fn.signature.py_signature.bind(*args, **kwargs)
         bound_args = bindings.arguments
         self.resource_pool = fn.call_resource_pool(bound_args)

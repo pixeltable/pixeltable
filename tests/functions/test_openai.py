@@ -488,12 +488,10 @@ class TestOpenai:
         assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']
 
     def test_shared_rate_limits_pool_different_signatures(self, uses_db: None) -> None:
-        """Verify that functions sharing a rate-limits pool with different get_request_resources signatures
-        don't crash the scheduler.
+        """Verify that functions sharing a rate-limits pool with different resource estimators work correctly.
 
-        The pool caches param names from chat_completions (messages, model, model_kwargs), but vision has
-        a different signature (prompt, image, model, model_kwargs). Inserting 2+ rows ensures the second
-        call hits the rate-limited path where the mismatch would previously trigger an AssertionError.
+        chat_completions and vision share a pool but each has its own resource_estimator with different
+        parameters. Inserting 2+ rows ensures the second call hits the rate-limited path.
         """
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
