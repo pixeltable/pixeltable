@@ -219,7 +219,7 @@ class EmbeddingIndex(IndexBase):
         """Validate that the query vector matches the index column dimensions."""
         if query_vector.ndim != 1:
             raise excs.Error(
-                f'similarity(query_vector=...): expected 1-dimensional array; got {query_vector.ndim}-dimensional array'
+                f'similarity(vector=...): query vector must be 1-dimensional; got shape {query_vector.shape}'
             )
         assert isinstance(val_column.col_type, ts.ArrayType)
         col_shape = val_column.col_type.shape
@@ -227,8 +227,8 @@ class EmbeddingIndex(IndexBase):
         expected_len = col_shape[0]
         if query_vector.shape[0] != expected_len:
             raise excs.Error(
-                f'similarity(query_vector=...): query vector length {query_vector.shape[0]} does not match '
-                f'indexed column {val_column.name!r} length {expected_len}'
+                f'similarity(vector=...): query vector length {query_vector.shape[0]} does not match '
+                f'indexed column {val_column.name!r} dimension {expected_len}'
             )
 
     def similarity_clause(self, val_column: catalog.Column, item: exprs.Literal) -> sql.ColumnElement:
