@@ -1129,8 +1129,8 @@ class TestExprs:
         assert sim1.serialize() == sim2.serialize()
 
         # Test repr
-        assert repr(sim1) == "img.img_idx0.similarity('red truck')"
-        assert repr(sim2) == "img.img_idx0.similarity('red truck')"
+        assert repr(sim1) == "img.similarity('red truck', 'img_idx0')"
+        assert repr(sim2) == "img.similarity('red truck', 'img_idx0')"
 
         # Deprecated pattern; verify it still gives the same results
         with pytest.warns(
@@ -1151,8 +1151,8 @@ class TestExprs:
         assert sim1.serialize() != sim2.serialize()
 
         # Test repr
-        assert repr(sim1) == "img.img_idx1.similarity('red truck')"
-        assert repr(sim2) == "img.img_idx2.similarity('red truck')"
+        assert repr(sim1) == "img.similarity('red truck', 'img_idx1')"
+        assert repr(sim2) == "img.similarity('red truck', 'img_idx2')"
 
     def test_ids(
         self, test_tbl_exprs: list[exprs.Expr], img_tbl_exprs: list[exprs.Expr], multi_img_tbl_exprs: list[exprs.Expr]

@@ -65,14 +65,11 @@ class EmbeddingIndex(IndexBase):
         image_embed: func.Function | None = None,
         audio_embed: func.Function | None = None,
         video_embed: func.Function | None = None,
-        column: catalog.Column | None = None,  # Used for validation when the indexed column is an array.
+        column: catalog.Column | None = None,  # Column being indexed; None during deserialization.
     ):
-        # Embedding functions are not required in two cases:
-        # 1. column is None: deserialization path
-        # 2. column is an array type: similarity search uses the raw vector directly
         if (
             column is not None
-            and column.col_type._type != ts.ColumnType.Type.ARRAY
+            and not column.col_type.is_array_type()  # embedding function is optional for array columns
             and not any((embed, string_embed, image_embed, audio_embed, video_embed))
         ):
             raise excs.Error(
@@ -129,8 +126,8 @@ class EmbeddingIndex(IndexBase):
                 or array_column_shape[0] <= 0
             ):
                 raise excs.Error(
-                    f'Column {column.name!r} must be a 1-dimensional array with a specific length '
-                    f'for an embedding index.'
+                    f'Cannot create embedding index on column {column.name!r}: '
+                    f'requires a 1-dimensional array column type with a defined length.'
                 )
 
         # Validate the return types of the embedding functions.
@@ -155,7 +152,7 @@ class EmbeddingIndex(IndexBase):
             raise excs.Error(f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.')
 
         # For ARRAY columns, return column reference directly - array already contains the embeddings.
-        if c.col_type._type == ts.ColumnType.Type.ARRAY:
+        if c.col_type.is_array_type():
             return exprs.ColumnRef(c)
         # For non-array columns, apply the embedding function
         if c.col_type._type not in self.embeddings:
@@ -215,29 +212,29 @@ class EmbeddingIndex(IndexBase):
         # TODO: implement
         raise NotImplementedError()
 
-    def _validate_query_vector(self, query_vector: np.ndarray, val_column: catalog.Column) -> None:
+    def _validate_query_vector(self, query_vector: np.ndarray, val_column_type: ts.ArrayType) -> None:
         """Validate that the query vector matches the index column dimensions."""
         if query_vector.ndim != 1:
             raise excs.Error(
                 f'similarity(vector=...): query vector must be 1-dimensional; got shape {query_vector.shape}'
             )
-        assert isinstance(val_column.col_type, ts.ArrayType)
-        col_shape = val_column.col_type.shape
+        col_shape = val_column_type.shape
         assert col_shape is not None and len(col_shape) == 1 and col_shape[0] is not None
         expected_len = col_shape[0]
         if query_vector.shape[0] != expected_len:
             raise excs.Error(
                 f'similarity(vector=...): query vector length {query_vector.shape[0]} does not match '
-                f'indexed column {val_column.name!r} dimension {expected_len}'
+                f'indexed column length {expected_len}'
             )
 
     def similarity_clause(self, val_column: catalog.Column, item: exprs.Literal) -> sql.ColumnElement:
         """Create a ColumnElement that represents '<val_column> <op> <item>'"""
-        if item.col_type._type == ts.ColumnType.Type.ARRAY:
+        if item.col_type.is_array_type():
             # Array value is already a vector; no embedding function needed.
             embedding = item.val
             assert isinstance(embedding, np.ndarray)
-            self._validate_query_vector(embedding, val_column)
+            assert val_column.col_type.is_array_type()
+            self._validate_query_vector(embedding, val_column.col_type)
         else:
             assert item.col_type._type in self.embeddings
             embedding = self.embeddings[item.col_type._type].exec([item.val], {})
@@ -257,11 +254,12 @@ class EmbeddingIndex(IndexBase):
 
     def order_by_clause(self, val_column: catalog.Column, item: exprs.Literal, is_asc: bool) -> sql.ColumnElement:
         """Create a ColumnElement that is used in an ORDER BY clause"""
-        if item.col_type._type == ts.ColumnType.Type.ARRAY:
+        if item.col_type.is_array_type():
             # Array value is already a vector; no embedding function needed.
             embedding = item.val
             assert isinstance(embedding, np.ndarray)
-            self._validate_query_vector(embedding, val_column)
+            assert val_column.col_type.is_array_type()
+            self._validate_query_vector(embedding, val_column.col_type)
         else:
             assert item.col_type._type in self.embeddings
             embedding = self.embeddings[item.col_type._type].exec([item.val], {})
@@ -343,7 +341,7 @@ class EmbeddingIndex(IndexBase):
         if array_column_shape is not None and shape != array_column_shape:
             raise excs.Error(
                 f'The function `{embed_fn.name}` returns an array with shape {shape}, '
-                f'but indexed column has shape {array_column_shape}'
+                f'but the indexed column has shape {array_column_shape}'
             )
 
     def as_dict(self) -> dict:

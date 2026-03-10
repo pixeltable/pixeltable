@@ -77,7 +77,7 @@ class SimilarityExpr(Expr):
         assert isinstance(idx, EmbeddingIndex)
 
         # Skip for array columns; similarity search uses the raw vector directly.
-        if item.col_type._type != ts.ColumnType.Type.ARRAY and item.col_type._type not in idx.embeddings:
+        if not item.col_type.is_array_type() and item.col_type._type not in idx.embeddings:
             type_str = item.col_type._type.name.lower()
             article = 'an' if type_str[0] in 'aeiou' else 'a'
             raise excs.Error(
@@ -92,7 +92,7 @@ class SimilarityExpr(Expr):
 
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
         col = tbl_version.cols_by_id[self.col_id]
-        return f'{col.name}.{self.idx_name}.similarity({self.components[0]})'
+        return f'{col.name}.similarity({self.components[0]}, {self.idx_name!r})'
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
         return [*super()._id_attrs(), ('idx_name', self.idx_name)]
