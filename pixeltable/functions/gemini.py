@@ -2,7 +2,7 @@
 Pixeltable UDFs
 that wrap various endpoints from the Google Gemini API. In order to use them, you must
 first `pip install google-genai` and configure your Gemini credentials, as described in
-the [Working with Gemini](https://docs.pixeltable.com/notebooks/integrations/working-with-gemini) tutorial.
+the [Working with Gemini](https://docs.pixeltable.com/howto/providers/working-with-gemini) tutorial.
 
 Supports two authentication methods:
 
