@@ -64,19 +64,6 @@ def center(self: str, width: int, fillchar: str = ' ') -> str:
     return self.center(width, fillchar)
 
 
-@center.to_sql
-def _(
-    self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None
-) -> sql.ColumnElement:
-    fill = fillchar if fillchar is not None else ' '
-    w = width.cast(sql.types.INT)
-    str_len = sql.func.char_length(self)
-    total_pad = w - str_len
-    left_pad = sql.func.floor(total_pad / 2).cast(sql.types.INT)
-    # When width <= str_len, return self unchanged (Python's center behavior)
-    return sql.case((w <= str_len, self), else_=sql.func.rpad(sql.func.lpad(self, str_len + left_pad, fill), w, fill))
-
-
 @pxt.udf(is_method=True)
 def contains(self: str, substr: str, case: bool = True) -> bool:
     """
@@ -587,37 +574,6 @@ def pad(self: str, width: int, side: str = 'left', fillchar: str = ' ') -> str:
         raise ValueError(f'Invalid side: {side}')
 
 
-@pad.to_sql
-def _(
-    self: sql.ColumnElement,
-    width: sql.ColumnElement,
-    side: sql.ColumnElement | None = None,
-    fillchar: sql.ColumnElement | None = None,
-) -> sql.ColumnElement:
-    fill = fillchar if fillchar is not None else ' '
-    w = width.cast(sql.types.INT)
-    str_len = sql.func.char_length(self)
-    # Default side is 'left' which means ljust (pad on right)
-    # side='left' -> ljust -> rpad
-    # side='right' -> rjust -> lpad
-    # side='both' -> center -> lpad then rpad
-    if side is None:
-        # Default: ljust behavior (pad on right)
-        return sql.case((str_len >= w, self), else_=sql.func.rpad(self, w, fill))
-    # For dynamic side parameter, we need case expressions
-    total_pad = w - str_len
-    left_pad = sql.func.floor(total_pad / 2).cast(sql.types.INT)
-    return sql.case(
-        (side == 'left', sql.case((str_len >= w, self), else_=sql.func.rpad(self, w, fill))),
-        (side == 'right', sql.case((str_len >= w, self), else_=sql.func.lpad(self, w, fill))),
-        (
-            side == 'both',
-            sql.case((w <= str_len, self), else_=sql.func.rpad(sql.func.lpad(self, str_len + left_pad, fill), w, fill)),
-        ),
-        else_=self,
-    )
-
-
 @pxt.udf(is_method=True)
 def partition(self: str, sep: str = ' ') -> list:
     """
@@ -629,20 +585,6 @@ def partition(self: str, sep: str = ' ') -> list:
     if idx == -1:
         return [self, '', '']
     return [self[:idx], sep, self[idx + builtins.len(sep) :]]
-
-
-@partition.to_sql
-def _(self: sql.ColumnElement, sep: sql.ColumnElement | None = None) -> sql.ColumnElement:
-    separator = sep if sep is not None else sql.literal(' ')
-    pos = sql.func.strpos(self, separator)
-    sep_len = sql.func.char_length(separator)
-    # Build JSON array with 3 elements: [before, sep, after]
-    return sql.case(
-        (pos == 0, sql.func.jsonb_build_array(self, '', '')),
-        else_=sql.func.jsonb_build_array(
-            sql.func.substr(self, 1, pos - 1), separator, sql.func.substr(self, pos + sep_len)
-        ),
-    )
 
 
 @pxt.udf(is_method=True)
@@ -768,26 +710,6 @@ def rfind(self: str, substr: str, start: int | None = 0, end: int | None = None)
     return self.rfind(substr, start, end)
 
 
-@rfind.to_sql
-def _(
-    self: sql.ColumnElement,
-    substr: sql.ColumnElement,
-    start: sql.ColumnElement | None = None,
-    end: sql.ColumnElement | None = None,
-) -> sql.ColumnElement:
-    # Only implement simple case (no start/end); fall back to Python for complex cases
-    if start is not None or end is not None:
-        return None
-    # Find last occurrence by reversing strings and using strpos
-    # position in reversed = strpos(reverse(self), reverse(substr))
-    # original position = length(self) - position - length(substr) + 1
-    rev_pos = sql.func.strpos(sql.func.reverse(self), sql.func.reverse(substr))
-    str_len = sql.func.char_length(self)
-    substr_len = sql.func.char_length(substr)
-    # Convert to 0-based index; return -1 if not found (rev_pos = 0)
-    return sql.case((rev_pos == 0, -1), else_=(str_len - rev_pos - substr_len + 1))
-
-
 @pxt.udf(is_method=True)
 def rindex(self: str, substr: str, start: int | None = 0, end: int | None = None) -> int:
     """
@@ -833,24 +755,6 @@ def rpartition(self: str, sep: str = ' ') -> list:
     if idx == -1:
         return [self, '', '']
     return [self[:idx], sep, self[idx + builtins.len(sep) :]]
-
-
-@rpartition.to_sql
-def _(self: sql.ColumnElement, sep: sql.ColumnElement | None = None) -> sql.ColumnElement:
-    separator = sep if sep is not None else sql.literal(' ')
-    sep_len = sql.func.char_length(separator)
-    str_len = sql.func.char_length(self)
-    # Find last occurrence using reverse search
-    rev_pos = sql.func.strpos(sql.func.reverse(self), sql.func.reverse(separator))
-    # Convert to original position (1-indexed)
-    pos = sql.case((rev_pos == 0, 0), else_=(str_len - rev_pos - sep_len + 2))
-    # Build JSON array with 3 elements: [before, sep, after]
-    return sql.case(
-        (pos == 0, sql.func.jsonb_build_array('', '', self)),
-        else_=sql.func.jsonb_build_array(
-            sql.func.substr(self, 1, pos - 1), separator, sql.func.substr(self, pos + sep_len)
-        ),
-    )
 
 
 @pxt.udf(is_method=True)
@@ -930,36 +834,6 @@ def slice_replace(self: str, start: int | None = None, stop: int | None = None, 
         repl: replacement value
     """
     return self[:start] + repl + self[stop:]
-
-
-@slice_replace.to_sql
-def _(
-    self: sql.ColumnElement,
-    start: sql.ColumnElement | None = None,
-    stop: sql.ColumnElement | None = None,
-    repl: sql.ColumnElement | None = None,
-) -> sql.ColumnElement:
-    # self[:start] + repl + self[stop:]
-    # In SQL: substr(self, 1, start) || repl || substr(self, stop + 1)
-    replacement: sql.ColumnElement = repl if repl is not None else sql.literal('')
-
-    # Handle None start (means from beginning, so prefix is empty)
-    prefix: sql.ColumnElement
-    if start is None:
-        prefix = sql.literal('')
-    else:
-        # substr(self, 1, start) - PostgreSQL substr is 1-indexed
-        prefix = sql.func.substr(self, 1, start.cast(sql.types.INT))
-
-    # Handle None stop (means to end, so suffix is empty)
-    suffix: sql.ColumnElement
-    if stop is None:
-        suffix = sql.literal('')
-    else:
-        # substr(self, stop + 1) - get from position stop+1 to end (1-indexed)
-        suffix = sql.func.substr(self, stop.cast(sql.types.INT) + 1)
-
-    return sql.func.concat(prefix, replacement, suffix)
 
 
 @pxt.udf(is_method=True)
