@@ -61,7 +61,8 @@ def _(api_key: str | None = None) -> 'genai.client.Client':
     except Exception as e:
         raise excs.Error(
             'Gemini client not initialized. '
-            'For the Gemini Developer API set GOOGLE_API_KEY or GEMINI_API_KEY. '
+            'For the Gemini Developer API set GOOGLE_API_KEY or GEMINI_API_KEY, '
+            'or set api_key in the [gemini] section of $PIXELTABLE_HOME/config.toml. '
             'For Vertex AI set GOOGLE_GENAI_USE_VERTEXAI=true and GOOGLE_CLOUD_PROJECT, '
             'then authenticate via: gcloud auth application-default login'
         ) from e
