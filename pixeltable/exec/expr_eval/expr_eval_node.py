@@ -369,64 +369,66 @@ class ExprEvalNode(ExecNode):
         report_progress = self.progress_reporter is not None and self.eval_ctx is exec_ctx
         if report_progress:
             # Count currently non-materialized output slots (before updating missing_slots)
-            missing_outputs_before = (missing_slots & self.outputs).sum()  # scalar
+            missing_outputs_before: np.int64 = (missing_slots & self.outputs).sum()
 
         # Update missing_slots: clear slots that now have values
         missing_slots &= ~has_val  # (num_rows, num_slots)
 
         # Progress reporting
         if report_progress:
-            missing_outputs_after = (missing_slots & self.outputs).sum()  # scalar
+            missing_outputs_after: np.int64 = (missing_slots & self.outputs).sum()
             num_computed_outputs = int(missing_outputs_before - missing_outputs_after)
             if num_computed_outputs > 0:
                 self.progress_reporter.update(num_computed_outputs)
 
         # Identify completed rows
         missing_slot_counts = missing_slots.sum(axis=1)  # (num_rows,)
-        completed_mask = missing_slot_counts == 0  # (num_rows,)
+        completed_rows = missing_slot_counts == 0  # (num_rows,)
 
         # Compute ready slots for non-completed rows
         # ready_slots: (num_rows, num_slots)
         ready_slots = np.zeros((num_rows, num_slots), dtype=bool)
 
-        non_completed_mask = ~completed_mask
-        if np.any(non_completed_mask):
+        non_completed_rows = ~completed_rows
+        if np.any(non_completed_rows):
             # Only compute for non-completed rows
-            nc_missing_slots = missing_slots[non_completed_mask]
-            nc_has_val = has_val[non_completed_mask]
-            nc_is_scheduled = is_scheduled[non_completed_mask]
+            nc_missing_slots = missing_slots[non_completed_rows]
+            nc_has_val = has_val[non_completed_rows]
+            nc_is_scheduled = is_scheduled[non_completed_rows]
 
             # missing_dependencies: dependencies needed for missing slots
             # Shape: (num_nc_rows, num_slots)
             nc_missing_dependencies = num_dependencies * nc_missing_slots
 
-            # num_mat_dependencies: array of how many dependencies are materialized per slot, per row
+            # num_mat_dependencies: for each slot, count how many of its dependencies have values
             # has_val @ dependencies.T gives count of materialized dependencies per slot
-            # dependencies[i, j] == True means expr i depends on expr j
-            # dependencies.T[j, i] == True means expr i depends on expr j
-            # We want: for each slot i, count how many of its dependencies have values
-            nc_num_mat_dependencies = nc_has_val.astype(np.int16) @ dependencies.T.astype(np.int16)  # (num_nc_rows, num_slots)
+            # bool -> int16: bool @ bool does boolean ops (True + True = True), not arithmetic
+            nc_num_mat_dependencies = nc_has_val.astype(np.int16) @ dependencies.T.astype(
+                np.int16
+            )  # (num_nc_rows, num_slots)
 
             # Ready when all dependencies are materialized
             nc_num_missing = nc_missing_dependencies - nc_num_mat_dependencies  # (num_nc_rows, num_slots)
             # A slot is ready if it has missing dependencies == 0, isn't already scheduled, and is still missing
             nc_ready = (nc_num_missing == 0) & (~nc_is_scheduled) & nc_missing_slots  # (num_nc_rows, num_slots)
 
-            ready_slots[non_completed_mask] = nc_ready
+            ready_slots[non_completed_rows] = nc_ready
 
             # Update is_scheduled for non-completed rows
-            is_scheduled[non_completed_mask] |= nc_ready
+            is_scheduled[non_completed_rows] |= nc_ready
 
-        # GC computation 
+        # GC computation
         # Compute new_missing_dependents for all rows
-        # new_missing_dependents[i, slot] = count of slots that depend on 'slot' and don't have a value yet
+        # new_missing_dependents[i, slot] = for row i, count of exprs that depend on 'slot' and don't have a value
         # dependencies[i, j] means expr i depends on expr j
         # For each slot j, we count how many slots i (that don't have values) depend on j
-        # This is: (~has_val) @ dependencies, summing over the first axis
+        # bool -> int16: bool @ bool does boolean ops (True + True = True), not arithmetic
         new_missing_dependents = (~has_val).astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
 
         # gc_targets[i, j] = Boolean mask where slot j can be garbage collected for row i if True
-        gc_targets = (new_missing_dependents == 0) & (missing_dependents > 0) & exec_ctx.gc_targets[np.newaxis, :]  # (num_rows, num_slots)
+        gc_targets = (
+            (new_missing_dependents == 0) & (missing_dependents > 0) & exec_ctx.gc_targets[np.newaxis, :]
+        )  # (num_rows, num_slots)
 
         # Write back to DataRows and perform GC
         for i, row in enumerate(rows):
@@ -439,8 +441,8 @@ class ExprEvalNode(ExecNode):
             row.missing_dependents = new_missing_dependents[i]
 
         # Handle completed rows
-        if np.any(completed_mask):
-            completed_idxs = list(completed_mask.nonzero()[0])
+        if np.any(completed_rows):
+            completed_idxs = list(completed_rows.nonzero()[0])
             if rows[0].parent_row is not None:
                 # these are nested rows
                 for i in completed_idxs:

@@ -75,7 +75,7 @@ class TestExprEvalPerformance:
         arrow_tbl = pa.table(
             {
                 'c1': pa.array(range(row_count), type=pa.int32()),
-                'c2': pa.array([f'str_{i}' for i in range(row_count)], type=pa.string()),
+                'c2': pa.array((f'str_{i}' for i in range(row_count)), type=pa.string()),
             }
         )
 
