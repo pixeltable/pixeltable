@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
@@ -35,9 +34,6 @@ if TYPE_CHECKING:
         datasets.Dataset,
         datasets.DatasetDict,  # Huggingface datasets
     ]
-
-
-_logger = logging.getLogger('pixeltable')
 
 
 def init(config_overrides: dict[str, Any] | None = None) -> None:

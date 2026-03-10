@@ -146,6 +146,8 @@ class Env:
         self._log_to_stdout = False
         self._module_log_level = {}  # module name -> log level
 
+        self._sql_loggers = [logging.getLogger('sqlalchemy.engine.Engine'), logging.getLogger('sqlalchemy.engine')]
+
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
         self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
@@ -243,6 +245,8 @@ class Env:
     ) -> None:
         """Configure logging.
 
+        Note: these settings only apply to the `pixeltable` logger and not any of the dependencies such as sqlalchemy.*
+
         Args:
             to_stdout: if True, also log to stdout
             level: default log level
@@ -250,19 +254,19 @@ class Env:
             remove: comma-separated list of module names
         """
         if to_stdout is not None:
-            self.log_to_stdout(to_stdout)
+            self._set_log_to_stdout(to_stdout)
         if level is not None:
             self.set_log_level(level)
         if add is not None:
             for module, level_str in [t.split(':') for t in add.split(',')]:
-                self.set_module_log_level(module, int(level_str))
+                self._set_module_log_level(module, int(level_str))
         if remove is not None:
             for module in remove.split(','):
-                self.set_module_log_level(module, None)
+                self._set_module_log_level(module, None)
         if to_stdout is None and level is None and add is None and remove is None:
-            self.print_log_config()
+            self._print_log_config()
 
-    def print_log_config(self) -> None:
+    def _print_log_config(self) -> None:
         print(f'logging to {self._logfilename}')
         print(f'{"" if self._log_to_stdout else "not "}logging to stdout')
         print(f'default log level: {logging.getLevelName(self._default_log_level)}')
@@ -271,7 +275,7 @@ class Env:
             f'{",".join([name + ":" + logging.getLevelName(val) for name, val in self._module_log_level.items()])}'
         )
 
-    def log_to_stdout(self, enable: bool = True) -> None:
+    def _set_log_to_stdout(self, enable: bool = True) -> None:
         self._log_to_stdout = enable
         if enable:
             self._logger.addHandler(self._stdout_handler)
@@ -281,7 +285,7 @@ class Env:
     def set_log_level(self, level: int) -> None:
         self._default_log_level = level
 
-    def set_module_log_level(self, module: str, level: int | None) -> None:
+    def _set_module_log_level(self, module: str, level: int | None) -> None:
         if level is None:
             self._module_log_level.pop(module, None)
         else:
@@ -401,11 +405,11 @@ class Env:
         fh.setFormatter(logging.Formatter(self._log_fmt_str))
         self._logger.addHandler(fh)
 
-        # configure sqlalchemy logging
-        sql_logger = logging.getLogger('sqlalchemy.engine')
-        sql_logger.setLevel(logging.INFO)
-        sql_logger.addHandler(fh)
-        sql_logger.propagate = False
+        # Configure sqlalchemy logging. Pixeltable users don't need to see the SQL queries by default
+        for sql_logger in self._sql_loggers:
+            sql_logger.setLevel(logging.WARNING)
+            sql_logger.addHandler(fh)
+            sql_logger.propagate = False
 
         # configure pyav logging
         av_logfilename = self._logfilename.replace('.log', '_av.log')
@@ -454,7 +458,7 @@ class Env:
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
-        self.log_to_stdout(False)
+        self._set_log_to_stdout(False)
 
     def _init_db(self, config: Config) -> None:
         """
