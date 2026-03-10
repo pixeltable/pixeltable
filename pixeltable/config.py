@@ -183,9 +183,9 @@ KNOWN_CONFIG_OPTIONS = {
     'fal': {'api_key': 'fal.ai API key', 'rate_limit': 'Rate limit for fal.ai API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},
     'gemini': {
-        'api_key': 'Gemini API key (for Google AI Studio)',
-        'project': 'GCP project ID (for Vertex AI)',
+        'project': 'GCP project ID (for Vertex AI); if set, takes precedence over api_key',
         'location': 'GCP region for Vertex AI (e.g. us-central1)',
+        'api_key': 'Gemini API key (for Google AI Studio)',
         'rate_limits': 'Per-model rate limits for Gemini API requests',
     },
     'hf': {'auth_token': 'Hugging Face access token'},

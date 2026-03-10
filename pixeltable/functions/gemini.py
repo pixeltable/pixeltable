@@ -6,9 +6,12 @@ the [Working with Gemini](https://docs.pixeltable.com/notebooks/integrations/wor
 
 Supports two authentication methods:
 
-- Google AI Studio: set the `GEMINI_API_KEY` environment variable.
-- Vertex AI: set `GEMINI_PROJECT` (and optionally `GEMINI_LOCATION`) and authenticate
-  via Application Default Credentials (e.g. `gcloud auth application-default login`).
+- Vertex AI: set `GEMINI_PROJECT` and optionally `GEMINI_LOCATION` (or alternatively, put `project` and
+  optionally `location` in the `gemini` section of the Pixeltable config file), and authenticate
+  via Application Default Credentials (e.g. `gcloud auth application-default login`). If set, this takes
+  precedence over the API key/Google AI Studio authentication.
+- Google AI Studio: set the `GEMINI_API_KEY` environment variable, or put `api_key` in the `gemini` section of
+  the Pixeltable config file.
 """
 
 import asyncio
@@ -50,15 +53,16 @@ _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 def _(api_key: str | None = None, project: str | None = None, location: str | None = None) -> 'genai.client.Client':
     from google import genai
 
-    if project is not None or location is not None:
+    if project is not None:
         # Vertex AI
         return genai.client.Client(vertexai=True, project=project, location=location)
     if api_key is not None:
         # Gemini Developer API
         return genai.client.Client(api_key=api_key)
     raise excs.Error(
-        'Gemini client not initialized: set GEMINI_API_KEY for the Gemini Developer API, '
-        'or set GEMINI_PROJECT (and optionally GEMINI_LOCATION) for Vertex AI.'
+        '`gemini` client not initialized: requires one of the parameters `api_key` or `project`.\n'
+        'To fix this, specify either the `GEMINI_API_KEY` or `GEMINI_PROJECT` environment variable, '
+        'or put `api_key` or `project` in the `gemini` section of $PIXELTABLE_HOME/config.toml.'
     )
 
 
