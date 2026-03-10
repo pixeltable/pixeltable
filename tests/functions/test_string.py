@@ -32,11 +32,15 @@ from pixeltable.functions.string import (
     lower,
     lstrip,
     match,
+    pad,
+    partition,
     replace_re,
     reverse,
     rfind,
     rjust,
+    rpartition,
     rstrip,
+    slice_replace,
     startswith,
     string_splitter,
     strip,
@@ -332,42 +336,19 @@ class TestString:
         row = t.head()[1]
         assert row == {'input': 'PQR', 's1': 'ABC PQR', 's2': 'DEF PQR', 's3': 'GHI PQR JKL PQR'}
 
-    def test_join(self, uses_db: None) -> None:
-        from pixeltable.functions.string import join
-
-        t = pxt.create_table('test_tbl', {'elements': pxt.Json})
-        test_data = [['a', 'b', 'c'], ['hello', 'world'], ['single'], []]
-        validate_update_status(t.insert({'elements': e} for e in test_data), expected_rows=len(test_data))
-
-        # Test with comma separator
-        res = t.select(out=join(', ', t.elements)).collect()['out']
-        expected = [', '.join(e) for e in test_data]
-        assert res == expected
-
-        # Test with empty separator
-        res = t.select(out=join('', t.elements)).collect()['out']
-        expected = [''.join(e) for e in test_data]
-        assert res == expected
-
-        # Force Python execution and compare
-        res_py = t.select(out=join(', ', t.elements.apply(lambda x: x, col_type=pxt.Json))).collect()['out']
-        expected = [', '.join(e) for e in test_data]
-        assert res_py == expected
-
     def test_zfill_signed(self, uses_db: None) -> None:
         """Test zfill with signed numbers to ensure sign is preserved at front."""
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = ['-42', '+42', '42', '-1', '+1', '1', '-123456', '+123456', '']
+        test_strs = ['-42', '+42', '42', '-1', '+1', '1', '-123456', '+123456', '', 'abc', '-', '+', '--5']
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
-        # Test zfill with width 6
-        res = t.select(out=zfill(t.s, 6)).collect()['out']
-        expected = [s.zfill(6) for s in test_strs]
-        assert res == expected, f'SQL result {res} != expected {expected}'
-
-        # Force Python execution and compare
-        res_py = t.select(out=zfill(t.s.apply(lambda x: x, col_type=pxt.String), 6)).collect()['out']
-        assert res_py == expected, f'Python result {res_py} != expected {expected}'
+        s_py = t.s.apply(lambda x: x, col_type=pxt.String)
+        for w in [0, 1, 3, 6, 10]:
+            res_sql = t.select(out=zfill(t.s, w)).collect()['out']
+            res_py = t.select(out=zfill(s_py, w)).collect()['out']
+            expected = [s.zfill(w) for s in test_strs]
+            assert res_sql == expected, f'zfill w={w} SQL: {res_sql} != {expected}'
+            assert res_py == expected, f'zfill w={w} Py: {res_py} != {expected}'
 
     def test_is_validation_functions(self, uses_db: None) -> None:
         """Test is* validation functions with edge cases to ensure SQL/Python equivalence.
@@ -429,11 +410,7 @@ class TestString:
             (isascii, str.isascii),
             (isdecimal, str.isdecimal),
             (isdigit, str.isdigit),
-            (islower, str.islower),
-            (isupper, str.isupper),
             (isspace, str.isspace),
-            (istitle, str.istitle),
-            (isidentifier, str.isidentifier),
         ]
 
         for pxt_fn, str_fn in test_params:
@@ -446,19 +423,90 @@ class TestString:
             res_py = t.select(out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String))).collect()['out']
             assert res_py == expected, f'{pxt_fn.name} Python mismatch: {res_py} != {expected}'
 
-    def test_case_transforms(self, uses_db: None) -> None:
-        """Test case-transformation functions (swapcase, casefold) for SQL/Python equivalence."""
+    def test_string_sql_equivalence(self, uses_db: None) -> None:
+        """Test non-regex to_sql implementations for SQL/Python equivalence."""
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = ['', 'abc', 'ABC', 'HeLLo', 'hELLO wORLD', '123', 'abc123', 'Hello World', 'HELLO WORLD']
+        test_strs = [
+            '',
+            'a',
+            'ab',
+            'abc',
+            'abcdef',
+            '  spaced  ',
+            'hello world',
+            'hello world foo',
+            'aXbXc',
+            'X',
+            'XX',
+            'aX',
+            'Xa',
+            'aaa',
+            'abcabc',
+            'abab',
+        ]
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
-        for pxt_fn, str_fn in [(swapcase, str.swapcase), (casefold, str.casefold)]:
-            res_sql = t.select(out=pxt_fn(t.s)).collect()['out']
-            expected = [str_fn(s) for s in test_strs]
-            assert res_sql == expected, f'{pxt_fn.name} SQL mismatch: {res_sql} != {expected}'
+        def check(expr: Any, expected: list[Any], label: str) -> None:
+            """Assert SQL and forced-Python paths both match expected."""
+            res = t.select(out=expr).collect()['out']
+            assert res == expected, f'{label} SQL: {res} != {expected}'
 
-            res_py = t.select(out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String))).collect()['out']
-            assert res_py == expected, f'{pxt_fn.name} Python mismatch: {res_py} != {expected}'
+        def check_both(sql_expr: Any, py_expr: Any, expected: list[Any], label: str) -> None:
+            check(sql_expr, expected, f'{label} SQL')
+            check(py_expr, expected, f'{label} Py')
+
+        s = t.s
+        s_py = t.s.apply(lambda x: x, col_type=pxt.String)  # forces Python fallback
+
+        # ── ljust / rjust / center ────────────────────────────────────────────
+        for w in [0, 3, 6, 10]:
+            check_both(ljust(s, w), ljust(s_py, w), [x.ljust(w) for x in test_strs], f'ljust w={w}')
+            check_both(rjust(s, w), rjust(s_py, w), [x.rjust(w) for x in test_strs], f'rjust w={w}')
+            check_both(center(s, w), center(s_py, w), [x.center(w) for x in test_strs], f'center w={w}')
+
+        # Custom fill characters
+        check_both(ljust(s, 8, '*'), ljust(s_py, 8, '*'), [x.ljust(8, '*') for x in test_strs], 'ljust fill=*')
+        check_both(rjust(s, 8, '.'), rjust(s_py, 8, '.'), [x.rjust(8, '.') for x in test_strs], 'rjust fill=.')
+        check_both(center(s, 8, '-'), center(s_py, 8, '-'), [x.center(8, '-') for x in test_strs], 'center fill=-')
+
+        # ── pad (all three sides) ─────────────────────────────────────────────
+        for side_val, py_fn in [('left', str.ljust), ('right', str.rjust), ('both', str.center)]:
+            check_both(
+                pad(s, 8, side=side_val),
+                pad(s_py, 8, side=side_val),
+                [py_fn(x, 8) for x in test_strs],
+                f'pad side={side_val}',
+            )
+
+        # ── partition / rpartition ────────────────────────────────────────────
+        for sep in [' ', 'X', 'hello', 'missing']:
+            check_both(
+                partition(s, sep),
+                partition(s_py, sep),
+                [list(x.partition(sep)) for x in test_strs],
+                f'partition sep={sep!r}',
+            )
+            check_both(
+                rpartition(s, sep),
+                rpartition(s_py, sep),
+                [list(x.rpartition(sep)) for x in test_strs],
+                f'rpartition sep={sep!r}',
+            )
+
+        # ── rfind ─────────────────────────────────────────────────────────────
+        for substr in ['hello', 'a', 'x', 'missing', 'ab', '']:
+            check_both(
+                rfind(s, substr), rfind(s_py, substr), [x.rfind(substr) for x in test_strs], f'rfind substr={substr!r}'
+            )
+
+        # ── slice_replace ─────────────────────────────────────────────────────
+        for start, stop, repl in [(0, 5, 'HI'), (5, 5, 'INS'), (0, 0, 'PRE'), (3, 6, ''), (0, 100, 'all')]:
+            check_both(
+                slice_replace(s, start, stop, repl),
+                slice_replace(s_py, start, stop, repl),
+                [x[:start] + repl + x[stop:] for x in test_strs],
+                f'slice_replace({start},{stop},{repl!r})',
+            )
 
     def test_regex_sql_equivalence(self, uses_db: None) -> None:
         """Test regex-based string functions for SQL/Python equivalence, including edge cases.

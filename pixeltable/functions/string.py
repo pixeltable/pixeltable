@@ -387,12 +387,6 @@ def islower(self: str) -> bool:
     return self.islower()
 
 
-@islower.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # Has at least one lowercase letter and no uppercase letters
-    return sql.and_(self.op('~')('[a-z]'), sql.not_(self.op('~')('[A-Z]')))
-
-
 @pxt.udf(is_method=True)
 def isnumeric(self: str) -> bool:
     """
@@ -401,10 +395,6 @@ def isnumeric(self: str) -> bool:
     Equivalent to [`str.isnumeric()`](https://docs.python.org/3/library/stdtypes.html#str.isnumeric)
     """
     return self.isnumeric()
-
-
-# Note: isnumeric includes Unicode numeric characters (fractions, subscripts, etc.)
-# SQL implementation covers ASCII digits only; fall back to Python for full Unicode support
 
 
 @pxt.udf(is_method=True)
@@ -416,12 +406,6 @@ def isupper(self: str) -> bool:
     Equivalent to [`str.isupper()`](https://docs.python.org/3/library/stdtypes.html#str.isupper)
     """
     return self.isupper()
-
-
-@isupper.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # Has at least one uppercase letter and no lowercase letters
-    return sql.and_(self.op('~')('[A-Z]'), sql.not_(self.op('~')('[a-z]')))
 
 
 @pxt.udf(is_method=True)
@@ -459,16 +443,6 @@ def join(sep: str, elements: list) -> str:
     Equivalent to [`str.join()`](https://docs.python.org/3/library/stdtypes.html#str.join)
     """
     return sep.join(elements)
-
-
-@join.to_sql
-def _(sep: sql.ColumnElement, elements: sql.ColumnElement) -> sql.ColumnElement:
-    # Native PostgreSQL arrays work directly with array_to_string
-    if isinstance(elements.type, sql.ARRAY):
-        return sql.func.coalesce(sql.func.array_to_string(elements, sep), '')
-    # For JSONB arrays, scalar subqueries with set-returning functions have
-    # compatibility issues with Pixeltable's query processor. Fall back to Python.
-    return None
 
 
 @pxt.udf(is_method=True)
@@ -975,7 +949,7 @@ def _(
         prefix = sql.literal('')
     else:
         # substr(self, 1, start) - PostgreSQL substr is 1-indexed
-        prefix = sql.func.substr(self, 1, start.cast(sql.Integer))
+        prefix = sql.func.substr(self, 1, start.cast(sql.types.INT))
 
     # Handle None stop (means to end, so suffix is empty)
     suffix: sql.ColumnElement
@@ -983,7 +957,7 @@ def _(
         suffix = sql.literal('')
     else:
         # substr(self, stop + 1) - get from position stop+1 to end (1-indexed)
-        suffix = sql.func.substr(self, stop.cast(sql.Integer) + 1)
+        suffix = sql.func.substr(self, stop.cast(sql.types.INT) + 1)
 
     return sql.func.concat(prefix, replacement, suffix)
 
@@ -1036,14 +1010,6 @@ def swapcase(self: str) -> str:
     return self.swapcase()
 
 
-@swapcase.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # Swap case using translate for ASCII letters
-    uc = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-    lc = 'abcdefghijklmnopqrstuvwxyz'
-    return sql.func.translate(self, uc + lc, lc + uc)
-
-
 @pxt.udf(is_method=True)
 def title(self: str) -> str:
     """
@@ -1053,16 +1019,6 @@ def title(self: str) -> str:
     Equivalent to [`str.title()`](https://docs.python.org/3/library/stdtypes.html#str.title).
     """
     return self.title()
-
-
-@title.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # Python's title() capitalizes after ANY non-alpha character (including digits)
-    # PostgreSQL's initcap() only capitalizes after non-alphanumeric characters
-    # To match Python, insert a marker (¤) after digits that precede letters, making initcap see word boundaries
-    with_markers = sql.func.regexp_replace(self, r'([0-9])([a-zA-Z])', r'\1¤\2', 'g')
-    titled = sql.func.initcap(with_markers)
-    return sql.func.replace(titled, '¤', '')
 
 
 @pxt.udf(is_method=True)
@@ -1123,9 +1079,6 @@ def _(self: sql.ColumnElement, width: sql.ColumnElement) -> sql.ColumnElement:
     )
 
 
-def string_splitter(
-    text: Any, separators: str, *, spacy_model: str = 'en_core_web_sm'
-) -> tuple[type[pxt.iterators.ComponentIterator], dict[str, Any]]:
 class StringChunk(TypedDict):
     text: str
 
