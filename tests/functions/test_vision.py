@@ -306,6 +306,42 @@ class TestVision:
         with pytest.raises(pxt.Error, match='width/height require absolute'):
             t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height=50)).collect()
 
+        # zero/negative width
+        with pytest.raises(pxt.Error, match='width must be positive'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', width=0)).collect()
+        with pytest.raises(pxt.Error, match='width must be positive'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', width=-10)).collect()
+
+        # zero/negative height
+        with pytest.raises(pxt.Error, match='height must be positive'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', height=0)).collect()
+        with pytest.raises(pxt.Error, match='height must be positive'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', height=-10)).collect()
+
+        # zero/negative width_f
+        with pytest.raises(pxt.Error, match='width_f must be positive'):
+            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width_f=0.0)).collect()
+        with pytest.raises(pxt.Error, match='width_f must be positive'):
+            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width_f=-0.1)).collect()
+
+        # zero/negative height_f
+        with pytest.raises(pxt.Error, match='height_f must be positive'):
+            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height_f=0.0)).collect()
+        with pytest.raises(pxt.Error, match='height_f must be positive'):
+            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height_f=-0.1)).collect()
+
+        # zero/negative aspect_f
+        with pytest.raises(pxt.Error, match='aspect_f must be positive'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect_f=0.0, aspect_mode='crop')).collect()
+        with pytest.raises(pxt.Error, match='aspect_f must be positive'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect_f=-1.0, aspect_mode='crop')).collect()
+
+        # aspect string with zero component
+        with pytest.raises(pxt.Error, match='width and height must be positive'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect='0:9', aspect_mode='crop')).collect()
+        with pytest.raises(pxt.Error, match='width and height must be positive'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect='9:0', aspect_mode='crop')).collect()
+
     def test_bboxes_resize_degenerate(self, uses_db: None) -> None:
         degenerate_boxes = [
             [10, 20, 10, 40],  # zero width (xyxy)

@@ -430,14 +430,14 @@ def bboxes_draw(
 
 def _validate_bboxes(bboxes: list, error_prefix: str) -> bool:
     """Check that bboxes are either all int or all float. Return True for absolute, False for relative."""
+    if not all(len(b) == 4 for b in bboxes):
+        raise pxt.Error(f'{error_prefix}: each bounding box must have exactly 4 coordinates')
     is_absolute = all(isinstance(x, int) and x >= 0 for x in itertools.chain.from_iterable(bboxes))
     is_relative = all(isinstance(x, float) and 0.0 <= x <= 1.0 for x in itertools.chain.from_iterable(bboxes))
     if not (is_absolute or is_relative):
         raise pxt.Error(
             f'{error_prefix}: bounding box coordinates must be either all int (>= 0) or all float (in [0, 1])'
         )
-    if not all(len(b) == 4 for b in bboxes):
-        raise pxt.Error(f'{error_prefix}: each bounding box must have exactly 4 coordinates')
     return is_absolute
 
 
@@ -467,10 +467,10 @@ def bboxes_convert(
         raise pxt.Error(f'Invalid src_format: {src_format!r}')
     if dst_format not in ['xyxy', 'xywh', 'cxcywh']:
         raise pxt.Error(f'Invalid dst_format: {dst_format!r}')
+    is_absolute = _validate_bboxes(bboxes, 'bboxes_convert()')
     if src_format == dst_format:
         return bboxes
 
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_convert()')
     arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4
     c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
@@ -547,13 +547,27 @@ def bboxes_resize(
         raise pxt.Error('Only one of height or height_f can be specified')
     if aspect is not None and aspect_f is not None:
         raise pxt.Error('Only one of aspect or aspect_f can be specified')
+    if width is not None and width <= 0:
+        raise pxt.Error(f'width must be positive, got {width}')
+    if width_f is not None and width_f <= 0:
+        raise pxt.Error(f'width_f must be positive, got {width_f}')
+    if height is not None and height <= 0:
+        raise pxt.Error(f'height must be positive, got {height}')
+    if height_f is not None and height_f <= 0:
+        raise pxt.Error(f'height_f must be positive, got {height_f}')
+    if aspect_f is not None and aspect_f <= 0:
+        raise pxt.Error(f'aspect_f must be positive, got {aspect_f}')
     if aspect is not None:
         match = ASPECT_RATIO_RE.fullmatch(aspect)
         if match is None:
             raise pxt.Error(f'Invalid aspect ratio: {aspect!r}; expected "W:H"')
-        aspect_f = float(match.group(1)) / float(match.group(2))
+        w_val, h_val = int(match.group(1)), int(match.group(2))
+        if w_val == 0 or h_val == 0:
+            raise pxt.Error(f'Invalid aspect ratio: {aspect!r}; width and height must be positive')
+        aspect_f = float(w_val) / float(h_val)
     if aspect_mode is not None and aspect_mode not in ['crop', 'pad']:
         raise pxt.Error(f'Invalid aspect_mode: {aspect_mode!r}; expected "crop" or "pad"')
+
     has_width = width is not None or width_f is not None
     has_height = height is not None or height_f is not None
     has_aspect = aspect is not None or aspect_f is not None
