@@ -3,6 +3,12 @@ Pixeltable UDFs
 that wrap various endpoints from the Google Gemini API. In order to use them, you must
 first `pip install google-genai` and configure your Gemini credentials, as described in
 the [Working with Gemini](https://docs.pixeltable.com/notebooks/integrations/working-with-gemini) tutorial.
+
+Supports two authentication methods:
+
+- Google AI Studio: set the `GEMINI_API_KEY` environment variable.
+- Vertex AI: set `GEMINI_PROJECT` (and optionally `GEMINI_LOCATION`) and authenticate
+  via Application Default Credentials (e.g. `gcloud auth application-default login`).
 """
 
 import asyncio
@@ -41,10 +47,19 @@ _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 
 
 @env.register_client('gemini')
-def _(api_key: str) -> 'genai.client.Client':
+def _(api_key: str | None = None, project: str | None = None, location: str | None = None) -> 'genai.client.Client':
     from google import genai
 
-    return genai.client.Client(api_key=api_key)
+    if project is not None or location is not None:
+        # Vertex AI
+        return genai.client.Client(vertexai=True, project=project, location=location)
+    if api_key is not None:
+        # Gemini Developer API
+        return genai.client.Client(api_key=api_key)
+    raise excs.Error(
+        'Gemini client not initialized: set GEMINI_API_KEY for the Gemini Developer API, '
+        'or set GEMINI_PROJECT (and optionally GEMINI_LOCATION) for Vertex AI.'
+    )
 
 
 def _genai_client() -> 'genai.client.Client':
