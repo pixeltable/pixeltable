@@ -233,7 +233,7 @@ class EmbeddingIndex(IndexBase):
             # Array value is already a vector; no embedding function needed.
             embedding = item.val
             assert isinstance(embedding, np.ndarray)
-            assert val_column.col_type.is_array_type()
+            assert isinstance(val_column.col_type, ts.ArrayType)
             self._validate_query_vector(embedding, val_column.col_type)
         else:
             assert item.col_type._type in self.embeddings
@@ -258,7 +258,7 @@ class EmbeddingIndex(IndexBase):
             # Array value is already a vector; no embedding function needed.
             embedding = item.val
             assert isinstance(embedding, np.ndarray)
-            assert val_column.col_type.is_array_type()
+            assert isinstance(val_column.col_type, ts.ArrayType)
             self._validate_query_vector(embedding, val_column.col_type)
         else:
             assert item.col_type._type in self.embeddings

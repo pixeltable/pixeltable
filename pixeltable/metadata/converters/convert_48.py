@@ -1,4 +1,4 @@
-"""Convert SimilarityExpr from legacy 'indexed_col' (serialized ColumnRef) to 'tbl_version_key' + 'idx_name'."""
+"""Convert SimilarityExpr from legacy 'indexed_col' (serialized ColumnRef) to 'table_version_key' + 'idx_name'."""
 
 from typing import Any
 

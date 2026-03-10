@@ -7,6 +7,7 @@ import sqlalchemy as sql
 
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
+from pixeltable import catalog
 from pixeltable.catalog.table_version import TableVersionKey
 
 from ..runtime import get_runtime
@@ -100,6 +101,11 @@ class SimilarityExpr(Expr):
     def tbl_ids(self) -> set[UUID]:
         return {self.table_version_key.tbl_id} | super().tbl_ids()
 
+    def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
+        tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
+        col = tbl_version.cols_by_id[self.col_id]
+        return any(tbl.has_column(col) for tbl in tbls)
+
     def default_column_name(self) -> str:
         return 'similarity'
 
@@ -127,7 +133,12 @@ class SimilarityExpr(Expr):
         from pixeltable.index import EmbeddingIndex
 
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        idx_info = tbl_version.idxs_by_name[self.idx_name]
+        idx_info = tbl_version.idxs_by_name.get(self.idx_name)
+        if idx_info is None:
+            col = tbl_version.cols_by_id[self.col_id]
+            raise excs.Error(
+                f'Embedding index {self.idx_name!r} on column {col.name!r} no longer exists (it may have been dropped)'
+            )
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info
 
