@@ -383,7 +383,7 @@ class TestMigration:
             for row in conn.execute(sql.select(Table.md)):
                 table_md = row[0]
                 assert not has_column_ref_in_similarity(table_md), (
-                    'Table metadata still contains SimilarityExpr with ColumnRef after v46 migration'
+                    'Table metadata still contains SimilarityExpr with ColumnRef after v49 migration'
                 )
 
 
