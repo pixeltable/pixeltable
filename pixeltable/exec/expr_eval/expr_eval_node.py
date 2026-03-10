@@ -423,7 +423,7 @@ class ExprEvalNode(ExecNode):
         # dependencies[i, j] means expr i depends on expr j
         # For each slot j, we count how many slots i (that don't have values) depend on j
         # bool -> int16: bool @ bool does boolean ops (True + True = True), not arithmetic
-        new_missing_dependents = (~has_val).astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
+        new_missing_dependents = missing_slots.astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
 
         # gc_targets[i, j] = Boolean mask where slot j can be garbage collected for row i if True
         gc_targets = (
@@ -443,6 +443,11 @@ class ExprEvalNode(ExecNode):
         # Handle completed rows
         if np.any(completed_rows):
             completed_idxs = list(completed_rows.nonzero()[0])
+            for i in completed_idxs:
+                row = rows[i]
+                leaked = np.array([v is not None for v in row.vals], dtype=bool) & exec_ctx.gc_targets
+                assert not leaked.any(), \
+                    f'GC leak: completed row still has values in GC-target slots {leaked.nonzero()[0].tolist()}'
             if rows[0].parent_row is not None:
                 # these are nested rows
                 for i in completed_idxs:
