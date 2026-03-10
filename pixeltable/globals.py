@@ -16,6 +16,7 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
 from pixeltable.runtime import get_runtime
+from pixeltable.share.protocol import PxtUri
 from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
@@ -504,13 +505,12 @@ def publish(
             - `'public'`: Anyone can access this replica.
             - `'private'`: Only the host organization can access.
     """
-    if not destination_uri.startswith('pxt://'):
-        raise excs.Error("`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
+    pxt_uri = _parse_pxt_uri(destination_uri, 'destination_uri')
 
     if isinstance(source, str):
         source = get_table(source)
 
-    share.push_replica(destination_uri, source, bucket_name, access)
+    share.push_replica(pxt_uri, source, bucket_name, access)
 
 
 def replicate(remote_uri: str, local_path: str) -> catalog.Table:
@@ -528,10 +528,8 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     Returns:
         A handle to the newly created local replica table.
     """
-    if not remote_uri.startswith('pxt://'):
-        raise excs.Error("`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
-
-    return share.pull_replica(local_path, remote_uri)
+    pxt_uri = _parse_pxt_uri(remote_uri, 'remote_uri')
+    return share.pull_replica(local_path, pxt_uri)
 
 
 def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:
@@ -670,12 +668,13 @@ def drop_table(
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
-    if tbl_path.startswith('pxt://'):
+    if PxtUri.is_pxt_uri(tbl_path):
+        pxt_uri = PxtUri(tbl_path)
         # Remote table
         if force:
             raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
         # TODO: Handle if_not_exists properly
-        share.delete_replica(tbl_path)
+        share.delete_replica(pxt_uri)
     else:
         # Local table
         path_obj = catalog.Path.parse(tbl_path)
@@ -1091,3 +1090,15 @@ class DirContents(TypedDict):
     """List of directory paths contained in this directory."""
     tables: list[str]
     """List of table paths contained in this directory."""
+
+
+def _parse_pxt_uri(uri_str: str, param_name: str) -> PxtUri:
+    """Parse a URI string into a PxtUri, raising a user-friendly error on failure."""
+    try:
+        return PxtUri(uri_str)
+    except ValueError as e:
+        raise excs.Error(
+            f"`{param_name}` must be a remote Pixeltable URI with the prefix 'pxt://'"
+            " (such as 'pxt://org:db/path/to/table') or a pixeltable.com URL"
+            ' (such as https://pixeltable.com/t/org:db/path/to/table).'
+        ) from e
