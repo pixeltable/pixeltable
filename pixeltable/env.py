@@ -146,8 +146,6 @@ class Env:
         self._log_to_stdout = False
         self._module_log_level = {}  # module name -> log level
 
-        self._sql_loggers = [logging.getLogger('sqlalchemy.engine.Engine'), logging.getLogger('sqlalchemy.engine')]
-
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
         self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
@@ -406,10 +404,10 @@ class Env:
         self._logger.addHandler(fh)
 
         # Configure sqlalchemy logging. Pixeltable users don't need to see the SQL queries by default
-        for sql_logger in self._sql_loggers:
-            sql_logger.setLevel(logging.WARNING)
-            sql_logger.addHandler(fh)
-            sql_logger.propagate = False
+        sql_logger = logging.getLogger('sqlalchemy.engine')
+        sql_logger.setLevel(logging.WARNING)
+        sql_logger.addHandler(fh)
+        sql_logger.propagate = False
 
         # configure pyav logging
         av_logfilename = self._logfilename.replace('.log', '_av.log')
