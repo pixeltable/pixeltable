@@ -301,6 +301,8 @@ def _ar_val_to_pxt_val(val: Any, pxt_type: ts.ColumnType) -> Any:
         return pxt_type.create_literal(val)
     elif pxt_type.is_json_type():
         return val
+    elif pxt_type.is_media_type():
+        return val  # string paths/URLs or bytes passed through as-is
     raise ValueError(f'Unsupported type {pxt_type} for value {val}')
 
 
