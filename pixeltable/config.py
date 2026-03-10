@@ -183,7 +183,7 @@ KNOWN_CONFIG_OPTIONS = {
     'fal': {'api_key': 'fal.ai API key', 'rate_limit': 'Rate limit for fal.ai API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},
     'gemini': {
-        'api_key': 'Gemini API key for Google AI Studio; for Vertex AI, use standard Google Gen AI SDK env vars',
+        'api_key': 'Gemini API key for Google AI Studio only; Vertex AI uses standard Google Gen AI SDK authentication instead',
         'rate_limits': 'Per-model rate limits for Gemini API requests',
     },
     'hf': {'auth_token': 'Hugging Face access token'},
