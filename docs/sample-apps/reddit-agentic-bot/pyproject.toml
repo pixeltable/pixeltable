@@ -1,0 +1,15 @@
+[project]
+name = "reddit-agentic-bot"
+version = "0.1.0"
+description = "Reddit bot with RAG and tool-calling powered by Pixeltable"
+requires-python = ">=3.10"
+dependencies = [
+    "pixeltable>=0.4",
+    "python-dotenv",
+    "praw",
+    "anthropic",
+    "duckduckgo-search",
+    "yfinance",
+    "sentence-transformers",
+    "tiktoken",
+]

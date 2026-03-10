@@ -3,6 +3,15 @@ import sys
 import time
 
 
+def _terminate_workers(processes: list[subprocess.Popen], start_time: float) -> None:
+    elapsed = time.time() - start_time
+    print(f'Terminating all workers after {elapsed:.1f} seconds.')
+    for p in processes:
+        if p.poll() is None:
+            p.kill()
+    time.sleep(2.0)
+
+
 def run_workers(
     num_workers: int, duration: float, script: str | None = None, worker_args: list[list[str]] | None = None
 ) -> None:
@@ -25,31 +34,20 @@ def run_workers(
             for i, p in enumerate(processes):
                 returncode = p.poll()
                 if returncode is not None:
-                    end_time = time.time()
                     is_error = returncode != 0
-                    print(
-                        f'Worker {i} exited {"with error" if is_error else ""} (exit code {returncode}). '
-                        f'Terminating all workers after {end_time - start_time:.2f} seconds.'
-                    )
-                    # Kill all remaining processes
-                    for proc in processes:
-                        if proc.poll() is None:  # Still running
-                            proc.kill()
-                    time.sleep(2.0)
+                    print(f'Worker {i} exited {"with error" if is_error else ""} (exit code {returncode}).')
+                    _terminate_workers(processes, start_time)
                     sys.exit(returncode)
 
             time.sleep(0.1)  # Small delay to avoid busy waiting
 
     except KeyboardInterrupt:
         print('\n\nReceived KeyboardInterrupt.')
+        _terminate_workers(processes, start_time)
+        sys.exit(130)
 
     # Duration elapsed; kill all processes
-    elapsed = min(time.time() - start_time, duration)
-    print(f'Terminating all workers after {elapsed:.1f} seconds.')
-    for p in processes:
-        if p.poll() is None:  # Still running
-            p.kill()
-    time.sleep(2.0)
+    _terminate_workers(processes, start_time)
 
 
 def main() -> None:
