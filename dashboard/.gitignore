@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Build output goes to ../pixeltable/dashboard/static/ (see vite.config.ts)
+
+# IDE
+.vscode/
+.idea/
+
+# Build artifacts
+*.tsbuildinfo
+
+# Misc
+.DS_Store
+*.log

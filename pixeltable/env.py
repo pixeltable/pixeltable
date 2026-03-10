@@ -20,7 +20,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, ClassVar, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver
@@ -53,6 +53,10 @@ class Env:
     __initializing: bool = False
     _init_lock: threading.RLock = threading.RLock()
     _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
+
+    # Callbacks fired once after _set_up_runtime() completes (used by globals.py
+    # to auto-start the dashboard without circular imports).
+    _post_init_callbacks: ClassVar[list[Callable[[], None]]] = []
 
     _media_dir: Path | None
     _file_cache_dir: Path | None  # cached object files with external URL
@@ -664,6 +668,13 @@ class Env:
         register_heif_opener()
         self._start_web_server()
         self.__register_packages()
+
+        # Fire post-init callbacks (e.g. dashboard auto-start)
+        for cb in self._post_init_callbacks:
+            try:
+                cb()
+            except Exception as e:
+                self._logger.warning('Post-init callback failed: %s', e, exc_info=True)
 
     @property
     def default_video_encoder(self) -> str | None:
