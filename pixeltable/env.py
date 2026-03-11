@@ -73,6 +73,7 @@ class Env:
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
     _logger: logging.Logger
+    _sql_logger: logging.Logger
     _default_log_level: int
     _logfilename: str | None
     _log_to_stdout: bool
@@ -243,11 +244,9 @@ class Env:
     ) -> None:
         """Configure logging.
 
-        Note: these settings only apply to the `pixeltable` logger and not any of the dependencies such as sqlalchemy.*
-
         Args:
             to_stdout: if True, also log to stdout
-            level: default log level
+            level: default log level for pixeltable and its dependencies
             add: comma-separated list of 'module name:log level' pairs; ex.: add='video:10'
             remove: comma-separated list of module names
         """
@@ -282,6 +281,7 @@ class Env:
 
     def set_log_level(self, level: int) -> None:
         self._default_log_level = level
+        self._sql_logger.setLevel(level)
 
     def _set_module_log_level(self, module: str, level: int | None) -> None:
         if level is None:
@@ -404,10 +404,10 @@ class Env:
         self._logger.addHandler(fh)
 
         # Configure sqlalchemy logging. Pixeltable users don't need to see the SQL queries by default
-        sql_logger = logging.getLogger('sqlalchemy.engine')
-        sql_logger.setLevel(logging.WARNING)
-        sql_logger.addHandler(fh)
-        sql_logger.propagate = False
+        self._sql_logger = logging.getLogger('sqlalchemy.engine')
+        self._sql_logger.setLevel(logging.WARNING)
+        self._sql_logger.addHandler(fh)
+        self._sql_logger.propagate = False
 
         # configure pyav logging
         av_logfilename = self._logfilename.replace('.log', '_av.log')
