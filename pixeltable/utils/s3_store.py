@@ -3,13 +3,17 @@ import re
 import threading
 import urllib.parse
 import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Iterator, NamedTuple
 
 import boto3
 import botocore
 import puremagic
+from botocore.credentials import RefreshableCredentials
 from botocore.exceptions import ClientError, ConnectionError
+from botocore.session import get_session as get_botocore_session
 
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
@@ -33,6 +37,61 @@ class S3CompatClientDict(NamedTuple):
 
     profile: str | None  # AWS-style profile used to locate credentials
     clients: dict[str, Any]  # Map of endpoint URL → boto3 client instance
+
+
+@dataclass
+class _PxtHomeCacheEntry:
+    """Cached boto3 client/resource for a home bucket with auto-refreshing credentials."""
+
+    client: Any
+    resource: Any
+    bucket_name: str
+    endpoint_url: str
+    no_space_left: bool = False
+
+
+def _create_pxt_credential_refresher(org: str, db: str, entry: _PxtHomeCacheEntry):
+    """Return a closure that fetches fresh home bucket credentials in the format expected by RefreshableCredentials.
+
+    Also updates the cache entry's no_space_left flag on each refresh, so the quota
+    state stays current without requiring a new client.
+    """
+
+    def _refresh():
+        import warnings
+
+        from pixeltable.utils.cloud_utils import get_home_bucket_credentials
+
+        creds = get_home_bucket_credentials(org, db)
+        expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
+
+        entry.no_space_left = creds.no_space_left
+        if creds.no_space_left:
+            warnings.warn(
+                f'Pixeltable store for {org}:{db} has no space left. '
+                f'Only read and delete operations are allowed. '
+                f'Please delete unused data or contact support to increase your storage limit.',
+                category=excs.PixeltableWarning,
+                stacklevel=2,
+            )
+
+        _logger.info(
+            'Refreshed home bucket credentials for %s:%s (ttl=%ds, no_space_left=%s)',
+            org, db, creds.ttl_seconds, creds.no_space_left,
+        )
+        return {
+            'access_key': creds.access_key_id,
+            'secret_key': creds.secret_access_key,
+            'token': creds.session_token,
+            'expiry_time': expiry_time.isoformat(),
+        }
+
+    return _refresh
+
+
+@env.register_client('pxt_home')
+def _() -> Any:
+    return S3CompatClientDict(profile=None, clients={})
 
 
 @env.register_client('r2')
@@ -100,15 +159,23 @@ class S3Store(ObjectStoreBase):
 
     def __init__(self, soa: StorageObjectAddress):
         self.soa = soa
-        self.__bucket_name = self.soa.container
         self.__prefix_name = self.soa.prefix
         assert self.soa.storage_target in {
             StorageTarget.R2_STORE,
             StorageTarget.S3_STORE,
             StorageTarget.B2_STORE,
             StorageTarget.TIGRIS_STORE,
-        }, f'Expected storage_target "s3", "r2", "b2", or "tigris", but got: {self.soa.storage_target}'
-        self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
+            StorageTarget.PIXELTABLE_STORE,
+        }, f'Expected storage_target "s3", "r2", "b2", "tigris", or "pxt", but got: {self.soa.storage_target}'
+
+        if self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            # Bucket name is resolved at runtime from the cloud API; prefix uses pxt:// scheme
+            self.__bucket_name = ''  # set when client() is first called
+            org, db = self.soa.account, self.soa.account_extension
+            self.__base_uri = f'pxt://{org}:{db}/home/{self.soa.prefix}'
+        else:
+            self.__bucket_name = self.soa.container
+            self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
     def _get_s3_compat_client(self, client_name: str) -> Any:
         """Helper to get S3-compatible client (R2, B2, Tigris) - caches per endpoint URI."""
@@ -168,11 +235,97 @@ class S3Store(ObjectStoreBase):
 
             return cd.clients[region_key]
 
+    def _get_pxt_home_entry(self) -> _PxtHomeCacheEntry:
+        """Get the cached home-bucket entry. Credentials auto-refresh via boto3 RefreshableCredentials.
+
+        Uses the per-thread Runtime client cache.
+        """
+        org, db = self.soa.account, self.soa.account_extension
+        cache_key = f'{org}:{db}'
+
+        cd = get_runtime().get_client('pxt_home')
+        with client_lock:
+            entry = cd.clients.get(cache_key)
+            if entry is not None:
+                self.__bucket_name = entry.bucket_name
+                return entry
+
+        # First call for this (org, db): fetch initial credentials and build auto-refreshing session
+        from pixeltable.utils.cloud_utils import get_home_bucket_credentials
+
+        creds = get_home_bucket_credentials(org, db)
+        expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
+        initial_metadata = {
+            'access_key': creds.access_key_id,
+            'secret_key': creds.secret_access_key,
+            'token': creds.session_token,
+            'expiry_time': expiry_time.isoformat(),
+        }
+
+        # Create the cache entry first so the refresher closure can update its no_space_left state
+        new_entry = _PxtHomeCacheEntry(
+            client=None,
+            resource=None,
+            bucket_name=creds.bucket_name,
+            endpoint_url=creds.endpoint_url,
+            no_space_left=creds.no_space_left,
+        )
+
+        if creds.no_space_left:
+            import warnings
+
+            warnings.warn(
+                f'Pixeltable store for {org}:{db} has no space left. '
+                f'Only read and delete operations are allowed. ',
+                category=excs.PixeltableWarning,
+                stacklevel=2,
+            )
+
+        refresher = _create_pxt_credential_refresher(org, db, new_entry)
+        refreshable_creds = RefreshableCredentials.create_from_metadata(
+            metadata=initial_metadata,
+            refresh_using=refresher,
+            method='pxt-home-bucket',
+        )
+
+        botocore_session = get_botocore_session()
+        botocore_session._credentials = refreshable_creds
+        boto3_session = boto3.Session(botocore_session=botocore_session)
+
+        new_entry.client = boto3_session.client(
+            's3',
+            endpoint_url=creds.endpoint_url,
+            region_name='auto',
+            config=botocore.config.Config(
+                max_pool_connections=30,
+                connect_timeout=15,
+                read_timeout=30,
+                retries={'max_attempts': 3, 'mode': 'adaptive'},
+                signature_version='s3v4',
+                s3={'addressing_style': 'path'},
+                user_agent_extra='pixeltable',
+            ),
+        )
+        new_entry.resource = boto3_session.resource(
+            's3',
+            endpoint_url=creds.endpoint_url,
+            region_name='auto',
+        )
+
+        with client_lock:
+            cd.clients[cache_key] = new_entry
+
+        self.__bucket_name = new_entry.bucket_name
+        _logger.info('Created auto-refreshing home bucket session for %s:%s', org, db)
+        return new_entry
+
     def client(self) -> Any:
         """Return a boto3 client to access the store.
 
         Client is the low-level API for direct AWS operations (e.g., download_file, generate_presigned_url).
         """
+        if self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            return self._get_pxt_home_entry().client
         if self.soa.storage_target == StorageTarget.R2_STORE:
             return self._get_s3_compat_client('r2')
         if self.soa.storage_target == StorageTarget.B2_STORE:
@@ -232,6 +385,8 @@ class S3Store(ObjectStoreBase):
         Resource is the high-level object-oriented API for operations like filtering/iterating objects
         (e.g., bucket.objects.filter(), bucket.delete_objects()).
         """
+        if self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            return self._get_pxt_home_entry().resource
         if self.soa.storage_target == StorageTarget.R2_STORE:
             return self._get_s3_compat_resource('r2_resource')
         if self.soa.storage_target == StorageTarget.B2_STORE:
@@ -295,11 +450,22 @@ class S3Store(ObjectStoreBase):
 
     def copy_local_file(self, col: 'Column', src_path: Path) -> str:
         """Copy a local file, and return its new URL"""
+        if self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            entry = self._get_pxt_home_entry()
+            if entry.no_space_left:
+                raise excs.Error(
+                    'No space left in Pixeltable store. Only read and delete operations are allowed.'
+                )
+
         new_file_uri = self._prepare_uri(col, ext=src_path.suffix)
         parsed = urllib.parse.urlparse(new_file_uri)
         key = parsed.path.lstrip('/')
         if self.soa.storage_target in {StorageTarget.R2_STORE, StorageTarget.B2_STORE, StorageTarget.TIGRIS_STORE}:
             key = key.split('/', 1)[-1]  # Remove the bucket name from the key for R2/B2
+        elif self.soa.storage_target == StorageTarget.PIXELTABLE_STORE:
+            # Strip the 'home/' logical prefix from the key; remainder is the R2 object key
+            if key.startswith('home/'):
+                key = key[5:]
         try:
             _logger.debug(f'Media Storage: copying {src_path} to {new_file_uri} : Key: {key}')
             content_type = puremagic.from_file(str(src_path), mime=True)
@@ -513,10 +679,13 @@ class S3Store(ObjectStoreBase):
 
         s3_client = self.client()
 
+        # PIXELTABLE_STORE has no container in the SOA; bucket is resolved at runtime
+        bucket = self.bucket_name if soa.storage_target == StorageTarget.PIXELTABLE_STORE else soa.container
+
         # Generate presigned URL with v4 signing
         presigned_url = s3_client.generate_presigned_url(
             'get_object',
-            Params={'Bucket': soa.container, 'Key': soa.key},
+            Params={'Bucket': bucket, 'Key': soa.key},
             ExpiresIn=expiration_seconds,
             HttpMethod='GET',
         )

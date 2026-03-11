@@ -27,6 +27,7 @@ class StorageTarget(enum.Enum):
     GCS_STORE = 'gs'  # Google Cloud Storage
     AZURE_STORE = 'az'  # Azure Blob Storage
     HTTP_STORE = 'http'  # HTTP/HTTPS
+    PIXELTABLE_STORE = 'pxt'  # Pixeltable storage
 
     def __str__(self) -> str:
         return self.value
@@ -70,6 +71,7 @@ class StorageObjectAddress(NamedTuple):
             StorageTarget.GCS_STORE,
             StorageTarget.AZURE_STORE,
             StorageTarget.HTTP_STORE,
+            StorageTarget.PIXELTABLE_STORE,
         )
 
     @property
@@ -249,6 +251,18 @@ class ObjectPath:
             else:
                 account_extension = parsed.netloc
             key = key.lstrip('/')
+        elif scheme == 'pxt':
+            # pxt://org:db/home[/optional/prefix]
+            storage_target = StorageTarget.PIXELTABLE_STORE
+            netloc_parts = parsed.netloc.split(':')
+            account_name = netloc_parts[0]  # org slug
+            account_extension = netloc_parts[1] if len(netloc_parts) > 1 else ''  # db slug
+            raw_path = parsed.path.lstrip('/')
+            if not raw_path.startswith('home'):
+                raise ValueError(f'pxt:// URI must start with /home, got: {parsed.path}')
+            # Strip the 'home' prefix; remainder is the key prefix within the bucket
+            key = raw_path[4:].lstrip('/')  # skip 'home' and any leading slash
+
         else:
             raise ValueError(f'Unsupported URI scheme: {parsed.scheme}')
 
@@ -395,6 +409,7 @@ class ObjectOps:
             StorageTarget.R2_STORE,
             StorageTarget.B2_STORE,
             StorageTarget.TIGRIS_STORE,
+            StorageTarget.PIXELTABLE_STORE,
         ):
             env.Env.get().require_package('boto3')
             from pixeltable.utils.s3_store import S3Store
