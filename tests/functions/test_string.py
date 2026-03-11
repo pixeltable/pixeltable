@@ -364,10 +364,12 @@ class TestString:
             assert res_py == expected, f'zfill w={w} Py: {res_py} != {expected}'
 
     def test_is_validation_functions(self, uses_db: None) -> None:
-        """Test is* validation functions with edge cases to ensure SQL/Python equivalence.
+        """Test is* validation functions with edge cases including Unicode.
 
-        Note: SQL implementations use PostgreSQL POSIX character classes which are locale-dependent.
-        These tests focus on ASCII strings for reliable cross-locale behavior.
+        isdecimal and isspace have no SQL pushdown because the embedded PostgreSQL server uses
+        LC_CTYPE='C', which only recognizes ASCII characters for POSIX character classes.
+        Python's str.isdecimal() and str.isspace() are fully Unicode-aware, so SQL pushdown
+        would silently return wrong results for non-ASCII inputs.
         """
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         test_strs = [
@@ -420,20 +422,24 @@ class TestString:
             'hello \U0001f30d',
             '\u4e16\u754c123',
             '\U0001f600\U0001f600\U0001f600',
+            # Unicode decimals (Python isdecimal returns True, PG LC_CTYPE='C' would not)
+            '\u0660',  # Arabic-Indic digit zero
+            '\u0966',  # Devanagari digit zero
+            '\uff10',  # Fullwidth digit zero
+            # Unicode whitespace (Python isspace returns True, PG LC_CTYPE='C' would not)
+            '\u00a0',  # Non-breaking space
+            '\u2002',  # En space
+            '\u3000',  # Ideographic space
         ]
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
+        # isascii has SQL pushdown; isdecimal and isspace do not (Unicode correctness)
         test_params = [(isascii, str.isascii), (isdecimal, str.isdecimal), (isspace, str.isspace)]
 
         for pxt_fn, str_fn in test_params:
-            # SQL execution
-            res_sql = t.select(out=pxt_fn(t.s)).collect()['out']
+            res = t.select(out=pxt_fn(t.s)).collect()['out']
             expected = [str_fn(s) for s in test_strs]
-            assert res_sql == expected, f'{pxt_fn.name} SQL mismatch: {res_sql} != {expected}'
-
-            # Force Python execution
-            res_py = t.select(out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String))).collect()['out']
-            assert res_py == expected, f'{pxt_fn.name} Python mismatch: {res_py} != {expected}'
+            assert res == expected, f'{pxt_fn.name} mismatch: {res} != {expected}'
 
     def test_string_sql_equivalence(self, uses_db: None) -> None:
         """Test non-regex to_sql implementations for SQL/Python equivalence."""

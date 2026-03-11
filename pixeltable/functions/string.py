@@ -319,12 +319,6 @@ def isdecimal(self: str) -> bool:
     return self.isdecimal()
 
 
-@isdecimal.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # At least one character and all are decimal digits (0-9)
-    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[0-9]+$'))
-
-
 @pxt.udf(is_method=True)
 def isdigit(self: str) -> bool:
     """
@@ -396,12 +390,6 @@ def isspace(self: str) -> bool:
     Equivalent to [`str.isspace()`](https://docs.python.org/3/library/stdtypes.html#str.isspace)
     """
     return self.isspace()
-
-
-@isspace.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # At least one character and all characters are whitespace
-    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[[:space:]]+$'))
 
 
 @pxt.udf
