@@ -1319,6 +1319,65 @@ class TestFunction:
         assert process.returncode != 0  # The script should fail with an appropriate error message
         assert "Defining the UDF 'inline_udf' directly in the global namespace of a Python script" in process.stderr
 
+    def test_resource_estimator_validation(self) -> None:
+        # Valid: estimator params are a subset of function params
+        assert _estimator_fn._resource_estimator('hello') == {'requests': 1, 'tokens': 5}
+
+        # Valid: zero-arg estimator
+        assert _estimator_fn_zero_arg._resource_estimator() == {'requests': 1}
+
+        # Invalid: estimator has params not in function signature
+        with pytest.raises(pxt.Error, match='not in the function signature'):
+
+            @_estimator_fn_bad_params.resource_estimator
+            def _(prompt: str, unknown_param: int) -> dict[str, int]:
+                return {'requests': 1}
+
+        # Invalid: polymorphic function
+        with pytest.raises(pxt.Error, match='polymorphic'):
+
+            @_estimator_poly_fn.resource_estimator
+            def _() -> dict[str, int]:
+                return {'requests': 1}
+
+
+# Module-level UDFs for test_resource_estimator_validation
+
+
+@pxt.udf
+def _estimator_fn(prompt: str, model: str = 'gpt-4') -> str:
+    return ''
+
+
+@_estimator_fn.resource_estimator
+def _estimator_fn_est(prompt: str) -> dict[str, int]:
+    return {'requests': 1, 'tokens': len(prompt)}
+
+
+@pxt.udf
+def _estimator_fn_zero_arg(prompt: str) -> str:
+    return ''
+
+
+@_estimator_fn_zero_arg.resource_estimator
+def _estimator_fn_zero_arg_est() -> dict[str, int]:
+    return {'requests': 1}
+
+
+@pxt.udf
+def _estimator_fn_bad_params(prompt: str) -> str:
+    return ''
+
+
+@pxt.udf
+def _estimator_poly_fn(x: str) -> str:
+    return x
+
+
+@_estimator_poly_fn.overload
+def _estimator_poly_fn_overload(x: int) -> int:
+    return x
+
 
 @pxt.udf
 def udf6(name: str) -> str:

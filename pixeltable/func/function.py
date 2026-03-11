@@ -441,6 +441,8 @@ class Function(ABC):
         The decorated function accepts a subset of this function's parameters and returns a dict mapping
         resource names to estimated costs for a single request.
         """
+        if self.is_polymorphic:
+            raise excs.Error(f'resource_estimator cannot be used with polymorphic function {self.self_path or self}')
         estimator_params = set(inspect.signature(fn).parameters.keys())
         fn_params = set(self.signature.parameters.keys())
         if not estimator_params.issubset(fn_params):
