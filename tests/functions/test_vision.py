@@ -172,7 +172,9 @@ class TestVision:
             # width
             res = t.select(out=bboxes_resize(t.bboxes, fmt, width=50)).collect()
             assert all(get_w(b, fmt) == 50 for b in res['out'][0])
-            assert all(get_aspect(b1, fmt) == get_aspect(b2, fmt) for b1, b2 in zip(input_bboxes, res['out'][0]))
+            assert all(
+                get_aspect(b1, fmt) == pytest.approx(get_aspect(b2, fmt)) for b1, b2 in zip(input_bboxes, res['out'][0])
+            )
 
             # height
             res = t.select(out=bboxes_resize(t.bboxes, fmt, height=100)).collect()
@@ -184,22 +186,22 @@ class TestVision:
 
             # aspect 16:9 crop
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect='16:9', aspect_mode='crop')).collect()
-            assert all(get_aspect(b, fmt) == pytest.approx(16 / 9, abs=1) for b in res['out'][0])
+            assert all(get_aspect(b, fmt) == pytest.approx(16 / 9, rel=0.1) for b in res['out'][0])
             assert all(crop_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
             # aspect 9:16 pad
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect='9:16', aspect_mode='pad')).collect()
-            assert all(get_aspect(b, fmt) == pytest.approx(9 / 16, abs=1) for b in res['out'][0])
+            assert all(get_aspect(b, fmt) == pytest.approx(9 / 16, rel=0.1) for b in res['out'][0])
             assert all(pad_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
             # aspect_f 16/9 crop
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=16 / 9, aspect_mode='crop')).collect()
-            assert all(get_aspect(b, fmt) == pytest.approx(16 / 9, abs=1) for b in res['out'][0])
+            assert all(get_aspect(b, fmt) == pytest.approx(16 / 9, rel=0.1) for b in res['out'][0])
             assert all(crop_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
             # aspect_f 9/16 pad
             res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=9 / 16, aspect_mode='pad')).collect()
-            assert all(get_aspect(b, fmt) == pytest.approx(9 / 16, abs=1) for b in res['out'][0])
+            assert all(get_aspect(b, fmt) == pytest.approx(9 / 16, rel=0.1) for b in res['out'][0])
             assert all(pad_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
             pxt.drop_table(t)
