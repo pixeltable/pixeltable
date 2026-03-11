@@ -1624,9 +1624,8 @@ class Table(SchemaObject):
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pushing
         parsed_uri = PxtUri(uri=pxt_uri)
         uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
-        uuid_uri = str(uuid_uri_obj)
 
-        push_replica(uuid_uri, self)
+        push_replica(uuid_uri_obj, self)
 
     def pull(self) -> None:
         from pixeltable.share import pull_replica
@@ -1651,9 +1650,8 @@ class Table(SchemaObject):
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
         parsed_uri = PxtUri(uri=pxt_uri)
         uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
-        uuid_uri = str(uuid_uri_obj)
 
-        pull_replica(self._path(), uuid_uri)
+        pull_replica(self._path(), uuid_uri_obj)
 
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.get().external_stores.keys())
