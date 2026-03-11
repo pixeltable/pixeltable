@@ -2,6 +2,8 @@
 
 Instructions for AI coding agents working with the Pixeltable codebase.
 
+**Codebase index**: See `CODEBASE_INDEX.md` for a compact AST-generated map of all public classes, functions, and signatures. Use it to locate code without reading full files.
+
 ## Project Overview
 
 Pixeltable is an open-source Python library providing declarative data infrastructure for building multimodal AI applications. It enables incremental storage, transformation, indexing, retrieval, and orchestration of data across images, video, audio, and documents.

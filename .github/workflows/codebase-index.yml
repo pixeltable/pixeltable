@@ -1,0 +1,62 @@
+name: Update Codebase Index
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pixeltable/**/*.py'
+  workflow_dispatch:  # manual trigger
+
+jobs:
+  update-index:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Generate AST-based codebase index
+        run: python tool/generate_codebase_index.py --root pixeltable --output CODEBASE_INDEX.md
+
+      # Optional: Claude-powered module summaries
+      # Uncomment the block below to enable. Requires ANTHROPIC_API_KEY secret.
+      #
+      # - name: Install Claude Code
+      #   run: npm install -g @anthropic-ai/claude-code
+      #
+      # - name: Generate module summaries
+      #   env:
+      #     ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      #   run: |
+      #     MODULES="pixeltable/catalog pixeltable/exec pixeltable/exprs pixeltable/func pixeltable/functions pixeltable/index pixeltable/io pixeltable/iterators pixeltable/metadata pixeltable/utils"
+      #     for module in $MODULES; do
+      #       if [ -d "$module" ]; then
+      #         echo "Summarizing $module ..."
+      #         claude -p \
+      #           --model sonnet \
+      #           --max-budget-usd 0.05 \
+      #           "Read all Python files in $module/ and the existing CODEBASE_INDEX.md. Write a concise CLAUDE.md file for this directory that explains: (1) what this module does, (2) key classes and their responsibilities, (3) important patterns or non-obvious behaviors. Keep it under 60 lines. Output ONLY the markdown content, no preamble." \
+      #           > "$module/CLAUDE.md"
+      #       fi
+      #     done
+
+      - name: Check for changes
+        id: check
+        run: |
+          git diff --quiet CODEBASE_INDEX.md && echo "changed=false" >> "$GITHUB_OUTPUT" || echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Commit and push
+        if: steps.check.outputs.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CODEBASE_INDEX.md
+          git commit -m "Update codebase index"
+          git push
