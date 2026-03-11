@@ -907,7 +907,7 @@ class Env:
             try:
                 logger.removeHandler(handler)
             except Exception as e:
-                _logger.warning(f'Error closing handler: {e}')
+                _logger.warning(f'Error removing handler: {e}')
 
         for handler in {fh for _, fh in self._managed_logging_handlers}:
             try:
