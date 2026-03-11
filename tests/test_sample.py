@@ -199,20 +199,20 @@ class TestSample:
         snap = pxt.create_snapshot('sampled_snap', query, if_exists='replace')
 
         # Subsequent calls to the same snapshot should return the same results.
-        snap_results_1 = snap.collect().to_pandas().sort_values(by=['id'])
-        snap_results_2 = snap.collect().to_pandas().sort_values(by=['id'])
+        snap_results_1 = snap.collect().to_pandas().sort_values(by=['id']).reset_index(drop=True)
+        snap_results_2 = snap.collect().to_pandas().sort_values(by=['id']).reset_index(drop=True)
         assert snap_results_1.equals(snap_results_2)
 
         # If it's a seeded sample, the results should match a collect() on the query.
         if seeded:
-            query_results = query.collect().to_pandas().sort_values(by=['id'])
+            query_results = query.collect().to_pandas().sort_values(by=['id']).reset_index(drop=True)
             query_results.equals(snap_results_1)
 
         if allow_mutable_view:
             # Try with a mutable view too.
             view = pxt.create_view('sampled_view', query, if_exists='replace')
-            view_results_1 = view.collect().to_pandas().sort_values(by=['id'])
-            view_results_2 = view.collect().to_pandas().sort_values(by=['id'])
+            view_results_1 = view.collect().to_pandas().sort_values(by=['id']).reset_index(drop=True)
+            view_results_2 = view.collect().to_pandas().sort_values(by=['id']).reset_index(drop=True)
             assert view_results_1.equals(view_results_2)
             if seeded:
                 assert view_results_1.equals(snap_results_1)
