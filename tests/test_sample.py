@@ -206,7 +206,7 @@ class TestSample:
         # If it's a seeded sample, the results should match a collect() on the query.
         if seeded:
             query_results = query.collect().to_pandas().sort_values(by=['id']).reset_index(drop=True)
-            query_results.equals(snap_results_1)
+            assert query_results.equals(snap_results_1)
 
         if allow_mutable_view:
             # Try with a mutable view too.
