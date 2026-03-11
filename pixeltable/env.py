@@ -909,7 +909,8 @@ class Env:
             except Exception as e:
                 _logger.warning(f'Error closing handler: {e}')
 
-        for handler in {fh for _, fh in self._managed_logging_handlers}:
+        handlers_set = {fh for _, fh in self._managed_logging_handlers}
+        for handler in handlers_set:
             try:
                 handler.close()
             except Exception as e:
