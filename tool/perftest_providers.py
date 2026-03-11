@@ -8,14 +8,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from perftest_udfs import (  # type: ignore[import-not-found]
-    create_chatgpt_prompt,
-    create_simple_messages_prompt,
-    create_simple_prompt,
-)
-
 import pixeltable as pxt
 import pixeltable.functions as pxtf
+
+from .perftest_udfs import create_chatgpt_prompt, create_simple_messages_prompt, create_simple_prompt
 
 
 @dataclass
