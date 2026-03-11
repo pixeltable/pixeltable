@@ -54,7 +54,7 @@ def get_home_bucket_credentials(
     Returns:
         GetHomeBucketCredentialsResponse with temporary credentials
     """
-    request = GetHomeBucketCredentialsRequest(org_id=org, db_slug=db, prefix=prefix)
+    request = GetHomeBucketCredentialsRequest(org_slug=org, db_slug=db, prefix=prefix)
     try:
         response = requests.post(
             PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=15

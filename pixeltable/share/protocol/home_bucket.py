@@ -11,18 +11,22 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel
 
+from .common import PxtUri, RequestBaseModel
 from .operation_types import PixeltableStoreOperationType
 
 
-class GetHomeBucketCredentialsRequest(BaseModel):
+class GetHomeBucketCredentialsRequest(RequestBaseModel):
     """Request for temporary credentials to access a home bucket."""
 
     operation_type: Literal[PixeltableStoreOperationType.GET_HOME_BUCKET_CREDENTIALS] = (
         PixeltableStoreOperationType.GET_HOME_BUCKET_CREDENTIALS
     )
-    org_id: str
+    org_slug: str
     db_slug: str
     prefix: Optional[str] = None  # Optional path prefix within the home bucket
+
+    def get_pxt_uri(self) -> PxtUri:
+        return PxtUri(f'pxt://{self.org_slug}:{self.db_slug}')
 
 
 class GetHomeBucketCredentialsResponse(BaseModel):
