@@ -521,11 +521,14 @@ Use this to quickly locate code without reading full files.
 
 - **class AggregationNode(ExecNode)** (L15) — In-memory aggregation for UDAs.
   - `set_limit(limit: int) -> None` (L51)
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L74)
 
 ### cache_prefetch_node.py
 
 - **class CachePrefetchNode(ExecNode)** (L23) — Brings files with external URLs into the cache
   - `queued_work() -> int` @property (L78)
+  - `get_input_batch(input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None` (L84) — Get the next batch of input rows, or None if there are no more rows
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L95)
   - `__has_ready_batch() -> bool` (L127) — True if there are >= BATCH_SIZES entries in ready_rows and the first BATCH_SIZE ones are all non-...
   - `__add_ready_row(row: exprs.DataRow, row_idx: int | None) -> None` (L133)
   - `__process_completions(done: set[futures.Future], ignore_errors: bool) -> None` (L143)
@@ -535,11 +538,13 @@ Use this to quickly locate code without reading full files.
 ### cell_materialization_node.py
 
 - **class CellMaterializationNode(ExecNode)** (L26) — Node to populate DataRow.cell_vals/cell_md.
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L70)
   - `init_writer() -> None` (L104)
 
 ### cell_reconstruction_node.py
 
 - **class CellReconstructionNode(ExecNode)** (L87) — Reconstruction of stored json and array cells that were produced by CellMaterializationNode.
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L111)
   - `__get_file_pointer(file_url: str) -> io.BufferedReader` (L163)
 - `json_has_inlined_objs(element: Any) -> bool` (L23) — Returns True if element contains inlined objects produced by CellMaterializationNode.
 - `reconstruct_json(element: Any, urls: list[str], file_handles: dict[Path, io.BufferedReader]) -> Any` (L34) — Recursively reconstructs inlined objects in a json structure.
@@ -548,6 +553,7 @@ Use this to quickly locate code without reading full files.
 ### component_iteration_node.py
 
 - **class ComponentIterationNode(ExecNode)** (L10) — Expands each row from a base table into one row per component returned by an iterator
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L44)
   - `__non_nullable_args_specified(iterator_args: dict) -> bool` (L69) — Returns true if all non-nullable iterator arguments are not `None`.
   - `__populate_output_row(output_row: exprs.DataRow, pos: int, component_dict: dict) -> None` (L80)
 
@@ -584,18 +590,24 @@ Use this to quickly locate code without reading full files.
 
 - **class DefaultExprEvaluator(Evaluator)** (L17) — Standard expression evaluation using Expr.eval().
   - `schedule(rows: list[exprs.DataRow], slot_idx: int) -> None` (L33)
+  - `eval(rows: list[exprs.DataRow]) -> None` (L38)
 - **class FnCallEvaluator(Evaluator)** (L54) — Evaluates function calls:
   - `schedule(rows: list[exprs.DataRow], slot_idx: int) -> None` (L90)
+  - `eval_batch(batched_call_args: FnCallArgs) -> None` (L175)
+  - `eval_async(call_args: FnCallArgs) -> None` (L198)
+  - `eval(call_args_batch: list[FnCallArgs]) -> None` (L215)
 - **class NestedRowList** (L245) — A list of nested rows, used by JsonMapperDispatcher to store the rows corresponding to the elemen...
   - `complete_row() -> None` (L260)
 - **class JsonMapperDispatcher(Evaluator)** (L266) — The execution logic for materializing the nested DataRows of a JsonMapper/JsonMapperDispatch.
   - `schedule(rows: list[exprs.DataRow], slot_idx: int) -> None` (L297) — Create nested rows for all source list elements and dispatch them
+  - `gather(rows: list[exprs.DataRow]) -> None` (L338) — Wait for nested rows to complete, then signal completion to the parent rows
 
 ### expr_eval_node.py
 
 - **class ExprEvalNode(ExecNode)** (L25) — Expression evaluation
   - `set_input_order(maintain_input_order: bool) -> None` (L112)
   - `total_buffered() -> int` @property (L151)
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L210) — Main event loop
   - `dispatch_exc(rows: list[exprs.DataRow], slot_with_exc: int, exc_tb: TracebackType, exec_ctx: ExprEvalCtx) -> None` (L322) — Propagate exception to main event loop or to dependent slots, depending on ignore_errors
   - `dispatch(rows: list[exprs.DataRow], exec_ctx: ExprEvalCtx) -> None` (L346) — Dispatch rows to slot evaluators, based on materialized dependencies
   - `register_task(t: asyncio.Task) -> None` (L468)
@@ -644,11 +656,14 @@ Use this to quickly locate code without reading full files.
 ### in_memory_data_node.py
 
 - **class InMemoryDataNode(ExecNode)** (L13) — Outputs in-memory data as a DataRowBatch of a particular table.
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L85)
 
 ### object_store_save_node.py
 
 - **class ObjectStoreSaveNode(ExecNode)** (L21) — Save files into designated object store(s).
   - `queued_work() -> int` @property (L105)
+  - `get_input_batch(input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None` (L111) — Get the next batch of input rows, or None if there are no more rows
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L122)
   - `__has_ready_batch() -> bool` (L154) — True if there are >= BATCH_SIZES entries in ready_rows and the first BATCH_SIZE ones are all non-...
   - `__add_ready_row(row: exprs.DataRow, row_idx: int | None) -> None` (L160)
   - `__process_completions(done: set[futures.Future], ignore_errors: bool) -> None` (L170)
@@ -659,6 +674,7 @@ Use this to quickly locate code without reading full files.
 ### row_update_node.py
 
 - **class RowUpdateNode(ExecNode)** (L12) — Update individual rows in the input batches, identified by key columns.
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L54)
   - `unmatched_rows() -> list[dict[str, Any]]` (L67) — Return rows that didn't get used in the updates as a list of dicts compatible with TableVersion.i...
 
 ### sql_node.py
@@ -673,6 +689,7 @@ Use this to quickly locate code without reading full files.
   - `set_order_by(ordering: OrderByClause) -> None` (L335) — Add Order By clause
   - `set_limit(limit: int) -> None` (L345)
   - `set_offset(offset: int) -> None` (L348)
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L362)
 - **class SqlScanNode(SqlNode)** (L486) — Materializes data from the store via a Select stmt.
 - **class SqlLookupNode(SqlNode)** (L536) — Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key...
 - **class SqlAggregationNode(SqlNode)** (L576) — Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key...
@@ -1098,7 +1115,9 @@ Use this to quickly locate code without reading full files.
   - `is_async() -> bool` @property (L67)
   - `comment() -> str | None` (L70)
   - `py_fn() -> Callable` @property (L74)
+  - `aexec(*args, **kwargs) -> Any` (L78)
   - `exec(args: Sequence[Any], kwargs: dict[str, Any]) -> Any` (L93)
+  - `aexec_batch(*args, **kwargs) -> list` (L113) — Execute the function with the given arguments and return the result.
   - `exec_batch(args: list[Any], kwargs: dict[str, Any]) -> list` (L126) — Execute the function with the given arguments and return the result.
   - `create_batch_kwargs(kwargs: dict[str, Any]) -> tuple[dict[str, Any], dict[str, list[Any]]]` (L139) — Converts kwargs containing lists into constant and batched kwargs in the format expected by a bat...
   - `get_batch_size(*args, **kwargs) -> int | None` (L146)
@@ -1141,6 +1160,7 @@ Use this to quickly locate code without reading full files.
   - `conditional_return_type(fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]` (L315) — Instance decorator for specifying a conditional return type for this function
   - `using(**kwargs) -> 'ExprTemplateFunction'` (L328)
   - `exec(args: Sequence[Any], kwargs: dict[str, Any]) -> Any` (L406) — Execute the function with the given arguments and return the result.
+  - `aexec(*args, **kwargs) -> Any` (L410) — Execute the function with the given arguments and return the result.
   - `to_sql(fn: Callable[..., sql.ColumnElement | None]) -> Callable[..., sql.ColumnElement | None]` (L414) — Instance decorator for specifying the SQL translation of this function
   - `__default_to_sql(*args, **kwargs) -> sql.ColumnElement | None` (L419) — The default implementation of SQL translation, which provides no translation
   - `resource_pool(fn: Callable[..., str]) -> Callable[..., str]` (L423) — Instance decorator for specifying the resource pool of this function
@@ -1210,6 +1230,7 @@ Use this to quickly locate code without reading full files.
 ### mcp.py
 
 - `mcp_udfs(url: str) -> list['pxt.func.Function']` (L13)
+- `mcp_udfs_async(url: str) -> list['pxt.func.Function']` (L19)
 - `mcp_tool_to_udf(url: str, mcp_tool: 'mcp.types.Tool') -> 'pxt.func.Function'` (L36)
 
 ### query_template_function.py
@@ -1217,6 +1238,7 @@ Use this to quickly locate code without reading full files.
 - **class QueryTemplateFunction(Function)** (L16) — A parameterized query from which an executable Query is created with a function call.
   - `create(template_callable: Callable, param_types: list[ts.ColumnType] | None, path: str, name: str) -> QueryTemplateFunction` @classmethod (L24)
   - `is_async() -> bool` @property (L59)
+  - `aexec(*args, **kwargs) -> Any` (L62)
   - `display_name() -> str` @property (L78)
   - `name() -> str` @property (L82)
   - `comment() -> str | None` (L85)
@@ -1277,6 +1299,7 @@ Use this to quickly locate code without reading full files.
 - **class AnthropicRateLimitsInfo(env.RateLimitsInfo)** (L101)
   - `record_exc(request_ts: datetime.datetime, exc: Exception) -> None` (L114)
   - `get_retry_delay(exc: Exception, attempt: int) -> float | None` (L142)
+- `messages(messages: list[dict[str, str]], *, model: str, max_tokens: int, model_kwargs: dict[str, Any] | None = None, tools: li...) -> dict` @pxt.udf (L159) — Create a Message.
 - `invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict` (L268) — Converts an Anthropic response dict to Pixeltable tool invocation format and calls `tools._invoke...
 
 ### audio.py — Pixeltable UDFs for `AudioType`.
@@ -1291,6 +1314,9 @@ Use this to quickly locate code without reading full files.
 
 ### bedrock.py — Pixeltable UDFs for AWS Bedrock AI models.
 
+- `converse(messages: list[dict[str, Any]], *, model_id: str, system: list[dict[str, Any]] | None = None, inference_config: dict ...) -> dict` @pxt.udf (L71) — Generate a conversation response.
+- `invoke_model(body: dict, *, model_id: str, performance_config_latency: Literal['standard', 'optimized'] | None = None, service_tie...) -> dict` @pxt.udf (L150) — Invoke a Bedrock model with a raw request body.
+- `embed(text: str, *, model_id: str, dimensions: int | None = None) -> pxt.Array[(None,), np.float32]` @pxt.udf (L208) — Generate embeddings using Amazon Titan or Nova embedding models.
 - `invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict` (L324) — Converts an Anthropic response dict to Pixeltable tool invocation format and calls `tools._invoke...
 
 ### bfl.py — Pixeltable [UDFs](https://docs.pixeltable.com/platform/udfs-in-pixeltable) that wrap
@@ -1298,6 +1324,10 @@ Use this to quickly locate code without reading full files.
 - **class BflRateLimitedError(Exception)** (L29)
 - **class BflContentModerationError(Exception)** (L33)
 - **class BflUnexpectedError(Exception)** (L37)
+- `generate(prompt: str, *, model: str, width: int | None = None, height: int | None = None, seed: int | None = None, safety_tole...) -> PIL.Image.Image` @pxt.udf (L174) — Generate an image from a text prompt using FLUX models.
+- `edit(prompt: str, image: PIL.Image.Image, *, model: str, reference_images: list[PIL.Image.Image] | None = None, width: int...) -> PIL.Image.Image` @pxt.udf (L248) — Edit an image using FLUX models with text prompts and optional reference images.
+- `fill(prompt: str, image: PIL.Image.Image, mask: PIL.Image.Image, *, model: str, steps: int | None = None, guidance: float ...) -> PIL.Image.Image` @pxt.udf (L336) — Inpaint an image using FLUX Fill models.
+- `expand(prompt: str, image: PIL.Image.Image, *, model: str, top: int = 0, bottom: int = 0, left: int = 0, right: int = 0, see...) -> PIL.Image.Image` @pxt.udf (L402) — Expand an image by adding pixels on any side using FLUX Expand models.
 
 ### date.py — Pixeltable UDFs for `DateType`.
 
@@ -1315,6 +1345,7 @@ Use this to quickly locate code without reading full files.
 
 ### deepseek.py — Pixeltable UDFs for Deepseek AI models.
 
+- `chat_completions(messages: list, *, model: str, model_kwargs: dict[str, Any] | None = None, tools: list[dict[str, Any]] | None = None,...) -> dict` @pxt.udf (L38) — Creates a model response for the given chat conversation.
 
 ### document.py — Pixeltable UDFs for `DocumentType`.
 
@@ -1330,19 +1361,27 @@ Use this to quickly locate code without reading full files.
 
 ### fabric.py — Pixeltable UDFs that wrap Azure OpenAI endpoints via Microsoft Fabric.
 
+- `chat_completions(messages: list[dict], *, model: str, api_version: str | None = None, model_kwargs: dict[str, Any] | None = None) -> dict` @pxt.udf (L73) — Creates a model response for the given chat conversation using Azure OpenAI in Fabric.
+- `embeddings(input: Batch[str], *, model: str = 'text-embedding-ada-002', api_version: str = '2024-02-15-preview', model_kwargs: d...) -> Batch[pxt.Array[(None,), pxt.Float]]` @pxt.udf (L188) — Creates an embedding vector representing the input text using Azure OpenAI in Fabric.
 
 ### fal.py — Pixeltable UDFs
 
+- `run(input: dict[str, Any], *, app: str) -> pxt.Json` @pxt.udf (L31) — Run a model on fal.ai.
 
 ### fireworks.py — Pixeltable UDFs
 
+- `chat_completions(messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict` @pxt.udf (L32) — Creates a model response for the given chat conversation.
 
 ### gemini.py — Pixeltable UDFs
 
 - **class GeminiRateLimitsInfo(env.RateLimitsInfo)** (L54)
   - `is_initialized() -> bool` (L62)
   - `get_retry_delay(exc: Exception, attempt: int) -> float | None` (L65)
+- `generate_content(contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None, _runtime_ctx: env.Run...) -> dict` @pxt.udf (L78) — Generate content from the specified model.
 - `invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict` (L167) — Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`.
+- `generate_images(prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx | None = None) -> PIL.Image.Image` @pxt.udf (L193) — Generates images based on a text description and configuration. For additional details, see:
+- `generate_videos(prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None, _runtime_...) -> pxt.Video` @pxt.udf (L243) — Generates videos based on a text description and configuration. For additional details, see:
+- `generate_embedding(input: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False, _runtime_ctx: en...) -> Batch[pxt.Array[(None,), np.float32]]` @pxt.udf (L328) — Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
 
 ### globals.py
 
@@ -1366,6 +1405,7 @@ Use this to quickly locate code without reading full files.
 
 ### groq.py — Pixeltable UDFs
 
+- `chat_completions(messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None, tools: list[dict[str, Any]...) -> dict` @pxt.udf (L34) — Chat Completion API.
 - `invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict` (L102) — Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`.
 
 ### huggingface.py — Pixeltable UDFs
@@ -1431,6 +1471,8 @@ Use this to quickly locate code without reading full files.
 
 - **class JinaRateLimitedError(Exception)** (L42)
 - **class JinaUnexpectedError(Exception)** (L46)
+- `embeddings(input: Batch[str], *, model: str, task: Literal['retrieval.query', 'retrieval.passage', 'separation', 'classification...) -> Batch[pxt.Array[(None,), np.float32]]` @pxt.udf (L102) — Creates embedding vectors for the input text using Jina AI embedding models.
+- `rerank(query: str, documents: list[str], *, model: str, top_n: int | None = None, return_documents: bool | None = None) -> dict` @pxt.udf (L188) — Reranks documents based on their relevance to a query using Jina AI reranker models.
 
 ### json.py — Pixeltable UDFs for `JsonType`.
 
@@ -1457,6 +1499,9 @@ Use this to quickly locate code without reading full files.
 
 ### mistralai.py — Pixeltable UDFs
 
+- `chat_completions(messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict` @pxt.udf (L35) — Chat Completion API.
+- `fim_completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict` @pxt.udf (L83) — Fill-in-the-middle Completion API.
+- `embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]` @pxt.udf (L129) — Embeddings API.
 
 ### net.py — Pixeltable UDF for converting media file URIs to presigned HTTP URLs.
 
@@ -1473,22 +1518,39 @@ Use this to quickly locate code without reading full files.
 - **class OpenAIRateLimitsInfo(env.RateLimitsInfo)** (L185)
   - `record_exc(request_ts: datetime.datetime, exc: Exception) -> None` (L205)
   - `get_retry_delay(exc: Exception, attempt: int) -> float | None` (L229)
+- `speech(input: str, *, model: str, voice: str, model_kwargs: dict[str, Any] | None = None) -> pxt.Audio` @pxt.udf (L243) — Generates audio from the input text.
+- `transcriptions(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict` @pxt.udf (L288) — Transcribes audio into the input language.
+- `translations(audio: pxt.Audio, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict` @pxt.udf (L331) — Translates audio into English.
+- `chat_completions(messages: list, *, model: str, model_kwargs: dict[str, Any] | None = None, tools: list[dict[str, Any]] | None = None,...) -> dict` @pxt.udf (L454) — Creates a model response for the given chat conversation.
+- `vision(prompt: str, image: PIL.Image.Image, *, model: str, model_kwargs: dict[str, Any] | None = None, _runtime_ctx: env.Run...) -> str` @pxt.udf @deprecated (L570) — Analyzes an image with the OpenAI vision capability. This is a convenience function that takes an...
+- `embeddings(input: Batch[str], *, model: str, model_kwargs: dict[str, Any] | None = None, _runtime_ctx: env.RuntimeCtx | None = None) -> Batch[pxt.Array[(None,), pxt.Float]]` @pxt.udf (L635) — Creates an embedding vector representing the input text.
+- `image_generations(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict` @pxt.udf (L715) — Creates an image given a prompt.
+- `moderations(input: str, *, model: str = 'omni-moderation-latest') -> dict` @pxt.udf (L804) — Classifies if text is potentially harmful.
 - `invoke_tools(tools: Tools, response: exprs.Expr) -> exprs.InlineDict` (L856) — Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`.
 
 ### openrouter.py — Pixeltable UDFs that wrap the OpenRouter API.
 
+- `chat_completions(messages: list, *, model: str, model_kwargs: dict[str, Any] | None = None, tools: list[dict[str, Any]] | None = None,...) -> dict` @pxt.udf (L39) — Chat Completion API via OpenRouter.
 
 ### replicate.py — Pixeltable UDFs
 
+- `run(input: dict[str, Any], *, ref: str) -> pxt.Json` @pxt.udf (L31) — Run a model on Replicate.
 
 ### reve.py — Pixeltable [UDFs](https://docs.pixeltable.com/platform/udfs-in-pixeltable) that wrap [Reve](https...
 
 - **class ReveRateLimitedError(Exception)** (L23)
 - **class ReveContentViolationError(Exception)** (L27)
 - **class ReveUnexpectedError(Exception)** (L31)
+- `create(prompt: str, *, aspect_ratio: str | None = None, version: str | None = None, model_kwargs: dict | None = None) -> PIL.Image.Image` @pxt.udf (L140) — Creates an image from a text prompt.
+- `edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | None = None, model_kwargs: dict | None = None) -> PIL.Image.Image` @pxt.udf (L176) — Edits images based on a text prompt.
+- `remix(prompt: str, images: list[PIL.Image.Image], *, aspect_ratio: str | None = None, version: str | None = None, model_kwa...) -> PIL.Image.Image` @pxt.udf (L215) — Creates images based on a text prompt and reference images.
 
 ### runwayml.py — Pixeltable UDFs
 
+- `text_to_image(prompt_text: str, reference_images: list[PIL.Image.Image], model: str, ratio: str, *, seed: int | None = None, model_...) -> pxt.Json` @pxt.udf (L56) — Generate images from text prompts and reference images.
+- `text_to_video(prompt_text: str, model: str, ratio: str, *, duration: int | None = None, audio: bool | None = None, model_kwargs: di...) -> pxt.Json` @pxt.udf (L121) — Generate videos from text prompts.
+- `image_to_video(prompt_image: PIL.Image.Image, model: str, ratio: str, *, prompt_text: str | None = None, duration: int | None = None...) -> pxt.Json` @pxt.udf (L180) — Generate videos from images.
+- `video_to_video(video_uri: str, prompt_text: str, model: str, ratio: str, *, seed: int | None = None, model_kwargs: dict[str, Any] | ...) -> pxt.Json` @pxt.udf (L252) — Transform videos with text guidance.
 
 ### string.py — Pixeltable UDFs for `StringType`.
 
@@ -1570,9 +1632,14 @@ Use this to quickly locate code without reading full files.
 
 ### together.py — Pixeltable UDFs
 
+- `completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict` @pxt.udf (L54) — Generate completions based on a given prompt using a specified model.
+- `chat_completions(messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict` @pxt.udf (L94) — Generate chat completions based on a given prompt using a specified model.
+- `embeddings(input: Batch[str], *, model: str) -> Batch[pxt.Array[(None,), pxt.Float]]` @pxt.udf (L151) — Query an embedding model for a given string of text.
+- `image_generations(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> PIL.Image.Image` @pxt.udf (L197) — Generate images based on a given prompt using a specified model.
 
 ### twelvelabs.py — Pixeltable UDFs
 
+- `embed(text: str, image: pxt.Image | None = None, *, model_name: str) -> pxt.Array[np.float32] | None` @pxt.udf (L35) — Creates an embedding vector for the given text, audio, image, or video input.
 
 ### util.py
 
@@ -1634,6 +1701,9 @@ Use this to quickly locate code without reading full files.
 
 ### voyageai.py — Pixeltable UDFs
 
+- `embeddings(input: Batch[str], *, model: str, input_type: Literal['query', 'document'] | None = None, truncation: bool | None = N...) -> Batch[pxt.Array[(None,), np.float32]]` @pxt.udf (L52) — Creates an embedding vector representing the input text.
+- `rerank(query: str, documents: list[str], *, model: str, top_k: int | None = None, truncation: bool = True) -> dict` @pxt.udf (L144) — Reranks documents based on their relevance to a query.
+- `multimodal_embed(text: Batch[str], *, model: str, input_type: Literal['query', 'document'] | None = None, truncation: bool = True) -> Batch[pxt.Array[(1024,), np.float32]]` @pxt.udf (L214) — Creates an embedding vector for text, images, or video using Voyage AI's multimodal model.
 
 ### whisper.py — Pixeltable UDFs
 

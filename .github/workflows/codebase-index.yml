@@ -28,7 +28,11 @@ jobs:
       - name: Check for changes
         id: check
         run: |
-          git diff --quiet CODEBASE_INDEX.md && echo "changed=false" >> "$GITHUB_OUTPUT" || echo "changed=true" >> "$GITHUB_OUTPUT"
+          if git ls-files --error-unmatch CODEBASE_INDEX.md &>/dev/null; then
+            git diff --quiet CODEBASE_INDEX.md && echo "changed=false" >> "$GITHUB_OUTPUT" || echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Commit and push
         if: steps.check.outputs.changed == 'true'

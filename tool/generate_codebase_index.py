@@ -16,7 +16,6 @@ Usage:
 
 import argparse
 import ast
-import textwrap
 from pathlib import Path
 
 
@@ -26,14 +25,14 @@ def get_signature(node: ast.FunctionDef) -> str:
     defaults_offset = len(node.args.args) - len(node.args.defaults)
 
     for i, arg in enumerate(node.args.args):
-        if arg.arg == 'self' or arg.arg == 'cls':
+        if arg.arg in {'self', 'cls'}:
             continue
         annotation = ''
         if arg.annotation:
             annotation = f': {ast.unparse(arg.annotation)}'
         default = ''
         default_idx = i - defaults_offset
-        if default_idx >= 0 and default_idx < len(node.args.defaults):
+        if 0 <= default_idx < len(node.args.defaults):
             default = f' = {ast.unparse(node.args.defaults[default_idx])}'
         args.append(f'{arg.arg}{annotation}{default}')
 
@@ -73,7 +72,7 @@ def get_first_docstring_line(node: ast.AST) -> str:
     return ''
 
 
-def get_decorators(node: ast.FunctionDef | ast.ClassDef) -> list[str]:
+def get_decorators(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) -> list[str]:
     """Extract decorator names."""
     decorators = []
     for dec in node.decorator_list:
@@ -104,7 +103,7 @@ def analyze_file(filepath: Path) -> dict | None:
 
     for node in ast.iter_child_nodes(tree):
         if isinstance(node, ast.ClassDef):
-            if node.name.startswith('_') and node.name != '__init__':
+            if node.name.startswith('_'):
                 continue
 
             bases = [ast.unparse(b) for b in node.bases]
@@ -115,7 +114,7 @@ def analyze_file(filepath: Path) -> dict | None:
             # Extract public methods (non-dunder, non-private)
             methods = []
             for item in ast.iter_child_nodes(node):
-                if isinstance(item, ast.FunctionDef):
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     if item.name.startswith('_') and not item.name.startswith('__'):
                         continue
                     if item.name in ('__init__', '__repr__', '__str__', '__hash__', '__eq__'):
@@ -140,7 +139,7 @@ def analyze_file(filepath: Path) -> dict | None:
                 'methods': methods,
             })
 
-        elif isinstance(node, ast.FunctionDef):
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if node.name.startswith('_'):
                 continue
             doc = get_first_docstring_line(node)
@@ -181,7 +180,6 @@ def generate_index(root: Path) -> str:
     # Group by directory
     current_dir = None
     for filepath in py_files:
-        # Skip __pycache__, tests, migrations
         parts = filepath.parts
         if any(p in ('__pycache__', '.git', 'node_modules') for p in parts):
             continue
