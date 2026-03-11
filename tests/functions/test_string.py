@@ -335,7 +335,24 @@ class TestString:
     def test_zfill_signed(self, uses_db: None) -> None:
         """Test zfill with signed numbers to ensure sign is preserved at front."""
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = ['-42', '+42', '42', '-1', '+1', '1', '-123456', '+123456', '', 'abc', '-', '+', '--5']
+        test_strs = [
+            '-42',
+            '+42',
+            '42',
+            '-1',
+            '+1',
+            '1',
+            '-123456',
+            '+123456',
+            '',
+            'abc',
+            '-',
+            '+',
+            '--5',
+            '\u4f60\u597d',
+            '-\U0001f600',
+            '+\u00e9\u00e8',
+        ]
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
         s_py = t.s.apply(lambda x: x, col_type=pxt.String)
@@ -353,7 +370,6 @@ class TestString:
         These tests focus on ASCII strings for reliable cross-locale behavior.
         """
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        # Test strings covering various edge cases (ASCII only, no duplicates)
         test_strs = [
             # Empty and whitespace
             '',
@@ -397,17 +413,17 @@ class TestString:
             # Title case edge cases
             'Hello world',
             'hello WORLD',
+            # UTF-8: CJK, emoji, accented, mixed
+            '\u4f60\u597d',
+            '\U0001f600',
+            'caf\u00e9',
+            'hello \U0001f30d',
+            '\u4e16\u754c123',
+            '\U0001f600\U0001f600\U0001f600',
         ]
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
-        test_params = [
-            (isalnum, str.isalnum),
-            (isalpha, str.isalpha),
-            (isascii, str.isascii),
-            (isdecimal, str.isdecimal),
-            (isdigit, str.isdigit),
-            (isspace, str.isspace),
-        ]
+        test_params = [(isascii, str.isascii), (isdecimal, str.isdecimal), (isspace, str.isspace)]
 
         for pxt_fn, str_fn in test_params:
             # SQL execution
@@ -422,7 +438,18 @@ class TestString:
     def test_string_sql_equivalence(self, uses_db: None) -> None:
         """Test non-regex to_sql implementations for SQL/Python equivalence."""
         t = pxt.create_table('test_tbl', {'s': pxt.String})
-        test_strs = ['', 'a', 'ab', 'abc', 'abcdef', '  spaced  ', 'hello world']
+        test_strs = [
+            '',
+            'a',
+            'ab',
+            'abc',
+            'abcdef',
+            '  spaced  ',
+            'hello world',
+            '\u4f60\u597d',
+            '\U0001f600abc',
+            'caf\u00e9',
+        ]
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
 
         def check_both(sql_expr: Any, py_expr: Any, expected: list[Any], label: str) -> None:
@@ -479,6 +506,10 @@ class TestString:
             # Empty / whitespace
             '',
             ' ',
+            # UTF-8: emoji (not \w in either Python or PG, safe for regex tests)
+            '\U0001f600',
+            'hello \U0001f30d world',
+            '\U0001f600\U0001f600',
         ]
         t = pxt.create_table('test_tbl', {'s': pxt.String})
         validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))

@@ -281,12 +281,6 @@ def isalnum(self: str) -> bool:
     return self.isalnum()
 
 
-@isalnum.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # At least one character and all characters are alphanumeric
-    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[[:alnum:]]+$'))
-
-
 @pxt.udf(is_method=True)
 def isalpha(self: str) -> bool:
     """
@@ -295,12 +289,6 @@ def isalpha(self: str) -> bool:
     Equivalent to [`str.isalpha()`](https://docs.python.org/3/library/stdtypes.html#str.isalpha).
     """
     return self.isalpha()
-
-
-@isalpha.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # At least one character and all characters are alphabetic
-    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[[:alpha:]]+$'))
 
 
 @pxt.udf(is_method=True)
@@ -345,12 +333,6 @@ def isdigit(self: str) -> bool:
     Equivalent to [`str.isdigit()`](https://docs.python.org/3/library/stdtypes.html#str.isdigit).
     """
     return self.isdigit()
-
-
-@isdigit.to_sql
-def _(self: sql.ColumnElement) -> sql.ColumnElement:
-    # At least one character and all are digit characters
-    return sql.and_(sql.func.char_length(self) > 0, self.op('~')('^[[:digit:]]+$'))
 
 
 @pxt.udf(is_method=True)
