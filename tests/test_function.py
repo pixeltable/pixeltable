@@ -1350,7 +1350,7 @@ def _estimator_fn(prompt: str, model: str = 'gpt-4') -> str:
 
 
 @_estimator_fn.resource_estimator
-def _estimator_fn_est(prompt: str) -> dict[str, int]:
+def _(prompt: str) -> dict[str, int]:
     return {'requests': 1, 'tokens': len(prompt)}
 
 
@@ -1360,7 +1360,7 @@ def _estimator_fn_zero_arg(prompt: str) -> str:
 
 
 @_estimator_fn_zero_arg.resource_estimator
-def _estimator_fn_zero_arg_est() -> dict[str, int]:
+def _() -> dict[str, int]:
     return {'requests': 1}
 
 
