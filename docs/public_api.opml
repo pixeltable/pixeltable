@@ -253,6 +253,7 @@
         <outline text="module|pixeltable.functions.video">
           <outline text="iter|pixeltable.functions.video.frame_iterator" />
           <outline text="iter|pixeltable.functions.video.video_splitter" />
+          <outline text="uda|pixeltable.functions.video.concat_videos_agg" />
           <outline text="uda|pixeltable.functions.video.make_video" />
           <outline text="udf|pixeltable.functions.video.clip" />
           <outline text="udf|pixeltable.functions.video.crop" />
@@ -375,7 +376,9 @@
         </outline>
         <outline text="module|pixeltable.functions.vision">
           <outline text="func|pixeltable.functions.vision.eval_detections" />
-          <outline text="func|pixeltable.functions.vision.draw_bounding_boxes" />
+          <outline text="func|pixeltable.functions.vision.bboxes_convert" />
+          <outline text="func|pixeltable.functions.vision.bboxes_draw" />
+          <outline text="func|pixeltable.functions.vision.bboxes_resize" />
         </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />
