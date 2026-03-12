@@ -7,7 +7,7 @@ Use this to quickly locate code without reading full files.
 
 ## pixeltable/
 
-### __init__.py — Core Pixeltable API for table operations, data processing, and UDF management.
+### pixeltable/__init__.py — Core Pixeltable API for table operations, data processing, and UDF management.
 
 
 ### _query.py
@@ -22,7 +22,6 @@ Use this to quickly locate code without reading full files.
 - **class Query** (L177) — Represents a query for retrieving and transforming data from Pixeltable tables.
   - `validate_constant_type_range(v: Any, required_type: ts.ColumnType, required: bool, name: str, range: tuple[Any, Any] | None = None) -> Any` @classmethod (L314) — Validate that the given named parameter is a constant of the required type and within the specifi...
   - `parameters() -> dict[str, ColumnType]` (L323) — Return a dict mapping parameter name to parameter type.
-  - `__rowid_columns(num_rowid_cols: int | None = None) -> list[exprs.Expr]` (L381) — Return list of RowidRef for the given number of associated rowids
   - `show(n: int = 20) -> ResultSet` (L388)
   - `head(n: int = 10) -> ResultSet` (L394) — Return the first n rows of the Query, in insertion order of the underlying Table.
   - `tail(n: int = 10) -> ResultSet` (L421) — Return the last n rows of the Query, in insertion order of the underlying Table.
@@ -31,16 +30,16 @@ Use this to quickly locate code without reading full files.
   - `collect() -> ResultSet` (L547)
   - `count() -> int` (L561) — Return the number of rows in the Query.
   - `describe() -> None` (L623) — Prints a tabular description of this Query.
-  - `select(*items, **named_items) -> Query` (L642) — Select columns or expressions from the Query.
+  - `select(*items: Any, **named_items: Any) -> Query` (L642) — Select columns or expressions from the Query.
   - `where(pred: exprs.Expr) -> Query` (L729) — Filter rows based on a predicate.
   - `join(other: catalog.Table, on: exprs.Expr | Sequence[exprs.ColumnRef] | None = None, how: plan.JoinType.LiteralType = 'inner') -> Query` (L835) — Join this Query with a table.
-  - `group_by(*grouping_items) -> Query` (L914) — Add a group-by clause to this Query.
+  - `group_by(*grouping_items: Any) -> Query` (L914) — Add a group-by clause to this Query.
   - `distinct() -> Query` (L993) — Remove duplicate rows from this Query.
-  - `order_by(*expr_list, asc: bool = True) -> Query` (L1020) — Add an order-by clause to this Query.
+  - `order_by(*expr_list: exprs.Expr, asc: bool = True) -> Query` (L1020) — Add an order-by clause to this Query.
   - `limit(n: int, offset: int | None = None) -> Query` (L1068) — Limit the number of rows in the Query, optionally skipping rows for pagination.
   - `sample(n: int | None = None, n_per_stratum: int | None = None, fraction: float | None = None, seed: int | None = None, strat...) -> Query` (L1108) — Return a new Query specifying a sample of rows from the Query, considered in a shuffled order.
   - `update(value_spec: dict[str, Any], cascade: bool = True) -> UpdateStatus` (L1226) — Update rows in the underlying table of the Query.
-  - `recompute_columns(*columns, errors_only: bool = False, cascade: bool = True) -> UpdateStatus` (L1258) — Recompute one or more computed columns of the underlying table of the Query.
+  - `recompute_columns(*columns: str | exprs.ColumnRef, errors_only: bool = False, cascade: bool = True) -> UpdateStatus` (L1258) — Recompute one or more computed columns of the underlying table of the Query.
   - `delete() -> UpdateStatus` (L1283) — Delete rows form the underlying table of the Query.
   - `as_dict() -> dict[str, Any]` (L1332) — Returns:
   - `from_dict(d: dict[str, Any]) -> 'Query'` @classmethod (L1361)
@@ -54,7 +53,6 @@ Use this to quickly locate code without reading full files.
   - `config_file() -> Path` @property (L79)
   - `get() -> Config` @classmethod (L83)
   - `init(config_overrides: dict[str, Any], reinit: bool = False) -> None` @classmethod (L90)
-  - `__create_default_config(config_path: Path) -> dict[str, Any]` @classmethod (L102)
   - `lookup_env(section: str, key: str, default: Any = None) -> Any` (L108)
   - `get_value(key: str, expected_type: type[T], section: str = 'pixeltable') -> T | None` (L117)
   - `get_string_value(key: str, section: str = 'pixeltable') -> str | None` (L147)
@@ -65,57 +63,52 @@ Use this to quickly locate code without reading full files.
 ### env.py
 
 - **class Env** (L45) — Store runtime globals for both local and non-local environments.
-  - `get() -> Env` @classmethod (L93)
-  - `db_url() -> str` @property (L159)
-  - `http_address() -> str` @property (L164)
-  - `user() -> str | None` @property (L169)
-  - `user(user: str | None) -> None` @user.setter (L173)
-  - `default_time_zone() -> ZoneInfo | None` @property (L181)
-  - `default_time_zone(tz: ZoneInfo | None) -> None` @default_time_zone.setter (L185) — This is not a publicly visible setter; it is only for testing purposes.
-  - `verbosity() -> int` @property (L198)
-  - `dbms() -> Dbms | None` @property (L202)
-  - `is_using_cockroachdb() -> bool` @property (L207)
-  - `is_local() -> bool` @property (L212)
-  - `is_interactive() -> bool` (L216) — Return True if running in an interactive environment.
-  - `is_notebook() -> bool` (L228) — Return True if running in a Jupyter notebook.
-  - `configure_logging(*, to_stdout: bool | None = None, level: int | None = None, add: str | None = None, remove: str | None = None) -> None` (L236) — Configure logging.
-  - `print_log_config() -> None` (L265)
-  - `log_to_stdout(enable: bool = True) -> None` (L274)
-  - `set_log_level(level: int) -> None` (L281)
-  - `set_module_log_level(module: str, level: int | None) -> None` (L284)
-  - `is_installed_package(package_name: str) -> bool` (L290)
-  - `console_logger() -> ConsoleLogger` @property (L308)
-  - `pxt_api_key() -> str | None` @property (L601) — Get the Pixeltable API key from config
-  - `create_client(name: str) -> Any` (L605) — Resolves config parameters and calls the registered init function to create a new client instance.
-  - `default_video_encoder() -> str | None` @property (L669)
-  - `__register_packages() -> None` (L703) — Declare optional packages that are utilized by some parts of the code.
-  - `__register_package(package_name: str, library_name: str | None = None) -> None` (L753)
-  - `require_binary(binary_name: str) -> None` (L765)
-  - `require_package(package_name: str, min_version: list[int] | None = None, not_installed_msg: str | None = None) -> None` (L769) — Checks whether the specified optional package is available. If not, raises an exception
-  - `clear_tmp_dir() -> None` (L809)
-  - `get_resource_pool_info(pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T` (L817) — Returns the info object for the given id, creating it if necessary.
-  - `media_dir() -> Path` @property (L827)
-  - `default_input_media_dest() -> str | None` @property (L832)
-  - `default_output_media_dest() -> str | None` @property (L836)
-  - `file_cache_dir() -> Path` @property (L840)
-  - `dataset_cache_dir() -> Path` @property (L845)
-  - `tmp_dir() -> Path` @property (L850)
-  - `engine() -> sql.engine.base.Engine` @property (L855)
-- **class ApiClientFactory** (L944) @dataclass
-- **class PackageInfo** (L950) @dataclass
-- **class RateLimitsInfo** (L963) @dataclass — Abstract base class for resource pools made up of rate limits for different resources.
-  - `debug_str() -> str` (L987)
-  - `is_initialized() -> bool` (L991)
-  - `reset() -> None` (L995)
-  - `record(request_ts: datetime.datetime, reset_exc: bool = False, **kwargs) -> None` (L999) — Update self.resource_limits with the provided rate limit info.
-  - `record_exc(request_ts: datetime.datetime, exc: Exception) -> None` (L1022) — Update self.resource_limits based on the exception headers
-  - `get_retry_delay(exc: Exception, attempt: int) -> float | None` (L1030) — Returns number of seconds to wait before retry, or None if not retryable
-- **class RateLimitInfo** (L1045) @dataclass — Container for rate limit-related information for a single resource.
-  - `debug_str() -> str` (L1054)
-  - `update(request_start_ts: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime) -> None` (L1060)
-  - `estimated_resource_refill_delay(target_remaining: int) -> float | None` (L1078) — Estimate time in seconds until remaining resources reaches target_remaining.
-- **class RuntimeCtx** (L1107) @dataclass — Container for runtime data provided by the execution system to udfs.
-- `register_client(name: str) -> Callable` (L905) — Decorator that registers a third-party API client for use by Pixeltable.
+  - `get() -> Env` @classmethod (L96)
+  - `db_url() -> str` @property (L163)
+  - `http_address() -> str` @property (L168)
+  - `user() -> str | None` @property (L173)
+  - `user(user: str | None) -> None` @user.setter (L177)
+  - `default_time_zone() -> ZoneInfo | None` @property (L185)
+  - `default_time_zone(tz: ZoneInfo | None) -> None` @default_time_zone.setter (L189) — This is not a publicly visible setter; it is only for testing purposes.
+  - `verbosity() -> int` @property (L202)
+  - `dbms() -> Dbms | None` @property (L206)
+  - `is_using_cockroachdb() -> bool` @property (L211)
+  - `is_local() -> bool` @property (L216)
+  - `is_interactive() -> bool` (L220) — Return True if running in an interactive environment.
+  - `is_notebook() -> bool` (L232) — Return True if running in a Jupyter notebook.
+  - `configure_logging(*, to_stdout: bool | None = None, level: int | None = None, add: str | None = None, remove: str | None = None) -> None` (L240) — Configure logging.
+  - `set_log_level(level: int) -> None` (L285)
+  - `is_installed_package(package_name: str) -> bool` (L295)
+  - `console_logger() -> ConsoleLogger` @property (L313)
+  - `pxt_api_key() -> str | None` @property (L611) — Get the Pixeltable API key from config
+  - `create_client(name: str) -> Any` (L615) — Resolves config parameters and calls the registered init function to create a new client instance.
+  - `default_video_encoder() -> str | None` @property (L679)
+  - `require_binary(binary_name: str) -> None` (L775)
+  - `require_package(package_name: str, min_version: list[int] | None = None, not_installed_msg: str | None = None) -> None` (L779) — Checks whether the specified optional package is available. If not, raises an exception
+  - `clear_tmp_dir() -> None` (L819)
+  - `get_resource_pool_info(pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T` (L827) — Returns the info object for the given id, creating it if necessary.
+  - `media_dir() -> Path` @property (L837)
+  - `default_input_media_dest() -> str | None` @property (L842)
+  - `default_output_media_dest() -> str | None` @property (L846)
+  - `file_cache_dir() -> Path` @property (L850)
+  - `dataset_cache_dir() -> Path` @property (L855)
+  - `tmp_dir() -> Path` @property (L860)
+  - `engine() -> sql.engine.base.Engine` @property (L865)
+- **class ApiClientFactory** (L961) @dataclass
+- **class PackageInfo** (L967) @dataclass
+- **class RateLimitsInfo** (L980) @dataclass — Abstract base class for resource pools made up of rate limits for different resources.
+  - `debug_str() -> str` (L1004)
+  - `is_initialized() -> bool` (L1008)
+  - `reset() -> None` (L1012)
+  - `record(request_ts: datetime.datetime, reset_exc: bool = False, **kwargs: Any) -> None` (L1016) — Update self.resource_limits with the provided rate limit info.
+  - `record_exc(request_ts: datetime.datetime, exc: Exception) -> None` (L1039) — Update self.resource_limits based on the exception headers
+  - `get_retry_delay(exc: Exception, attempt: int) -> float | None` (L1047) — Returns number of seconds to wait before retry, or None if not retryable
+- **class RateLimitInfo** (L1062) @dataclass — Container for rate limit-related information for a single resource.
+  - `debug_str() -> str` (L1071)
+  - `update(request_start_ts: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime) -> None` (L1077)
+  - `estimated_resource_refill_delay(target_remaining: int) -> float | None` (L1095) — Estimate time in seconds until remaining resources reaches target_remaining.
+- **class RuntimeCtx** (L1124) @dataclass — Container for runtime data provided by the execution system to udfs.
+- `register_client(name: str) -> Callable` (L922) — Decorator that registers a third-party API client for use by Pixeltable.
 
 ### exceptions.py
 
@@ -126,28 +119,28 @@ Use this to quickly locate code without reading full files.
 
 ### globals.py
 
-- **class DirContents(TypedDict)** (L1088) — Represents the contents of a Pixeltable directory.
-- `init(config_overrides: dict[str, Any] | None = None) -> None` (L44) — Initializes the Pixeltable environment.
-- `create_table(path: str, schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None, *, source: TableDataSource | None = No...) -> catalog.Table` (L52) — Create a new base table. Exactly one of `schema` or `source` must be provided.
-- `create_view(path: str, base: catalog.Table | Query, *, additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = ...) -> catalog.Table | None` (L253) — Create a view of an existing table object (which itself can be a view or a snapshot or a base tab...
-- `create_snapshot(path_str: str, base: catalog.Table | Query, *, additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | Non...) -> catalog.Table | None` (L402) — Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base...
-- `publish(source: str | catalog.Table, destination_uri: str, bucket_name: str | None = None, access: Literal['public', 'private...) -> None` (L491) — Publishes a replica of a local Pixeltable table to Pixeltable cloud. A given table can be publish...
-- `replicate(remote_uri: str, local_path: str) -> catalog.Table` (L520) — Retrieve a replica from Pixeltable cloud as a local table. This will create a full local copy of ...
-- `get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None` (L539) — Get a handle to an existing table, view, or snapshot.
-- `move(path: str, new_path: str, *, if_exists: Literal['error', 'ignore'] = 'error', if_not_exists: Literal['error', 'ignore...) -> None` (L579) — Move a schema object to a new directory and/or rename a schema object.
-- `drop_table(table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None` (L626) — Drop a table, view, snapshot, or replica.
-- `get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents'` (L688) — Get the contents of a Pixeltable directory.
-- `list_tables(dir_path: str = '', recursive: bool = True) -> list[str]` (L739) — List the [`Table`][pixeltable.Table]s in a directory.
-- `create_dir(path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False) -> catalog.Dir | None` (L771) — Create a directory.
-- `drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None` (L823) — Remove a directory.
-- `ls(path: str = '') -> pd.DataFrame` (L865) — List the contents of a Pixeltable directory.
-- `list_dirs(path: str = '', recursive: bool = True) -> list[str]` (L949) — List the directories in a directory.
-- `list_functions() -> Styler` (L972) — Returns information about all registered functions.
-- `tools(*args) -> func.tools.Tools` (L1001) — Specifies a collection of UDFs to be used as LLM tools. Pixeltable allows any UDF to be used as a...
-- `tool(fn: func.Function, name: str | None = None, description: str | None = None) -> func.tools.Tool` (L1041) — Specifies a Pixeltable UDF to be used as an LLM tool with customizable metadata. See the document...
-- `configure_logging(*, to_stdout: bool | None = None, level: int | None = None, add: str | None = None, remove: str | None = None) -> None` (L1061) — Configure logging.
-- `array(elements: Iterable) -> exprs.Expr` (L1075)
-- `home() -> Path` (L1079) — Get the path to the user's home directory in Pixeltable.
+- **class DirContents(TypedDict)** (L1084) — Represents the contents of a Pixeltable directory.
+- `init(config_overrides: dict[str, Any] | None = None) -> None` (L40) — Initializes the Pixeltable environment.
+- `create_table(path: str, schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None, *, source: TableDataSource | None = No...) -> catalog.Table` (L48) — Create a new base table. Exactly one of `schema` or `source` must be provided.
+- `create_view(path: str, base: catalog.Table | Query, *, additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = ...) -> catalog.Table | None` (L249) — Create a view of an existing table object (which itself can be a view or a snapshot or a base tab...
+- `create_snapshot(path_str: str, base: catalog.Table | Query, *, additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | Non...) -> catalog.Table | None` (L398) — Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base...
+- `publish(source: str | catalog.Table, destination_uri: str, bucket_name: str | None = None, access: Literal['public', 'private...) -> None` (L487) — Publishes a replica of a local Pixeltable table to Pixeltable cloud. A given table can be publish...
+- `replicate(remote_uri: str, local_path: str) -> catalog.Table` (L516) — Retrieve a replica from Pixeltable cloud as a local table. This will create a full local copy of ...
+- `get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None` (L535) — Get a handle to an existing table, view, or snapshot.
+- `move(path: str, new_path: str, *, if_exists: Literal['error', 'ignore'] = 'error', if_not_exists: Literal['error', 'ignore...) -> None` (L575) — Move a schema object to a new directory and/or rename a schema object.
+- `drop_table(table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None` (L622) — Drop a table, view, snapshot, or replica.
+- `get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents'` (L684) — Get the contents of a Pixeltable directory.
+- `list_tables(dir_path: str = '', recursive: bool = True) -> list[str]` (L735) — List the [`Table`][pixeltable.Table]s in a directory.
+- `create_dir(path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False) -> catalog.Dir | None` (L767) — Create a directory.
+- `drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None` (L819) — Remove a directory.
+- `ls(path: str = '') -> pd.DataFrame` (L861) — List the contents of a Pixeltable directory.
+- `list_dirs(path: str = '', recursive: bool = True) -> list[str]` (L945) — List the directories in a directory.
+- `list_functions() -> Styler` (L968) — Returns information about all registered functions.
+- `tools(*args: func.Function | func.tools.Tool) -> func.tools.Tools` (L997) — Specifies a collection of UDFs to be used as LLM tools. Pixeltable allows any UDF to be used as a...
+- `tool(fn: func.Function, name: str | None = None, description: str | None = None) -> func.tools.Tool` (L1037) — Specifies a Pixeltable UDF to be used as an LLM tool with customizable metadata. See the document...
+- `configure_logging(*, to_stdout: bool | None = None, level: int | None = None, add: str | None = None, remove: str | None = None) -> None` (L1057) — Configure logging.
+- `array(elements: Iterable) -> exprs.Expr` (L1071)
+- `home() -> Path` (L1075) — Get the path to the user's home directory in Pixeltable.
 
 ### plan.py
 
@@ -156,7 +149,6 @@ Use this to quickly locate code without reading full files.
 - **class JoinClause** (L65) @dataclasses.dataclass — Corresponds to a single 'JOIN ... ON (...)' clause in a SELECT statement; excludes the joined table.
 - **class FromClause** (L73) @dataclasses.dataclass — Corresponds to the From-clause ('FROM <tbl> JOIN ... ON (...) JOIN ...') of a SELECT statement
 - **class SampleClause** (L86) @dataclasses.dataclass — Defines a sampling clause for a table.
-  - `__post_init__() -> None` (L99)
   - `is_stratified() -> bool` @property (L105) — Check if the sampling is stratified
   - `is_repeatable() -> bool` @property (L110) — Return true if the same rows will continue to be sampled if source rows are added or deleted.
   - `display_str(inline: bool = False) -> str` (L114)
@@ -173,8 +165,6 @@ Use this to quickly locate code without reading full files.
   - `rowid_columns(target: TableVersionHandle, num_rowid_cols: int | None = None) -> list[exprs.Expr]` @classmethod (L397) — Return list of RowidRef for the given number of associated rowids
   - `create_query_insert_plan(tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool) -> exec.ExecNode` @classmethod (L404)
   - `create_update_plan(tbl: catalog.TableVersionPath, update_targets: dict[catalog.Column, exprs.Expr], recompute_targets: list[catalog.Colu...) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]` @classmethod (L426) — Creates a plan to materialize updated rows.
-  - `__check_valid_columns(tbl: catalog.TableVersion, cols: Iterable[Column], op_name: Literal['inserted into', 'updated in']) -> None` @classmethod (L509)
-  - `__check_valid_iterator(tbl: catalog.TableVersion, iterator: GeneratingFunctionCall | None, op_name: Literal['updated in']) -> None` @classmethod (L527)
   - `create_batch_update_plan(tbl: catalog.TableVersionPath, batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]], cascade:...) -> tuple[exec.ExecNode, exec.RowUpdateNode, sql.ColumnElement[bool], list[catalog.Column], list[catalog.Column]]` @classmethod (L635) — Returns:
   - `create_view_update_plan(view: catalog.TableVersionPath, recompute_targets: list[catalog.Column]) -> exec.ExecNode` @classmethod (L736) — Creates a plan to materialize updated rows for a view, given that the base table has been updated.
   - `create_view_load_plan(view: catalog.TableVersionPath, propagates_insert: bool = False) -> tuple[exec.ExecNode, int]` @classmethod (L786) — Creates a query plan for populating a view.
@@ -249,9 +239,7 @@ Use this to quickly locate code without reading full files.
   - `infer_common_literal_type(vals: Iterable[Any]) -> ColumnType | None` @classmethod (L281) — Returns the most specific type that is a supertype of all literals in `vals`. If no such type
   - `from_python_type(t: type | _GenericAlias, nullable_default: bool = False, allow_builtin_types: bool = True, infer_pydantic_json: bool ...) -> ColumnType | None` @classmethod (L303) — Convert a Python type into a Pixeltable `ColumnType` instance.
   - `normalize_type(t: ColumnType | type | _AnnotatedAlias, nullable_default: bool = False, allow_builtin_types: bool = True) -> ColumnType` @classmethod (L391) — Convert any type recognizable by Pixeltable to its corresponding ColumnType.
-  - `__raise_exc_for_invalid_type(t: type | _AnnotatedAlias) -> None` @classmethod (L419)
   - `from_json_schema(schema: dict[str, Any]) -> ColumnType | None` @classmethod (L427)
-  - `__json_schema_to_py_type(schema: dict[str, Any]) -> type | _GenericAlias | None` @classmethod (L435)
   - `validate_literal(val: Any) -> None` (L456) — Raise TypeError if val is not a valid literal for this type
   - `validate_media(val: Any) -> None` (L465) — Raise TypeError if val is not a path to a valid media file (or a valid in-memory byte sequence) f...
   - `create_literal(val: Any) -> Any` (L490) — Create a literal of this type from val or raise TypeError if not possible
@@ -309,11 +297,7 @@ Use this to quickly locate code without reading full files.
   - `matches(other: ColumnType) -> bool` (L824)
   - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L838)
   - `print_value(val: Any) -> str` (L846)
-  - `__is_valid_json(val: Any) -> bool` @classmethod (L865)
   - `supertype(other: ColumnType, for_inference: bool = False) -> JsonType | None` (L881)
-  - `__superschema(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None` @classmethod (L903)
-  - `__superschema_with_nulls(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None` @classmethod (L963)
-  - `__unpack_null_from_schema(s: dict[str, Any]) -> tuple[dict[str, Any], bool]` @classmethod (L974)
 - **class ArrayType(ColumnType)** (L1008)
   - `copy(nullable: bool) -> ColumnType` (L1047)
   - `matches(other: ColumnType) -> bool` (L1050)
@@ -366,7 +350,7 @@ Use this to quickly locate code without reading full files.
 - **class PendingTableOpsError(Exception)** (L139)
 - **class Catalog** (L146) — The functional interface to getting access to catalog objects
   - `validate() -> None` (L233) — Validate structural consistency of cached metadata
-  - `mark_modified_tvs(*handle) -> None` (L271) — Record that the given TableVersion instances were modified in the current transaction
+  - `mark_modified_tvs(*handle: TableVersionHandle) -> None` (L271) — Record that the given TableVersion instances were modified in the current transaction
   - `begin_xact(*, tbl: TableVersionPath | None = None, tbl_id: UUID | None = None, for_write: bool = False, lock_mutable_tree: bool ...) -> Iterator[sql.Connection]` @contextmanager (L277) — Return a context manager that yields a connection to the database. Idempotent.
   - `register_undo_action(func: Callable[[], None]) -> Callable[[], None]` (L446) — Registers a function to be called if the current transaction fails.
   - `convert_sql_exc(e: sql_exc.StatementError, tbl_id: UUID | None = None, tbl: TableVersionHandle | None = None, convert_db_excs: bool =...) -> None` (L459)
@@ -381,8 +365,6 @@ Use this to quickly locate code without reading full files.
   - `create_view(path: Path, base: TableVersionPath, select_list: list[tuple[exprs.Expr, str | None]] | None, where: exprs.Expr | None...) -> Table` (L1219)
   - `add_columns(tbl: TableVersionPath, cols: list[Column]) -> None` (L1292)
   - `create_replica(path: Path, md: list[TableVersionMd], create_store_tbls: bool = True) -> None` (L1320) — Creates table, table_version, and table_schema_version records for a replica with the given metad...
-  - `__ensure_system_dir_exists() -> Dir` (L1402)
-  - `__store_replica_md(path: Path, md: TableVersionMd, create_store_tbl: bool = True) -> None` (L1406)
   - `get_additional_md(tbl_id: UUID) -> dict[str, Any]` (L1510) — Return the additional_md field of the given table.
   - `update_additional_md(tbl_id: UUID, additional_md: dict[str, Any]) -> None` (L1520) — Update the additional_md field of the given table. The new additional_md is merged with the
   - `get_table(path: Path, if_not_exists: IfNotExistsParam) -> Table | None` @retry_loop (L1537)
@@ -464,7 +446,7 @@ Use this to quickly locate code without reading full files.
   - `fail_on_exception(v: Any) -> bool` @classmethod (L50)
 - **class InsertableTable(Table)** (L58) — A `Table` that allows inserting and deleting rows.
   - `insert(source: TableDataSource | None = None, /, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,...) -> UpdateStatus` @overload (L114)
-  - `insert(*, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs) -> UpdateStatus` @overload (L127)
+  - `insert(*, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any) -> UpdateStatus` @overload (L127)
   - `insert(source: TableDataSource | None = None, /, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,...) -> UpdateStatus` (L131)
   - `insert_table_data_source(data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False) -> pxt.UpdateStatus` (L182) — Insert row batches into this table from a `TableDataConduit`.
   - `delete(where: 'exprs.Expr' | None = None) -> UpdateStatus` (L310) — Delete rows in this table.
@@ -493,18 +475,18 @@ Use this to quickly locate code without reading full files.
   - `__getattr__(name: str) -> 'exprs.ColumnRef'` (L178) — Return a ColumnRef for the given name.
   - `__getitem__(name: str) -> 'exprs.ColumnRef'` (L185) — Return a ColumnRef for the given name.
   - `list_views(*, recursive: bool = True) -> list[str]` (L189) — Returns a list of all views and snapshots of this `Table`.
-  - `select(*items, **named_items) -> 'pxt.Query'` (L219) — Select columns or expressions from this table.
+  - `select(*items: Any, **named_items: Any) -> 'pxt.Query'` (L219) — Select columns or expressions from this table.
   - `where(pred: 'exprs.Expr') -> 'pxt.Query'` (L233) — Filter rows from this table based on the expression.
   - `join(other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner') -> 'pxt.Query'` (L242) — Join this table with another table.
-  - `order_by(*items, asc: bool = True) -> 'pxt.Query'` (L250) — Order the rows of this table based on the expression.
-  - `group_by(*items) -> 'pxt.Query'` (L259) — Group the rows of this table based on the expression.
+  - `order_by(*items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query'` (L250) — Order the rows of this table based on the expression.
+  - `group_by(*items: 'exprs.Expr') -> 'pxt.Query'` (L259) — Group the rows of this table based on the expression.
   - `distinct() -> 'pxt.Query'` (L268) — Remove duplicate rows from table.
   - `limit(n: int, offset: int | None = None) -> 'pxt.Query'` (L272) — Select a limited number of rows from the Table, optionally skipping rows for pagination.
   - `sample(n: int | None = None, n_per_stratum: int | None = None, fraction: float | None = None, seed: int | None = None, strat...) -> pxt.Query` (L293) — Choose a shuffled sample of rows
   - `collect() -> 'pxt._query.ResultSet'` (L309) — Return rows from this table.
-  - `show(*args, **kwargs) -> 'pxt._query.ResultSet'` (L313) — Return rows from this table.
-  - `head(*args, **kwargs) -> 'pxt._query.ResultSet'` (L317) — Return the first n rows inserted into this table.
-  - `tail(*args, **kwargs) -> 'pxt._query.ResultSet'` (L321) — Return the last n rows inserted into this table.
+  - `show(*args: Any, **kwargs: Any) -> 'pxt._query.ResultSet'` (L313) — Return rows from this table.
+  - `head(*args: Any, **kwargs: Any) -> 'pxt._query.ResultSet'` (L317) — Return the first n rows inserted into this table.
+  - `tail(*args: Any, **kwargs: Any) -> 'pxt._query.ResultSet'` (L321) — Return the last n rows inserted into this table.
   - `count() -> int` (L325) — Return the number of rows in this table.
   - `columns() -> list[str]` (L329) — Return the names of the columns in this table.
   - `get_base_table() -> 'Table' | None` (L338)
@@ -512,7 +494,7 @@ Use this to quickly locate code without reading full files.
   - `to_pytorch_dataset(image_format: str = 'pt') -> 'torch.utils.data.IterableDataset'` (L483) — Return a PyTorch Dataset for this table.
   - `to_coco_dataset() -> Path` (L489) — Return the path to a COCO json file for this table.
   - `add_columns(schema: Mapping[str, type | ColumnSpec], if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error') -> UpdateStatus` (L541) — Adds multiple columns to the table. The columns must be concrete (non-computed) columns; to add c...
-  - `add_column(*, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', **kwargs) -> UpdateStatus` (L623) — Adds an ordinary (non-computed) column to the table.
+  - `add_column(*, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', **kwargs: type | ColumnSpec) -> UpdateStatus` (L623) — Adds an ordinary (non-computed) column to the table.
   - `add_computed_column(*, stored: bool | None = None, destination: str | Path | None = None, print_stats: bool = False, on_error: Literal['a...) -> UpdateStatus` (L693) — Adds a computed column to the table.
   - `drop_column(column: str | ColumnRef, if_not_exists: Literal['error', 'ignore'] = 'error') -> None` (L799) — Drop a column from the table.
   - `rename_column(old_name: str, new_name: str) -> None` (L913) — Rename a column.
@@ -520,11 +502,11 @@ Use this to quickly locate code without reading full files.
   - `drop_embedding_index(*, column: str | ColumnRef | None = None, idx_name: str | None = None, if_not_exists: Literal['error', 'ignore'] = 'e...) -> None` (L1072) — Drop an embedding index from the table. Either a column name or an index name (but not both) must be
   - `drop_index(*, column: str | ColumnRef | None = None, idx_name: str | None = None, if_not_exists: Literal['error', 'ignore'] = 'e...) -> None` (L1150) — Drop an index from the table. Either a column name or an index name (but not both) must be
   - `insert(source: TableDataSource, /, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None, schema_overri...) -> UpdateStatus` @overload (L1262)
-  - `insert(*, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs) -> UpdateStatus` @overload (L1275)
+  - `insert(*, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs: Any) -> UpdateStatus` @overload (L1275)
   - `insert(source: TableDataSource | None = None, /, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,...) -> UpdateStatus` @abc.abstractmethod (L1280) — Inserts rows into this table. There are two mutually exclusive call patterns:
   - `update(value_spec: dict[str, Any], where: 'exprs.Expr' | None = None, cascade: bool = True) -> UpdateStatus` (L1371) — Update rows in this table.
   - `batch_update(rows: Iterable[dict[str, Any]], cascade: bool = True, if_not_exists: Literal['error', 'ignore', 'insert'] = 'error') -> UpdateStatus` (L1408) — Update rows in this table.
-  - `recompute_columns(*columns, where: 'exprs.Expr' | None = None, errors_only: bool = False, cascade: bool = True) -> UpdateStatus` (L1489) — Recompute the values in one or more computed columns of this table.
+  - `recompute_columns(*columns: str | ColumnRef, where: 'exprs.Expr' | None = None, errors_only: bool = False, cascade: bool = True) -> UpdateStatus` (L1489) — Recompute the values in one or more computed columns of this table.
   - `delete(where: 'exprs.Expr' | None = None) -> UpdateStatus` (L1564) — Delete rows in this table.
   - `revert() -> None` (L1581) — Reverts the table to the previous version.
   - `push() -> None` (L1593)
@@ -532,10 +514,8 @@ Use this to quickly locate code without reading full files.
   - `external_stores() -> list[str]` (L1654)
   - `unlink_external_stores(stores: str | list[str] | None = None, *, delete_external_data: bool = False, ignore_errors: bool = False) -> None` (L1672) — Unlinks this table's external stores.
   - `sync(stores: str | list[str] | None = None, *, export_data: bool = True, import_data: bool = True) -> UpdateStatus` (L1713) — Synchronizes this table with its linked external stores.
-  - `__dir__() -> list[str]` (L1751)
   - `get_versions(n: int | None = None) -> list[VersionMetadata]` (L1757) — Returns information about versions of this table, most recent first.
   - `history(n: int | None = None) -> pd.DataFrame` (L1827) — Returns a human-readable report about versions of this table.
-  - `__check_mutable(op_descr: str) -> None` (L1853)
 
 ### table_metadata.py
 
@@ -552,7 +532,6 @@ Use this to quickly locate code without reading full files.
   - `as_dict() -> dict` (L75)
   - `from_dict(data: dict[str, Any]) -> TableVersionMd` @classmethod (L79)
 - **class TableVersionKey** (L84) @dataclasses.dataclass
-  - `__post_init__() -> None` (L89)
   - `__iter__() -> Iterator[Any]` (L93)
   - `as_dict() -> dict` (L96)
   - `from_dict(d: dict) -> TableVersionKey` @classmethod (L104)
@@ -733,7 +712,6 @@ Use this to quickly locate code without reading full files.
   - `to_cascade() -> 'UpdateStatus'` (L105) — Convert the update status to a cascade update status.
   - `__add__(other: 'UpdateStatus') -> UpdateStatus` (L118) — Add the update status from two UpdateStatus objects together.
   - `insert_msg(start_ts: float | None = None) -> str` (L130) — Returns message describing the results of an insert operation.
-  - `__cnt_str(cnt: int, item: str) -> str` @classmethod (L155)
   - `pxt_rows_updated() -> int` @property (L176) — Returns the number of Pixeltable rows that were updated as a result of the operation.
   - `external_rows_updated() -> int` @property (L183) — Number of rows updated in an external store.
   - `external_rows_created() -> int` @property (L188) — Number of rows created in an external store.
@@ -744,7 +722,6 @@ Use this to quickly locate code without reading full files.
 
 - **class View(Table)** (L34) — A `Table` that presents a virtual view of another table (or view).
   - `select_list_to_additional_columns(select_list: list[tuple[exprs.Expr, str | None]]) -> dict[str, ColumnSpec]` @classmethod (L59) — Returns a list of columns in the same format as the additional_columns parameter of View.create.
-  - `__get_unique_column_name(base_name: str, existing_names: set[str]) -> str` @classmethod (L219) — Returns a unique column name based on the given base name and the set of existing names.
   - `insert(source: TableDataSource | None = None, /, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,...) -> UpdateStatus` (L283)
   - `delete(where: exprs.Expr | None = None) -> UpdateStatus` (L296)
 
@@ -762,11 +739,6 @@ Use this to quickly locate code without reading full files.
   - `queued_work() -> int` @property (L78)
   - `get_input_batch(input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None` (L84) — Get the next batch of input rows, or None if there are no more rows
   - `__aiter__() -> AsyncIterator[DataRowBatch]` (L95)
-  - `__has_ready_batch() -> bool` (L127) — True if there are >= BATCH_SIZES entries in ready_rows and the first BATCH_SIZE ones are all non-...
-  - `__add_ready_row(row: exprs.DataRow, row_idx: int | None) -> None` (L133)
-  - `__process_completions(done: set[futures.Future], ignore_errors: bool) -> None` (L143)
-  - `__process_input_batch(input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None` (L180) — Process a batch of input rows, submitting URLs for download and adding ready rows to ready_rows
-  - `__fetch_url(url: str) -> tuple[Path | None, Exception | None]` (L228)
 
 ### cell_materialization_node.py
 
@@ -778,7 +750,6 @@ Use this to quickly locate code without reading full files.
 
 - **class CellReconstructionNode(ExecNode)** (L87) — Reconstruction of stored json and array cells that were produced by CellMaterializationNode.
   - `__aiter__() -> AsyncIterator[DataRowBatch]` (L111)
-  - `__get_file_pointer(file_url: str) -> io.BufferedReader` (L163)
 - `json_has_inlined_objs(element: Any) -> bool` (L23) — Returns True if element contains inlined objects produced by CellMaterializationNode.
 - `reconstruct_json(element: Any, urls: list[str], file_handles: dict[Path, io.BufferedReader]) -> Any` (L34) — Recursively reconstructs inlined objects in a json structure.
 - `load_array(fh: io.BufferedReader, start: int, end: int, is_bool_array: bool, shape: tuple[int, ...] | None) -> np.ndarray` (L74) — Loads an array from a section of a file.
@@ -787,8 +758,6 @@ Use this to quickly locate code without reading full files.
 
 - **class ComponentIterationNode(ExecNode)** (L10) — Expands each row from a base table into one row per component returned by an iterator
   - `__aiter__() -> AsyncIterator[DataRowBatch]` (L44)
-  - `__non_nullable_args_specified(iterator_args: dict) -> bool` (L69) — Returns true if all non-nullable iterator arguments are not `None`.
-  - `__populate_output_row(output_row: exprs.DataRow, pos: int, component_dict: dict) -> None` (L80)
 
 ### data_row_batch.py
 
@@ -834,12 +803,6 @@ Use this to quickly locate code without reading full files.
   - `queued_work() -> int` @property (L105)
   - `get_input_batch(input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None` (L111) — Get the next batch of input rows, or None if there are no more rows
   - `__aiter__() -> AsyncIterator[DataRowBatch]` (L122)
-  - `__has_ready_batch() -> bool` (L154) — True if there are >= BATCH_SIZES entries in ready_rows and the first BATCH_SIZE ones are all non-...
-  - `__add_ready_row(row: exprs.DataRow, row_idx: int | None) -> None` (L160)
-  - `__process_completions(done: set[futures.Future], ignore_errors: bool) -> None` (L170)
-  - `__process_input_row(row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]` (L206) — Process a batch of input rows, generating a list of work
-  - `__process_input_batch(input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None` (L286) — Process a batch of input rows, submitting temporary files for upload
-  - `__persist_media_file(work_item: WorkItem) -> tuple[str | None, Exception | None]` (L304) — Move data from the TempStore to another location
 
 ### row_update_node.py
 
@@ -968,9 +931,9 @@ Use this to quickly locate code without reading full files.
   - `tbl() -> catalog.TableVersionHandle` @property (L284)
   - `default_column_name() -> str | None` (L287)
   - `select() -> 'Query'` (L293)
-  - `show(*args, **kwargs) -> 'ResultSet'` (L305)
-  - `head(*args, **kwargs) -> 'ResultSet'` (L308)
-  - `tail(*args, **kwargs) -> 'ResultSet'` (L311)
+  - `show(*args: Any, **kwargs: Any) -> 'ResultSet'` (L305)
+  - `head(*args: Any, **kwargs: Any) -> 'ResultSet'` (L308)
+  - `tail(*args: Any, **kwargs: Any) -> 'ResultSet'` (L311)
   - `count() -> int` (L314)
   - `distinct() -> 'Query'` (L317) — Return distinct values in this column.
   - `prepare() -> None` (L345)
@@ -1035,7 +998,6 @@ Use this to quickly locate code without reading full files.
   - `list_equals(a: list[Expr], b: list[Expr]) -> bool` @classmethod (L198)
   - `copy() -> Self` (L203) — Creates a copy that can be evaluated separately: it doesn't share any eval context (slot_idx)
   - `copy_list(expr_list: list[Expr] | None) -> list[Expr] | None` @classmethod (L216)
-  - `__deepcopy__(memo: dict[int, Any] | None = None) -> Expr` (L221)
   - `substitute(spec: dict[Expr, Expr]) -> Expr` (L229) — Replace 'old' with 'new' recursively, and return a new version of the expression
   - `list_substitute(expr_list: list[Expr], spec: dict[Expr, Expr]) -> None` @classmethod (L248)
   - `resolve_computed_cols(resolve_cols: set[catalog.Column] | None = None) -> Expr` (L252) — Recursively replace ColRefs to unstored computed columns with their value exprs.
@@ -1073,16 +1035,9 @@ Use this to quickly locate code without reading full files.
   - `isin(value_set: Any) -> 'exprs.InPredicate'` (L572)
   - `astype(new_type: ts.ColumnType | type | _AnnotatedAlias) -> 'exprs.TypeCast'` (L580)
   - `apply(fn: Callable, *, col_type: ts.ColumnType | type | _AnnotatedAlias | None = None) -> 'exprs.FunctionCall'` @deprecated (L598)
-  - `__dir__() -> list[str]` (L607)
-  - `__call__(*args, **kwargs) -> Any` (L612)
+  - `__call__(*args: Any, **kwargs: Any) -> Any` (L612)
   - `__getitem__(index: object) -> Expr` (L615)
   - `__getattr__(name: str) -> 'exprs.Expr'` (L630) — ex.: <img col>.rotate(60)
-  - `__bool__() -> bool` (L649)
-  - `__lt__(other: object) -> 'exprs.Comparison'` (L654)
-  - `__le__(other: object) -> 'exprs.Comparison'` (L657)
-  - `__ne__(other: object) -> 'exprs.Expr'` (L667)
-  - `__gt__(other: object) -> 'exprs.Comparison'` (L675)
-  - `__ge__(other: object) -> 'exprs.Comparison'` (L678)
   - `__neg__() -> 'exprs.ArithmeticExpr'` (L695)
   - `__add__(other: object) -> exprs.ArithmeticExpr | exprs.StringOp` (L698)
   - `__sub__(other: object) -> 'exprs.ArithmeticExpr'` (L703)
@@ -1120,17 +1075,15 @@ Use this to quickly locate code without reading full files.
 
 - **class ExprSet(Generic[T])** (L10) — An ordered set that also supports indexed lookup (by slot_idx and Expr.id). Exprs are uniquely id...
   - `add(expr: T) -> int` (L28) — Returns offset corresponding to iteration order
-  - `update(*others) -> None` (L40)
+  - `update(*others: Iterable[T]) -> None` (L40)
   - `__contains__(item: T) -> bool` (L45)
   - `__len__() -> int` (L48)
   - `__iter__() -> Iterator[T]` (L51)
   - `__getitem__(index: object) -> T | None` (L54) — Indexed lookup by slot_idx or Expr.id.
   - `issuperset(other: ExprSet[T]) -> bool` (L63)
-  - `__ge__(other: ExprSet[T]) -> bool` (L66)
-  - `__le__(other: ExprSet[T]) -> bool` (L69)
-  - `union(*others) -> ExprSet[T]` (L72)
+  - `union(*others: Iterable[T]) -> ExprSet[T]` (L72)
   - `__or__(other: ExprSet[T]) -> ExprSet[T]` (L77)
-  - `difference(*others) -> ExprSet[T]` (L80)
+  - `difference(*others: Iterable[T]) -> ExprSet[T]` (L80)
   - `__sub__(other: ExprSet[T]) -> ExprSet[T]` (L84)
   - `__add__(other: ExprSet) -> ExprSet` (L87)
 
@@ -1220,7 +1173,7 @@ Use this to quickly locate code without reading full files.
   - `anchor() -> Expr | None` @property (L84)
   - `set_anchor(anchor: Expr) -> None` (L87)
   - `is_relative_path() -> bool` (L91)
-  - `__call__(*args, **kwargs) -> 'JsonPath'` (L104) — Construct a relative path that references an ancestor of the immediately enclosing JsonMapper.
+  - `__call__(*args: object, **kwargs: object) -> 'JsonPath'` (L104) — Construct a relative path that references an ancestor of the immediately enclosing JsonMapper.
   - `__getattr__(name: str) -> 'JsonPath'` (L114)
   - `__getitem__(index: object) -> 'JsonPath'` (L118)
   - `default_column_name() -> str | None` (L123)
@@ -1238,7 +1191,7 @@ Use this to quickly locate code without reading full files.
 ### method_ref.py
 
 - **class MethodRef(Expr)** (L14) — A method reference. This represents a `Function` instance with its
-  - `__call__(*args, **kwargs) -> FunctionCall` (L46)
+  - `__call__(*args: Any, **kwargs: Any) -> FunctionCall` (L46)
   - `sql_expr(_: SqlElementCache) -> sql.ColumnElement | None` (L58)
   - `eval(data_row: DataRow, row_builder: RowBuilder) -> None` (L61)
 
@@ -1262,7 +1215,6 @@ Use this to quickly locate code without reading full files.
   - `num_materialized() -> int` @property (L296)
   - `get_output_exprs() -> list[Expr]` (L299) — Returns exprs that were requested in the c'tor and require evaluation
   - `set_slot_idxs(expr_list: Sequence[Expr], remove_duplicates: bool = True) -> None` (L370) — Recursively sets slot_idx in expr_list and its components
-  - `__set_slot_idxs_aux(e: Expr) -> None` (L384) — Recursively sets slot_idx in e and its components
   - `get_dependencies(targets: Iterable[Expr], exclude: Iterable[Expr] | None = None, limit_scope: bool = True) -> list[Expr]` (L392) — Return list of dependencies needed to evaluate the given target exprs (expressed as slot idxs).
   - `create_eval_ctx(targets: Iterable[Expr], exclude: Iterable[Expr] | None = None, limit_scope: bool = True) -> EvalCtx` (L428) — Return EvalCtx for targets
   - `set_exc(data_row: DataRow, slot_idx: int, exc: Exception) -> None` (L448) — Record an exception in data_row and propagate it to dependents
@@ -1322,17 +1274,16 @@ Use this to quickly locate code without reading full files.
 ### aggregate_function.py
 
 - **class Aggregator(abc.ABC)** (L18)
-  - `update(*args, **kwargs) -> None` @abc.abstractmethod (L20)
+  - `update(*args: Any, **kwargs: Any) -> None` @abc.abstractmethod (L20)
   - `value() -> Any` @abc.abstractmethod (L23)
 - **class AggregateFunction(Function)** (L26) — Function interface for an aggregation operation.
-  - `__cls_to_signature(type_substitutions: dict | None = None) -> tuple[Signature, list[str]]` (L77) — Inspects the Aggregator class to infer the corresponding function signature. Returns the
   - `agg_class() -> type[Aggregator]` @property (L138)
   - `is_async() -> bool` @property (L143)
   - `exec(args: Sequence[Any], kwargs: dict[str, Any]) -> Any` (L146)
   - `overload() -> AggregateFunction` (L149)
   - `comment() -> str | None` (L162)
   - `help_str() -> str` (L165)
-  - `__call__(*args, **kwargs) -> 'exprs.FunctionCall'` (L172)
+  - `__call__(*args: Any, **kwargs: Any) -> 'exprs.FunctionCall'` (L172)
   - `validate_call(bound_args: dict[str, 'exprs.Expr']) -> None` (L224)
 - `uda(decorated_fn: Callable) -> AggregateFunction` @overload (L241)
 - `uda(*, requires_order_by: bool = False, allows_std_agg: bool = True, allows_window: bool = False, type_substitutions: Seq...) -> Callable[[type[Aggregator]], AggregateFunction]` @overload (L246)
@@ -1346,12 +1297,12 @@ Use this to quickly locate code without reading full files.
   - `is_async() -> bool` @property (L67)
   - `comment() -> str | None` (L70)
   - `py_fn() -> Callable` @property (L74)
-  - `aexec(*args, **kwargs) -> Any` (L78)
+  - `aexec(*args: Any, **kwargs: Any) -> Any` (L78)
   - `exec(args: Sequence[Any], kwargs: dict[str, Any]) -> Any` (L93)
-  - `aexec_batch(*args, **kwargs) -> list` (L113) — Execute the function with the given arguments and return the result.
+  - `aexec_batch(*args: Any, **kwargs: Any) -> list` (L113) — Execute the function with the given arguments and return the result.
   - `exec_batch(args: list[Any], kwargs: dict[str, Any]) -> list` (L126) — Execute the function with the given arguments and return the result.
   - `create_batch_kwargs(kwargs: dict[str, Any]) -> tuple[dict[str, Any], dict[str, list[Any]]]` (L139) — Converts kwargs containing lists into constant and batched kwargs in the format expected by a bat...
-  - `get_batch_size(*args, **kwargs) -> int | None` (L146)
+  - `get_batch_size(*args: Any, **kwargs: Any) -> int | None` (L146)
   - `display_name() -> str` @property (L150)
   - `name() -> str` @property (L154)
   - `overload(fn: Callable) -> CallableFunction` (L157)
@@ -1384,18 +1335,16 @@ Use this to quickly locate code without reading full files.
   - `is_async() -> bool` @property @abstractmethod (L109)
   - `comment() -> str | None` (L111)
   - `help_str() -> str` (L114)
-  - `__call__(*args, **kwargs) -> 'exprs.FunctionCall'` (L159)
+  - `__call__(*args: Any, **kwargs: Any) -> 'exprs.FunctionCall'` (L159)
   - `validate_call(bound_args: dict[str, 'exprs.Expr' | None]) -> None` (L212) — Override this to do custom validation of the arguments
   - `call_resource_pool(bound_args: dict[str, 'exprs.Expr']) -> str` (L217) — Return the resource pool to use for calling this function with the given arguments
   - `call_return_type(bound_args: dict[str, 'exprs.Expr']) -> ts.ColumnType` (L226) — Return the type of the value returned by calling this function with the given arguments
   - `conditional_return_type(fn: Callable[..., ts.ColumnType]) -> Callable[..., ts.ColumnType]` (L315) — Instance decorator for specifying a conditional return type for this function
-  - `using(**kwargs) -> 'ExprTemplateFunction'` (L328)
+  - `using(**kwargs: Any) -> 'ExprTemplateFunction'` (L328)
   - `exec(args: Sequence[Any], kwargs: dict[str, Any]) -> Any` (L406) — Execute the function with the given arguments and return the result.
-  - `aexec(*args, **kwargs) -> Any` (L410) — Execute the function with the given arguments and return the result.
+  - `aexec(*args: Any, **kwargs: Any) -> Any` (L410) — Execute the function with the given arguments and return the result.
   - `to_sql(fn: Callable[..., sql.ColumnElement | None]) -> Callable[..., sql.ColumnElement | None]` (L414) — Instance decorator for specifying the SQL translation of this function
-  - `__default_to_sql(*args, **kwargs) -> sql.ColumnElement | None` (L419) — The default implementation of SQL translation, which provides no translation
   - `resource_pool(fn: Callable[..., str]) -> Callable[..., str]` (L423) — Instance decorator for specifying the resource pool of this function
-  - `__default_resource_pool() -> str | None` (L429)
   - `source() -> None` (L440) — Print source code
   - `as_dict() -> dict[str, Any]` (L444) — Return a serialized reference to the instance that can be passed to json.dumps() and converted back
   - `from_dict(d: dict) -> Function` @classmethod (L461) — Turn dict that was produced by calling as_dict() into an instance of the correct Function subclass.
@@ -1433,19 +1382,19 @@ Use this to quickly locate code without reading full files.
   - `__iter__() -> Self` (L47)
   - `__next__() -> T` @abc.abstractmethod (L51)
   - `close() -> None` (L53)
-  - `seek(pos: int, **kwargs) -> None` (L56)
+  - `seek(pos: int, **kwargs: Any) -> None` (L56)
   - `validate(bound_args: dict[str, Any]) -> None` @classmethod (L60)
   - `conditional_output_schema(bound_args: dict[str, Any]) -> dict[str, type] | None` @classmethod (L64)
 - **class GeneratingFunction** (L68) — A function that evaluates to iterators over its inputs.
   - `call_output_schema(bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]` (L201)
   - `bind_to_signature(args: list['exprs.Expr'], kwargs: dict[str, 'exprs.Expr']) -> dict[str, 'exprs.Expr']` (L218)
-  - `__call__(*args, **kwargs) -> 'GeneratingFunctionCall'` (L226)
+  - `__call__(*args: Any, **kwargs: Any) -> 'GeneratingFunctionCall'` (L226)
   - `validate(fn: Callable[[dict[str, Any]], bool]) -> Callable[[dict[str, Any]], bool]` (L279)
   - `conditional_output_schema(fn: Callable[[dict[str, Any]], dict[str, type]]) -> Callable[[dict[str, Any]], dict[str, type]]` (L286)
   - `as_dict() -> dict[str, Any]` (L294)
   - `from_dict(d: dict[str, Any]) -> 'GeneratingFunction'` @classmethod (L298)
 - **class InvalidGeneratingFunction(GeneratingFunction)** (L320)
-  - `__call__(*args, **kwargs) -> 'GeneratingFunctionCall'` (L330)
+  - `__call__(*args: Any, **kwargs: Any) -> 'GeneratingFunctionCall'` (L330)
   - `eval(bound_args: dict[str, Any]) -> Iterator[dict]` (L333)
   - `call_output_schema(bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]` (L336)
   - `as_dict() -> dict[str, Any]` (L342)
@@ -1469,19 +1418,18 @@ Use this to quickly locate code without reading full files.
 - **class QueryTemplateFunction(Function)** (L16) — A parameterized query from which an executable Query is created with a function call.
   - `create(template_callable: Callable, param_types: list[ts.ColumnType] | None, path: str, name: str) -> QueryTemplateFunction` @classmethod (L24)
   - `is_async() -> bool` @property (L59)
-  - `aexec(*args, **kwargs) -> Any` (L62)
+  - `aexec(*args: Any, **kwargs: Any) -> Any` (L62)
   - `display_name() -> str` @property (L78)
   - `name() -> str` @property (L82)
   - `comment() -> str | None` (L85)
 - `query(py_fn: Callable) -> QueryTemplateFunction` @overload (L99)
 - `query(*, param_types: list[ts.ColumnType] | None = None) -> Callable[[Callable], QueryTemplateFunction]` @overload (L103)
-- `query(*args, **kwargs) -> Any` (L106)
+- `query(*args: Any, **kwargs: Any) -> Any` (L106)
 - `retrieval_udf(table: catalog.Table, name: str | None = None, description: str | None = None, parameters: Iterable[str | exprs.Colum...) -> func.QueryTemplateFunction` (L128) — Constructs a retrieval UDF for the given table. The retrieval UDF is a UDF whose parameters are
 
 ### signature.py
 
 - **class Parameter** (L19) @dataclasses.dataclass
-  - `__post_init__() -> None` (L28)
   - `has_default() -> bool` (L41)
   - `as_dict() -> dict[str, Any]` (L44)
   - `from_dict(d: dict[str, Any]) -> Parameter` @classmethod (L54)
@@ -1501,8 +1449,6 @@ Use this to quickly locate code without reading full files.
   - `parameters() -> dict[str, Parameter]` @property (L37)
   - `ser_model() -> dict[str, Any]` @pydantic.model_serializer (L41)
   - `invoke(tool_calls: 'exprs.Expr') -> 'exprs.Expr'` (L55)
-  - `__invoke_kwargs(kwargs: 'exprs.Expr') -> 'exprs.FunctionCall'` (L61)
-  - `__extract_tool_arg(param: Parameter, kwargs: 'exprs.Expr') -> 'exprs.FunctionCall'` (L65)
 - **class ToolChoice(pydantic.BaseModel)** (L81)
 - **class Tools(pydantic.BaseModel)** (L88)
   - `ser_model() -> list[dict[str, Any]]` @pydantic.model_serializer (L92)
@@ -1517,12 +1463,12 @@ Use this to quickly locate code without reading full files.
 - `make_function(decorated_fn: Callable, return_type: ts.ColumnType | None = None, param_types: list[ts.ColumnType] | None = None, bat...) -> CallableFunction` (L102) — Constructs a `CallableFunction` from the specified parameters.
 - `expr_udf(py_fn: Callable) -> ExprTemplateFunction` @overload (L221)
 - `expr_udf(*, param_types: list[ts.ColumnType] | None = None) -> Callable[[Callable], ExprTemplateFunction]` @overload (L225)
-- `expr_udf(*args, **kwargs) -> Any` (L228)
+- `expr_udf(*args: Any, **kwargs: Any) -> Any` (L228)
 - `from_table(tbl: catalog.Table, return_value: 'exprs.Expr' | None, description: str | None) -> ExprTemplateFunction` (L261) — Constructs an `ExprTemplateFunction` from a `Table`.
 
 ## pixeltable/functions/
 
-### __init__.py — General Pixeltable UDFs.
+### pixeltable/functions/__init__.py — General Pixeltable UDFs.
 
 
 ### anthropic.py — Pixeltable UDFs
@@ -1667,7 +1613,7 @@ Use this to quickly locate code without reading full files.
 - **class Tile(TypedDict)** (L452)
 - **class tile_iterator(pxt.PxtIterator[Tile])** (L459) @pxt.iterator — Iterator over tiles of an image. Each image will be divided into tiles of size `tile_size`, and t...
   - `__next__() -> Tile` (L518)
-  - `seek(pos: int, **kwargs) -> None` (L538)
+  - `seek(pos: int, **kwargs: Any) -> None` (L538)
   - `validate(bound_args: dict[str, Any]) -> None` @classmethod (L543)
 - `b64_encode(img: PIL.Image.Image, image_format: str = 'png') -> str` @pxt.udf (L25) — Convert image to a base64-encoded string.
 - `alpha_composite(im1: PIL.Image.Image, im2: PIL.Image.Image) -> PIL.Image.Image` @pxt.udf (L37) — Alpha composite `im2` over `im1`.
@@ -1793,10 +1739,10 @@ Use this to quickly locate code without reading full files.
 - `contains_re(pattern: str, flags: int = 0) -> bool` @pxt.udf (L98) — Test if string contains a regular expression pattern.
 - `count(pattern: str, flags: int = 0) -> int` @pxt.udf (L110) — Count occurrences of pattern or regex.
 - `endswith(substr: str) -> bool` @pxt.udf (L122) — Return `True` if the string ends with the specified suffix, otherwise return `False`.
-- `fill(width: int, **kwargs) -> str` @pxt.udf (L142) — Wraps the single paragraph in string, and returns a single string containing the wrapped paragraph.
+- `fill(width: int, **kwargs: Any) -> str` @pxt.udf (L142) — Wraps the single paragraph in string, and returns a single string containing the wrapped paragraph.
 - `find(substr: str, start: int = 0, end: int | None = None) -> int` @pxt.udf (L156) — Return the lowest index in string where `substr` is found within the slice `s[start:end]`.
 - `findall(pattern: str, flags: int = 0) -> list` @pxt.udf (L185) — Find all occurrences of a regular expression pattern in string.
-- `format(*args, **kwargs) -> str` @pxt.udf (L199) — Perform string formatting.
+- `format(*args: Any, **kwargs: Any) -> str` @pxt.udf (L199) — Perform string formatting.
 - `fullmatch(pattern: str, case: bool = True, flags: int = 0) -> bool` @pxt.udf (L209) — Determine if string fully matches a regular expression.
 - `index(substr: str, start: int = 0, end: int | None = None) -> int` @pxt.udf (L227) — Return the lowest index in string where `substr` is found within the slice `[start:end]`.
 - `isalnum() -> bool` @pxt.udf (L243) — Return `True` if all characters in the string are alphanumeric and there is at least one characte...
@@ -1837,7 +1783,7 @@ Use this to quickly locate code without reading full files.
 - `swapcase() -> str` @pxt.udf (L760) — Return a copy of string with uppercase characters converted to lowercase and vice versa.
 - `title() -> str` @pxt.udf (L770) — Return a titlecased version of string, i.e. words start with uppercase characters, all remaining ...
 - `upper() -> str` @pxt.udf (L781) — Return a copy of string converted to uppercase.
-- `wrap(width: int, **kwargs) -> list[str]` @pxt.udf (L796) — Wraps the single paragraph in string so every line is at most `width` characters long.
+- `wrap(width: int, **kwargs: Any) -> list[str]` @pxt.udf (L796) — Wraps the single paragraph in string so every line is at most `width` characters long.
 - `zfill(width: int) -> str` @pxt.udf (L811) — Pad a numeric string with ASCII `0` on the left to a total length of `width`.
 - `string_splitter(text: str, separators: str, *, spacy_model: str = 'en_core_web_sm') -> Iterator[StringChunk]` @pxt.iterator (L828) — Iterator over chunks of a string. The string is chunked according to the specified `separators`.
 
@@ -1889,46 +1835,56 @@ Use this to quickly locate code without reading full files.
 - **class make_video(pxt.Aggregator)** (L34) @pxt.uda — Aggregate function that creates a video from a sequence of images, using the default video encode...
   - `update(frame: PIL.Image.Image) -> None` (L72)
   - `value() -> pxt.Video` (L87)
-- **class FrameAttrs(TypedDict)** (L1547)
-- **class Frame(TypedDict)** (L1558)
-- **class frame_iterator(pxt.PxtIterator[Frame])** (L1564) @pxt.iterator — Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be sp...
-  - `next_frame() -> av.VideoFrame | None` (L1706)
-  - `__next__() -> Frame` (L1712)
-  - `close() -> None` (L1775)
-  - `seek(pos: int, **kwargs) -> None` (L1778)
-  - `validate(bound_args: dict[str, Any]) -> None` @classmethod (L1809)
-- **class LegacyFrame(TypedDict)** (L1819)
-- **class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame])** (L1827) @pxt.iterator
-  - `__next__() -> LegacyFrame` (L1840)
-  - `close() -> None` (L1852)
-  - `seek(pos: int, **kwargs) -> None` (L1855)
-  - `validate(bound_args: dict[str, Any]) -> None` @classmethod (L1859)
-- **class VideoSegment(TypedDict)** (L1863)
+- **class concat_videos_agg(pxt.Aggregator)** (L617) @pxt.uda — Aggregate function that merges videos into a single video.
+  - `update(video: pxt.Video) -> None` (L641)
+  - `value() -> pxt.Video | None` (L645)
+- **class FrameAttrs(TypedDict)** (L1587)
+- **class Frame(TypedDict)** (L1598)
+- **class frame_iterator(pxt.PxtIterator[Frame])** (L1604) @pxt.iterator — Iterator over frames of a video. At most one of `fps`, `num_frames` or `keyframes_only` may be sp...
+  - `next_frame() -> av.VideoFrame | None` (L1746)
+  - `__next__() -> Frame` (L1752)
+  - `close() -> None` (L1815)
+  - `seek(pos: int, **kwargs: Any) -> None` (L1818)
+  - `validate(bound_args: dict[str, Any]) -> None` @classmethod (L1849)
+- **class LegacyFrame(TypedDict)** (L1859)
+- **class legacy_frame_iterator(pxt.PxtIterator[LegacyFrame])** (L1867) @pxt.iterator
+  - `__next__() -> LegacyFrame` (L1880)
+  - `close() -> None` (L1892)
+  - `seek(pos: int, **kwargs: Any) -> None` (L1895)
+  - `validate(bound_args: dict[str, Any]) -> None` @classmethod (L1899)
+- **class VideoSegment(TypedDict)** (L1903)
 - `extract_audio(video_path: pxt.Video, stream_idx: int = 0, format: str = 'wav', codec: str | None = None) -> pxt.Audio` @pxt.udf (L95) — Extract an audio stream from a video.
 - `get_metadata(video: pxt.Video) -> dict` @pxt.udf (L138) — Gets various metadata associated with a video file and returns it as a dictionary.
 - `get_duration(video: pxt.Video) -> float | None` @pxt.udf (L192) — Get video duration in seconds.
 - `extract_frame(video: pxt.Video, *, timestamp: float) -> PIL.Image.Image | None` @pxt.udf (L206) — Extract a single frame from a video at a specific timestamp.
 - `clip(video: pxt.Video, *, start_time: float, end_time: float | None = None, duration: float | None = None, mode: Literal['...) -> pxt.Video | None` @pxt.udf (L275) — Extract a clip from a video, specified by `start_time` and either `end_time` or `duration` (in se...
 - `segment_video(video: pxt.Video, *, duration: float | None = None, segment_times: list[float] | None = None, mode: Literal['fast', '...) -> list[str]` @pxt.udf (L357) — Split a video into segments.
-- `concat_videos(videos: list[pxt.Video]) -> pxt.Video` @pxt.udf (L504) — Merge multiple videos into a single video.
-- `with_audio(video: pxt.Video, audio: pxt.Audio, *, video_start_time: float = 0.0, video_duration: float | None = None, audio_star...) -> pxt.Video` @pxt.udf (L610) — Creates a new video that combines the video stream from `video` and the audio stream from `audio`.
-- `overlay_text(video: pxt.Video, text: str, *, font: str | None = None, font_size: int = 24, color: str = 'white', opacity: float = ...) -> pxt.Video` @pxt.udf (L727) — Overlay text on a video with customizable positioning and styling.
-- `crop(video: pxt.Video, bbox: list[int], *, bbox_format: Literal['xyxy', 'xywh', 'cxcywh'] = 'xywh', video_encoder: str | N...) -> pxt.Video` @pxt.udf (L933) — Crop a rectangular region from a video using ffmpeg's crop filter.
-- `scene_detect_adaptive(video: pxt.Video, *, fps: float | None = None, adaptive_threshold: float = 3.0, min_scene_len: int = 15, window_width...) -> list[dict]` @pxt.udf (L1034) — Detect scene cuts in a video using PySceneDetect's
-- `scene_detect_content(video: pxt.Video, *, fps: float | None = None, threshold: float = 27.0, min_scene_len: int = 15, delta_hue: float = 1...) -> list[dict]` @pxt.udf (L1138) — Detect scene cuts in a video using PySceneDetect's
-- `scene_detect_threshold(video: pxt.Video, *, fps: float | None = None, threshold: float = 12.0, min_scene_len: int = 15, fade_bias: float = 0...) -> list[dict]` @pxt.udf (L1239) — Detect fade-in and fade-out transitions in a video using PySceneDetect's
-- `scene_detect_histogram(video: pxt.Video, *, fps: float | None = None, threshold: float = 0.05, bins: int = 256, min_scene_len: int = 15) -> list[dict]` @pxt.udf (L1330) — Detect scene cuts in a video using PySceneDetect's
-- `scene_detect_hash(video: pxt.Video, *, fps: float | None = None, threshold: float = 0.395, size: int = 16, lowpass: int = 2, min_scene_...) -> list[dict]` @pxt.udf (L1402) — Detect scene cuts in a video using PySceneDetect's
-- `video_splitter(video: pxt.Video, *, duration: float | None = None, overlap: float | None = None, min_segment_duration: float | None ...) -> Iterator[VideoSegment]` @pxt.iterator (L1872) — Iterator over segments of a video file, which is split into segments. The segments are specified ...
+- `concat_videos(videos: list[pxt.Video]) -> pxt.Video | None` @pxt.udf (L597) — Merge multiple videos into a single video.
+- `with_audio(video: pxt.Video, audio: pxt.Audio, *, video_start_time: float = 0.0, video_duration: float | None = None, audio_star...) -> pxt.Video` @pxt.udf (L650) — Creates a new video that combines the video stream from `video` and the audio stream from `audio`.
+- `overlay_text(video: pxt.Video, text: str, *, font: str | None = None, font_size: int = 24, color: str = 'white', opacity: float = ...) -> pxt.Video` @pxt.udf (L767) — Overlay text on a video with customizable positioning and styling.
+- `crop(video: pxt.Video, bbox: list[int], *, bbox_format: Literal['xyxy', 'xywh', 'cxcywh'] = 'xywh', video_encoder: str | N...) -> pxt.Video` @pxt.udf (L973) — Crop a rectangular region from a video using ffmpeg's crop filter.
+- `scene_detect_adaptive(video: pxt.Video, *, fps: float | None = None, adaptive_threshold: float = 3.0, min_scene_len: int = 15, window_width...) -> list[dict]` @pxt.udf (L1074) — Detect scene cuts in a video using PySceneDetect's
+- `scene_detect_content(video: pxt.Video, *, fps: float | None = None, threshold: float = 27.0, min_scene_len: int = 15, delta_hue: float = 1...) -> list[dict]` @pxt.udf (L1178) — Detect scene cuts in a video using PySceneDetect's
+- `scene_detect_threshold(video: pxt.Video, *, fps: float | None = None, threshold: float = 12.0, min_scene_len: int = 15, fade_bias: float = 0...) -> list[dict]` @pxt.udf (L1279) — Detect fade-in and fade-out transitions in a video using PySceneDetect's
+- `scene_detect_histogram(video: pxt.Video, *, fps: float | None = None, threshold: float = 0.05, bins: int = 256, min_scene_len: int = 15) -> list[dict]` @pxt.udf (L1370) — Detect scene cuts in a video using PySceneDetect's
+- `scene_detect_hash(video: pxt.Video, *, fps: float | None = None, threshold: float = 0.395, size: int = 16, lowpass: int = 2, min_scene_...) -> list[dict]` @pxt.udf (L1442) — Detect scene cuts in a video using PySceneDetect's
+- `video_splitter(video: pxt.Video, *, duration: float | None = None, overlap: float | None = None, min_segment_duration: float | None ...) -> Iterator[VideoSegment]` @pxt.iterator (L1912) — Iterator over segments of a video file, which is split into segments. The segments are specified ...
 
 ### vision.py — Pixeltable UDFs for Computer Vision.
 
-- **class mean_ap(pxt.Aggregator)** (L234) @pxt.uda — Calculates the mean average precision (mAP) over
-  - `update(eval_dicts: list[dict]) -> None` (L252)
-  - `value() -> dict` (L257)
-- `eval_detections(pred_bboxes: list[list[int]], pred_labels: list[int], pred_scores: list[float], gt_bboxes: list[list[int]], gt_labels...) -> list[dict]` @pxt.udf (L167) — Evaluates the performance of a set of predicted bounding boxes against a set of ground truth boun...
-- `draw_bounding_boxes(img: PIL.Image.Image, boxes: list[list[int]], *, labels: list[Any] | None = None, color: str | None = None, box_color...) -> PIL.Image.Image` @pxt.udf (L301) — Draws bounding boxes on the given image.
-- `overlay_segmentation(img: PIL.Image.Image, segmentation: pxt.Array[(None, None), np.int32], *, alpha: float = 0.5, background: int = 0, se...) -> PIL.Image.Image` @pxt.udf (L463) — Overlays a colored segmentation map on an image.
+- **class mean_ap(pxt.Aggregator)** (L236) @pxt.uda — Calculates the mean average precision (mAP) over
+  - `update(eval_dicts: list[dict]) -> None` (L254)
+  - `value() -> dict` (L259)
+- `eval_detections(pred_bboxes: list[list[int]], pred_labels: list[int], pred_scores: list[float], gt_bboxes: list[list[int]], gt_labels...) -> list[dict]` @pxt.udf (L169) — Evaluates the performance of a set of predicted bounding boxes against a set of ground truth boun...
+- `bboxes_draw(img: PIL.Image.Image, boxes: list[list[int]], *, labels: list[Any] | None = None, color: str | None = None, box_color...) -> PIL.Image.Image` @pxt.udf (L303) — Draws bounding boxes on the given image.
+- `bboxes_convert(bboxes: list, *, src_format: Literal['xyxy', 'xywh', 'cxcywh'], dst_format: Literal['xyxy', 'xywh', 'cxcywh']) -> list` @pxt.udf (L445) — Convert a list of bounding boxes from src_format to dst_format.
+- `bboxes_resize(bboxes: list, format: Literal['xyxy', 'xywh', 'cxcywh'], *, width: int | None = None, height: int | None = None, aspe...) -> list` @pxt.udf (L503) — Resize a list of bounding boxes (center-anchored):
+- `bboxes_scale(bboxes: list, format: Literal['xyxy', 'xywh', 'cxcywh'], *, factor: float | None = None, x_factor: float | None = Non...) -> list` @pxt.udf (L700) — Re-scale a list of bounding boxes (center-anchored).
+- `bboxes_pad(bboxes: list, format: Literal['xyxy', 'xywh', 'cxcywh'], *, top: int | None = None, bottom: int | None = None, left: ...) -> list` @pxt.udf (L726) — Pad a list of bounding boxes.
+- `bboxes_clip_to_canvas(bboxes: list, format: Literal['xyxy', 'xywh', 'cxcywh'], *, width: int | None = None, height: int | None = None, min_...) -> list` @pxt.udf (L758) — Clip a list of bounding boxes to a canvas of specified size.
+- `bboxes_crop_canvas(bboxes: list, format: Literal['xyxy', 'xywh', 'cxcywh'], *, canvas_region: list, canvas_region_format: Literal['xyxy'...) -> list` @pxt.udf (L787) — Adjust a list of bounding boxes to account for a canvas crop.
+- `bboxes_resize_canvas(bboxes: list, format: Literal['xyxy', 'xywh', 'cxcywh'], *, new_canvas_width: int | None = None, new_canvas_height: i...) -> list` @pxt.udf (L816) — Adjust a list of bounding boxes to account for a canvas resize. The resize operation can be expre...
+- `overlay_segmentation(img: PIL.Image.Image, segmentation: pxt.Array[(None, None), np.int32], *, alpha: float = 0.5, background: int = 0, se...) -> PIL.Image.Image` @pxt.udf (L889) — Overlays a colored segmentation map on an image.
 
 ### voyageai.py — Pixeltable UDFs
 
@@ -1990,7 +1946,7 @@ Use this to quickly locate code without reading full files.
 
 ## pixeltable/io/
 
-### __init__.py — Functions for importing and exporting Pixeltable data.
+### pixeltable/io/__init__.py — Functions for importing and exporting Pixeltable data.
 
 
 ### datarows.py
@@ -2031,14 +1987,12 @@ Use this to quickly locate code without reading full files.
 
 - **class PxtImageDatasetImporter(foud.LabeledImageDatasetImporter)** (L15) — Implementation of a FiftyOne `DatasetImporter` that reads image data from a Pixeltable table.
   - `__next__() -> tuple[str, fo.ImageMetadata | None, dict[str, fo.Label] | None]` (L93)
-  - `__as_fo_classifications(data: list) -> list[fo.Classification]` (L132)
-  - `__as_fo_detections(data: list) -> list[fo.Detections]` (L139)
   - `has_dataset_info() -> bool` @property (L151)
   - `has_image_metadata() -> bool` @property (L155)
   - `label_cls() -> dict[str, type]` @property (L159)
   - `setup() -> None` (L162)
   - `get_dataset_info() -> dict` (L165)
-  - `close(*args) -> None` (L168)
+  - `close(*args: Any) -> None` (L168)
 
 ### globals.py
 
@@ -2056,24 +2010,11 @@ Use this to quickly locate code without reading full files.
   - `project() -> ls_project.Project` @property (L73) — The `Project` object corresponding to this Label Studio project.
   - `project_params() -> dict[str, Any]` @property (L86) — The parameters of this Label Studio project.
   - `project_title() -> str` @property (L91) — The title of this Label Studio project.
-  - `__project_config() -> '_LabelStudioConfig'` @property (L96)
   - `get_export_columns() -> dict[str, ts.ColumnType]` (L99) — The data keys and preannotation fields specified in this Label Studio project.
   - `get_import_columns() -> dict[str, ts.ColumnType]` (L105) — Always contains a single entry:
   - `sync(t: Table, export_data: bool, import_data: bool) -> UpdateStatus` (L115)
-  - `__fetch_all_tasks() -> Iterator[dict[str, Any]]` (L131) — Retrieves all tasks and task metadata in this Label Studio project.
-  - `__update_tasks(t: Table, existing_tasks: dict[tuple, dict]) -> UpdateStatus` (L152) — Updates all tasks in this Label Studio project based on the Pixeltable data:
-  - `__update_tasks_by_post(t: Table, existing_tasks: dict[tuple, dict], media_col: ColumnHandle, t_rl_cols: list[ColumnHandle], rl_info: list['_...) -> UpdateStatus` (L189)
-  - `__update_tasks_by_files(t: Table, existing_tasks: dict[tuple, dict], t_data_cols: list[ColumnHandle], t_rl_cols: list[ColumnHandle], rl_info:...) -> UpdateStatus` (L248)
-  - `__validate_fileurl(col: Column, url: str) -> str | None` @classmethod (L353)
-  - `__localpath_to_lspath(localpath: str) -> str` @classmethod (L364)
-  - `__delete_stale_tasks(existing_tasks: dict[tuple, dict], row_ids_in_pxt: set[tuple], tasks_created: int) -> UpdateStatus` (L369)
-  - `__update_table_from_tasks(t: Table, tasks: dict[tuple, dict]) -> UpdateStatus` (L389)
   - `as_dict() -> dict[str, Any]` (L430)
   - `from_dict(md: dict[str, Any]) -> 'LabelStudioProject'` @classmethod (L440)
-  - `__parse_project_config(xml_config: str) -> '_LabelStudioConfig'` @classmethod (L454) — Parses a Label Studio XML config, extracting the names and Pixeltable types of
-  - `__parse_data_keys_config(root: ET.Element) -> dict[str, '_DataKey']` @classmethod (L469) — Parses the data keys from a Label Studio XML config.
-  - `__parse_rectangle_labels_config(root: ET.Element) -> dict[str, '_RectangleLabel']` @classmethod (L485) — Parses the RectangleLabels from a Label Studio XML config.
-  - `__coco_to_predictions(coco_annotations: dict[str, Any], from_name: str, rl_info: '_RectangleLabel', task_id: int | None = None) -> dict[str, Any]` @classmethod (L500)
   - `delete() -> None` (L533) — Deletes this Label Studio project. This will remove all data and annotations
   - `create(t: Table, label_config: str, name: str | None, title: str | None, media_import_method: Literal['post', 'file', 'url']...) -> 'LabelStudioProject'` @classmethod (L549) — Creates a new Label Studio project, using the Label Studio client configured in Pixeltable.
 
@@ -2099,7 +2040,6 @@ Use this to quickly locate code without reading full files.
   - `is_valid(x: Any) -> bool` @classmethod (L43)
 - **class TableDataConduit** (L50) @dataclass
   - `check_source_format() -> None` (L70)
-  - `__post_init__() -> None` (L73) — If no extra_fields were provided, initialize to empty dict
   - `is_rowdata_structure(d: TableDataSource) -> bool` @classmethod (L79)
   - `is_direct_query() -> bool` (L84)
   - `normalize_pxt_schema_types() -> None` (L87)
@@ -2156,50 +2096,50 @@ Use this to quickly locate code without reading full files.
 
 ## pixeltable/iterators/
 
-### __init__.py — Iterators for splitting media and documents into components.
+### pixeltable/iterators/__init__.py — Iterators for splitting media and documents into components.
 
 
 ### audio.py
 
 - **class AudioSplitter(ComponentIterator)** (L10)
-  - `create(**kwargs) -> GeneratingFunctionCall` @classmethod @deprecated (L17)
+  - `create(**kwargs: Any) -> GeneratingFunctionCall` @classmethod @deprecated (L17)
 
 ### base.py
 
 - **class ComponentIterator(ABC)** (L14) — Base class for Pixeltable iterators.
   - `input_schema() -> dict[str, ColumnType]` @classmethod @abstractmethod (L19) — Provide the Pixeltable types of the init() parameters
-  - `output_schema(*args, **kwargs) -> tuple[dict[str, ColumnType], list[str]]` @classmethod @abstractmethod (L29) — Specify the dictionary returned by next() and a list of unstored column names
+  - `output_schema(*args: Any, **kwargs: Any) -> tuple[dict[str, ColumnType], list[str]]` @classmethod @abstractmethod (L29) — Specify the dictionary returned by next() and a list of unstored column names
   - `__iter__() -> Iterator[dict[str, Any]]` (L38)
   - `__next__() -> dict[str, Any]` @abstractmethod (L42) — Return the next element of the iterator as a dictionary or raise StopIteration
   - `close() -> None` @abstractmethod (L47) — Close the iterator and release all resources
-  - `set_pos(pos: int, **kwargs) -> None` (L51) — Set the iterator position to pos
-  - `create(**kwargs) -> GeneratingFunctionCall` @classmethod @deprecated (L62)
+  - `set_pos(pos: int, **kwargs: Any) -> None` (L51) — Set the iterator position to pos
+  - `create(**kwargs: Any) -> GeneratingFunctionCall` @classmethod @deprecated (L62)
 
 ### document.py
 
 - **class DocumentSplitter(ComponentIterator)** (L10)
-  - `create(**kwargs) -> GeneratingFunctionCall` @classmethod @deprecated (L17)
+  - `create(**kwargs: Any) -> GeneratingFunctionCall` @classmethod @deprecated (L17)
 
 ### image.py
 
 - **class TileIterator(ComponentIterator)** (L10)
-  - `create(**kwargs) -> GeneratingFunctionCall` @classmethod @deprecated (L17)
+  - `create(**kwargs: Any) -> GeneratingFunctionCall` @classmethod @deprecated (L17)
 
 ### string.py
 
 - **class StringSplitter(ComponentIterator)** (L10)
-  - `create(**kwargs) -> GeneratingFunctionCall` @classmethod @deprecated (L17)
+  - `create(**kwargs: Any) -> GeneratingFunctionCall` @classmethod @deprecated (L17)
 
 ### video.py
 
 - **class FrameIterator(ComponentIterator)** (L11)
-  - `create(**kwargs) -> GeneratingFunctionCall` @classmethod @deprecated (L18)
+  - `create(**kwargs: Any) -> GeneratingFunctionCall` @classmethod @deprecated (L18)
 - **class VideoSplitter(ComponentIterator)** (L24)
-  - `create(**kwargs) -> GeneratingFunctionCall` @classmethod @deprecated (L31)
+  - `create(**kwargs: Any) -> GeneratingFunctionCall` @classmethod @deprecated (L31)
 
 ## pixeltable/metadata/
 
-### __init__.py
+### pixeltable/metadata/__init__.py
 
 - `create_system_info(engine: sql.engine.Engine) -> None` (L24) — Create the system metadata record
 - `register_converter(version: int) -> Callable[[Callable[[sql.engine.Engine], None]], None]` (L42)
@@ -2283,27 +2223,8 @@ Use this to quickly locate code without reading full files.
 
 - **class TablePackager** (L37) — Packages a pixeltable Table into a tarball containing Parquet tables and media files. The structu...
   - `package() -> Path` (L79) — Export the table to a tarball containing Parquet tables and media files.
-  - `__export_table(tv: catalog.TableVersion) -> None` (L108) — Exports the data from `t` into a Parquet table.
-  - `__to_parquet_schema(store_tbl: sql.Table) -> pa.Schema` @classmethod (L146)
-  - `__to_parquet_type(col_type: sql.types.TypeEngine[Any]) -> pa.DataType` @classmethod (L151)
-  - `__to_pa_tables(row_iter: Iterator[dict[str, Any]], sql_types: dict[str, sql.types.TypeEngine[Any]], media_cols: set[str], cellmd_col...) -> Iterator[pa.Table]` (L176) — Group rows into a sequence of pyarrow tables, batched into smaller chunks to minimize memory util...
-  - `__to_pa_value(val: Any, sql_type: sql.types.TypeEngine[Any], is_media_col: bool, is_cellmd_col: bool) -> Any` (L199)
-  - `__process_media_url(url: str) -> str` (L225) — Process a media URL for export. If it's a local file URL (file://), then replace it with a pxtmed...
-  - `__process_cellmd(cellmd: dict[str, Any]) -> dict[str, Any]` (L250) — Process a cellmd dictionary for export. This involves replacing any local file references
-  - `__build_tarball() -> Path` (L265)
-  - `__extract_preview_data() -> tuple[dict[str, str], list[list[Any]]]` (L277) — Extract a preview of the table data for display in the UI.
-  - `__encode_preview_data(val: Any, col_type: ts.ColumnType) -> Any` (L302)
-  - `__encode_image(img: PIL.Image.Image) -> str` (L354)
-  - `__encode_audio(audio_path: str) -> str | None` (L367)
-  - `__encode_video(video_path: str) -> str | None` (L379)
-  - `__encode_document(doc_path: str) -> str | None` (L383)
 - **class TableRestorer** (L388) — Creates a replica table from a tarball containing Parquet tables and media files. See the `TableP...
   - `restore(bundle_path: Path, pxt_uri: str | None = None, explicit_version: int | None = None) -> pxt.Table` (L412)
-  - `__import_table(bundle_path: Path, tv: catalog.TableVersion, tbl_md: TableVersionMd) -> None` (L465) — Import the Parquet table into the Pixeltable catalog.
-  - `__from_pa_pydict(tv: catalog.TableVersion, pydict: dict[str, Any]) -> list[dict[str, Any]]` (L726)
-  - `__from_pa_value(val: Any, sql_type: sql.types.TypeEngine[Any], col: catalog.Column | None, is_media_col: bool, is_cellmd_col: bool) -> Any` (L749)
-  - `__relocate_media_file(media_col: catalog.Column, url: str) -> str` (L775)
-  - `__restore_cellmd(col: catalog.Column, cellmd: dict[str, Any]) -> dict[str, Any]` (L791)
 
 ### publish.py
 
@@ -2314,7 +2235,7 @@ Use this to quickly locate code without reading full files.
 
 ## pixeltable/share/protocol/
 
-### __init__.py — Pixeltable Core Protocol
+### pixeltable/share/protocol/__init__.py — Pixeltable Core Protocol
 
 
 ### common.py
@@ -2351,7 +2272,7 @@ Use this to quickly locate code without reading full files.
 
 ## pixeltable/utils/
 
-### __init__.py
+### pixeltable/utils/__init__.py
 
 - `print_perf_counter_delta(delta: float) -> str` (L7) — Prints a performance counter delta in a human-readable format.
 - `sha256sum(path: Path | str) -> str` (L26) — Compute the SHA256 hash of a file.
@@ -2438,9 +2359,6 @@ Use this to quickly locate code without reading full files.
   - `append(descriptor: str | pd.DataFrame, show_index: bool = False, show_header: bool = True, styler: Styler | None = None, sep...) -> None` (L35)
   - `to_string() -> str` (L45)
   - `to_html() -> str` (L49)
-  - `__render_text(descriptor: _Descriptor) -> str` @classmethod (L54)
-  - `__insert_separators(rendered: str, descriptor: _Descriptor) -> str` @classmethod (L72)
-  - `__apply_styles(descriptor: _Descriptor) -> Styler` @classmethod (L90)
 
 ### documents.py
 
@@ -2455,7 +2373,7 @@ Use this to quickly locate code without reading full files.
 
 ### exception_handler.py
 
-- `run_cleanup(cleanup_func: Callable[..., R], *args, raise_error: bool = True, **kwargs) -> R | None` (L9) — Runs a cleanup function. If interrupted, retry cleanup.
+- `run_cleanup(cleanup_func: Callable[..., R], *args: Any, raise_error: bool = True, **kwargs: Any) -> R | None` (L9) — Runs a cleanup function. If interrupted, retry cleanup.
 
 ### filecache.py
 
@@ -2485,18 +2403,15 @@ Use this to quickly locate code without reading full files.
   - `format_uuid(val: uuid.UUID | None) -> str` @classmethod (L75) — Formats a UUID by converting it to a string and applying string formatting.
   - `format_binary(val: bytes) -> str` @classmethod (L82) — Formats binary data by converting it to an encoded string and applying string formatting.
   - `abbreviate(val: str, max_len: int = __STRING_MAX_LEN) -> str` @classmethod (L89)
-  - `__escape(val: str) -> str` @classmethod (L96)
   - `format_float(val: float) -> str` @classmethod (L102)
   - `format_array(arr: np.ndarray) -> str` @classmethod (L107)
   - `format_json(val: Any, escape_strings: bool = True) -> str` @classmethod (L117)
-  - `__format_json_rec(val: Any, escape_strings: bool) -> str` @classmethod (L128)
   - `format_img(img: Image.Image) -> str` (L157) — Create <img> tag for Image object.
   - `format_video(file_path: str) -> str` (L178)
   - `extract_first_video_frame(file_path: str) -> Image.Image | None` @classmethod (L207)
   - `format_audio(file_path: str) -> str` (L216)
   - `format_document(file_path: str, max_width: int = 320, max_height: int = 320) -> str` (L225)
   - `make_document_thumbnail(file_path: str, max_width: int = 320, max_height: int = 320) -> Image.Image | None` @classmethod (L247) — Returns a thumbnail image of a document.
-  - `__create_source_tag(http_address: str, file_path: str) -> str` @classmethod (L265)
   - `summarize_json(metadata: Any, max_elements: int = 5, max_character_limit: int = 100, indent: int = 4, interpose: int = 10) -> str` @classmethod (L273)
 
 ### gcs_store.py
@@ -2525,7 +2440,7 @@ Use this to quickly locate code without reading full files.
 
 - **class AbsolutePathHandler(http.server.SimpleHTTPRequestHandler)** (L20) — Serves all absolute paths, not just the current directory
   - `translate_path(path: str) -> str` (L23) — Translate a /-separated PATH to the local filename syntax.
-  - `log_message(format: str, *args) -> None` (L40) — override logging to stderr in http.server.BaseHTTPRequestHandler
+  - `log_message(format: str, *args: Any) -> None` (L40) — override logging to stderr in http.server.BaseHTTPRequestHandler
 - **class LoggingHTTPServer(http.server.ThreadingHTTPServer)** (L46) — Avoids polluting stdout and stderr
   - `handle_error(request, client_address) -> None` (L49) — override socketserver.TCPServer.handle_error which prints directly to sys.stderr
 - `get_file_uri(http_address: str, file_path: str) -> str` (L10) — Get the URI for a file path, with the given prefix.
