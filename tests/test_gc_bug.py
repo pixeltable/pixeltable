@@ -1,4 +1,5 @@
 """Reproduce the GC bug where has_val doesn't distinguish 'not computed' from 'already GC'd'."""
+
 import time
 
 import pixeltable as pxt
@@ -40,10 +41,10 @@ def test_gc_bug_leaked_slot(uses_db: None) -> None:
     t.insert({'x': i} for i in range(3))
 
     s = add_one(t.x)
-    fast = add_one(s)            # T
-    v_out = add_one(fast)        # V - output
-    slow = slow_add(s, v_out)    # U - depends on S and V, slow
-    w_out = add_one(slow)        # W - output
+    fast = add_one(s)  # T
+    v_out = add_one(fast)  # V - output
+    slow = slow_add(s, v_out)  # U - depends on S and V, slow
+    w_out = add_one(slow)  # W - output
 
     result = t.select(v_out, w_out).collect()
     assert len(result) == 3

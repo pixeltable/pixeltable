@@ -231,7 +231,9 @@ class ExprEvalCtx:
         # slots outside the eval context (e.g., pre-populated inputs from upstream nodes)
         # bool -> int16: bool @ bool does boolean ops (True + True = True), not arithmetic
         dependencies = self.row_builder.dependencies  # (num_slots, num_slots)
-        new_missing_dependents = new_missing_slots.astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
+        new_missing_dependents = new_missing_slots.astype(np.int16) @ dependencies.astype(
+            np.int16
+        )  # (num_rows, num_slots)
 
         # GC slots that are already unneeded: they have values, are GC targets, and have no missing dependents
         # This handles pre-populated slots whose dependents are also pre-populated, where the
