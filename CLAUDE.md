@@ -46,11 +46,11 @@ pixeltable/
 
 ## Setup Commands
 
-**Prerequisites:** Miniconda with a dedicated environment (not `base`)
+**Prerequisites:** Miniforge with a dedicated environment (not `base`)
 
 ```bash
 # Create and activate conda environment
-conda create --name pxt python=3.10
+mamba create --name pxt python=3.10
 conda activate pxt
 
 # Install development dependencies
