@@ -47,6 +47,318 @@ Use this to quickly locate code without reading full files.
   - `to_coco_dataset() -> Path` (L1409) — Convert the Query to a COCO dataset.
   - `to_pytorch_dataset(image_format: str = 'pt') -> 'torch.utils.data.IterableDataset'` (L1444) — Convert the Query to a pytorch IterableDataset suitable for parallel loading
 
+### config.py
+
+- **class Config** (L20) — The (global) Pixeltable configuration, as loaded from `config.toml`. Provides methods for retrieving
+  - `home() -> Path` @property (L75)
+  - `config_file() -> Path` @property (L79)
+  - `get() -> Config` @classmethod (L83)
+  - `init(config_overrides: dict[str, Any], reinit: bool = False) -> None` @classmethod (L90)
+  - `__create_default_config(config_path: Path) -> dict[str, Any]` @classmethod (L102)
+  - `lookup_env(section: str, key: str, default: Any = None) -> Any` (L108)
+  - `get_value(key: str, expected_type: type[T], section: str = 'pixeltable') -> T | None` (L117)
+  - `get_string_value(key: str, section: str = 'pixeltable') -> str | None` (L147)
+  - `get_int_value(key: str, section: str = 'pixeltable') -> int | None` (L150)
+  - `get_float_value(key: str, section: str = 'pixeltable') -> float | None` (L153)
+  - `get_bool_value(key: str, section: str = 'pixeltable') -> bool | None` (L156)
+
+### env.py
+
+- **class Env** (L45) — Store runtime globals for both local and non-local environments.
+  - `get() -> Env` @classmethod (L93)
+  - `db_url() -> str` @property (L159)
+  - `http_address() -> str` @property (L164)
+  - `user() -> str | None` @property (L169)
+  - `user(user: str | None) -> None` @user.setter (L173)
+  - `default_time_zone() -> ZoneInfo | None` @property (L181)
+  - `default_time_zone(tz: ZoneInfo | None) -> None` @default_time_zone.setter (L185) — This is not a publicly visible setter; it is only for testing purposes.
+  - `verbosity() -> int` @property (L198)
+  - `dbms() -> Dbms | None` @property (L202)
+  - `is_using_cockroachdb() -> bool` @property (L207)
+  - `is_local() -> bool` @property (L212)
+  - `is_interactive() -> bool` (L216) — Return True if running in an interactive environment.
+  - `is_notebook() -> bool` (L228) — Return True if running in a Jupyter notebook.
+  - `configure_logging(*, to_stdout: bool | None = None, level: int | None = None, add: str | None = None, remove: str | None = None) -> None` (L236) — Configure logging.
+  - `print_log_config() -> None` (L265)
+  - `log_to_stdout(enable: bool = True) -> None` (L274)
+  - `set_log_level(level: int) -> None` (L281)
+  - `set_module_log_level(module: str, level: int | None) -> None` (L284)
+  - `is_installed_package(package_name: str) -> bool` (L290)
+  - `console_logger() -> ConsoleLogger` @property (L308)
+  - `pxt_api_key() -> str | None` @property (L601) — Get the Pixeltable API key from config
+  - `create_client(name: str) -> Any` (L605) — Resolves config parameters and calls the registered init function to create a new client instance.
+  - `default_video_encoder() -> str | None` @property (L669)
+  - `__register_packages() -> None` (L703) — Declare optional packages that are utilized by some parts of the code.
+  - `__register_package(package_name: str, library_name: str | None = None) -> None` (L753)
+  - `require_binary(binary_name: str) -> None` (L765)
+  - `require_package(package_name: str, min_version: list[int] | None = None, not_installed_msg: str | None = None) -> None` (L769) — Checks whether the specified optional package is available. If not, raises an exception
+  - `clear_tmp_dir() -> None` (L809)
+  - `get_resource_pool_info(pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T` (L817) — Returns the info object for the given id, creating it if necessary.
+  - `media_dir() -> Path` @property (L827)
+  - `default_input_media_dest() -> str | None` @property (L832)
+  - `default_output_media_dest() -> str | None` @property (L836)
+  - `file_cache_dir() -> Path` @property (L840)
+  - `dataset_cache_dir() -> Path` @property (L845)
+  - `tmp_dir() -> Path` @property (L850)
+  - `engine() -> sql.engine.base.Engine` @property (L855)
+- **class ApiClientFactory** (L944) @dataclass
+- **class PackageInfo** (L950) @dataclass
+- **class RateLimitsInfo** (L963) @dataclass — Abstract base class for resource pools made up of rate limits for different resources.
+  - `debug_str() -> str` (L987)
+  - `is_initialized() -> bool` (L991)
+  - `reset() -> None` (L995)
+  - `record(request_ts: datetime.datetime, reset_exc: bool = False, **kwargs) -> None` (L999) — Update self.resource_limits with the provided rate limit info.
+  - `record_exc(request_ts: datetime.datetime, exc: Exception) -> None` (L1022) — Update self.resource_limits based on the exception headers
+  - `get_retry_delay(exc: Exception, attempt: int) -> float | None` (L1030) — Returns number of seconds to wait before retry, or None if not retryable
+- **class RateLimitInfo** (L1045) @dataclass — Container for rate limit-related information for a single resource.
+  - `debug_str() -> str` (L1054)
+  - `update(request_start_ts: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime) -> None` (L1060)
+  - `estimated_resource_refill_delay(target_remaining: int) -> float | None` (L1078) — Estimate time in seconds until remaining resources reaches target_remaining.
+- **class RuntimeCtx** (L1107) @dataclass — Container for runtime data provided by the execution system to udfs.
+- `register_client(name: str) -> Callable` (L905) — Decorator that registers a third-party API client for use by Pixeltable.
+
+### exceptions.py
+
+- **class Error(Exception)** (L8)
+- **class ExprEvalError(Exception)** (L12) — Used during query execution to signal expr evaluation failures.
+- **class PixeltableWarning(Warning)** (L47)
+- **class PixeltableDeprecationWarning(DeprecationWarning, PixeltableWarning)** (L51)
+
+### globals.py
+
+- **class DirContents(TypedDict)** (L1088) — Represents the contents of a Pixeltable directory.
+- `init(config_overrides: dict[str, Any] | None = None) -> None` (L44) — Initializes the Pixeltable environment.
+- `create_table(path: str, schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None, *, source: TableDataSource | None = No...) -> catalog.Table` (L52) — Create a new base table. Exactly one of `schema` or `source` must be provided.
+- `create_view(path: str, base: catalog.Table | Query, *, additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = ...) -> catalog.Table | None` (L253) — Create a view of an existing table object (which itself can be a view or a snapshot or a base tab...
+- `create_snapshot(path_str: str, base: catalog.Table | Query, *, additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | Non...) -> catalog.Table | None` (L402) — Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base...
+- `publish(source: str | catalog.Table, destination_uri: str, bucket_name: str | None = None, access: Literal['public', 'private...) -> None` (L491) — Publishes a replica of a local Pixeltable table to Pixeltable cloud. A given table can be publish...
+- `replicate(remote_uri: str, local_path: str) -> catalog.Table` (L520) — Retrieve a replica from Pixeltable cloud as a local table. This will create a full local copy of ...
+- `get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None` (L539) — Get a handle to an existing table, view, or snapshot.
+- `move(path: str, new_path: str, *, if_exists: Literal['error', 'ignore'] = 'error', if_not_exists: Literal['error', 'ignore...) -> None` (L579) — Move a schema object to a new directory and/or rename a schema object.
+- `drop_table(table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None` (L626) — Drop a table, view, snapshot, or replica.
+- `get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents'` (L688) — Get the contents of a Pixeltable directory.
+- `list_tables(dir_path: str = '', recursive: bool = True) -> list[str]` (L739) — List the [`Table`][pixeltable.Table]s in a directory.
+- `create_dir(path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False) -> catalog.Dir | None` (L771) — Create a directory.
+- `drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None` (L823) — Remove a directory.
+- `ls(path: str = '') -> pd.DataFrame` (L865) — List the contents of a Pixeltable directory.
+- `list_dirs(path: str = '', recursive: bool = True) -> list[str]` (L949) — List the directories in a directory.
+- `list_functions() -> Styler` (L972) — Returns information about all registered functions.
+- `tools(*args) -> func.tools.Tools` (L1001) — Specifies a collection of UDFs to be used as LLM tools. Pixeltable allows any UDF to be used as a...
+- `tool(fn: func.Function, name: str | None = None, description: str | None = None) -> func.tools.Tool` (L1041) — Specifies a Pixeltable UDF to be used as an LLM tool with customizable metadata. See the document...
+- `configure_logging(*, to_stdout: bool | None = None, level: int | None = None, add: str | None = None, remove: str | None = None) -> None` (L1061) — Configure logging.
+- `array(elements: Iterable) -> exprs.Expr` (L1075)
+- `home() -> Path` (L1079) — Get the path to the user's home directory in Pixeltable.
+
+### plan.py
+
+- **class JoinType(enum.Enum)** (L45)
+  - `validated(name: str, error_prefix: str) -> JoinType` @classmethod (L56)
+- **class JoinClause** (L65) @dataclasses.dataclass — Corresponds to a single 'JOIN ... ON (...)' clause in a SELECT statement; excludes the joined table.
+- **class FromClause** (L73) @dataclasses.dataclass — Corresponds to the From-clause ('FROM <tbl> JOIN ... ON (...) JOIN ...') of a SELECT statement
+- **class SampleClause** (L86) @dataclasses.dataclass — Defines a sampling clause for a table.
+  - `__post_init__() -> None` (L99)
+  - `is_stratified() -> bool` @property (L105) — Check if the sampling is stratified
+  - `is_repeatable() -> bool` @property (L110) — Return true if the same rows will continue to be sampled if source rows are added or deleted.
+  - `display_str(inline: bool = False) -> str` (L114)
+  - `as_dict() -> dict` (L117) — Return a dictionary representation of the object
+  - `from_dict(d: dict) -> SampleClause` @classmethod (L126) — Create a SampleClause from a dictionary representation
+  - `fraction_to_md5_hex(fraction: float) -> str` @classmethod (L142) — Return the string representation of an approximation (to ~1e-9) of a fraction of the total space
+- **class Analyzer** (L157) — Performs semantic analysis of a query and stores the analysis state.
+  - `finalize(row_builder: exprs.RowBuilder) -> None` (L317) — Make all exprs executable
+  - `get_window_fn_ob_clause() -> OrderByClause | None` (L333)
+  - `has_agg() -> bool` (L343) — True if there is any kind of aggregation in the query
+- **class Planner** (L348)
+  - `create_count_stmt(query: 'pxt.Query') -> sql.Select` @classmethod (L350) — Creates a SQL SELECT COUNT(*) statement for counting rows in a Query.
+  - `create_insert_plan(tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool) -> exec.ExecNode` @classmethod (L364) — Creates a plan for TableVersion.insert()
+  - `rowid_columns(target: TableVersionHandle, num_rowid_cols: int | None = None) -> list[exprs.Expr]` @classmethod (L397) — Return list of RowidRef for the given number of associated rowids
+  - `create_query_insert_plan(tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool) -> exec.ExecNode` @classmethod (L404)
+  - `create_update_plan(tbl: catalog.TableVersionPath, update_targets: dict[catalog.Column, exprs.Expr], recompute_targets: list[catalog.Colu...) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]` @classmethod (L426) — Creates a plan to materialize updated rows.
+  - `__check_valid_columns(tbl: catalog.TableVersion, cols: Iterable[Column], op_name: Literal['inserted into', 'updated in']) -> None` @classmethod (L509)
+  - `__check_valid_iterator(tbl: catalog.TableVersion, iterator: GeneratingFunctionCall | None, op_name: Literal['updated in']) -> None` @classmethod (L527)
+  - `create_batch_update_plan(tbl: catalog.TableVersionPath, batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]], cascade:...) -> tuple[exec.ExecNode, exec.RowUpdateNode, sql.ColumnElement[bool], list[catalog.Column], list[catalog.Column]]` @classmethod (L635) — Returns:
+  - `create_view_update_plan(view: catalog.TableVersionPath, recompute_targets: list[catalog.Column]) -> exec.ExecNode` @classmethod (L736) — Creates a plan to materialize updated rows for a view, given that the base table has been updated.
+  - `create_view_load_plan(view: catalog.TableVersionPath, propagates_insert: bool = False) -> tuple[exec.ExecNode, int]` @classmethod (L786) — Creates a query plan for populating a view.
+  - `create_query_plan(from_clause: FromClause, select_list: list[exprs.Expr] | None = None, columns: list[catalog.Column] | None = None, wh...) -> exec.ExecNode` @classmethod (L933) — Return plan for executing a query.
+  - `analyze(tbl: catalog.TableVersionPath, where_clause: exprs.Expr) -> Analyzer` @classmethod (L1197)
+  - `create_add_column_plan(tbl: catalog.TableVersionPath, col: catalog.Column) -> exec.ExecNode` @classmethod (L1201) — Creates a plan for InsertableTable.add_column()
+
+### runtime.py
+
+- **class Runtime** (L27) — Global context for a thread executing Pixeltable API calls.
+  - `copy_db_context(other: Runtime) -> None` (L58) — Copy the db-related state from another Runtime instance.
+  - `in_xact() -> bool` @property (L67)
+  - `catalog() -> Catalog` @property (L71)
+  - `event_loop() -> asyncio.AbstractEventLoop` @property (L79)
+  - `get_client(name: str) -> Any` (L100) — Gets the client with the specified name, initializing it if necessary.
+  - `run_coro(coro: Coroutine[Any, Any, _T]) -> _T` (L109) — Run a coroutine synchronously in a separate thread with its own persistent event loop.
+  - `begin_xact(*, for_write: bool = False) -> Iterator[sql.Connection]` @contextmanager (L121) — Start or join a database transaction.
+  - `start_progress(create_fn: Callable[[], Progress]) -> Progress` (L155)
+  - `stop_progress() -> None` (L161)
+  - `report_progress() -> Iterator[None]` @contextmanager (L183) — Context manager for the Progress instance.
+- `get_runtime() -> Runtime` (L191) — Get the current thread's Runtime instance, creating one if needed.
+- `reset_runtime() -> None` (L200) — Reset the current thread's Runtime instance. Used for testing.
+
+### store.py
+
+- **class StoreBase** (L25) — Base class for stored tables
+  - `base() -> StoreBase | None` @property (L64)
+  - `storage_name(tbl_id: UUID, is_view: bool) -> str` @classmethod (L71)
+  - `system_columns() -> list[sql.Column]` (L74)
+  - `pk_columns() -> list[sql.Column]` (L77)
+  - `rowid_columns() -> list[sql.Column]` (L80)
+  - `create_sa_tbl(tbl_version: catalog.TableVersion | None = None) -> None` (L113) — Create self.sa_tbl from self.tbl_version.
+  - `count() -> int` (L157) — Return the number of rows visible in self.tbl_version
+  - `create() -> None` (L216) — Create or update store table to bring it in sync with self.sa_tbl. Idempotent.
+  - `create_index(idx_id: int) -> None` (L252) — Create index if not exists
+  - `drop_index(idx_id: int) -> None` (L258) — Drop index if exists
+  - `validate() -> None` (L272) — Validate store table against self.table_version
+  - `drop() -> None` (L289) — Drop store table
+  - `add_column(col: catalog.Column, if_not_exists: bool) -> None` (L302) — Add column(s) to the store-resident table based on a catalog column
+  - `drop_column(col: catalog.Column, if_exists: bool) -> None` (L324) — Execute Alter Table Drop Column statement
+  - `write_column(col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int` (L334) — Populate store column of a computed column with values produced by an execution plan
+  - `insert_rows(exec_plan: ExecNode, v_min: int, rowids: Iterator[int] | None = None, abort_on_exc: bool = False) -> tuple[set[int], RowCountStats]` (L416) — Insert rows into the store table and update the catalog table's md
+  - `sql_insert(sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None` @classmethod (L478)
+  - `delete_rows(current_version: int, base_versions: list[int | None], match_on_vmin: bool, where_clause: sql.ColumnElement[bool] | None) -> int` (L506) — Mark rows as deleted that are live and were created prior to current_version.
+  - `dump_rows(version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]` (L550)
+  - `load_rows(rows: Iterable[dict[str, Any]], batch_size: int = 10000) -> None` (L569) — When instantiating a replica, we can't rely on the usual insertion code path, which contains erro...
+- **class StoreTable(StoreBase)** (L579)
+- **class StoreView(StoreBase)** (L595)
+- **class StoreComponentView(StoreView)** (L615) — A view that stores components of its base, as produced by a ComponentIterator
+  - `pos_col() -> sql.Column` @property (L633)
+  - `pos_col_idx() -> int` @property (L637)
+  - `create_sa_tbl(tbl_version: catalog.TableVersion | None = None) -> None` (L640)
+
+### type_system.py
+
+- **class ColumnType** (L31)
+  - `has_supertype() -> bool` (L83)
+  - `nullable() -> bool` @property (L87)
+  - `type_enum() -> Type` @property (L91)
+  - `serialize() -> str` (L94)
+  - `copy(nullable: bool) -> ColumnType` (L97)
+  - `serialize_list(type_list: list[ColumnType]) -> str` @classmethod (L105)
+  - `as_dict() -> dict` (L108)
+  - `deserialize(type_str: str) -> ColumnType` @classmethod (L115)
+  - `deserialize_list(type_list_str: str) -> list[ColumnType]` @classmethod (L120)
+  - `from_dict(type_dict: dict) -> ColumnType` @classmethod (L125)
+  - `make_type(t: Type) -> ColumnType` @classmethod (L139)
+  - `is_supertype_of(other: ColumnType, ignore_nullable: bool = False) -> bool` (L195)
+  - `matches(other: ColumnType) -> bool` (L204) — Two types match if they're equal, aside from nullability
+  - `supertype(other: ColumnType, for_inference: bool = False) -> ColumnType | None` (L209) — Returns the most specific type that is a supertype of both `self` and `other`.
+  - `infer_literal_type(val: Any, nullable: bool = False) -> ColumnType | None` @classmethod (L243)
+  - `infer_common_literal_type(vals: Iterable[Any]) -> ColumnType | None` @classmethod (L281) — Returns the most specific type that is a supertype of all literals in `vals`. If no such type
+  - `from_python_type(t: type | _GenericAlias, nullable_default: bool = False, allow_builtin_types: bool = True, infer_pydantic_json: bool ...) -> ColumnType | None` @classmethod (L303) — Convert a Python type into a Pixeltable `ColumnType` instance.
+  - `normalize_type(t: ColumnType | type | _AnnotatedAlias, nullable_default: bool = False, allow_builtin_types: bool = True) -> ColumnType` @classmethod (L391) — Convert any type recognizable by Pixeltable to its corresponding ColumnType.
+  - `__raise_exc_for_invalid_type(t: type | _AnnotatedAlias) -> None` @classmethod (L419)
+  - `from_json_schema(schema: dict[str, Any]) -> ColumnType | None` @classmethod (L427)
+  - `__json_schema_to_py_type(schema: dict[str, Any]) -> type | _GenericAlias | None` @classmethod (L435)
+  - `validate_literal(val: Any) -> None` (L456) — Raise TypeError if val is not a valid literal for this type
+  - `validate_media(val: Any) -> None` (L465) — Raise TypeError if val is not a path to a valid media file (or a valid in-memory byte sequence) f...
+  - `create_literal(val: Any) -> Any` (L490) — Create a literal of this type from val or raise TypeError if not possible
+  - `print_value(val: Any) -> str` (L498)
+  - `is_scalar_type() -> bool` (L501)
+  - `is_scalar_json_type() -> bool` (L504)
+  - `is_numeric_type() -> bool` (L507)
+  - `is_invalid_type() -> bool` (L510)
+  - `is_string_type() -> bool` (L513)
+  - `is_int_type() -> bool` (L516)
+  - `is_float_type() -> bool` (L519)
+  - `is_bool_type() -> bool` (L522)
+  - `is_timestamp_type() -> bool` (L525)
+  - `is_date_type() -> bool` (L528)
+  - `is_uuid_type() -> bool` (L531)
+  - `is_json_type() -> bool` (L534)
+  - `is_array_type() -> bool` (L537)
+  - `is_binary_type() -> bool` (L540)
+  - `is_image_type() -> bool` (L543)
+  - `is_video_type() -> bool` (L546)
+  - `is_audio_type() -> bool` (L549)
+  - `is_document_type() -> bool` (L552)
+  - `is_media_type() -> bool` (L555)
+  - `supports_file_offloading() -> bool` (L559)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod @abc.abstractmethod (L565) — Return corresponding SQLAlchemy type.
+  - `to_json_schema() -> dict[str, Any]` (L570)
+  - `from_np_dtype(dtype: np.dtype, nullable: bool) -> ColumnType | None` @classmethod (L580) — Return pixeltable type corresponding to a given simple numpy dtype
+- **class InvalidType(ColumnType)** (L609)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L614)
+  - `print_value(val: Any) -> str` (L617)
+- **class StringType(ColumnType)** (L624)
+  - `has_supertype() -> bool` (L628)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L632)
+  - `print_value(val: Any) -> str` (L638)
+- **class IntType(ColumnType)** (L654)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L659)
+- **class FloatType(ColumnType)** (L672)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L677)
+- **class BoolType(ColumnType)** (L693)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L698)
+- **class TimestampType(ColumnType)** (L714)
+  - `has_supertype() -> bool` (L718)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L722)
+- **class DateType(ColumnType)** (L738)
+  - `has_supertype() -> bool` (L742)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L746)
+- **class UUIDType(ColumnType)** (L761)
+  - `has_supertype() -> bool` (L765)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L769)
+  - `print_value(val: Any) -> str` (L775)
+- **class BinaryType(ColumnType)** (L791)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L796)
+- **class JsonType(ColumnType)** (L807)
+  - `copy(nullable: bool) -> ColumnType` (L821)
+  - `matches(other: ColumnType) -> bool` (L824)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L838)
+  - `print_value(val: Any) -> str` (L846)
+  - `__is_valid_json(val: Any) -> bool` @classmethod (L865)
+  - `supertype(other: ColumnType, for_inference: bool = False) -> JsonType | None` (L881)
+  - `__superschema(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None` @classmethod (L903)
+  - `__superschema_with_nulls(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None` @classmethod (L963)
+  - `__unpack_null_from_schema(s: dict[str, Any]) -> tuple[dict[str, Any], bool]` @classmethod (L974)
+- **class ArrayType(ColumnType)** (L1008)
+  - `copy(nullable: bool) -> ColumnType` (L1047)
+  - `matches(other: ColumnType) -> bool` (L1050)
+  - `supertype(other: ColumnType, for_inference: bool = False) -> ArrayType | None` (L1056)
+  - `from_literal(val: np.ndarray, nullable: bool = False) -> ArrayType | None` @classmethod (L1111)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L1166)
+- **class ImageType(ColumnType)** (L1170)
+  - `copy(nullable: bool) -> ColumnType` (L1191)
+  - `matches(other: ColumnType) -> bool` (L1206)
+  - `supertype(other: ColumnType, for_inference: bool = False) -> ImageType | None` (L1217)
+  - `size() -> tuple[int, int] | None` @property (L1232)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L1250)
+  - `validate_media(val: Any) -> None` (L1272)
+- **class VideoType(ColumnType)** (L1280)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L1285)
+  - `validate_media(val: Any) -> None` (L1292)
+- **class AudioType(ColumnType)** (L1313)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L1318)
+  - `validate_media(val: Any) -> None` (L1325)
+- **class DocumentType(ColumnType)** (L1341)
+  - `copy(nullable: bool) -> ColumnType` (L1385)
+  - `matches(other: ColumnType) -> bool` (L1388)
+  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L1395)
+  - `validate_media(val: Any) -> None` (L1402)
+- **class Required(typing.Generic[T])** (L1412) — Marker class to indicate that a column is non-nullable in a schema definition. This has no meanin...
+- **class Json(_PxtType)** (L1452)
+  - `__class_getitem__(item: Any) -> _AnnotatedAlias` (L1453) — `item` (the type subscript) must be a `dict` representing a valid JSON Schema.
+  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1464)
+- **class Array(np.ndarray, _PxtType)** (L1468)
+  - `__class_getitem__(item: Any) -> _AnnotatedAlias` (L1469) — `item` (the type subscript) must be a tuple with at most two elements (in any order):
+  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1503)
+- **class Image(PIL.Image.Image, _PxtType)** (L1507)
+  - `__class_getitem__(item: Any) -> _AnnotatedAlias` (L1508) — `item` (the type subscript) must be one of the following, or a tuple containing either or both in...
+  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1548)
+- **class Video(str, _PxtType)** (L1552)
+  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1554)
+- **class Audio(str, _PxtType)** (L1558)
+  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1560)
+- **class Document(str, _PxtType)** (L1564)
+  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1566)
+
+### types.py — User-facing types used for type annotations across the Pixeltable codebase.
+
+- **class ColumnSpec(TypedDict)** (L10) — Column specification, a dictionary representation of a column's schema.
+
 ## pixeltable/catalog/
 
 ### catalog.py
@@ -436,85 +748,6 @@ Use this to quickly locate code without reading full files.
   - `insert(*, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None, schema_overrides: dict[str, ts.ColumnType...) -> UpdateStatus` (L283)
   - `delete(where: exprs.Expr | None = None) -> UpdateStatus` (L296)
 
-## pixeltable/
-
-### config.py
-
-- **class Config** (L20) — The (global) Pixeltable configuration, as loaded from `config.toml`. Provides methods for retrieving
-  - `home() -> Path` @property (L75)
-  - `config_file() -> Path` @property (L79)
-  - `get() -> Config` @classmethod (L83)
-  - `init(config_overrides: dict[str, Any], reinit: bool = False) -> None` @classmethod (L90)
-  - `__create_default_config(config_path: Path) -> dict[str, Any]` @classmethod (L102)
-  - `lookup_env(section: str, key: str, default: Any = None) -> Any` (L108)
-  - `get_value(key: str, expected_type: type[T], section: str = 'pixeltable') -> T | None` (L117)
-  - `get_string_value(key: str, section: str = 'pixeltable') -> str | None` (L147)
-  - `get_int_value(key: str, section: str = 'pixeltable') -> int | None` (L150)
-  - `get_float_value(key: str, section: str = 'pixeltable') -> float | None` (L153)
-  - `get_bool_value(key: str, section: str = 'pixeltable') -> bool | None` (L156)
-
-### env.py
-
-- **class Env** (L45) — Store runtime globals for both local and non-local environments.
-  - `get() -> Env` @classmethod (L93)
-  - `db_url() -> str` @property (L159)
-  - `http_address() -> str` @property (L164)
-  - `user() -> str | None` @property (L169)
-  - `user(user: str | None) -> None` @user.setter (L173)
-  - `default_time_zone() -> ZoneInfo | None` @property (L181)
-  - `default_time_zone(tz: ZoneInfo | None) -> None` @default_time_zone.setter (L185) — This is not a publicly visible setter; it is only for testing purposes.
-  - `verbosity() -> int` @property (L198)
-  - `dbms() -> Dbms | None` @property (L202)
-  - `is_using_cockroachdb() -> bool` @property (L207)
-  - `is_local() -> bool` @property (L212)
-  - `is_interactive() -> bool` (L216) — Return True if running in an interactive environment.
-  - `is_notebook() -> bool` (L228) — Return True if running in a Jupyter notebook.
-  - `configure_logging(*, to_stdout: bool | None = None, level: int | None = None, add: str | None = None, remove: str | None = None) -> None` (L236) — Configure logging.
-  - `print_log_config() -> None` (L265)
-  - `log_to_stdout(enable: bool = True) -> None` (L274)
-  - `set_log_level(level: int) -> None` (L281)
-  - `set_module_log_level(module: str, level: int | None) -> None` (L284)
-  - `is_installed_package(package_name: str) -> bool` (L290)
-  - `console_logger() -> ConsoleLogger` @property (L308)
-  - `pxt_api_key() -> str | None` @property (L601) — Get the Pixeltable API key from config
-  - `create_client(name: str) -> Any` (L605) — Resolves config parameters and calls the registered init function to create a new client instance.
-  - `default_video_encoder() -> str | None` @property (L669)
-  - `__register_packages() -> None` (L703) — Declare optional packages that are utilized by some parts of the code.
-  - `__register_package(package_name: str, library_name: str | None = None) -> None` (L753)
-  - `require_binary(binary_name: str) -> None` (L765)
-  - `require_package(package_name: str, min_version: list[int] | None = None, not_installed_msg: str | None = None) -> None` (L769) — Checks whether the specified optional package is available. If not, raises an exception
-  - `clear_tmp_dir() -> None` (L809)
-  - `get_resource_pool_info(pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T` (L817) — Returns the info object for the given id, creating it if necessary.
-  - `media_dir() -> Path` @property (L827)
-  - `default_input_media_dest() -> str | None` @property (L832)
-  - `default_output_media_dest() -> str | None` @property (L836)
-  - `file_cache_dir() -> Path` @property (L840)
-  - `dataset_cache_dir() -> Path` @property (L845)
-  - `tmp_dir() -> Path` @property (L850)
-  - `engine() -> sql.engine.base.Engine` @property (L855)
-- **class ApiClientFactory** (L944) @dataclass
-- **class PackageInfo** (L950) @dataclass
-- **class RateLimitsInfo** (L963) @dataclass — Abstract base class for resource pools made up of rate limits for different resources.
-  - `debug_str() -> str` (L987)
-  - `is_initialized() -> bool` (L991)
-  - `reset() -> None` (L995)
-  - `record(request_ts: datetime.datetime, reset_exc: bool = False, **kwargs) -> None` (L999) — Update self.resource_limits with the provided rate limit info.
-  - `record_exc(request_ts: datetime.datetime, exc: Exception) -> None` (L1022) — Update self.resource_limits based on the exception headers
-  - `get_retry_delay(exc: Exception, attempt: int) -> float | None` (L1030) — Returns number of seconds to wait before retry, or None if not retryable
-- **class RateLimitInfo** (L1045) @dataclass — Container for rate limit-related information for a single resource.
-  - `debug_str() -> str` (L1054)
-  - `update(request_start_ts: datetime.datetime, limit: int, remaining: int, reset_at: datetime.datetime) -> None` (L1060)
-  - `estimated_resource_refill_delay(target_remaining: int) -> float | None` (L1078) — Estimate time in seconds until remaining resources reaches target_remaining.
-- **class RuntimeCtx** (L1107) @dataclass — Container for runtime data provided by the execution system to udfs.
-- `register_client(name: str) -> Callable` (L905) — Decorator that registers a third-party API client for use by Pixeltable.
-
-### exceptions.py
-
-- **class Error(Exception)** (L8)
-- **class ExprEvalError(Exception)** (L12) — Used during query execution to signal expr evaluation failures.
-- **class PixeltableWarning(Warning)** (L47)
-- **class PixeltableDeprecationWarning(DeprecationWarning, PixeltableWarning)** (L51)
-
 ## pixeltable/exec/
 
 ### aggregation_node.py
@@ -584,6 +817,58 @@ Use this to quickly locate code without reading full files.
   - `set_limit(limit: int) -> None` (L163) — Default implementation propagates to input
   - `set_offset(offset: int) -> None` (L168) — Default implementation propagates to input
 
+### globals.py
+
+- **class InlinedObjectMd** (L12) @dataclasses.dataclass
+  - `from_dict(d: dict) -> InlinedObjectMd` @classmethod (L21)
+  - `as_dict() -> dict` (L29)
+
+### in_memory_data_node.py
+
+- **class InMemoryDataNode(ExecNode)** (L13) — Outputs in-memory data as a DataRowBatch of a particular table.
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L85)
+
+### object_store_save_node.py
+
+- **class ObjectStoreSaveNode(ExecNode)** (L21) — Save files into designated object store(s).
+  - `queued_work() -> int` @property (L105)
+  - `get_input_batch(input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None` (L111) — Get the next batch of input rows, or None if there are no more rows
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L122)
+  - `__has_ready_batch() -> bool` (L154) — True if there are >= BATCH_SIZES entries in ready_rows and the first BATCH_SIZE ones are all non-...
+  - `__add_ready_row(row: exprs.DataRow, row_idx: int | None) -> None` (L160)
+  - `__process_completions(done: set[futures.Future], ignore_errors: bool) -> None` (L170)
+  - `__process_input_row(row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]` (L206) — Process a batch of input rows, generating a list of work
+  - `__process_input_batch(input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None` (L286) — Process a batch of input rows, submitting temporary files for upload
+  - `__persist_media_file(work_item: WorkItem) -> tuple[str | None, Exception | None]` (L304) — Move data from the TempStore to another location
+
+### row_update_node.py
+
+- **class RowUpdateNode(ExecNode)** (L12) — Update individual rows in the input batches, identified by key columns.
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L54)
+  - `unmatched_rows() -> list[dict[str, Any]]` (L67) — Return rows that didn't get used in the updates as a list of dicts compatible with TableVersion.i...
+
+### sql_node.py
+
+- **class OrderByItem(NamedTuple)** (L27)
+- **class SqlNode(ExecNode)** (L69) — Materializes data from the store via a SQL statement.
+  - `to_cte(keep_pk: bool = False) -> tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]] | None` (L247) — Creates a CTE that materializes the output of this node plus a mapping from select list expr to o...
+  - `retarget_rowid_refs(target: catalog.TableVersionPath, expr_seq: Iterable[exprs.Expr]) -> None` @classmethod (L265) — Change rowid refs to point to target
+  - `create_from_clause(tbl: catalog.TableVersionPath, stmt: sql.Select, refd_tbl_ids: set[UUID] | None = None, exact_version_only: set[UUID]...) -> sql.Select` @classmethod (L272) — Add From clause to stmt for tables/views referenced by materialized_exprs
+  - `set_where(where_clause: exprs.Expr) -> None` (L326)
+  - `set_py_filter(py_filter: exprs.Expr) -> None` (L330)
+  - `set_order_by(ordering: OrderByClause) -> None` (L335) — Add Order By clause
+  - `set_limit(limit: int) -> None` (L345)
+  - `set_offset(offset: int) -> None` (L348)
+  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L362)
+- **class SqlScanNode(SqlNode)** (L486) — Materializes data from the store via a Select stmt.
+- **class SqlLookupNode(SqlNode)** (L536) — Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key...
+- **class SqlAggregationNode(SqlNode)** (L576) — Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key...
+- **class SqlJoinNode(SqlNode)** (L613) — Materializes data from the store via a Select ... From ... that contains joins
+- **class SqlSampleNode(SqlNode)** (L664) — Returns rows sampled from the input node.
+  - `key_sql_expr(seed: sql.ColumnElement, sql_cols: Iterable[sql.ColumnElement]) -> sql.ColumnElement` @classmethod (L708) — Construct expression which is the ordering key for rows to be sampled
+- `combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> OrderByClause | None` (L35) — Returns a clause that's compatible with 'clauses', or None if that doesn't exist.
+- `print_order_by_clause(clause: OrderByClause) -> str` (L62)
+
 ## pixeltable/exec/expr_eval/
 
 ### evaluators.py
@@ -644,60 +929,6 @@ Use this to quickly locate code without reading full files.
   - `matches(resource_pool: str) -> bool` @classmethod (L66)
 - **class RequestRateScheduler(Scheduler)** (L259) — Scheduler for FunctionCalls with a fixed request rate limit and no runtime resource usage reports.
   - `matches(resource_pool: str) -> bool` @classmethod (L320)
-
-## pixeltable/exec/
-
-### globals.py
-
-- **class InlinedObjectMd** (L12) @dataclasses.dataclass
-  - `from_dict(d: dict) -> InlinedObjectMd` @classmethod (L21)
-  - `as_dict() -> dict` (L29)
-
-### in_memory_data_node.py
-
-- **class InMemoryDataNode(ExecNode)** (L13) — Outputs in-memory data as a DataRowBatch of a particular table.
-  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L85)
-
-### object_store_save_node.py
-
-- **class ObjectStoreSaveNode(ExecNode)** (L21) — Save files into designated object store(s).
-  - `queued_work() -> int` @property (L105)
-  - `get_input_batch(input_iter: AsyncIterator[DataRowBatch]) -> DataRowBatch | None` (L111) — Get the next batch of input rows, or None if there are no more rows
-  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L122)
-  - `__has_ready_batch() -> bool` (L154) — True if there are >= BATCH_SIZES entries in ready_rows and the first BATCH_SIZE ones are all non-...
-  - `__add_ready_row(row: exprs.DataRow, row_idx: int | None) -> None` (L160)
-  - `__process_completions(done: set[futures.Future], ignore_errors: bool) -> None` (L170)
-  - `__process_input_row(row: exprs.DataRow) -> list[ObjectStoreSaveNode.WorkItem]` (L206) — Process a batch of input rows, generating a list of work
-  - `__process_input_batch(input_batch: DataRowBatch, executor: futures.ThreadPoolExecutor) -> None` (L286) — Process a batch of input rows, submitting temporary files for upload
-  - `__persist_media_file(work_item: WorkItem) -> tuple[str | None, Exception | None]` (L304) — Move data from the TempStore to another location
-
-### row_update_node.py
-
-- **class RowUpdateNode(ExecNode)** (L12) — Update individual rows in the input batches, identified by key columns.
-  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L54)
-  - `unmatched_rows() -> list[dict[str, Any]]` (L67) — Return rows that didn't get used in the updates as a list of dicts compatible with TableVersion.i...
-
-### sql_node.py
-
-- **class OrderByItem(NamedTuple)** (L27)
-- **class SqlNode(ExecNode)** (L69) — Materializes data from the store via a SQL statement.
-  - `to_cte(keep_pk: bool = False) -> tuple[sql.CTE, exprs.ExprDict[sql.ColumnElement]] | None` (L247) — Creates a CTE that materializes the output of this node plus a mapping from select list expr to o...
-  - `retarget_rowid_refs(target: catalog.TableVersionPath, expr_seq: Iterable[exprs.Expr]) -> None` @classmethod (L265) — Change rowid refs to point to target
-  - `create_from_clause(tbl: catalog.TableVersionPath, stmt: sql.Select, refd_tbl_ids: set[UUID] | None = None, exact_version_only: set[UUID]...) -> sql.Select` @classmethod (L272) — Add From clause to stmt for tables/views referenced by materialized_exprs
-  - `set_where(where_clause: exprs.Expr) -> None` (L326)
-  - `set_py_filter(py_filter: exprs.Expr) -> None` (L330)
-  - `set_order_by(ordering: OrderByClause) -> None` (L335) — Add Order By clause
-  - `set_limit(limit: int) -> None` (L345)
-  - `set_offset(offset: int) -> None` (L348)
-  - `__aiter__() -> AsyncIterator[DataRowBatch]` (L362)
-- **class SqlScanNode(SqlNode)** (L486) — Materializes data from the store via a Select stmt.
-- **class SqlLookupNode(SqlNode)** (L536) — Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key...
-- **class SqlAggregationNode(SqlNode)** (L576) — Materializes data from the store via a Select stmt with a WHERE clause that matches a list of key...
-- **class SqlJoinNode(SqlNode)** (L613) — Materializes data from the store via a Select ... From ... that contains joins
-- **class SqlSampleNode(SqlNode)** (L664) — Returns rows sampled from the input node.
-  - `key_sql_expr(seed: sql.ColumnElement, sql_cols: Iterable[sql.ColumnElement]) -> sql.ColumnElement` @classmethod (L708) — Construct expression which is the ordering key for rows to be sampled
-- `combine_order_by_clauses(clauses: Iterable[OrderByClause]) -> OrderByClause | None` (L35) — Returns a clause that's compatible with 'clauses', or None if that doesn't exist.
-- `print_order_by_clause(clause: OrderByClause) -> str` (L62)
 
 ## pixeltable/exprs/
 
@@ -1718,33 +1949,6 @@ Use this to quickly locate code without reading full files.
 - `yolox(images: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5) -> Batch[dict]` @pxt.udf (L21) — Computes YOLOX object detections for the specified image. `model_id` should reference one of the ...
 - `yolo_to_coco(detections: dict) -> list` @pxt.udf (L58) — Converts the output of a YOLOX object detection model to COCO format.
 
-## pixeltable/
-
-### globals.py
-
-- **class DirContents(TypedDict)** (L1088) — Represents the contents of a Pixeltable directory.
-- `init(config_overrides: dict[str, Any] | None = None) -> None` (L44) — Initializes the Pixeltable environment.
-- `create_table(path: str, schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None, *, source: TableDataSource | None = No...) -> catalog.Table` (L52) — Create a new base table. Exactly one of `schema` or `source` must be provided.
-- `create_view(path: str, base: catalog.Table | Query, *, additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = ...) -> catalog.Table | None` (L253) — Create a view of an existing table object (which itself can be a view or a snapshot or a base tab...
-- `create_snapshot(path_str: str, base: catalog.Table | Query, *, additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | Non...) -> catalog.Table | None` (L402) — Create a snapshot of an existing table object (which itself can be a view or a snapshot or a base...
-- `publish(source: str | catalog.Table, destination_uri: str, bucket_name: str | None = None, access: Literal['public', 'private...) -> None` (L491) — Publishes a replica of a local Pixeltable table to Pixeltable cloud. A given table can be publish...
-- `replicate(remote_uri: str, local_path: str) -> catalog.Table` (L520) — Retrieve a replica from Pixeltable cloud as a local table. This will create a full local copy of ...
-- `get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None` (L539) — Get a handle to an existing table, view, or snapshot.
-- `move(path: str, new_path: str, *, if_exists: Literal['error', 'ignore'] = 'error', if_not_exists: Literal['error', 'ignore...) -> None` (L579) — Move a schema object to a new directory and/or rename a schema object.
-- `drop_table(table: str | catalog.Table, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None` (L626) — Drop a table, view, snapshot, or replica.
-- `get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents'` (L688) — Get the contents of a Pixeltable directory.
-- `list_tables(dir_path: str = '', recursive: bool = True) -> list[str]` (L739) — List the [`Table`][pixeltable.Table]s in a directory.
-- `create_dir(path: str, *, if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error', parents: bool = False) -> catalog.Dir | None` (L771) — Create a directory.
-- `drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None` (L823) — Remove a directory.
-- `ls(path: str = '') -> pd.DataFrame` (L865) — List the contents of a Pixeltable directory.
-- `list_dirs(path: str = '', recursive: bool = True) -> list[str]` (L949) — List the directories in a directory.
-- `list_functions() -> Styler` (L972) — Returns information about all registered functions.
-- `tools(*args) -> func.tools.Tools` (L1001) — Specifies a collection of UDFs to be used as LLM tools. Pixeltable allows any UDF to be used as a...
-- `tool(fn: func.Function, name: str | None = None, description: str | None = None) -> func.tools.Tool` (L1041) — Specifies a Pixeltable UDF to be used as an LLM tool with customizable metadata. See the document...
-- `configure_logging(*, to_stdout: bool | None = None, level: int | None = None, add: str | None = None, remove: str | None = None) -> None` (L1061) — Configure logging.
-- `array(elements: Iterable) -> exprs.Expr` (L1075)
-- `home() -> Path` (L1079) — Get the path to the user's home directory in Pixeltable.
-
 ## pixeltable/index/
 
 ### base.py
@@ -2001,31 +2205,6 @@ Use this to quickly locate code without reading full files.
 - `register_converter(version: int) -> Callable[[Callable[[sql.engine.Engine], None]], None]` (L42)
 - `upgrade_md(engine: sql.engine.Engine) -> None` (L55) — Upgrade the metadata schema to the current version
 
-## pixeltable/metadata/converters/
-
-### convert_30.py
-
-- **class TableVersionAtV30(Base)** (L30)
-- **class TableSchemaVersionAtV30(Base)** (L38)
-
-### convert_39.py
-
-- `find_error_columns(conn: sql.Connection, store_name: str) -> list[str]` (L45) — Return and errormsg or errortype columns in the given table
-- `migrate_error_to_cellmd_columns(conn: sql.Connection, store_name: str, col_names: list[str], backup_table: str | None = None) -> None` (L70) — Safe version with error handling and optional backup.
-
-### convert_40.py
-
-- `find_target_columns(table_md: dict) -> list[int]` (L52) — Returns ids of stored array and json columns
-- `add_cellmd_columns(conn: sql.Connection, store_name: str, col_ids: list[int]) -> None` (L64)
-
-### util.py
-
-- `convert_table_md(engine: sql.engine.Engine, table_md_updater: Callable[[dict, UUID], None] | None = None, column_md_updater: Callable[...) -> None` (L13) — Converts schema.TableMd dicts based on the specified conversion functions.
-- `convert_table_schema_version_md(engine: sql.engine.Engine, table_schema_version_md_updater: Callable[[dict], None] | None = None, schema_column_updat...) -> None` (L109) — Converts schema.TableSchemaVersionMd dicts based on the specified conversion functions.
-- `convert_sql_table_record(schema: type[T], engine: sql.engine.Engine, record_updater: Callable[[T], None] | None) -> None` (L153)
-
-## pixeltable/metadata/
-
 ### schema.py
 
 - **class SystemInfoMd** (L72) @dataclasses.dataclass
@@ -2059,6 +2238,29 @@ Use this to quickly locate code without reading full files.
 
 - **class MetadataUtils** (L6)
 
+## pixeltable/metadata/converters/
+
+### convert_30.py
+
+- **class TableVersionAtV30(Base)** (L30)
+- **class TableSchemaVersionAtV30(Base)** (L38)
+
+### convert_39.py
+
+- `find_error_columns(conn: sql.Connection, store_name: str) -> list[str]` (L45) — Return and errormsg or errortype columns in the given table
+- `migrate_error_to_cellmd_columns(conn: sql.Connection, store_name: str, col_names: list[str], backup_table: str | None = None) -> None` (L70) — Safe version with error handling and optional backup.
+
+### convert_40.py
+
+- `find_target_columns(table_md: dict) -> list[int]` (L52) — Returns ids of stored array and json columns
+- `add_cellmd_columns(conn: sql.Connection, store_name: str, col_ids: list[int]) -> None` (L64)
+
+### util.py
+
+- `convert_table_md(engine: sql.engine.Engine, table_md_updater: Callable[[dict, UUID], None] | None = None, column_md_updater: Callable[...) -> None` (L13) — Converts schema.TableMd dicts based on the specified conversion functions.
+- `convert_table_schema_version_md(engine: sql.engine.Engine, table_schema_version_md_updater: Callable[[dict], None] | None = None, schema_column_updat...) -> None` (L109) — Converts schema.TableSchemaVersionMd dicts based on the specified conversion functions.
+- `convert_sql_table_record(schema: type[T], engine: sql.engine.Engine, record_updater: Callable[[T], None] | None) -> None` (L153)
+
 ## pixeltable/mypy/
 
 ### mypy_plugin.py
@@ -2074,57 +2276,6 @@ Use this to quickly locate code without reading full files.
 - `adjust_kwargs(ctx: MethodSigContext) -> FunctionLike` (L85) — Mypy has a "feature" where it will spit out multiple warnings if a method with signature
 - `adjust_uda_methods(ctx: ClassDefContext) -> bool` (L109) — Mypy does not handle the `@pxt.uda` aggregator well; it continues to treat the decorated class as...
 - `adjust_iterator_methods(ctx: ClassDefContext) -> bool` (L130) — Same idea as `adjust_uda_methods`, but for the `@pxt.iterator` decorator.
-
-## pixeltable/
-
-### plan.py
-
-- **class JoinType(enum.Enum)** (L45)
-  - `validated(name: str, error_prefix: str) -> JoinType` @classmethod (L56)
-- **class JoinClause** (L65) @dataclasses.dataclass — Corresponds to a single 'JOIN ... ON (...)' clause in a SELECT statement; excludes the joined table.
-- **class FromClause** (L73) @dataclasses.dataclass — Corresponds to the From-clause ('FROM <tbl> JOIN ... ON (...) JOIN ...') of a SELECT statement
-- **class SampleClause** (L86) @dataclasses.dataclass — Defines a sampling clause for a table.
-  - `__post_init__() -> None` (L99)
-  - `is_stratified() -> bool` @property (L105) — Check if the sampling is stratified
-  - `is_repeatable() -> bool` @property (L110) — Return true if the same rows will continue to be sampled if source rows are added or deleted.
-  - `display_str(inline: bool = False) -> str` (L114)
-  - `as_dict() -> dict` (L117) — Return a dictionary representation of the object
-  - `from_dict(d: dict) -> SampleClause` @classmethod (L126) — Create a SampleClause from a dictionary representation
-  - `fraction_to_md5_hex(fraction: float) -> str` @classmethod (L142) — Return the string representation of an approximation (to ~1e-9) of a fraction of the total space
-- **class Analyzer** (L157) — Performs semantic analysis of a query and stores the analysis state.
-  - `finalize(row_builder: exprs.RowBuilder) -> None` (L317) — Make all exprs executable
-  - `get_window_fn_ob_clause() -> OrderByClause | None` (L333)
-  - `has_agg() -> bool` (L343) — True if there is any kind of aggregation in the query
-- **class Planner** (L348)
-  - `create_count_stmt(query: 'pxt.Query') -> sql.Select` @classmethod (L350) — Creates a SQL SELECT COUNT(*) statement for counting rows in a Query.
-  - `create_insert_plan(tbl: catalog.TableVersion, rows: list[dict[str, Any]], ignore_errors: bool) -> exec.ExecNode` @classmethod (L364) — Creates a plan for TableVersion.insert()
-  - `rowid_columns(target: TableVersionHandle, num_rowid_cols: int | None = None) -> list[exprs.Expr]` @classmethod (L397) — Return list of RowidRef for the given number of associated rowids
-  - `create_query_insert_plan(tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool) -> exec.ExecNode` @classmethod (L404)
-  - `create_update_plan(tbl: catalog.TableVersionPath, update_targets: dict[catalog.Column, exprs.Expr], recompute_targets: list[catalog.Colu...) -> tuple[exec.ExecNode, list[str], list[catalog.Column]]` @classmethod (L426) — Creates a plan to materialize updated rows.
-  - `__check_valid_columns(tbl: catalog.TableVersion, cols: Iterable[Column], op_name: Literal['inserted into', 'updated in']) -> None` @classmethod (L509)
-  - `__check_valid_iterator(tbl: catalog.TableVersion, iterator: GeneratingFunctionCall | None, op_name: Literal['updated in']) -> None` @classmethod (L527)
-  - `create_batch_update_plan(tbl: catalog.TableVersionPath, batch: list[dict[catalog.Column, exprs.Expr]], rowids: list[tuple[int, ...]], cascade:...) -> tuple[exec.ExecNode, exec.RowUpdateNode, sql.ColumnElement[bool], list[catalog.Column], list[catalog.Column]]` @classmethod (L635) — Returns:
-  - `create_view_update_plan(view: catalog.TableVersionPath, recompute_targets: list[catalog.Column]) -> exec.ExecNode` @classmethod (L736) — Creates a plan to materialize updated rows for a view, given that the base table has been updated.
-  - `create_view_load_plan(view: catalog.TableVersionPath, propagates_insert: bool = False) -> tuple[exec.ExecNode, int]` @classmethod (L786) — Creates a query plan for populating a view.
-  - `create_query_plan(from_clause: FromClause, select_list: list[exprs.Expr] | None = None, columns: list[catalog.Column] | None = None, wh...) -> exec.ExecNode` @classmethod (L933) — Return plan for executing a query.
-  - `analyze(tbl: catalog.TableVersionPath, where_clause: exprs.Expr) -> Analyzer` @classmethod (L1197)
-  - `create_add_column_plan(tbl: catalog.TableVersionPath, col: catalog.Column) -> exec.ExecNode` @classmethod (L1201) — Creates a plan for InsertableTable.add_column()
-
-### runtime.py
-
-- **class Runtime** (L27) — Global context for a thread executing Pixeltable API calls.
-  - `copy_db_context(other: Runtime) -> None` (L58) — Copy the db-related state from another Runtime instance.
-  - `in_xact() -> bool` @property (L67)
-  - `catalog() -> Catalog` @property (L71)
-  - `event_loop() -> asyncio.AbstractEventLoop` @property (L79)
-  - `get_client(name: str) -> Any` (L100) — Gets the client with the specified name, initializing it if necessary.
-  - `run_coro(coro: Coroutine[Any, Any, _T]) -> _T` (L109) — Run a coroutine synchronously in a separate thread with its own persistent event loop.
-  - `begin_xact(*, for_write: bool = False) -> Iterator[sql.Connection]` @contextmanager (L121) — Start or join a database transaction.
-  - `start_progress(create_fn: Callable[[], Progress]) -> Progress` (L155)
-  - `stop_progress() -> None` (L161)
-  - `report_progress() -> Iterator[None]` @contextmanager (L183) — Context manager for the Progress instance.
-- `get_runtime() -> Runtime` (L191) — Get the current thread's Runtime instance, creating one if needed.
-- `reset_runtime() -> None` (L200) — Reset the current thread's Runtime instance. Used for testing.
 
 ## pixeltable/share/
 
@@ -2153,6 +2304,13 @@ Use this to quickly locate code without reading full files.
   - `__from_pa_value(val: Any, sql_type: sql.types.TypeEngine[Any], col: catalog.Column | None, is_media_col: bool, is_cellmd_col: bool) -> Any` (L749)
   - `__relocate_media_file(media_col: catalog.Column, url: str) -> str` (L775)
   - `__restore_cellmd(col: catalog.Column, cellmd: dict[str, Any]) -> dict[str, Any]` (L791)
+
+### publish.py
+
+- `push_replica(dest_tbl_uri: PxtUri, src_tbl: pxt.Table, bucket: str | None = None, access: Literal['public', 'private'] = 'private') -> str` (L75)
+- `pull_replica(dest_path: str, src_tbl_uri: PxtUri) -> pxt.Table` (L177)
+- `delete_replica(dest_uri: PxtUri, version: int | None = None) -> None` (L332) — Delete cloud replica
+- `list_table_versions(table_uri: str) -> list[dict[str, Any]]` (L342) — List versions for a remote table.
 
 ## pixeltable/share/protocol/
 
@@ -2190,178 +2348,6 @@ Use this to quickly locate code without reading full files.
 - **class ReplicateRequest(RequestBaseModel)** (L100) — Request to clone a table replica.
   - `get_pxt_uri() -> PxtUri` (L106) — Get the PxtUri from this request.
 - **class ReplicateResponse(BaseModel)** (L111) — Response from cloning a table replica.
-
-## pixeltable/share/
-
-### publish.py
-
-- `push_replica(dest_tbl_uri: PxtUri, src_tbl: pxt.Table, bucket: str | None = None, access: Literal['public', 'private'] = 'private') -> str` (L75)
-- `pull_replica(dest_path: str, src_tbl_uri: PxtUri) -> pxt.Table` (L177)
-- `delete_replica(dest_uri: PxtUri, version: int | None = None) -> None` (L332) — Delete cloud replica
-- `list_table_versions(table_uri: str) -> list[dict[str, Any]]` (L342) — List versions for a remote table.
-
-## pixeltable/
-
-### store.py
-
-- **class StoreBase** (L25) — Base class for stored tables
-  - `base() -> StoreBase | None` @property (L64)
-  - `storage_name(tbl_id: UUID, is_view: bool) -> str` @classmethod (L71)
-  - `system_columns() -> list[sql.Column]` (L74)
-  - `pk_columns() -> list[sql.Column]` (L77)
-  - `rowid_columns() -> list[sql.Column]` (L80)
-  - `create_sa_tbl(tbl_version: catalog.TableVersion | None = None) -> None` (L113) — Create self.sa_tbl from self.tbl_version.
-  - `count() -> int` (L157) — Return the number of rows visible in self.tbl_version
-  - `create() -> None` (L216) — Create or update store table to bring it in sync with self.sa_tbl. Idempotent.
-  - `create_index(idx_id: int) -> None` (L252) — Create index if not exists
-  - `drop_index(idx_id: int) -> None` (L258) — Drop index if exists
-  - `validate() -> None` (L272) — Validate store table against self.table_version
-  - `drop() -> None` (L289) — Drop store table
-  - `add_column(col: catalog.Column, if_not_exists: bool) -> None` (L302) — Add column(s) to the store-resident table based on a catalog column
-  - `drop_column(col: catalog.Column, if_exists: bool) -> None` (L324) — Execute Alter Table Drop Column statement
-  - `write_column(col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int` (L334) — Populate store column of a computed column with values produced by an execution plan
-  - `insert_rows(exec_plan: ExecNode, v_min: int, rowids: Iterator[int] | None = None, abort_on_exc: bool = False) -> tuple[set[int], RowCountStats]` (L416) — Insert rows into the store table and update the catalog table's md
-  - `sql_insert(sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None` @classmethod (L478)
-  - `delete_rows(current_version: int, base_versions: list[int | None], match_on_vmin: bool, where_clause: sql.ColumnElement[bool] | None) -> int` (L506) — Mark rows as deleted that are live and were created prior to current_version.
-  - `dump_rows(version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]` (L550)
-  - `load_rows(rows: Iterable[dict[str, Any]], batch_size: int = 10000) -> None` (L569) — When instantiating a replica, we can't rely on the usual insertion code path, which contains erro...
-- **class StoreTable(StoreBase)** (L579)
-- **class StoreView(StoreBase)** (L595)
-- **class StoreComponentView(StoreView)** (L615) — A view that stores components of its base, as produced by a ComponentIterator
-  - `pos_col() -> sql.Column` @property (L633)
-  - `pos_col_idx() -> int` @property (L637)
-  - `create_sa_tbl(tbl_version: catalog.TableVersion | None = None) -> None` (L640)
-
-### type_system.py
-
-- **class ColumnType** (L31)
-  - `has_supertype() -> bool` (L83)
-  - `nullable() -> bool` @property (L87)
-  - `type_enum() -> Type` @property (L91)
-  - `serialize() -> str` (L94)
-  - `copy(nullable: bool) -> ColumnType` (L97)
-  - `serialize_list(type_list: list[ColumnType]) -> str` @classmethod (L105)
-  - `as_dict() -> dict` (L108)
-  - `deserialize(type_str: str) -> ColumnType` @classmethod (L115)
-  - `deserialize_list(type_list_str: str) -> list[ColumnType]` @classmethod (L120)
-  - `from_dict(type_dict: dict) -> ColumnType` @classmethod (L125)
-  - `make_type(t: Type) -> ColumnType` @classmethod (L139)
-  - `is_supertype_of(other: ColumnType, ignore_nullable: bool = False) -> bool` (L195)
-  - `matches(other: ColumnType) -> bool` (L204) — Two types match if they're equal, aside from nullability
-  - `supertype(other: ColumnType, for_inference: bool = False) -> ColumnType | None` (L209) — Returns the most specific type that is a supertype of both `self` and `other`.
-  - `infer_literal_type(val: Any, nullable: bool = False) -> ColumnType | None` @classmethod (L243)
-  - `infer_common_literal_type(vals: Iterable[Any]) -> ColumnType | None` @classmethod (L281) — Returns the most specific type that is a supertype of all literals in `vals`. If no such type
-  - `from_python_type(t: type | _GenericAlias, nullable_default: bool = False, allow_builtin_types: bool = True, infer_pydantic_json: bool ...) -> ColumnType | None` @classmethod (L303) — Convert a Python type into a Pixeltable `ColumnType` instance.
-  - `normalize_type(t: ColumnType | type | _AnnotatedAlias, nullable_default: bool = False, allow_builtin_types: bool = True) -> ColumnType` @classmethod (L391) — Convert any type recognizable by Pixeltable to its corresponding ColumnType.
-  - `__raise_exc_for_invalid_type(t: type | _AnnotatedAlias) -> None` @classmethod (L419)
-  - `from_json_schema(schema: dict[str, Any]) -> ColumnType | None` @classmethod (L427)
-  - `__json_schema_to_py_type(schema: dict[str, Any]) -> type | _GenericAlias | None` @classmethod (L435)
-  - `validate_literal(val: Any) -> None` (L456) — Raise TypeError if val is not a valid literal for this type
-  - `validate_media(val: Any) -> None` (L465) — Raise TypeError if val is not a path to a valid media file (or a valid in-memory byte sequence) f...
-  - `create_literal(val: Any) -> Any` (L490) — Create a literal of this type from val or raise TypeError if not possible
-  - `print_value(val: Any) -> str` (L498)
-  - `is_scalar_type() -> bool` (L501)
-  - `is_scalar_json_type() -> bool` (L504)
-  - `is_numeric_type() -> bool` (L507)
-  - `is_invalid_type() -> bool` (L510)
-  - `is_string_type() -> bool` (L513)
-  - `is_int_type() -> bool` (L516)
-  - `is_float_type() -> bool` (L519)
-  - `is_bool_type() -> bool` (L522)
-  - `is_timestamp_type() -> bool` (L525)
-  - `is_date_type() -> bool` (L528)
-  - `is_uuid_type() -> bool` (L531)
-  - `is_json_type() -> bool` (L534)
-  - `is_array_type() -> bool` (L537)
-  - `is_binary_type() -> bool` (L540)
-  - `is_image_type() -> bool` (L543)
-  - `is_video_type() -> bool` (L546)
-  - `is_audio_type() -> bool` (L549)
-  - `is_document_type() -> bool` (L552)
-  - `is_media_type() -> bool` (L555)
-  - `supports_file_offloading() -> bool` (L559)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod @abc.abstractmethod (L565) — Return corresponding SQLAlchemy type.
-  - `to_json_schema() -> dict[str, Any]` (L570)
-  - `from_np_dtype(dtype: np.dtype, nullable: bool) -> ColumnType | None` @classmethod (L580) — Return pixeltable type corresponding to a given simple numpy dtype
-- **class InvalidType(ColumnType)** (L609)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L614)
-  - `print_value(val: Any) -> str` (L617)
-- **class StringType(ColumnType)** (L624)
-  - `has_supertype() -> bool` (L628)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L632)
-  - `print_value(val: Any) -> str` (L638)
-- **class IntType(ColumnType)** (L654)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L659)
-- **class FloatType(ColumnType)** (L672)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L677)
-- **class BoolType(ColumnType)** (L693)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L698)
-- **class TimestampType(ColumnType)** (L714)
-  - `has_supertype() -> bool` (L718)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L722)
-- **class DateType(ColumnType)** (L738)
-  - `has_supertype() -> bool` (L742)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L746)
-- **class UUIDType(ColumnType)** (L761)
-  - `has_supertype() -> bool` (L765)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L769)
-  - `print_value(val: Any) -> str` (L775)
-- **class BinaryType(ColumnType)** (L791)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L796)
-- **class JsonType(ColumnType)** (L807)
-  - `copy(nullable: bool) -> ColumnType` (L821)
-  - `matches(other: ColumnType) -> bool` (L824)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L838)
-  - `print_value(val: Any) -> str` (L846)
-  - `__is_valid_json(val: Any) -> bool` @classmethod (L865)
-  - `supertype(other: ColumnType, for_inference: bool = False) -> JsonType | None` (L881)
-  - `__superschema(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None` @classmethod (L903)
-  - `__superschema_with_nulls(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None` @classmethod (L963)
-  - `__unpack_null_from_schema(s: dict[str, Any]) -> tuple[dict[str, Any], bool]` @classmethod (L974)
-- **class ArrayType(ColumnType)** (L1008)
-  - `copy(nullable: bool) -> ColumnType` (L1047)
-  - `matches(other: ColumnType) -> bool` (L1050)
-  - `supertype(other: ColumnType, for_inference: bool = False) -> ArrayType | None` (L1056)
-  - `from_literal(val: np.ndarray, nullable: bool = False) -> ArrayType | None` @classmethod (L1111)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L1166)
-- **class ImageType(ColumnType)** (L1170)
-  - `copy(nullable: bool) -> ColumnType` (L1191)
-  - `matches(other: ColumnType) -> bool` (L1206)
-  - `supertype(other: ColumnType, for_inference: bool = False) -> ImageType | None` (L1217)
-  - `size() -> tuple[int, int] | None` @property (L1232)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L1250)
-  - `validate_media(val: Any) -> None` (L1272)
-- **class VideoType(ColumnType)** (L1280)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L1285)
-  - `validate_media(val: Any) -> None` (L1292)
-- **class AudioType(ColumnType)** (L1313)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L1318)
-  - `validate_media(val: Any) -> None` (L1325)
-- **class DocumentType(ColumnType)** (L1341)
-  - `copy(nullable: bool) -> ColumnType` (L1385)
-  - `matches(other: ColumnType) -> bool` (L1388)
-  - `to_sa_type() -> sql.types.TypeEngine` @classmethod (L1395)
-  - `validate_media(val: Any) -> None` (L1402)
-- **class Required(typing.Generic[T])** (L1412) — Marker class to indicate that a column is non-nullable in a schema definition. This has no meanin...
-- **class Json(_PxtType)** (L1452)
-  - `__class_getitem__(item: Any) -> _AnnotatedAlias` (L1453) — `item` (the type subscript) must be a `dict` representing a valid JSON Schema.
-  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1464)
-- **class Array(np.ndarray, _PxtType)** (L1468)
-  - `__class_getitem__(item: Any) -> _AnnotatedAlias` (L1469) — `item` (the type subscript) must be a tuple with at most two elements (in any order):
-  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1503)
-- **class Image(PIL.Image.Image, _PxtType)** (L1507)
-  - `__class_getitem__(item: Any) -> _AnnotatedAlias` (L1508) — `item` (the type subscript) must be one of the following, or a tuple containing either or both in...
-  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1548)
-- **class Video(str, _PxtType)** (L1552)
-  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1554)
-- **class Audio(str, _PxtType)** (L1558)
-  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1560)
-- **class Document(str, _PxtType)** (L1564)
-  - `as_col_type(nullable: bool) -> ColumnType` @classmethod (L1566)
-
-### types.py — User-facing types used for type annotations across the Pixeltable codebase.
-
-- **class ColumnSpec(TypedDict)** (L10) — Column specification, a dictionary representation of a column's schema.
 
 ## pixeltable/utils/
 

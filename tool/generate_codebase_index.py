@@ -173,56 +173,64 @@ def generate_index(root: Path) -> str:
 
     py_files = sorted(root.rglob('*.py'))
 
-    # Group by directory
-    current_dir = None
+    # Group files by directory, preserving order of first appearance
+    dir_files: dict[str, list[tuple[Path, Path]]] = {}
     for filepath in py_files:
         parts = filepath.parts
         if any(p in ('__pycache__', '.git', 'node_modules') for p in parts):
             continue
-
         rel = filepath.relative_to(root.parent)
-        result = analyze_file(filepath)
-        if result is None:
+        file_dir = str(rel.parent)
+        dir_files.setdefault(file_dir, []).append((filepath, rel))
+
+    for file_dir, files in dir_files.items():
+        # Collect analyzed results for this directory, skipping empty files
+        dir_entries = []
+        for filepath, rel in files:
+            result = analyze_file(filepath)
+            if result is not None:
+                dir_entries.append((rel, result))
+
+        if not dir_entries:
             continue
 
-        # Directory header
-        file_dir = str(rel.parent)
-        if file_dir != current_dir:
-            current_dir = file_dir
-            lines.append(f'## {current_dir}/')
+        lines.append(f'## {file_dir}/')
+        lines.append('')
+
+        for rel, result in dir_entries:
+            # File header
+            file_label = f'### {rel.name}'
+            if result['module_doc']:
+                file_label += f' — {result["module_doc"]}'
+            lines.append(file_label)
             lines.append('')
 
-        # File header
-        file_label = f'### {rel.name}'
-        if result['module_doc']:
-            file_label += f' — {result["module_doc"]}'
-        lines.append(file_label)
-        lines.append('')
+            # Classes
+            for cls in result['classes']:
+                dec_str = ' '.join(cls['decorators'])
+                if dec_str:
+                    dec_str = f' {dec_str}'
+                doc_str = f' — {cls["doc"]}' if cls['doc'] else ''
+                lines.append(f'- **class {cls["name"]}{cls["bases"]}** (L{cls["line"]}){dec_str}{doc_str}')
 
-        # Classes
-        for cls in result['classes']:
-            dec_str = ' '.join(cls['decorators'])
-            if dec_str:
-                dec_str = f' {dec_str}'
-            doc_str = f' — {cls["doc"]}' if cls['doc'] else ''
-            lines.append(f'- **class {cls["name"]}{cls["bases"]}** (L{cls["line"]}){dec_str}{doc_str}')
+                for method in cls['methods']:
+                    mdec = ' '.join(method['decorators'])
+                    if mdec:
+                        mdec = f' {mdec}'
+                    mdoc = f' — {method["doc"]}' if method['doc'] else ''
+                    lines.append(
+                        f'  - `{method["name"]}{method["signature"]}`{mdec} (L{method["line"]}){mdoc}'
+                    )
 
-            for method in cls['methods']:
-                mdec = ' '.join(method['decorators'])
-                if mdec:
-                    mdec = f' {mdec}'
-                mdoc = f' — {method["doc"]}' if method['doc'] else ''
-                lines.append(f'  - `{method["name"]}{method["signature"]}`{mdec} (L{method["line"]}){mdoc}')
+            # Top-level functions
+            for fn in result['functions']:
+                dec_str = ' '.join(fn['decorators'])
+                if dec_str:
+                    dec_str = f' {dec_str}'
+                doc_str = f' — {fn["doc"]}' if fn['doc'] else ''
+                lines.append(f'- `{fn["name"]}{fn["signature"]}`{dec_str} (L{fn["line"]}){doc_str}')
 
-        # Top-level functions
-        for fn in result['functions']:
-            dec_str = ' '.join(fn['decorators'])
-            if dec_str:
-                dec_str = f' {dec_str}'
-            doc_str = f' — {fn["doc"]}' if fn['doc'] else ''
-            lines.append(f'- `{fn["name"]}{fn["signature"]}`{dec_str} (L{fn["line"]}){doc_str}')
-
-        lines.append('')
+            lines.append('')
 
     return '\n'.join(lines)
 
