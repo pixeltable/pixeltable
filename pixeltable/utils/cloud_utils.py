@@ -7,9 +7,10 @@ such as obtaining temporary credentials for home buckets.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from typing import Optional
+from typing import Literal, Optional
 
 import requests
 
@@ -68,3 +69,33 @@ def get_home_bucket_credentials(
         return GetHomeBucketCredentialsResponse.model_validate(body)
     except requests.exceptions.RequestException as e:
         raise excs.Error(f'Failed to connect to Pixeltable cloud for home bucket credentials: {e}') from e
+
+
+def get_presigned_url_from_cloud(
+    org_slug: str,
+    db_slug: str,
+    key: str,
+    method: Literal['get', 'put'] = 'get',
+    expiration: int = 3600,
+) -> str:
+    """
+    Request a presigned URL from Pixeltable Cloud for a key in the org/db home bucket.
+    Uses backend credentials on the cloud so URL expiry is independent of temp credential TTL.
+    """
+    body = {
+        'operation_type': 'get_presigned_url',
+        'org_slug': org_slug,
+        'db_slug': db_slug,
+        'key': key,
+        'method': method,
+        'expiration': expiration,
+    }
+    response = requests.post(
+        PIXELTABLE_API_URL, json=body, headers=_api_headers(), timeout=30
+    )
+    response.raise_for_status()
+    data = response.json()
+    if data.get('statusCode') != 200:
+        raise excs.Error(f'get_presigned_url failed: {data}')
+    result = json.loads(data['body']) if isinstance(data.get('body'), str) else data.get('body', data)
+    return result['url']

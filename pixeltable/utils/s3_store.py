@@ -695,3 +695,29 @@ class S3Store(ObjectStoreBase):
     def create_boto_resource(cls, profile_name: str | None = None, extra_args: dict[str, Any] | None = None) -> Any:
         # Create a session using the defined profile
         return cls.create_boto_session(profile_name).resource('s3', **(extra_args or {}))
+
+
+class PxtStore(S3Store):
+    """Store for pxt:// (PIXELTABLE_STORE). Same as S3Store but create_presigned_url calls the cloud API.
+
+    Presigned URLs from the cloud use backend credentials, so URL expiry is independent of
+    temp credential TTL. All other operations use the base S3Store (temp credentials).
+    """
+
+    def create_presigned_url(self, soa: StorageObjectAddress, expiration_seconds: int) -> str:
+        """Create a presigned URL via the cloud control plane (not tied to temp cred TTL)."""
+        if not soa.has_object:
+            raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
+        if soa.storage_target != StorageTarget.PIXELTABLE_STORE:
+            return super().create_presigned_url(soa, expiration_seconds)
+        from pixeltable.utils.cloud_utils import get_presigned_url_from_cloud
+
+        org = soa.account
+        db = soa.account_extension or ''
+        return get_presigned_url_from_cloud(
+            org_slug=org,
+            db_slug=db,
+            key=soa.key,
+            method='get',
+            expiration=expiration_seconds,
+        )

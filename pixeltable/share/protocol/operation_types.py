@@ -27,6 +27,7 @@ class PixeltableStoreOperationType(str, Enum):
     """Operation types for Pixeltable-managed storage (home buckets)."""
 
     GET_HOME_BUCKET_CREDENTIALS = 'get_home_bucket_credentials'
+    GET_PRESIGNED_URL = 'get_presigned_url'
 
 
 REPLICA_OPERATIONS: set[ReplicaOperationType] = {
@@ -38,4 +39,5 @@ REPLICA_OPERATIONS: set[ReplicaOperationType] = {
 
 PIXELTABLE_STORE_OPERATIONS: set[PixeltableStoreOperationType] = {
     PixeltableStoreOperationType.GET_HOME_BUCKET_CREDENTIALS,
+    PixeltableStoreOperationType.GET_PRESIGNED_URL,
 }

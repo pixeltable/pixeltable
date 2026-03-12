@@ -8,6 +8,7 @@ that can be shared between pixeltable core and cloud implementations.
 from .common import PxtUri, RequestBaseModel
 from .home_bucket import GetHomeBucketCredentialsRequest, GetHomeBucketCredentialsResponse
 from .operation_types import PixeltableStoreOperationType, ReplicaOperationType
+from .presigned_url import GetPresignedUrlRequest, GetPresignedUrlResponse
 from .replica import (
     DeleteRequest,
     DeleteResponse,
@@ -26,6 +27,8 @@ __all__ = [
     'FinalizeResponse',
     'GetHomeBucketCredentialsRequest',
     'GetHomeBucketCredentialsResponse',
+    'GetPresignedUrlRequest',
+    'GetPresignedUrlResponse',
     'PixeltableStoreOperationType',
     'PublishRequest',
     'PublishResponse',
