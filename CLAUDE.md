@@ -51,7 +51,7 @@ pixeltable/
 ```bash
 # Create and activate conda environment
 mamba create --name pxt python=3.10
-mamba activate pxt
+conda activate pxt
 
 # Install development dependencies
 make install
