@@ -376,7 +376,9 @@
         </outline>
         <outline text="module|pixeltable.functions.vision">
           <outline text="func|pixeltable.functions.vision.eval_detections" />
-          <outline text="func|pixeltable.functions.vision.draw_bounding_boxes" />
+          <outline text="func|pixeltable.functions.vision.bboxes_convert" />
+          <outline text="func|pixeltable.functions.vision.bboxes_draw" />
+          <outline text="func|pixeltable.functions.vision.bboxes_resize" />
         </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />
