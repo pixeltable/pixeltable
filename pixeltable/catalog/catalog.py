@@ -402,6 +402,9 @@ class Catalog:
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
                             time.sleep(random.uniform(0.1, 0.5))
                             assert not self._undo_actions  # We should not have any undo actions at this point
+                            # If we continue without rolling back, the context manager that owns conn will attempt to
+                            # commit the transaction.
+                            conn.rollback()
                             continue
 
                     assert not self._undo_actions
