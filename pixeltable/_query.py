@@ -538,7 +538,7 @@ class Query:
                     yield [data_row[e.slot_idx] for e in self._select_list_exprs]
             except excs.ExprEvalError as e:
                 self._raise_expr_eval_err(e)
-            except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
+            except sql_exc.DBAPIError as e:
                 get_runtime().catalog.convert_sql_exc(
                     e, tbl=(single_tbl.tbl_version if single_tbl is not None else None)
                 )
@@ -554,7 +554,7 @@ class Query:
             return ResultSet(result, self.schema)
         except excs.ExprEvalError as e:
             self._raise_expr_eval_err(e)
-        except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
+        except sql_exc.DBAPIError as e:
             get_runtime().catalog.convert_sql_exc(e, tbl=(single_tbl.tbl_version if single_tbl is not None else None))
             raise  # just re-raise if not converted to a Pixeltable error
 
