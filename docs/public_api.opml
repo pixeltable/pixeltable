@@ -253,8 +253,8 @@
         <outline text="module|pixeltable.functions.video">
           <outline text="iter|pixeltable.functions.video.frame_iterator" />
           <outline text="iter|pixeltable.functions.video.video_splitter" />
-          <outline text="uda|pixeltable.functions.video.make_video" />
           <outline text="uda|pixeltable.functions.video.concat_videos_agg" />
+          <outline text="uda|pixeltable.functions.video.make_video" />
           <outline text="udf|pixeltable.functions.video.clip" />
           <outline text="udf|pixeltable.functions.video.crop" />
           <outline text="udf|pixeltable.functions.video.concat_videos" />
