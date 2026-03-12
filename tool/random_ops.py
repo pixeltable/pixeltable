@@ -158,7 +158,7 @@ class RandomTableOps:
         random_ops_log_handler.setLevel(logging.DEBUG)
         random_ops_log_handler.addFilter(WorkerIdFilter())
         formatter = logging.Formatter(
-            '%(asctime)s %(process)d [Worker %(worker_id)02d] '
+            '%(asctime)s %(process)d [Worker %(worker_id)02d] %(threadName)s '
             '%(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
         )
         random_ops_log_handler.setFormatter(formatter)
