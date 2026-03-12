@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, TypedDict, Union
 
 import jsonschema.exceptions
 import numpy as np
@@ -42,61 +42,23 @@ from pixeltable.type_system import (
 
 from .utils import skip_test_if_not_installed
 
+FLOAT32 = np.dtype('float32')
+
+
+class TypedDict1(TypedDict):
+    a: str
+    b: int | None
+    c: Array[(None,), np.float32]  # type: ignore[misc]
+
+
+class TypedDict2(TypedDict, total=False):
+    a: str
+    b: int | None
+    c: Array[(None,), np.float32]  # type: ignore[misc]
+
 
 class TestTypes:
-    json_schema_1: ClassVar[dict[str, Any]] = {
-        'properties': {
-            'a': {'type': 'string'},  # required in 1 and 2
-            'b': {'type': 'integer'},  # required in 1, optional in 2
-            'c': {'type': 'number'},  # required in 2, optional in 1
-            'd': {'type': 'boolean'},  # optional in 1 and 2
-            'e': {'type': 'string'},  # required in 1, absent from 2
-            'g': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},  # nullable in 1, non-nullable in 2
-            'h': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},  # type conflict (string in 1, int in 2)
-        },
-        'required': ['a', 'b'],
-    }
-
-    json_schema_2: ClassVar[dict[str, Any]] = {
-        'properties': {
-            'a': {'type': 'string'},
-            'b': {'type': 'integer'},
-            'c': {'type': 'number'},
-            'd': {'type': 'boolean'},
-            'f': {'type': 'string'},  # required in 2, absent from 1
-            'g': {'type': 'string'},
-            'h': {'anyOf': [{'type': 'integer'}, {'type': 'null'}]},
-        },
-        'required': ['a', 'c'],
-    }
-
-    json_schema_12: ClassVar[dict[str, Any]] = {  # supertype of 1 + 2
-        'type': 'object',
-        'properties': {
-            'a': {'type': 'string'},
-            'b': {'type': 'integer'},
-            'c': {'type': 'number'},
-            'd': {'type': 'boolean'},
-            'e': {'type': 'string'},
-            'f': {'type': 'string'},
-            'g': {'anyOf': [{'type': 'string'}, {'type': 'null'}]},
-            'h': {},
-        },
-        'required': ['a'],
-    }
-
-    bad_json_schema: ClassVar[dict[str, Any]] = {'type': 'junk'}
-
     def test_infer(self, init_env: None) -> None:
-        vd = datetime.date.today()
-        vts = datetime.datetime.now()
-
-        print(vd, type(vd), ColumnType.infer_literal_type(vd))
-        print(vts, type(vts), ColumnType.infer_literal_type(vts))
-
-        print(isinstance(vd, datetime.date), isinstance(vts, datetime.date))
-        print(isinstance(vd, datetime.datetime), isinstance(vts, datetime.datetime))
-
         test_cases: list[tuple[Any, ColumnType]] = [
             ('a', StringType()),
             (1, IntType()),
@@ -231,11 +193,22 @@ class TestTypes:
             (JsonType(), IntType(), JsonType()),
             (TimestampType(), IntType(), None),
             (DateType(), StringType(), None),
-            (JsonType(json_schema=self.json_schema_1), JsonType(), JsonType()),
             (
-                JsonType(json_schema=self.json_schema_1),
-                JsonType(json_schema=self.json_schema_2),
-                JsonType(json_schema=self.json_schema_12),
+                JsonType(JsonType.TypeSchema({'a': StringType(), 'c': ArrayType((3,), dtype=FLOAT32)})),
+                JsonType(JsonType.TypeSchema({'b': IntType(), 'c': ArrayType((5,), dtype=FLOAT32)})),
+                JsonType(
+                    JsonType.TypeSchema(
+                        {'a': StringType(), 'b': IntType(), 'c': ArrayType((None,), dtype=FLOAT32)},
+                        optional_keys=['a', 'b'],
+                    )
+                ),
+            ),
+            (
+                JsonType(JsonType.TypeSchema([StringType(), IntType()], variadic_type=ArrayType((3,), dtype=FLOAT32))),
+                JsonType(JsonType.TypeSchema([StringType(), StringType(), ArrayType((5,), dtype=FLOAT32)])),
+                JsonType(
+                    JsonType.TypeSchema([StringType(), JsonType()], variadic_type=ArrayType((None,), dtype=FLOAT32))
+                ),
             ),
         ]
         for i, (t1, t2, expected) in enumerate(test_cases):
@@ -248,6 +221,10 @@ class TestTypes:
                         assert t1n.supertype(t2n) == expectedn, (t1n, t2n)
                         assert t2n.supertype(t1n) == expectedn, (t1n, t2n)
                     except Exception as e:
+                        print(t1n)
+                        print(t2n)
+                        print(expectedn)
+                        print(t1n.supertype(t2n))
                         raise type(e)(f'Failed test case {i} with n1={n1}, n2={n2}') from e
 
     def test_json_schemas(self, init_env: None) -> None:

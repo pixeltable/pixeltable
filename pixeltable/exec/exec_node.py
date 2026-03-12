@@ -52,8 +52,7 @@ class ExecNode(abc.ABC):
             self.input.set_ctx(ctx)
 
     @abc.abstractmethod
-    def __aiter__(self) -> AsyncIterator[DataRowBatch]:
-        pass
+    def __aiter__(self) -> AsyncIterator[DataRowBatch]: ...
 
     def __iter__(self) -> Iterator[DataRowBatch]:
         loop = Env.get().event_loop
