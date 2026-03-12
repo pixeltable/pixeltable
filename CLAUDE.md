@@ -4,7 +4,7 @@ Instructions for AI coding agents working with the Pixeltable codebase.
 
 ## MANDATORY: Use the Codebase Index First
 
-Before exploring, searching, or reading code to answer a question or plan a change, **always consult `CODEBASE_INDEX.md` first**. It contains a compact AST-generated map of all public classes, functions, and signatures. Use it to identify the exact files and symbols you need, then read only those. Do not launch broad searches or exploration agents without checking the index.
+Before exploring, searching, or reading code to answer a question or plan a change, **always consult `.claude/CODEBASE_INDEX.md` first**. It contains a compact AST-generated map of all public classes, functions, and signatures. Use it to identify the exact files and symbols you need, then read only those. Do not launch broad searches or exploration agents without checking the index.
 
 ## Project Overview
 

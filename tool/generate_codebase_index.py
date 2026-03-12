@@ -242,7 +242,7 @@ def generate_index(root: Path) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description='Generate codebase index for Claude Code')
     parser.add_argument('--root', type=Path, default=Path('pixeltable'), help='Root directory to analyze')
-    parser.add_argument('--output', type=Path, default=Path('CODEBASE_INDEX.md'), help='Output file path')
+    parser.add_argument('--output', type=Path, default=Path('.claude/CODEBASE_INDEX.md'), help='Output file path')
     args = parser.parse_args()
 
     if not args.root.exists():

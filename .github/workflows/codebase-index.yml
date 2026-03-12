@@ -23,13 +23,13 @@ jobs:
           python-version: '3.10'
 
       - name: Generate AST-based codebase index
-        run: python tool/generate_codebase_index.py --root pixeltable --output CODEBASE_INDEX.md
+        run: python tool/generate_codebase_index.py --root pixeltable --output .claude/CODEBASE_INDEX.md
 
       - name: Check for changes
         id: check
         run: |
-          if git ls-files --error-unmatch CODEBASE_INDEX.md &>/dev/null; then
-            git diff --quiet CODEBASE_INDEX.md && echo "changed=false" >> "$GITHUB_OUTPUT" || echo "changed=true" >> "$GITHUB_OUTPUT"
+          if git ls-files --error-unmatch .claude/CODEBASE_INDEX.md &>/dev/null; then
+            git diff --quiet .claude/CODEBASE_INDEX.md && echo "changed=false" >> "$GITHUB_OUTPUT" || echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
@@ -39,6 +39,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CODEBASE_INDEX.md
+          git add .claude/CODEBASE_INDEX.md
           git commit -m "Update codebase index"
           git push

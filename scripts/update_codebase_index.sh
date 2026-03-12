@@ -10,4 +10,4 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 echo "=== Generating AST-based codebase index ==="
-python tool/generate_codebase_index.py --root pixeltable --output CODEBASE_INDEX.md
+python tool/generate_codebase_index.py --root pixeltable --output .claude/CODEBASE_INDEX.md
