@@ -19,7 +19,7 @@ import ast
 from pathlib import Path
 
 
-def get_signature(node: ast.FunctionDef) -> str:
+def get_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     """Extract a compact function signature."""
     args = []
     defaults_offset = len(node.args.args) - len(node.args.defaults)
@@ -61,7 +61,7 @@ def get_signature(node: ast.FunctionDef) -> str:
     return f'({sig}){ret}'
 
 
-def get_first_docstring_line(node: ast.AST) -> str:
+def get_first_docstring_line(node: ast.AsyncFunctionDef | ast.FunctionDef | ast.ClassDef | ast.Module) -> str:
     """Get the first line of a docstring, if present."""
     docstring = ast.get_docstring(node)
     if docstring:
@@ -122,22 +122,26 @@ def analyze_file(filepath: Path) -> dict | None:
                     method_dec = get_decorators(item)
                     method_sig = get_signature(item)
                     method_doc = get_first_docstring_line(item)
-                    methods.append({
-                        'name': item.name,
-                        'line': item.lineno,
-                        'signature': method_sig,
-                        'decorators': method_dec,
-                        'doc': method_doc,
-                    })
+                    methods.append(
+                        {
+                            'name': item.name,
+                            'line': item.lineno,
+                            'signature': method_sig,
+                            'decorators': method_dec,
+                            'doc': method_doc,
+                        }
+                    )
 
-            classes.append({
-                'name': node.name,
-                'line': node.lineno,
-                'bases': base_str,
-                'doc': doc,
-                'decorators': decorators,
-                'methods': methods,
-            })
+            classes.append(
+                {
+                    'name': node.name,
+                    'line': node.lineno,
+                    'bases': base_str,
+                    'doc': doc,
+                    'decorators': decorators,
+                    'methods': methods,
+                }
+            )
 
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if node.name.startswith('_'):
@@ -145,22 +149,14 @@ def analyze_file(filepath: Path) -> dict | None:
             doc = get_first_docstring_line(node)
             decorators = get_decorators(node)
             sig = get_signature(node)
-            functions.append({
-                'name': node.name,
-                'line': node.lineno,
-                'signature': sig,
-                'decorators': decorators,
-                'doc': doc,
-            })
+            functions.append(
+                {'name': node.name, 'line': node.lineno, 'signature': sig, 'decorators': decorators, 'doc': doc}
+            )
 
     if not classes and not functions and not module_doc:
         return None
 
-    return {
-        'module_doc': module_doc,
-        'classes': classes,
-        'functions': functions,
-    }
+    return {'module_doc': module_doc, 'classes': classes, 'functions': functions}
 
 
 def generate_index(root: Path) -> str:
@@ -231,7 +227,7 @@ def generate_index(root: Path) -> str:
     return '\n'.join(lines)
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description='Generate codebase index for Claude Code')
     parser.add_argument('--root', type=Path, default=Path('pixeltable'), help='Root directory to analyze')
     parser.add_argument('--output', type=Path, default=Path('CODEBASE_INDEX.md'), help='Output file path')
