@@ -22,9 +22,12 @@ from pathlib import Path
 def get_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     """Extract a compact function signature."""
     args = []
-    defaults_offset = len(node.args.args) - len(node.args.defaults)
 
-    for i, arg in enumerate(node.args.args):
+    # defaults are right-aligned across posonlyargs + args combined
+    all_positional = node.args.posonlyargs + node.args.args
+    defaults_offset = len(all_positional) - len(node.args.defaults)
+
+    for i, arg in enumerate(all_positional):
         if arg.arg in {'self', 'cls'}:
             continue
         annotation = ''
@@ -35,6 +38,9 @@ def get_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
         if 0 <= default_idx < len(node.args.defaults):
             default = f' = {ast.unparse(node.args.defaults[default_idx])}'
         args.append(f'{arg.arg}{annotation}{default}')
+        # Emit the `/` marker after the last positional-only arg
+        if node.args.posonlyargs and i == len(node.args.posonlyargs) - 1:
+            args.append('/')
 
     if node.args.vararg:
         args.append(f'*{node.args.vararg.arg}')

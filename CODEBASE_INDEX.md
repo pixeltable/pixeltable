@@ -371,39 +371,39 @@ Use this to quickly locate code without reading full files.
   - `register_undo_action(func: Callable[[], None]) -> Callable[[], None]` (L446) — Registers a function to be called if the current transaction fails.
   - `convert_sql_exc(e: sql_exc.StatementError, tbl_id: UUID | None = None, tbl: TableVersionHandle | None = None, convert_db_excs: bool =...) -> None` (L459)
   - `in_write_xact() -> bool` @property (L506)
-  - `record_column_dependencies(tbl_version: TableVersion) -> None` (L876) — Update self._column_dependencies. Only valid for mutable versions.
-  - `get_column_dependents(tbl_id: UUID, col_id: int) -> set[Column]` (L888) — Return all Columns that transitively depend on the given column.
-  - `get_dir_path(dir_id: UUID) -> Path` (L923) — Return path for directory with given id
-  - `get_dir_contents(dir_path: Path, recursive: bool = False) -> dict[str, DirEntry]` @retry_loop (L945)
-  - `move(path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None` @retry_loop (L972)
-  - `get_table_by_id(tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False) -> Table | None` (L1145) — Must be executed inside a transaction. Might raise PendingTableOpsError.
-  - `create_table(path: Path, schema: dict[str, type | ColumnSpec | exprs.Expr], if_exists: IfExistsParam, primary_key: list[str] | Non...) -> tuple[Table, bool]` (L1156) — Creates a new InsertableTable at the given path.
-  - `create_view(path: Path, base: TableVersionPath, select_list: list[tuple[exprs.Expr, str | None]] | None, where: exprs.Expr | None...) -> Table` (L1212)
-  - `add_columns(tbl: TableVersionPath, cols: list[Column]) -> None` (L1285)
-  - `create_replica(path: Path, md: list[TableVersionMd], create_store_tbls: bool = True) -> None` (L1313) — Creates table, table_version, and table_schema_version records for a replica with the given metad...
-  - `__ensure_system_dir_exists() -> Dir` (L1395)
-  - `__store_replica_md(path: Path, md: TableVersionMd, create_store_tbl: bool = True) -> None` (L1399)
-  - `get_additional_md(tbl_id: UUID) -> dict[str, Any]` (L1503) — Return the additional_md field of the given table.
-  - `update_additional_md(tbl_id: UUID, additional_md: dict[str, Any]) -> None` (L1513) — Update the additional_md field of the given table. The new additional_md is merged with the
-  - `get_table(path: Path, if_not_exists: IfNotExistsParam) -> Table | None` @retry_loop (L1530)
-  - `drop_table(path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None` (L1544)
-  - `create_dir(path: Path, if_exists: IfExistsParam, parents: bool) -> Dir` @retry_loop (L1708)
-  - `drop_dir(path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None` (L1742)
-  - `get_view_ids(tbl_id: UUID, for_update: bool = False) -> list[UUID]` (L1789) — Return the ids of views that directly reference the given table
-  - `get_tbl_version(key: TableVersionKey, *, check_pending_ops: bool = True, validate_initialized: bool = False, convert_db_excs: bool = ...) -> TableVersion | None` (L1807) — Returns the TableVersion instance for the given table and version and updates the cache.
-  - `remove_tbl_version(key: TableVersionKey) -> None` (L1900)
-  - `get_dir(dir_id: UUID, for_update: bool = False) -> Dir | None` (L1905) — Return the Dir with the given id, or None if it doesn't exist
-  - `construct_tvp(tbl_id: UUID, version: int, ancestors_of_live_tbl: schema.TableVersionPath, created_at: float) -> TableVersionPath` (L2048) — Construct the TableVersionPath for the specified version of the given table. Here `live_ancestors...
-  - `collect_tbl_history(tbl_id: UUID, n: int | None) -> list[TableVersionMd]` @retry_loop (L2108)
-  - `head_version_md(tbl_id: UUID) -> schema.VersionMd | None` (L2147) — Returns the TableVersionMd for the most recent non-fragment version of the given table.
-  - `load_tbl_md(key: TableVersionKey) -> TableVersionMd` (L2166) — Loads metadata from the store for a given table UUID and version.
-  - `write_tbl_md(tbl_id: UUID, dir_id: UUID | None, tbl_md: schema.TableMd | None, version_md: schema.VersionMd | None, schema_version...) -> None` (L2246) — Stores metadata to the DB and adds tbl_id to self._roll_forward_ids if pending_ops is specified.
-  - `delete_current_tbl_version_md(tbl_id: UUID) -> None` (L2363) — Removes 'current_version' from stored metadata for table and resets the table to current_version - 1
-  - `store_update_status(tbl_id: UUID, version: int, status: UpdateStatus) -> None` (L2412) — Update the TableVersion.md.update_status field
-  - `delete_tbl_md(tbl_id: UUID) -> None` (L2426) — Deletes all table metadata from the store for the given table UUID.
-  - `load_replica_md(tbl: Table) -> list[TableVersionMd]` (L2441) — Load metadata for the given table along with all its ancestors. The values of TableMd.current_ver...
-  - `create_user(user: str | None) -> None` (L2558) — Creates a catalog record (root directory) for the specified user, if one does not already exist.
-  - `validate_store() -> None` (L2647) — Validate the underlying store for testing purposes.
+  - `record_column_dependencies(tbl_version: TableVersion) -> None` (L883) — Update self._column_dependencies. Only valid for mutable versions.
+  - `get_column_dependents(tbl_id: UUID, col_id: int) -> set[Column]` (L895) — Return all Columns that transitively depend on the given column.
+  - `get_dir_path(dir_id: UUID) -> Path` (L930) — Return path for directory with given id
+  - `get_dir_contents(dir_path: Path, recursive: bool = False) -> dict[str, DirEntry]` @retry_loop (L952)
+  - `move(path: Path, new_path: Path, if_exists: IfExistsParam, if_not_exists: IfNotExistsParam) -> None` @retry_loop (L979)
+  - `get_table_by_id(tbl_id: UUID, version: int | None = None, ignore_if_dropped: bool = False) -> Table | None` (L1152) — Must be executed inside a transaction. Might raise PendingTableOpsError.
+  - `create_table(path: Path, schema: dict[str, type | ColumnSpec | exprs.Expr], if_exists: IfExistsParam, primary_key: list[str] | Non...) -> tuple[Table, bool]` (L1163) — Creates a new InsertableTable at the given path.
+  - `create_view(path: Path, base: TableVersionPath, select_list: list[tuple[exprs.Expr, str | None]] | None, where: exprs.Expr | None...) -> Table` (L1219)
+  - `add_columns(tbl: TableVersionPath, cols: list[Column]) -> None` (L1292)
+  - `create_replica(path: Path, md: list[TableVersionMd], create_store_tbls: bool = True) -> None` (L1320) — Creates table, table_version, and table_schema_version records for a replica with the given metad...
+  - `__ensure_system_dir_exists() -> Dir` (L1402)
+  - `__store_replica_md(path: Path, md: TableVersionMd, create_store_tbl: bool = True) -> None` (L1406)
+  - `get_additional_md(tbl_id: UUID) -> dict[str, Any]` (L1510) — Return the additional_md field of the given table.
+  - `update_additional_md(tbl_id: UUID, additional_md: dict[str, Any]) -> None` (L1520) — Update the additional_md field of the given table. The new additional_md is merged with the
+  - `get_table(path: Path, if_not_exists: IfNotExistsParam) -> Table | None` @retry_loop (L1537)
+  - `drop_table(path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None` (L1551)
+  - `create_dir(path: Path, if_exists: IfExistsParam, parents: bool) -> Dir` @retry_loop (L1715)
+  - `drop_dir(path: Path, if_not_exists: IfNotExistsParam, force: bool) -> None` (L1749)
+  - `get_view_ids(tbl_id: UUID, for_update: bool = False) -> list[UUID]` (L1796) — Return the ids of views that directly reference the given table
+  - `get_tbl_version(key: TableVersionKey, *, check_pending_ops: bool = True, validate_initialized: bool = False, convert_db_excs: bool = ...) -> TableVersion | None` (L1814) — Returns the TableVersion instance for the given table and version and updates the cache.
+  - `remove_tbl_version(key: TableVersionKey) -> None` (L1907)
+  - `get_dir(dir_id: UUID, for_update: bool = False) -> Dir | None` (L1912) — Return the Dir with the given id, or None if it doesn't exist
+  - `construct_tvp(tbl_id: UUID, version: int, ancestors_of_live_tbl: schema.TableVersionPath, created_at: float) -> TableVersionPath` (L2055) — Construct the TableVersionPath for the specified version of the given table. Here `live_ancestors...
+  - `collect_tbl_history(tbl_id: UUID, n: int | None) -> list[TableVersionMd]` @retry_loop (L2115)
+  - `head_version_md(tbl_id: UUID) -> schema.VersionMd | None` (L2154) — Returns the TableVersionMd for the most recent non-fragment version of the given table.
+  - `load_tbl_md(key: TableVersionKey) -> TableVersionMd` (L2173) — Loads metadata from the store for a given table UUID and version.
+  - `write_tbl_md(tbl_id: UUID, dir_id: UUID | None, tbl_md: schema.TableMd | None, version_md: schema.VersionMd | None, schema_version...) -> None` (L2253) — Stores metadata to the DB and adds tbl_id to self._roll_forward_ids if pending_ops is specified.
+  - `delete_current_tbl_version_md(tbl_id: UUID) -> None` (L2370) — Removes 'current_version' from stored metadata for table and resets the table to current_version - 1
+  - `store_update_status(tbl_id: UUID, version: int, status: UpdateStatus) -> None` (L2419) — Update the TableVersion.md.update_status field
+  - `delete_tbl_md(tbl_id: UUID) -> None` (L2433) — Deletes all table metadata from the store for the given table UUID.
+  - `load_replica_md(tbl: Table) -> list[TableVersionMd]` (L2448) — Load metadata for the given table along with all its ancestors. The values of TableMd.current_ver...
+  - `create_user(user: str | None) -> None` (L2565) — Creates a catalog record (root directory) for the specified user, if one does not already exist.
+  - `validate_store() -> None` (L2654) — Validate the underlying store for testing purposes.
 - `retry_loop(*, tbl: TableVersionPath | None = None, for_write: bool, lock_mutable_tree: bool = False) -> Callable[[Callable[..., T]], Callable[..., T]]` (L78)
 
 ### column.py
@@ -463,9 +463,9 @@ Use this to quickly locate code without reading full files.
   - `is_valid(v: Any) -> bool` @classmethod (L44)
   - `fail_on_exception(v: Any) -> bool` @classmethod (L50)
 - **class InsertableTable(Table)** (L58) — A `Table` that allows inserting and deleting rows.
-  - `insert(*, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None, schema_overrides: dict[str, ts.ColumnType...) -> UpdateStatus` @overload (L114)
+  - `insert(source: TableDataSource | None = None, /, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,...) -> UpdateStatus` @overload (L114)
   - `insert(*, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs) -> UpdateStatus` @overload (L127)
-  - `insert(*, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None, schema_overrides: dict[str, ts.ColumnType...) -> UpdateStatus` (L131)
+  - `insert(source: TableDataSource | None = None, /, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,...) -> UpdateStatus` (L131)
   - `insert_table_data_source(data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False) -> pxt.UpdateStatus` (L182) — Insert row batches into this table from a `TableDataConduit`.
   - `delete(where: 'exprs.Expr' | None = None) -> UpdateStatus` (L310) — Delete rows in this table.
 
@@ -519,9 +519,9 @@ Use this to quickly locate code without reading full files.
   - `add_embedding_index(column: str | ColumnRef, *, idx_name: str | None = None, embedding: pxt.Function | None = None, string_embed: pxt.Fun...) -> None` (L946) — Add an embedding index to the table. Once the index is created, it will be automatically kept up-...
   - `drop_embedding_index(*, column: str | ColumnRef | None = None, idx_name: str | None = None, if_not_exists: Literal['error', 'ignore'] = 'e...) -> None` (L1072) — Drop an embedding index from the table. Either a column name or an index name (but not both) must be
   - `drop_index(*, column: str | ColumnRef | None = None, idx_name: str | None = None, if_not_exists: Literal['error', 'ignore'] = 'e...) -> None` (L1150) — Drop an index from the table. Either a column name or an index name (but not both) must be
-  - `insert(*, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None, schema_overrides: dict[str, ts.ColumnType...) -> UpdateStatus` @overload (L1262)
+  - `insert(source: TableDataSource, /, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None, schema_overri...) -> UpdateStatus` @overload (L1262)
   - `insert(*, on_error: Literal['abort', 'ignore'] = 'abort', print_stats: bool = False, **kwargs) -> UpdateStatus` @overload (L1275)
-  - `insert(*, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None, schema_overrides: dict[str, ts.ColumnType...) -> UpdateStatus` @abc.abstractmethod (L1280) — Inserts rows into this table. There are two mutually exclusive call patterns:
+  - `insert(source: TableDataSource | None = None, /, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,...) -> UpdateStatus` @abc.abstractmethod (L1280) — Inserts rows into this table. There are two mutually exclusive call patterns:
   - `update(value_spec: dict[str, Any], where: 'exprs.Expr' | None = None, cascade: bool = True) -> UpdateStatus` (L1371) — Update rows in this table.
   - `batch_update(rows: Iterable[dict[str, Any]], cascade: bool = True, if_not_exists: Literal['error', 'ignore', 'insert'] = 'error') -> UpdateStatus` (L1408) — Update rows in this table.
   - `recompute_columns(*columns, where: 'exprs.Expr' | None = None, errors_only: bool = False, cascade: bool = True) -> UpdateStatus` (L1489) — Recompute the values in one or more computed columns of this table.
@@ -745,7 +745,7 @@ Use this to quickly locate code without reading full files.
 - **class View(Table)** (L34) — A `Table` that presents a virtual view of another table (or view).
   - `select_list_to_additional_columns(select_list: list[tuple[exprs.Expr, str | None]]) -> dict[str, ColumnSpec]` @classmethod (L59) — Returns a list of columns in the same format as the additional_columns parameter of View.create.
   - `__get_unique_column_name(base_name: str, existing_names: set[str]) -> str` @classmethod (L219) — Returns a unique column name based on the given base name and the set of existing names.
-  - `insert(*, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None, schema_overrides: dict[str, ts.ColumnType...) -> UpdateStatus` (L283)
+  - `insert(source: TableDataSource | None = None, /, *, source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,...) -> UpdateStatus` (L283)
   - `delete(where: exprs.Expr | None = None) -> UpdateStatus` (L296)
 
 ## pixeltable/exec/
@@ -1512,7 +1512,7 @@ Use this to quickly locate code without reading full files.
 
 - `udf(decorated_fn: Callable) -> CallableFunction` @overload (L23)
 - `udf(*, batch_size: int | None = None, substitute_fn: Callable | None = None, is_method: bool = False, is_property: bool =...) -> Callable[[Callable], CallableFunction]` @overload (L28)
-- `udf(*, return_value: Any = None, description: str | None = None) -> ExprTemplateFunction` @overload (L43)
+- `udf(table: catalog.Table, /, *, return_value: Any = None, description: str | None = None) -> ExprTemplateFunction` @overload (L43)
 - `udf(*args, **kwargs)` (L48) — A decorator to create a Function from a function definition.
 - `make_function(decorated_fn: Callable, return_type: ts.ColumnType | None = None, param_types: list[ts.ColumnType] | None = None, bat...) -> CallableFunction` (L102) — Constructs a `CallableFunction` from the specified parameters.
 - `expr_udf(py_fn: Callable) -> ExprTemplateFunction` @overload (L221)
@@ -1605,14 +1605,14 @@ Use this to quickly locate code without reading full files.
 
 ### gemini.py — Pixeltable UDFs
 
-- **class GeminiRateLimitsInfo(env.RateLimitsInfo)** (L54)
-  - `is_initialized() -> bool` (L62)
-  - `get_retry_delay(exc: Exception, attempt: int) -> float | None` (L65)
-- `generate_content(contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None, _runtime_ctx: env.Run...) -> dict` @pxt.udf (L78) — Generate content from the specified model.
-- `invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict` (L167) — Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`.
-- `generate_images(prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx | None = None) -> PIL.Image.Image` @pxt.udf (L193) — Generates images based on a text description and configuration. For additional details, see:
-- `generate_videos(prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None, _runtime_...) -> pxt.Video` @pxt.udf (L243) — Generates videos based on a text description and configuration. For additional details, see:
-- `generate_embedding(input: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False, _runtime_ctx: en...) -> Batch[pxt.Array[(None,), np.float32]]` @pxt.udf (L328) — Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
+- **class GeminiRateLimitsInfo(env.RateLimitsInfo)** (L75)
+  - `is_initialized() -> bool` (L83)
+  - `get_retry_delay(exc: Exception, attempt: int) -> float | None` (L86)
+- `generate_content(contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None, _runtime_ctx: env.Run...) -> dict` @pxt.udf (L99) — Generate content from the specified model.
+- `invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict` (L188) — Converts an OpenAI response dict to Pixeltable tool invocation format and calls `tools._invoke()`.
+- `generate_images(prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx | None = None) -> PIL.Image.Image` @pxt.udf (L214) — Generates images based on a text description and configuration. For additional details, see:
+- `generate_videos(prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None, _runtime_...) -> pxt.Video` @pxt.udf (L264) — Generates videos based on a text description and configuration. For additional details, see:
+- `generate_embedding(input: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False, _runtime_ctx: en...) -> Batch[pxt.Array[(None,), np.float32]]` @pxt.udf (L349) — Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
 
 ### globals.py
 
