@@ -970,9 +970,6 @@ class RateLimitsInfo:
     - get_retry_delay()
     - record_exc()
 
-    Resource estimation is handled per-UDF via the @fn.resource_estimator decorator on Function,
-    not on this class.
-
     All mutable state is protected by _lock (a reentrant lock, since subclass record_exc() may call self.record()).
     """
 
