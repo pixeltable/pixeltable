@@ -6,12 +6,12 @@ Parses all Python files under pixeltable/ using AST to extract:
 - Top-level functions (with signatures, line numbers)
 - Module-level docstrings
 
-Output: CODEBASE_INDEX.md — a compact reference file that Claude Code
+Output: .claude/CODEBASE_INDEX.md — a compact reference file that Claude Code
 can read to navigate the codebase without expensive exploration.
 
 Usage:
     python tool/generate_codebase_index.py
-    python tool/generate_codebase_index.py --root pixeltable --output CODEBASE_INDEX.md
+    python tool/generate_codebase_index.py --root pixeltable --output .claude/CODEBASE_INDEX.md
 """
 
 import argparse
@@ -43,7 +43,8 @@ def get_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
             args.append('/')
 
     if node.args.vararg:
-        args.append(f'*{node.args.vararg.arg}')
+        ann = f': {ast.unparse(node.args.vararg.annotation)}' if node.args.vararg.annotation else ''
+        args.append(f'*{node.args.vararg.arg}{ann}')
     if node.args.kwonlyargs:
         if not node.args.vararg:
             args.append('*')
@@ -54,7 +55,8 @@ def get_signature(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
                 default = f' = {ast.unparse(node.args.kw_defaults[j])}'
             args.append(f'{kw.arg}{annotation}{default}')
     if node.args.kwarg:
-        args.append(f'**{node.args.kwarg.arg}')
+        ann = f': {ast.unparse(node.args.kwarg.annotation)}' if node.args.kwarg.annotation else ''
+        args.append(f'**{node.args.kwarg.arg}{ann}')
 
     ret = ''
     if node.returns:
@@ -117,13 +119,22 @@ def analyze_file(filepath: Path) -> dict | None:
             doc = get_first_docstring_line(node)
             decorators = get_decorators(node)
 
-            # Extract public methods (non-dunder, non-private)
+            # Extract public methods and semantically important dunders
+            ALLOWED_DUNDERS = {
+                '__getattr__', '__getitem__', '__setitem__', '__delitem__',
+                '__call__', '__contains__', '__len__',
+                '__iter__', '__next__', '__aiter__',
+                '__enter__', '__exit__',
+                '__class_getitem__',
+                '__add__', '__radd__', '__sub__', '__rsub__',
+                '__mul__', '__rmul__', '__truediv__', '__rtruediv__',
+                '__mod__', '__rmod__', '__floordiv__', '__rfloordiv__',
+                '__neg__', '__invert__', '__and__', '__or__',
+            }
             methods = []
             for item in ast.iter_child_nodes(node):
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    if item.name.startswith('_') and not item.name.startswith('__'):
-                        continue
-                    if item.name in ('__init__', '__repr__', '__str__', '__hash__', '__eq__'):
+                    if item.name.startswith('_') and item.name not in ALLOWED_DUNDERS:
                         continue
                     method_dec = get_decorators(item)
                     method_sig = get_signature(item)
@@ -183,7 +194,7 @@ def generate_index(root: Path) -> str:
     dir_files: dict[str, list[tuple[Path, Path]]] = {}
     for filepath in py_files:
         parts = filepath.parts
-        if any(p in ('__pycache__', '.git', 'node_modules') for p in parts):
+        if any(p in ('__pycache__', '.git') for p in parts):
             continue
         rel = filepath.relative_to(root.parent)
         file_dir = str(rel.parent)
@@ -204,8 +215,8 @@ def generate_index(root: Path) -> str:
         lines.append('')
 
         for rel, result in dir_entries:
-            # File header
-            file_label = f'### {rel.name}'
+            # File header (use full relative path for __init__.py to avoid ambiguity)
+            file_label = f'### {rel}' if rel.name == '__init__.py' else f'### {rel.name}'
             if result['module_doc']:
                 file_label += f' — {result["module_doc"]}'
             lines.append(file_label)
