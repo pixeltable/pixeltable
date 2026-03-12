@@ -126,7 +126,7 @@ def retry_loop(
                         raise
                     if _MAX_RETRIES == -1 or num_retries < _MAX_RETRIES:
                         num_retries += 1
-                        _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                        _logger.debug(f'Retrying ({num_retries}) after {type(e.orig).__name__}')
                         time.sleep(random.uniform(0.1, 0.5))
                     else:
                         raise excs.Error(
@@ -391,8 +391,13 @@ class Catalog:
 
                         except sql_exc.DBAPIError as e:
                             has_exc = True
-                            if not _is_retriable_sql_exc(e) or (_MAX_RETRIES != -1 and num_retries >= _MAX_RETRIES):
+                            if not _is_retriable_sql_exc(e):
                                 raise
+                            if _MAX_RETRIES != -1 and num_retries >= _MAX_RETRIES:
+                                raise excs.Error(
+                                    f'SQL retry limit ({_MAX_RETRIES}) exceeded for {type(e.orig).__name__}'
+                                ) from e
+                            # retry
                             num_retries += 1
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
                             time.sleep(random.uniform(0.1, 0.5))
