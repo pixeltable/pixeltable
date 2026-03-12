@@ -224,9 +224,7 @@ def generate_index(root: Path) -> str:
                     if mdec:
                         mdec = f' {mdec}'
                     mdoc = f' — {method["doc"]}' if method['doc'] else ''
-                    lines.append(
-                        f'  - `{method["name"]}{method["signature"]}`{mdec} (L{method["line"]}){mdoc}'
-                    )
+                    lines.append(f'  - `{method["name"]}{method["signature"]}`{mdec} (L{method["line"]}){mdoc}')
 
             # Top-level functions
             for fn in result['functions']:
