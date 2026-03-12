@@ -34,6 +34,10 @@ class Function(ABC):
     is_method: bool
     is_property: bool
     is_deterministic: bool
+    # Returns estimated resources needed for a specific request as a dict (key: resource name, value: estimated cost).
+    # Overridden for specific Function instances via the resource_estimator() decorator. The override must accept a
+    # subset of the parameters of the original function.
+    resource_estimator_fn: Callable[..., dict[str, int]]
     _conditional_return_type: Callable[..., ts.ColumnType] | None
 
     # We cache the overload resolutions in self._resolutions. This ensures that each resolution is represented
@@ -50,11 +54,6 @@ class Function(ABC):
     # Overridden for specific Function instances via the resource_pool() decorator. The override must accept a subset
     # of the parameters of the original function, with the same type.
     _resource_pool: Callable[..., str | None]
-
-    # Returns estimated resources needed for a specific request as a dict (key: resource name, value: estimated cost).
-    # Overridden for specific Function instances via the resource_estimator() decorator. The override must accept a
-    # subset of the parameters of the original function.
-    _resource_estimator: Callable[..., dict[str, int]]
 
     def __init__(
         self,
@@ -76,7 +75,7 @@ class Function(ABC):
         self.__resolved_fns = []
         self._to_sql = self.__default_to_sql
         self._resource_pool = self.__default_resource_pool
-        self._resource_estimator = self.__default_resource_estimator
+        self.resource_estimator_fn = self.__default_resource_estimator
 
     @property
     def is_valid(self) -> bool:
@@ -450,7 +449,7 @@ class Function(ABC):
                 f'resource_estimator for {self.self_path or self} has parameters '
                 f'{estimator_params - fn_params} that are not in the function signature'
             )
-        self._resource_estimator = fn
+        self.resource_estimator_fn = fn
         return fn
 
     def __default_resource_estimator(self) -> dict[str, int]:

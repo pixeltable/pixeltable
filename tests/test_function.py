@@ -1321,10 +1321,10 @@ class TestFunction:
 
     def test_resource_estimator_validation(self) -> None:
         # Valid: estimator params are a subset of function params
-        assert _estimator_fn._resource_estimator('hello') == {'requests': 1, 'tokens': 5}
+        assert _estimator_fn.resource_estimator_fn('hello') == {'requests': 1, 'tokens': 5}
 
         # Valid: zero-arg estimator
-        assert _estimator_fn_zero_arg._resource_estimator() == {'requests': 1}
+        assert _estimator_fn_zero_arg.resource_estimator_fn() == {'requests': 1}
 
         # Invalid: estimator has params not in function signature
         with pytest.raises(pxt.Error, match='not in the function signature'):
@@ -1336,7 +1336,7 @@ class TestFunction:
         # Invalid: polymorphic function
         with pytest.raises(pxt.Error, match='polymorphic'):
 
-            @_estimator_poly_fn.resource_estimator
+            @self.overloaded_udf.resource_estimator
             def _() -> dict[str, int]:
                 return {'requests': 1}
 
@@ -1367,16 +1367,6 @@ def _estimator_fn_zero_arg_est() -> dict[str, int]:
 @pxt.udf
 def _estimator_fn_bad_params(prompt: str) -> str:
     return ''
-
-
-@pxt.udf
-def _estimator_poly_fn(x: str) -> str:
-    return x
-
-
-@_estimator_poly_fn.overload
-def _estimator_poly_fn_overload(x: int) -> int:
-    return x
 
 
 @pxt.udf
