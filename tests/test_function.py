@@ -1321,16 +1321,24 @@ class TestFunction:
 
     def test_resource_estimator_validation(self) -> None:
         # Valid: estimator params are a subset of function params
-        assert _estimator_fn.resource_estimator_fn('hello') == {'requests': 1, 'tokens': 5}
+        @self.f1.resource_estimator
+        def _(a: int) -> dict[str, int]:
+            return {'requests': 1, 'tokens': a}
+
+        assert self.f1.resource_estimator_fn(5) == {'requests': 1, 'tokens': 5}
 
         # Valid: zero-arg estimator
-        assert _estimator_fn_zero_arg.resource_estimator_fn() == {'requests': 1}
+        @self.f2.resource_estimator
+        def _() -> dict[str, int]:
+            return {'requests': 1}
+
+        assert self.f2.resource_estimator_fn() == {'requests': 1}
 
         # Invalid: estimator has params not in function signature
         with pytest.raises(pxt.Error, match='not in the function signature'):
 
-            @_estimator_fn_bad_params.resource_estimator
-            def _(prompt: str, unknown_param: int) -> dict[str, int]:
+            @self.func.resource_estimator
+            def _(x: int, unknown_param: int) -> dict[str, int]:
                 return {'requests': 1}
 
         # Invalid: polymorphic function
@@ -1339,34 +1347,6 @@ class TestFunction:
             @self.overloaded_udf.resource_estimator
             def _() -> dict[str, int]:
                 return {'requests': 1}
-
-
-# Module-level UDFs for test_resource_estimator_validation
-
-
-@pxt.udf
-def _estimator_fn(prompt: str, model: str = 'gpt-4') -> str:
-    return ''
-
-
-@_estimator_fn.resource_estimator
-def _(prompt: str) -> dict[str, int]:
-    return {'requests': 1, 'tokens': len(prompt)}
-
-
-@pxt.udf
-def _estimator_fn_zero_arg(prompt: str) -> str:
-    return ''
-
-
-@_estimator_fn_zero_arg.resource_estimator
-def _() -> dict[str, int]:
-    return {'requests': 1}
-
-
-@pxt.udf
-def _estimator_fn_bad_params(prompt: str) -> str:
-    return ''
 
 
 @pxt.udf
