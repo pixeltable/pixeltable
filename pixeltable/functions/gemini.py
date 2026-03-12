@@ -167,7 +167,7 @@ async def generate_content(
             await _poll_until_active(async_client=client.aio, uploaded=uploaded, video_paths=large_video_paths)
             contents = _replace_upload_placeholders(contents, uploaded)
         response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
-        return response.model_dump()
+        return response.model_dump(mode='json')
     finally:
         if uploaded:
             await asyncio.gather(*[client.aio.files.delete(name=f.name) for f in uploaded], return_exceptions=True)
