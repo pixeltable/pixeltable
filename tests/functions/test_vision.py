@@ -194,13 +194,13 @@ class TestVision:
             assert all(get_aspect(b, fmt) == pytest.approx(9 / 16, rel=0.1) for b in res['out'][0])
             assert all(pad_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
-            # aspect_f 16/9 crop
-            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=16 / 9, aspect_mode='crop')).collect()
+            # aspect (float) 16/9 crop
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect=16 / 9, aspect_mode='crop')).collect()
             assert all(get_aspect(b, fmt) == pytest.approx(16 / 9, rel=0.1) for b in res['out'][0])
             assert all(crop_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
-            # aspect_f 9/16 pad
-            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=9 / 16, aspect_mode='pad')).collect()
+            # aspect (float) 9/16 pad
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect=9 / 16, aspect_mode='pad')).collect()
             assert all(get_aspect(b, fmt) == pytest.approx(9 / 16, rel=0.1) for b in res['out'][0])
             assert all(pad_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
@@ -210,15 +210,15 @@ class TestVision:
             t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
-            # width_f
-            res = t.select(out=bboxes_resize(t.bboxes, fmt, width_f=0.2)).collect()
+            # width (float/relative)
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, width=0.2)).collect()
             assert all(get_w(b, fmt) == pytest.approx(0.2) for b in res['out'][0])
             assert all(
                 get_aspect(b1, fmt) == pytest.approx(get_aspect(b2, fmt)) for b1, b2 in zip(input_bboxes, res['out'][0])
             )
 
-            # height_f
-            res = t.select(out=bboxes_resize(t.bboxes, fmt, height_f=0.3)).collect()
+            # height (float/relative)
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, height=0.3)).collect()
             assert all(get_h(b, fmt) == pytest.approx(0.3) for b in res['out'][0])
             assert all(
                 get_aspect(b1, fmt) == pytest.approx(get_aspect(b2, fmt)) for b1, b2 in zip(input_bboxes, res['out'][0])
@@ -234,13 +234,13 @@ class TestVision:
             assert all(get_aspect(b, fmt) == pytest.approx(9 / 16) for b in res['out'][0])
             assert all(pad_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
-            # aspect_f 16/9 crop (relative)
-            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=16 / 9, aspect_mode='crop')).collect()
+            # aspect (float) 16/9 crop (relative)
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect=16 / 9, aspect_mode='crop')).collect()
             assert all(get_aspect(b, fmt) == pytest.approx(16 / 9) for b in res['out'][0])
             assert all(crop_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
-            # aspect_f 9/16 pad (relative)
-            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect_f=9 / 16, aspect_mode='pad')).collect()
+            # aspect (float) 9/16 pad (relative)
+            res = t.select(out=bboxes_resize(t.bboxes, fmt, aspect=9 / 16, aspect_mode='pad')).collect()
             assert all(get_aspect(b, fmt) == pytest.approx(9 / 16) for b in res['out'][0])
             assert all(pad_invariant(b_in, b_out, fmt) for b_in, b_out in zip(input_bboxes, res['out'][0]))
 
@@ -258,25 +258,13 @@ class TestVision:
         with pytest.raises(pxt.Error, match='Invalid format'):
             t.select(bboxes_resize(t.bboxes, 'coco', width=50)).collect()
 
-        # multiple size parameters
+        # multiple size parameters (int)
         with pytest.raises(pxt.Error, match='Exactly one of'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=50, height=50)).collect()
 
-        # width + width_f
-        with pytest.raises(pxt.Error, match='Only one of width or width_f'):
-            t.select(bboxes_resize(t.bboxes, 'xyxy', width=50, width_f=0.5)).collect()
-
-        # height + height_f
-        with pytest.raises(pxt.Error, match='Only one of height or height_f'):
-            t.select(bboxes_resize(t.bboxes, 'xyxy', height=50, height_f=0.5)).collect()
-
-        # aspect + aspect_f
-        with pytest.raises(pxt.Error, match='Only one of aspect or aspect_f'):
-            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect='1:1', aspect_f=1.0, aspect_mode='crop')).collect()
-
-        # invalid aspect mode
+        # invalid aspect mode (float aspect)
         with pytest.raises(pxt.Error, match='Invalid aspect_mode'):
-            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect_f=16 / 9, aspect_mode='other')).collect()
+            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect=16 / 9, aspect_mode='other')).collect()
 
         # invalid aspect ratio string
         with pytest.raises(pxt.Error, match='Invalid aspect ratio'):
@@ -290,53 +278,53 @@ class TestVision:
         with pytest.raises(pxt.Error, match='aspect_mode is only valid'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=50, aspect_mode='crop')).collect()
 
-        # width_f with absolute boxes
-        with pytest.raises(pxt.Error, match='width_f/height_f require relative'):
-            t.select(bboxes_resize(t.bboxes, 'xyxy', width_f=0.5)).collect()
+        # float width with absolute boxes (dispatches to float overload → _bboxes_resize(width_f=...))
+        with pytest.raises(pxt.Error, match='width/height require relative'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', width=0.5)).collect()
 
-        # height_f with absolute boxes
-        with pytest.raises(pxt.Error, match='width_f/height_f require relative'):
-            t.select(bboxes_resize(t.bboxes, 'xyxy', height_f=0.5)).collect()
+        # float height with absolute boxes
+        with pytest.raises(pxt.Error, match='width/height require relative'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', height=0.5)).collect()
 
-        # width with relative boxes
+        # int width with relative boxes
         t_rel = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
         t_rel.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
         with pytest.raises(pxt.Error, match='width/height require absolute'):
             t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width=50)).collect()
 
-        # height with relative boxes
+        # int height with relative boxes
         with pytest.raises(pxt.Error, match='width/height require absolute'):
             t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height=50)).collect()
 
-        # zero/negative width
+        # zero/negative width (int)
         with pytest.raises(pxt.Error, match='width must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=0)).collect()
         with pytest.raises(pxt.Error, match='width must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', width=-10)).collect()
 
-        # zero/negative height
+        # zero/negative height (int)
         with pytest.raises(pxt.Error, match='height must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', height=0)).collect()
         with pytest.raises(pxt.Error, match='height must be positive'):
             t.select(bboxes_resize(t.bboxes, 'xyxy', height=-10)).collect()
 
-        # zero/negative width_f
-        with pytest.raises(pxt.Error, match='width_f must be positive'):
-            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width_f=0.0)).collect()
-        with pytest.raises(pxt.Error, match='width_f must be positive'):
-            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width_f=-0.1)).collect()
+        # zero/negative width (float)
+        with pytest.raises(pxt.Error, match='width must be positive'):
+            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width=0.0)).collect()
+        with pytest.raises(pxt.Error, match='width must be positive'):
+            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', width=-0.1)).collect()
 
-        # zero/negative height_f
-        with pytest.raises(pxt.Error, match='height_f must be positive'):
-            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height_f=0.0)).collect()
-        with pytest.raises(pxt.Error, match='height_f must be positive'):
-            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height_f=-0.1)).collect()
+        # zero/negative height (float)
+        with pytest.raises(pxt.Error, match='height must be positive'):
+            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height=0.0)).collect()
+        with pytest.raises(pxt.Error, match='height must be positive'):
+            t_rel.select(bboxes_resize(t_rel.bboxes, 'xyxy', height=-0.1)).collect()
 
-        # zero/negative aspect_f
-        with pytest.raises(pxt.Error, match='aspect_f must be positive'):
-            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect_f=0.0, aspect_mode='crop')).collect()
-        with pytest.raises(pxt.Error, match='aspect_f must be positive'):
-            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect_f=-1.0, aspect_mode='crop')).collect()
+        # zero/negative aspect (float)
+        with pytest.raises(pxt.Error, match='aspect must be positive'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect=0.0, aspect_mode='crop')).collect()
+        with pytest.raises(pxt.Error, match='aspect must be positive'):
+            t.select(bboxes_resize(t.bboxes, 'xyxy', aspect=-1.0, aspect_mode='crop')).collect()
 
         # aspect string with zero component
         with pytest.raises(pxt.Error, match='width and height must be positive'):

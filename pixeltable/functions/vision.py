@@ -463,9 +463,9 @@ def bboxes_convert(
     if len(bboxes) == 0:
         return []
 
-    if src_format not in ['xyxy', 'xywh', 'cxcywh']:
+    if src_format not in ('xyxy', 'xywh', 'cxcywh'):
         raise pxt.Error(f'Invalid src_format: {src_format!r}')
-    if dst_format not in ['xyxy', 'xywh', 'cxcywh']:
+    if dst_format not in ('xyxy', 'xywh', 'cxcywh'):
         raise pxt.Error(f'Invalid dst_format: {dst_format!r}')
     is_absolute = _validate_bboxes(bboxes, 'bboxes_convert()')
     if src_format == dst_format:
@@ -505,11 +505,8 @@ def bboxes_resize(
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
     width: int | None = None,
-    width_f: float | None = None,
     height: int | None = None,
-    height_f: float | None = None,
     aspect: str | None = None,
-    aspect_f: float | None = None,
     aspect_mode: str | None = None,  # should be Literal['crop', 'pad'] | None
 ) -> list:
     """
@@ -524,39 +521,22 @@ def bboxes_resize(
         bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
             coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
-        width: Target width in absolute pixels. Requires bboxes to be specified with absolute pixel coordinates.
-        width_f: Target width as a float. Requires bboxes to be specified with relative coordinates in [0, 1].
-        height: Target height in absolute pixels. Requires bboxes to be specified with absolute pixel coordinates.
-        height_f: Target height as a float. Requires bboxes to be specified with relative coordinates in [0, 1].
-        aspect: Target aspect ratio as a string 'W:H' (e.g., '16:9'). Resizes either the width
+        width: Target width. Pass an `int` for absolute pixels or a `float` for relative coordinates.
+        height: Target height. Pass an `int` for absolute pixels or a `float` for relative coordinates.
+        aspect: Target aspect ratio. Pass a `str` like '16:9' or a `float` like 1.78.
+        aspect: Target aspect ratio as a string 'W:H' (e.g., '16:9') or a `float`. Resizes either the width
             or height to match the specified aspect ratio, maintaining the other dimension. Requires `aspect_mode`.
-        aspect_f: Target aspect ratio as a float. Requires `aspect_mode`.
-        aspect_mode: Either 'crop' or 'pad'. Only valid for `aspect`/`aspect_f`. If `crop`, reduces the oversized
+        aspect_mode: Either 'crop' or 'pad'. Required when `aspect` is specified. If `crop`, reduces the oversized
             dimension to match the aspect ratio. If `pad`, extends the undersized dimension to match the aspect ratio.
 
     Returns:
         List of resized bounding boxes in the same format as the input.
     """
-    if len(bboxes) == 0:
-        return []
-
-    # TODO: this is a lot of repeated per-call validation; find a way to do this at plan generation time, where possible
-    if width is not None and width_f is not None:
-        raise pxt.Error('Only one of width or width_f can be specified')
-    if height is not None and height_f is not None:
-        raise pxt.Error('Only one of height or height_f can be specified')
-    if aspect is not None and aspect_f is not None:
-        raise pxt.Error('Only one of aspect or aspect_f can be specified')
     if width is not None and width <= 0:
         raise pxt.Error(f'width must be positive, got {width}')
-    if width_f is not None and width_f <= 0:
-        raise pxt.Error(f'width_f must be positive, got {width_f}')
     if height is not None and height <= 0:
         raise pxt.Error(f'height must be positive, got {height}')
-    if height_f is not None and height_f <= 0:
-        raise pxt.Error(f'height_f must be positive, got {height_f}')
-    if aspect_f is not None and aspect_f <= 0:
-        raise pxt.Error(f'aspect_f must be positive, got {aspect_f}')
+    aspect_f: float | None = None
     if aspect is not None:
         match = ASPECT_RATIO_RE.fullmatch(aspect)
         if match is None:
@@ -565,14 +545,57 @@ def bboxes_resize(
         if w_val == 0 or h_val == 0:
             raise pxt.Error(f'Invalid aspect ratio: {aspect!r}; width and height must be positive')
         aspect_f = float(w_val) / float(h_val)
+    return _bboxes_resize(bboxes, format, width=width, height=height, aspect=aspect_f, aspect_mode=aspect_mode)
+
+
+@bboxes_resize.overload
+def _(
+    bboxes: list,
+    format: Literal['xyxy', 'xywh', 'cxcywh'],
+    *,
+    width: float | None = None,
+    height: float | None = None,
+    aspect: float | None = None,
+    aspect_mode: str | None = None,
+) -> list:
+    if width is not None and width <= 0:
+        raise pxt.Error(f'width must be positive, got {width}')
+    if height is not None and height <= 0:
+        raise pxt.Error(f'height must be positive, got {height}')
+    if aspect is not None and aspect <= 0:
+        raise pxt.Error(f'aspect must be positive, got {aspect}')
+
+    return _bboxes_resize(bboxes, format, width_f=width, height_f=height, aspect=aspect, aspect_mode=aspect_mode)
+
+
+def _bboxes_resize(
+    bboxes: list,  # should be: list[list[int]] | list[list[float]]
+    format: Literal['xyxy', 'xywh', 'cxcywh'],
+    *,
+    width: int | None = None,
+    width_f: float | None = None,
+    height: int | None = None,
+    height_f: float | None = None,
+    aspect: float | None = None,
+    aspect_mode: str | None = None,  # should be Literal['crop', 'pad'] | None
+) -> list:
+    if len(bboxes) == 0:
+        return []
+
+    # TODO: this is a lot of repeated per-call validation; find a way to do this at plan generation time, where possible
+    assert width is None or width > 0
+    assert width_f is None or width_f > 0
+    assert height is None or height > 0
+    assert height_f is None or height_f > 0
+    assert aspect is None or aspect > 0
     if aspect_mode is not None and aspect_mode not in ['crop', 'pad']:
         raise pxt.Error(f'Invalid aspect_mode: {aspect_mode!r}; expected "crop" or "pad"')
 
     has_width = width is not None or width_f is not None
     has_height = height is not None or height_f is not None
-    has_aspect = aspect is not None or aspect_f is not None
+    has_aspect = aspect is not None
     if has_width + has_height + has_aspect != 1:
-        raise pxt.Error('Exactly one of width/width_f, height/height_f, or aspect/aspect_f must be specified')
+        raise pxt.Error('Exactly one of width, height, or aspect must be specified')
     if has_aspect and aspect_mode is None:
         raise pxt.Error("aspect_mode ('crop' or 'pad') is required when aspect is specified")
     if not has_aspect and aspect_mode is not None:
@@ -580,9 +603,7 @@ def bboxes_resize(
 
     is_absolute = _validate_bboxes(bboxes, 'bboxes_resize()')
     if is_absolute and (width_f is not None or height_f is not None):
-        raise pxt.Error(
-            'bboxes_resize(): width_f/height_f require relative coordinates, but bboxes use absolute pixels'
-        )
+        raise pxt.Error('bboxes_resize(): width/height require relative coordinates, but bboxes use absolute pixels')
     if not is_absolute and (width is not None or height is not None):
         raise pxt.Error(
             'bboxes_resize(): width/height require absolute pixel coordinates, but bboxes use relative coordinates'
@@ -632,14 +653,14 @@ def bboxes_resize(
         current_aspect = w / h
         if aspect_mode == 'crop':
             # Reduce the oversized dimension
-            too_wide = current_aspect > aspect_f
-            new_w = np.where(too_wide, h * aspect_f, w)
-            new_h = np.where(too_wide, h, w / aspect_f)
+            too_wide = current_aspect > aspect
+            new_w = np.where(too_wide, h * aspect, w)
+            new_h = np.where(too_wide, h, w / aspect)
         else:  # pad
             # Extend the undersized dimension
-            too_wide = current_aspect > aspect_f
-            new_w = np.where(too_wide, w, h * aspect_f)
-            new_h = np.where(too_wide, w / aspect_f, h)
+            too_wide = current_aspect > aspect
+            new_w = np.where(too_wide, w, h * aspect)
+            new_h = np.where(too_wide, w / aspect, h)
         w, h = new_w, new_h
 
     # Convert back to original format.
