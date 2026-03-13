@@ -1,0 +1,14 @@
+[project]
+name = "similarity-search-app"
+version = "0.1.0"
+description = "Multimodal similarity search with Pixeltable, FastAPI, and Next.js"
+requires-python = ">=3.10"
+dependencies = [
+    "pixeltable>=0.4",
+    "fastapi",
+    "uvicorn",
+    "python-dotenv",
+    "python-multipart",
+    "sentence-transformers",
+    "tiktoken",
+]

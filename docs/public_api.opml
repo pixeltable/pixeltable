@@ -253,6 +253,7 @@
         <outline text="module|pixeltable.functions.video">
           <outline text="iter|pixeltable.functions.video.frame_iterator" />
           <outline text="iter|pixeltable.functions.video.video_splitter" />
+          <outline text="uda|pixeltable.functions.video.concat_videos_agg" />
           <outline text="uda|pixeltable.functions.video.make_video" />
           <outline text="udf|pixeltable.functions.video.clip" />
           <outline text="udf|pixeltable.functions.video.crop" />
@@ -281,6 +282,12 @@
         <outline text="module|pixeltable.functions.bedrock">
           <outline text="udf|pixeltable.functions.bedrock.converse" />
           <outline text="func|pixeltable.functions.bedrock.invoke_tools" />
+        </outline>
+        <outline text="module|pixeltable.functions.bfl">
+          <outline text="udf|pixeltable.functions.bfl.generate" />
+          <outline text="udf|pixeltable.functions.bfl.edit" />
+          <outline text="udf|pixeltable.functions.bfl.fill" />
+          <outline text="udf|pixeltable.functions.bfl.expand" />
         </outline>
         <outline text="module|pixeltable.functions.deepseek">
           <outline text="udf|pixeltable.functions.deepseek.chat_completions" />
@@ -369,7 +376,9 @@
         </outline>
         <outline text="module|pixeltable.functions.vision">
           <outline text="func|pixeltable.functions.vision.eval_detections" />
-          <outline text="func|pixeltable.functions.vision.draw_bounding_boxes" />
+          <outline text="func|pixeltable.functions.vision.bboxes_convert" />
+          <outline text="func|pixeltable.functions.vision.bboxes_draw" />
+          <outline text="func|pixeltable.functions.vision.bboxes_resize" />
         </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />

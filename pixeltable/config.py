@@ -178,10 +178,17 @@ KNOWN_CONFIG_OPTIONS = {
     'anthropic': {'api_key': 'Anthropic API key'},
     'azure': {'storage_account_name': 'Azure storage account name', 'storage_account_key': 'Azure storage account key'},
     'bedrock': {'api_key': 'AWS Bedrock API key', 'region_name': 'AWS region for Bedrock (default: us-east-1)'},
+    'bfl': {'api_key': 'Black Forest Labs (BFL) API key', 'rate_limit': 'Rate limit for BFL API requests'},
     'deepseek': {'api_key': 'Deepseek API key', 'rate_limit': 'Rate limit for Deepseek API requests'},
     'fal': {'api_key': 'fal.ai API key', 'rate_limit': 'Rate limit for fal.ai API requests'},
     'fireworks': {'api_key': 'Fireworks API key', 'rate_limit': 'Rate limit for Fireworks API requests'},
-    'gemini': {'api_key': 'Gemini API key', 'rate_limits': 'Per-model rate limits for Gemini API requests'},
+    'gemini': {
+        'api_key': (
+            'Gemini API key for Google AI Studio only; '
+            'for Vertex AI, use standard Google Gen AI SDK authentication instead'
+        ),
+        'rate_limits': 'Per-model rate limits for Gemini API requests',
+    },
     'hf': {'auth_token': 'Hugging Face access token'},
     'imagen': {'rate_limits': 'Per-model rate limits for Imagen API requests'},
     'reve': {'api_key': 'Reve API key', 'rate_limit': 'Rate limit for Reve API requests (requests per minute)'},

@@ -807,8 +807,8 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         kwargs.setdefault('response_format', 'b64_json')
 
     result_model = await _openai_client().images.generate(**kwargs)
+    # TODO from main : result = result_model.model_dump(mode='json')
     return _decode_image_response(result_model.model_dump())
-
 
 @pxt.udf(is_deterministic=False)
 async def image_edits(

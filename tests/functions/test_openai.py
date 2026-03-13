@@ -606,3 +606,28 @@ class TestOpenai:
         validate_update_status(t.insert(input='Where did the game of Backgammon originate?'), 1)
         result = t.collect()
         assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']
+
+    def test_shared_rate_limits_pool_different_signatures(self, uses_db: None) -> None:
+        """Verify that functions sharing a rate-limits pool with different get_request_resources signatures
+        don't crash the scheduler.
+
+        The pool caches param names from chat_completions (messages, model, model_kwargs), but vision has
+        a different signature (prompt, image, model, model_kwargs). Inserting 2+ rows ensures the second
+        call hits the rate-limited path where the mismatch would previously trigger an AssertionError.
+        """
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import vision
+
+        t = pxt.create_table('test_tbl', {'img': pxt.Image})
+        t.add_computed_column(response=vision(prompt="What's in this image?", image=t.img, model='gpt-4o-mini'))
+        # Insert 2 rows: first initializes the pool synchronously, second goes through _get_request_resources
+        with pytest.warns(
+            pxt.exceptions.PixeltableDeprecationWarning,
+            match=r'vision\(\) is deprecated as a separate API; use chat_completions\(\) instead',
+        ):
+            validate_update_status(t.insert([{'img': SAMPLE_IMAGE_URL}, {'img': SAMPLE_IMAGE_URL}]), expected_rows=2)
+        result = t.collect()
+        assert len(result) == 2
+        for row in result:
+            assert len(row['response']) > 0

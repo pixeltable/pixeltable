@@ -148,6 +148,9 @@ class RateLimitsScheduler(Scheduler):
             return list(self.pool_info.resource_limits.keys())
 
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
+        # Fall back to default estimate if the request's function signature doesn't match the pool's estimator
+        if not all(name in request.fn_call.fn.signature.parameters for name in self.get_request_resources_param_names):
+            return dict.fromkeys(self._resources, 1)
         kwargs_batch = request.fn_call.get_param_values(self.get_request_resources_param_names, request.rows)
         if not request.is_batched:
             return self.pool_info.get_request_resources(**kwargs_batch[0])

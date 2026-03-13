@@ -52,7 +52,7 @@ class Env:
     _instance: Env | None = None
     __initializing: bool = False
     _init_lock: threading.RLock = threading.RLock()
-    _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
+    _log_fmt_str = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Path | None
     _file_cache_dir: Path | None  # cached object files with external URL
@@ -73,6 +73,9 @@ class Env:
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
     _logger: logging.Logger
+    _sql_logger: logging.Logger
+    # List of loggers and file handlers to cleanup in the end. File handlers can repeat.
+    _managed_logging_handlers: list[tuple[logging.Logger, logging.Handler]]
     _default_log_level: int
     _logfilename: str | None
     _log_to_stdout: bool
@@ -145,6 +148,7 @@ class Env:
         self._logfilename = None
         self._log_to_stdout = False
         self._module_log_level = {}  # module name -> log level
+        self._managed_logging_handlers = []
 
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
@@ -245,24 +249,24 @@ class Env:
 
         Args:
             to_stdout: if True, also log to stdout
-            level: default log level
+            level: default log level for pixeltable and its dependencies
             add: comma-separated list of 'module name:log level' pairs; ex.: add='video:10'
             remove: comma-separated list of module names
         """
         if to_stdout is not None:
-            self.log_to_stdout(to_stdout)
+            self._set_log_to_stdout(to_stdout)
         if level is not None:
             self.set_log_level(level)
         if add is not None:
             for module, level_str in [t.split(':') for t in add.split(',')]:
-                self.set_module_log_level(module, int(level_str))
+                self._set_module_log_level(module, int(level_str))
         if remove is not None:
             for module in remove.split(','):
-                self.set_module_log_level(module, None)
+                self._set_module_log_level(module, None)
         if to_stdout is None and level is None and add is None and remove is None:
-            self.print_log_config()
+            self._print_log_config()
 
-    def print_log_config(self) -> None:
+    def _print_log_config(self) -> None:
         print(f'logging to {self._logfilename}')
         print(f'{"" if self._log_to_stdout else "not "}logging to stdout')
         print(f'default log level: {logging.getLevelName(self._default_log_level)}')
@@ -271,7 +275,7 @@ class Env:
             f'{",".join([name + ":" + logging.getLevelName(val) for name, val in self._module_log_level.items()])}'
         )
 
-    def log_to_stdout(self, enable: bool = True) -> None:
+    def _set_log_to_stdout(self, enable: bool = True) -> None:
         self._log_to_stdout = enable
         if enable:
             self._logger.addHandler(self._stdout_handler)
@@ -280,8 +284,9 @@ class Env:
 
     def set_log_level(self, level: int) -> None:
         self._default_log_level = level
+        self._sql_logger.setLevel(level)
 
-    def set_module_log_level(self, module: str, level: int | None) -> None:
+    def _set_module_log_level(self, module: str, level: int | None) -> None:
         if level is None:
             self._module_log_level.pop(module, None)
         else:
@@ -393,6 +398,7 @@ class Env:
         stdout_handler.setLevel(map_level(self._verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
         self._logger.addHandler(stdout_handler)
+        self._managed_logging_handlers.append((self._logger, stdout_handler))
         self._console_logger = ConsoleLogger(self._logger)
 
         # configure _logger to log to a file
@@ -400,12 +406,14 @@ class Env:
         fh = logging.FileHandler(self._log_dir / self._logfilename, mode='w')
         fh.setFormatter(logging.Formatter(self._log_fmt_str))
         self._logger.addHandler(fh)
+        self._managed_logging_handlers.append((self._logger, fh))
 
-        # configure sqlalchemy logging
-        sql_logger = logging.getLogger('sqlalchemy.engine')
-        sql_logger.setLevel(logging.INFO)
-        sql_logger.addHandler(fh)
-        sql_logger.propagate = False
+        # Configure sqlalchemy logging. Pixeltable users don't need to see the SQL queries by default
+        self._sql_logger = logging.getLogger('sqlalchemy.engine')
+        self._sql_logger.setLevel(logging.WARNING)
+        self._sql_logger.addHandler(fh)
+        self._sql_logger.propagate = False
+        self._managed_logging_handlers.append((self._sql_logger, fh))
 
         # configure pyav logging
         av_logfilename = self._logfilename.replace('.log', '_av.log')
@@ -413,6 +421,7 @@ class Env:
         av_fh.setFormatter(logging.Formatter(self._log_fmt_str))
         av_logger = logging.getLogger('libav')
         av_logger.addHandler(av_fh)
+        self._managed_logging_handlers.append((av_logger, av_fh))
         av_logger.propagate = False
 
         # configure web-server logging
@@ -421,6 +430,7 @@ class Env:
         http_fh.setFormatter(logging.Formatter(self._log_fmt_str))
         http_logger = logging.getLogger('pixeltable.http.server')
         http_logger.addHandler(http_fh)
+        self._managed_logging_handlers.append((http_logger, http_fh))
         http_logger.propagate = False
 
         self.clear_tmp_dir()
@@ -454,7 +464,7 @@ class Env:
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
-        self.log_to_stdout(False)
+        self._set_log_to_stdout(False)
 
     def _init_db(self, config: Config) -> None:
         """
@@ -893,13 +903,20 @@ class Env:
             except Exception as e:
                 _logger.warning(f'Error disposing engine: {e}')
 
-        # Remove logging handlers
-        for handler in self._logger.handlers[:]:
+        for logger, handler in self._managed_logging_handlers:
             try:
-                handler.close()
-                self._logger.removeHandler(handler)
+                logger.removeHandler(handler)
             except Exception as e:
                 _logger.warning(f'Error removing handler: {e}')
+
+        handlers_set = {fh for _, fh in self._managed_logging_handlers}
+        for handler in handlers_set:
+            try:
+                handler.close()
+            except Exception as e:
+                _logger.warning(f'Error closing handler: {e}')
+
+        self._managed_logging_handlers.clear()
 
 
 def register_client(name: str) -> Callable:
