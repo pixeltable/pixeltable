@@ -27,15 +27,13 @@ class RateLimitsScheduler(Scheduler):
     Scheduling strategy:
     - try to stay below resource limits by utilizing reported RateLimitInfo.remaining
     - also take into account the estimated resource usage for in-flight requests
-      (obtained via RateLimitsInfo.get_request_resources())
+      (obtained via the per-UDF resource_estimator)
     - issue synchronous requests when we don't have a RateLimitsInfo yet or when we depleted a resource and need to
       wait for a reset
 
     TODO:
     - limit the number of in-flight requests based on the open file limit
     """
-
-    get_request_resources_param_names: list[str]  # names of parameters of RateLimitsInfo.get_request_resources()
 
     # scheduling-related state
     pool_info: env.RateLimitsInfo | None
@@ -60,7 +58,6 @@ class RateLimitsScheduler(Scheduler):
         self.request_completed = asyncio.Event()
         self.total_requests = 0
         self.total_retried = 0
-        self.get_request_resources_param_names = []
 
     @classmethod
     def matches(cls, resource_pool: str) -> bool:
@@ -74,9 +71,6 @@ class RateLimitsScheduler(Scheduler):
         if self.pool_info is None:
             return
         assert isinstance(self.pool_info, env.RateLimitsInfo)
-        assert hasattr(self.pool_info, 'get_request_resources')
-        sig = inspect.signature(self.pool_info.get_request_resources)
-        self.get_request_resources_param_names = [p.name for p in sig.parameters.values()]
         self.est_usage = dict.fromkeys(self._resources, 0)
 
     async def _main_loop(self) -> None:
@@ -148,16 +142,21 @@ class RateLimitsScheduler(Scheduler):
             return list(self.pool_info.resource_limits.keys())
 
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
-        # Fall back to default estimate if the request's function signature doesn't match the pool's estimator
-        if not all(name in request.fn_call.fn.signature.parameters for name in self.get_request_resources_param_names):
-            return dict.fromkeys(self._resources, 1)
-        kwargs_batch = request.fn_call.get_param_values(self.get_request_resources_param_names, request.rows)
-        if not request.is_batched:
-            return self.pool_info.get_request_resources(**kwargs_batch[0])
+        estimator = request.fn_call.fn.resource_estimator_fn
+        param_names = [p.name for p in inspect.signature(estimator).parameters.values()]
+        if len(param_names) == 0:
+            result = estimator()
         else:
-            batch_kwargs = {k: [d[k] for d in kwargs_batch] for k in kwargs_batch[0]}
-            constant_kwargs, batch_kwargs = request.pxt_fn.create_batch_kwargs(batch_kwargs)
-            return self.pool_info.get_request_resources(**constant_kwargs, **batch_kwargs)
+            kwargs_batch = request.fn_call.get_param_values(param_names, request.rows)
+            if not request.is_batched:
+                result = estimator(**kwargs_batch[0])
+            else:
+                batch_kwargs = {k: [d[k] for d in kwargs_batch] for k in kwargs_batch[0]}
+                constant_kwargs, batch_kwargs = request.pxt_fn.create_batch_kwargs(batch_kwargs)
+                result = estimator(**constant_kwargs, **batch_kwargs)
+        # Filter to resources known to the pool to avoid KeyError in _resource_delay()
+        known = self._resources
+        return {k: v for k, v in result.items() if k in known}
 
     def _resource_delay(self, request_resources: dict[str, int]) -> float:
         """For the provided resources and usage, attempts to estimate the time to wait until sufficient resources are

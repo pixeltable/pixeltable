@@ -14,7 +14,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, Callable, Type
+from typing import TYPE_CHECKING, Any, Type
 
 import httpx
 import numpy as np
@@ -185,8 +185,8 @@ def _fract_remaining(resource_info: tuple[int, int, datetime.datetime] | None) -
 class OpenAIRateLimitsInfo(env.RateLimitsInfo):
     retryable_errors: tuple[Type[Exception], ...]
 
-    def __init__(self, get_request_resources: Callable[..., dict[str, int]]):
-        super().__init__(get_request_resources)
+    def __init__(self) -> None:
+        super().__init__()
         import openai
 
         self.retryable_errors = (
@@ -418,38 +418,6 @@ def _token_count_for_image(image: PIL.Image.Image) -> int:
     )
 
 
-def _chat_completions_get_request_resources(
-    messages: list, model: str, model_kwargs: dict[str, Any] | None
-) -> dict[str, int]:
-    if model_kwargs is None:
-        model_kwargs = {}
-
-    max_completion_tokens = model_kwargs.get('max_completion_tokens')
-    max_tokens = model_kwargs.get('max_tokens')
-    n = model_kwargs.get('n')
-
-    completion_tokens = (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model))
-
-    num_tokens = 0.0
-    for message in messages:
-        num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
-        for key, value in message.items():
-            if isinstance(value, str):
-                num_tokens += len(value) / 4
-            elif isinstance(value, list):
-                for part in value:
-                    if isinstance(part, dict):
-                        if part.get('type') == 'text' and isinstance(part.get('text'), str):
-                            num_tokens += len(part['text']) / 4
-                        elif part.get('type') == 'image_url' and isinstance(part.get('image_url'), PIL.Image.Image):
-                            num_tokens += _token_count_for_image(part['image_url'])
-            if key == 'name':  # if there's a name, the role is omitted
-                num_tokens -= 1  # role is always required and always 1 token
-
-    num_tokens += 2  # every reply is primed with <im_start>assistant
-    return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
-
-
 @pxt.udf(is_deterministic=False)
 async def chat_completions(
     messages: list,
@@ -545,9 +513,7 @@ async def chat_completions(
 
     # make sure the pool info exists prior to making the request
     resource_pool = _rate_limits_pool(model)
-    rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_chat_completions_get_request_resources)
-    )
+    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)
 
     request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     result = await _openai_client().chat.completions.with_raw_response.create(
@@ -559,6 +525,37 @@ async def chat_completions(
     rate_limits_info.record(request_ts=request_ts, requests=requests_info, tokens=tokens_info, reset_exc=is_retry)
 
     return json.loads(result.text)
+
+
+@chat_completions.resource_estimator
+def _(messages: list, model: str, model_kwargs: dict[str, Any] | None = None) -> dict[str, int]:
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    max_completion_tokens = model_kwargs.get('max_completion_tokens')
+    max_tokens = model_kwargs.get('max_tokens')
+    n = model_kwargs.get('n')
+
+    completion_tokens = (n or 1) * (max_completion_tokens or max_tokens or _default_max_tokens(model))
+
+    num_tokens = 0.0
+    for message in messages:
+        num_tokens += 4  # every message follows <im_start>{role/name}\n{content}<im_end>\n
+        for key, value in message.items():
+            if isinstance(value, str):
+                num_tokens += len(value) / 4
+            elif isinstance(value, list):
+                for part in value:
+                    if isinstance(part, dict):
+                        if part.get('type') == 'text' and isinstance(part.get('text'), str):
+                            num_tokens += len(part['text']) / 4
+                        elif part.get('type') == 'image_url' and isinstance(part.get('image_url'), PIL.Image.Image):
+                            num_tokens += _token_count_for_image(part['image_url'])
+            if key == 'name':  # if there's a name, the role is omitted
+                num_tokens -= 1  # role is always required and always 1 token
+
+    num_tokens += 2  # every reply is primed with <im_start>assistant
+    return {'requests': 1, 'tokens': int(num_tokens) + completion_tokens}
 
 
 @pxt.udf(is_deterministic=False)
@@ -616,6 +613,16 @@ async def vision(
     return response['choices'][0]['message']['content']
 
 
+@vision.resource_estimator
+def _(prompt: str, image: PIL.Image.Image, model: str, model_kwargs: dict[str, Any] | None = None) -> dict[str, int]:
+    if model_kwargs is None:
+        model_kwargs = {}
+    max_tokens = model_kwargs.get('max_tokens') or _default_max_tokens(model)
+    # 4 tokens message overhead + prompt text + image tokens + 2 tokens reply priming
+    num_tokens = 4 + len(prompt) / 4 + _token_count_for_image(image) + 2
+    return {'requests': 1, 'tokens': int(num_tokens) + max_tokens}
+
+
 #####################################
 # Embeddings Endpoints
 
@@ -624,11 +631,6 @@ _embedding_dimensions_cache: dict[str, int] = {
     'text-embedding-3-small': 1536,
     'text-embedding-3-large': 3072,
 }
-
-
-def _embeddings_get_request_resources(input: list[str]) -> dict[str, int]:
-    input_len = sum(len(s) for s in input)
-    return {'requests': 1, 'tokens': int(input_len / 4)}
 
 
 @pxt.udf(batch_size=32)
@@ -681,9 +683,7 @@ async def embeddings(
 
     _logger.debug(f'embeddings: batch_size={len(input)}')
     resource_pool = _rate_limits_pool(model)
-    rate_limits_info = env.Env.get().get_resource_pool_info(
-        resource_pool, lambda: OpenAIRateLimitsInfo(_embeddings_get_request_resources)
-    )
+    rate_limits_info = env.Env.get().get_resource_pool_info(resource_pool, OpenAIRateLimitsInfo)
     request_ts = datetime.datetime.now(tz=datetime.timezone.utc)
     result = await _openai_client().embeddings.with_raw_response.create(
         input=input, model=model, encoding_format='float', **model_kwargs
@@ -705,6 +705,12 @@ def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
             return ts.ArrayType((None,), dtype=ts.FloatType(), nullable=False)
         dimensions = _embedding_dimensions_cache.get(model)
     return ts.ArrayType((dimensions,), dtype=ts.FloatType(), nullable=False)
+
+
+@embeddings.resource_estimator
+def _(input: list[str]) -> dict[str, int]:
+    input_len = sum(len(s) for s in input)
+    return {'requests': 1, 'tokens': int(input_len / 4)}
 
 
 #####################################

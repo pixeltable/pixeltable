@@ -34,6 +34,10 @@ class Function(ABC):
     is_method: bool
     is_property: bool
     is_deterministic: bool
+    # Returns estimated resources needed for a specific request as a dict (key: resource name, value: estimated cost).
+    # Overridden for specific Function instances via the resource_estimator() decorator. The override must accept a
+    # subset of the parameters of the original function.
+    resource_estimator_fn: Callable[..., dict[str, int]]
     _conditional_return_type: Callable[..., ts.ColumnType] | None
 
     # We cache the overload resolutions in self._resolutions. This ensures that each resolution is represented
@@ -42,12 +46,12 @@ class Function(ABC):
     __resolved_fns: list[Self]
 
     # Translates a call to this function with the given arguments to its SQLAlchemy equivalent.
-    # Overriden for specific Function instances via the to_sql() decorator. The override must accept the same
+    # Overridden for specific Function instances via the to_sql() decorator. The override must accept the same
     # parameter names as the original function. Each parameter is going to be of type sql.ColumnElement.
     _to_sql: Callable[..., sql.ColumnElement | None]
 
     # Returns the resource pool to use for calling this function with the given arguments.
-    # Overriden for specific Function instances via the resource_pool() decorator. The override must accept a subset
+    # Overridden for specific Function instances via the resource_pool() decorator. The override must accept a subset
     # of the parameters of the original function, with the same type.
     _resource_pool: Callable[..., str | None]
 
@@ -71,6 +75,7 @@ class Function(ABC):
         self.__resolved_fns = []
         self._to_sql = self.__default_to_sql
         self._resource_pool = self.__default_resource_pool
+        self.resource_estimator_fn = self.__default_resource_estimator
 
     @property
     def is_valid(self) -> bool:
@@ -428,6 +433,27 @@ class Function(ABC):
 
     def __default_resource_pool(self) -> str | None:
         return None
+
+    def resource_estimator(self, fn: Callable[..., dict[str, int]]) -> Callable[..., dict[str, int]]:
+        """Instance decorator for specifying the resource estimator of this function.
+
+        The decorated function accepts a subset of this function's parameters and returns a dict mapping
+        resource names to estimated costs for a single request.
+        """
+        if self.is_polymorphic:
+            raise excs.Error(f'resource_estimator cannot be used with polymorphic function {self.self_path or self}')
+        estimator_params = set(inspect.signature(fn).parameters.keys())
+        fn_params = set(self.signature.parameters.keys())
+        if not estimator_params.issubset(fn_params):
+            raise excs.Error(
+                f'resource_estimator for {self.self_path or self} has parameters '
+                f'{estimator_params - fn_params} that are not in the function signature'
+            )
+        self.resource_estimator_fn = fn
+        return fn
+
+    def __default_resource_estimator(self) -> dict[str, int]:
+        return {}
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, self.__class__):

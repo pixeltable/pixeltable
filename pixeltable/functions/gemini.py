@@ -73,13 +73,7 @@ def _genai_client() -> 'genai.client.Client':
 
 
 class GeminiRateLimitsInfo(env.RateLimitsInfo):
-    def __init__(self) -> None:
-        super().__init__(self._get_request_resources)
-
-    def _get_request_resources(self) -> dict[str, int]:
-        # TODO(PXT-996): Improve resource tracking for Gemini UDFs
-        return {}
-
+    # TODO(PXT-996): Improve resource tracking for Gemini UDFs
     def is_initialized(self) -> bool:
         return True
 

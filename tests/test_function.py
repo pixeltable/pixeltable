@@ -1319,6 +1319,35 @@ class TestFunction:
         assert process.returncode != 0  # The script should fail with an appropriate error message
         assert "Defining the UDF 'inline_udf' directly in the global namespace of a Python script" in process.stderr
 
+    def test_resource_estimator_validation(self) -> None:
+        # Valid: estimator params are a subset of function params
+        @self.f1.resource_estimator
+        def _(a: int) -> dict[str, int]:
+            return {'requests': 1, 'tokens': a}
+
+        assert self.f1.resource_estimator_fn(5) == {'requests': 1, 'tokens': 5}
+
+        # Valid: zero-arg estimator
+        @self.f2.resource_estimator
+        def _() -> dict[str, int]:
+            return {'requests': 1}
+
+        assert self.f2.resource_estimator_fn() == {'requests': 1}
+
+        # Invalid: estimator has params not in function signature
+        with pytest.raises(pxt.Error, match='not in the function signature'):
+
+            @self.func.resource_estimator
+            def _(x: int, unknown_param: int) -> dict[str, int]:
+                return {'requests': 1}
+
+        # Invalid: polymorphic function
+        with pytest.raises(pxt.Error, match='polymorphic'):
+
+            @self.overloaded_udf.resource_estimator
+            def _() -> dict[str, int]:
+                return {'requests': 1}
+
 
 @pxt.udf
 def udf6(name: str) -> str:

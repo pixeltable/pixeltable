@@ -985,17 +985,10 @@ class RateLimitsInfo:
 
     Subclasses provide operational customization via:
     - get_retry_delay()
-    - get_request_resources(self, ...) -> dict[str, int]
-    with parameters that are a subset of those of the udf that creates the subclass's instance
+    - record_exc()
 
     All mutable state is protected by _lock (a reentrant lock, since subclass record_exc() may call self.record()).
     """
-
-    # get_request_resources:
-    # - Returns estimated resources needed for a specific request (ie, a single udf call) as a dict (key: resource name)
-    # - parameters are a subset of those of the udf
-    # - this is not a class method because the signature depends on the instantiating udf
-    get_request_resources: Callable[..., dict[str, int]]
 
     resource_limits: dict[str, RateLimitInfo] = field(default_factory=dict)
     has_exc: bool = False
