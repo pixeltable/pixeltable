@@ -11,7 +11,6 @@ import sys
 import uuid
 from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
-from uuid import UUID
 
 import sqlalchemy as sql
 
@@ -25,17 +24,7 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
-# TODO
-_MAX_RETRIES = -1
-
 T = TypeVar('T')
-
-
-class PendingTableOpsError(Exception):
-    tbl_id: UUID
-
-    def __init__(self, tbl_id: UUID) -> None:
-        self.tbl_id = tbl_id
 
 
 class OpStatus(Enum):

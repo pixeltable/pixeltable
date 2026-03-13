@@ -32,7 +32,7 @@ from .table import Table
 from .table_version import TableVersion, TableVersionKey, TableVersionMd
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
-from .tbl_ops import OpStatus, PendingTableOpsError, TableOp
+from .tbl_ops import OpStatus, TableOp
 from .update_status import UpdateStatus
 from .view import View
 
@@ -136,6 +136,13 @@ def retry_loop(
         return loop
 
     return decorator
+
+
+class PendingTableOpsError(Exception):
+    tbl_id: UUID
+
+    def __init__(self, tbl_id: UUID) -> None:
+        self.tbl_id = tbl_id
 
 
 class Catalog:
