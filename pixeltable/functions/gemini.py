@@ -347,14 +347,10 @@ def _(model: str) -> str:
 
 @pxt.udf(batch_size=32)
 async def generate_embedding(
-    input: Batch[str],
-    *,
-    model: str,
-    config: dict[str, Any] | None = None,
-    use_batch_api: bool = False,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    input: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    """Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
+    """
+    Generate embeddings for text, images, video, and other content. For more information on Gemini embeddings API, see:
     <https://ai.google.dev/gemini-api/docs/embeddings>
 
     __Requirements:__
@@ -362,7 +358,7 @@ async def generate_embedding(
     - `pip install google-genai`
 
     Args:
-        input: The strings to generate embeddings for.
+        input: The string, image, audio, or video to embed.
         model: The Gemini model to use.
         config: Configuration for embedding generation, corresponding to keyword arguments of
             `genai.types.EmbedContentConfig`. For details on the parameters, see:
@@ -371,7 +367,7 @@ async def generate_embedding(
             a higher throughput at a lower cost at the expense of higher latency.
 
     Returns:
-        The generated embeddings.
+        The corresponding embedding vector.
 
     Examples:
         Add a computed column with embeddings to an existing table with a `text` column:
@@ -387,6 +383,51 @@ async def generate_embedding(
         ...    ),
         ...)
     """
+    return await _embed_content(input, model, config, use_batch_api)
+
+
+@generate_embedding.overload
+async def _(
+    input: Batch[PIL.Image.Image], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+) -> Batch[pxt.Array[(None,), np.float32]]:
+    return await _embed_content(input, model, config, use_batch_api)
+
+
+@generate_embedding.overload
+async def _(
+    input: Batch[pxt.Audio], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+) -> Batch[pxt.Array[(None,), np.float32]]:
+    return await _embed_file_content(input, model, config, use_batch_api)
+
+
+@generate_embedding.overload
+async def _(
+    input: Batch[pxt.Video], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+) -> Batch[pxt.Array[(None,), np.float32]]:
+    return await _embed_file_content(input, model, config, use_batch_api)
+
+
+async def _embed_file_content(
+    input: list[str], model: str, config: dict[str, Any] | None, use_batch_api: bool
+) -> Batch[pxt.Array[(None,), np.float32]]:
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
+
+    contents: list[types.Part] = []
+    for item in input:
+        mime_type, _ = mimetypes.guess_type(item, strict=False)
+        if mime_type is None:
+            raise excs.Error(f'Could not identify mime type of file: {item}')
+        with open(item, 'rb') as f:
+            content_bytes = f.read()
+            contents.append(types.Part.from_bytes(data=content_bytes, mime_type=mime_type))
+
+    return await _embed_content(contents, model, config, use_batch_api)
+
+
+async def _embed_content(
+    contents: list[Any], model: str, config: dict[str, Any] | None, use_batch_api: bool
+) -> Batch[pxt.Array[(None,), np.float32]]:
     env.Env.get().require_package('google.genai')
     from google.genai import types
 
@@ -397,14 +438,14 @@ async def generate_embedding(
     config_ = _embedding_config(config)
 
     if not use_batch_api:
-        result = await client.aio.models.embed_content(model=model, contents=cast(list[Any], input), config=config_)
-        assert len(result.embeddings) == len(input)
+        result = await client.aio.models.embed_content(model=model, contents=contents, config=config_)
+        assert len(result.embeddings) == len(contents)
         return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
     # Batch API
     batch_job = client.batches.create_embeddings(
         model=model,
-        src=types.EmbeddingsBatchJobSource(inlined_requests=types.EmbedContentBatch(contents=input, config=config_)),
+        src=types.EmbeddingsBatchJobSource(inlined_requests=types.EmbedContentBatch(contents=contents, config=config_)),
     )
 
     await asyncio.sleep(3)
