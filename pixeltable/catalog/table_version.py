@@ -355,6 +355,15 @@ class TableVersion:
 
             cols.extend(index_cols)
 
+        primary_index_md = None
+        if any(col.is_pk for col in cols):
+            primary_index_md = schema.PrimaryIndexMd(
+                id=next(index_ids),
+                name=f'pk{tbl_id_str}',
+                indexed_cols_tbl_id=tbl_id_str,
+                indexed_col_id=[col.id for col in cols if col.is_pk],
+            )
+
         tbl_md = schema.TableMd(
             tbl_id=tbl_id_str,
             name=name,
@@ -370,6 +379,7 @@ class TableVersion:
             index_md=index_md,
             external_stores=[],
             view_md=view_md,
+            primary_index_md=primary_index_md,
             additional_md={},
         )
 
