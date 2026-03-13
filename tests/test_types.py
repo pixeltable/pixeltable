@@ -196,6 +196,8 @@ class TestTypes:
             (
                 JsonType(JsonType.TypeSchema({'a': StringType(), 'c': ArrayType((3,), dtype=FLOAT32)})),
                 JsonType(JsonType.TypeSchema({'b': IntType(), 'c': ArrayType((5,), dtype=FLOAT32)})),
+                # keys in one but not the other become optional keys in the supertype;
+                # keys in both become their supertype
                 JsonType(
                     JsonType.TypeSchema(
                         {'a': StringType(), 'b': IntType(), 'c': ArrayType((None,), dtype=FLOAT32)},
@@ -204,8 +206,43 @@ class TestTypes:
                 ),
             ),
             (
+                # conflicting keys -> default JsonType()
+                JsonType(JsonType.TypeSchema({'a': StringType()})),
+                JsonType(JsonType.TypeSchema({'a': AudioType()})),
+                JsonType(),
+            ),
+            (
+                # tuples with same length -> tuple of supertype of each position
+                JsonType(JsonType.TypeSchema([StringType(), IntType()])),
+                JsonType(JsonType.TypeSchema([StringType(), StringType()])),
+                JsonType(JsonType.TypeSchema([StringType(), JsonType()])),
+            ),
+            (
+                # tuples with different lengths -> varadic type if allowed
+                JsonType(JsonType.TypeSchema([StringType(), IntType()])),
+                JsonType(JsonType.TypeSchema([StringType(), StringType(), FloatType(), BoolType()])),
+                JsonType(JsonType.TypeSchema([StringType(), JsonType()], variadic_type=FloatType())),
+            ),
+            (
+                # tuples with different lengths and no allowable variadic type -> default JsonType()
+                JsonType(JsonType.TypeSchema([StringType(), IntType()])),
+                JsonType(JsonType.TypeSchema([StringType(), StringType(), FloatType(), AudioType()])),
+                JsonType(),
+            ),
+            (
+                # merge existing variadic type with fixed element from longer tuple
                 JsonType(JsonType.TypeSchema([StringType(), IntType()], variadic_type=ArrayType((3,), dtype=FLOAT32))),
                 JsonType(JsonType.TypeSchema([StringType(), StringType(), ArrayType((5,), dtype=FLOAT32)])),
+                JsonType(
+                    JsonType.TypeSchema([StringType(), JsonType()], variadic_type=ArrayType((None,), dtype=FLOAT32))
+                ),
+            ),
+            (
+                # both tuples have variadic types
+                JsonType(JsonType.TypeSchema([StringType(), IntType()], variadic_type=ArrayType((3,), dtype=FLOAT32))),
+                JsonType(
+                    JsonType.TypeSchema([StringType(), StringType()], variadic_type=ArrayType((5,), dtype=FLOAT32))
+                ),
                 JsonType(
                     JsonType.TypeSchema([StringType(), JsonType()], variadic_type=ArrayType((None,), dtype=FLOAT32))
                 ),

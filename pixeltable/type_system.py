@@ -993,7 +993,7 @@ class JsonType(ColumnType):
             return None
 
         if isinstance(a.content, list) and isinstance(b.content, list):
-            variadic_type = None
+            variadic_type: ColumnType | None = None
             if a.variadic_type is not None:
                 variadic_type = a.variadic_type
                 if b.variadic_type is not None:
@@ -1006,25 +1006,29 @@ class JsonType(ColumnType):
             joined_content = []
             for item_a, item_b in itertools.zip_longest(a.content, b.content):
                 if item_a is None:
-                    assert item_b is not None
-                    # We're past the end of a's type args, so item_b only "fits" if a is variadic
-                    if a.variadic_type is None:
-                        return None
-                    variadic_type = variadic_type.supertype(item_b)
+                    assert isinstance(item_b, ColumnType)
+                    # We're past the end of a's type args. The supertype will still be valid as long as the type of
+                    # item_b can be incorporated into the variadic type. This may result in a variadic parameter in
+                    # the supertype where none exists in either subtype.
                     if variadic_type is None:
-                        return None  # variadic type is incompatible with the extra item_b
+                        variadic_type = item_b
+                    else:
+                        variadic_type = variadic_type.supertype(item_b)
+                        if variadic_type is None:
+                            return None  # existing variadic type is incompatible with the extra item_b
                 elif item_b is None:
-                    assert item_a is not None
+                    assert isinstance(item_a, ColumnType)
                     # Same thing in reverse
-                    if b.variadic_type is None:
-                        return None
-                    variadic_type = variadic_type.supertype(item_a)
                     if variadic_type is None:
-                        return None  # variadic type is incompatible with the extra item_a
+                        variadic_type = item_a
+                    else:
+                        variadic_type = variadic_type.supertype(item_a)
+                        if variadic_type is None:
+                            return None  # existing variadic type is incompatible with the extra item_a
                 else:
                     item_supertype = item_a.supertype(item_b)
                     if item_supertype is None:
-                        return None
+                        return None  # incompatible types in this position
                     joined_content.append(item_supertype)
 
             return JsonType.TypeSchema(content=joined_content, variadic_type=variadic_type)
