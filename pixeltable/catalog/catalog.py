@@ -75,7 +75,6 @@ _MAX_RETRIES = -1
 T = TypeVar('T')
 
 
-# TODO This needs to be split in 2 decorators
 def retry_loop(
     *, tbl: TableVersionPath | None = None, tbl_id: UUID | None = None, for_write: bool, lock_mutable_tree: bool = False
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
