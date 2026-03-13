@@ -96,7 +96,7 @@ async def chat_completions(
         model=model,
         **model_kwargs,
     )
-    return result.model_dump()
+    return result.model_dump(mode='json')
 
 
 def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict:

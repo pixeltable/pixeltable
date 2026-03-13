@@ -2,7 +2,15 @@
 Pixeltable UDFs
 that wrap various endpoints from the Google Gemini API. In order to use them, you must
 first `pip install google-genai` and configure your Gemini credentials, as described in
-the [Working with Gemini](https://docs.pixeltable.com/notebooks/integrations/working-with-gemini) tutorial.
+the [Working with Gemini](https://docs.pixeltable.com/howto/providers/working-with-gemini) tutorial.
+
+Supports two authentication methods:
+
+- Google AI Studio: set `GOOGLE_API_KEY` or `GEMINI_API_KEY` (or put `api_key` in the `gemini` section of
+  the Pixeltable config file).
+- Vertex AI: set `GOOGLE_GENAI_USE_VERTEXAI=true` and `GOOGLE_CLOUD_PROJECT` (and optionally
+  `GOOGLE_CLOUD_LOCATION`), then authenticate via Application Default Credentials
+  (e.g. `gcloud auth application-default login`).
 """
 
 import asyncio
@@ -41,10 +49,23 @@ _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
 
 
 @env.register_client('gemini')
-def _(api_key: str) -> 'genai.client.Client':
+def _(api_key: str | None = None) -> 'genai.client.Client':
     from google import genai
 
-    return genai.client.Client(api_key=api_key)
+    try:
+        if api_key is not None:
+            return genai.client.Client(api_key=api_key)
+        # Vertex AI fall-through: rely on genai.client.Client to read its own env vars
+        # (GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
+        return genai.client.Client()
+    except Exception as e:
+        raise excs.Error(
+            'Gemini client not initialized. '
+            'For the Gemini Developer API set GOOGLE_API_KEY or GEMINI_API_KEY, '
+            'or set api_key in the [gemini] section of $PIXELTABLE_HOME/config.toml. '
+            'For Vertex AI set GOOGLE_GENAI_USE_VERTEXAI=true and GOOGLE_CLOUD_PROJECT, '
+            'then authenticate via: gcloud auth application-default login'
+        ) from e
 
 
 def _genai_client() -> 'genai.client.Client':
@@ -146,7 +167,7 @@ async def generate_content(
             await _poll_until_active(async_client=client.aio, uploaded=uploaded, video_paths=large_video_paths)
             contents = _replace_upload_placeholders(contents, uploaded)
         response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
-        return response.model_dump()
+        return response.model_dump(mode='json')
     finally:
         if uploaded:
             await asyncio.gather(*[client.aio.files.delete(name=f.name) for f in uploaded], return_exceptions=True)
