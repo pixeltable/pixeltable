@@ -4,6 +4,7 @@ import abc
 import dataclasses
 import datetime
 import enum
+import inspect
 import io
 import itertools
 import json
@@ -12,7 +13,7 @@ import typing
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any, ClassVar, Iterable, List, Literal, Mapping, Sequence, Tuple, Union
+from typing import Any, ClassVar, Dict, Iterable, List, Literal, Mapping, Sequence, Tuple, Union
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
@@ -346,14 +347,11 @@ class ColumnType:
                 return parameters.copy(nullable=nullable_default)
         else:
             # It's something other than T | None, Required[T], or an explicitly annotated type.
-            if origin is not None:
-                # Discard type parameters to ensure that parameterized types such as `list[T]`
-                # are correctly mapped to Pixeltable types.
-                t = origin
-            if isinstance(t, type) and issubclass(t, _PxtType):
+            origin = origin or t  # for non-generic types, get_origin returns None, so we use the type itself as the origin
+            if isinstance(origin, type) and issubclass(origin, _PxtType):
                 return t.as_col_type(nullable=nullable_default)
             elif allow_builtin_types:
-                if t is Literal and len(type_args) > 0:
+                if origin is Literal and len(type_args) > 0:
                     literal_type = cls.infer_common_literal_type(type_args)
                     if literal_type is None:
                         return None
@@ -383,8 +381,8 @@ class ColumnType:
                     return BinaryType(nullable=nullable_default)
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
-                if isinstance(t, type) and issubclass(t, (Sequence, Mapping, pydantic.BaseModel)):
-                    return JsonType(nullable=nullable_default)
+                if isinstance(origin, type) and issubclass(origin, (Sequence, Mapping, pydantic.BaseModel)):
+                    return JsonType(type_schema=JsonType._validate_type_schema(t), nullable=nullable_default)
         return None
 
     @classmethod
@@ -869,6 +867,11 @@ class JsonType(ColumnType):
                     variadic_type=cls.from_python_type(variadic_type) if variadic_type is not None else None,
                 )
 
+            origin = typing.get_origin(type_arg) or type_arg
+            if isinstance(origin, type) and issubclass(origin, (Sequence, Mapping)):
+                # It's some other kind of sequence or mapping; treat it as untyped JSON.
+                return None
+
         if isinstance(type_arg, dict):
             # Convenience dictionary; all keys are assumed to be required.
             content: dict[str, Any] = {}
@@ -910,6 +913,7 @@ class JsonType(ColumnType):
     @classmethod
     def from_python_type(cls, t: type | _GenericAlias) -> ColumnType:
         result = ColumnType.from_python_type(t)
+        print(f'FROM PYTHON TYPE: {t}; GOT RESULT: {result}')
         if result is None:
             raise excs.Error(
                 f'Invalid type schema: received Python type `{t.__name__}`, which does not represent a valid Pixeltable type'

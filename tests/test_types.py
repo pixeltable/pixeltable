@@ -157,6 +157,21 @@ class TestTypes:
                 ),
                 "Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}, optional_keys=['a', 'b', 'c']]",
             ),
+            Json[TypedDict3]: (
+                JsonType(
+                    JsonType.TypeSchema(
+                        {
+                            'a': StringType(),
+                            'b': JsonType(JsonType.TypeSchema({'a': StringType(), 'b': IntType(nullable=True), 'c': ArrayType((None,), dtype=FloatType())})),
+                            'c': JsonType(JsonType.TypeSchema([IntType()], variadic_type=StringType())),
+                            'd': JsonType(JsonType.TypeSchema([IntType(), StringType()])),
+                            'e': JsonType(JsonType.TypeSchema([], variadic_type=IntType())),
+                            'f': JsonType(JsonType.TypeSchema([], variadic_type=IntType())),
+                        }
+                    )
+                ),
+                "blarg"
+            ),
             Image[100, 200]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),  # type: ignore[misc]
             Image[100, None]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),  # type: ignore[misc]
             Image[None, 200]: (ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),  # type: ignore[misc]
