@@ -752,8 +752,6 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
     Equivalent to the OpenAI `images/generations` API endpoint.
     For additional details, see: <https://platform.openai.com/docs/guides/images>
 
-    Supports DALL-E 2, DALL-E 3, and GPT image models (`gpt-image-1`, `gpt-image-1-mini`, `gpt-image-1.5`).
-
     Request throttling:
     Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
     limit is configured, uses a default of 600 RPM.
@@ -764,10 +762,9 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
 
     Args:
         prompt: Prompt for the image.
-        model: The model to use for the generations. One of `dall-e-2`, `dall-e-3`, `gpt-image-1`,
-            `gpt-image-1-mini`, or `gpt-image-1.5`.
+        model: The model to use for the generations. See the OpenAI docs for supported models.
         model_kwargs: Additional keyword args for the OpenAI `images/generations` API. For details on the available
-            parameters, see: <https://developers.openai.com/api/reference/resources/images/methods/create>
+            parameters, see: <https://developers.openai.com/api/reference/resources/images/methods/generate>
 
     Returns:
         A dictionary containing the generated image data. Images will be deserialized into `PIL.Image.Image` objects,
@@ -804,7 +801,7 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
     kwargs: dict[str, Any] = {'prompt': prompt, 'model': model, **model_kwargs}
     # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
     # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.
-    # https://developers.openai.com/api/reference/resources/images/methods/create
+    # https://developers.openai.com/api/reference/resources/images/methods/generate
     if not _is_gpt_image_model(model):
         kwargs.setdefault('response_format', 'b64_json')
 
@@ -826,8 +823,6 @@ async def image_edits(
 
     Equivalent to the OpenAI `images/edits` API endpoint.
     For additional details, see: <https://developers.openai.com/api/docs/guides/image-generation#edit-images>
-
-    Supports GPT image models (`gpt-image-1`, `gpt-image-1-mini`, `gpt-image-1.5`) and `dall-e-2`.
 
     Request throttling:
     Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
@@ -907,8 +902,6 @@ async def image_variations(image: PIL.Image.Image, *, model: str, model_kwargs: 
 
     Equivalent to the OpenAI `images/variations` API endpoint.
     For additional details, see: <https://developers.openai.com/api/docs/guides/image-generation#image-variations>
-
-    Note: This endpoint currently only supports the `dall-e-2` model.
 
     Request throttling:
     Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
