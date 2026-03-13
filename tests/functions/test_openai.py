@@ -362,7 +362,7 @@ class TestOpenai:
         assert isinstance(result['img_2'][0]['data'][0], PIL.Image.Image)
 
     @pytest.mark.expensive
-    def test_image_edits(self, uses_db: None) -> None:
+    def test_image_edits_gpt_image(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import image_edits

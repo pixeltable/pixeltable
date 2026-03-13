@@ -767,12 +767,11 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         model: The model to use for the generations. One of `dall-e-2`, `dall-e-3`, `gpt-image-1`,
             `gpt-image-1-mini`, or `gpt-image-1.5`.
         model_kwargs: Additional keyword args for the OpenAI `images/generations` API. For details on the available
-            parameters, see: <https://platform.openai.com/docs/api-reference/images/create>
+            parameters, see: <https://developers.openai.com/api/reference/resources/images/methods/create>
 
     Returns:
         A dictionary containing the generated image data. Images will be deserialized into `PIL.Image.Image` objects,
         and the result dictionary will have the following form:
-
         ```json
         {
             "created": 1234567890,
@@ -803,19 +802,21 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         model_kwargs = {}
 
     kwargs: dict[str, Any] = {'prompt': prompt, 'model': model, **model_kwargs}
+    # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
+    # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.
+    # https://developers.openai.com/api/reference/resources/images/methods/create
     if not _is_gpt_image_model(model):
         kwargs.setdefault('response_format', 'b64_json')
 
     result_model = await _openai_client().images.generate(**kwargs)
-    # TODO from main : result = result_model.model_dump(mode='json')
-    return _decode_image_response(result_model.model_dump())
+    return _decode_image_response(result_model.model_dump(mode='json'))
 
 @pxt.udf(is_deterministic=False)
 async def image_edits(
     image: PIL.Image.Image,
     *,
     prompt: str,
-    model: str = 'gpt-image-1',
+    model: str,
     mask: PIL.Image.Image | None = None,
     model_kwargs: dict[str, Any] | None = None,
 ) -> dict:
@@ -823,7 +824,7 @@ async def image_edits(
     Creates an edited or extended image given a source image and a prompt.
 
     Equivalent to the OpenAI `images/edits` API endpoint.
-    For additional details, see: <https://platform.openai.com/docs/guides/image-generation>
+    For additional details, see: <https://developers.openai.com/api/docs/guides/image-generation#edit-images>
 
     Supports GPT image models (`gpt-image-1`, `gpt-image-1-mini`, `gpt-image-1.5`) and `dall-e-2`.
 
@@ -837,19 +838,15 @@ async def image_edits(
 
     Args:
         image: The source image to edit.
-        prompt: A text description of the desired edit. The maximum length is 1000 characters for `dall-e-2`
-            and 32000 characters for the GPT image models.
+        prompt: A text description of the desired edit.
         model: The model to use for image editing.
-        mask: An additional image whose fully transparent areas (alpha = 0) indicate where `image` should be
-            edited. Must be a valid PNG with the same dimensions as `image`. Only used with `dall-e-2` and
-            GPT image models.
+        mask: An optional mask image. See: <https://developers.openai.com/api/reference/resources/images/methods/edit>
         model_kwargs: Additional keyword args for the OpenAI `images/edits` API. For details on the available
-            parameters, see: <https://platform.openai.com/docs/api-reference/images/createEdit>
+            parameters, see: <https://developers.openai.com/api/reference/resources/images/methods/edit>
 
     Returns:
         A dictionary containing the edited image data. Images will be deserialized into `PIL.Image.Image` objects,
         and the result dictionary will have the following form:
-
         ```json
         {
             "created": 1234567890,
@@ -892,22 +889,23 @@ async def image_edits(
     if mask is not None:
         kwargs['mask'] = _pil_to_png_bytes(mask, rgba=True)
 
+    # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
+    # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.
+    # https://developers.openai.com/api/reference/resources/images/methods/edit
     if not _is_gpt_image_model(model):
         kwargs.setdefault('response_format', 'b64_json')
 
     result_model = await _openai_client().images.edit(**kwargs)
-    return _decode_image_response(result_model.model_dump())
+    return _decode_image_response(result_model.model_dump(mode='json'))
 
 
 @pxt.udf(is_deterministic=False)
-async def image_variations(
-    image: PIL.Image.Image, *, model: str = 'dall-e-2', model_kwargs: dict[str, Any] | None = None
-) -> dict:
+async def image_variations(image: PIL.Image.Image, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
     """
     Creates a variation of a given image.
 
     Equivalent to the OpenAI `images/variations` API endpoint.
-    For additional details, see: <https://platform.openai.com/docs/guides/image-generation>
+    For additional details, see: <https://developers.openai.com/api/docs/guides/image-generation#image-variations>
 
     Note: This endpoint currently only supports the `dall-e-2` model.
 
@@ -920,15 +918,14 @@ async def image_variations(
     - `pip install openai`
 
     Args:
-        image: The source image to create a variation of. Must be a square PNG less than 4MB.
-        model: The model to use for creating variations. Currently only `dall-e-2` is supported.
+        image: The source image to create a variation of.
+        model: The model to use for creating variations.
         model_kwargs: Additional keyword args for the OpenAI `images/variations` API. For details on the available
-            parameters, see: <https://platform.openai.com/docs/api-reference/images/createVariation>
+            parameters, see: <https://developers.openai.com/api/reference/resources/images/methods/create_variation>
 
     Returns:
         A dictionary containing the variation image data. Images will be deserialized into `PIL.Image.Image` objects,
         and the result dictionary will have the following form:
-
         ```json
         {
             "created": 1234567890,
@@ -951,9 +948,13 @@ async def image_variations(
 
     image_file = _pil_to_png_bytes(image)
     kwargs: dict[str, Any] = {'image': image_file, 'model': model, **model_kwargs}
-    kwargs.setdefault('response_format', 'b64_json')
+    # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
+    # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.
+    # https://developers.openai.com/api/reference/resources/images/methods/create_variation
+    if not _is_gpt_image_model(model):
+        kwargs.setdefault('response_format', 'b64_json')
     result_model = await _openai_client().images.create_variation(**kwargs)
-    return _decode_image_response(result_model.model_dump())
+    return _decode_image_response(result_model.model_dump(mode='json'))
 
 
 # TODO: We can resurrect this logic once we have proper typed Json support.
