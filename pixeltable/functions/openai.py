@@ -811,6 +811,7 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
     result_model = await _openai_client().images.generate(**kwargs)
     return _decode_image_response(result_model.model_dump(mode='json'))
 
+
 @pxt.udf(is_deterministic=False)
 async def image_edits(
     image: PIL.Image.Image,

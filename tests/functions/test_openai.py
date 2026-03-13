@@ -430,10 +430,7 @@ class TestOpenai:
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
         t.add_computed_column(
             edited=image_edits(
-                t.img,
-                prompt='Add a blue sky background',
-                model='dall-e-2',
-                model_kwargs={'size': '512x512'},
+                t.img, prompt='Add a blue sky background', model='dall-e-2', model_kwargs={'size': '512x512'}
             )
         )
 
@@ -442,7 +439,7 @@ class TestOpenai:
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
         assert result['edited'][0]['data'][0].size == (512, 512)
 
-    @pytest.mark.skip(reason="Image variation endpoint is restricted until Pixeltable org is verified by OpenAI.")
+    @pytest.mark.skip(reason='Image variation endpoint is restricted until Pixeltable org is verified by OpenAI.')
     @pytest.mark.expensive
     def test_image_variations(self, uses_db: None) -> None:
         skip_test_if_not_installed('openai')
