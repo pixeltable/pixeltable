@@ -205,7 +205,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import retry_loop
 
         # we need retry_loop() here, because we end up loading Tables for the views
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> list[str]:
             return [t._path() for t in self._get_views(recursive=recursive)]
 
@@ -229,7 +229,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import retry_loop
         from pixeltable.plan import FromClause
 
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> 'pxt.Query':
             query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
             if len(items) == 0 and len(named_items) == 0:
@@ -246,7 +246,7 @@ class Table(SchemaObject):
 
         from pixeltable.catalog import retry_loop
 
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> 'pxt.Query':
             return self.select().where(pred)
 
@@ -259,7 +259,7 @@ class Table(SchemaObject):
 
         from pixeltable.catalog import retry_loop
 
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> 'pxt.Query':
             return self.select().join(other, on=on, how=how)
 
@@ -273,7 +273,7 @@ class Table(SchemaObject):
 
         from pixeltable.catalog import retry_loop
 
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> 'pxt.Query':
             return self.select().order_by(*items, asc=asc)
 
@@ -287,7 +287,7 @@ class Table(SchemaObject):
 
         from pixeltable.catalog import retry_loop
 
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> 'pxt.Query':
             return self.select().group_by(*items)
 
