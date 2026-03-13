@@ -440,6 +440,10 @@ class TestVision:
         t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json})
         t.insert([{'bboxes': [[100, 100, 200, 300]]}])
 
+        # invalid format
+        with pytest.raises(pxt.Error, match='Invalid format'):
+            t.select(bboxes_scale(t.bboxes, 'coco', factor=2.0)).collect()
+
         # no factors specified
         with pytest.raises(pxt.Error, match='at least one of'):
             t.select(bboxes_scale(t.bboxes, 'xyxy')).collect()
@@ -552,6 +556,10 @@ class TestVision:
     def test_bboxes_pad_errors(self, uses_db: None) -> None:
         t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json})
         t.insert([{'bboxes': [[100, 100, 200, 300]]}])
+
+        # invalid format
+        with pytest.raises(pxt.Error, match='Invalid format'):
+            t.select(bboxes_pad(t.bboxes, 'coco', x=10)).collect()
 
         # no params specified
         with pytest.raises(pxt.Error, match='at least one padding parameter'):
@@ -770,6 +778,12 @@ class TestVision:
     def test_bboxes_clip_to_canvas_errors(self, uses_db: None) -> None:
         t = pxt.create_table('bbox_clip_err', {'bboxes': pxt.Json})
 
+        # invalid format
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='Invalid format'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'coco', width=640, height=480)).collect()
+        t.delete()
+
         # Missing both width/height for absolute coords
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
         with pytest.raises(pxt.Error, match='both width and height must be specified'):
@@ -948,6 +962,21 @@ class TestVision:
     def test_bboxes_crop_canvas_errors(self, uses_db: None) -> None:
         t = pxt.create_table('bbox_crop_err', {'bboxes': pxt.Json})
 
+        # invalid format
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='Invalid format'):
+            t.select(
+                bboxes_crop_canvas(
+                    t.bboxes,
+                    'coco',
+                    canvas_region=[10, 10, 100, 100],
+                    canvas_region_format='xyxy',
+                    canvas_width=640,
+                    canvas_height=480,
+                )
+            ).collect()
+        t.delete()
+
         # Missing canvas_width/canvas_height for absolute coords
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
         with pytest.raises(pxt.Error, match='both canvas_width and canvas_height must be specified'):
@@ -1099,6 +1128,12 @@ class TestVision:
 
     def test_bboxes_resize_canvas_errors(self, uses_db: None) -> None:
         t = pxt.create_table('bbox_resize_err', {'bboxes': pxt.Json})
+
+        # invalid format
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='Invalid format'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'coco', canvas_scale=2.0)).collect()
+        t.delete()
 
         # No resize params specified
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
