@@ -1174,7 +1174,103 @@ def bboxes_resize_canvas(
     Returns:
         List of adjusted bounding boxes in the same format as the input.
     """
-    raise NotImplementedError()
+    # Early exit
+    if len(bboxes) == 0:
+        return []
+
+    # Parameter validation
+    has_new_dims = new_canvas_width is not None or new_canvas_height is not None
+    has_scale = canvas_scale is not None
+    has_scale_xy = canvas_scale_x is not None or canvas_scale_y is not None
+    has_canvas_dims = canvas_width is not None or canvas_height is not None
+
+    if not has_new_dims and not has_scale and not has_scale_xy:
+        raise pxt.Error('bboxes_resize_canvas(): at least one resize parameter must be specified')
+    if has_new_dims and (has_scale or has_scale_xy):
+        raise pxt.Error(
+            'bboxes_resize_canvas(): new_canvas_width/new_canvas_height is mutually exclusive with '
+            'canvas_scale/canvas_scale_x/canvas_scale_y'
+        )
+    if has_scale and has_scale_xy:
+        raise pxt.Error('bboxes_resize_canvas(): canvas_scale is mutually exclusive with canvas_scale_x/canvas_scale_y')
+
+    # Validate individual parameter values
+    if new_canvas_width is not None and new_canvas_width <= 0:
+        raise pxt.Error('bboxes_resize_canvas(): new_canvas_width must be positive')
+    if new_canvas_height is not None and new_canvas_height <= 0:
+        raise pxt.Error('bboxes_resize_canvas(): new_canvas_height must be positive')
+    if canvas_scale is not None and canvas_scale <= 0:
+        raise pxt.Error('bboxes_resize_canvas(): canvas_scale must be positive')
+    if canvas_scale_x is not None and canvas_scale_x <= 0:
+        raise pxt.Error('bboxes_resize_canvas(): canvas_scale_x must be positive')
+    if canvas_scale_y is not None and canvas_scale_y <= 0:
+        raise pxt.Error('bboxes_resize_canvas(): canvas_scale_y must be positive')
+    if canvas_width is not None and canvas_width <= 0:
+        raise pxt.Error('bboxes_resize_canvas(): canvas_width must be positive')
+    if canvas_height is not None and canvas_height <= 0:
+        raise pxt.Error('bboxes_resize_canvas(): canvas_height must be positive')
+
+    # Group A requires canvas_width + canvas_height
+    if has_new_dims and (canvas_width is None or canvas_height is None):
+        raise pxt.Error(
+            'bboxes_resize_canvas(): canvas_width and canvas_height are required with '
+            'new_canvas_width/new_canvas_height'
+        )
+
+    # Validate bboxes
+    is_absolute = _validate_bboxes(bboxes, 'bboxes_resize_canvas()', validate_range=False)
+
+    # Coordinate type constraints
+    if not is_absolute:
+        if has_new_dims or has_canvas_dims:
+            raise pxt.Error(
+                'bboxes_resize_canvas(): new_canvas_width/new_canvas_height/canvas_width/canvas_height '
+                'must not be specified for relative coordinates'
+            )
+        # Relative coords are invariant to canvas resize
+        return bboxes
+
+    # Compute scale factors
+    if has_new_dims:
+        scale_x = new_canvas_width / canvas_width if new_canvas_width is not None else 1.0
+        scale_y = new_canvas_height / canvas_height if new_canvas_height is not None else 1.0
+    elif has_scale:
+        scale_x = scale_y = canvas_scale
+    else:
+        scale_x = canvas_scale_x if canvas_scale_x is not None else 1.0
+        scale_y = canvas_scale_y if canvas_scale_y is not None else 1.0
+
+    # Apply scaling (format-independent: c0,c2 are x-related, c1,c3 are y-related)
+    arr = np.array(bboxes, dtype=np.float64)
+    assert arr.ndim == 2 and arr.shape[1] == 4
+
+    # Detect degenerate boxes
+    c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
+    if format == 'xyxy':
+        valid = (c2 > c0) & (c3 > c1)
+    elif format in ('xywh', 'cxcywh'):
+        valid = (c2 > 0) & (c3 > 0)
+    else:
+        raise pxt.Error(f'Invalid format: {format!r}')
+
+    orig: np.ndarray | None = None
+    if not valid.all():
+        orig = arr.copy()
+
+    # Scale x-related (c0, c2) and y-related (c1, c3) columns
+    arr[:, 0] *= scale_x
+    arr[:, 1] *= scale_y
+    arr[:, 2] *= scale_x
+    arr[:, 3] *= scale_y
+
+    # Round absolute coordinates
+    result = np.floor(arr + 0.5).astype(int)
+
+    # Restore degenerate boxes
+    if orig is not None:
+        result[~valid] = orig[~valid]
+
+    return result.tolist()
 
 
 def _get_contours(mask: np.ndarray, thickness: int = 1) -> np.ndarray:
