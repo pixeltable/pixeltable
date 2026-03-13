@@ -6,18 +6,16 @@
 from __future__ import annotations
 
 import dataclasses
-import functools
 import logging
 import sys
 import uuid
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, ClassVar, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
 from uuid import UUID
 
 import sqlalchemy as sql
 
 import pixeltable.metadata.schema as schema
-from pixeltable import exceptions as excs
 from pixeltable.runtime import get_runtime
 
 from .update_status import UpdateStatus
@@ -38,33 +36,6 @@ class PendingTableOpsError(Exception):
 
     def __init__(self, tbl_id: UUID) -> None:
         self.tbl_id = tbl_id
-
-
-def catalog_op(method: Callable[..., T]) -> Callable[..., T]:
-    """Decorator that should be used with functions that perform catalog operations. It contains a retry loop."""
-
-    @functools.wraps(method)
-    def wrapper(self: Any, *args: Any, **kwargs: Any) -> T:
-        # Run the decorated method in a retry loop, finalizing pending table ops as necessary.
-        num_retries = 0
-        while True:
-            try:
-                return method(self, *args, **kwargs)
-            except PendingTableOpsError as e:
-                if _MAX_RETRIES > 0 and num_retries >= _MAX_RETRIES:
-                    raise excs.Error(f'Catalog operation retry limit ({_MAX_RETRIES}) exceeded') from e
-                _logger.info(
-                    f'Caught PendingTableOpsError on attempt {num_retries}, attempting to finalize', exc_info=True
-                )
-                assert not get_runtime().in_xact
-                exc = get_runtime().catalog._finalize_pending_ops(e.tbl_id)
-                if exc is not None:
-                    raise excs.Error(
-                        f'Failed to finalize pending table operations for table {e.tbl_id}: {exc!s}'
-                    ) from exc
-                num_retries += 1
-
-    return wrapper
 
 
 class OpStatus(Enum):
