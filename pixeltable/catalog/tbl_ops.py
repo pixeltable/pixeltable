@@ -10,7 +10,7 @@ import logging
 import sys
 import uuid
 from enum import Enum
-from typing import TYPE_CHECKING, Any, ClassVar, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import sqlalchemy as sql
 
@@ -23,8 +23,6 @@ if TYPE_CHECKING:
     from pixeltable.catalog.table_version import TableVersion
 
 _logger = logging.getLogger('pixeltable')
-
-T = TypeVar('T')
 
 
 class OpStatus(Enum):
