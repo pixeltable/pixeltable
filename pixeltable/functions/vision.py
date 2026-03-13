@@ -820,20 +820,88 @@ def bboxes_pad(
     Pad a list of bounding boxes.
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
-            coordinates in [0, 1].
+        bboxes: List of bounding boxes in absolute pixel coordinates.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
-        top: Amount to pad at the top.
-        bottom: Amount to pad at the bottom.
-        left: Amount to pad at the left.
-        right: Amount to pad at the right.
-        x: Amount to pad at the left and right.
-        y: Amount to pad at the top and bottom.
+        top: Amount to pad at the top, in absolute pixels.
+        bottom: Amount to pad at the bottom, in absolute pixels.
+        left: Amount to pad at the left, in absolute pixels.
+        right: Amount to pad at the right, in absolute pixels.
+        x: Amount to pad at the left and right, in absolute pixels.
+        y: Amount to pad at the top and bottom, in absolute pixels.
 
     Returns:
         List of padded bounding boxes in the same format as the input.
     """
-    raise NotImplementedError()
+    if len(bboxes) == 0:
+        return []
+
+    # Parameter validation
+    has_x = x is not None
+    has_y = y is not None
+    has_left = left is not None
+    has_right = right is not None
+    has_top = top is not None
+    has_bottom = bottom is not None
+    if has_x and (has_left or has_right):
+        raise pxt.Error('bboxes_pad(): x is mutually exclusive with left/right')
+    if has_y and (has_top or has_bottom):
+        raise pxt.Error('bboxes_pad(): y is mutually exclusive with top/bottom')
+    if not (has_x or has_y or has_left or has_right or has_top or has_bottom):
+        raise pxt.Error('bboxes_pad(): at least one padding parameter must be specified')
+
+    # Resolve effective padding
+    pad_left = x if has_x else (left if has_left else 0)
+    pad_right = x if has_x else (right if has_right else 0)
+    pad_top = y if has_y else (top if has_top else 0)
+    pad_bottom = y if has_y else (bottom if has_bottom else 0)
+
+    for name, val in [('left', pad_left), ('right', pad_right), ('top', pad_top), ('bottom', pad_bottom)]:
+        if val < 0:
+            raise pxt.Error(f'bboxes_pad(): {name} padding must be >= 0')
+
+    is_absolute = _validate_bboxes(bboxes, 'bboxes_pad()')
+    if not is_absolute:
+        raise pxt.Error(
+            'bboxes_pad(): padding requires absolute pixel coordinates, but bboxes use relative coordinates'
+        )
+
+    arr = np.array(bboxes, dtype=np.float64)
+    assert arr.ndim == 2 and arr.shape[1] == 4
+    c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
+
+    # Detect degenerate boxes (format-dependent)
+    if format == 'xyxy':
+        valid = (c2 > c0) & (c3 > c1)
+    elif format in ('xywh', 'cxcywh'):
+        valid = (c2 > 0) & (c3 > 0)
+    else:
+        raise pxt.Error(f'Invalid format: {format!r}')
+
+    orig: np.ndarray | None = None
+    if not valid.all():
+        orig = arr.copy()
+
+    if format == 'xyxy':
+        c0 = np.where(valid, c0 - pad_left, c0)
+        c1 = np.where(valid, c1 - pad_top, c1)
+        c2 = np.where(valid, c2 + pad_right, c2)
+        c3 = np.where(valid, c3 + pad_bottom, c3)
+    elif format == 'xywh':
+        c0 = np.where(valid, c0 - pad_left, c0)
+        c1 = np.where(valid, c1 - pad_top, c1)
+        c2 = np.where(valid, c2 + pad_left + pad_right, c2)
+        c3 = np.where(valid, c3 + pad_top + pad_bottom, c3)
+    else:  # cxcywh
+        c0 = np.where(valid, c0 + (pad_right - pad_left) / 2, c0)
+        c1 = np.where(valid, c1 + (pad_bottom - pad_top) / 2, c1)
+        c2 = np.where(valid, c2 + pad_left + pad_right, c2)
+        c3 = np.where(valid, c3 + pad_top + pad_bottom, c3)
+
+    result = np.floor(np.column_stack([c0, c1, c2, c3]) + 0.5).astype(int)
+
+    if orig is not None:
+        result[~valid] = orig[~valid]
+    return result.tolist()
 
 
 @pxt.udf

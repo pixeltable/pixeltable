@@ -9,6 +9,7 @@ from pixeltable.functions.video import frame_iterator
 from pixeltable.functions.vision import (
     bboxes_convert,
     bboxes_draw,
+    bboxes_pad,
     bboxes_resize,
     bboxes_scale,
     eval_detections,
@@ -489,6 +490,107 @@ class TestVision:
         assert res['out'][0] == degenerate_boxes  # all passed through unchanged
 
         self._test_bbox_validation(t, bboxes_scale(t.bboxes, 'xyxy', factor=2.0))
+
+    def test_bboxes_pad(self, uses_db: None) -> None:
+        # absolute coordinates, in cxcywh format
+        abs_boxes: list[tuple[int, int, int, int]] = [
+            (150, 200, 100, 200),
+            (200, 100, 400, 200),
+            (50, 50, 40, 60),
+            (300, 300, 200, 100),
+            (100, 100, 80, 80),
+        ]
+
+        formats = ['xyxy', 'xywh', 'cxcywh']
+        for fmt in formats:
+            # corner case: empty list
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, x=10)).collect()
+            assert res['out'][0] == []
+            pxt.drop_table(t)
+
+            input_bboxes = [convert_fmt(*b, fmt) for b in abs_boxes]
+            t = pxt.create_table('bbox_pad', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
+
+            # symmetric: x=10, y=20 — w grows by 20, h grows by 40, center unchanged
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, x=10, y=20)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) + 20, abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt) + 40, abs=1)
+
+            # asymmetric: left=5, right=15, top=10, bottom=30 — w grows by 20, h grows by 40
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, left=5, right=15, top=10, bottom=30)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) + 20, abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt) + 40, abs=1)
+
+            # single side: left=10 only — w grows by 10
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, left=10)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) + 10, abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt), abs=1)
+
+            # x only: height unchanged
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, x=10)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) + 20, abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt), abs=1)
+
+            # y only: width unchanged
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, y=15)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt), abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt) + 30, abs=1)
+
+            pxt.drop_table(t)
+
+    def test_bboxes_pad_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': [[100, 100, 200, 300]]}])
+
+        # no params specified
+        with pytest.raises(pxt.Error, match='at least one padding parameter'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy')).collect()
+
+        # x with left
+        with pytest.raises(pxt.Error, match='mutually exclusive'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy', x=10, left=5)).collect()
+
+        # x with right
+        with pytest.raises(pxt.Error, match='mutually exclusive'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy', x=10, right=5)).collect()
+
+        # y with top
+        with pytest.raises(pxt.Error, match='mutually exclusive'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy', y=10, top=5)).collect()
+
+        # y with bottom
+        with pytest.raises(pxt.Error, match='mutually exclusive'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy', y=10, bottom=5)).collect()
+
+        # negative value
+        with pytest.raises(pxt.Error, match='must be >= 0'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy', x=-5)).collect()
+
+        # relative bboxes
+        t2 = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
+        t2.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
+        with pytest.raises(pxt.Error, match='absolute pixel coordinates'):
+            t2.select(bboxes_pad(t2.bboxes, 'xyxy', x=10)).collect()
+
+    def test_bboxes_pad_degenerate(self, uses_db: None) -> None:
+        degenerate_boxes = [
+            [10, 20, 10, 40],  # zero width (xyxy)
+            [10, 20, 30, 20],  # zero height (xyxy)
+            [10, 20, 10, 20],  # zero width and height (xyxy)
+            [30, 40, 10, 20],  # negative width and height (xyxy, x2<x1, y2<y1)
+        ]
+        t = pxt.create_table('degenerate', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': degenerate_boxes}])
+        res = t.select(out=bboxes_pad(t.bboxes, 'xyxy', x=10, y=20)).collect()
+        assert res['out'][0] == degenerate_boxes  # all passed through unchanged
 
     def test_bboxes_convert(self, uses_db: None) -> None:
         abs_boxes = [
