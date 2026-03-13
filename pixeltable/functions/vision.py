@@ -428,15 +428,21 @@ def bboxes_draw(
     return img_to_draw
 
 
-def _validate_bboxes(bboxes: list, error_prefix: str) -> bool:
+def _validate_bboxes(bboxes: list, error_prefix: str, validate_range: bool = True) -> bool:
     """Check that bboxes are either all int or all float. Return True for absolute, False for relative."""
     if not all(len(b) == 4 for b in bboxes):
         raise pxt.Error(f'{error_prefix}: each bounding box must have exactly 4 coordinates')
-    is_absolute = all(isinstance(x, int) and x >= 0 for x in itertools.chain.from_iterable(bboxes))
-    is_relative = all(isinstance(x, float) and 0.0 <= x <= 1.0 for x in itertools.chain.from_iterable(bboxes))
+    is_absolute = all(
+        isinstance(x, int) and (not validate_range or x >= 0) for x in itertools.chain.from_iterable(bboxes)
+    )
+    is_relative = all(
+        isinstance(x, float) and (not validate_range or (0.0 <= x <= 1.0))
+        for x in itertools.chain.from_iterable(bboxes)
+    )
     if not (is_absolute or is_relative):
         raise pxt.Error(
-            f'{error_prefix}: bounding box coordinates must be either all int (>= 0) or all float (in [0, 1])'
+            f'{error_prefix}: bounding box coordinates must be either all int'
+            f'{" (>= 0)" if validate_range else ""} or all float{" (in [0, 1])" if validate_range else ""}'
         )
     return is_absolute
 
@@ -918,19 +924,100 @@ def bboxes_clip_to_canvas(
     Clip a list of bounding boxes to a canvas of specified size.
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
-            coordinates in [0, 1].
+        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates (`int`) or relative
+            coordinates (`float`).
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
-        width: Canvas width in absolute pixels.
-        height: Canvas height in absolute pixels.
+        width: Canvas width in absolute pixels. Required for absolute coordinates, must not be specified for relative.
+        height: Canvas height in absolute pixels. Required for absolute coordinates, must not be specified for relative.
         min_visibility: Minimum fraction of the bounding box that must be visible after clipping. If the visibility
             is less than this value, returns None.
         min_area: Minimum area of the bounding box after clipping. If the area is less than this value, returns None.
 
     Returns:
-        List of clipped bounding boxes in the same format as the input.
+        List of clipped bounding boxes in the same format as the input. Boxes that don't meet the
+        min_visibility or min_area thresholds are replaced with None.
     """
-    raise NotImplementedError()
+    if len(bboxes) == 0:
+        return []
+
+    is_absolute = _validate_bboxes(bboxes, 'bboxes_clip_to_canvas()', validate_range=False)
+
+    if is_absolute and (width is None or height is None):
+        raise pxt.Error('bboxes_clip_to_canvas(): both width and height must be specified for absolute coordinates')
+    if not is_absolute and (width is not None or height is not None):
+        raise pxt.Error('bboxes_clip_to_canvas(): width/height must not be specified for relative coordinates')
+    if not (0.0 <= min_visibility <= 1.0):
+        raise pxt.Error('bboxes_clip_to_canvas(): min_visibility must be between 0.0 and 1.0')
+    if min_area < 0.0:
+        raise pxt.Error('bboxes_clip_to_canvas(): min_area must be >= 0')
+
+    arr = np.array(bboxes, dtype=np.float64)
+    assert arr.ndim == 2 and arr.shape[1] == 4
+    c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
+
+    # Convert to xyxy for clipping
+    if format == 'xyxy':
+        x1, y1, x2, y2 = c0, c1, c2, c3
+    elif format == 'xywh':
+        x1, y1, x2, y2 = c0, c1, c0 + c2, c1 + c3
+    elif format == 'cxcywh':
+        x1, y1, x2, y2 = c0 - c2 / 2, c1 - c3 / 2, c0 + c2 / 2, c1 + c3 / 2
+    else:
+        raise pxt.Error(f'Invalid format: {format!r}')
+
+    # Detect degenerate boxes (zero or negative area)
+    valid = (x2 > x1) & (y2 > y1)
+
+    # Original area (for min_visibility)
+    orig_area = np.where(valid, (x2 - x1) * (y2 - y1), 0.0)
+
+    # Clip to canvas bounds
+    x_max = float(width) if is_absolute else 1.0
+    y_max = float(height) if is_absolute else 1.0
+
+    cx1 = np.clip(x1, 0, x_max)
+    cy1 = np.clip(y1, 0, y_max)
+    cx2 = np.clip(x2, 0, x_max)
+    cy2 = np.clip(y2, 0, y_max)
+
+    # Clipped area
+    clipped_area = np.maximum(cx2 - cx1, 0) * np.maximum(cy2 - cy1, 0)
+
+    # Determine which boxes survive filtering
+    survive = valid.copy()
+    if min_visibility > 0.0:
+        with np.errstate(divide='ignore', invalid='ignore'):
+            visibility = np.where(orig_area > 0, clipped_area / orig_area, 0.0)
+        survive &= visibility >= min_visibility
+    if min_area > 0.0:
+        survive &= clipped_area >= min_area
+
+    # Convert back to original format
+    if format == 'xyxy':
+        result_arr = np.column_stack([cx1, cy1, cx2, cy2])
+    elif format == 'xywh':
+        result_arr = np.column_stack([cx1, cy1, cx2 - cx1, cy2 - cy1])
+    else:  # cxcywh
+        result_arr = np.column_stack([(cx1 + cx2) / 2, (cy1 + cy2) / 2, cx2 - cx1, cy2 - cy1])
+
+    if is_absolute:
+        result_arr = np.floor(result_arr + 0.5).astype(int)
+
+    # Degenerate boxes pass through unchanged
+    result_arr[~valid] = arr[~valid]
+
+    # Build result: None for filtered valid boxes, passthrough for degenerate boxes
+    result: list = []
+    for i in range(len(bboxes)):
+        if not valid[i]:
+            # Degenerate box: pass through unchanged
+            result.append(result_arr[i].tolist())
+        elif not survive[i]:
+            # Valid box that was filtered out
+            result.append(None)
+        else:
+            result.append(result_arr[i].tolist())
+    return result
 
 
 @pxt.udf
@@ -983,7 +1070,7 @@ def bboxes_resize_canvas(
 
     Args:
         bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
-            coordinates in [0, 1].
+    coordinates in [0, 1].
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         new_canvas_width: New canvas width in absolute pixels. Requires canvas_width/canvas_height to be specified.
         new_canvas_height: New canvas height in absolute pixels. Requires canvas_width/canvas_height to be specified.

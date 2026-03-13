@@ -7,6 +7,7 @@ import pytest
 import pixeltable as pxt
 from pixeltable.functions.video import frame_iterator
 from pixeltable.functions.vision import (
+    bboxes_clip_to_canvas,
     bboxes_convert,
     bboxes_draw,
     bboxes_pad,
@@ -675,6 +676,150 @@ class TestVision:
         t.delete()
 
         self._test_bbox_validation(t, bboxes_convert(t.bboxes, src_format='xyxy', dst_format='xywh'))
+
+    def test_bboxes_clip_to_canvas(self, uses_db: None) -> None:
+        # cxcywh format
+        # absolute (640x480 canvas)
+        abs_boxes: list[tuple[int, int, int, int]] = [
+            (150, 200, 100, 200),  # fully inside
+            (630, 470, 40, 30),  # partially outside right+bottom, visibility=0.625
+            (300, 240, 60, 40),  # fully inside
+            (10, 240, 60, 40),  # partially outside left (x1=-20), visibility=0.667
+            (320, 540, 40, 40),  # fully outside bottom, visibility=0
+        ]
+        # relative ([0,1] canvas)
+        rel_boxes: list[tuple[float, float, float, float]] = [
+            (0.3, 0.5, 0.4, 0.6),  # fully inside
+            (0.95, 0.9, 0.2, 0.3),  # partially outside right+bottom, visibility=0.625
+            (0.5, 0.5, 0.2, 0.2),  # fully inside
+            (0.05, 0.5, 0.3, 0.2),  # partially outside left (x1=-0.1), visibility=0.667
+            (0.5, 1.2, 0.2, 0.1),  # fully outside bottom, visibility=0
+        ]
+
+        for fmt in ['xyxy', 'xywh', 'cxcywh']:
+            # corner case: empty list
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
+            res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, width=640, height=480)).collect()
+            assert res['out'][0] == []
+            pxt.drop_table(t)
+
+            cases: list[tuple[Any, dict[str, Any]]] = [(abs_boxes, {'width': 640, 'height': 480}), (rel_boxes, {})]
+            for boxes, canvas_args in cases:
+                input_bboxes = [convert_fmt(b[0], b[1], b[2], b[3], fmt) for b in boxes]
+                t = pxt.create_table('bbox_clip', {'bboxes': pxt.Json})
+                validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
+
+                # basic clipping
+
+                res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, **canvas_args)).collect()
+                out = res['out'][0]
+                assert len(out) == 5
+                assert all(b is not None for b in out)
+
+                # fully inside boxes unchanged
+                assert out[0] == pytest.approx(input_bboxes[0])
+                assert out[2] == pytest.approx(input_bboxes[2])
+
+                # partially outside boxes have reduced w or h
+                assert get_w(out[1], fmt) < get_w(input_bboxes[1], fmt)
+                assert get_w(out[3], fmt) < get_w(input_bboxes[3], fmt)
+
+                # fully outside box has zero height
+                assert get_h(out[4], fmt) == pytest.approx(0, abs=1)
+
+                # filtering min_visibility
+
+                res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, **canvas_args, min_visibility=0.5)).collect()
+                out = res['out'][0]
+                for i in [0, 1, 2, 3]:
+                    assert out[i] is not None
+                assert out[4] is None
+
+                res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, **canvas_args, min_visibility=0.7)).collect()
+                out = res['out'][0]
+                for i in [0, 2]:
+                    assert out[i] is not None
+                for i in [1, 3, 4]:
+                    assert out[i] is None
+
+                # filtering min_area
+
+                if canvas_args:
+                    # absolute: clipped areas [20000, 750, 2400, 1600, 0]
+                    res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, **canvas_args, min_area=1000)).collect()
+                    out = res['out'][0]
+                    for i in [0, 2, 3]:
+                        assert out[i] is not None
+                    for i in [1, 4]:
+                        assert out[i] is None
+                else:
+                    # relative: clipped areas [0.24, 0.0375, 0.04, 0.04, 0]
+                    res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, **canvas_args, min_area=0.05)).collect()
+                    out = res['out'][0]
+                    assert out[0] is not None
+                    for i in [1, 2, 3, 4]:
+                        assert out[i] is None
+
+                pxt.drop_table(t)
+
+    def test_bboxes_clip_to_canvas_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('bbox_clip_err', {'bboxes': pxt.Json})
+
+        # Missing both width/height for absolute coords
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='both width and height must be specified'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy')).collect()
+        t.delete()
+
+        # Missing height for absolute coords
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='both width and height must be specified'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640)).collect()
+        t.delete()
+
+        # Missing width for absolute coords
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='both width and height must be specified'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', height=480)).collect()
+        t.delete()
+
+        # width/height specified for relative coords
+        t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
+        with pytest.raises(pxt.Error, match='must not be specified for relative'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480)).collect()
+        t.delete()
+
+        # Invalid min_visibility
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='min_visibility must be between'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480, min_visibility=1.5)).collect()
+        t.delete()
+
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='min_visibility must be between'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480, min_visibility=-0.1)).collect()
+        t.delete()
+
+        # Negative min_area
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='min_area must be >= 0'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480, min_area=-1.0)).collect()
+        t.delete()
+
+        self._test_bbox_validation(t, bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480))
+
+    def test_bboxes_clip_to_canvas_degenerate(self, uses_db: None) -> None:
+        degenerate_boxes = [
+            [10, 20, 10, 40],  # zero width (xyxy)
+            [10, 20, 30, 20],  # zero height (xyxy)
+            [10, 20, 10, 20],  # zero width and height (xyxy)
+            [30, 40, 10, 20],  # negative width and height (xyxy, x2<x1, y2<y1)
+        ]
+        t = pxt.create_table('degenerate_clip', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': degenerate_boxes}])
+        res = t.select(out=bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480)).collect()
+        assert res['out'][0] == degenerate_boxes  # all passed through unchanged
 
     def _test_bbox_validation(self, t: pxt.Table, udf_call: Any) -> None:
         """Test that the bboxes parameter gets validated."""
