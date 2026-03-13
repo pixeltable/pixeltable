@@ -169,8 +169,13 @@ class Table(SchemaObject):
         return self._tbl_version_path.version()
 
     def _get_pxt_uri(self) -> str | None:
-        with get_runtime().catalog.begin_xact(tbl_id=self._id):
+        from pixeltable.catalog import retry_loop
+
+        @retry_loop(tbl_id=self._id, for_write=False)
+        def op() -> str | None:
             return get_runtime().catalog.get_additional_md(self._id).get('pxt_uri')
+
+        return op()
 
     def __hash__(self) -> int:
         return hash(self._tbl_version_path.tbl_id)
@@ -221,14 +226,17 @@ class Table(SchemaObject):
 
         See [`Query.select`][pixeltable.Query.select] for more details.
         """
+        from pixeltable.catalog import retry_loop
         from pixeltable.plan import FromClause
 
-        query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
-        if len(items) == 0 and len(named_items) == 0:
-            return query  # Select(*); no further processing is necessary
-
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def op() -> 'pxt.Query':
+            query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
+            if len(items) == 0 and len(named_items) == 0:
+                return query  # Select(*); no further processing is necessary
             return query.select(*items, **named_items)
+
+        return op()
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
         """Filter rows from this table based on the expression.
@@ -236,16 +244,26 @@ class Table(SchemaObject):
         See [`Query.where`][pixeltable.Query.where] for more details.
         """
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
+        from pixeltable.catalog import retry_loop
+
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def op() -> 'pxt.Query':
             return self.select().where(pred)
+
+        return op()
 
     def join(
         self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
     ) -> 'pxt.Query':
         """Join this table with another table."""
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
+        from pixeltable.catalog import retry_loop
+
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def op() -> 'pxt.Query':
             return self.select().join(other, on=on, how=how)
+
+        return op()
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
         """Order the rows of this table based on the expression.
@@ -253,8 +271,13 @@ class Table(SchemaObject):
         See [`Query.order_by`][pixeltable.Query.order_by] for more details.
         """
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
+        from pixeltable.catalog import retry_loop
+
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def op() -> 'pxt.Query':
             return self.select().order_by(*items, asc=asc)
+
+        return op()
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
         """Group the rows of this table based on the expression.
@@ -262,8 +285,13 @@ class Table(SchemaObject):
         See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
+        from pixeltable.catalog import retry_loop
+
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def op() -> 'pxt.Query':
             return self.select().group_by(*items)
+
+        return op()
 
     def distinct(self) -> 'pxt.Query':
         """Remove duplicate rows from table."""
