@@ -1046,7 +1046,98 @@ def bboxes_crop_canvas(
     Returns:
         List of adjusted bounding boxes in the same format as the input. They can extend beyond the canvas boundaries.
     """
-    raise NotImplementedError()
+    if len(bboxes) == 0:
+        return []
+
+    is_absolute = _validate_bboxes(bboxes, 'bboxes_crop_canvas()', validate_range=False)
+
+    if is_absolute and (canvas_width is None or canvas_height is None):
+        raise pxt.Error(
+            'bboxes_crop_canvas(): both canvas_width and canvas_height must be specified for absolute coordinates'
+        )
+    if not is_absolute and (canvas_width is not None or canvas_height is not None):
+        raise pxt.Error(
+            'bboxes_crop_canvas(): canvas_width/canvas_height must not be specified for relative coordinates'
+        )
+
+    # Validate canvas_region
+    if not isinstance(canvas_region, list) or len(canvas_region) != 4:
+        raise pxt.Error('bboxes_crop_canvas(): canvas_region must be a list of 4 coordinates')
+
+    # normalize to xyxy
+    rc0, rc1, rc2, rc3 = canvas_region
+    if canvas_region_format == 'xyxy':
+        rx1, ry1, rx2, ry2 = rc0, rc1, rc2, rc3
+    elif canvas_region_format == 'xywh':
+        rx1, ry1, rx2, ry2 = rc0, rc1, rc0 + rc2, rc1 + rc3
+    elif canvas_region_format == 'cxcywh':
+        rx1, ry1, rx2, ry2 = rc0 - rc2 / 2, rc1 - rc3 / 2, rc0 + rc2 / 2, rc1 + rc3 / 2
+    else:
+        raise pxt.Error(f'Invalid canvas_region_format: {canvas_region_format!r}')
+
+    if rx2 <= rx1 or ry2 <= ry1:
+        raise pxt.Error('bboxes_crop_canvas(): canvas_region must have positive area')
+    if is_absolute:
+        if rx1 < 0 or ry1 < 0 or rx2 > canvas_width or ry2 > canvas_height:
+            raise pxt.Error('bboxes_crop_canvas(): canvas_region extends beyond canvas bounds')
+    elif rx1 < 0.0 or ry1 < 0.0 or rx2 > 1.0 or ry2 > 1.0:
+        raise pxt.Error('bboxes_crop_canvas(): canvas_region extends beyond canvas bounds')
+
+    arr = np.array(bboxes, dtype=np.float64)
+    assert arr.ndim == 2 and arr.shape[1] == 4
+    c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
+
+    # normalize to xyxy
+    x1: np.ndarray
+    x2: np.ndarray
+    y1: np.ndarray
+    y2: np.ndarray
+    if format == 'xyxy':
+        x1, y1, x2, y2 = c0, c1, c2, c3
+    elif format == 'xywh':
+        x1, y1, x2, y2 = c0, c1, c0 + c2, c1 + c3
+    elif format == 'cxcywh':
+        x1, y1, x2, y2 = c0 - c2 / 2, c1 - c3 / 2, c0 + c2 / 2, c1 + c3 / 2
+    else:
+        raise pxt.Error(f'Invalid format: {format!r}')
+
+    # Detect degenerate boxes
+    valid = (x2 > x1) & (y2 > y1)
+
+    # translate so crop region top-left becomes origin
+    nx1: np.ndarray
+    nx2: np.ndarray
+    ny1: np.ndarray
+    ny2: np.ndarray
+    if is_absolute:
+        nx1 = x1 - rx1
+        ny1 = y1 - ry1
+        nx2 = x2 - rx1
+        ny2 = y2 - ry1
+    else:
+        crop_w = rx2 - rx1
+        crop_h = ry2 - ry1
+        nx1 = (x1 - rx1) / crop_w
+        ny1 = (y1 - ry1) / crop_h
+        nx2 = (x2 - rx1) / crop_w
+        ny2 = (y2 - ry1) / crop_h
+
+    # Convert back to original format
+    result: np.ndarray
+    if format == 'xyxy':
+        result = np.column_stack([nx1, ny1, nx2, ny2])
+    elif format == 'xywh':
+        result = np.column_stack([nx1, ny1, nx2 - nx1, ny2 - ny1])
+    else:  # cxcywh
+        result = np.column_stack([(nx1 + nx2) / 2, (ny1 + ny2) / 2, nx2 - nx1, ny2 - ny1])
+
+    if is_absolute:
+        result = np.floor(result + 0.5).astype(int)
+
+    # Degenerate boxes pass through unchanged
+    result[~valid] = arr[~valid]
+
+    return result.tolist()
 
 
 @pxt.udf

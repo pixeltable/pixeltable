@@ -9,6 +9,7 @@ from pixeltable.functions.video import frame_iterator
 from pixeltable.functions.vision import (
     bboxes_clip_to_canvas,
     bboxes_convert,
+    bboxes_crop_canvas,
     bboxes_draw,
     bboxes_pad,
     bboxes_resize,
@@ -168,7 +169,7 @@ class TestVision:
             assert res['out'][0] == []
             pxt.drop_table(t)
 
-            input_bboxes = [convert_fmt(*b, fmt) for b in abs_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt) for b in abs_boxes]
             t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -209,7 +210,7 @@ class TestVision:
 
             pxt.drop_table(t)
 
-            input_bboxes = [convert_fmt(*b, fmt) for b in rel_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt) for b in rel_boxes]
             t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -378,7 +379,7 @@ class TestVision:
 
             # absolute coordinates
 
-            input_bboxes = [convert_fmt(*b, fmt) for b in abs_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt) for b in abs_boxes]
             t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -410,7 +411,7 @@ class TestVision:
 
             # relative coordinates
 
-            input_bboxes = [convert_fmt(*b, fmt) for b in rel_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt) for b in rel_boxes]
             t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -511,7 +512,7 @@ class TestVision:
             assert res['out'][0] == []
             pxt.drop_table(t)
 
-            input_bboxes = [convert_fmt(*b, fmt) for b in abs_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt) for b in abs_boxes]
             t = pxt.create_table('bbox_pad', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -621,7 +622,7 @@ class TestVision:
             pxt.drop_table(t)
 
             for boxes in [abs_boxes, rel_boxes]:
-                input_bboxes = [convert_fmt(*b, src_fmt) for b in boxes]  # type: ignore
+                input_bboxes = [convert_cxcywh(*b, src_fmt) for b in boxes]  # type: ignore
                 t = pxt.create_table('convert', {'bboxes': pxt.Json})
                 validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -706,7 +707,7 @@ class TestVision:
 
             cases: list[tuple[Any, dict[str, Any]]] = [(abs_boxes, {'width': 640, 'height': 480}), (rel_boxes, {})]
             for boxes, canvas_args in cases:
-                input_bboxes = [convert_fmt(b[0], b[1], b[2], b[3], fmt) for b in boxes]
+                input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt) for b in boxes]
                 t = pxt.create_table('bbox_clip', {'bboxes': pxt.Json})
                 validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -821,6 +822,216 @@ class TestVision:
         res = t.select(out=bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480)).collect()
         assert res['out'][0] == degenerate_boxes  # all passed through unchanged
 
+    def test_bboxes_crop_canvas(self, uses_db: None) -> None:
+        # cxcywh format, 640x480 canvas
+        abs_boxes: list[tuple[int, int, int, int]] = [
+            (200, 200, 100, 100),  # [0] fully inside crop region
+            (350, 200, 100, 100),  # [1] partially outside crop right
+            (50, 200, 100, 100),  # [2] partially outside crop left
+            (200, 450, 100, 100),  # [3] partially outside crop bottom
+            (500, 400, 60, 40),  # [4] fully outside crop region
+        ]
+        abs_crop_xyxy = [100, 100, 400, 400]  # 300x300 crop area
+        abs_expected_cxcywh = [
+            (100, 100, 100, 100),
+            (250, 100, 100, 100),
+            (-50, 100, 100, 100),
+            (100, 350, 100, 100),
+            (400, 300, 60, 40),
+        ]
+
+        rel_boxes: list[tuple[float, float, float, float]] = [
+            (0.4, 0.4, 0.2, 0.2),  # [0] fully inside crop
+            (0.7, 0.4, 0.2, 0.2),  # [1] partially outside crop right
+            (0.15, 0.4, 0.2, 0.2),  # [2] partially outside crop left
+            (0.4, 0.85, 0.2, 0.2),  # [3] partially outside crop bottom
+            (0.9, 0.9, 0.1, 0.1),  # [4] fully outside crop
+        ]
+        rel_crop_xyxy = [0.2, 0.2, 0.8, 0.8]  # 0.6x0.6 crop area
+        rel_expected_cxcywh = [
+            (1 / 3, 1 / 3, 1 / 3, 1 / 3),
+            (5 / 6, 1 / 3, 1 / 3, 1 / 3),
+            (-1 / 12, 1 / 3, 1 / 3, 1 / 3),
+            (1 / 3, 13 / 12, 1 / 3, 1 / 3),
+            (7 / 6, 7 / 6, 1 / 6, 1 / 6),
+        ]
+
+        cases: list[tuple[Any, dict[str, Any], list]] = [
+            (abs_boxes, {'canvas_width': 640, 'canvas_height': 480}, abs_crop_xyxy),
+            (rel_boxes, {}, rel_crop_xyxy),
+        ]
+
+        for fmt in ['xyxy', 'xywh', 'cxcywh']:
+            for canvas_region_format in ['xyxy', 'xywh', 'cxcywh']:
+                # corner case: empty list
+                t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+                validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
+                region = convert_xyxy(100, 100, 400, 400, canvas_region_format)
+                res = t.select(
+                    out=bboxes_crop_canvas(
+                        t.bboxes,
+                        fmt,
+                        canvas_region=region,
+                        canvas_region_format=canvas_region_format,
+                        canvas_width=640,
+                        canvas_height=480,
+                    )
+                ).collect()
+                assert res['out'][0] == []
+                pxt.drop_table(t)
+
+                for boxes, canvas_args, crop_xyxy in cases:
+                    input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt) for b in boxes]
+                    region = convert_xyxy(crop_xyxy[0], crop_xyxy[1], crop_xyxy[2], crop_xyxy[3], canvas_region_format)
+
+                    t = pxt.create_table('bbox_crop', {'bboxes': pxt.Json})
+                    validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
+
+                    res = t.select(
+                        out=bboxes_crop_canvas(
+                            t.bboxes,
+                            fmt,
+                            canvas_region=region,
+                            canvas_region_format=canvas_region_format,
+                            **canvas_args,
+                        )
+                    ).collect()
+                    out = res['out'][0]
+
+                    # All 5 boxes returned (no filtering)
+                    assert len(out) == 5
+                    assert all(b is not None for b in out)
+
+                    # Verify all boxes are correctly translated
+                    expected_cxcywh = abs_expected_cxcywh if canvas_args else rel_expected_cxcywh
+                    is_abs = bool(canvas_args)
+                    for i in range(5):
+                        cx, cy, w, h = expected_cxcywh[i]
+                        if fmt == 'xyxy':
+                            expected = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
+                        elif fmt == 'xywh':
+                            expected = [cx - w / 2, cy - h / 2, w, h]
+                        else:
+                            expected = [cx, cy, w, h]
+                        if is_abs:
+                            expected = [math.floor(x + 0.5) for x in expected]
+                        for j in range(4):
+                            assert out[i][j] == pytest.approx(expected[j], abs=1 if is_abs else 1e-6)
+
+                    pxt.drop_table(t)
+
+    def test_bboxes_crop_canvas_degenerate(self, uses_db: None) -> None:
+        # Test degenerate boxes pass through unchanged
+        degenerate_boxes = [
+            [10, 20, 10, 40],  # zero width (xyxy)
+            [10, 20, 30, 20],  # zero height (xyxy)
+            [30, 40, 10, 20],  # negative width and height (xyxy)
+        ]
+        t = pxt.create_table('degenerate_crop', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': degenerate_boxes}])
+        res = t.select(
+            out=bboxes_crop_canvas(
+                t.bboxes,
+                'xyxy',
+                canvas_region=[100, 100, 400, 400],
+                canvas_region_format='xyxy',
+                canvas_width=640,
+                canvas_height=480,
+            )
+        ).collect()
+        assert res['out'][0] == degenerate_boxes  # all passed through unchanged
+
+    def test_bboxes_crop_canvas_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('bbox_crop_err', {'bboxes': pxt.Json})
+
+        # Missing canvas_width/canvas_height for absolute coords
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='both canvas_width and canvas_height must be specified'):
+            t.select(
+                bboxes_crop_canvas(t.bboxes, 'xyxy', canvas_region=[10, 10, 100, 100], canvas_region_format='xyxy')
+            ).collect()
+        t.delete()
+
+        # canvas_width/canvas_height specified for relative coords
+        t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
+        with pytest.raises(pxt.Error, match='must not be specified for relative'):
+            t.select(
+                bboxes_crop_canvas(
+                    t.bboxes,
+                    'xyxy',
+                    canvas_region=[0.1, 0.1, 0.5, 0.5],
+                    canvas_region_format='xyxy',
+                    canvas_width=640,
+                    canvas_height=480,
+                )
+            ).collect()
+        t.delete()
+
+        # Invalid canvas_region_format
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='Invalid canvas_region_format'):
+            t.select(
+                bboxes_crop_canvas(
+                    t.bboxes,
+                    'xyxy',
+                    canvas_region=[10, 10, 100, 100],
+                    canvas_region_format='bad',
+                    canvas_width=640,
+                    canvas_height=480,
+                )
+            ).collect()
+        t.delete()
+
+        # Crop region with zero area (rx1 == rx2)
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='must have positive area'):
+            t.select(
+                bboxes_crop_canvas(
+                    t.bboxes,
+                    'xyxy',
+                    canvas_region=[100, 100, 100, 400],
+                    canvas_region_format='xyxy',
+                    canvas_width=640,
+                    canvas_height=480,
+                )
+            ).collect()
+        t.delete()
+
+        # Crop region extending beyond canvas
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+        with pytest.raises(pxt.Error, match='extends beyond canvas bounds'):
+            t.select(
+                bboxes_crop_canvas(
+                    t.bboxes,
+                    'xyxy',
+                    canvas_region=[100, 100, 700, 400],
+                    canvas_region_format='xyxy',
+                    canvas_width=640,
+                    canvas_height=480,
+                )
+            ).collect()
+        t.delete()
+
+        # Crop region extending beyond relative canvas
+        t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
+        with pytest.raises(pxt.Error, match='extends beyond canvas bounds'):
+            t.select(
+                bboxes_crop_canvas(t.bboxes, 'xyxy', canvas_region=[0.1, 0.1, 1.5, 0.5], canvas_region_format='xyxy')
+            ).collect()
+        t.delete()
+
+        self._test_bbox_validation(
+            t,
+            bboxes_crop_canvas(
+                t.bboxes,
+                'xyxy',
+                canvas_region=[10, 10, 100, 100],
+                canvas_region_format='xyxy',
+                canvas_width=640,
+                canvas_height=480,
+            ),
+        )
+
     def _test_bbox_validation(self, t: pxt.Table, udf_call: Any) -> None:
         """Test that the bboxes parameter gets validated."""
         # Mixed int/float within a single box
@@ -869,7 +1080,8 @@ class TestVision:
 # rudimentary bounding box utility functions for result validation
 
 
-def convert_fmt(cx: float | int, cy: float | int, w: float | int, h: float | int, fmt: str) -> list:
+def convert_cxcywh(cx: float | int, cy: float | int, w: float | int, h: float | int, fmt: str) -> list:
+    """Convert cxcywh to target format."""
     result: list
     if fmt == 'xyxy':
         result = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
@@ -883,6 +1095,16 @@ def convert_fmt(cx: float | int, cy: float | int, w: float | int, h: float | int
     else:
         # absolute coords
         return [math.floor(x + 0.5) for x in result]
+
+
+def convert_xyxy(x1: float, y1: float, x2: float, y2: float, fmt: str) -> list:
+    """Convert xyxy to target format."""
+    if fmt == 'xyxy':
+        return [x1, y1, x2, y2]
+    elif fmt == 'xywh':
+        return [x1, y1, x2 - x1, y2 - y1]
+    else:  # cxcywh
+        return [(x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1]
 
 
 def get_w(box: list, fmt: str) -> int | float:
