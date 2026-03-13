@@ -719,7 +719,89 @@ def bboxes_scale(
     Returns:
         List of scaled bounding boxes in the same format as the input.
     """
-    raise NotImplementedError()
+    if len(bboxes) == 0:
+        return []
+
+    # Parameter validation
+    has_factor = factor is not None
+    has_x = x_factor is not None
+    has_y = y_factor is not None
+    if not has_factor and not has_x and not has_y:
+        raise pxt.Error('bboxes_scale(): at least one of factor, x_factor, y_factor must be specified')
+    if has_factor and (has_x or has_y):
+        raise pxt.Error('bboxes_scale(): factor is mutually exclusive with x_factor/y_factor')
+    if has_factor and factor <= 0:
+        raise pxt.Error('bboxes_scale(): factor must be positive')
+    if has_x and x_factor <= 0:
+        raise pxt.Error('bboxes_scale(): x_factor must be positive')
+    if has_y and y_factor <= 0:
+        raise pxt.Error('bboxes_scale(): y_factor must be positive')
+
+    is_absolute = _validate_bboxes(bboxes, 'bboxes_scale()')
+    arr = np.array(bboxes, dtype=np.float64)
+    assert arr.ndim == 2 and arr.shape[1] == 4
+    c0, c1, c2, c3 = arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3]
+
+    # Convert to cx, cy, w, h
+    w: np.ndarray
+    h: np.ndarray
+    cx: np.ndarray
+    cy: np.ndarray
+    if format == 'xyxy':
+        w, h = c2 - c0, c3 - c1
+        cx, cy = c0 + w / 2, c1 + h / 2
+    elif format == 'xywh':
+        w, h = c2, c3
+        cx, cy = c0 + w / 2, c1 + h / 2
+    elif format == 'cxcywh':
+        cx, cy, w, h = c0, c1, c2, c3
+    else:
+        raise pxt.Error(f'Invalid format: {format!r}')
+
+    valid = (w > 0) & (h > 0)
+    orig: np.ndarray | None = None
+    if not valid.all():
+        orig = arr.copy()
+    w = np.where(valid, w, 1.0)
+    h = np.where(valid, h, 1.0)
+
+    # scale w/h
+    if has_factor:
+        w *= factor
+        h *= factor
+    else:
+        if has_x:
+            w *= x_factor
+        if has_y:
+            h *= y_factor
+
+    # Convert back to original format
+    if is_absolute:
+        w = np.floor(w + 0.5)
+        h = np.floor(h + 0.5)
+
+    if format == 'xyxy':
+        if is_absolute:
+            x1 = np.floor(cx - w / 2 + 0.5)
+            y1 = np.floor(cy - h / 2 + 0.5)
+            result = np.column_stack([x1, y1, x1 + w, y1 + h]).astype(int)
+        else:
+            result = np.column_stack([cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2])
+    elif format == 'xywh':
+        if is_absolute:
+            x1 = np.floor(cx - w / 2 + 0.5)
+            y1 = np.floor(cy - h / 2 + 0.5)
+            result = np.column_stack([x1, y1, w, h]).astype(int)
+        else:
+            result = np.column_stack([cx - w / 2, cy - h / 2, w, h])
+    else:  # cxcywh
+        result = np.column_stack([cx, cy, w, h])
+        if is_absolute:
+            result = np.floor(result + 0.5).astype(int)
+
+    if not valid.all():
+        result[~valid] = orig[~valid]
+    return result.tolist()
 
 
 @pxt.udf
