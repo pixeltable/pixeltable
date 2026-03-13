@@ -717,13 +717,9 @@ def _is_gpt_image_model(model: str) -> bool:
     return any(model.startswith(prefix) for prefix in _GPT_IMAGE_MODEL_PREFIXES)
 
 
-def _pil_to_png_bytes(image: PIL.Image.Image, *, rgba: bool = False) -> io.BytesIO:
-    """Convert a PIL image to a PNG BytesIO suitable for the OpenAI images API."""
-    if rgba:
-        if image.mode != 'RGBA':
-            image = image.convert('RGBA')
-    elif image.mode not in ('RGB', 'RGBA'):
-        image = image.convert('RGBA' if image.has_transparency_data else 'RGB')
+def _pil_to_png_bytes(image: PIL.Image.Image) -> io.BytesIO:
+    """Serialize a PIL image to a PNG BytesIO. The OpenAI images/edits and images/variations endpoints
+    require images as PNG file objects."""
     buf = io.BytesIO()
     image.save(buf, format='PNG')
     buf.seek(0)
@@ -879,11 +875,11 @@ async def image_edits(
     if model_kwargs is None:
         model_kwargs = {}
 
-    image_file = _pil_to_png_bytes(image, rgba=True)
+    image_file = _pil_to_png_bytes(image)
     kwargs: dict[str, Any] = {'image': image_file, 'prompt': prompt, 'model': model, **model_kwargs}
 
     if mask is not None:
-        kwargs['mask'] = _pil_to_png_bytes(mask, rgba=True)
+        kwargs['mask'] = _pil_to_png_bytes(mask)
 
     # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
     # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.

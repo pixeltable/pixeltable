@@ -422,10 +422,16 @@ class TestOpenai:
 
     @pytest.mark.expensive
     def test_image_edits_dall_e_2(self, uses_db: None) -> None:
-        """Test image_edits with dall-e-2, which has different constraints (square PNG, 1000-char prompt)."""
+        """Test image_edits with dall-e-2, which requires a square RGBA PNG."""
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
+        import numpy as np
+
         from pixeltable.functions.openai import image_edits
+
+        # dall-e-2 requires RGBA — the alpha channel marks which pixels to edit (alpha=0 means edit here)
+        arr = np.full((512, 512, 4), fill_value=[70, 130, 180, 255], dtype=np.uint8)  # fully opaque steel blue
+        src_img = PIL.Image.fromarray(arr, mode='RGBA')
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
         t.add_computed_column(
@@ -434,7 +440,7 @@ class TestOpenai:
             )
         )
 
-        validate_update_status(t.insert(img=SAMPLE_IMAGE_URL), 1)
+        validate_update_status(t.insert(img=src_img), 1)
         result = t.collect()
         assert isinstance(result['edited'][0]['data'][0], PIL.Image.Image)
         assert result['edited'][0]['data'][0].size == (512, 512)
