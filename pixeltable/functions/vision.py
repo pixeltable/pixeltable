@@ -1145,31 +1145,30 @@ def bboxes_resize_canvas(
     bboxes: list,
     format: Literal['xyxy', 'xywh', 'cxcywh'],
     *,
+    canvas_width: int | None = None,
+    canvas_height: int | None = None,
     new_canvas_width: int | None = None,
     new_canvas_height: int | None = None,
     canvas_scale: float | None = None,
     canvas_scale_x: float | None = None,
     canvas_scale_y: float | None = None,
-    canvas_width: int | None = None,
-    canvas_height: int | None = None,
 ) -> list:
     """
     Adjust a list of bounding boxes to account for a canvas resize. The resize operation can be expressed
 
-    - as absolute pixel dimensions (new_canvas_width, new_canvas_height)
-    - as relative dimensions (canvas_scale, canvas_scale_x, canvas_scale_y)
+    - as absolute pixel dimensions (requires canvas_width, canvas_height, new_canvas_width, new_canvas_height)
+    - as relative dimensions (requires at least one of canvas_scale, canvas_scale_x, canvas_scale_y)
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
-    coordinates in [0, 1].
+        bboxes: List of bounding boxes in absolute pixel coordinates.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
+        canvas_width: Original canvas width in absolute pixels.
+        canvas_height: Original canvas height in absolute pixels.
         new_canvas_width: New canvas width in absolute pixels. Requires canvas_width/canvas_height to be specified.
         new_canvas_height: New canvas height in absolute pixels. Requires canvas_width/canvas_height to be specified.
         canvas_scale: Scale factor to apply to both canvas dimensions.
         canvas_scale_x: Scale factor to apply to the canvas width.
         canvas_scale_y: Scale factor to apply to the canvas height.
-        canvas_width: Original canvas width in absolute pixels.
-        canvas_height: Original canvas height in absolute pixels.
 
     Returns:
         List of adjusted bounding boxes in the same format as the input.
@@ -1178,14 +1177,24 @@ def bboxes_resize_canvas(
     if len(bboxes) == 0:
         return []
 
+    is_absolute = _validate_bboxes(bboxes, 'bboxes_resize_canvas()', validate_range=False)
+    if not is_absolute:
+        raise pxt.Error('bboxes_resize_canvas(): requires absolute bounding boxes')
+
     # Parameter validation
-    has_new_dims = new_canvas_width is not None or new_canvas_height is not None
+    has_new_dims = new_canvas_width is not None and new_canvas_height is not None
+    has_dims = canvas_width is not None and canvas_height is not None
     has_scale = canvas_scale is not None
     has_scale_xy = canvas_scale_x is not None or canvas_scale_y is not None
-    has_canvas_dims = canvas_width is not None or canvas_height is not None
 
     if not has_new_dims and not has_scale and not has_scale_xy:
-        raise pxt.Error('bboxes_resize_canvas(): at least one resize parameter must be specified')
+        raise pxt.Error(
+            'bboxes_resize_canvas(): requires either all of canvas_width, canvas_height, new_canvas_width, '
+            'new_canvas_height, or at least one of canvas_scale, canvas_scale_x, canvas_scale_y to be specified')
+    if has_new_dims and not has_dims:
+        raise pxt.Error(
+            'bboxes_resize_canvas(): new_canvas_width/new_canvas_height also require canvas_width/canvas_height '
+            'to be specified')
     if has_new_dims and (has_scale or has_scale_xy):
         raise pxt.Error(
             'bboxes_resize_canvas(): new_canvas_width/new_canvas_height is mutually exclusive with '
@@ -1194,7 +1203,6 @@ def bboxes_resize_canvas(
     if has_scale and has_scale_xy:
         raise pxt.Error('bboxes_resize_canvas(): canvas_scale is mutually exclusive with canvas_scale_x/canvas_scale_y')
 
-    # Validate individual parameter values
     if new_canvas_width is not None and new_canvas_width <= 0:
         raise pxt.Error('bboxes_resize_canvas(): new_canvas_width must be positive')
     if new_canvas_height is not None and new_canvas_height <= 0:
@@ -1210,37 +1218,16 @@ def bboxes_resize_canvas(
     if canvas_height is not None and canvas_height <= 0:
         raise pxt.Error('bboxes_resize_canvas(): canvas_height must be positive')
 
-    # Group A requires canvas_width + canvas_height
-    if has_new_dims and (canvas_width is None or canvas_height is None):
-        raise pxt.Error(
-            'bboxes_resize_canvas(): canvas_width and canvas_height are required with '
-            'new_canvas_width/new_canvas_height'
-        )
-
-    # Validate bboxes
-    is_absolute = _validate_bboxes(bboxes, 'bboxes_resize_canvas()', validate_range=False)
-
-    # Coordinate type constraints
-    if not is_absolute:
-        if has_new_dims or has_canvas_dims:
-            raise pxt.Error(
-                'bboxes_resize_canvas(): new_canvas_width/new_canvas_height/canvas_width/canvas_height '
-                'must not be specified for relative coordinates'
-            )
-        # Relative coords are invariant to canvas resize
-        return bboxes
-
     # Compute scale factors
     if has_new_dims:
-        scale_x = new_canvas_width / canvas_width if new_canvas_width is not None else 1.0
-        scale_y = new_canvas_height / canvas_height if new_canvas_height is not None else 1.0
+        scale_x = new_canvas_width / canvas_width
+        scale_y = new_canvas_height / canvas_height
     elif has_scale:
         scale_x = scale_y = canvas_scale
     else:
         scale_x = canvas_scale_x if canvas_scale_x is not None else 1.0
         scale_y = canvas_scale_y if canvas_scale_y is not None else 1.0
 
-    # Apply scaling (format-independent: c0,c2 are x-related, c1,c3 are y-related)
     arr = np.array(bboxes, dtype=np.float64)
     assert arr.ndim == 2 and arr.shape[1] == 4
 
