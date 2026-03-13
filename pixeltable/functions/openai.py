@@ -14,7 +14,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, Callable, Type
+from typing import TYPE_CHECKING, Any, Callable, Type, cast
 
 import httpx
 import numpy as np
@@ -723,7 +723,7 @@ def _pil_to_png_bytes(image: PIL.Image.Image) -> io.BytesIO:
     buf = io.BytesIO()
     image.save(buf, format='PNG')
     buf.seek(0)
-    buf.name = 'image.png'
+    cast(Any, buf).name = 'image.png'
     return buf
 
 
