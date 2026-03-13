@@ -1825,11 +1825,7 @@ class Catalog:
                 return self._get_tbl_version(key, validate_initialized=validate_initialized)
             except PendingTableOpsError as e:
                 _logger.info('Caught PendingTableOpsError, attempting to finalize', exc_info=True)
-                exc = self._finalize_pending_ops(e.tbl_id)
-                if exc is not None:
-                    raise excs.Error(
-                        f'Failed to finalize pending table operations for table {e.tbl_id}: {exc!s}'
-                    ) from exc
+                self._finalize_pending_ops(e.tbl_id)
 
     def _get_tbl_version(
         self,
