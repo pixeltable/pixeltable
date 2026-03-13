@@ -1,4 +1,5 @@
 """Tests for the partial unique B-tree index on primary key columns."""
+
 import pytest
 
 import pixeltable as pxt
@@ -41,8 +42,7 @@ class TestPrimaryKeyIndex:
             primary_key=['a', 'b'],
         )
         validate_update_status(
-            t.insert([{'a': 1, 'b': 'x', 'val': 10}, {'a': 1, 'b': 'y', 'val': 20}]),
-            expected_rows=2,
+            t.insert([{'a': 1, 'b': 'x', 'val': 10}, {'a': 1, 'b': 'y', 'val': 20}]), expected_rows=2
         )
 
         # Same 'a' with different 'b' is fine — only exact composite match is rejected
@@ -58,9 +58,7 @@ class TestPrimaryKeyIndex:
 
     def test_string_pk_truncation(self, uses_db: None) -> None:
         """String PK index uses left(col, 256). Strings identical in first 256 chars collide."""
-        t = pxt.create_table(
-            'test_pk', {'key': pxt.Required[pxt.String], 'val': pxt.Int}, primary_key='key'
-        )
+        t = pxt.create_table('test_pk', {'key': pxt.Required[pxt.String], 'val': pxt.Int}, primary_key='key')
         base = 'a' * 256
 
         validate_update_status(t.insert([{'key': base + '_suffix1', 'val': 1}]), expected_rows=1)
