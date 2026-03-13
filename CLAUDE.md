@@ -115,18 +115,12 @@ pytest -m "remote_api" tests/functions/test_openai.py
 
 ### Required After Every Code Change
 
-After every code change, run the following and ensure both pass before proceeding:
-
 ```bash
 make format   # auto-formats code
 make check    # mypy + ruff static checks
 ```
 
-Skip only if explicitly directed or if the environment makes it impossible.
-
-`make check` must be run from inside a conda environment (not `base`). If the shell is not already in the right environment, activate it first: `conda activate pxt`.
-
-Run `make format` then `make check` immediately after every edit — both are required, in that order. Do not rely on IDE diagnostics as a substitute. `make check` catches unused imports, type errors, and lint issues in one pass.
+`make check` must be run from inside a conda environment (`conda activate pxt`). Do not rely on IDE diagnostics as a substitute.
 
 ### Creating a Pull Request
 
