@@ -1,6 +1,6 @@
 import datetime
 import uuid
-from typing import Any, ClassVar, Dict, List, Literal, Optional, TypedDict, Union
+from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, TypedDict, Union
 
 import jsonschema.exceptions
 import numpy as np
@@ -55,6 +55,15 @@ class TypedDict2(TypedDict, total=False):
     a: str
     b: int | None
     c: Array[(None,), np.float32]  # type: ignore[misc]
+
+
+class TypedDict3(TypedDict):
+    a: str
+    b: TypedDict1  # nested TypedDict
+    c: tuple[int, str, ...]
+    d: Tuple[int, str]  # Python 3.8-style Tuple
+    e: list[int]
+    f: List[int]  # Python 3.8-style List
 
 
 class TestTypes:
@@ -122,6 +131,31 @@ class TestTypes:
             Array[(5, None, 3), Float]: (  # type: ignore[misc]
                 ArrayType((5, None, 3), dtype=FloatType(), nullable=False),
                 'Array[(5, None, 3), float32]',
+            ),
+            Json[list[int]]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
+            Json[tuple[int, str]]: (JsonType(JsonType.TypeSchema([IntType(), StringType()])), 'Json[(Int, String)]'),
+            Json[tuple[int, str, ...]]: (
+                JsonType(JsonType.TypeSchema([IntType()], variadic_type=StringType())),
+                'Json[(Int, String, ...)]',
+            ),
+            Json[List[int]]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
+            Json[Tuple[int, str]]: (JsonType(JsonType.TypeSchema([IntType(), StringType()])), 'Json[(Int, String)]'),
+            Json[TypedDict1]: (
+                JsonType(
+                    JsonType.TypeSchema(
+                        {'a': StringType(), 'b': IntType(nullable=True), 'c': ArrayType((None,), dtype=FloatType())}
+                    )
+                ),
+                "Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}]",
+            ),
+            Json[TypedDict2]: (
+                JsonType(
+                    JsonType.TypeSchema(
+                        {'a': StringType(), 'b': IntType(nullable=True), 'c': ArrayType((None,), dtype=FloatType())},
+                        optional_keys=['a', 'b', 'c'],
+                    )
+                ),
+                "Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}, optional_keys=['a', 'b', 'c']]",
             ),
             Image[100, 200]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),  # type: ignore[misc]
             Image[100, None]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),  # type: ignore[misc]

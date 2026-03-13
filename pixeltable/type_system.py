@@ -12,7 +12,7 @@ import typing
 import urllib.request
 import uuid
 from pathlib import Path
-from typing import Any, ClassVar, Iterable, Literal, Mapping, Sequence, Union
+from typing import Any, ClassVar, Iterable, List, Literal, Mapping, Sequence, Tuple, Union
 
 from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
 
@@ -811,7 +811,8 @@ class JsonType(ColumnType):
         super().__init__(self.Type.JSON, nullable=nullable)
         self.type_schema = type_schema
 
-    def _validate_type_schema(self, type_arg: Any) -> TypeSchema | ColumnType | None:
+    @classmethod
+    def _validate_type_schema(cls, type_arg: Any) -> TypeSchema | ColumnType | None:
         """
         Checks that the given `type_arg` is a valid Pixeltable JSON type schema, i.e., one of the following:
 
@@ -828,27 +829,27 @@ class JsonType(ColumnType):
 
         type_schema: JsonType.TypeSchema | ColumnType | None
 
-        if isinstance(type_arg, type):
+        if isinstance(type_arg, (type, typing._GenericAlias)):
             if hasattr(type_arg, '__orig_bases__') and type_arg.__orig_bases__ == (typing.TypedDict,):
                 # It's a subclass of `TypedDict`.
                 return JsonType.TypeSchema(
-                    content={key: self.from_python_type(value) for key, value in type_arg.__annotations__.items()},
+                    content={key: cls.from_python_type(value) for key, value in type_arg.__annotations__.items()},
                     optional_keys=list(getattr(type_arg, '__optional_keys__', [])),
                 )
 
-            if issubclass(type_arg, pydantic.BaseModel):
+            if isinstance(type_arg, type) and issubclass(type_arg, pydantic.BaseModel):
                 # It's a subclass of `pydantic.BaseModel`.
                 raise NotImplementedError('Pydantic BaseModel support not yet implemented')
 
-            if typing.get_origin(type_arg) is list:
+            if typing.get_origin(type_arg) in (list, List):
                 # It's a type hint of the form `list[T]`; the validated schema is a variadic tuple.
                 list_subscript = typing.get_args(type_arg)[0]
                 if list_subscript is None:
                     return None
                 else:
-                    return JsonType.TypeSchema(content=[], variadic_type=self.from_python_type(list_subscript))
+                    return JsonType.TypeSchema(content=[], variadic_type=cls.from_python_type(list_subscript))
 
-            if typing.get_origin(type_arg) is tuple:
+            if typing.get_origin(type_arg) in (tuple, Tuple):
                 # It's a type hint of the form `tuple[T1, T2, ...]`.
                 tuple_subscripts = typing.get_args(type_arg)
 
@@ -864,8 +865,8 @@ class JsonType(ColumnType):
                     raise excs.Error('Invalid type schema: `...` allowed only in last position')
 
                 return JsonType.TypeSchema(
-                    content=[self.from_python_type(subscript) for subscript in tuple_subscripts],
-                    variadic_type=self.from_python_type(variadic_type) if variadic_type is not None else None,
+                    content=[cls.from_python_type(subscript) for subscript in tuple_subscripts],
+                    variadic_type=cls.from_python_type(variadic_type) if variadic_type is not None else None,
                 )
 
         if isinstance(type_arg, dict):
@@ -876,7 +877,7 @@ class JsonType(ColumnType):
                     raise excs.Error(
                         f'Invalid type schema: expected keys of type `str`; got type `{type(key).__name__}`'
                     )
-                content[key] = self._validate_type_schema(value)
+                content[key] = cls._validate_type_schema(value)
             return JsonType.TypeSchema(content)
 
         if isinstance(type_arg, list):
@@ -885,7 +886,7 @@ class JsonType(ColumnType):
                 raise excs.Error(
                     f'Invalid type schema: expected a single-item list; got a list of length {len(type_arg)}'
                 )
-            return JsonType.TypeSchema(content=[], variadic_type=self._validate_type_schema(type_arg[0]))
+            return JsonType.TypeSchema(content=[], variadic_type=cls._validate_type_schema(type_arg[0]))
 
         if isinstance(type_arg, tuple):
             # Convenience tuple. We allow ..., but only in last position.
@@ -900,11 +901,11 @@ class JsonType(ColumnType):
                 raise excs.Error('Invalid type schema: `...` allowed only in last position')
 
             return JsonType.TypeSchema(
-                content=[self._validate_type_schema(item) for item in type_arg], variadic_type=variadic_type
+                content=[cls._validate_type_schema(item) for item in type_arg], variadic_type=variadic_type
             )
 
         # Anything else: Convert it to a ColumnType instance in the usual fashion.
-        return self.from_python_type(type_arg)
+        return cls.from_python_type(type_arg)
 
     @classmethod
     def from_python_type(cls, t: type | _GenericAlias) -> ColumnType:
@@ -1059,7 +1060,7 @@ class JsonType(ColumnType):
 
         return None
 
-    def __repr__(self) -> str:
+    def _to_base_str(self) -> str:
         if self.type_schema is None:
             return 'Json'
         else:
@@ -1081,13 +1082,13 @@ class JsonType(ColumnType):
 
         def __repr__(self) -> str:
             if isinstance(self.content, list):
-                repr_tuple = tuple(self.content)
+                reprs = [repr(t) for t in self.content]
                 if self.variadic_type is not None:
-                    repr_tuple += (self.variadic_type, ...)
-                return repr(repr_tuple)
+                    reprs.append(f'{self.variadic_type!r}, ...')
+                return f'({", ".join(reprs)})'
             else:
                 r = repr(self.content)
-                if self.optional_keys is not None:
+                if len(self.optional_keys) > 0:
                     r += f', optional_keys={self.optional_keys}'
                 return r
 
