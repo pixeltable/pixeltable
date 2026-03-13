@@ -959,8 +959,11 @@ class Table(SchemaObject):
         Add an embedding index to the table. Once the index is created, it will be automatically kept up-to-date as new
         rows are inserted into the table.
 
-        To add an embedding index, one must specify, at minimum, the column to be indexed and an embedding UDF.
-        Only `String` and `Image` columns are currently supported.
+        To add an embedding index, specify the column to be indexed and, if the column is not an `Array` column, an
+        embedding UDF. `String`, `Image`, and `Array` columns are currently supported.
+
+        For `Array` columns, which are assumed to contain precomputed embeddings, an embedding function is optional;
+        if provided, it will be used to convert query values into embeddings for similarity search.
 
         Args:
             column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
