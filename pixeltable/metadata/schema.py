@@ -137,7 +137,7 @@ class ColumnMd:
 @dataclasses.dataclass
 class IndexMd:
     """
-    Metadata needed to instantiate an EmbeddingIndex
+    Metadata needed to instantiate an index
     """
 
     id: int
@@ -150,6 +150,18 @@ class IndexMd:
     schema_version_drop: int | None
     class_fqn: str
     init_args: dict[str, Any]
+
+
+@dataclasses.dataclass
+class PrimaryIndexMd:
+    """
+    Metadata for a primary index; there is at most one per table.
+    """
+
+    id: int
+    name: str
+    indexed_cols_tbl_id: str  # UUID of the table (as string) that contains columns being indexed
+    indexed_col_id: list[int]  # columns being indexed
 
 
 # a stored table version path is a list of (table id as str, effective table version)
@@ -239,6 +251,8 @@ class TableMd:
     # TODO: Remove additional_md from this and other Md dataclasses (and switch to using the separate additional_md
     #     column in all cases)
     additional_md: dict[str, Any]  # deprecated
+
+    primary_index_md: PrimaryIndexMd | None = None
 
     # deprecated
     has_pending_ops: bool = False

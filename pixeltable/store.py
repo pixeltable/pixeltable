@@ -143,6 +143,28 @@ class StoreBase:
         idx_name = f'vmax_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
+        # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
+        primary_index_md = tbl_version.tbl_md.primary_index_md
+        if primary_index_md is not None and len(primary_index_md.indexed_col_id) > 0:
+            pk_idx_exprs: list[sql.ColumnElement] = []
+            for col in tbl_version.cols:
+                if col.id not in primary_index_md.indexed_col_id:
+                    continue
+                if col.col_type.is_string_type():
+                    pk_idx_exprs.append(sql.func.left(col.sa_col, 256))
+                else:
+                    pk_idx_exprs.append(col.sa_col)
+            idx_name = f'pk_idx_{tbl_version.id.hex}'
+            idxs.append(
+                sql.Index(
+                    idx_name,
+                    *pk_idx_exprs,
+                    unique=True,
+                    postgresql_using='btree',
+                    postgresql_where=(self.v_max_col == schema.Table.MAX_VERSION),
+                )
+            )
+
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
         # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
 
@@ -478,7 +500,12 @@ class StoreBase:
     def sql_insert(cls, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
         assert len(table_rows) > 0
         conn = get_runtime().conn
-        conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
+        try:
+            conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
+        except sql.exc.IntegrityError as e:
+            if isinstance(e.orig, psycopg.errors.UniqueViolation) and 'pk_idx_' in str(e.orig):
+                raise excs.Error('Duplicate primary key value') from None
+            raise
 
         # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to
         #     differences in the data representation that SQLAlchemy/psycopg expect. The below code will do the
