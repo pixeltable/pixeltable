@@ -7,7 +7,7 @@ import logging
 import math
 import sys
 import time
-from typing import Awaitable, Collection
+from typing import Collection
 
 from pixeltable import env, func
 from pixeltable.config import Config
@@ -39,10 +39,13 @@ class RateLimitsScheduler(Scheduler):
 
     # scheduling-related state
     pool_info: env.RateLimitsInfo | None
-    est_usage: dict[str, int]  # value per resource; accumulated estimates since the last util. report
+    est_usage: dict[str, int]  # value per resource; running sum of estimated costs for in-flight requests
+
+    # Per-request estimated costs stored when a task is fired, keyed by id(request).
+    # Looked up and removed in _exec's finally block so we subtract only that request's contribution from est_usage.
+    _inflight_costs: dict[int, dict[str, int]]
 
     num_in_flight: int  # unfinished tasks
-    request_completed: asyncio.Event
 
     total_requests: int
     total_retried: int
@@ -56,8 +59,8 @@ class RateLimitsScheduler(Scheduler):
         self.dispatcher.register_task(loop_task)
         self.pool_info = None  # initialized in _main_loop by the first request
         self.est_usage = {}
+        self._inflight_costs = {}
         self.num_in_flight = 0
-        self.request_completed = asyncio.Event()
         self.total_requests = 0
         self.total_retried = 0
         self.get_request_resources_param_names = []
@@ -103,37 +106,17 @@ class RateLimitsScheduler(Scheduler):
             # check rate limits
             request_resources = self._get_request_resources(item.request)
             resource_delay = self._resource_delay(request_resources)
-            aws: list[Awaitable[None]] = []
-            completed_aw: asyncio.Task | None = None
-            wait_for_reset: asyncio.Task | None = None
             if resource_delay > 0:
-                # Some resource or resources are nearing depletion
-
-                if self.num_in_flight > 0:
-                    # a completed request can free up capacity
-                    self.request_completed.clear()
-                    completed_aw = asyncio.create_task(self.request_completed.wait())
-                    aws.append(completed_aw)
-                    _logger.debug(f'waiting for completed request for {self.resource_pool}')
-
-                # Schedule a sleep until sufficient resources are available
-                wait_for_reset = asyncio.create_task(asyncio.sleep(resource_delay))
-                aws.append(wait_for_reset)
                 _logger.debug(f'waiting {resource_delay:.1f}s for resource availability')
-
-            if len(aws) > 0:
-                # we have something to wait for
-                done, pending = await asyncio.wait(aws, return_when=asyncio.FIRST_COMPLETED)
-                for task in pending:
-                    task.cancel()
-                if completed_aw in done:
-                    _logger.debug(f'wait(): completed request for {self.resource_pool}')
+                await asyncio.sleep(resource_delay)
                 # re-evaluate current capacity for current item
                 continue
 
             # we have a new in-flight request
             for resource, val in request_resources.items():
                 self.est_usage[resource] = self.est_usage.get(resource, 0) + val
+            # Remember this request's individual cost so _exec can subtract only its share on completion.
+            self._inflight_costs[id(item.request)] = request_resources
             _logger.debug(f'creating task for {self.resource_pool}')
             self.num_in_flight += 1
             task = asyncio.create_task(self._exec(item.request, item.exec_ctx, item.num_retries, is_task=True))
@@ -208,9 +191,6 @@ class RateLimitsScheduler(Scheduler):
                 f'in {end_ts - start_ts}, batch_size={len(request.rows)}'
             )
 
-            # purge accumulated usage estimate, now that we have a new report
-            self.est_usage = dict.fromkeys(self._resources, 0)
-
             self.dispatcher.dispatch(request.rows, exec_ctx)
         except Exception as exc:
             _logger.exception(f'scheduler {self.resource_pool}: exception in slot {request.fn_call.slot_idx}: {exc}')
@@ -252,8 +232,11 @@ class RateLimitsScheduler(Scheduler):
         finally:
             _logger.debug(f'Scheduler stats: #requests={self.total_requests}, #retried={self.total_retried}')
             if is_task:
+                # Subtract only this request's estimated cost from est_usage.
+                estimated_cost = self._inflight_costs.pop(id(request), {})
+                for resource, cost in estimated_cost.items():
+                    self.est_usage[resource] = max(0, self.est_usage.get(resource, 0) - cost)
                 self.num_in_flight -= 1
-                self.request_completed.set()
 
 
 class RequestRateScheduler(Scheduler):

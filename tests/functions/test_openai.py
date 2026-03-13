@@ -1,4 +1,7 @@
+import logging
 import os
+import random
+import time
 
 import pytest
 
@@ -9,6 +12,16 @@ from pixeltable.config import Config
 
 from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_if_not_installed, validate_update_status
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
+
+_logger = logging.getLogger('pixeltable')
+
+
+@pxt.udf
+def _throughput_test_prompt(word1: str, word2: str) -> list[dict[str, str]]:
+    return [
+        {'role': 'system', 'content': 'You are a helpful assistant. Be concise.'},
+        {'role': 'user', 'content': f'Use "{word1}" and "{word2}" in one short sentence.'},
+    ]
 
 
 @pytest.mark.remote_api
@@ -486,6 +499,94 @@ class TestOpenai:
         validate_update_status(t.insert(input='Where did the game of Backgammon originate?'), 1)
         result = t.collect()
         assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']
+
+    @pytest.mark.expensive
+    def test_chat_completions_throughput(self, uses_db: None) -> None:
+        """
+        Performance test: sends N chat_completions requests and reports throughput.
+
+        Verifies that the scheduler can drive requests through without total failure.
+        When no max_tokens is specified, the scheduler estimates token cost via
+        _default_max_tokens(), which may be conservative but prevents over-scheduling.
+
+        Run with:
+            pytest -m "remote_api and expensive" \
+                tests/functions/test_openai.py::TestOpenai::test_chat_completions_throughput -s
+        """
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import chat_completions
+
+        with open('tests/data/random_words', encoding='utf-8') as f:
+            wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
+
+        n = 20
+        model = 'gpt-5-nano'  # cheapest model; each row costs ~$0.0001
+
+        t = pxt.create_table('perf_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
+        t.add_computed_column(response=chat_completions(t.prompt, model=model))
+        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
+        t0 = time.monotonic()
+        t.insert(rows)
+        elapsed = time.monotonic() - t0
+        pxt.drop_table('perf_tbl')
+
+        _logger.debug(f'rows={n}, elapsed={elapsed:.2f}s  ({n / max(elapsed, 0.001):.2f} req/s)')
+
+    @pytest.mark.expensive
+    def test_chat_completions_429_recovery(self, uses_db: None) -> None:
+        """
+        Stress test that deliberately triggers 429 rate-limit errors and verifies recovery.
+
+        Strategy: send N rows with max_tokens=500, which causes the scheduler to fire many
+        concurrent requests. Each request consumes ~500 tokens, so a 200k TPM account
+        exhausts within the first ~400 requests. Once 429s start arriving, the retry logic
+        (RateLimitsScheduler._exec) kicks in.
+
+        What to look for in output:
+          - errors=0  (all rows eventually succeed after retries)
+
+        Approximate cost: ~$0.50 for 2000 rows on gpt-4o-mini.
+
+        Run with:
+            pytest -m "remote_api and expensive" \
+                tests/functions/test_openai.py::TestOpenai::test_chat_completions_429_recovery -s -v
+        """
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
+        from pixeltable.functions.openai import chat_completions
+
+        with open('tests/data/random_words', encoding='utf-8') as f:
+            wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
+
+        n = 2000
+        model = 'gpt-4o-mini'
+        # Large enough output to exhaust TPM quickly; small enough to stay cheap
+        max_tokens = 500
+
+        t = pxt.create_table('test_429_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
+        t.add_computed_column(
+            response=chat_completions(
+                t.prompt, model=model, model_kwargs={'max_tokens': max_tokens, 'temperature': 0.7}
+            )
+        )
+
+        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
+
+        t0 = time.monotonic()
+        status = t.insert(rows, on_error='ignore')
+        elapsed = time.monotonic() - t0
+
+        succeeded = n - status.num_excs
+        _logger.debug(
+            f'model={model}, max_tokens={max_tokens}, rows={n}, '
+            f'succeeded={succeeded}, errors={status.num_excs}, '
+            f'elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
+        )
+
+        assert status.num_excs == 0, f'{status.num_excs} rows failed permanently — retries did not recover them'
 
     def test_shared_rate_limits_pool_different_signatures(self, uses_db: None) -> None:
         """Verify that functions sharing a rate-limits pool with different get_request_resources signatures

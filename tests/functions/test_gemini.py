@@ -1,3 +1,6 @@
+import logging
+import random
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -17,6 +20,8 @@ from ..utils import (
     validate_update_status,
 )
 from .tool_utils import run_tool_invocations_test
+
+_logger = logging.getLogger('pixeltable')
 
 
 @pytest.mark.remote_api
@@ -280,3 +285,89 @@ class TestGemini:
         sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
+
+    @pytest.mark.expensive
+    def test_generate_content_throughput(self, uses_db: None) -> None:
+        """
+        Performance test: sends N generate_content requests and reports throughput.
+
+        Verifies that the scheduler can drive requests through without total failure.
+        Unlike OpenAI, GeminiRateLimitsInfo.get_request_resources() returns {}, so the
+        scheduler has no token-level estimates and relies on retry logic for any 429s.
+
+        Run with:
+            pytest -m "remote_api and expensive" \
+                tests/functions/test_gemini.py::TestGemini::test_generate_content_throughput -s
+        """
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_content
+
+        with open('tests/data/random_words', encoding='utf-8') as f:
+            wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
+
+        n = 30
+        model = 'gemini-2.0-flash'
+
+        t = pxt.create_table('perf_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t.add_computed_column(prompt='Use "' + t.word1 + '" and "' + t.word2 + '" in one short sentence.')
+        t.add_computed_column(response=generate_content(t.prompt, model=model))
+        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
+        t0 = time.monotonic()
+        t.insert(rows)
+        elapsed = time.monotonic() - t0
+        pxt.drop_table('perf_tbl')
+
+        _logger.debug(f'rows={n}, elapsed={elapsed:.2f}s  ({n / max(elapsed, 0.001):.2f} req/s)')
+
+    @pytest.mark.expensive
+    def test_generate_content_429_recovery(self, uses_db: None) -> None:
+        """
+        Stress test that deliberately triggers 429 rate-limit errors on the Gemini free tier
+        and verifies that the retry logic recovers all rows.
+
+        Why 429s happen: GeminiRateLimitsInfo.get_request_resources() returns {}, so
+        RateLimitsScheduler._resource_delay() has nothing to iterate and always returns 0.
+        All N requests fire concurrently. On the free tier (~10 RPM for gemini-2.5-flash),
+        the first ~10 succeed and the rest receive 429s.
+
+        Recovery path (GeminiRateLimitsInfo.get_retry_delay):
+          1. Parses `retryDelay` from exc.details['error']['details'] (Gemini-specific)
+          2. Falls back to exponential_backoff(attempt) if that field is absent
+
+        What to look for in output:
+          - errors=0  (all rows eventually succeed after retries)
+          - elapsed   (longer than n/RPM seconds due to retry waits)
+
+        Run with:
+            pytest -m "remote_api and expensive" \
+                tests/functions/test_gemini.py::TestGemini::test_generate_content_429_recovery -s -v
+        """
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+        from pixeltable.functions.gemini import generate_content
+
+        with open('tests/data/random_words', encoding='utf-8') as f:
+            wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
+
+        n = 30
+        # gemini-2.5-flash free tier: ~10 RPM — 30 rows guarantees 429s immediately
+        model = 'gemini-2.5-flash'
+
+        t = pxt.create_table('test_429_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t.add_computed_column(prompt='Use "' + t.word1 + '" and "' + t.word2 + '" in one short sentence.')
+        t.add_computed_column(response=generate_content(t.prompt, model=model, config={'max_output_tokens': 50}))
+
+        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
+
+        t0 = time.monotonic()
+        status = t.insert(rows, on_error='ignore')
+        elapsed = time.monotonic() - t0
+
+        succeeded = n - status.num_excs
+        _logger.debug(
+            f'model={model}, rows={n}, succeeded={succeeded}, errors={status.num_excs}, '
+            f'elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
+        )
+
+        assert status.num_excs == 0, f'{status.num_excs} rows failed permanently — retries did not recover them'
