@@ -1034,8 +1034,7 @@ def bboxes_crop_canvas(
     Adjust a list of bounding boxes to account for a canvas crop.
 
     Args:
-        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative
-            coordinates in [0, 1].
+        bboxes: List of bounding boxes, each either specified with absolute pixel coordinates or relative coordinates.
         format: Format of the bounding box coordinates, one of 'xyxy', 'xywh', 'cxcywh'.
         canvas_width: Canvas width.
         canvas_height: Canvas height.

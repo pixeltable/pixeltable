@@ -170,7 +170,7 @@ class TestVision:
             assert res['out'][0] == []
             pxt.drop_table(t)
 
-            input_bboxes = [convert_cxcywh(*b, fmt) for b in abs_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt, is_abs=True) for b in abs_boxes]
             t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -211,7 +211,7 @@ class TestVision:
 
             pxt.drop_table(t)
 
-            input_bboxes = [convert_cxcywh(*b, fmt) for b in rel_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt, is_abs=False) for b in rel_boxes]
             t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -380,7 +380,7 @@ class TestVision:
 
             # absolute coordinates
 
-            input_bboxes = [convert_cxcywh(*b, fmt) for b in abs_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt, is_abs=True) for b in abs_boxes]
             t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -412,7 +412,7 @@ class TestVision:
 
             # relative coordinates
 
-            input_bboxes = [convert_cxcywh(*b, fmt) for b in rel_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt, is_abs=False) for b in rel_boxes]
             t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -513,7 +513,7 @@ class TestVision:
             assert res['out'][0] == []
             pxt.drop_table(t)
 
-            input_bboxes = [convert_cxcywh(*b, fmt) for b in abs_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt, is_abs=True) for b in abs_boxes]
             t = pxt.create_table('bbox_pad', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -623,7 +623,8 @@ class TestVision:
             pxt.drop_table(t)
 
             for boxes in [abs_boxes, rel_boxes]:
-                input_bboxes = [convert_cxcywh(*b, src_fmt) for b in boxes]  # type: ignore
+                is_abs = boxes is abs_boxes
+                input_bboxes = [convert_cxcywh(*b, src_fmt, is_abs=is_abs) for b in boxes]  # type: ignore
                 t = pxt.create_table('convert', {'bboxes': pxt.Json})
                 validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -697,6 +698,7 @@ class TestVision:
             (0.05, 0.5, 0.3, 0.2),  # partially outside left (x1=-0.1), visibility=0.667
             (0.5, 1.2, 0.2, 0.1),  # fully outside bottom, visibility=0
         ]
+        cases: list[tuple[Any, dict[str, Any]]] = [(abs_boxes, {'width': 640, 'height': 480}), (rel_boxes, {})]
 
         for fmt in ['xyxy', 'xywh', 'cxcywh']:
             # corner case: empty list
@@ -706,9 +708,9 @@ class TestVision:
             assert res['out'][0] == []
             pxt.drop_table(t)
 
-            cases: list[tuple[Any, dict[str, Any]]] = [(abs_boxes, {'width': 640, 'height': 480}), (rel_boxes, {})]
             for boxes, canvas_args in cases:
-                input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt) for b in boxes]
+                is_abs = boxes is abs_boxes
+                input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt, is_abs=is_abs) for b in boxes]
                 t = pxt.create_table('bbox_clip', {'bboxes': pxt.Json})
                 validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -882,7 +884,8 @@ class TestVision:
                 pxt.drop_table(t)
 
                 for boxes, canvas_args, crop_xyxy in cases:
-                    input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt) for b in boxes]
+                    is_abs = boxes is abs_boxes
+                    input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt, is_abs=is_abs) for b in boxes]
                     region = convert_xyxy(crop_xyxy[0], crop_xyxy[1], crop_xyxy[2], crop_xyxy[3], canvas_region_format)
 
                     t = pxt.create_table('bbox_crop', {'bboxes': pxt.Json})
@@ -1062,7 +1065,7 @@ class TestVision:
 
             for kwargs, sx, sy in cases:
                 expected_cxcywh = [(cx * sx, cy * sy, w * sx, h * sy) for cx, cy, w, h in abs_boxes]
-                input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt) for b in abs_boxes]
+                input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt, is_abs=True) for b in abs_boxes]
 
                 t = pxt.create_table('bbox_resize', {'bboxes': pxt.Json})
                 validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
@@ -1072,7 +1075,12 @@ class TestVision:
                 assert len(out) == 5
                 for i in range(5):
                     expected = convert_cxcywh(
-                        expected_cxcywh[i][0], expected_cxcywh[i][1], expected_cxcywh[i][2], expected_cxcywh[i][3], fmt
+                        expected_cxcywh[i][0],
+                        expected_cxcywh[i][1],
+                        expected_cxcywh[i][2],
+                        expected_cxcywh[i][3],
+                        fmt,
+                        is_abs=True,
                     )
                     assert all(out[i][j] == pytest.approx(expected[j], abs=1) for j in range(4))
                 pxt.drop_table(t)
@@ -1208,7 +1216,7 @@ class TestVision:
 # rudimentary bounding box utility functions for result validation
 
 
-def convert_cxcywh(cx: float | int, cy: float | int, w: float | int, h: float | int, fmt: str) -> list:
+def convert_cxcywh(cx: float | int, cy: float | int, w: float | int, h: float | int, fmt: str, is_abs: bool) -> list:
     """Convert cxcywh to target format."""
     result: list
     if fmt == 'xyxy':
@@ -1217,12 +1225,10 @@ def convert_cxcywh(cx: float | int, cy: float | int, w: float | int, h: float | 
         result = [cx - w / 2, cy - h / 2, w, h]
     else:  # cxcywh
         result = [cx, cy, w, h]
-    if isinstance(cx, float):
-        # relative coords
-        return result
-    else:
-        # absolute coords
+    if is_abs:
         return [math.floor(x + 0.5) for x in result]
+    else:
+        return result
 
 
 def convert_xyxy(x1: float, y1: float, x2: float, y2: float, fmt: str) -> list:
