@@ -64,7 +64,7 @@ class SimilarityExpr(Expr):
             tv = get_runtime().catalog.get_tbl_version(
                 self.table_version_key, check_pending_ops=False, validate_initialized=False
             )
-            column = tv._lookup_column(self.col_qid)
+            column = tv.lookup_column(self.col_qid)
             if column is None:
                 raise excs.Error(
                     f'Column {self.col_qid!r} not found in table version {self.table_version_key!r} or its bases'
@@ -100,7 +100,7 @@ class SimilarityExpr(Expr):
         assert self.col_qid is not None
 
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version._lookup_column(self.col_qid)
+        col = tbl_version.lookup_column(self.col_qid)
         assert col is not None
         return f'{col.name}.similarity({self.components[0]}, {self.idx_name!r})'
 
@@ -112,7 +112,7 @@ class SimilarityExpr(Expr):
 
     def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version._lookup_column(self.col_qid)
+        col = tbl_version.lookup_column(self.col_qid)
         if col is None:
             return False
         return any(tbl.has_column(col) for tbl in tbls)
@@ -144,7 +144,7 @@ class SimilarityExpr(Expr):
         from pixeltable.index import EmbeddingIndex
 
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version._lookup_column(self.col_qid)
+        col = tbl_version.lookup_column(self.col_qid)
         if col is None:
             raise excs.Error(
                 f'Embedding index {self.idx_name!r} no longer exists because column {self.col_qid!r} was dropped'
