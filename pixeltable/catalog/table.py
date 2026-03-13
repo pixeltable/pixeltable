@@ -171,7 +171,7 @@ class Table(SchemaObject):
     def _get_pxt_uri(self) -> str | None:
         from pixeltable.catalog import retry_loop
 
-        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> str | None:
             return get_runtime().catalog.get_additional_md(self._id).get('pxt_uri')
 
