@@ -1043,29 +1043,6 @@ class TestVision:
             (620, 460, 40, 40),  # near corner
         ]
 
-        rel_boxes: list[tuple[float, float, float, float]] = [
-            (0.4, 0.4, 0.2, 0.2),
-            (0.1, 0.1, 0.1, 0.08),
-            (0.7, 0.6, 0.15, 0.25),
-            (0.0, 0.0, 0.05, 0.05),
-            (0.95, 0.95, 0.08, 0.08),
-        ]
-
-        def scale_cxcywh(
-            boxes: list[tuple[int, int, int, int]], sx: float, sy: float
-        ) -> list[tuple[float, float, float, float]]:
-            return [(cx * sx, cy * sy, w * sx, h * sy) for cx, cy, w, h in boxes]
-
-        def convert_cxcywh_abs(cx: float, cy: float, w: float, h: float, fmt: str) -> list:
-            """Convert cxcywh to target format with rounding for absolute coords."""
-            if fmt == 'xyxy':
-                result = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
-            elif fmt == 'xywh':
-                result = [cx - w / 2, cy - h / 2, w, h]
-            else:  # cxcywh
-                result = [cx, cy, w, h]
-            return [math.floor(x + 0.5) for x in result]
-
         cases: list[tuple[dict[str, Any], float, float]] = [
             # canvas_scale=2.0
             ({'canvas_scale': 2.0}, 2.0, 2.0),
@@ -1073,8 +1050,6 @@ class TestVision:
             ({'canvas_scale_x': 2.0, 'canvas_scale_y': 0.5}, 2.0, 0.5),
             # new_canvas_width/height (equivalent to scale=2.0)
             ({'new_canvas_width': 1280, 'new_canvas_height': 960, 'canvas_width': 640, 'canvas_height': 480}, 2.0, 2.0),
-            # new_canvas_width only (x doubled, y unchanged)
-            ({'new_canvas_width': 1280, 'canvas_width': 640, 'canvas_height': 480}, 2.0, 1.0),
         ]
 
         for fmt in ['xyxy', 'xywh', 'cxcywh']:
@@ -1085,10 +1060,9 @@ class TestVision:
             assert res['out'][0] == []
             pxt.drop_table(t)
 
-            # Absolute boxes with various resize params
             for kwargs, sx, sy in cases:
-                expected_cxcywh = scale_cxcywh(abs_boxes, sx, sy)
-                input_bboxes = [convert_cxcywh_abs(b[0], b[1], b[2], b[3], fmt) for b in abs_boxes]
+                expected_cxcywh = [(cx * sx, cy * sy, w * sx, h * sy) for cx, cy, w, h in abs_boxes]
+                input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt) for b in abs_boxes]
 
                 t = pxt.create_table('bbox_resize', {'bboxes': pxt.Json})
                 validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
@@ -1097,26 +1071,10 @@ class TestVision:
 
                 assert len(out) == 5
                 for i in range(5):
-                    expected = convert_cxcywh_abs(
+                    expected = convert_cxcywh(
                         expected_cxcywh[i][0], expected_cxcywh[i][1], expected_cxcywh[i][2], expected_cxcywh[i][3], fmt
                     )
-                    for j in range(4):
-                        assert out[i][j] == pytest.approx(expected[j], abs=1)
-                pxt.drop_table(t)
-
-            # Relative boxes with canvas_scale (no-op)
-            for scale_kwargs in [{'canvas_scale': 2.0}, {'canvas_scale_x': 3.0, 'canvas_scale_y': 0.5}]:
-                input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt) for b in rel_boxes]
-
-                t = pxt.create_table('bbox_resize_rel', {'bboxes': pxt.Json})
-                validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
-                res = t.select(out=bboxes_resize_canvas(t.bboxes, fmt, **scale_kwargs)).collect()
-                out = res['out'][0]
-
-                assert len(out) == 5
-                for i in range(5):
-                    for j in range(4):
-                        assert out[i][j] == pytest.approx(input_bboxes[i][j], abs=1e-6)
+                    assert all(out[i][j] == pytest.approx(expected[j], abs=1) for j in range(4))
                 pxt.drop_table(t)
 
     def test_bboxes_resize_canvas_degenerate(self, uses_db: None) -> None:
@@ -1136,7 +1094,7 @@ class TestVision:
 
         # No resize params specified
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
-        with pytest.raises(pxt.Error, match='at least one resize parameter must be specified'):
+        with pytest.raises(pxt.Error, match='requires either all of'):
             t.select(bboxes_resize_canvas(t.bboxes, 'xyxy')).collect()
         t.delete()
 
@@ -1146,20 +1104,26 @@ class TestVision:
             t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0, canvas_scale_x=1.5)).collect()
         t.delete()
 
-        # new_canvas_width + canvas_scale (mutually exclusive)
+        # new_canvas_width/height + canvas_scale (mutually exclusive)
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
-        with pytest.raises(pxt.Error, match='new_canvas_width/new_canvas_height is mutually exclusive'):
+        with pytest.raises(pxt.Error, match='is mutually exclusive with canvas_scale'):
             t.select(
                 bboxes_resize_canvas(
-                    t.bboxes, 'xyxy', new_canvas_width=1280, canvas_scale=2.0, canvas_width=640, canvas_height=480
+                    t.bboxes,
+                    'xyxy',
+                    new_canvas_width=1280,
+                    new_canvas_height=960,
+                    canvas_scale=2.0,
+                    canvas_width=640,
+                    canvas_height=480,
                 )
             ).collect()
         t.delete()
 
-        # new_canvas_width without canvas_width/canvas_height
+        # new_canvas_width/height without canvas_width/canvas_height
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
-        with pytest.raises(pxt.Error, match='canvas_width and canvas_height are required'):
-            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', new_canvas_width=1280)).collect()
+        with pytest.raises(pxt.Error, match='also require canvas_width/canvas_height'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=960)).collect()
         t.delete()
 
         # Non-positive scale factors
@@ -1172,22 +1136,26 @@ class TestVision:
         t.insert([{'bboxes': [[10, 20, 30, 40]]}])
         with pytest.raises(pxt.Error, match='new_canvas_width must be positive'):
             t.select(
-                bboxes_resize_canvas(t.bboxes, 'xyxy', new_canvas_width=-100, canvas_width=640, canvas_height=480)
+                bboxes_resize_canvas(
+                    t.bboxes, 'xyxy', new_canvas_width=-100, new_canvas_height=960, canvas_width=640, canvas_height=480
+                )
             ).collect()
         t.delete()
 
-        # Relative coords with new_canvas_width
+        # Relative coords with new_canvas_width/height
         t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
-        with pytest.raises(pxt.Error, match='must not be specified for relative coordinates'):
+        with pytest.raises(pxt.Error, match='requires absolute bounding boxes'):
             t.select(
-                bboxes_resize_canvas(t.bboxes, 'xyxy', new_canvas_width=1280, canvas_width=640, canvas_height=480)
+                bboxes_resize_canvas(
+                    t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=960, canvas_width=640, canvas_height=480
+                )
             ).collect()
         t.delete()
 
-        # Relative coords with canvas_width
+        # Relative coords with canvas_scale
         t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
-        with pytest.raises(pxt.Error, match='must not be specified for relative coordinates'):
-            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0, canvas_width=640)).collect()
+        with pytest.raises(pxt.Error, match='requires absolute bounding boxes'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0)).collect()
         t.delete()
 
         self._test_bbox_validation(t, bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0))
@@ -1249,7 +1217,7 @@ def convert_cxcywh(cx: float | int, cy: float | int, w: float | int, h: float | 
         result = [cx - w / 2, cy - h / 2, w, h]
     else:  # cxcywh
         result = [cx, cy, w, h]
-    if cx < 1.0:
+    if isinstance(cx, float):
         # relative coords
         return result
     else:

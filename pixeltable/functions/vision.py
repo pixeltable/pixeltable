@@ -1190,15 +1190,17 @@ def bboxes_resize_canvas(
     if not has_new_dims and not has_scale and not has_scale_xy:
         raise pxt.Error(
             'bboxes_resize_canvas(): requires either all of canvas_width, canvas_height, new_canvas_width, '
-            'new_canvas_height, or at least one of canvas_scale, canvas_scale_x, canvas_scale_y to be specified')
+            'new_canvas_height, or at least one of canvas_scale, canvas_scale_x, canvas_scale_y to be specified'
+        )
     if has_new_dims and not has_dims:
         raise pxt.Error(
             'bboxes_resize_canvas(): new_canvas_width/new_canvas_height also require canvas_width/canvas_height '
-            'to be specified')
-    if has_new_dims and (has_scale or has_scale_xy):
+            'to be specified'
+        )
+    if (has_new_dims or has_dims) and (has_scale or has_scale_xy):
         raise pxt.Error(
-            'bboxes_resize_canvas(): new_canvas_width/new_canvas_height is mutually exclusive with '
-            'canvas_scale/canvas_scale_x/canvas_scale_y'
+            'bboxes_resize_canvas(): new_canvas_width/new_canvas_height/canvas_width/canvas_height is mutually '
+            'exclusive with canvas_scale/canvas_scale_x/canvas_scale_y'
         )
     if has_scale and has_scale_xy:
         raise pxt.Error('bboxes_resize_canvas(): canvas_scale is mutually exclusive with canvas_scale_x/canvas_scale_y')
