@@ -115,14 +115,12 @@ pytest -m "remote_api" tests/functions/test_openai.py
 
 ### Required After Every Code Change
 
-After every code change, run the following and ensure both pass before proceeding:
-
 ```bash
 make format   # auto-formats code
 make check    # mypy + ruff static checks
 ```
 
-Skip only if explicitly directed or if the environment makes it impossible.
+`make check` must be run from inside a conda environment (`conda activate pxt`). Do not rely on IDE diagnostics as a substitute.
 
 ### Creating a Pull Request
 

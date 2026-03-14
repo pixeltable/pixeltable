@@ -835,7 +835,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
             - is invalid, or
             - does not exist and `if_not_exists='error'`, or
             - is not designate a directory, or
-            - is a direcotory but is not empty and `force=False`.
+            - is a directory but is not empty and `force=False`.
 
     Examples:
         Remove a directory, if it exists and is empty:

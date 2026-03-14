@@ -76,7 +76,7 @@ T = TypeVar('T')
 
 
 def retry_loop(
-    *, tbl: TableVersionPath | None = None, for_write: bool, lock_mutable_tree: bool = False
+    *, tbl: TableVersionPath | None = None, tbl_id: UUID | None = None, for_write: bool, lock_mutable_tree: bool = False
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
@@ -95,6 +95,7 @@ def retry_loop(
                     assert not get_runtime().in_xact
                     with cat.begin_xact(
                         tbl=tbl,
+                        tbl_id=tbl_id,
                         for_write=for_write,
                         convert_db_excs=False,
                         lock_mutable_tree=lock_mutable_tree,
@@ -183,7 +184,7 @@ class Catalog:
     _tbl_versions: dict[TableVersionKey, TableVersion]
     _tbls: dict[tuple[UUID, int | None], Table]
     _in_write_xact: bool  # True if we're in a write transaction
-    _x_locked_tbl_ids: set[UUID]  # non-empty for write transactions
+    _x_locked_tbl_ids: set[UUID]  # Ids of tables exclusively locked for update in the current write transaction
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
     _roll_forward_ids: set[UUID]  # ids of Tables that have pending TableOps
     _undo_actions: list[Callable[[], None]]
@@ -528,7 +529,7 @@ class Catalog:
         read_handles = path_handles[:0:-1] if for_write else path_handles[::-1]
         for handle in read_handles:
             # update cache
-            _ = self.get_tbl_version(handle.key, validate_initialized=True)
+            _ = self._get_tbl_version(handle.key, validate_initialized=True)
         if not for_write:
             return True  # nothing left to lock
         handle = self._acquire_tbl_lock(
@@ -539,7 +540,7 @@ class Catalog:
             check_pending_ops=check_pending_ops,
         )
         # update cache
-        _ = self.get_tbl_version(path_handles[0].key, validate_initialized=True)
+        _ = self._get_tbl_version(path_handles[0].key, validate_initialized=True)
         return handle is not None
 
     def _acquire_tbl_lock(
@@ -600,7 +601,7 @@ class Catalog:
         key = TableVersionKey(tbl_id, tbl_md.current_version if tbl_md.is_snapshot else None, None)
         if tbl_md.is_mutable and lock_mutable_tree:
             # also lock mutable views
-            tv = self.get_tbl_version(key, validate_initialized=True)
+            tv = self._get_tbl_version(key, validate_initialized=True)
             for view in tv.mutable_views:
                 self._acquire_tbl_lock(
                     for_write=for_write,
@@ -723,7 +724,7 @@ class Catalog:
 
                     if op.needs_xact:
                         tv = (
-                            self.get_tbl_version(
+                            self._get_tbl_version(
                                 TableVersionKey(tbl_id, tbl_version, None),
                                 check_pending_ops=False,
                                 validate_initialized=True,
@@ -754,7 +755,7 @@ class Catalog:
 
                 # this op runs outside of a transaction
                 tv = (
-                    self.get_tbl_version(
+                    self._get_tbl_version(
                         TableVersionKey(tbl_id, tbl_version, None),
                         check_pending_ops=False,
                         validate_initialized=True,
@@ -858,7 +859,7 @@ class Catalog:
         """Returns ids of all tables that form the tree of mutable views starting at tbl_id; includes the root."""
         key = TableVersionKey(tbl_id, None, None)
         assert key in self._tbl_versions, f'{key} not in {self._tbl_versions.keys()}\n{self._debug_str()}'
-        tv = self.get_tbl_version(key, validate_initialized=True)
+        tv = self._get_tbl_version(key, validate_initialized=True)
         assert not tv.is_replica
         result: set[UUID] = {tv.id}
         for view in tv.mutable_views:
@@ -898,7 +899,7 @@ class Catalog:
         dependents = self._column_dependents[QColumnId(tbl_id, col_id)]
         result: set[Column] = set()
         for dependent in dependents:
-            tv = self.get_tbl_version(TableVersionKey(dependent.tbl_id, None, None), validate_initialized=True)
+            tv = self._get_tbl_version(TableVersionKey(dependent.tbl_id, None, None), validate_initialized=True)
             col = tv.cols_by_id[dependent.col_id]
             result.add(col)
         return result
@@ -1239,7 +1240,7 @@ class Catalog:
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
                 self._acquire_tbl_lock(tbl_id=base.tbl_id, for_write=True)
-                base_tv = self.get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
+                base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
                 base_tv.tbl_md.view_sn += 1
                 result = get_runtime().conn.execute(
                     sql.update(schema.Table)
@@ -1281,18 +1282,19 @@ class Catalog:
         if not is_snapshot and base.is_mutable():
             # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
             self._clear_tv_cache(base.tbl_version.key)
-            # base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version, validate_initialized=True)
-            # view_handle = TableVersionHandle(view_id, effective_version=None)
-            # base_tv.mutable_views.add(view_handle)
 
         self._roll_forward()
-        with self.begin_xact(tbl_id=view_id, for_write=True):
+
+        @retry_loop(for_write=True, tbl_id=view_id)
+        def get_table_fn() -> Table:
             return self.get_table_by_id(view_id)
+
+        return get_table_fn()
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(tbl=tbl, for_write=True, lock_mutable_tree=False)
         def add_fn() -> None:
-            tv = self.get_tbl_version(TableVersionKey(tbl.tbl_id, None, None), validate_initialized=True)
+            tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None, None), validate_initialized=True)
             md, ops = tv.add_columns_ops(cols)
             md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
             self.write_tbl_md(
@@ -1645,7 +1647,7 @@ class Catalog:
         # if this is a mutable view of a mutable base, advance the base's view_sn
         if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
             base_id = tvp.base.tbl_id
-            base_tv = self.get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
+            base_tv = self._get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
             base_tv.tbl_md.view_sn += 1
             result = get_runtime().conn.execute(
                 sql.update(schema.Table.__table__)
@@ -1811,7 +1813,21 @@ class Catalog:
         result = [r[0] for r in conn.execute(q).all()]
         return result
 
-    def get_tbl_version(
+    def get_tbl_version(self, key: TableVersionKey, *, validate_initialized: bool = False) -> TableVersion | None:
+        """
+        Returns the TableVersion instance for the given table version key, and updates the cache if necessary.
+        """
+        if get_runtime().in_xact:
+            return self._get_tbl_version(key, validate_initialized=validate_initialized)
+        # if we are not already in a transaction, we can retry in a loop that finalizes pending table ops
+        while True:
+            try:
+                return self._get_tbl_version(key, validate_initialized=validate_initialized)
+            except PendingTableOpsError as e:
+                _logger.info('Caught PendingTableOpsError, attempting to finalize', exc_info=True)
+                self._finalize_pending_ops(e.tbl_id)
+
+    def _get_tbl_version(
         self,
         key: TableVersionKey,
         *,
@@ -1820,7 +1836,7 @@ class Catalog:
         convert_db_excs: bool = True,
     ) -> TableVersion | None:
         """
-        Returns the TableVersion instance for the given table and version and updates the cache.
+        Returns the TableVersion instance for the given table key, and updates the cache if necessary.
 
         If present in the cache and the instance isn't validated, validates version and view_sn against the stored
         metadata.
