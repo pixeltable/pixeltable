@@ -485,7 +485,10 @@ async def _embed_content(
     return results
 
 
-_DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL: dict[str, int] = {'gemini-embedding-001': 3072}
+_DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL: dict[str, int] = {
+    'gemini-embedding-001': 3072,
+    'gemini-embedding-2-preview': 3072,
+}
 
 
 @embed_content.conditional_return_type

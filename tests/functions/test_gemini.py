@@ -300,10 +300,7 @@ class TestGemini:
         )
 
         t = pxt.create_table('test_tbl_image', {'id': pxt.Int, 'image': pxt.Image})
-        t.add_embedding_index(
-            t.image,
-            embedding=embed_content.using(model='gemini-embedding-2-preview', config={'output_dimensionality': 512}),
-        )
+        t.add_embedding_index(t.image, embedding=embed_content.using(model='gemini-embedding-2-preview'))
         validate_update_status(t.insert({'id': n, 'image': image} for n, image in enumerate(images)), expected_rows=2)
 
         # Test that the embedding does what it's supposed to
@@ -321,10 +318,7 @@ class TestGemini:
         assert res[1]['sim'] - res[0]['sim'] > 0.1  # as before, in revers
 
         t = pxt.create_table('test_tbl_audio', {'id': pxt.Int, 'audio': pxt.Audio})
-        t.add_embedding_index(
-            t.audio,
-            embedding=embed_content.using(model='gemini-embedding-2-preview', config={'output_dimensionality': 512}),
-        )
+        t.add_embedding_index(t.audio, embedding=embed_content.using(model='gemini-embedding-2-preview'))
         validate_update_status(
             t.insert({'id': n, 'audio': audio_file} for n, audio_file in enumerate(audio)), expected_rows=2
         )
@@ -341,10 +335,7 @@ class TestGemini:
         assert res[1]['sim'] - res[0]['sim'] > 0.1
 
         t = pxt.create_table('test_tbl_video', {'id': pxt.Int, 'video': pxt.Video})
-        t.add_embedding_index(
-            t.video,
-            embedding=embed_content.using(model='gemini-embedding-2-preview', config={'output_dimensionality': 512}),
-        )
+        t.add_embedding_index(t.video, embedding=embed_content.using(model='gemini-embedding-2-preview'))
         validate_update_status(
             t.insert({'id': n, 'video': video_file} for n, video_file in enumerate(video)), expected_rows=2
         )
