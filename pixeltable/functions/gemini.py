@@ -40,8 +40,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger('pixeltable')
 
 # Max raw file size (bytes) for inline_data; larger files use the Files API.
-# The API limit is 100MB for the base64-encoded payload, so we use ~75MB raw (75 * 4/3 ≈ 100MB encoded).
-GEMINI_INLINE_VIDEO_LIMIT_BYTES = 75 * 1024**2
+GEMINI_INLINE_LIMIT_BYTES = 100 * 2**20
 
 # Placeholder key used in first pass for large file uploads.
 _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
@@ -96,12 +95,7 @@ class GeminiRateLimitsInfo(env.RateLimitsInfo):
 
 @pxt.udf(is_deterministic=False)
 async def generate_content(
-    contents: pxt.Json,
-    *,
-    model: str,
-    config: dict | None = None,
-    tools: list[dict] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None
 ) -> dict:
     """
     Generate content from the specified model.
@@ -165,11 +159,11 @@ async def generate_content(
     return response.model_dump(mode='json')
 
 
-async def _wait_for_upload_tasks(upload_tasks: list[Coroutine[Any, Any, 'genai.types.File']], paths: list[str]) -> list['genai.types.File']:
-    from google.genai import types
-
+async def _wait_for_upload_tasks(
+    upload_tasks: list[Coroutine[Any, Any, 'genai.types.File']], paths: list[str]
+) -> list['genai.types.File']:
     client = _genai_client()
-    uploaded: list[genai.types.File] = []
+    uploaded: list['genai.types.File'] = []
     try:
         if upload_tasks:
             uploaded = await asyncio.gather(*upload_tasks)
@@ -219,9 +213,7 @@ def _(model: str) -> str:
 
 
 @pxt.udf(is_deterministic=False)
-async def generate_images(
-    prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx | None = None
-) -> PIL.Image.Image:
+async def generate_images(prompt: str, *, model: str, config: dict | None = None) -> PIL.Image.Image:
     """
     Generates images based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/image-generation>
@@ -270,12 +262,7 @@ def _(model: str) -> str:
 
 @pxt.udf(is_deterministic=False)
 async def generate_videos(
-    prompt: str | None = None,
-    image: PIL.Image.Image | None = None,
-    *,
-    model: str,
-    config: dict | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
 ) -> pxt.Video:
     """
     Generates videos based on a text description and configuration. For additional details, see:
@@ -441,7 +428,7 @@ async def _embed_file_content(
             raise excs.Error(f'Could not identify mime type of file: {item}')
 
         size_bytes = os.stat(item).st_size
-        if size_bytes <= GEMINI_INLINE_VIDEO_LIMIT_BYTES:
+        if size_bytes <= GEMINI_INLINE_LIMIT_BYTES:
             with open(item, 'rb') as f:
                 data = f.read()
                 contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
@@ -566,7 +553,9 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
     stop=stop_after_delay(600),
     retry_error_callback=_handle_polling_timeout,
 )
-async def _poll_until_active(async_client: 'genai.client.AsyncClient', uploaded: list['genai.types.File'], video_paths: list[str]) -> list[Any]:
+async def _poll_until_active(
+    async_client: 'genai.client.AsyncClient', uploaded: list['genai.types.File'], video_paths: list[str]
+) -> list['genai.types.File']:
     # Collect statuses for all uploaded files
     metas = await asyncio.gather(*[async_client.files.get(name=f.name) for f in uploaded])
     for i, m in enumerate(metas):
@@ -577,7 +566,10 @@ async def _poll_until_active(async_client: 'genai.client.AsyncClient', uploaded:
 
 
 def _process_media_contents(
-    data: Any, client: 'genai.client.AsyncClient', upload_tasks: list[Any], large_video_paths: list[str]
+    data: Any,
+    client: 'genai.client.AsyncClient',
+    upload_tasks: list[Coroutine[Any, Any, 'genai.types.File']],
+    large_video_paths: list[str],
 ) -> Any:
     """
     Recursively traverse a nested content structure (dict/list/str) and process video file paths.
@@ -606,7 +598,7 @@ def _process_media_contents(
             return data
         mime_type = mime_type or 'video/mp4'
         size_bytes = local_path.stat().st_size
-        if size_bytes <= GEMINI_INLINE_VIDEO_LIMIT_BYTES:
+        if size_bytes <= GEMINI_INLINE_LIMIT_BYTES * 0.75:  # scale by 0.75 to account for base64 expansion
             data_b64 = base64.b64encode(local_path.read_bytes()).decode('utf-8')
             return {'inline_data': {'mime_type': mime_type, 'data': data_b64}}
         # Large file: start upload, add a placeholder
@@ -617,7 +609,7 @@ def _process_media_contents(
     return data
 
 
-def _replace_upload_placeholders(obj: Any, uploaded: list[Any]) -> Any:
+def _replace_upload_placeholders(obj: Any, uploaded: list['genai.types.File']) -> Any:
     """
     Recursively traverse a nested content structure (dict/list/str) and resolve upload placeholders.
 
