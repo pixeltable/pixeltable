@@ -25,22 +25,27 @@ pip install gradio pixeltable textblob nltk mistralai
 
 You'll also need:
 - A Mistral AI API key
-- Python 3.9 or later
+- Python 3.10 or later
 
 ### Running the Application
 
-1. Clone this repository:
+1. Clone the repository:
 ```bash
-git clone https://github.com/pixeltable/pixeltable/tree/main/docs/sample-apps/pixeltable-and-gradio-application.git
-cd pixeltable-and-gradio-application
+git clone https://github.com/pixeltable/pixeltable.git
+cd pixeltable/docs/sample-apps/prompt-engineering-studio-gradio-application
 ```
 
-2. Set your API key:
+2. Install dependencies:
+```bash
+pip install gradio pixeltable textblob nltk mistralai
+```
+
+3. Set your API key:
 ```bash
 export MISTRAL_API_KEY='your-api-key-here'
 ```
 
-3. Run the application:
+4. Run the application:
 ```bash
 jupyter notebook pixeltable-and-gradio-application.ipynb
 ```

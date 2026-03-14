@@ -364,14 +364,8 @@ t.drop_embedding_index('idx')
 ## Iterators
 
 ```python
-from pixeltable.iterators import (
-    DocumentSplitter,
-    FrameIterator,
-    VideoSplitter,
-    AudioSplitter,
-    StringSplitter,
-    TileIterator
-)
+from pixeltable.functions.video import frame_iterator
+from pixeltable.functions.document import document_splitter
 ```
 
 <Tabs>
@@ -380,7 +374,7 @@ from pixeltable.iterators import (
     frames = pxt.create_view(
         'project/frames',
         videos,
-        iterator=FrameIterator.create(video=videos.video, fps=1)
+        iterator=frame_iterator(video=videos.video, fps=1)
     )
     ```
   </Tab>
@@ -389,7 +383,7 @@ from pixeltable.iterators import (
     chunks = pxt.create_view(
         'project/chunks',
         docs,
-        iterator=DocumentSplitter.create(
+        iterator=document_splitter(
             document=docs.document,
             separators='paragraph',
             limit=500,
@@ -424,7 +418,7 @@ active = pxt.create_view(
 frames = pxt.create_view(
     'project/frames',
     videos,
-    iterator=FrameIterator.create(video=videos.video, fps=2)
+    iterator=frame_iterator(video=videos.video, fps=2)
 )
 
 # Snapshot (read-only)
@@ -830,14 +824,14 @@ results = invoke_tools(tools, response)
 <AccordionGroup>
   <Accordion title="RAG Pipeline" icon="brain" defaultOpen>
     ```python
-    from pixeltable.iterators import DocumentSplitter
+    from pixeltable.functions.document import document_splitter
     from pixeltable.functions.openai import embeddings, chat_completions
 
     # 1. Chunk documents
     chunks = pxt.create_view(
         'rag/chunks',
         docs,
-        iterator=DocumentSplitter.create(document=docs.doc, separators='paragraph', limit=500)
+        iterator=document_splitter(document=docs.doc, separators='paragraph', limit=500)
     )
 
     # 2. Index
@@ -893,13 +887,13 @@ results = invoke_tools(tools, response)
   
   <Accordion title="Video Object Detection" icon="video">
     ```python
-    from pixeltable.iterators import FrameIterator
+    from pixeltable.functions.video import frame_iterator
     from pixeltable.functions.yolox import yolox
 
     frames = pxt.create_view(
         'project/frames',
         videos,
-        iterator=FrameIterator.create(video=videos.video, fps=1)
+        iterator=frame_iterator(video=videos.video, fps=1)
     )
     frames.add_computed_column(detections=yolox(frames.frame))
     ```
@@ -966,5 +960,5 @@ results = invoke_tools(tools, response)
 <Info>
 **Full API Documentation:** [docs.pixeltable.com/sdk/latest](https://docs.pixeltable.com/sdk/latest)
 
-*Last updated: December 2025 | Pixeltable v0.5.x*
+*Last updated: March 2026 | Pixeltable v0.5.x*
 </Info>
