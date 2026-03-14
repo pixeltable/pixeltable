@@ -21,7 +21,7 @@ import mimetypes
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine
+from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Sequence
 
 import numpy as np
 import PIL.Image
@@ -437,8 +437,6 @@ async def _embed_file_content(
     env.Env.get().require_package('google.genai')
     from google.genai import types
 
-    contents_: list[types.ContentUnion] = []
-
     large_files: list[str] = []
     for item in contents:
         size_bytes = os.stat(item).st_size
@@ -468,7 +466,7 @@ async def _embed_file_content(
 
 
 async def _embed_content(
-    contents: list['genai.types.ContentUnion'], model: str, config: dict[str, Any] | None, use_batch_api: bool
+    contents: Sequence['genai.types.ContentUnion'], model: str, config: dict[str, Any] | None, use_batch_api: bool
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -480,7 +478,7 @@ async def _embed_content(
     config_ = _embedding_config(config)
 
     if not use_batch_api:
-        result = await client.aio.models.embed_content(model=model, contents=contents, config=config_)
+        result = await client.aio.models.embed_content(model=model, contents=list(contents), config=config_)
         assert len(result.embeddings) == len(contents)
         return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
