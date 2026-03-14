@@ -182,10 +182,16 @@ class Table(SchemaObject):
 
     def __getattr__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
-        col = self._tbl_version_path.get_column(name)
-        if col is None:
-            raise AttributeError(f'Unknown column: {name}')
-        return ColumnRef(col, reference_tbl=self._tbl_version_path)
+        from pixeltable.catalog import retry_loop
+
+        @retry_loop(tbl_id=self._id, for_write=False)
+        def op() -> ColumnRef:
+            col = self._tbl_version_path.get_column(name)
+            if col is None:
+                raise AttributeError(f'Unknown column: {name}')
+            return ColumnRef(col, reference_tbl=self._tbl_version_path)
+
+        return op()
 
     def __getitem__(self, name: str) -> 'exprs.ColumnRef':
         """Return a ColumnRef for the given name."""
