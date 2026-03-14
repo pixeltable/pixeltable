@@ -303,8 +303,8 @@
           <outline text="udf|pixeltable.functions.fireworks.chat_completions" />
         </outline>
         <outline text="module|pixeltable.functions.gemini">
+          <outline text="udf|pixeltable.functions.gemini.embed_content" />
           <outline text="udf|pixeltable.functions.gemini.generate_content" />
-          <outline text="udf|pixeltable.functions.gemini.generate_embedding" />
           <outline text="udf|pixeltable.functions.gemini.generate_images" />
           <outline text="udf|pixeltable.functions.gemini.generate_videos" />
           <outline text="func|pixeltable.functions.gemini.invoke_tools" />

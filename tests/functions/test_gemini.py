@@ -309,13 +309,13 @@ class TestGemini:
             .order_by(t.id)
             .collect()
         )
-        assert res[0]['sim'] - res[1]['sim'] > 0.1  # the giraffe image should have a non-negiligibly better match
+        assert res[0]['sim'] - res[1]['sim'] > 0.1  # the giraffe image should have a non-negligibly better match
         res = (
             t.select(t.id, sim=t.image.similarity(string='A photo of a vase full of flowers sitting on a table'))
             .order_by(t.id)
             .collect()
         )
-        assert res[1]['sim'] - res[0]['sim'] > 0.1  # as before, in revers
+        assert res[1]['sim'] - res[0]['sim'] > 0.1  # as before, in reverse
 
         t = pxt.create_table('test_tbl_audio', {'id': pxt.Int, 'audio': pxt.Audio})
         t.add_embedding_index(t.audio, embedding=embed_content.using(model='gemini-embedding-2-preview'))

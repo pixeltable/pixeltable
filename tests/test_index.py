@@ -720,7 +720,11 @@ class TestIndex:
             img_t.add_embedding_index('does_not_exist', idx_name='idx0', image_embed=clip_embed)
         assert 'Unknown column: does_not_exist' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error, match=r'`embed`, `string_embed`, etc., must be specified'):
+        with pytest.raises(
+            pxt.Error,
+            match=r'`embed`, `string_embed`, `image_embed`, `audio_embed`, `video_embed`, or `document_embed` '
+            'must be specified',
+        ):
             # no embedding function specified
             img_t.add_embedding_index('img')
 

@@ -18,8 +18,9 @@ import base64
 import io
 import logging
 import mimetypes
+import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Coroutine
 
 import numpy as np
 import PIL.Image
@@ -34,8 +35,6 @@ from pixeltable.utils.http import exponential_backoff, parse_duration_str
 from pixeltable.utils.local_store import TempStore
 
 if TYPE_CHECKING:
-    from typing import Coroutine
-
     from google import genai
 
 _logger = logging.getLogger('pixeltable')
@@ -155,19 +154,28 @@ async def generate_content(
             config_.tools = [types.Tool(function_declarations=gemini_tools)]
 
     upload_tasks: list[Coroutine[Any, Any, types.File]] = []
-    uploaded: list[types.File] = []
-    client = _genai_client()
     large_video_paths: list[str] = []
+    client = _genai_client()
 
+    contents = _process_media_contents(contents, client.aio, upload_tasks, large_video_paths)
+    uploaded = _wait_for_upload_tasks(upload_tasks, large_video_paths)
+    contents = _replace_upload_placeholders(contents, uploaded)
+
+    response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
+    return response.model_dump(mode='json')
+
+
+async def _wait_for_upload_tasks(upload_tasks: list[Coroutine[Any, Any, 'genai.types.File']], paths: list[str]) -> list['genai.types.File']:
+    from google.genai import types
+
+    client = _genai_client()
+    uploaded: list[genai.types.File] = []
     try:
-        contents = _process_media_contents(contents, client.aio, upload_tasks, large_video_paths)
         if upload_tasks:
             uploaded = await asyncio.gather(*upload_tasks)
             # poll till server finished uploading files (state is ACTIVE)
-            await _poll_until_active(async_client=client.aio, uploaded=uploaded, video_paths=large_video_paths)
-            contents = _replace_upload_placeholders(contents, uploaded)
-        response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
-        return response.model_dump(mode='json')
+            await _poll_until_active(async_client=client.aio, uploaded=uploaded, video_paths=paths)
+        return uploaded
     finally:
         if uploaded:
             await asyncio.gather(*[client.aio.files.delete(name=f.name) for f in uploaded], return_exceptions=True)
@@ -345,7 +353,7 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
-@pxt.udf(batch_size=32)
+@pxt.udf(batch_size=4)
 async def embed_content(
     contents: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
 ) -> Batch[pxt.Array[(None,), np.float32]]:
@@ -420,20 +428,40 @@ async def _embed_file_content(
     env.Env.get().require_package('google.genai')
     from google.genai import types
 
+    client = _genai_client()
+
     contents_: list[types.Part] = []
+    upload_tasks: list[Coroutine[Any, Any, types.File]] = []
+    large_paths: list[str] = []
+    indices: list[int] = []
+
     for item in contents:
         mime_type, _ = mimetypes.guess_type(item, strict=False)
         if mime_type is None:
             raise excs.Error(f'Could not identify mime type of file: {item}')
-        with open(item, 'rb') as f:
-            data = f.read()
-            contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
+
+        size_bytes = os.stat(item).st_size
+        if size_bytes <= GEMINI_INLINE_VIDEO_LIMIT_BYTES:
+            with open(item, 'rb') as f:
+                data = f.read()
+                contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
+        else:
+            task = client.aio.files.upload(file=item, config={'mime_type': mime_type})
+            upload_tasks.append(task)
+            large_paths.append(item)
+            indices.append(len(contents_))
+            contents_.append(None)  # placeholder
+
+        if len(upload_tasks) > 0:
+            uploaded = await _wait_for_upload_tasks(upload_tasks, large_paths)
+            for idx, file in zip(indices, uploaded, strict=True):
+                contents_[idx] = file
 
     return await _embed_content(contents_, model, config, use_batch_api)
 
 
 async def _embed_content(
-    contents: list[Any], model: str, config: dict[str, Any] | None, use_batch_api: bool
+    contents: list['genai.types.ContentUnion'], model: str, config: dict[str, Any] | None, use_batch_api: bool
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -538,7 +566,7 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
     stop=stop_after_delay(600),
     retry_error_callback=_handle_polling_timeout,
 )
-async def _poll_until_active(async_client: Any, uploaded: list[Any], video_paths: list[str]) -> list[Any]:
+async def _poll_until_active(async_client: 'genai.client.AsyncClient', uploaded: list['genai.types.File'], video_paths: list[str]) -> list[Any]:
     # Collect statuses for all uploaded files
     metas = await asyncio.gather(*[async_client.files.get(name=f.name) for f in uploaded])
     for i, m in enumerate(metas):

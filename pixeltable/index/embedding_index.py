@@ -75,7 +75,10 @@ class EmbeddingIndex(IndexBase):
             and video_embed is None
             and document_embed is None
         ):
-            raise excs.Error('At least one of `embed`, `string_embed`, etc., must be specified')
+            raise excs.Error(
+                'At least one of `embed`, `string_embed`, `image_embed`, `audio_embed`, '
+                '`video_embed`, or `document_embed` must be specified'
+            )
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
