@@ -229,7 +229,9 @@ def _(model: str) -> str:
 
 
 @pxt.udf(is_deterministic=False)
-async def generate_images(prompt: str, *, model: str, config: dict | None = None) -> PIL.Image.Image:
+async def generate_images(
+    prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx
+) -> PIL.Image.Image:
     """
     Generates images based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/image-generation>
@@ -388,13 +390,14 @@ async def embed_content(
     Examples:
         Add a computed column with embeddings to an existing table with a `text` column:
 
-        >>> t.add_computed_column(embedding=embed_content(t.text, model='gemini-embedding-001'))
+        >>> t.add_computed_column(
+        ...     embedding=embed_content(t.text, model='gemini-embedding-001')
+        ... )
 
         Add an embedding index on `text` column:
 
         >>> t.add_embedding_index(
-        ...    t.text,
-        ...    embedding=embed_content.using(model='gemini-embedding-001')
+        ...     t.text, embedding=embed_content.using(model='gemini-embedding-001')
         ... )
     """
     return await _embed_content(contents, model, config, use_batch_api)
