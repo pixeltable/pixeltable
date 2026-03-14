@@ -1761,10 +1761,16 @@ class Table(SchemaObject):
             return UpdateStatus()
         # we lock the entire tree starting at the root base table in order to ensure that all synced columns can
         # have their updates propagated down the tree
+        from pixeltable.catalog import retry_loop
+
         base_tv = self._tbl_version_path.get_tbl_versions()[-1]
-        with get_runtime().catalog.begin_xact(tbl=TableVersionPath(base_tv), for_write=True, lock_mutable_tree=True):
+        base_tvp = TableVersionPath(base_tv)
+
+        @retry_loop(tbl=base_tvp, for_write=True, lock_mutable_tree=True)
+        def do_sync() -> UpdateStatus:
             all_stores = self.external_stores()
 
+            nonlocal stores
             if stores is None:
                 stores = all_stores
             elif isinstance(stores, str):
@@ -1779,8 +1785,9 @@ class Table(SchemaObject):
                 store_obj = self._tbl_version.get().external_stores[store]
                 store_sync_status = store_obj.sync(self, export_data=export_data, import_data=import_data)
                 sync_status += store_sync_status
+            return sync_status
 
-        return sync_status
+        return do_sync()
 
     def __dir__(self) -> list[str]:
         return list(super().__dir__()) + list(self._get_schema().keys())
