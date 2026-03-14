@@ -113,7 +113,7 @@ class TestGemini:
                 config=config,
             )
         )
-        with patch('pixeltable.functions.gemini.GEMINI_INLINE_VIDEO_LIMIT_BYTES', 1024**2):
+        with patch('pixeltable.functions.gemini.GEMINI_INLINE_LIMIT_BYTES', 1024**2):
             validate_update_status(
                 t.insert({'id': n, 'video': video_file} for n, video_file in enumerate(video_files)), expected_rows=4
             )
@@ -281,21 +281,12 @@ class TestGemini:
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
 
-    @pytest.mark.parametrize('force_files_api', [False, True])
-    def test_embed_content_multimodal(self, force_files_api: bool, uses_db: None) -> None:
+    def test_embed_content_multimodal(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
-        from pixeltable import functions as pxtf
 
-        orig_gemini_inline_limit_bytes = pxtf.gemini.GEMINI_INLINE_LIMIT_BYTES
-        try:
-            if force_files_api:
-                # Mock the inline limit to 0 bytes to force using the files API
-                # (otherwise we'd have to run the tests with 100 MB files)
-                pxtf.gemini.GEMINI_INLINE_LIMIT_BYTES = 0
+        with patch('pixeltable.functions.gemini.GEMINI_INLINE_LIMIT_BYTES', 2**20):
             self._run_test_embed_content_multimodal()
-        finally:
-            pxtf.gemini.GEMINI_INLINE_LIMIT_BYTES = orig_gemini_inline_limit_bytes
 
     def _run_test_embed_content_multimodal(self) -> None:
         from pixeltable.functions.gemini import embed_content

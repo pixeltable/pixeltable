@@ -95,7 +95,12 @@ class GeminiRateLimitsInfo(env.RateLimitsInfo):
 
 @pxt.udf(is_deterministic=False)
 async def generate_content(
-    contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None
+    contents: pxt.Json,
+    *,
+    model: str,
+    config: dict | None = None,
+    tools: list[dict] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> dict:
     """
     Generate content from the specified model.
@@ -152,7 +157,7 @@ async def generate_content(
     client = _genai_client()
 
     contents = _process_media_contents(contents, client.aio, upload_tasks, large_video_paths)
-    uploaded = _wait_for_upload_tasks(upload_tasks, large_video_paths)
+    uploaded = await _wait_for_upload_tasks(upload_tasks, large_video_paths)
     contents = _replace_upload_placeholders(contents, uploaded)
 
     response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
@@ -262,7 +267,12 @@ def _(model: str) -> str:
 
 @pxt.udf(is_deterministic=False)
 async def generate_videos(
-    prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
+    prompt: str | None = None,
+    image: PIL.Image.Image | None = None,
+    *,
+    model: str,
+    config: dict | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> pxt.Video:
     """
     Generates videos based on a text description and configuration. For additional details, see:
@@ -417,7 +427,7 @@ async def _embed_file_content(
 
     client = _genai_client()
 
-    contents_: list[types.Part] = []
+    contents_: list[types.ContentUnion] = []
     upload_tasks: list[Coroutine[Any, Any, types.File]] = []
     large_paths: list[str] = []
     indices: list[int] = []
@@ -439,10 +449,10 @@ async def _embed_file_content(
             indices.append(len(contents_))
             contents_.append(None)  # placeholder
 
-        if len(upload_tasks) > 0:
-            uploaded = await _wait_for_upload_tasks(upload_tasks, large_paths)
-            for idx, file in zip(indices, uploaded, strict=True):
-                contents_[idx] = file
+    if len(upload_tasks) > 0:
+        uploaded = await _wait_for_upload_tasks(upload_tasks, large_paths)
+        for idx, file in zip(indices, uploaded, strict=True):
+            contents_[idx] = file
 
     return await _embed_content(contents_, model, config, use_batch_api)
 
@@ -575,7 +585,7 @@ def _process_media_contents(
     Recursively traverse a nested content structure (dict/list/str) and process video file paths.
 
     - Strings that are not local video file paths are returned unchanged.
-    - Small video files (<= GEMINI_INLINE_VIDEO_LIMIT_BYTES) are base64-encoded inline.
+    - Small video files (<= GEMINI_INLINE_LIMIT_BYTES * 0.75) are base64-encoded inline.
     - Large video files are queued for async upload and replaced with a placeholder dict
       (keyed by _UPLOAD_PLACEHOLDER_KEY) to be resolved later by _replace_upload_placeholders.
 
@@ -598,7 +608,7 @@ def _process_media_contents(
             return data
         mime_type = mime_type or 'video/mp4'
         size_bytes = local_path.stat().st_size
-        if size_bytes <= GEMINI_INLINE_LIMIT_BYTES * 0.75:  # scale by 0.75 to account for base64 expansion
+        if size_bytes <= GEMINI_INLINE_LIMIT_BYTES * 3 // 4:  # scale by 0.75 to account for base64 expansion
             data_b64 = base64.b64encode(local_path.read_bytes()).decode('utf-8')
             return {'inline_data': {'mime_type': mime_type, 'data': data_b64}}
         # Large file: start upload, add a placeholder
