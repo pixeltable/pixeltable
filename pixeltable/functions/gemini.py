@@ -19,7 +19,7 @@ import io
 import logging
 import mimetypes
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import PIL.Image
@@ -346,8 +346,8 @@ def _(model: str) -> str:
 
 
 @pxt.udf(batch_size=32)
-async def generate_embedding(
-    input: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+async def embed_content(
+    contents: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     """
     Generate embeddings for text, images, video, and other content. For more information on Gemini embeddings API, see:
@@ -358,7 +358,7 @@ async def generate_embedding(
     - `pip install google-genai`
 
     Args:
-        input: The string, image, audio, or video to embed.
+        contents: The string, image, audio, video, or document to embed.
         model: The Gemini model to use.
         config: Configuration for embedding generation, corresponding to keyword arguments of
             `genai.types.EmbedContentConfig`. For details on the parameters, see:
@@ -372,57 +372,64 @@ async def generate_embedding(
     Examples:
         Add a computed column with embeddings to an existing table with a `text` column:
 
-        >>> t.add_computed_column(embedding=generate_embedding(t.text))
+        >>> t.add_computed_column(embedding=embed_content(t.text))
 
         Add an embedding index on `text` column:
 
         >>> t.add_embedding_index(
         ...    t.text,
-        ...    embedding=generate_embedding.using(
+        ...    embedding=embed_content.using(
         ...        model='gemini-embedding-001', config={'output_dimensionality': 3072}
         ...    ),
         ...)
     """
-    return await _embed_content(input, model, config, use_batch_api)
+    return await _embed_content(contents, model, config, use_batch_api)
 
 
-@generate_embedding.overload
+@embed_content.overload
 async def _(
-    input: Batch[PIL.Image.Image], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+    contents: Batch[PIL.Image.Image], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_content(input, model, config, use_batch_api)
+    return await _embed_content(contents, model, config, use_batch_api)
 
 
-@generate_embedding.overload
+@embed_content.overload
 async def _(
-    input: Batch[pxt.Audio], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+    contents: Batch[pxt.Audio], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_file_content(input, model, config, use_batch_api)
+    return await _embed_file_content(contents, model, config, use_batch_api)
 
 
-@generate_embedding.overload
+@embed_content.overload
 async def _(
-    input: Batch[pxt.Video], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+    contents: Batch[pxt.Video], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_file_content(input, model, config, use_batch_api)
+    return await _embed_file_content(contents, model, config, use_batch_api)
+
+
+@embed_content.overload
+async def _(
+    contents: Batch[pxt.Document], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+) -> Batch[pxt.Array[(None,), np.float32]]:
+    return await _embed_file_content(contents, model, config, use_batch_api)
 
 
 async def _embed_file_content(
-    input: list[str], model: str, config: dict[str, Any] | None, use_batch_api: bool
+    contents: list[str], model: str, config: dict[str, Any] | None, use_batch_api: bool
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     env.Env.get().require_package('google.genai')
     from google.genai import types
 
-    contents: list[types.Part] = []
-    for item in input:
+    contents_: list[types.Part] = []
+    for item in contents:
         mime_type, _ = mimetypes.guess_type(item, strict=False)
         if mime_type is None:
             raise excs.Error(f'Could not identify mime type of file: {item}')
         with open(item, 'rb') as f:
-            content_bytes = f.read()
-            contents.append(types.Part.from_bytes(data=content_bytes, mime_type=mime_type))
+            data = f.read()
+            contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
 
-    return await _embed_content(contents, model, config, use_batch_api)
+    return await _embed_content(contents_, model, config, use_batch_api)
 
 
 async def _embed_content(
@@ -481,7 +488,7 @@ async def _embed_content(
 _DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL: dict[str, int] = {'gemini-embedding-001': 3072}
 
 
-@generate_embedding.conditional_return_type
+@embed_content.conditional_return_type
 def _(model: str, config: dict | None) -> ts.ArrayType:
     config_ = _embedding_config(config)
     dim = config_.output_dimensionality
@@ -490,7 +497,7 @@ def _(model: str, config: dict | None) -> ts.ArrayType:
     return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
 
 
-@generate_embedding.resource_pool
+@embed_content.resource_pool
 def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
