@@ -15,6 +15,7 @@ Supports two authentication methods:
 
 import asyncio
 import base64
+from contextlib import asynccontextmanager, contextmanager
 import io
 import logging
 import mimetypes
@@ -157,16 +158,20 @@ async def generate_content(
     client = _genai_client()
 
     contents = _process_media_contents(contents, client.aio, upload_tasks, large_video_paths)
-    uploaded = await _wait_for_upload_tasks(upload_tasks, large_video_paths)
-    contents = _replace_upload_placeholders(contents, uploaded)
+    async with _gemini_file_uploads(upload_tasks, large_video_paths) as uploaded:
+        contents = _replace_upload_placeholders(contents, uploaded)
+        response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
+        return response.model_dump(mode='json')
 
-    response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
-    return response.model_dump(mode='json')
 
-
-async def _wait_for_upload_tasks(
+@asynccontextmanager
+async def _gemini_file_uploads(
     upload_tasks: list[Coroutine[Any, Any, 'genai.types.File']], paths: list[str]
-) -> list['genai.types.File']:
+):
+    """
+    Context manager that makes uploaded files temporarily available to Gemini models, deleting them from the server
+    after use.
+    """
     client = _genai_client()
     uploaded: list['genai.types.File'] = []
     try:
@@ -174,7 +179,7 @@ async def _wait_for_upload_tasks(
             uploaded = await asyncio.gather(*upload_tasks)
             # poll till server finished uploading files (state is ACTIVE)
             await _poll_until_active(async_client=client.aio, uploaded=uploaded, video_paths=paths)
-        return uploaded
+        yield uploaded
     finally:
         if uploaded:
             await asyncio.gather(*[client.aio.files.delete(name=f.name) for f in uploaded], return_exceptions=True)
@@ -449,12 +454,10 @@ async def _embed_file_content(
             indices.append(len(contents_))
             contents_.append(None)  # placeholder
 
-    if len(upload_tasks) > 0:
-        uploaded = await _wait_for_upload_tasks(upload_tasks, large_paths)
+    async with _gemini_file_uploads(upload_tasks, large_paths) as uploaded:
         for idx, file in zip(indices, uploaded, strict=True):
             contents_[idx] = file
-
-    return await _embed_content(contents_, model, config, use_batch_api)
+        return await _embed_content(contents_, model, config, use_batch_api)
 
 
 async def _embed_content(
