@@ -388,16 +388,14 @@ async def embed_content(
     Examples:
         Add a computed column with embeddings to an existing table with a `text` column:
 
-        >>> t.add_computed_column(embedding=embed_content(t.text))
+        >>> t.add_computed_column(embedding=embed_content(t.text, model='gemini-embedding-001'))
 
         Add an embedding index on `text` column:
 
         >>> t.add_embedding_index(
         ...    t.text,
-        ...    embedding=embed_content.using(
-        ...        model='gemini-embedding-001', config={'output_dimensionality': 3072}
-        ...    ),
-        ...)
+        ...    embedding=embed_content.using(model='gemini-embedding-001')
+        ... )
     """
     return await _embed_content(contents, model, config, use_batch_api)
 
