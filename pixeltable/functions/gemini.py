@@ -19,7 +19,7 @@ import io
 import logging
 import mimetypes
 import os
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine
 
@@ -156,7 +156,7 @@ async def generate_content(
     large_video_paths: list[str] = []
     client = _genai_client()
 
-    contents = _process_media_contents(contents, client.aio, large_video_paths)
+    contents = _process_media_contents(contents, large_video_paths)
     async with _gemini_file_uploads(large_video_paths) as uploaded:
         contents = _replace_upload_placeholders(contents, uploaded)
         response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
@@ -230,7 +230,7 @@ def _(model: str) -> str:
 
 @pxt.udf(is_deterministic=False)
 async def generate_images(
-    prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx
+    prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx | None = None
 ) -> PIL.Image.Image:
     """
     Generates images based on a text description and configuration. For additional details, see:
@@ -455,27 +455,16 @@ async def _embed_file_content(
                 mime_type, _ = mimetypes.guess_type(item, strict=False)
                 if mime_type is None:
                     raise excs.Error(f'Could not identify mime type of file: {item}')
-                with open(item, 'rb') as f:
-                    data = f.read()
-                    contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
+
+                try:
+                    with open(item, 'rb') as f:
+                        data = f.read()
+                except (OSError, ValueError) as exc:
+                    raise excs.Error(f'Error reading file for embedding: {item}') from exc
+
+                contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
 
         return await _embed_content(contents_, model, config, use_batch_api)
-
-    #     if size_bytes <= GEMINI_INLINE_LIMIT_BYTES:
-    #         with open(item, 'rb') as f:
-    #             data = f.read()
-    #             contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
-    #     else:
-    #         task = client.aio.files.upload(file=item, config={'mime_type': mime_type})
-    #         upload_tasks.append(task)
-    #         large_files.append(item)
-    #         indices.append(len(contents_))
-    #         contents_.append(None)  # placeholder
-
-    # async with _gemini_file_uploads(upload_tasks, large_files) as uploaded:
-    #     for idx, file in zip(indices, uploaded, strict=True):
-    #         contents_[idx] = file
-    #     return await _embed_content(contents_, model, config, use_batch_api)
 
 
 async def _embed_content(
@@ -570,12 +559,11 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
     metas: list[types.File] = retry_state.outcome.result()
 
     # Extract video_paths from the keyword arguments
-    video_paths = retry_state.kwargs.get('video_paths', [])
+    video_paths: list[str] = retry_state.kwargs.get('video_paths', [])
     stuck_details = []
     for i, m in enumerate(metas):
         if m.state != types.FileState.ACTIVE:
-            # Fallback to index i if for some reason video_paths is missing/short
-            path = video_paths[i]
+            path = video_paths[i] if i < len(video_paths) else 'Unknown path'
             stuck_details.append(f'{path} (ID: {m.name}, State: {m.state.name})')
 
     detail_str = '\n- '.join(stuck_details)
@@ -602,7 +590,7 @@ async def _poll_until_active(
     return metas
 
 
-def _process_media_contents(data: Any, client: 'genai.client.AsyncClient', large_video_paths: list[str]) -> Any:
+def _process_media_contents(data: Any, large_video_paths: list[str]) -> Any:
     """
     Recursively traverse a nested content structure (dict/list/str) and process video file paths.
 
@@ -614,9 +602,9 @@ def _process_media_contents(data: Any, client: 'genai.client.AsyncClient', large
     Returns the same nested structure with video path strings replaced by inline_data or placeholder dicts.
     """
     if isinstance(data, dict):
-        return {k: _process_media_contents(v, client, large_video_paths) for k, v in data.items()}
+        return {k: _process_media_contents(v, large_video_paths) for k, v in data.items()}
     if isinstance(data, list):
-        return [_process_media_contents(v, client, large_video_paths) for v in data]
+        return [_process_media_contents(v, large_video_paths) for v in data]
     if isinstance(data, str):
         # Check if string is a file path containing video
         mime_type, _ = mimetypes.guess_type(data, strict=False)
