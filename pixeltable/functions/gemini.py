@@ -15,13 +15,13 @@ Supports two authentication methods:
 
 import asyncio
 import base64
-from contextlib import asynccontextmanager, contextmanager
 import io
 import logging
 import mimetypes
 import os
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Coroutine
+from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine
 
 import numpy as np
 import PIL.Image
@@ -153,35 +153,41 @@ async def generate_content(
             gemini_tools = [__convert_pxt_tool(tool) for tool in tools]
             config_.tools = [types.Tool(function_declarations=gemini_tools)]
 
-    upload_tasks: list[Coroutine[Any, Any, types.File]] = []
     large_video_paths: list[str] = []
     client = _genai_client()
 
-    contents = _process_media_contents(contents, client.aio, upload_tasks, large_video_paths)
-    async with _gemini_file_uploads(upload_tasks, large_video_paths) as uploaded:
+    contents = _process_media_contents(contents, client.aio, large_video_paths)
+    async with _gemini_file_uploads(large_video_paths) as uploaded:
         contents = _replace_upload_placeholders(contents, uploaded)
         response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
         return response.model_dump(mode='json')
 
 
 @asynccontextmanager
-async def _gemini_file_uploads(
-    upload_tasks: list[Coroutine[Any, Any, 'genai.types.File']], paths: list[str]
-):
+async def _gemini_file_uploads(files: list[str]) -> AsyncIterator[list['genai.types.File']]:
     """
     Context manager that makes uploaded files temporarily available to Gemini models, deleting them from the server
     after use.
     """
     client = _genai_client()
     uploaded: list['genai.types.File'] = []
+
     try:
-        if upload_tasks:
-            uploaded = await asyncio.gather(*upload_tasks)
+        if len(files) > 0:
+            tasks: list[Coroutine[Any, Any, 'genai.types.File']] = []
+            for file in files:
+                mime_type, _ = mimetypes.guess_type(file, strict=False)
+                if mime_type is None:
+                    raise excs.Error(f'Could not identify mime type of file: {file}')
+                tasks.append(client.aio.files.upload(file=file, config={'mime_type': mime_type}))
+            uploaded = await asyncio.gather(*tasks)
             # poll till server finished uploading files (state is ACTIVE)
-            await _poll_until_active(async_client=client.aio, uploaded=uploaded, video_paths=paths)
+            await _poll_until_active(async_client=client.aio, uploaded=uploaded, video_paths=files)
+
         yield uploaded
+
     finally:
-        if uploaded:
+        if len(uploaded) > 0:
             await asyncio.gather(*[client.aio.files.delete(name=f.name) for f in uploaded], return_exceptions=True)
 
 
@@ -430,34 +436,45 @@ async def _embed_file_content(
     env.Env.get().require_package('google.genai')
     from google.genai import types
 
-    client = _genai_client()
-
     contents_: list[types.ContentUnion] = []
-    upload_tasks: list[Coroutine[Any, Any, types.File]] = []
-    large_paths: list[str] = []
-    indices: list[int] = []
 
+    large_files: list[str] = []
     for item in contents:
-        mime_type, _ = mimetypes.guess_type(item, strict=False)
-        if mime_type is None:
-            raise excs.Error(f'Could not identify mime type of file: {item}')
-
         size_bytes = os.stat(item).st_size
-        if size_bytes <= GEMINI_INLINE_LIMIT_BYTES:
-            with open(item, 'rb') as f:
-                data = f.read()
-                contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
-        else:
-            task = client.aio.files.upload(file=item, config={'mime_type': mime_type})
-            upload_tasks.append(task)
-            large_paths.append(item)
-            indices.append(len(contents_))
-            contents_.append(None)  # placeholder
+        if size_bytes > GEMINI_INLINE_LIMIT_BYTES:
+            large_files.append(item)
 
-    async with _gemini_file_uploads(upload_tasks, large_paths) as uploaded:
-        for idx, file in zip(indices, uploaded, strict=True):
-            contents_[idx] = file
+    async with _gemini_file_uploads(large_files) as uploaded:
+        upload_map = dict(zip(large_files, uploaded))
+        contents_: list[types.ContentUnion] = []
+        for item in contents:
+            if item in upload_map:
+                contents_.append(upload_map[item])
+            else:
+                mime_type, _ = mimetypes.guess_type(item, strict=False)
+                if mime_type is None:
+                    raise excs.Error(f'Could not identify mime type of file: {item}')
+                with open(item, 'rb') as f:
+                    data = f.read()
+                    contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
+
         return await _embed_content(contents_, model, config, use_batch_api)
+
+    #     if size_bytes <= GEMINI_INLINE_LIMIT_BYTES:
+    #         with open(item, 'rb') as f:
+    #             data = f.read()
+    #             contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
+    #     else:
+    #         task = client.aio.files.upload(file=item, config={'mime_type': mime_type})
+    #         upload_tasks.append(task)
+    #         large_files.append(item)
+    #         indices.append(len(contents_))
+    #         contents_.append(None)  # placeholder
+
+    # async with _gemini_file_uploads(upload_tasks, large_files) as uploaded:
+    #     for idx, file in zip(indices, uploaded, strict=True):
+    #         contents_[idx] = file
+    #     return await _embed_content(contents_, model, config, use_batch_api)
 
 
 async def _embed_content(
@@ -539,19 +556,23 @@ def _embedding_config(config: dict | None) -> 'genai.types.EmbedContentConfig':
     return types.EmbedContentConfig(**config) if config else types.EmbedContentConfig()
 
 
-def _is_processing(metas: list[Any]) -> bool:
-    return any(m.state != 'ACTIVE' for m in metas)
+def _is_processing(metas: list['genai.types.File']) -> bool:
+    from google.genai import types
+
+    return any(m.state != types.FileState.ACTIVE for m in metas)
 
 
 def _handle_polling_timeout(retry_state: RetryCallState) -> None:
     """Triggered when timeout is reached."""
-    metas = retry_state.outcome.result()
+    from google.genai import types
+
+    metas: list[types.File] = retry_state.outcome.result()
 
     # Extract video_paths from the keyword arguments
     video_paths = retry_state.kwargs.get('video_paths', [])
     stuck_details = []
     for i, m in enumerate(metas):
-        if m.state.name != 'ACTIVE':
+        if m.state != types.FileState.ACTIVE:
             # Fallback to index i if for some reason video_paths is missing/short
             path = video_paths[i]
             stuck_details.append(f'{path} (ID: {m.name}, State: {m.state.name})')
@@ -569,21 +590,18 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
 async def _poll_until_active(
     async_client: 'genai.client.AsyncClient', uploaded: list['genai.types.File'], video_paths: list[str]
 ) -> list['genai.types.File']:
+    from google.genai import types
+
     # Collect statuses for all uploaded files
     metas = await asyncio.gather(*[async_client.files.get(name=f.name) for f in uploaded])
     for i, m in enumerate(metas):
-        if m.state == 'FAILED':
+        if m.state == types.FileState.FAILED:
             # Fail immediately
             raise excs.Error(f'Server processing failed for {video_paths[i]} ({m.name})')
     return metas
 
 
-def _process_media_contents(
-    data: Any,
-    client: 'genai.client.AsyncClient',
-    upload_tasks: list[Coroutine[Any, Any, 'genai.types.File']],
-    large_video_paths: list[str],
-) -> Any:
+def _process_media_contents(data: Any, client: 'genai.client.AsyncClient', large_video_paths: list[str]) -> Any:
     """
     Recursively traverse a nested content structure (dict/list/str) and process video file paths.
 
@@ -595,9 +613,9 @@ def _process_media_contents(
     Returns the same nested structure with video path strings replaced by inline_data or placeholder dicts.
     """
     if isinstance(data, dict):
-        return {k: _process_media_contents(v, client, upload_tasks, large_video_paths) for k, v in data.items()}
+        return {k: _process_media_contents(v, client, large_video_paths) for k, v in data.items()}
     if isinstance(data, list):
-        return [_process_media_contents(v, client, upload_tasks, large_video_paths) for v in data]
+        return [_process_media_contents(v, client, large_video_paths) for v in data]
     if isinstance(data, str):
         # Check if string is a file path containing video
         mime_type, _ = mimetypes.guess_type(data, strict=False)
@@ -609,16 +627,13 @@ def _process_media_contents(
                 return data
         except (OSError, ValueError):
             return data
-        mime_type = mime_type or 'video/mp4'
         size_bytes = local_path.stat().st_size
         if size_bytes <= GEMINI_INLINE_LIMIT_BYTES * 3 // 4:  # scale by 0.75 to account for base64 expansion
             data_b64 = base64.b64encode(local_path.read_bytes()).decode('utf-8')
             return {'inline_data': {'mime_type': mime_type, 'data': data_b64}}
-        # Large file: start upload, add a placeholder
-        task = client.files.upload(file=str(local_path), config={'mime_type': mime_type})
-        upload_tasks.append(task)
+        # Record the large file for upload and insert a placeholder to be resolved later
         large_video_paths.append(str(local_path))
-        return {_UPLOAD_PLACEHOLDER_KEY: {'task_id': len(upload_tasks) - 1, 'mime_type': mime_type}}
+        return {_UPLOAD_PLACEHOLDER_KEY: {'task_id': len(large_video_paths) - 1, 'mime_type': mime_type}}
     return data
 
 
