@@ -405,30 +405,30 @@ async def embed_content(
 
 @embed_content.overload
 async def _(
-    contents: Batch[PIL.Image.Image], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+    contents: Batch[PIL.Image.Image], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_content(contents, model, config, use_batch_api)
+    return await _embed_content(contents, model, config, use_batch_api=False)
 
 
 @embed_content.overload
 async def _(
-    contents: Batch[pxt.Audio], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+    contents: Batch[pxt.Audio], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_file_content(contents, model, config, use_batch_api)
+    return await _embed_file_content(contents, model, config, use_batch_api=False)
 
 
 @embed_content.overload
 async def _(
-    contents: Batch[pxt.Video], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+    contents: Batch[pxt.Video], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_file_content(contents, model, config, use_batch_api)
+    return await _embed_file_content(contents, model, config, use_batch_api=False)
 
 
 @embed_content.overload
 async def _(
-    contents: Batch[pxt.Document], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+    contents: Batch[pxt.Document], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    return await _embed_file_content(contents, model, config, use_batch_api)
+    return await _embed_file_content(contents, model, config, use_batch_api=False)
 
 
 async def _embed_file_content(
