@@ -72,6 +72,23 @@ def _unpack_row(row: sql.engine.Row | None, entities: list[type[sql.orm.decl_api
 # grows uncontrollably
 _MAX_RETRIES = -1
 
+
+def _is_retriable_sql_exc(e: sql_exc.DBAPIError) -> bool:
+    """Returns True if the SQLAlchemy exception wraps a retriable psycopg error."""
+    # psycopg error types that indicate a transient failure worth retrying.
+    # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
+    #     which is supposed to be deadlock-free.
+    return isinstance(
+        e.orig,
+        (
+            psycopg.errors.SerializationFailure,
+            psycopg.errors.LockNotAvailable,
+            psycopg.errors.DeadlockDetected,
+            psycopg.errors.InFailedSqlTransaction,
+        ),
+    )
+
+
 T = TypeVar('T')
 
 
@@ -104,26 +121,17 @@ def retry_loop(
                 except PendingTableOpsError as e:
                     Env.get().console_logger.debug(f'retry_loop(): finalizing pending ops for {e.tbl_id}')
                     cat._finalize_pending_ops(e.tbl_id)
-                except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
-                    # TODO: what other exceptions should we be looking for?
-                    if isinstance(
-                        # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
-                        #     which is supposed to be deadlock-free.
-                        e.orig,
-                        (
-                            psycopg.errors.SerializationFailure,
-                            psycopg.errors.LockNotAvailable,
-                            psycopg.errors.DeadlockDetected,
-                        ),
-                    ):
-                        if num_retries < _MAX_RETRIES or _MAX_RETRIES == -1:
-                            num_retries += 1
-                            _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
-                            time.sleep(random.uniform(0.1, 0.5))
-                        else:
-                            raise excs.Error(f'Serialization retry limit ({_MAX_RETRIES}) exceeded') from e
-                    else:
+                except sql_exc.DBAPIError as e:
+                    if not _is_retriable_sql_exc(e):
                         raise
+                    if _MAX_RETRIES == -1 or num_retries < _MAX_RETRIES:
+                        num_retries += 1
+                        _logger.debug(f'Retrying ({num_retries}) after {type(e.orig).__name__}')
+                        time.sleep(random.uniform(0.1, 0.5))
+                    else:
+                        raise excs.Error(
+                            f'SQL retry limit ({_MAX_RETRIES}) exceeded for {type(e.orig).__name__}'
+                        ) from e
                 except Exception as e:
                     # for informational/debugging purposes
                     _logger.debug(f'retry_loop(): passing along {e}')
@@ -381,18 +389,23 @@ class Catalog:
                             # raise to abort the transaction
                             raise
 
-                        except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
+                        except sql_exc.DBAPIError as e:
                             has_exc = True
-                            if isinstance(
-                                e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
-                            ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
-                                num_retries += 1
-                                _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
-                                time.sleep(random.uniform(0.1, 0.5))
-                                assert not self._undo_actions  # We should not have any undo actions at this point
-                                continue
-                            else:
+                            if not _is_retriable_sql_exc(e):
                                 raise
+                            if _MAX_RETRIES != -1 and num_retries >= _MAX_RETRIES:
+                                raise excs.Error(
+                                    f'SQL retry limit ({_MAX_RETRIES}) exceeded for {type(e.orig).__name__}'
+                                ) from e
+                            # retry
+                            num_retries += 1
+                            _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
+                            time.sleep(random.uniform(0.1, 0.5))
+                            assert not self._undo_actions  # We should not have any undo actions at this point
+                            # If we continue without rolling back, the context manager that owns conn will attempt to
+                            # commit the transaction.
+                            conn.rollback()
+                            continue
 
                     assert not self._undo_actions
                     yield conn
@@ -407,7 +420,7 @@ class Catalog:
                     # we got this exception after getting the initial table locks and therefore need to abort
                     raise
 
-            except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
+            except sql_exc.DBAPIError as e:
                 has_exc = True
                 self.convert_sql_exc(e, tbl_id, tbl.tbl_version if tbl is not None else None, convert_db_excs)
                 raise  # re-raise the error if it didn't convert to a pxt.Error
@@ -472,9 +485,8 @@ class Catalog:
             tbl_name = tbl.get().name
             _logger.debug(f'Exception: undefined table {tbl_name!r}: Caught {type(e.orig)}: {e!r}')
             raise excs.Error(f'Table was dropped: {tbl_name}') from None
-        elif (
-            # TODO: Investigate whether DeadlockDetected points to a bug in our locking protocol,
-            #     which is supposed to be deadlock-free.
+
+        if (
             isinstance(
                 e.orig,
                 (
@@ -786,17 +798,10 @@ class Catalog:
                 # we need to make sure not to swallow asserts
                 raise
 
-            except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
+            except sql_exc.DBAPIError as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
                 # logic of begin_xact()?
-                if isinstance(
-                    e.orig,
-                    (
-                        psycopg.errors.SerializationFailure,
-                        psycopg.errors.LockNotAvailable,
-                        psycopg.errors.InFailedSqlTransaction,
-                    ),
-                ):
+                if _is_retriable_sql_exc(e):
                     num_retries += 1
                     _logger.debug(f'Finalize pending ops({tbl_id}): retriable error: {e.orig} of type {type(e.orig)}')
                     log_msg: str
@@ -807,12 +812,13 @@ class Catalog:
                     Env.get().console_logger.debug(log_msg)
                     time.sleep(random.uniform(0.1, 0.5))
                     continue
-                else:
-                    _logger.error(
-                        f'Finalize pending ops({tbl_id}): non-retriable error {e} of type {type(e)}', exc_info=True
-                    )
-                    # TODO: what to do with this?
-                    raise
+
+                # not retriable
+                _logger.error(
+                    f'Finalize pending ops({tbl_id}): non-retriable error {e} of type {type(e)}', exc_info=True
+                )
+                # TODO: what to do with this?
+                raise
 
             except Exception as e:
                 if 'Table was dropped' in str(e):
