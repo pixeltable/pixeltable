@@ -40,8 +40,8 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
-# Max raw file size (bytes) for inline_data; larger files use the Files API.
-GEMINI_INLINE_LIMIT_BYTES = 100 * 2**20
+# Max raw file size (bytes) for inline data; larger files use the Files API.
+GEMINI_INLINE_LIMIT_BYTES = 4 * 2**20
 
 # Placeholder key used in first pass for large file uploads.
 _UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
@@ -455,8 +455,8 @@ async def _embed_file_content(
                     raise excs.Error(f'Could not identify mime type of file: {item}')
 
                 try:
-                    with open(item, 'rb') as f:
-                        data = f.read()
+                    # TODO: Do this on a background thread.
+                    data = Path(item).read_bytes()
                 except (OSError, ValueError) as exc:
                     raise excs.Error(f'Error reading file for embedding: {item}') from exc
 
@@ -544,28 +544,30 @@ def _embedding_config(config: dict | None) -> 'genai.types.EmbedContentConfig':
     return types.EmbedContentConfig(**config) if config else types.EmbedContentConfig()
 
 
-def _is_processing(metas: list['genai.types.File']) -> bool:
+def _is_processing(remote_files: list['genai.types.File']) -> bool:
     from google.genai import types
 
-    return any(m.state != types.FileState.ACTIVE for m in metas)
+    return any(file.state != types.FileState.ACTIVE for file in remote_files)
 
 
 def _handle_polling_timeout(retry_state: RetryCallState) -> None:
     """Triggered when timeout is reached."""
     from google.genai import types
 
-    metas: list[types.File] = retry_state.outcome.result()
+    remote_files: list[types.File] = retry_state.outcome.result()
 
     # Extract video_paths from the keyword arguments
     video_paths: list[str] = retry_state.kwargs.get('video_paths', [])
     stuck_details = []
-    for i, m in enumerate(metas):
-        if m.state != types.FileState.ACTIVE:
+    for i, file in enumerate(remote_files):
+        if file.state != types.FileState.ACTIVE:
             path = video_paths[i] if i < len(video_paths) else 'Unknown path'
-            stuck_details.append(f'{path} (ID: {m.name}, State: {m.state.name})')
+            stuck_details.append(f'{path} (ID: {file.name}, State: {file.state.name})')
 
     detail_str = '\n- '.join(stuck_details)
-    raise excs.Error(f'Timeout: {len(stuck_details)}/{len(metas)} failed to upload large videos :\n- {detail_str}')
+    raise excs.Error(
+        f'Timeout: {len(stuck_details)}/{len(remote_files)} failed to upload large videos :\n- {detail_str}'
+    )
 
 
 @retry(
@@ -580,12 +582,12 @@ async def _poll_until_active(
     from google.genai import types
 
     # Collect statuses for all uploaded files
-    metas = await asyncio.gather(*[async_client.files.get(name=f.name) for f in uploaded])
-    for i, m in enumerate(metas):
-        if m.state == types.FileState.FAILED:
+    remote_files = await asyncio.gather(*[async_client.files.get(name=f.name) for f in uploaded])
+    for i, file in enumerate(remote_files):
+        if file.state == types.FileState.FAILED:
             # Fail immediately
-            raise excs.Error(f'Server processing failed for {video_paths[i]} ({m.name})')
-    return metas
+            raise excs.Error(f'Server processing failed for {video_paths[i]} ({file.name})')
+    return remote_files
 
 
 def _process_media_contents(data: Any, large_video_paths: list[str]) -> Any:
@@ -616,6 +618,7 @@ def _process_media_contents(data: Any, large_video_paths: list[str]) -> Any:
             return data
         size_bytes = local_path.stat().st_size
         if size_bytes <= GEMINI_INLINE_LIMIT_BYTES * 3 // 4:  # scale by 0.75 to account for base64 expansion
+            # TODO: Do this on a background thread.
             data_b64 = base64.b64encode(local_path.read_bytes()).decode('utf-8')
             return {'inline_data': {'mime_type': mime_type, 'data': data_b64}}
         # Record the large file for upload and insert a placeholder to be resolved later

@@ -217,6 +217,8 @@ class ColumnRef(Expr):
 
         expr: Expr
 
+        # TODO: For audio/video/document, we're storing the local file path in the Literal for the similarity
+        #     expression. This is problematic in scenarios where the similarity expression is serialized.
         if item is not None:
             if isinstance(item, Expr):  # This can happen when using similarity() with @query
                 if not (item.col_type.is_string_type() or item.col_type.is_image_type()):
@@ -231,7 +233,7 @@ class ColumnRef(Expr):
         if string is not None:
             if isinstance(string, Expr):
                 if not string.col_type.is_string_type():
-                    raise excs.Error(f'similarity(string=...): expected `String`; got `{expr.col_type}`')
+                    raise excs.Error(f'similarity(string=...): expected `String`; got `{string.col_type}`')
                 expr = string
             else:
                 if not isinstance(string, str):
