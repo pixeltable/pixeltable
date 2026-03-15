@@ -1,7 +1,7 @@
 import re
 import textwrap
 import unicodedata
-from typing import Callable
+from typing import Any, Callable
 
 import pytest
 
@@ -11,10 +11,12 @@ from pixeltable.functions.string import (
     capitalize,
     casefold,
     center,
+    contains_re,
     count,
     endswith,
     find,
     format,
+    fullmatch,
     isalnum,
     isalpha,
     isascii,
@@ -29,6 +31,8 @@ from pixeltable.functions.string import (
     ljust,
     lower,
     lstrip,
+    match,
+    replace_re,
     reverse,
     rfind,
     rjust,
@@ -327,6 +331,311 @@ class TestString:
         assert status.num_excs == 0
         row = t.head()[1]
         assert row == {'input': 'PQR', 's1': 'ABC PQR', 's2': 'DEF PQR', 's3': 'GHI PQR JKL PQR'}
+
+    def test_zfill_signed(self, uses_db: None) -> None:
+        """Test zfill with signed numbers to ensure sign is preserved at front."""
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        test_strs = [
+            '-42',
+            '+42',
+            '42',
+            '-1',
+            '+1',
+            '1',
+            '-123456',
+            '+123456',
+            '',
+            'abc',
+            '-',
+            '+',
+            '--5',
+            '\u4f60\u597d',
+            '-\U0001f600',
+            '+\u00e9\u00e8',
+        ]
+        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+
+        s_py = t.s.apply(lambda x: x, col_type=pxt.String)
+        for w in [0, 1, 3, 6, 10]:
+            res_sql = t.select(out=zfill(t.s, w)).collect()['out']
+            res_py = t.select(out=zfill(s_py, w)).collect()['out']
+            expected = [s.zfill(w) for s in test_strs]
+            assert res_sql == expected, f'zfill w={w} SQL: {res_sql} != {expected}'
+            assert res_py == expected, f'zfill w={w} Py: {res_py} != {expected}'
+
+    def test_is_validation_functions(self, uses_db: None) -> None:
+        """Test is* validation functions with edge cases including Unicode.
+
+        isdecimal and isspace have no SQL pushdown because the embedded PostgreSQL server uses
+        LC_CTYPE='C', which only recognizes ASCII characters for POSIX character classes.
+        Python's str.isdecimal() and str.isspace() are fully Unicode-aware, so SQL pushdown
+        would silently return wrong results for non-ASCII inputs.
+        """
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        test_strs = [
+            # Empty and whitespace
+            '',
+            ' ',
+            '   ',
+            '\t',
+            '\n',
+            '\t\n',
+            # Alphanumeric
+            'abc',
+            'ABC',
+            '123',
+            'abc123',
+            'ABC123',
+            # Alpha only
+            'Hello',
+            'HELLO',
+            'hello',
+            # Digit only
+            '0',
+            '12345',
+            # Mixed with symbols
+            'abc!',
+            'a b',
+            'hello world',
+            'a1b2',
+            '123.45',
+            '-123',
+            # Case variations
+            'Hello World',
+            'HELLO WORLD',
+            # Identifiers
+            'valid_name',
+            '_private',
+            '__dunder__',
+            'CamelCase',
+            # Non-identifiers
+            '123invalid',
+            '123Invalid',
+            '!invalid',
+            # Title case edge cases
+            'Hello world',
+            'hello WORLD',
+            # UTF-8: CJK, emoji, accented, mixed
+            '\u4f60\u597d',
+            '\U0001f600',
+            'caf\u00e9',
+            'hello \U0001f30d',
+            '\u4e16\u754c123',
+            '\U0001f600\U0001f600\U0001f600',
+            # Unicode decimals (Python isdecimal returns True, PG LC_CTYPE='C' would not)
+            '\u0660',  # Arabic-Indic digit zero
+            '\u0966',  # Devanagari digit zero
+            '\uff10',  # Fullwidth digit zero
+            # Unicode whitespace (Python isspace returns True, PG LC_CTYPE='C' would not)
+            '\u00a0',  # Non-breaking space
+            '\u2002',  # En space
+            '\u3000',  # Ideographic space
+        ]
+        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+
+        # isascii has SQL pushdown; isdecimal and isspace do not (Unicode correctness)
+        test_params = [(isascii, str.isascii), (isdecimal, str.isdecimal), (isspace, str.isspace)]
+
+        for pxt_fn, str_fn in test_params:
+            res = t.select(out=pxt_fn(t.s)).collect()['out']
+            expected = [str_fn(s) for s in test_strs]
+            assert res == expected, f'{pxt_fn.name} mismatch: {res} != {expected}'
+
+    def test_string_sql_equivalence(self, uses_db: None) -> None:
+        """Test non-regex to_sql implementations for SQL/Python equivalence."""
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        test_strs = [
+            '',
+            'a',
+            'ab',
+            'abc',
+            'abcdef',
+            '  spaced  ',
+            'hello world',
+            '\u4f60\u597d',
+            '\U0001f600abc',
+            'caf\u00e9',
+        ]
+        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+
+        def check_both(sql_expr: Any, py_expr: Any, expected: list[Any], label: str) -> None:
+            res_sql = t.select(out=sql_expr).collect()['out']
+            res_py = t.select(out=py_expr).collect()['out']
+            assert res_sql == expected, f'{label} SQL: {res_sql} != {expected}'
+            assert res_py == expected, f'{label} Py: {res_py} != {expected}'
+
+        s = t.s
+        s_py = t.s.apply(lambda x: x, col_type=pxt.String)  # forces Python fallback
+
+        # ── ljust / rjust ─────────────────────────────────────────────────────
+        for w in [0, 3, 6, 10]:
+            check_both(ljust(s, w), ljust(s_py, w), [x.ljust(w) for x in test_strs], f'ljust w={w}')
+            check_both(rjust(s, w), rjust(s_py, w), [x.rjust(w) for x in test_strs], f'rjust w={w}')
+
+        # Custom fill characters
+        check_both(ljust(s, 8, '*'), ljust(s_py, 8, '*'), [x.ljust(8, '*') for x in test_strs], 'ljust fill=*')
+        check_both(rjust(s, 8, '.'), rjust(s_py, 8, '.'), [x.rjust(8, '.') for x in test_strs], 'rjust fill=.')
+
+    def test_regex_sql_equivalence(self, uses_db: None) -> None:
+        """Test regex-based string functions for SQL/Python equivalence, including edge cases.
+
+        For each function the test runs two queries:
+          1. Normal query — Pixeltable uses the SQL implementation when possible.
+          2. Forced-Python query — the identity `.apply()` wrapper prevents SQL pushdown.
+        Both must produce the same result as the equivalent Python expression.
+        """
+        test_strs = [
+            # Plain words
+            'cat',
+            'dog',
+            'catdog',
+            'cat dog',
+            'dog food',
+            # Casing variants
+            'Cat',
+            'CAT',
+            'Hello World',
+            # Digits and mixed
+            'abc123',
+            '123abc',
+            '123',
+            # Regex-special characters in the *input*
+            'hello.world',
+            'price $9.99',
+            '1+2=3',
+            # Vowel-rich strings
+            'hello',
+            'aeiou',
+            # Repeated characters (tests non-overlapping count behaviour)
+            'aaa',
+            'aaaa',
+            # Empty / whitespace
+            '',
+            ' ',
+            # UTF-8: emoji (not \w in either Python or PG, safe for regex tests)
+            '\U0001f600',
+            'hello \U0001f30d world',
+            '\U0001f600\U0001f600',
+        ]
+        t = pxt.create_table('test_tbl', {'s': pxt.String})
+        validate_update_status(t.insert({'s': s} for s in test_strs), expected_rows=len(test_strs))
+
+        def check_sql_and_py(pxt_fn: pxt.Function, *args: Any, **kwargs: Any) -> tuple[list[Any], list[Any]]:
+            """Return (sql_results, python_results) for pxt_fn applied to the test table."""
+            res_sql = t.select(out=pxt_fn(t.s, *args, **kwargs)).collect()['out']
+            res_py = t.select(out=pxt_fn(t.s.apply(lambda x: x, col_type=pxt.String), *args, **kwargs)).collect()['out']
+            return res_sql, res_py
+
+        # ── contains_re ───────────────────────────────────────────────────────
+        # Basic literal pattern
+        for pat in ['cat', 'dog', 'hello']:
+            res_sql, res_py = check_sql_and_py(contains_re, pat)
+            expected: list[Any] = [bool(re.search(pat, s)) for s in test_strs]
+            assert res_sql == expected, f'contains_re SQL pat={pat!r}'
+            assert res_py == expected, f'contains_re Py pat={pat!r}'
+
+        # Regex metacharacters: dot, anchors, character class, alternation
+        for pat in ['hel.o', '^cat', '[0-9]+', 'cat|dog']:
+            res_sql, res_py = check_sql_and_py(contains_re, pat)
+            expected = [bool(re.search(pat, s)) for s in test_strs]
+            assert res_sql == expected, f'contains_re SQL pat={pat!r}'
+            assert res_py == expected, f'contains_re Py pat={pat!r}'
+
+        # '.' matches any non-newline character; only the empty string has no match
+        assert t.where(~contains_re(t.s, '.')).select(t.s).collect()['s'] == ['']
+
+        # flags parameter causes Python fallback — result must still be correct
+        res_flags = t.select(out=contains_re(t.s, 'cat', flags=re.IGNORECASE)).collect()['out']
+        assert res_flags == [bool(re.search(r'cat', s, re.IGNORECASE)) for s in test_strs]
+
+        # ── count ─────────────────────────────────────────────────────────────
+        for pat in ['[aeiou]', 'a', 'cat', 'zzz']:
+            res_sql, res_py = check_sql_and_py(count, pat)
+            expected = [len(re.findall(pat, s)) for s in test_strs]
+            assert res_sql == expected, f'count SQL pat={pat!r}'
+            assert res_py == expected, f'count Py pat={pat!r}'
+
+        # Non-overlapping behaviour: 'aaa' with 'aa' → 1 (not 2)
+        res_sql, res_py = check_sql_and_py(count, 'aa')
+        expected = [len(re.findall(r'aa', s)) for s in test_strs]
+        assert res_sql == expected, f'count non-overlap SQL: {res_sql} != {expected}'
+        assert res_py == expected
+
+        # flags causes Python fallback — result must still be correct
+        res_flags = t.select(out=count(t.s, 'cat', flags=re.IGNORECASE)).collect()['out']
+        assert res_flags == [len(re.findall(r'cat', s, re.IGNORECASE)) for s in test_strs]
+
+        # ── match ─────────────────────────────────────────────────────────────
+        for pat in ['cat', 'dog', 'hello', '[0-9]+', r'\w+']:
+            res_sql, res_py = check_sql_and_py(match, pat)
+            expected = [bool(re.match(pat, s)) for s in test_strs]
+            assert res_sql == expected, f'match SQL pat={pat!r}'
+            assert res_py == expected, f'match Py pat={pat!r}'
+
+        # match only succeeds at the *start*; 'dog food' matches 'dog' but not 'food'
+        matched_dog = t.where(match(t.s, 'dog')).select(t.s).collect()['s']
+        assert 'dog food' in matched_dog
+        assert 'cat dog' not in matched_dog
+
+        # Alternation: (?:cat|dog) must be anchored at start only — 'cat dog' starts with 'cat'
+        res_sql, res_py = check_sql_and_py(match, 'cat|dog')
+        expected = [bool(re.match(r'cat|dog', s)) for s in test_strs]
+        assert res_sql == expected, 'match alternation SQL ((?:...) anchoring)'
+        assert res_py == expected
+
+        # Case-insensitive match (dynamic `case` param)
+        res_sql, res_py = check_sql_and_py(match, 'cat', case=False)
+        expected = [bool(re.match(r'cat', s, re.IGNORECASE)) for s in test_strs]
+        assert res_sql == expected, 'match case=False SQL'
+        assert res_py == expected
+
+        # ── fullmatch ─────────────────────────────────────────────────────────
+        for pat in ['cat', 'dog', r'\w+', r'[a-z]+']:
+            res_sql, res_py = check_sql_and_py(fullmatch, pat)
+            expected = [bool(re.fullmatch(pat, s)) for s in test_strs]
+            assert res_sql == expected, f'fullmatch SQL pat={pat!r}'
+            assert res_py == expected, f'fullmatch Py pat={pat!r}'
+
+        # fullmatch must match the *entire* string; 'catdog' must NOT fullmatch 'cat'
+        assert 'catdog' not in t.where(fullmatch(t.s, 'cat')).select(t.s).collect()['s']
+        assert 'cat dog' not in t.where(fullmatch(t.s, 'cat')).select(t.s).collect()['s']
+
+        # Alternation: (?:cat|dog) with end-anchor means 'catdog' must NOT match 'cat|dog'
+        # This verifies that '^(?:cat|dog)$' is used, not '^cat|dog$'.
+        res_sql, res_py = check_sql_and_py(fullmatch, 'cat|dog')
+        expected = [bool(re.fullmatch(r'cat|dog', s)) for s in test_strs]
+        assert res_sql == expected, 'fullmatch alternation SQL ((?:...) anchoring)'
+        assert res_py == expected
+        fullmatch_alt = set(t.where(fullmatch(t.s, 'cat|dog')).select(t.s).collect()['s'])
+        assert fullmatch_alt == {'cat', 'dog'}, f'fullmatch alternation set: {fullmatch_alt}'
+
+        # Case-insensitive fullmatch
+        res_sql, res_py = check_sql_and_py(fullmatch, 'cat', case=False)
+        expected = [bool(re.fullmatch(r'cat', s, re.IGNORECASE)) for s in test_strs]
+        assert res_sql == expected, 'fullmatch case=False SQL'
+        assert res_py == expected
+
+        # ── replace_re ────────────────────────────────────────────────────────
+        for pat, repl in [
+            ('[aeiou]', '*'),  # vowel replacement
+            (r'(\w+)', r'[\1]'),  # backreference
+            ('cat', 'feline'),  # literal pattern
+            ('zzz', 'XXX'),  # no-match: string unchanged
+            (r'\d+', '#'),  # digit replacement
+        ]:
+            res_sql, res_py = check_sql_and_py(replace_re, pat, repl)
+            expected = [re.sub(pat, repl, s) for s in test_strs]
+            assert res_sql == expected, f'replace_re SQL pat={pat!r} repl={repl!r}'
+            assert res_py == expected, f'replace_re Py pat={pat!r} repl={repl!r}'
+
+        # n=1 limits to first replacement only (falls back to Python); must still be correct
+        res_n1 = t.select(out=replace_re(t.s, '[aeiou]', '*', n=1)).collect()['out']
+        expected_n1 = [re.sub(r'[aeiou]', '*', s, count=1) for s in test_strs]
+        assert res_n1 == expected_n1, f'replace_re n=1: {res_n1} != {expected_n1}'
+
+        # flags causes Python fallback — result must still be correct
+        res_flags = t.select(out=replace_re(t.s, 'cat', 'feline', flags=re.IGNORECASE)).collect()['out']
+        assert res_flags == [re.sub(r'cat', 'feline', s, flags=re.IGNORECASE) for s in test_strs]
 
     def test_string_splitter(self, uses_db: None) -> None:
         skip_test_if_not_installed('spacy')
