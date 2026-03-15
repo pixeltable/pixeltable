@@ -340,6 +340,8 @@
           <outline text="udf|pixeltable.functions.openai.vision" />
           <outline text="udf|pixeltable.functions.openai.embeddings" />
           <outline text="udf|pixeltable.functions.openai.image_generations" />
+          <outline text="udf|pixeltable.functions.openai.image_edits" />
+          <outline text="udf|pixeltable.functions.openai.image_variations" />
           <outline text="udf|pixeltable.functions.openai.moderations" />
           <outline text="func|pixeltable.functions.openai.invoke_tools" />
         </outline>
