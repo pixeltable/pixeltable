@@ -565,9 +565,7 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
             stuck_details.append(f'{local_path} (ID: {file.name}, State: {file.state.name})')
 
     detail_str = '\n- '.join(stuck_details)
-    raise excs.Error(
-        f'Timeout: failed to upload {len(stuck_details)}/{len(remote_files)} file(s):\n- {detail_str}'
-    )
+    raise excs.Error(f'Timeout: failed to upload {len(stuck_details)}/{len(remote_files)} file(s):\n- {detail_str}')
 
 
 @retry(
