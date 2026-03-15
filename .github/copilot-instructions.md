@@ -19,6 +19,8 @@ Flag any `is None` or `not` in expression contexts.
 - All functions need complete type annotations (mypy strict).
 - UDF annotations are critical: Pixeltable derives column schema from them. Wrong types → silent data corruption.
 - Pixeltable auto-lifts nullable params: `fn(x: int)` becomes `fn(x: int | None) -> int | None`. Don't add unnecessary None-guard boilerplate. Use `X | None` (not `Optional[X]`) when custom None-handling is needed.
+- Skip all comments regarding potential mypy errors, type hints, or type-checking issues.
+- Assume that type safety is already validated by our CI pipeline via mypy.
 
 ## Security
 
