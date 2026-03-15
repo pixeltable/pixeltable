@@ -182,7 +182,7 @@ async def _gemini_file_uploads(files: list[str]) -> AsyncIterator[list['genai.ty
                 tasks.append(client.aio.files.upload(file=file, config={'mime_type': mime_type}))
             uploaded = await asyncio.gather(*tasks)
             # poll till server finished uploading files (state is ACTIVE)
-            await _poll_until_active(async_client=client.aio, uploaded=uploaded, video_paths=files)
+            await _poll_until_active(async_client=client.aio, uploaded=uploaded, files=files)
 
         yield uploaded
 
@@ -556,17 +556,17 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
 
     remote_files: list[types.File] = retry_state.outcome.result()
 
-    # Extract video_paths from the keyword arguments
-    video_paths: list[str] = retry_state.kwargs.get('video_paths', [])
+    # Extract files from the keyword arguments
+    files: list[str] = retry_state.kwargs.get('files', [])
     stuck_details = []
     for i, file in enumerate(remote_files):
         if file.state != types.FileState.ACTIVE:
-            path = video_paths[i] if i < len(video_paths) else 'Unknown path'
-            stuck_details.append(f'{path} (ID: {file.name}, State: {file.state.name})')
+            local_path = files[i] if i < len(files) else 'Unknown path'
+            stuck_details.append(f'{local_path} (ID: {file.name}, State: {file.state.name})')
 
     detail_str = '\n- '.join(stuck_details)
     raise excs.Error(
-        f'Timeout: {len(stuck_details)}/{len(remote_files)} failed to upload large videos :\n- {detail_str}'
+        f'Timeout: failed to upload {len(stuck_details)}/{len(remote_files)} file(s):\n- {detail_str}'
     )
 
 
@@ -577,7 +577,7 @@ def _handle_polling_timeout(retry_state: RetryCallState) -> None:
     retry_error_callback=_handle_polling_timeout,
 )
 async def _poll_until_active(
-    async_client: 'genai.client.AsyncClient', uploaded: list['genai.types.File'], video_paths: list[str]
+    async_client: 'genai.client.AsyncClient', uploaded: list['genai.types.File'], files: list[str]
 ) -> list['genai.types.File']:
     from google.genai import types
 
@@ -586,7 +586,7 @@ async def _poll_until_active(
     for i, file in enumerate(remote_files):
         if file.state == types.FileState.FAILED:
             # Fail immediately
-            raise excs.Error(f'Server processing failed for {video_paths[i]} ({file.name})')
+            raise excs.Error(f'Server processing failed for {files[i]} ({file.name})')
     return remote_files
 
 
