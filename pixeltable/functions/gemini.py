@@ -101,7 +101,6 @@ async def generate_content(
     model: str,
     config: dict | None = None,
     tools: list[dict] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> dict:
     """
     Generate content from the specified model.
@@ -230,7 +229,7 @@ def _(model: str) -> str:
 
 @pxt.udf(is_deterministic=False)
 async def generate_images(
-    prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx | None = None
+    prompt: str, *, model: str, config: dict | None = None
 ) -> PIL.Image.Image:
     """
     Generates images based on a text description and configuration. For additional details, see:
@@ -285,7 +284,6 @@ async def generate_videos(
     *,
     model: str,
     config: dict | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> pxt.Video:
     """
     Generates videos based on a text description and configuration. For additional details, see:
@@ -370,7 +368,6 @@ async def embed_content(
     model: str,
     config: dict[str, Any] | None = None,
     use_batch_api: bool = False,
-    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     """
     Generate embeddings for text, images, video, and other content. For more information on Gemini embeddings API, see:
@@ -414,7 +411,6 @@ async def _(
     *,
     model: str,
     config: dict[str, Any] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_content(contents, model, config, use_batch_api=False)
 
@@ -425,7 +421,6 @@ async def _(
     *,
     model: str,
     config: dict[str, Any] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_file_content(contents, model, config, use_batch_api=False)
 
@@ -436,7 +431,6 @@ async def _(
     *,
     model: str,
     config: dict[str, Any] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_file_content(contents, model, config, use_batch_api=False)
 
@@ -447,7 +441,6 @@ async def _(
     *,
     model: str,
     config: dict[str, Any] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_file_content(contents, model, config, use_batch_api=False)
 
