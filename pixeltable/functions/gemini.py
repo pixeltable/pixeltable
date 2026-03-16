@@ -365,7 +365,12 @@ def _(model: str) -> str:
 
 @pxt.udf(batch_size=4)
 async def embed_content(
-    contents: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
+    contents: Batch[str],
+    *,
+    model: str,
+    config: dict[str, Any] | None = None,
+    use_batch_api: bool = False,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     """
     Generate embeddings for text, images, video, and other content. For more information on Gemini embeddings API, see:
@@ -405,28 +410,44 @@ async def embed_content(
 
 @embed_content.overload
 async def _(
-    contents: Batch[PIL.Image.Image], *, model: str, config: dict[str, Any] | None = None
+    contents: Batch[PIL.Image.Image],
+    *,
+    model: str,
+    config: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_content(contents, model, config, use_batch_api=False)
 
 
 @embed_content.overload
 async def _(
-    contents: Batch[pxt.Audio], *, model: str, config: dict[str, Any] | None = None
+    contents: Batch[pxt.Audio],
+    *,
+    model: str,
+    config: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_file_content(contents, model, config, use_batch_api=False)
 
 
 @embed_content.overload
 async def _(
-    contents: Batch[pxt.Video], *, model: str, config: dict[str, Any] | None = None
+    contents: Batch[pxt.Video],
+    *,
+    model: str,
+    config: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_file_content(contents, model, config, use_batch_api=False)
 
 
 @embed_content.overload
 async def _(
-    contents: Batch[pxt.Document], *, model: str, config: dict[str, Any] | None = None
+    contents: Batch[pxt.Document],
+    *,
+    model: str,
+    config: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_file_content(contents, model, config, use_batch_api=False)
 
