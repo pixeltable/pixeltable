@@ -9,8 +9,10 @@ import pixeltable.type_system as ts
 
 from ..utils import (
     ensure_s3_pytest_resources_access,
+    get_audio_files,
     get_image_files,
     get_test_video_files,
+    get_video_files,
     rerun,
     skip_test_if_no_client,
     skip_test_if_not_installed,
@@ -30,7 +32,7 @@ class TestGemini:
 
         from pixeltable.functions.gemini import generate_content
 
-        t = pxt.create_table('test_tbl', {'contents': pxt.String})
+        t = pxt.create_table('test_tbl', {'contents': pxt.String, 'row_id': pxt.Int})
         t.add_computed_column(output=generate_content(t.contents, model=model))
 
         if model != 'gemini-3-pro-preview':
@@ -46,17 +48,30 @@ class TestGemini:
             )
             t.add_computed_column(output2=generate_content(t.contents, model=model, config=config))
 
-        validate_update_status(t.insert(contents='Write a sentence about a magic backpack.'), expected_rows=1)
-        results = t.collect()
+        long_text = 'Pixeltable is an amazing tool for multimodal data. ' * 200 + '.mp4'  # 6000+ chars
+        validate_update_status(
+            t.insert(
+                [
+                    {'contents': 'Write a sentence about a magic backpack.', 'row_id': 0},
+                    {'contents': 'Create a summary of: ' + long_text, 'row_id': 1},
+                ]
+            ),
+            expected_rows=2,
+        )
+        results = t.order_by(t.row_id).collect()
 
         text = results['output'][0]['candidates'][0]['content']['parts'][0]['text']
         print(text)
-
+        assert text
         if model != 'gemini-3-pro-preview':
             assert 'backpack' in text  # sanity check (gemini-3-pro is so "creative" that it often omits this word)
             text2 = results['output2'][0]['candidates'][0]['content']['parts'][0]['text']
             print(text2)
             assert 'backpack' in text2
+
+        text = results['output'][1]['candidates'][0]['content']['parts'][0]['text']
+        print(text)
+        assert text
 
     def test_generate_content_multimodal(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
@@ -98,7 +113,7 @@ class TestGemini:
                 config=config,
             )
         )
-        with patch('pixeltable.functions.gemini.GEMINI_INLINE_VIDEO_LIMIT_BYTES', 1024**2):
+        with patch('pixeltable.functions.gemini.GEMINI_INLINE_LIMIT_BYTES', 1024**2):
             validate_update_status(
                 t.insert({'id': n, 'video': video_file} for n, video_file in enumerate(video_files)), expected_rows=4
             )
@@ -184,17 +199,17 @@ class TestGemini:
             assert video_stream['duration_seconds'] == duration, metadata
             assert audio_stream['duration_seconds'] == duration, metadata
 
-    def test_generate_embeddings(self, uses_db: None) -> None:
+    def test_embed_content(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import generate_embedding
+        from pixeltable.functions.gemini import embed_content
 
         t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
 
         # Test embeddings as computed columns
-        t.add_computed_column(embed0=generate_embedding(t.text, model='gemini-embedding-001'))
+        t.add_computed_column(embed0=embed_content(t.text, model='gemini-embedding-001'))
         t.add_computed_column(
-            embed1=generate_embedding(t.text, model='gemini-embedding-001', config={'output_dimensionality': 1536})
+            embed1=embed_content(t.text, model='gemini-embedding-001', config={'output_dimensionality': 1536})
         )
         assert t.embed0.col.col_type.matches(ts.ArrayType((3072,), np.dtype('float32'))), t.embed0.col.col_type
         assert t.embed1.col.col_type.matches(ts.ArrayType((1536,), np.dtype('float32'))), t.embed1.col.col_type
@@ -220,12 +235,12 @@ class TestGemini:
 
         # Test embeddings as embedding indexes
         t.add_embedding_index(
-            t.text, idx_name='embed_idx0', embedding=generate_embedding.using(model='gemini-embedding-001')
+            t.text, idx_name='embed_idx0', embedding=embed_content.using(model='gemini-embedding-001')
         )
         t.add_embedding_index(
             t.text,
             idx_name='embed_idx1',
-            embedding=generate_embedding.using(
+            embedding=embed_content.using(
                 model='gemini-embedding-001', config={'output_dimensionality': 768}, use_batch_api=False
             ),
         )
@@ -239,10 +254,10 @@ class TestGemini:
         assert res[0]['rowid'] == 3
 
     @pytest.mark.skip('Very slow')
-    def test_generate_embeddings_batch_api(self, uses_db: None) -> None:
+    def test_embed_content_batch_api(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
-        from pixeltable.functions.gemini import generate_embedding
+        from pixeltable.functions.gemini import embed_content
 
         t = pxt.create_table('test', {'rowid': pxt.Int, 'text': pxt.String})
         validate_update_status(
@@ -256,9 +271,7 @@ class TestGemini:
             expected_rows=3,
         )
 
-        t.add_embedding_index(
-            t.text, embedding=generate_embedding.using(model='gemini-embedding-001', use_batch_api=True)
-        )
+        t.add_embedding_index(t.text, embedding=embed_content.using(model='gemini-embedding-001', use_batch_api=True))
 
         sim = t.text.similarity(string='Coordinating AI tasks can be achieved with Pixeltable.')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
@@ -267,3 +280,84 @@ class TestGemini:
         sim = t.text.similarity(string='The five dueling sorcerers leap rapidly.')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 3
+
+    def test_embed_content_multimodal(self, uses_db: None) -> None:
+        skip_test_if_not_installed('google.genai')
+        skip_test_if_no_client('gemini')
+
+        with patch('pixeltable.functions.gemini.GEMINI_INLINE_LIMIT_BYTES', 2**20):
+            self._run_test_embed_content_multimodal()
+
+    def _run_test_embed_content_multimodal(self) -> None:
+        from pixeltable.functions.gemini import embed_content
+
+        images = (
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
+            'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
+        )
+        audio = (
+            next(file for file in get_audio_files() if 'jfk' in file),
+            next(file for file in get_audio_files() if 'sample.mp3' in file),
+        )
+        video = (
+            next(file for file in get_video_files() if '10-Second Video' in file),
+            next(file for file in get_video_files() if 'bangkok' in file),
+        )
+        # documents = (
+        #     next(file for file in get_documents() if '1706.03762.pdf' in file),
+        #     next(file for file in get_documents() if 'Vector_database.pdf' in file),
+        # )
+
+        t = pxt.create_table('test_tbl_image', {'id': pxt.Int, 'image': pxt.Image})
+        t.add_embedding_index(t.image, embedding=embed_content.using(model='gemini-embedding-2-preview'))
+        validate_update_status(t.insert({'id': n, 'image': image} for n, image in enumerate(images)), expected_rows=2)
+
+        # Test that the embedding does what it's supposed to
+        res = (
+            t.select(t.id, sim=t.image.similarity(string='A photograph of a giraffe eating from a tree in a savannah'))
+            .order_by(t.id)
+            .collect()
+        )
+        assert res[0]['sim'] - res[1]['sim'] > 0.1  # the giraffe image should have a non-negligibly better match
+        res = (
+            t.select(t.id, sim=t.image.similarity(string='A photo of a vase full of flowers sitting on a table'))
+            .order_by(t.id)
+            .collect()
+        )
+        assert res[1]['sim'] - res[0]['sim'] > 0.1  # as before, in reverse
+
+        t = pxt.create_table('test_tbl_audio', {'id': pxt.Int, 'audio': pxt.Audio})
+        t.add_embedding_index(t.audio, embedding=embed_content.using(model='gemini-embedding-2-preview'))
+        validate_update_status(
+            t.insert({'id': n, 'audio': audio_file} for n, audio_file in enumerate(audio)), expected_rows=2
+        )
+
+        res = (
+            t.select(
+                t.id, sim=t.audio.similarity(string='A political speech by John F. Kennedy mentioning a city on a hill')
+            )
+            .order_by(t.id)
+            .collect()
+        )
+        assert res[0]['sim'] - res[1]['sim'] > 0.1
+        res = t.select(t.id, sim=t.audio.similarity(string='A recording of music playing')).order_by(t.id).collect()
+        assert res[1]['sim'] - res[0]['sim'] > 0.1
+
+        t = pxt.create_table('test_tbl_video', {'id': pxt.Int, 'video': pxt.Video})
+        t.add_embedding_index(t.video, embedding=embed_content.using(model='gemini-embedding-2-preview'))
+        validate_update_status(
+            t.insert({'id': n, 'video': video_file} for n, video_file in enumerate(video)), expected_rows=2
+        )
+
+        res = (
+            t.select(t.id, sim=t.video.similarity(string='A television commercial advertising quesadillas'))
+            .order_by(t.id)
+            .collect()
+        )
+        assert res[0]['sim'] - res[1]['sim'] > 0.1
+        res = (
+            t.select(t.id, sim=t.video.similarity(string='A video of street traffic in a busy city'))
+            .order_by(t.id)
+            .collect()
+        )
+        assert res[1]['sim'] - res[0]['sim'] > 0.1

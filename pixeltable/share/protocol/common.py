@@ -12,6 +12,13 @@ from pydantic import BaseModel, field_validator, model_validator
 # to determine request/response format and maintain backward compatibility.
 PROTOCOL_VERSION = 1
 
+_PXT_URL_PREFIXES = (
+    'https://www.pixeltable.com/t/',
+    'http://www.pixeltable.com/t/',
+    'https://pixeltable.com/t/',
+    'http://pixeltable.com/t/',
+)
+
 
 def is_valid_uuid(uuid_string: str) -> bool:
     """Check if a string is a valid UUID."""
@@ -68,7 +75,8 @@ class PxtUri(BaseModel):
         else:
             raise ValueError(f'Invalid data type for PxtUri: expected str or dict, got {type(data)}')
 
-        return {'uri': uri, **cls._parse_and_validate_uri(uri)}
+        normalized_uri = cls._normalize_uri(uri)
+        return {'uri': normalized_uri, **cls._parse_and_validate_uri(normalized_uri)}
 
     def __str__(self) -> str:
         """Return the URI string."""
@@ -78,7 +86,10 @@ class PxtUri(BaseModel):
     def _parse_and_validate_uri(cls, uri: str) -> dict:
         """Parse and validate a URI string, return parsed components."""
         if not uri.startswith('pxt://'):
-            raise ValueError('URI must start with pxt://')
+            raise ValueError(
+                f'Invalid URI {uri!r}. Expected a pxt:// URI or a Pixeltable URL '
+                '(e.g. https://pixeltable.com/t/org:db/path).'
+            )
 
         parsed = urlparse(uri)
         if parsed.scheme != 'pxt':
@@ -159,6 +170,19 @@ class PxtUri(BaseModel):
         path_part = f'{identifier}:{version}' if version is not None else identifier
         uri = f'pxt://{netloc}/{path_part}'
         return cls(uri=uri)
+
+    @classmethod
+    def _normalize_uri(cls, uri: str) -> str:
+        """Normalize a pxt:// URI or Pixeltable HTTPS URL to a canonical pxt:// URI."""
+        for prefix in _PXT_URL_PREFIXES:
+            if uri.startswith(prefix):
+                return 'pxt://' + uri[len(prefix) :]
+        return uri  # will fail validation downstream
+
+    @classmethod
+    def is_pxt_uri(cls, uri: str) -> bool:
+        """Return True if the string is a recognized Pixeltable URI or URL."""
+        return uri.startswith('pxt://') or any(uri.startswith(prefix) for prefix in _PXT_URL_PREFIXES)
 
 
 class RequestBaseModel(BaseModel, ABC):
