@@ -329,7 +329,10 @@ class EmbeddingIndex(IndexBase):
                 f'it must return a 1-dimensional array, but returns {return_type}'
             )
         if shape[0] is None:
-            raise excs.Error('Embedding function must return a 1-dimensional array of a specific length.')
+            raise excs.Error(
+                f'The function `{embed_fn.name}` is not a valid embedding: '
+                f'it must return a 1-dimensional array of a specific length'
+            )
         if shape[0] <= 0:
             raise excs.Error(
                 f'The function `{embed_fn.name}` is not a valid embedding: '
