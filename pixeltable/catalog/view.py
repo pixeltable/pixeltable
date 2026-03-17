@@ -100,18 +100,15 @@ class View(Table):
             r = cls.select_list_to_additional_columns(select_list)
             select_list_columns = [Column.create(name, spec) for name, spec in r.items()]
 
-<<<<<<< HEAD
-        columns_from_additional_columns = cls._create_columns(additional_columns)
+        columns_from_additional_columns = [Column.create(name, spec) for name, spec in additional_columns.items()]
         if is_snapshot:
             for col in columns_from_additional_columns:
                 if col.has_default_value:
                     raise excs.Error(
                         f'Column {col.name!r}: Default values are not supported for snapshot additional columns.'
                     )
+
         columns = select_list_columns + columns_from_additional_columns
-=======
-        columns = select_list_columns + [Column.create(name, spec) for name, spec in additional_columns.items()]
->>>>>>> main
         cls._verify_schema(columns)
 
         # verify that filters can be evaluated in the context of the base

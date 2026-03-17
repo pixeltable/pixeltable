@@ -471,7 +471,6 @@ class TableVersion:
         self.cols = self._init_cols_from_md(idxs_with_md)
         self.cols_by_name = {}
         self.cols_by_id = {}
-<<<<<<< HEAD
         # Sort columns in column_md by the position specified in col_md.id to guarantee that all references
         # point backward.
         sorted_column_md = sorted(self.tbl_md.column_md.values(), key=lambda item: item.id)
@@ -521,9 +520,8 @@ class TableVersion:
             )
 
             self.cols.append(col)
-=======
+
         for col in self.cols:
->>>>>>> main
             # populate lookup structures before Expr.from_dict()
             if col.schema_version_add <= self.schema_version and (
                 col.schema_version_drop is None or col.schema_version_drop > self.schema_version
@@ -690,7 +688,6 @@ class TableVersion:
         status = self._add_index(col, idx_name=None, idx=index.BtreeIndex())
         return status
 
-<<<<<<< HEAD
     @classmethod
     def _create_index_columns(
         cls,
@@ -735,8 +732,6 @@ class TableVersion:
         undo_col.tbl_handle = tbl_handle
         return val_col, undo_col
 
-=======
->>>>>>> main
     def _create_index_md(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
     ) -> int:

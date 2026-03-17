@@ -32,7 +32,7 @@ from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .column import Column
-<<<<<<< HEAD
+
 from .globals import (
     _ROWID_COLUMN_NAME,
     MAX_DEFAULT_VALUE_SIZE,
@@ -42,9 +42,6 @@ from .globals import (
     is_system_column_name,
     is_valid_identifier,
 )
-=======
-from .globals import _ROWID_COLUMN_NAME, IfExistsParam, IfNotExistsParam, MediaValidation, is_valid_identifier
->>>>>>> main
 from .schema_object import SchemaObject
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
@@ -818,7 +815,6 @@ class Table(SchemaObject):
             return result
 
     @classmethod
-<<<<<<< HEAD
     def _validate_column_spec(cls, name: str, spec: ColumnSpec) -> None:
         """Check integrity of user-supplied Column spec
 
@@ -1047,8 +1043,6 @@ class Table(SchemaObject):
             raise excs.Error(f'Invalid column name: {name}')
 
     @classmethod
-=======
->>>>>>> main
     def _verify_column(cls, col: Column) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
         col.verify()
