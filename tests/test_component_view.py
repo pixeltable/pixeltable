@@ -1,4 +1,4 @@
-from typing import Any, Iterator
+from typing import Any, Iterator, TypedDict
 
 import numpy as np
 import pandas as pd
@@ -7,86 +7,59 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
-import pixeltable.type_system as ts
-from pixeltable.functions.video import frame_iterator
-from pixeltable.iterators import ComponentIterator
+from pixeltable.functions.video import frame_iterator, legacy_frame_iterator
 
 from .utils import assert_resultset_eq, get_test_video_files, reload_catalog, validate_update_status
 
 
-class ConstantImgIterator(ComponentIterator):
+class ConstantImgFrame(TypedDict):
+    frame_idx: int
+    pos_msec: float
+    pos_frame: float
+    frame: pxt.Image
+
+
+@pxt.iterator(unstored_cols=['frame'])
+class constant_img_iterator(pxt.PxtIterator):
     """Component iterator that generates a fixed number of all-black 1280x720 images."""
 
-    def __init__(self, video: str, *, num_frames: int = 10):
+    def __init__(self, video: pxt.Video, *, num_frames: int = 10):
         self.img = PIL.Image.new('RGB', (1280, 720))
         self.next_frame_idx = 0
         self.num_frames = num_frames
         self.pos_msec = 0.0
         self.pos_frame = 0.0
 
-    @classmethod
-    def input_schema(cls) -> dict[str, ts.ColumnType]:
-        return {'video': ts.VideoType(nullable=False), 'fps': ts.FloatType()}
-
-    @classmethod
-    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        return {
-            'frame_idx': ts.IntType(),
-            'pos_msec': ts.FloatType(),
-            'pos_frame': ts.FloatType(),
-            'frame': ts.ImageType(),
-        }, ['frame']
-
-    def __next__(self) -> dict[str, Any]:
-        while True:
-            if self.next_frame_idx == self.num_frames:
-                raise StopIteration
-            result = {
-                'frame_idx': self.next_frame_idx,
-                'pos_msec': self.pos_msec,
-                'pos_frame': self.pos_frame,
-                'frame': self.img,
-            }
-            self.next_frame_idx += 1
-            return result
+    def __next__(self) -> ConstantImgFrame:
+        if self.next_frame_idx == self.num_frames:
+            raise StopIteration
+        result: ConstantImgFrame = {
+            'frame_idx': self.next_frame_idx,
+            'pos_msec': self.pos_msec,
+            'pos_frame': self.pos_frame,
+            'frame': self.img,
+        }
+        self.next_frame_idx += 1
+        return result
 
     def close(self) -> None:
         pass
 
-    def set_pos(self, pos: int, **kwargs: Any) -> None:
-        if pos == self.next_frame_idx:
-            return
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        assert 0 <= pos < self.num_frames
         self.next_frame_idx = pos
 
 
-class ErrorIterator(ComponentIterator):
-    def __init__(self, n: int, error_idx: int):
-        self.n = n
-        self.error_idx = error_idx
-        self.output_iter = self.__iter__()
+class FloatRow(TypedDict):
+    f: float
 
-    @classmethod
-    def input_schema(cls) -> dict[str, ts.ColumnType]:
-        return {'n': ts.IntType(), 'error_idx': ts.IntType()}
 
-    @classmethod
-    def output_schema(cls, *args: Any, **kwargs: Any) -> tuple[dict[str, ts.ColumnType], list[str]]:
-        return {'f': ts.FloatType()}, []
-
-    def __iter__(self) -> Iterator[dict[str, Any]]:
-        for i in range(self.n):
-            if i == self.error_idx:
-                raise ValueError
-            yield {'f': float(i)}
-
-    def __next__(self) -> dict[str, Any]:
-        return next(self.output_iter)
-
-    def close(self) -> None:
-        pass
-
-    def set_pos(self, pos: int, **kwargs: Any) -> None:
-        pass
+@pxt.iterator
+def error_iterator(n: int, error_idx: int) -> Iterator[FloatRow]:
+    for i in range(n):
+        if i == error_idx:
+            raise ValueError('Intentional error in iterator')
+        yield {'f': float(i)}
 
 
 class TestComponentView:
@@ -96,18 +69,13 @@ class TestComponentView:
         video_t = pxt.create_table('video_tbl', schema)
         video_filepaths = get_test_video_files()
 
-        # cannot add 'pos' column
-        with pytest.raises(pxt.Error) as excinfo:
-            video_t.add_column(pos=pxt.Int)
-        assert 'reserved' in str(excinfo.value)
-
         # bad parameter type
         with pytest.raises(pxt.Error) as excinfo:
             _ = pxt.create_view('test_view', video_t, iterator=frame_iterator(1, fps=1))
         assert 'argument type Int does not match parameter type Video' in str(excinfo.value)
 
         # create frame view
-        view_t = pxt.create_view('test_view', video_t, iterator=frame_iterator(video_t.video, fps=1))
+        view_t = pxt.create_view('test_view', video_t, iterator=legacy_frame_iterator(video_t.video, fps=1))
         # computed column that references a column from the base
         view_t.add_computed_column(angle2=view_t.angle + 1)
         # computed column that references an unstored and a stored computed view column
@@ -250,7 +218,7 @@ class TestComponentView:
         assert status.num_excs == 0
 
         # create frame view with a computed column
-        view_t = pxt.create_view(view_path, video_t, iterator=ConstantImgIterator.create(video=video_t.video))
+        view_t = pxt.create_view(view_path, video_t, iterator=constant_img_iterator(video_t.video))
         view_t.add_computed_column(
             cropped=view_t.frame.crop([view_t.margin, view_t.margin, view_t.frame.width, view_t.frame.height]),
             stored=True,
@@ -324,7 +292,7 @@ class TestComponentView:
         video_filepaths = get_test_video_files()
 
         # create first view
-        v1 = pxt.create_view('test_view', video_t, iterator=ConstantImgIterator.create(video=video_t.video))
+        v1 = pxt.create_view('test_view', video_t, iterator=constant_img_iterator(video_t.video))
         # computed column that references stored base column
         v1.add_computed_column(int3=v1.int1 + 1)
         # stored computed column that references an unstored and a stored computed view column
@@ -433,7 +401,7 @@ class TestComponentView:
 
         # view creation fails with an exception
         with pytest.raises(pxt.Error, match='aborted'):
-            _ = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=50))
+            _ = pxt.create_view('view', t, iterator=error_iterator(t.i, 50))
 
         # the view metadata got cleaned up
         assert 'view' not in pxt.list_tables()
@@ -441,4 +409,4 @@ class TestComponentView:
             _ = pxt.get_table('view')
 
         # the second attempt succeeds
-        _ = pxt.create_view('view', t, iterator=ErrorIterator.create(n=t.i, error_idx=100))
+        _ = pxt.create_view('view', t, iterator=error_iterator(t.i, 100))

@@ -7,11 +7,9 @@ import sqlalchemy as sql
 from pixeltable import exceptions as excs, exprs, func, type_system as ts
 from pixeltable.utils.code import local_public_names
 
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
 
 # TODO: remove and replace calls with astype()
-def cast(expr: exprs.Expr, target_type: ts.ColumnType | type | _GenericAlias) -> exprs.Expr:
+def cast(expr: exprs.Expr, target_type: ts.ColumnType | type) -> exprs.Expr:
     expr.col_type = ts.ColumnType.normalize_type(target_type)
     return expr
 

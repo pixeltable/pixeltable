@@ -6,9 +6,11 @@ import pathlib
 import subprocess
 import sys
 import time
+import uuid
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pixeltable_pgserver
 import toml
 
@@ -18,6 +20,7 @@ from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
 from pixeltable.iterators.base import ComponentIterator
+from tool.udfs_for_db_dump import test_array_udf, test_binary_udf, test_date_udf, test_timestamp_udf, test_uuid_udf
 
 _logger = logging.getLogger('pixeltable')
 
@@ -52,6 +55,8 @@ SAMPLE_DOCUMENT_URLS = (
 
 
 class CustomLegacyIterator(ComponentIterator):
+    """This is preserved in code for the benefit of version <= 45 database dumps that reference it."""
+
     input_text: str
     expand_by: int
     idx: int
@@ -144,21 +149,25 @@ class Dumper:
 
     # Expression types, predicate types, embedding indices, views on views
     def create_tables(self) -> None:
-        import tool.create_test_db_dump  # noqa: PLW0406  # we need a self-reference since this module is run as main
-
         schema = {
             'c1': pxt.Required[pxt.String],
-            'c1n': pxt.String,
+            'c1n': {'type': pxt.String, 'comment': 'Nullable version of c1'},
             'c2': pxt.Required[pxt.Int],
             'c3': pxt.Required[pxt.Float],
             'c4': pxt.Required[pxt.Bool],
             'c5': pxt.Required[pxt.Timestamp],
             'c6': pxt.Required[pxt.Json],
             'c7': pxt.Required[pxt.Json],
-            'c8': pxt.Image,
+            'c8': {'type': pxt.Image, 'custom_metadata': {'source': 'test'}},
             'c9': pxt.Audio,
             'c10': pxt.Video,
             'c11': pxt.Document,
+            'c12': pxt.Array[np.float64, (10,)],  # type: ignore[misc]
+            'c13': pxt.UUID,
+            'c14': pxt.Date,
+            'c16': pxt.Binary,
+            'c17': pxt.Array,
+            'c18': pxt.Array[(2, None), np.str_],  # type: ignore[misc]
         }
         t = pxt.create_table(
             'base_table', schema, primary_key='c2', comment='This is a test table.', custom_metadata={'key': 'value'}
@@ -192,6 +201,14 @@ class Dumper:
             for i in range(num_rows)
         ]
         c7_data = [d2] * num_rows
+
+        c17_data = [
+            np.zeros((1,), dtype=np.float64),
+            np.ones((2, 2), dtype=np.bool_),
+            np.ones((3,), dtype=np.str_),
+            np.array(0),
+        ]
+
         rows = [
             {
                 'c1': c1_data[i],
@@ -206,12 +223,20 @@ class Dumper:
                 'c9': SAMPLE_AUDIO_URLS[i] if i < len(SAMPLE_AUDIO_URLS) else None,
                 'c10': SAMPLE_VIDEO_URLS[i] if i < len(SAMPLE_VIDEO_URLS) else None,
                 'c11': SAMPLE_DOCUMENT_URLS[i] if i < len(SAMPLE_DOCUMENT_URLS) else None,
+                'c12': np.zeros((10,), dtype=np.float64),
+                'c13': uuid.UUID('a1b2c3d4-e5f6-47a8-b9c0-d1e2f3a4b5c6'),
+                'c14': datetime.date(2026, 2, 6),
+                'c16': b'Hello World!' if i < num_rows / 2 else None,
+                'c17': c17_data[i % len(c17_data)] if i < 10 else None,
+                'c18': np.zeros((2, 2 + (i % 3)), np.str_) if i < 7 else None,
             }
             for i in range(num_rows)
         ]
 
         self.__add_expr_columns(t, 'base_table')
-        t.insert(rows)
+        status = t.insert(rows)
+        assert status.num_excs == 0
+        assert status.num_rows == num_rows
 
         pxt.create_dir('views')
 
@@ -278,10 +303,8 @@ class Dumper:
         # Various iterators
         pxt.create_view('string_splitter', t, iterator=pxtf.string.string_splitter(t.c1, 'sentence'))
         pxt.create_view('tile_iterator', t, iterator=pxtf.image.tile_iterator(t.c8, (64, 64), overlap=(16, 16)))
-        pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.frame_iterator(t.c10, fps=1))
-        pxt.create_view(
-            'frame_iterator_2', t, iterator=pxtf.video.frame_iterator(t.c10, num_frames=5, all_frame_attrs=True)
-        )
+        pxt.create_view('frame_iterator_1', t, iterator=pxtf.video.legacy_frame_iterator(t.c10, fps=1))
+        pxt.create_view('frame_iterator_2', t, iterator=pxtf.video.frame_iterator(t.c10, num_frames=5))
         pxt.create_view('frame_iterator_3', t, iterator=pxtf.video.frame_iterator(t.c10, keyframes_only=True))
         pxt.create_view(
             'document_splitter', t, iterator=pxtf.document.document_splitter(t.c11, 'page', elements=['text'])
@@ -294,9 +317,7 @@ class Dumper:
         pxt.create_view(
             'audio_splitter',
             t.where(t.c2 >= len(SAMPLE_AUDIO_URLS)),
-            iterator=pxtf.audio.audio_splitter(
-                t.c9, chunk_duration_sec=10.0, overlap_sec=1.0, min_chunk_duration_sec=5.0
-            ),
+            iterator=pxtf.audio.audio_splitter(t.c9, duration=10.0, overlap=1.0, min_segment_duration=5.0),
         )
         pxt.create_view(
             'video_splitter',
@@ -309,10 +330,6 @@ class Dumper:
             'video_splitter_2',
             t.where(t.c2 >= len(SAMPLE_VIDEO_URLS)),
             iterator=pxtf.video.video_splitter(t.c10, segment_times=[3.0, 6.0], mode='accurate'),
-        )
-        # Use a qualified references to CustomIterator so that it doesn't get persisted as __main__.CustomIterator
-        pxt.create_view(
-            'custom_iterator', t, iterator=tool.create_test_db_dump.CustomLegacyIterator.create(text=t.c1, expand_by=2)
         )
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:
@@ -424,6 +441,17 @@ class Dumper:
             return t.order_by(sim, asc=False).select(t[f'{col_prefix}_function_call']).limit(5)
 
         add_computed_column('sim_output', q2(t.c1))
+
+        add_computed_column('expr_with_array_literals', test_array_udf(t.c12, np.zeros(10, dtype=np.float64)))
+        add_computed_column(
+            'expr_with_uuid_literals', test_uuid_udf(t.c13, uuid.UUID('00000000-0000-0000-0000-000000000000'))
+        )
+        add_computed_column('expr_with_date_literals', test_date_udf(t.c14, datetime.date(2026, 2, 10)))
+        add_computed_column(
+            'expr_with_ts_literals',
+            test_timestamp_udf(t.c5, datetime.datetime(2026, 2, 10, 21, 15, tzinfo=ZoneInfo('UTC'))),
+        )
+        add_computed_column('expr_with_bin_literals', test_binary_udf(t.c16, b'\xca\xfe'))
 
 
 @pxt.udf(_force_stored=True)

@@ -2,21 +2,35 @@
 Pixeltable UDFs
 that wrap various endpoints from the Google Gemini API. In order to use them, you must
 first `pip install google-genai` and configure your Gemini credentials, as described in
-the [Working with Gemini](https://docs.pixeltable.com/notebooks/integrations/working-with-gemini) tutorial.
+the [Working with Gemini](https://docs.pixeltable.com/howto/providers/working-with-gemini) tutorial.
+
+Supports two authentication methods:
+
+- Google AI Studio: set `GOOGLE_API_KEY` or `GEMINI_API_KEY` (or put `api_key` in the `gemini` section of
+  the Pixeltable config file).
+- Vertex AI: set `GOOGLE_GENAI_USE_VERTEXAI=true` and `GOOGLE_CLOUD_PROJECT` (and optionally
+  `GOOGLE_CLOUD_LOCATION`), then authenticate via Application Default Credentials
+  (e.g. `gcloud auth application-default login`).
 """
 
 import asyncio
+import base64
 import io
 import logging
+import mimetypes
+import os
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Sequence
 
 import numpy as np
 import PIL.Image
+from tenacity import RetryCallState, retry, retry_if_result, stop_after_delay, wait_exponential
 
 import pixeltable as pxt
 from pixeltable import env, exceptions as excs, exprs, type_system as ts
 from pixeltable.func import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.http import exponential_backoff, parse_duration_str
 from pixeltable.utils.local_store import TempStore
@@ -26,16 +40,35 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
+# Max raw file size (bytes) for inline data; larger files use the Files API.
+GEMINI_INLINE_LIMIT_BYTES = 4 * 2**20
+
+# Placeholder key used in first pass for large file uploads.
+_UPLOAD_PLACEHOLDER_KEY = '__google_genai_upload_ref__'
+
 
 @env.register_client('gemini')
-def _(api_key: str) -> 'genai.client.Client':
+def _(api_key: str | None = None) -> 'genai.client.Client':
     from google import genai
 
-    return genai.client.Client(api_key=api_key)
+    try:
+        if api_key is not None:
+            return genai.client.Client(api_key=api_key)
+        # Vertex AI fall-through: rely on genai.client.Client to read its own env vars
+        # (GOOGLE_GENAI_USE_VERTEXAI, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_LOCATION)
+        return genai.client.Client()
+    except Exception as e:
+        raise excs.Error(
+            'Gemini client not initialized. '
+            'For the Gemini Developer API set GOOGLE_API_KEY or GEMINI_API_KEY, '
+            'or set api_key in the [gemini] section of $PIXELTABLE_HOME/config.toml. '
+            'For Vertex AI set GOOGLE_GENAI_USE_VERTEXAI=true and GOOGLE_CLOUD_PROJECT, '
+            'then authenticate via: gcloud auth application-default login'
+        ) from e
 
 
 def _genai_client() -> 'genai.client.Client':
-    return env.Env.get().get_client('gemini')
+    return get_runtime().get_client('gemini')
 
 
 class GeminiRateLimitsInfo(env.RateLimitsInfo):
@@ -101,8 +134,6 @@ async def generate_content(
         >>> tbl.add_computed_column(
         ...     response=generate_content(tbl.prompt, model='gemini-2.5-flash')
         ... )
-
-        Add a computed column that applies the model `gemini-2.5-flash` for image understanding
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -122,8 +153,42 @@ async def generate_content(
             gemini_tools = [__convert_pxt_tool(tool) for tool in tools]
             config_.tools = [types.Tool(function_declarations=gemini_tools)]
 
-    response = await _genai_client().aio.models.generate_content(model=model, contents=contents, config=config_)
-    return response.model_dump()
+    large_video_paths: list[str] = []
+    client = _genai_client()
+
+    contents = _process_media_contents(contents, large_video_paths)
+    async with _gemini_file_uploads(large_video_paths) as uploaded:
+        contents = _replace_upload_placeholders(contents, uploaded)
+        response = await client.aio.models.generate_content(model=model, contents=contents, config=config_)
+        return response.model_dump(mode='json')
+
+
+@asynccontextmanager
+async def _gemini_file_uploads(files: list[str]) -> AsyncIterator[list['genai.types.File']]:
+    """
+    Context manager that makes uploaded files temporarily available to Gemini models, deleting them from the server
+    after use.
+    """
+    client = _genai_client()
+    uploaded: list['genai.types.File'] = []
+
+    try:
+        if len(files) > 0:
+            tasks: list[Coroutine[Any, Any, 'genai.types.File']] = []
+            for file in files:
+                mime_type, _ = mimetypes.guess_type(file, strict=False)
+                if mime_type is None:
+                    raise excs.Error(f'Could not identify mime type of file: {file}')
+                tasks.append(client.aio.files.upload(file=file, config={'mime_type': mime_type}))
+            uploaded = await asyncio.gather(*tasks)
+            # poll till server finished uploading files (state is ACTIVE)
+            await _poll_until_active(async_client=client.aio, uploaded=uploaded, files=files)
+
+        yield uploaded
+
+    finally:
+        if len(uploaded) > 0:
+            await asyncio.gather(*[client.aio.files.delete(name=f.name) for f in uploaded], return_exceptions=True)
 
 
 def __convert_pxt_tool(pxt_tool: dict) -> dict:
@@ -298,16 +363,17 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
-@pxt.udf(batch_size=32)
-async def generate_embedding(
-    input: Batch[str],
+@pxt.udf(batch_size=4)
+async def embed_content(
+    contents: Batch[str],
     *,
     model: str,
     config: dict[str, Any] | None = None,
     use_batch_api: bool = False,
     _runtime_ctx: env.RuntimeCtx | None = None,
 ) -> Batch[pxt.Array[(None,), np.float32]]:
-    """Generate embeddings for the input strings. For more information on Gemini embeddings API, see:
+    """
+    Generate embeddings for text, images, video, and other content. For more information on Gemini embeddings API, see:
     <https://ai.google.dev/gemini-api/docs/embeddings>
 
     __Requirements:__
@@ -315,7 +381,7 @@ async def generate_embedding(
     - `pip install google-genai`
 
     Args:
-        input: The strings to generate embeddings for.
+        contents: The string, image, audio, video, or document to embed.
         model: The Gemini model to use.
         config: Configuration for embedding generation, corresponding to keyword arguments of
             `genai.types.EmbedContentConfig`. For details on the parameters, see:
@@ -324,22 +390,105 @@ async def generate_embedding(
             a higher throughput at a lower cost at the expense of higher latency.
 
     Returns:
-        The generated embeddings.
+        The corresponding embedding vector.
 
     Examples:
         Add a computed column with embeddings to an existing table with a `text` column:
 
-        >>> t.add_computed_column(embedding=generate_embedding(t.text))
+        >>> t.add_computed_column(
+        ...     embedding=embed_content(t.text, model='gemini-embedding-001')
+        ... )
 
         Add an embedding index on `text` column:
 
         >>> t.add_embedding_index(
-        ...    t.text,
-        ...    embedding=generate_embedding.using(
-        ...        model='gemini-embedding-001', config={'output_dimensionality': 3072}
-        ...    ),
-        ...)
+        ...     t.text, embedding=embed_content.using(model='gemini-embedding-001')
+        ... )
     """
+    return await _embed_content(contents, model, config, use_batch_api)
+
+
+@embed_content.overload
+async def _(
+    contents: Batch[PIL.Image.Image],
+    *,
+    model: str,
+    config: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
+) -> Batch[pxt.Array[(None,), np.float32]]:
+    return await _embed_content(contents, model, config, use_batch_api=False)
+
+
+@embed_content.overload
+async def _(
+    contents: Batch[pxt.Audio],
+    *,
+    model: str,
+    config: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
+) -> Batch[pxt.Array[(None,), np.float32]]:
+    return await _embed_file_content(contents, model, config, use_batch_api=False)
+
+
+@embed_content.overload
+async def _(
+    contents: Batch[pxt.Video],
+    *,
+    model: str,
+    config: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
+) -> Batch[pxt.Array[(None,), np.float32]]:
+    return await _embed_file_content(contents, model, config, use_batch_api=False)
+
+
+@embed_content.overload
+async def _(
+    contents: Batch[pxt.Document],
+    *,
+    model: str,
+    config: dict[str, Any] | None = None,
+    _runtime_ctx: env.RuntimeCtx | None = None,
+) -> Batch[pxt.Array[(None,), np.float32]]:
+    return await _embed_file_content(contents, model, config, use_batch_api=False)
+
+
+async def _embed_file_content(
+    contents: list[str], model: str, config: dict[str, Any] | None, use_batch_api: bool
+) -> Batch[pxt.Array[(None,), np.float32]]:
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
+
+    large_files: list[str] = []
+    for item in contents:
+        size_bytes = os.stat(item).st_size
+        if size_bytes > GEMINI_INLINE_LIMIT_BYTES:
+            large_files.append(item)
+
+    async with _gemini_file_uploads(large_files) as uploaded:
+        upload_map = dict(zip(large_files, uploaded))
+        contents_: list[types.ContentUnion] = []
+        for item in contents:
+            if item in upload_map:
+                contents_.append(upload_map[item])
+            else:
+                mime_type, _ = mimetypes.guess_type(item, strict=False)
+                if mime_type is None:
+                    raise excs.Error(f'Could not identify mime type of file: {item}')
+
+                try:
+                    # TODO: Do this on a background thread.
+                    data = Path(item).read_bytes()
+                except (OSError, ValueError) as exc:
+                    raise excs.Error(f'Error reading file for embedding: {item}') from exc
+
+                contents_.append(types.Part.from_bytes(data=data, mime_type=mime_type))
+
+        return await _embed_content(contents_, model, config, use_batch_api)
+
+
+async def _embed_content(
+    contents: Sequence['genai.types.ContentUnion'], model: str, config: dict[str, Any] | None, use_batch_api: bool
+) -> Batch[pxt.Array[(None,), np.float32]]:
     env.Env.get().require_package('google.genai')
     from google.genai import types
 
@@ -350,14 +499,14 @@ async def generate_embedding(
     config_ = _embedding_config(config)
 
     if not use_batch_api:
-        result = await client.aio.models.embed_content(model=model, contents=cast(list[Any], input), config=config_)
-        assert len(result.embeddings) == len(input)
+        result = await client.aio.models.embed_content(model=model, contents=list(contents), config=config_)
+        assert len(result.embeddings) == len(contents)
         return [np.array(emb.values, dtype=np.float32) for emb in result.embeddings]
 
     # Batch API
     batch_job = client.batches.create_embeddings(
         model=model,
-        src=types.EmbeddingsBatchJobSource(inlined_requests=types.EmbedContentBatch(contents=input, config=config_)),
+        src=types.EmbeddingsBatchJobSource(inlined_requests=types.EmbedContentBatch(contents=contents, config=config_)),
     )
 
     await asyncio.sleep(3)
@@ -390,10 +539,13 @@ async def generate_embedding(
     return results
 
 
-_DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL: dict[str, int] = {'gemini-embedding-001': 3072}
+_DEFAULT_EMBEDDING_DIMENSIONALITY_BY_MODEL: dict[str, int] = {
+    'gemini-embedding-001': 3072,
+    'gemini-embedding-2-preview': 3072,
+}
 
 
-@generate_embedding.conditional_return_type
+@embed_content.conditional_return_type
 def _(model: str, config: dict | None) -> ts.ArrayType:
     config_ = _embedding_config(config)
     dim = config_.output_dimensionality
@@ -402,7 +554,7 @@ def _(model: str, config: dict | None) -> ts.ArrayType:
     return ts.ArrayType((dim,), dtype=np.dtype('float32'), nullable=False)
 
 
-@generate_embedding.resource_pool
+@embed_content.resource_pool
 def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
@@ -411,6 +563,105 @@ def _embedding_config(config: dict | None) -> 'genai.types.EmbedContentConfig':
     from google.genai import types
 
     return types.EmbedContentConfig(**config) if config else types.EmbedContentConfig()
+
+
+def _is_processing(remote_files: list['genai.types.File']) -> bool:
+    from google.genai import types
+
+    return any(file.state != types.FileState.ACTIVE for file in remote_files)
+
+
+def _handle_polling_timeout(retry_state: RetryCallState) -> None:
+    """Triggered when timeout is reached."""
+    from google.genai import types
+
+    remote_files: list[types.File] = retry_state.outcome.result()
+
+    # Extract files from the keyword arguments
+    files: list[str] = retry_state.kwargs.get('files', [])
+    stuck_details = []
+    for i, file in enumerate(remote_files):
+        if file.state != types.FileState.ACTIVE:
+            local_path = files[i] if i < len(files) else 'Unknown path'
+            stuck_details.append(f'{local_path} (ID: {file.name}, State: {file.state.name})')
+
+    detail_str = '\n- '.join(stuck_details)
+    raise excs.Error(f'Timeout: failed to upload {len(stuck_details)}/{len(remote_files)} file(s):\n- {detail_str}')
+
+
+@retry(
+    retry=retry_if_result(_is_processing),
+    wait=wait_exponential(multiplier=1, min=2, max=30),
+    stop=stop_after_delay(600),
+    retry_error_callback=_handle_polling_timeout,
+)
+async def _poll_until_active(
+    async_client: 'genai.client.AsyncClient', uploaded: list['genai.types.File'], files: list[str]
+) -> list['genai.types.File']:
+    from google.genai import types
+
+    # Collect statuses for all uploaded files
+    remote_files = await asyncio.gather(*[async_client.files.get(name=f.name) for f in uploaded])
+    for i, file in enumerate(remote_files):
+        if file.state == types.FileState.FAILED:
+            # Fail immediately
+            raise excs.Error(f'Server processing failed for {files[i]} ({file.name})')
+    return remote_files
+
+
+def _process_media_contents(data: Any, large_video_paths: list[str]) -> Any:
+    """
+    Recursively traverse a nested content structure (dict/list/str) and process video file paths.
+
+    - Strings that are not local video file paths are returned unchanged.
+    - Small video files (<= GEMINI_INLINE_LIMIT_BYTES * 0.75) are base64-encoded inline.
+    - Large video files are queued for async upload and replaced with a placeholder dict
+      (keyed by _UPLOAD_PLACEHOLDER_KEY) to be resolved later by _replace_upload_placeholders.
+
+    Returns the same nested structure with video path strings replaced by inline_data or placeholder dicts.
+    """
+    if isinstance(data, dict):
+        return {k: _process_media_contents(v, large_video_paths) for k, v in data.items()}
+    if isinstance(data, list):
+        return [_process_media_contents(v, large_video_paths) for v in data]
+    if isinstance(data, str):
+        # Check if string is a file path containing video
+        mime_type, _ = mimetypes.guess_type(data, strict=False)
+        if mime_type is None or not mime_type.lower().startswith('video/'):
+            return data
+        local_path = Path(data).expanduser()
+        try:
+            if not local_path.exists():
+                return data
+        except (OSError, ValueError):
+            return data
+        size_bytes = local_path.stat().st_size
+        if size_bytes <= GEMINI_INLINE_LIMIT_BYTES * 3 // 4:  # scale by 0.75 to account for base64 expansion
+            # TODO: Do this on a background thread.
+            data_b64 = base64.b64encode(local_path.read_bytes()).decode('utf-8')
+            return {'inline_data': {'mime_type': mime_type, 'data': data_b64}}
+        # Record the large file for upload and insert a placeholder to be resolved later
+        large_video_paths.append(str(local_path))
+        return {_UPLOAD_PLACEHOLDER_KEY: {'task_id': len(large_video_paths) - 1, 'mime_type': mime_type}}
+    return data
+
+
+def _replace_upload_placeholders(obj: Any, uploaded: list['genai.types.File']) -> Any:
+    """
+    Recursively traverse a nested content structure (dict/list/str) and resolve upload placeholders.
+
+    Returns the same nested structure with all placeholders replaced by file_data dicts.
+    """
+    if isinstance(obj, dict) and _UPLOAD_PLACEHOLDER_KEY in obj:
+        idx = obj[_UPLOAD_PLACEHOLDER_KEY]['task_id']
+        mime_type = obj[_UPLOAD_PLACEHOLDER_KEY]['mime_type']
+        f = uploaded[idx]
+        return {'file_data': {'file_uri': f.uri, 'mime_type': mime_type}}
+    if isinstance(obj, dict):
+        return {k: _replace_upload_placeholders(v, uploaded) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_replace_upload_placeholders(v, uploaded) for v in obj]
+    return obj
 
 
 __all__ = local_public_names(__name__)

@@ -3,6 +3,90 @@ title: "Deployment Overview"
 description: "Choose the right deployment strategy for your Pixeltable application"
 ---
 
+## What Pixeltable Replaces
+
+Most multimodal AI stacks look like this: blob storage for media, a relational database for metadata, a vector database for embeddings, an orchestrator for scheduling, and custom glue code holding it all together.
+
+<Tabs>
+  <Tab title="Traditional Stack">
+
+```mermaid
+flowchart LR
+    S3[S3 / GCS] --> Orch[Airflow / Prefect]
+    Orch --> PG[(PostgreSQL)]
+    Orch --> VDB[(Vector DB)]
+    PG --- Cache[Redis]
+    PG --- Glue[Glue Code]
+    VDB --- Glue
+```
+
+**5+ services to deploy and maintain:** blob storage, orchestrator, relational DB, vector DB, cache — plus custom retry logic, rate limiting, sync scripts, and error handling to wire them together.
+
+  </Tab>
+  <Tab title="With Pixeltable">
+
+```mermaid
+flowchart LR
+    Refs[S3 / GCS] -->|references| CC[Computed Columns]
+    CC --> Query[Query + Search]
+```
+
+**1 Python import.** Storage, orchestration, caching, vector indexing, rate limiting, and retry logic are built in. The infrastructure you don't deploy is infrastructure you don't maintain.
+
+  </Tab>
+</Tabs>
+
+### Systems Pixeltable Replaces
+
+You don't install, configure, or manage these — Pixeltable handles them natively.
+
+| Instead of … | With Pixeltable … |
+|---|---|
+| **PostgreSQL / MySQL** | `pxt.create_table()` — schema is Python, versioned automatically |
+| **Pinecone / Weaviate / Qdrant** | `add_embedding_index()` — one line, auto-maintained on insert/update/delete |
+| **S3 / boto3 / blob storage** | `pxt.Image` / `Video` / `Audio` / `Document` types with transparent caching; `destination='s3://…'` for cloud routing |
+| **Airflow / Prefect / Celery** | Computed columns trigger on insert — no orchestrator, no workers, no DAGs |
+| **LangChain / LlamaIndex** (RAG) | `@pxt.query` + `.similarity()` + computed column chaining |
+| **pandas / polars** (multimodal) | `.sample()`, ephemeral UDFs, then `add_computed_column()` to commit — [same code, prototype to production](/howto/cookbooks/core/dev-iterative-workflow) |
+| **DVC / MLflow / W&B** | Built-in [`history()`](/platform/version-control), [`revert()`](/platform/version-control), time travel (`table:N`), [snapshots](/platform/version-control) — zero config |
+| **Custom retry / rate-limit / caching** | Built into every [AI integration](/integrations/frameworks); results cached, only new rows recomputed |
+| **Custom ETL / glue code** | Declarative schema — Pixeltable handles execution, caching, incremental updates |
+
+### Tools Pixeltable Abstracts
+
+These tools run under the hood, but you interact through a cleaner interface. This is a sample — Pixeltable wraps [30+ AI providers](/integrations/frameworks), [dozens of built-in functions](/sdk/latest/image) for media and data processing, and supports any Python library via [`@pxt.udf`](/platform/udfs-in-pixeltable).
+
+| Tool | Raw usage | Through Pixeltable |
+|---|---|---|
+| **FFmpeg** | Install binary, subprocess calls, format conversion, frame seeking | [`extract_audio(video, format='mp3')`](/sdk/latest/video#udf-extract_audio) for audio; [`frame_iterator(video, fps=1)`](/sdk/latest/video#iterator-frame_iterator) for frame extraction via `pxt.create_view()` |
+| **Pillow/PIL** | `Image.open()`, resize, convert, encode, save, handle formats | [`pixeltable.functions.image`](/sdk/latest/image) module: `resize()`, `crop()`, `thumbnail()`, `b64_encode()`, `rotate()`, `blend()`, plus `width()`, `height()`, `get_metadata()` |
+| **spaCy** | `pip install spacy`, download model, load pipeline, parse documents | [`document_splitter(doc, separators='sentence')`](/sdk/latest/document#iterator-document_splitter) — spaCy runs under the hood (configurable via `spacy_model` parameter). Also supports `'heading'`, `'paragraph'`, `'page'`, `'token_limit'`, `'char_limit'` separators |
+| **sentence-transformers** | Load model, tokenize, encode batches, normalize vectors | [`sentence_transformer.using(model_id='intfloat/e5-large-v2')`](/sdk/latest/huggingface) passed to `add_embedding_index()`. Pixeltable handles model loading, batching, and index maintenance |
+| **OpenAI CLIP** | Load model, preprocess images/text differently, encode, handle multimodal alignment | [`clip.using(model_id='openai/clip-vit-base-patch32')`](/sdk/latest/huggingface) — multimodal embedding index that accepts both image and text queries for cross-modal search |
+| **OpenAI Whisper** | API key setup, audio format handling, chunking long files, parsing responses | [`openai.transcriptions(audio=table.audio_col, model='whisper-1')`](/sdk/latest/openai#udf-transcriptions) as a computed column — automatic rate limiting, caching. Also supports local Whisper via [`whisper.transcribe()`](/sdk/latest/whisper) |
+| **Anthropic Claude tool calling** | Construct messages, define tool schemas as JSON, parse tool_use blocks, execute tools, re-call with results | [`anthropic.messages()`](/sdk/latest/anthropic) + [`anthropic.invoke_tools()`](/sdk/latest/anthropic) + [`pxt.tools()`](/howto/cookbooks/agents/llm-tool-calling) — all as chained computed columns. Tool schemas derived automatically from `@pxt.udf` function signatures |
+| **+ many more** | | See the full [SDK Reference](/sdk/latest/pixeltable), [AI Integrations](/integrations/frameworks), [Cookbooks](/howto/cookbooks/agents/pattern-rag-pipeline), and [Cheat Sheet](/howto/deployment/cheatsheet) |
+
+### What Pixeltable Doesn't Replace
+
+You still need these — Pixeltable is a data layer, not a full application framework.
+
+| Tool | Why you still need it |
+|---|---|
+| **FastAPI / Flask / Django** | Pixeltable is a data layer, not a web server — you need an HTTP framework to serve your API |
+| **Pydantic** | Request/response validation for your API endpoints (Pixeltable's `.to_pydantic()` bridges the two) |
+| **React / Vue / frontend** | UI layer — Pixeltable has no frontend |
+| **Docker / Kubernetes / Terraform** | Deployment infrastructure — Pixeltable runs *inside* your containers, it doesn't provision them |
+| **Authentication / authorization** | User management, API keys, OAuth — outside Pixeltable's scope |
+| **Domain-specific UDFs** | Business logic you write as `@pxt.udf` functions (e.g., web search, custom scoring) — Pixeltable provides the framework, you provide the logic |
+
+<Tip>
+**Migrating from a specific stack?** See the step-by-step migration guides with side-by-side code comparisons:
+- [From DIY Data Pipelines](/migrate/from-diy-data-pipeline) — replace custom scripts, DVC, Airflow, and manual processing
+- [From RDBMS & Vector DBs](/migrate/from-rdbms-vectordbs) — replace Postgres + Pinecone + LangChain RAG stacks
+- [From Agent Frameworks](/migrate/from-agent-frameworks) — replace LangGraph, CrewAI, and similar agent DSLs
+</Tip>
+
 ## Deployment Decision Guide
 
 Pixeltable supports two production deployment patterns. Choose based on your constraints:
@@ -196,6 +280,7 @@ flowchart TB
 
 ```python
 # Example: FastAPI endpoints backed by Pixeltable
+from pydantic import BaseModel
 from fastapi import FastAPI, UploadFile
 from datetime import datetime
 import pixeltable as pxt
@@ -203,8 +288,13 @@ import pixeltable as pxt
 app = FastAPI()
 docs_table = pxt.get_table('myapp/documents')  # Has computed columns: embedding, summary
 
+class SearchResult(BaseModel):
+    document: str
+    summary: str | None
+    similarity: float
+
 @app.post("/documents/upload")
-async def upload_document(file: UploadFile):
+def upload_document(file: UploadFile):
     status = docs_table.insert([{
         'document': file.filename,
         'uploaded_at': datetime.now()
@@ -212,21 +302,38 @@ async def upload_document(file: UploadFile):
     return {"rows_inserted": status.num_rows}
 
 @app.get("/documents/search")
-async def search_documents(query: str, limit: int = 10):
+def search_documents(query: str, limit: int = 10) -> list[SearchResult]:
     sim = docs_table.embedding.similarity(string=query)
     results = docs_table.select(
         docs_table.document,
-        docs_table.summary,  # LLM-generated summary (computed column)
+        docs_table.summary,
         similarity=sim
     ).order_by(sim, asc=False).limit(limit).collect()
 
-    return {"results": list(results)}
+    return list(results.to_pydantic(SearchResult))
 
 @app.get("/documents/{doc_id}")
-async def get_document(doc_id: int):
+def get_document(doc_id: int):
     result = docs_table.where(docs_table._rowid == doc_id).collect()
     return result[0] if len(result) > 0 else {"error": "Not found"}
 ```
+
+<Tip>
+**Use sync (`def`) endpoints, not `async def`.** FastAPI dispatches sync endpoints to a thread pool, giving each request its own thread. Pixeltable is thread-safe and handles concurrent requests automatically. Using `async def` would block the event loop and serialize all requests. See [Production Operations](/howto/deployment/operations) for details.
+</Tip>
+
+## Get Started
+
+<Card title="Pixeltable Starter Kit" icon="rocket" href="https://github.com/pixeltable/pixeltable-starter-kit">
+  A production-ready starter app with a FastAPI backend and React frontend — multimodal upload, cross-modal search, and a tool-calling agent, all wired through Pixeltable computed columns. Includes deployment configs for Docker Compose, Helm, Terraform (EKS/GKE/AKS), and AWS CDK.
+</Card>
+
+The starter kit contains two reference architectures matching the deployment strategies above:
+
+| Architecture | Pattern | What it demonstrates |
+|---|---|---|
+| **Starter Kit** (main app) | Pixeltable as **full backend** | FastAPI + React with persistent storage, multimodal upload, cross-modal search, tool-calling agent |
+| **[Orchestration Pipeline](https://github.com/pixeltable/pixeltable-starter-kit/tree/main/pipeline)** | Pixeltable as **ephemeral processing engine** | Batch ingest, computed column processing, `export_sql` to serving DB, media routing to cloud buckets |
 
 ## Next Steps
 

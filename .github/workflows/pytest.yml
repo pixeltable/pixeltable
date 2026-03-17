@@ -48,9 +48,11 @@ env:
   PIXELTABLE_ENABLE_MPS: false  # Disable MPS on MacOS runners until/unless we find a way to cope with memory limits
   PIXELTABLE_R2_PROFILE: r2_profile
   PIXELTABLE_TIGRIS_PROFILE: tigris_profile
+  PIXELTABLE_VERBOSITY: 0  # Suppress console output; we'll get log messages anyway when we need them
   PXTTEST_COCKROACH_DB_CONNECT_STR: ${{ secrets.PXTTEST_COCKROACH_DB_CONNECT_STR }}
   PXTTEST_COCKROACH_DB_ROOT_CERT: ${{ secrets.PXTTEST_COCKROACH_DB_ROOT_CERT }}
   PXTTEST_IN_CI: 1
+  MINTLIFY_VERSION: 4.2.357
   UV_VERSION: 0.9.3
 
   # The llama-cpp-python build fails in CI with LLaVA support enabled. If we ever want to test specific LLaVA
@@ -85,6 +87,7 @@ env:
   RUNWAYML_API_SECRET: ${{ secrets.RUNWAYML_API_SECRET }}
   TIGRIS_ACCESS_KEY_ID: ${{ secrets.TIGRIS_ACCESS_KEY_ID }}
   TIGRIS_SECRET_ACCESS_KEY: ${{ secrets.TIGRIS_SECRET_ACCESS_KEY }}
+  # BFL_API_KEY: ${{ secrets.BFL_API_KEY }}  # Disabled: paid API with limited credits
   REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
   REVE_API_KEY: ${{ secrets.REVE_API_KEY }}
   TOGETHER_API_KEY: ${{ secrets.TOGETHER_API_KEY }}
@@ -228,9 +231,9 @@ jobs:
         run: |
           # Install quarto and mintlify in order to build the docs
           conda install -y -c conda-forge quarto nodejs
-          npm install -g @mintlify/cli
+          npm install -g mint@$MINTLIFY_VERSION
           python -m pixeltable_doctools.build
-          cd target/docs && mintlify broken-links
+          cd target/docs && mint broken-links
       - name: Lint
         if: ${{ matrix.test-category == 'lint' }}
         run: ruff check pixeltable tests tool

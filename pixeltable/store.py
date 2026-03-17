@@ -15,6 +15,7 @@ from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
 from pixeltable.metadata import schema
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.exception_handler import run_cleanup
 from pixeltable.utils.sql import log_explain, log_stmt
 
@@ -90,7 +91,7 @@ class StoreBase:
             # derive our rowid Columns from the existing table, without having to access self.base.store_tbl:
             # self.base may not exist anymore (both this table and our base got dropped in the same transaction, and
             # the base was finalized before this table)
-            with Env.get().begin_xact(for_write=False) as conn:
+            with get_runtime().begin_xact(for_write=False) as conn:
                 q = (
                     f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r} '
                     'ORDER BY ordinal_position'
@@ -161,7 +162,7 @@ class StoreBase:
             .where(self.v_min_col <= self.tbl_version.get().version)
             .where(self.v_max_col > self.tbl_version.get().version)
         )
-        conn = Env.get().conn
+        conn = get_runtime().conn
         result = conn.execute(stmt).scalar_one()
         assert isinstance(result, int)
         return result
@@ -174,7 +175,7 @@ class StoreBase:
         enclosing transaction (and the ability to run additional statements in that same transaction).
         """
         while True:
-            with Env.get().begin_xact(for_write=True) as conn:
+            with get_runtime().begin_xact(for_write=True) as conn:
                 try:
                     if wait_for_table and not Env.get().is_using_cockroachdb:
                         # Try to lock the table to make sure that it exists. This needs to run in the same transaction
@@ -204,7 +205,7 @@ class StoreBase:
 
     def _store_tbl_exists(self) -> bool:
         """Returns True if the store table exists, False otherwise."""
-        with Env.get().begin_xact(for_write=False) as conn:
+        with get_runtime().begin_xact(for_write=False) as conn:
             q = (
                 'SELECT COUNT(*) FROM pg_catalog.pg_tables '
                 f"WHERE schemaname = 'public' AND tablename = {self._storage_name()!r}"
@@ -249,20 +250,28 @@ class StoreBase:
             self.create_index(id)
 
     def create_index(self, idx_id: int) -> None:
-        """Create If Not Exists for this index"""
+        """Create index if not exists"""
         idx_info = self.tbl_version.get().idxs[idx_id]
         stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
         self._exec_if_not_exists(str(stmt), wait_for_table=True)
 
     def drop_index(self, idx_id: int) -> None:
-        """Drop If Exists for this index"""
+        """Drop index if exists"""
         idx_info = self.tbl_version.get().idxs[idx_id]
-        stmt = idx_info.idx.sa_create_stmt(self.tbl_version.get()._store_idx_name(idx_id), idx_info.val_col.sa_col)
-        self._exec_if_not_exists(str(stmt), wait_for_table=True)
+        store_index_name = self.tbl_version.get()._store_idx_name(idx_id)
+        stmt = idx_info.idx.sa_drop_stmt(store_index_name, idx_info.val_col.sa_col)
+        with get_runtime().begin_xact(for_write=True) as conn:
+            try:
+                conn.execute(sql.text(str(stmt)))
+            except (sql.exc.IntegrityError, sql.exc.ProgrammingError) as e:
+                Env.get().console_logger.info(f'{stmt} failed with: {e}')
+                if not isinstance(e.orig, psycopg.errors.UndefinedTable):
+                    raise
+                # Table no longer exists -- nothing to drop, ignore error
 
     def validate(self) -> None:
         """Validate store table against self.table_version"""
-        with Env.get().begin_xact() as conn:
+        with get_runtime().begin_xact() as conn:
             # check that all columns are present
             q = f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r}'
             store_col_info = {row[0] for row in conn.execute(sql.text(q)).fetchall()}
@@ -279,7 +288,7 @@ class StoreBase:
 
     def drop(self) -> None:
         """Drop store table"""
-        conn = Env.get().conn
+        conn = get_runtime().conn
         drop_stmt = f'DROP TABLE IF EXISTS {self._storage_name()}'
         conn.execute(sql.text(drop_stmt))
 
@@ -290,16 +299,20 @@ class StoreBase:
             f'{sa_col.name} {col_type_str} {"NOT " if not sa_col.nullable else ""} NULL'
         )
 
-    def add_column(self, col: catalog.Column) -> None:
+    def add_column(self, col: catalog.Column, if_not_exists: bool) -> None:
         """Add column(s) to the store-resident table based on a catalog column"""
         assert col.is_stored
-        conn = Env.get().conn
+        conn = get_runtime().conn
         col_type_str = col.sa_col_type.compile(dialect=conn.dialect)
-        s_txt = f'ALTER TABLE {self._storage_name()} ADD COLUMN {col.store_name()} {col_type_str} NULL'
+        if_not_exists_clause = 'IF NOT EXISTS' if if_not_exists else ''
+        s_txt = (
+            f'ALTER TABLE {self._storage_name()} '
+            f'ADD COLUMN {if_not_exists_clause} {col.store_name()} {col_type_str} NULL'
+        )
         added_storage_cols = [col.store_name()]
         if col.stores_cellmd:
             cellmd_type_str = col.sa_cellmd_type().compile(dialect=conn.dialect)
-            s_txt += f' , ADD COLUMN {col.cellmd_store_name()} {cellmd_type_str} DEFAULT NULL'
+            s_txt += f' , ADD COLUMN {if_not_exists_clause} {col.cellmd_store_name()} {cellmd_type_str} DEFAULT NULL'
             added_storage_cols.append(col.cellmd_store_name())
 
         stmt = sql.text(s_txt)
@@ -308,17 +321,18 @@ class StoreBase:
         self.create_sa_tbl()
         _logger.info(f'Added columns {added_storage_cols} to storage table {self._storage_name()}')
 
-    def drop_column(self, col: catalog.Column) -> None:
+    def drop_column(self, col: catalog.Column, if_exists: bool) -> None:
         """Execute Alter Table Drop Column statement"""
-        s_txt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {col.store_name()}'
+        if_exists_clause = 'IF EXISTS' if if_exists else ''
+        s_txt = f'ALTER TABLE {self._storage_name()} DROP COLUMN {if_exists_clause} {col.store_name()}'
         if col.stores_cellmd:
-            s_txt += f' , DROP COLUMN {col.cellmd_store_name()}'
+            s_txt += f' , DROP COLUMN {if_exists_clause} {col.cellmd_store_name()}'
         stmt = sql.text(s_txt)
         log_stmt(_logger, stmt)
-        Env.get().conn.execute(stmt)
+        get_runtime().conn.execute(stmt)
 
-    def load_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
-        """Update store column of a computed column with values produced by an execution plan
+    def write_column(self, col: catalog.Column, exec_plan: ExecNode, abort_on_exc: bool) -> int:
+        """Populate store column of a computed column with values produced by an execution plan
 
         Returns:
             number of rows with exceptions
@@ -341,7 +355,7 @@ class StoreBase:
         tmp_col_names = [col.name for col in tmp_cols]
 
         tmp_tbl = sql.Table(tmp_name, self.sa_md, *tmp_cols, prefixes=['TEMPORARY'])
-        conn = Env.get().conn
+        conn = get_runtime().conn
         tmp_tbl.create(bind=conn)
 
         row_builder = exec_plan.row_builder
@@ -463,7 +477,7 @@ class StoreBase:
     @classmethod
     def sql_insert(cls, sa_tbl: sql.Table, store_col_names: list[str], table_rows: list[tuple[Any]]) -> None:
         assert len(table_rows) > 0
-        conn = Env.get().conn
+        conn = get_runtime().conn
         conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
 
         # TODO: Inserting directly via psycopg delivers a small performance benefit, but is somewhat fraught due to
@@ -528,7 +542,7 @@ class StoreBase:
             .where(rowid_join_clause)
             .where(base_versions_clause)
         )
-        conn = Env.get().conn
+        conn = get_runtime().conn
         log_explain(_logger, stmt, conn)
         status = conn.execute(stmt)
         return status.rowcount
@@ -545,7 +559,7 @@ class StoreBase:
             .where(self.v_max_col > version)
             .where(sql.exists().where(filter_predicate))
         )
-        conn = Env.get().conn
+        conn = get_runtime().conn
         _logger.debug(stmt)
         log_explain(_logger, stmt, conn)
         result = conn.execute(stmt)
@@ -557,7 +571,7 @@ class StoreBase:
         When instantiating a replica, we can't rely on the usual insertion code path, which contains error handling
         and other logic that doesn't apply.
         """
-        conn = Env.get().conn
+        conn = get_runtime().conn
         for batch in more_itertools.batched(rows, batch_size):
             conn.execute(sql.insert(self.sa_tbl), batch)
 
@@ -628,7 +642,10 @@ class StoreComponentView(StoreView):
             tbl_version = self.tbl_version.get()
         super().create_sa_tbl(tbl_version)
         # we need to fix up the 'pos' column in TableVersion
-        tbl_version.cols_by_name['pos'].sa_col = self.pos_col
+        # it is always the first column in iteration order.
+        name, pxt_pos_col = next(iter(tbl_version.cols_by_name.items()))
+        assert name == 'pos' or name.startswith('pos_'), name
+        pxt_pos_col.sa_col = self.pos_col
 
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
         return sql.and_(

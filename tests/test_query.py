@@ -12,6 +12,7 @@ import pytest
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.functions.string import isalpha, isascii
 from pixeltable.functions.video import frame_iterator
 
 from .utils import (
@@ -21,7 +22,7 @@ from .utils import (
     get_video_files,
     reload_catalog,
     skip_test_if_not_installed,
-    strip_lines,
+    validate_repr,
     validate_update_status,
 )
 
@@ -367,6 +368,64 @@ class TestQuery:
         print(res)
         assert res[0]['get_val'][0]['foo'] == [2, 3, 4]
 
+    def test_pagination(self, uses_db: None) -> None:
+        """Test limit with offset for pagination"""
+        # Create a simple table without computed columns to avoid versioning issues
+        t = pxt.create_table('pagination_test', {'id': pxt.Int, 'value': pxt.String})
+        rows = [{'id': i, 'value': f'row_{i}'} for i in range(50)]
+        t.insert(rows)
+
+        # Test basic offset - first page
+        res = t.select(t.id).order_by(t.id).limit(5, offset=0).collect()
+        assert len(res) == 5
+        assert [row['id'] for row in res] == list(range(5))
+
+        # Test pagination: skip first 5, get next 5
+        res = t.select(t.id).order_by(t.id).limit(5, offset=5).collect()
+        assert len(res) == 5
+        assert [row['id'] for row in res] == list(range(5, 10))
+
+        # Test pagination: skip first 10, get next 5
+        res = t.select(t.id).order_by(t.id).limit(5, offset=10).collect()
+        assert len(res) == 5
+        assert [row['id'] for row in res] == list(range(10, 15))
+
+        # Test offset larger than result set
+        res = t.select(t.id).limit(10, offset=50).collect()
+        assert len(res) == 0
+
+        # Test offset with where clause
+        res = t.where(t.id >= 10).select(t.id).order_by(t.id).limit(5, offset=5).collect()
+        assert len(res) == 5
+        assert [row['id'] for row in res] == list(range(15, 20))
+
+        # Test that offset=0 is equivalent to no offset
+        res_no_offset = t.select(t.id).order_by(t.id).limit(5).collect()
+        res_with_zero_offset = t.select(t.id).order_by(t.id).limit(5, offset=0).collect()
+        assert res_no_offset == res_with_zero_offset
+
+        # Test offset near end of results
+        res = t.select(t.id).order_by(t.id).limit(10, offset=45).collect()
+        assert len(res) == 5  # Only 5 rows left
+        assert [row['id'] for row in res] == list(range(45, 50))
+
+        # Test pagination with Python filter (forces Python-side offset handling)
+        # Using a UDF that can't be converted to SQL
+        @pxt.udf(_force_stored=True)
+        def is_even_py(x: int) -> bool:
+            return x % 2 == 0
+
+        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(5, offset=5).collect()
+        assert len(res) == 5
+        assert [row['id'] for row in res] == [10, 12, 14, 16, 18]
+
+        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(10, offset=20).collect()
+        assert len(res) == 5  # Only 5 left
+        assert [row['id'] for row in res] == [40, 42, 44, 46, 48]
+
+        res = t.select(t.id).where(is_even_py(t.id)).order_by(t.id).limit(5, offset=25).collect()
+        assert len(res) == 0  # No more rows
+
     def test_head_tail(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         res = t.head(10).to_pandas()
@@ -404,20 +463,20 @@ class TestQuery:
         query = t.select(t.c1, t.c1.upper(), t.c2 + 5).where(t.c2 < 10).group_by(t.c1).order_by(t.c3).limit(10)
         query.describe()
 
-        r = repr(query)
-        assert strip_lines(r) == strip_lines(
-            """Name              Type  Expression
-               c1  Required[String]          c1
-            upper  Required[String]  c1.upper()
-            col_2     Required[Int]      c2 + 5
+        validate_repr(
+            query,
+            """   Name              Type  Expression
+               -------------------------------------
+                    c1  Required[String]          c1
+                 upper  Required[String]  c1.upper()
+                 col_2     Required[Int]      c2 + 5
 
-            From      test_tbl
-            Where      c2 < 10
-            Group By        c1
-            Order By    c3 asc
-            Limit           10"""
+               From      test_tbl
+               Where      c2 < 10
+               Group By        c1
+               Order By    c3 asc
+               Limit           10""",
         )
-        _ = query._repr_html_()  # TODO: Is there a good way to test this output?
 
     def test_count(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl
@@ -553,7 +612,7 @@ class TestQuery:
 
         # grouping_tbl
 
-        t2 = pxt.create_table('test_tbl_2', {'name': ts.StringType(), 'video': ts.VideoType()})
+        t2 = pxt.create_table('test_tbl_2', {'name': pxt.String, 'video': pxt.Video})
         v2 = pxt.create_view('test_view_2', t2, iterator=frame_iterator(t2.video, fps=1))
         with pytest.raises(pxt.Error) as exc_info:
             v2.select(pxt.functions.video.make_video(v2.pos, v2.frame)).group_by(t2).update({'name': 'test'})
@@ -722,7 +781,7 @@ class TestQuery:
 
         from pixeltable.functions.yolox import yolo_to_coco, yolox
 
-        base_t = pxt.create_table('videos', {'video': ts.VideoType()})
+        base_t = pxt.create_table('videos', {'video': pxt.Video})
         view_t = pxt.create_view('frames', base_t, iterator=frame_iterator(base_t.video, fps=1))
         view_t.add_computed_column(detections=yolox(view_t.frame, model_id='yolox_m'))
         base_t.insert(video=get_video_files()[0])
@@ -901,3 +960,17 @@ class TestQuery:
         with pytest.raises(pxt.Error, match=r'Extra fields .* are not allowed in model') as exc_info:
             _ = list(t.select(t.i, t.s, t.f, t.b, t.ts, t.d, extra=t.i + t.f).collect().to_pydantic(StrictTestModel))
         assert extract_fields(exc_info) == {'extra'}
+
+    @pytest.mark.benchmark(group='select_inexpensive')
+    def test_select_inexpensive(self, uses_db: None, benchmark: Any) -> None:
+        t = pxt.create_table('test_inexpensive', {'c1': pxt.Int, 'c2': pxt.String})
+
+        row_count = 100000
+
+        t.insert({'c1': i, 'c2': f'str_{i}'} for i in range(row_count))
+
+        def select_inexpensive() -> None:
+            res = t.select(t.c1, t.c2, isascii(t.c2), isalpha(t.c2)).collect()
+            assert len(res) == row_count
+
+        benchmark(select_inexpensive)

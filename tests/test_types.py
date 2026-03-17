@@ -42,8 +42,6 @@ from pixeltable.type_system import (
 
 from .utils import skip_test_if_not_installed
 
-from typing import _GenericAlias  # type: ignore[attr-defined]  # isort: skip
-
 
 class TestTypes:
     json_schema_1: ClassVar[dict[str, Any]] = {
@@ -118,7 +116,7 @@ class TestTypes:
 
     def test_from_python_type(self, init_env: None) -> None:
         # Test cases: map of python_type to expected (pxt_type, str(pxt_type))
-        test_cases: dict[type | _GenericAlias, tuple[ColumnType, str]] = {
+        test_cases: dict[Any, tuple[ColumnType, str]] = {
             # Builtin and standard types
             str: (StringType(nullable=False), 'String'),
             int: (IntType(nullable=False), 'Int'),

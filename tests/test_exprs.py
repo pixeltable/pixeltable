@@ -17,10 +17,10 @@ import sqlalchemy as sql
 import pixeltable as pxt
 import pixeltable.type_system as ts
 from pixeltable import exprs, functions as pxtf
-from pixeltable.catalog import Catalog
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
-from pixeltable.functions.video import frame_iterator
+from pixeltable.functions.video import legacy_frame_iterator
+from pixeltable.runtime import get_runtime
 
 from .utils import (
     ReloadTester,
@@ -131,7 +131,7 @@ class TestExprs:
         _ = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
         sql_elements = exprs.SqlElementCache()
         # Expr.sql_expr() needs to run in the context of a transaction
-        with Catalog.get().begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False):
             e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
             assert len(e.clauses) == 2
 
@@ -1072,7 +1072,7 @@ class TestExprs:
         _ = result._repr_html_()
 
     def test_ext_imgs(self, uses_db: None) -> None:
-        t = pxt.create_table('img_test', {'img': ts.ImageType()})
+        t = pxt.create_table('img_test', {'img': pxt.Image})
         img_urls = [
             'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
             'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000034.jpg',
@@ -1208,7 +1208,7 @@ class TestExprs:
 
         # ordering conflict between frame extraction and window fn
         base_t = pxt.create_table('videos', {'video': pxt.Video, 'c2': pxt.Int})
-        v = pxt.create_view('frame_view', base_t, iterator=frame_iterator(base_t.video, fps=0))
+        v = pxt.create_view('frame_view', base_t, iterator=legacy_frame_iterator(base_t.video))
         # compatible ordering
         _ = v.select(v.frame, pxtf.sum(v.frame_idx, group_by=base_t, order_by=v.pos)).show(100)
         with pytest.raises(pxt.Error):
@@ -1234,6 +1234,20 @@ class TestExprs:
         res2 = t.select(t.json_col).collect()['json_col']
         # need to use frozensets because dicts are not hashable
         assert {frozenset(d.items()) for d in val} == {frozenset(d.items()) for d in res2}
+
+    def test_json_dumps(self, test_tbl: pxt.Table) -> None:
+        t = test_tbl
+        t.add_computed_column(json_col={'a': t.c1, 'b': t.c2})
+
+        # Test normal execution (should use SQL translation via to_sql())
+        res = t.select(t.json_col, dumped=pxtf.json.dumps(t.json_col)).collect()
+        assert all(json.loads(res['dumped'][i]) == res['json_col'][i] for i in range(len(res)))
+
+        # Test forced Python execution
+        res = t.select(
+            t.json_col, dumped_py=pxtf.json.dumps(t.json_col.apply(lambda x: x, col_type=pxt.Json))
+        ).collect()
+        assert all(json.loads(res['dumped_py'][i]) == res['json_col'][i] for i in range(len(res)))
 
     def test_agg(self, uses_db: None) -> None:
         t = create_scalars_tbl(1000)

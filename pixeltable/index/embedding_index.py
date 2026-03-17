@@ -65,9 +65,20 @@ class EmbeddingIndex(IndexBase):
         image_embed: func.Function | None = None,
         audio_embed: func.Function | None = None,
         video_embed: func.Function | None = None,
+        document_embed: func.Function | None = None,
     ):
-        if embed is None and string_embed is None and image_embed is None:
-            raise excs.Error('At least one of `embed`, `string_embed`, or `image_embed` must be specified')
+        if (
+            embed is None
+            and string_embed is None
+            and image_embed is None
+            and audio_embed is None
+            and video_embed is None
+            and document_embed is None
+        ):
+            raise excs.Error(
+                'At least one of `embed`, `string_embed`, `image_embed`, `audio_embed`, '
+                '`video_embed`, or `document_embed` must be specified'
+            )
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
@@ -83,6 +94,7 @@ class EmbeddingIndex(IndexBase):
             (ts.ColumnType.Type.IMAGE, image_embed),
             (ts.ColumnType.Type.AUDIO, audio_embed),
             (ts.ColumnType.Type.VIDEO, video_embed),
+            (ts.ColumnType.Type.DOCUMENT, document_embed),
         ):
             if embed_fn is not None:
                 # Embedding function for the requisite type is specified directly; it MUST be valid.
@@ -104,7 +116,7 @@ class EmbeddingIndex(IndexBase):
             assert embed is not None
             raise excs.Error(
                 f'The function `{embed.name}` is not a valid embedding: '
-                'it must take a single string, image, audio, or video parameter'
+                'it must take a single string, image, audio, video, or document parameter'
             )
 
         # Now validate the return types of the embedding functions.
@@ -124,6 +136,7 @@ class EmbeddingIndex(IndexBase):
             ts.ColumnType.Type.IMAGE,
             ts.ColumnType.Type.AUDIO,
             ts.ColumnType.Type.VIDEO,
+            ts.ColumnType.Type.DOCUMENT,
         ):
             raise excs.Error(f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.')
         if c.col_type._type not in self.embeddings:
@@ -177,11 +190,6 @@ class EmbeddingIndex(IndexBase):
             raise AssertionError(f'Unsupported index column type: {sa_value_col.type}')
         stmt = Env.get().dbms.create_vector_index_stmt(store_index_name, sa_value_col, metric=metric)
         return stmt
-
-    def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
-        """Drop the index on the index value column"""
-        # TODO: implement
-        raise NotImplementedError()
 
     def similarity_clause(self, val_column: catalog.Column, item: exprs.Literal) -> sql.ColumnElement:
         """Create a ColumnElement that represents '<val_column> <op> <item>'"""
@@ -288,11 +296,13 @@ class EmbeddingIndex(IndexBase):
         image_embed = func.Function.from_dict(d['image_embed']) if d.get('image_embed') is not None else None
         audio_embed = func.Function.from_dict(d['audio_embed']) if d.get('audio_embed') is not None else None
         video_embed = func.Function.from_dict(d['video_embed']) if d.get('video_embed') is not None else None
+        document_embed = func.Function.from_dict(d['document_embed']) if d.get('document_embed') is not None else None
         return cls(
             metric=d['metric'],
             string_embed=string_embed,
             image_embed=image_embed,
             audio_embed=audio_embed,
             video_embed=video_embed,
+            document_embed=document_embed,
             precision=d['precision'],
         )

@@ -12,6 +12,7 @@ import pixeltable as pxt
 from pixeltable import catalog, exceptions as excs, exec, exprs
 from pixeltable.catalog import Column, TableVersionHandle
 from pixeltable.exec.sql_node import OrderByClause, OrderByItem, combine_order_by_clauses, print_order_by_clause
+from pixeltable.func.iterator import GeneratingFunctionCall
 
 
 def _is_agg_fn_call(e: exprs.Expr) -> bool:
@@ -513,7 +514,7 @@ class Planner:
                 raise excs.Error(
                     dedent(
                         f"""
-                        Data cannot be {op_name} the table {tbl.name!r},
+                        Data cannot be {op_name} the {tbl.display_str()},
                         because the column {col.name!r} is currently invalid:
                         {{validation_error}}
                         """
@@ -521,6 +522,26 @@ class Planner:
                     .strip()
                     .format(validation_error=col.value_expr.validation_error)
                 )
+
+    @classmethod
+    def __check_valid_iterator(
+        cls, tbl: catalog.TableVersion, iterator: GeneratingFunctionCall | None, op_name: Literal['updated in']
+    ) -> None:
+        if iterator is None:
+            return
+
+        if not iterator.is_valid:
+            raise excs.Error(
+                dedent(
+                    f"""
+                    Data cannot be {op_name} the {tbl.display_str()},
+                    because the iterator defined on {tbl.name!r} is currently invalid:
+                    {{validation_error}}
+                    """
+                )
+                .strip()
+                .format(validation_error=iterator.validation_error)
+            )
 
     @classmethod
     def _cell_md_col_refs(cls, expr_list: Iterable[exprs.Expr]) -> list[exprs.ColumnRef]:
@@ -784,8 +805,11 @@ class Planner:
         #   the store
         target = view.tbl_version.get()  # the one we need to populate
         stored_cols = [c for c in target.cols_by_id.values() if c.is_stored]
+        cls.__check_valid_columns(target, stored_cols, 'updated in')
+        cls.__check_valid_iterator(target, target.iterator_call, 'updated in')
+
         # 2. for component views: iterator args
-        iterator_args = [target.iterator_args] if target.iterator_args is not None else []
+        iterator_args = [target.iterator_args_expr()] if target.is_component_view else []
 
         from_clause = FromClause(tbls=[view.base])
         base_analyzer = Analyzer(
@@ -915,6 +939,7 @@ class Planner:
         group_by_clause: list[exprs.Expr] | None = None,
         order_by_clause: list[tuple[exprs.Expr, bool]] | None = None,
         limit: exprs.Expr | None = None,
+        offset: exprs.Expr | None = None,
         sample_clause: SampleClause | None = None,
         ignore_errors: bool = False,
         exact_version_only: list[catalog.TableVersionHandle] | None = None,
@@ -962,6 +987,7 @@ class Planner:
             eval_ctx=eval_ctx,
             columns=columns,
             limit=limit,
+            offset=offset,
             with_pk=True,
             exact_version_only=exact_version_only,
         )
@@ -978,6 +1004,7 @@ class Planner:
         eval_ctx: exprs.RowBuilder.EvalCtx,
         columns: list[catalog.Column] | None = None,
         limit: exprs.Expr | None = None,
+        offset: exprs.Expr | None = None,
         with_pk: bool = False,
         exact_version_only: list[catalog.TableVersionHandle] | None = None,
     ) -> exec.ExecNode:
@@ -1159,6 +1186,10 @@ class Planner:
             assert isinstance(limit, exprs.Literal)
             plan.set_limit(limit.val)
 
+        if offset is not None:
+            assert isinstance(offset, exprs.Literal)
+            plan.set_offset(offset.val)
+
         plan.set_ctx(ctx)
         return plan
 
@@ -1171,7 +1202,6 @@ class Planner:
         """Creates a plan for InsertableTable.add_column()
         Returns:
             plan: the plan to execute
-            value_expr slot idx for the plan output (for computed cols)
         """
         assert isinstance(tbl, catalog.TableVersionPath)
         row_builder = exprs.RowBuilder(output_exprs=[], columns=[col], input_exprs=[], tbl=tbl.tbl_version.get())

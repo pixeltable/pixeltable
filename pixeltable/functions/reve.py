@@ -4,17 +4,16 @@ generation API. In order to use them, the API key must be specified either with 
 or as `api_key` in the `reve` section of the Pixeltable config file.
 """
 
-import asyncio
-import atexit
 import logging
 import re
 from io import BytesIO
+from typing import Any
 
 import aiohttp
 import PIL.Image
 
 import pixeltable as pxt
-from pixeltable.env import Env, register_client
+from pixeltable.env import register_client
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.image import to_base64
 
@@ -33,33 +32,34 @@ class ReveUnexpectedError(Exception):
     pass
 
 
+_REVE_BASE_URL = 'https://api.reve.com'
+_REVE_CONTENT_TYPE = 'image/png'
+_RETRY_AFTER_RE = re.compile(r'\d{1,2}')
+
+
 class _ReveClient:
     """
-    Client for interacting with the Reve API. Maintains a long-lived HTTP session to the service.
+    Client for interacting with the Reve API.
     """
 
-    api_key: str
-    session: aiohttp.ClientSession
+    _request_headers: dict[str, str]
+    _session: aiohttp.ClientSession | None
 
     def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.session = Env.get().event_loop.run_until_complete(self._start_session())
-        atexit.register(lambda: asyncio.run(self.session.close()))
+        self._request_headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json',
+            'Accept': _REVE_CONTENT_TYPE,
+        }
+        self._session = None  # defer session creation until we have a running event loop
 
-    async def _start_session(self) -> aiohttp.ClientSession:
-        # Maintains a long-lived TPC connection. The default keepalive timeout is 15 seconds.
-        return aiohttp.ClientSession(base_url='https://api.reve.com')
+    def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None:
+            self._session = aiohttp.ClientSession(base_url=_REVE_BASE_URL)
+        return self._session
 
     async def _post(self, endpoint: str, *, payload: dict) -> PIL.Image.Image:
-        # Reve supports other formats as well, but we only use PNG for now
-        requested_content_type = 'image/png'
-        request_headers = {
-            'Authorization': f'Bearer {self.api_key}',
-            'Content-Type': 'application/json',
-            'Accept': requested_content_type,
-        }
-
-        async with self.session.post(endpoint, json=payload, headers=request_headers) as resp:
+        async with self._get_session().post(endpoint, json=payload, headers=self._request_headers) as resp:
             request_id = resp.headers.get('X-Reve-Request-Id')
             error_code = resp.headers.get('X-Reve-Error-Code')
             match resp.status:
@@ -73,9 +73,9 @@ class _ReveClient:
                         raise ReveContentViolationError(
                             f'Reve request {request_id} resulted in a content violation error'
                         )
-                    if resp.content_type != requested_content_type:
+                    if resp.content_type != _REVE_CONTENT_TYPE:
                         raise ReveUnexpectedError(
-                            f'Reve request {request_id} expected content type {requested_content_type}, '
+                            f'Reve request {request_id} expected content type {_REVE_CONTENT_TYPE}, '
                             f'got {resp.content_type}'
                         )
 
@@ -91,26 +91,31 @@ class _ReveClient:
                     return img
                 case 429:
                     # Try to honor the server-provided Retry-After value if present
-                    # Note: Retry-After value can also be given in the form of HTTP Date, which we don't currently
-                    # handle
+                    # Note: Retry-After value can also be given in the form of HTTP Date, which we don't
+                    # currently handle
                     retry_after_seconds = None
                     retry_after_header = resp.headers.get('Retry-After')
-                    if retry_after_header is not None and re.fullmatch(r'\d{1,2}', retry_after_header):
+                    if retry_after_header is not None and _RETRY_AFTER_RE.fullmatch(retry_after_header):
                         retry_after_seconds = int(retry_after_header)
                     _logger.info(
                         f'Reve request {request_id} failed due to rate limiting, retry after header value: '
                         f'{retry_after_header}'
                     )
-                    # This error message is formatted specifically so that RequestRateScheduler can extract the retry
-                    # delay from it
+                    # This error message is formatted specifically so that RequestRateScheduler can extract the
+                    # retry delay from it
                     raise ReveRateLimitedError(
                         f'Reve request {request_id} failed due to rate limiting (429). retry-after:'
                         f'{retry_after_seconds}'
                     )
                 case _:
                     _logger.info(
-                        f'Reve request {request_id} failed with status code {resp.status} and error code {error_code}'
+                        f'Reve request {request_id} failed with status code {resp.status} and error code {error_code}: '
+                        f'{resp}'
                     )
+                    if resp.content_type == 'application/json':
+                        json_body = await resp.text(errors='replace')
+                        json_body = json_body if len(json_body) <= 1024 else json_body[:1024] + '...'
+                        _logger.info(f'Response body: {json_body}')
                     raise ReveUnexpectedError(
                         f'Reve request failed with status code {resp.status} and error code {error_code}'
                     )
@@ -122,7 +127,9 @@ def _(api_key: str) -> _ReveClient:
 
 
 def _client() -> _ReveClient:
-    return Env.get().get_client('reve')
+    from pixeltable.runtime import get_runtime
+
+    return get_runtime().get_client('reve')
 
 
 # TODO Regarding rate limiting: Reve appears to be going for a credits per minute rate limiting model, but does not
@@ -130,7 +137,9 @@ def _client() -> _ReveClient:
 # strategies is a perfect match, but "request-rate" is the closest. Reve does not currently enforce the rate limits,
 # but when it does, we can revisit this choice.
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
-async def create(prompt: str, *, aspect_ratio: str | None = None, version: str | None = None) -> PIL.Image.Image:
+async def create(
+    prompt: str, *, aspect_ratio: str | None = None, version: str | None = None, model_kwargs: dict | None = None
+) -> PIL.Image.Image:
     """
     Creates an image from a text prompt.
 
@@ -141,6 +150,7 @@ async def create(prompt: str, *, aspect_ratio: str | None = None, version: str |
         prompt: prompt describing the desired image
         aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
         version: specific model version to use. Latest if not specified.
+        model_kwargs: additional keyword arguments to pass to the Reve API.
 
     Returns:
         A generated image
@@ -150,18 +160,22 @@ async def create(prompt: str, *, aspect_ratio: str | None = None, version: str |
 
         >>> t.add_computed_column(img=reve.create(t.prompt, aspect_ratio='1:1'))
     """
-    payload = {'prompt': prompt}
+    payload: dict[str, Any] = {'prompt': prompt}
     if aspect_ratio is not None:
         payload['aspect_ratio'] = aspect_ratio
     if version is not None:
         payload['version'] = version
+    if model_kwargs is not None:
+        payload.update(model_kwargs)
 
     result = await _client()._post('/v1/image/create', payload=payload)
     return result
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
-async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | None = None) -> PIL.Image.Image:
+async def edit(
+    image: PIL.Image.Image, edit_instruction: str, *, version: str | None = None, model_kwargs: dict | None = None
+) -> PIL.Image.Image:
     """
     Edits images based on a text prompt.
 
@@ -172,6 +186,7 @@ async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | 
         image: image to edit
         edit_instruction: text prompt describing the desired edit
         version: specific model version to use. Latest if not specified.
+        model_kwargs: additional keyword arguments to pass to the Reve API.
 
     Returns:
         A generated image
@@ -186,9 +201,11 @@ async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | 
         ...     )
         ... )
     """
-    payload = {'edit_instruction': edit_instruction, 'reference_image': to_base64(image)}
+    payload: dict[str, Any] = {'edit_instruction': edit_instruction, 'reference_image': to_base64(image)}
     if version is not None:
         payload['version'] = version
+    if model_kwargs is not None:
+        payload.update(model_kwargs)
 
     result = await _client()._post('/v1/image/edit', payload=payload)
     return result
@@ -196,7 +213,12 @@ async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
 async def remix(
-    prompt: str, images: list[PIL.Image.Image], *, aspect_ratio: str | None = None, version: str | None = None
+    prompt: str,
+    images: list[PIL.Image.Image],
+    *,
+    aspect_ratio: str | None = None,
+    version: str | None = None,
+    model_kwargs: dict | None = None,
 ) -> PIL.Image.Image:
     """
     Creates images based on a text prompt and reference images.
@@ -211,6 +233,7 @@ async def remix(
         images: list of reference images
         aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
         version: specific model version to use. Latest by default.
+        model_kwargs: additional keyword arguments to pass to the Reve API.
 
     Returns:
         A generated image
@@ -232,11 +255,13 @@ async def remix(
     if len(images) == 0:
         raise pxt.Error('Must include at least 1 reference image')
 
-    payload = {'prompt': prompt, 'reference_images': [to_base64(img) for img in images]}
+    payload: dict[str, Any] = {'prompt': prompt, 'reference_images': [to_base64(img) for img in images]}
     if version is not None:
         payload['version'] = version
     if aspect_ratio is not None:
         payload['aspect_ratio'] = aspect_ratio
+    if model_kwargs is not None:
+        payload.update(model_kwargs)
     result = await _client()._post('/v1/image/remix', payload=payload)
     return result
 

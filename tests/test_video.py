@@ -10,7 +10,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
-from pixeltable.functions.video import frame_iterator, video_splitter
+from pixeltable.functions.video import concat_videos_agg, frame_iterator, legacy_frame_iterator, video_splitter
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -25,14 +25,13 @@ from .utils import (
 
 class TestVideo:
     def create_tbls(
-        self, base_name: str = 'video_tbl', view_name: str = 'frame_view', all_frame_attrs: bool = True
+        self, base_name: str = 'video_tbl', view_name: str = 'frame_view', use_legacy_schema: bool = False
     ) -> tuple[pxt.Table, pxt.Table]:
         pxt.drop_table(view_name, if_not_exists='ignore')
         pxt.drop_table(base_name, if_not_exists='ignore')
         base_t = pxt.create_table(base_name, {'video': pxt.Video})
-        view_t = pxt.create_view(
-            view_name, base_t, iterator=frame_iterator(base_t.video, fps=1, all_frame_attrs=all_frame_attrs)
-        )
+        iterator = legacy_frame_iterator if use_legacy_schema else frame_iterator
+        view_t = pxt.create_view(view_name, base_t, iterator=iterator(base_t.video, fps=1))
         return base_t, view_t
 
     def create_and_insert(self, stored: bool | None, paths: list[str]) -> tuple[pxt.Table, pxt.Table]:
@@ -133,13 +132,10 @@ class TestVideo:
         for p in get_video_files():
             for kwargs in (
                 {},
-                {'all_frame_attrs': True},
                 {'fps': 0.5},
                 {'fps': 3},
-                {'fps': 3, 'all_frame_attrs': True},
                 {'fps': 1000},
                 {'num_frames': 10},
-                {'num_frames': 10, 'all_frame_attrs': True},
                 {'num_frames': 50},
                 {'num_frames': 10000},
             ):
@@ -165,10 +161,8 @@ class TestVideo:
         videos = pxt.create_table('videos', {'video': pxt.Video})
 
         # Test keyframes_only=True extracts all keyframes
-        keyframes = pxt.create_view(
-            'keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True, all_frame_attrs=True)
-        )
-        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=0, all_frame_attrs=True))
+        keyframes = pxt.create_view('keyframes', videos, iterator=frame_iterator(videos.video, keyframes_only=True))
+        frames = pxt.create_view('frames', videos, iterator=frame_iterator(videos.video, fps=None))
 
         videos.insert(video=path)
 
@@ -202,11 +196,11 @@ class TestVideo:
 
     def test_frame_attrs(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        base_t, view_t = self.create_tbls(all_frame_attrs=True)
+        base_t, view_t = self.create_tbls(use_legacy_schema=False)
         base_t.insert([{'video': video_filepaths[0]}])
         all_attrs = set(view_t.limit(1).select(view_t.frame_attrs).collect()[0, 0].keys())
         assert all_attrs == {'index', 'pts', 'dts', 'time', 'is_corrupt', 'key_frame', 'pict_type', 'interlaced_frame'}
-        _, view_t = self.create_tbls(all_frame_attrs=False)
+        _, view_t = self.create_tbls(use_legacy_schema=True)
         default_attrs = set(view_t.get_metadata()['columns'].keys())
         assert default_attrs == {'frame', 'pos', 'frame_idx', 'pos_msec', 'pos_frame', 'video'}
 
@@ -582,15 +576,16 @@ class TestVideo:
         )
         assert status.num_excs == 0
         res = u.select(
-            u.v1.get_metadata().streams[0].duration_seconds,
-            u.v2.get_metadata().streams[0].duration_seconds,
-            u.v3.get_metadata().streams[0].duration_seconds,
-            u.concat.get_metadata().streams[0].duration_seconds,
-        ).collect()
-        # Verify all videos were concatenated
-        durations = res.to_pandas().iloc[0]
-        concat_duration = durations.iloc[3]
-        assert concat_duration is not None
+            d1=u.v1.get_duration(), d2=u.v2.get_duration(), d3=u.v3.get_duration(), d_concat=u.concat.get_duration()
+        ).collect()[0]
+        input_duration = res['d1'] + res['d2'] + res['d3']
+        concat_duration = res['d_concat']
+        assert pytest.approx(input_duration, abs=0.1) == concat_duration
+
+        # empty inputs
+        validate_update_status(u.insert([{'v1': None, 'v2': None, 'v3': None}]), expected_rows=1)
+        res = u.where(u.v1 == None).select(u.concat).collect()
+        assert res[0]['concat'] is None
 
     def test_concat_videos_mixed_formats(self, uses_db: None, tmp_path: Path) -> None:
         from pixeltable.functions.video import concat_videos
@@ -635,6 +630,66 @@ class TestVideo:
             _ = t.add_computed_column(
                 concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
             )
+
+    def test_concat_videos_agg(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()[:3]
+        t = pxt.create_table('concat_agg_test', {'id': pxt.Int, 'video': pxt.Video})
+        t.insert({'id': i, 'video': p} for i, p in enumerate(video_filepaths))
+
+        # split each video into segments, then reassemble with group_by
+        segments = pxt.create_view('segments', t, iterator=video_splitter(t.video, duration=5.0))
+        result = (
+            segments.select(segments.id, video=concat_videos_agg(segments.pos, segments.video_segment))
+            .group_by(segments.id)
+            .collect()
+        )
+        assert len(result) == len(video_filepaths)
+
+        # verify reassembled durations match the originals
+        u = pxt.create_table('concat_results', {'id': pxt.Int, 'video': pxt.Video})
+        u.insert(list(result))
+        u.add_computed_column(duration=u.video.get_duration())
+        orig_durations = t.select(duration=t.video.get_duration()).order_by(t.id).collect()
+        concat_durations = u.select(u.duration).order_by(u.id).collect()
+        assert all(
+            abs(orig - concat) < 0.1 for orig, concat in zip(orig_durations['duration'], concat_durations['duration'])
+        )
+
+        # empty group: all-None videos should produce None
+        e = pxt.create_table('concat_empty', {'id': pxt.Int, 'video': pxt.Video, 'pos': pxt.Int})
+        e.insert(
+            [
+                {'id': 0, 'video': video_filepaths[0], 'pos': 0},
+                {'id': 1, 'video': None, 'pos': 0},
+                {'id': 1, 'video': None, 'pos': 1},
+            ]
+        )
+        result = e.select(e.id, video=concat_videos_agg(e.pos, e.video)).group_by(e.id).order_by(e.id).collect()
+        assert len(result) == 2
+        assert result[0]['video'] is not None  # id 0: has a video
+        assert result[1]['video'] is None  # id 1: empty group returns None
+
+    def test_concat_videos_agg_mixed_formats(self, uses_db: None, tmp_path: Path) -> None:
+        # mixed audio
+        no_audio = generate_test_video(tmp_path, duration=1.0, has_audio=False)
+        with_audio = generate_test_video(tmp_path, duration=1.5, has_audio=True)
+
+        t = pxt.create_table('test_agg_mixed_audio', {'id': pxt.Int, 'video': pxt.Video})
+        t.insert([{'id': 0, 'video': no_audio}, {'id': 1, 'video': with_audio}, {'id': 2, 'video': no_audio}])
+        concat_output = concat_videos_agg(t.id, t.video)
+        result = t.select(output=concat_output, duration=concat_output.get_duration()).collect()
+        assert len(result) == 1
+        concat_duration = result[0]['duration']
+        assert abs(concat_duration - (1.0 + 1.5 + 1.0)) < 0.2
+
+        # error case: mixed resolutions
+        low_res = generate_test_video(tmp_path, duration=0.5, size='176x144', has_audio=False)
+        high_res = generate_test_video(tmp_path, duration=0.5, size='1920x1080', has_audio=False)
+
+        t2 = pxt.create_table('test_agg_resolution', {'id': pxt.Int, 'video': pxt.Video})
+        t2.insert([{'id': 0, 'video': low_res}, {'id': 1, 'video': high_res}])
+        with pytest.raises(pxt.Error, match='requires that all videos have the same resolution'):
+            t2.select(concat_videos_agg(t2.id, t2.video)).collect()
 
     def _validate_splitter_segments(
         self,
@@ -1029,6 +1084,85 @@ class TestVideo:
         with pytest.raises(pxt.Error, match=re.escape('box_border must be a list or tuple of 1-4 non-negative ints')):
             t.select(t.video.overlay_text('Test', box=True, box_border=[-5, 10])).collect()
 
+    @pytest.mark.parametrize(
+        'bbox_format,bbox',
+        [
+            ('xywh', [0, 0, 160, 80]),  # x, y, width, height
+            ('xyxy', [0, 0, 160, 80]),  # x1, y1, x2, y2
+            ('cxcywh', [80, 40, 160, 80]),  # center_x, center_y, width, height
+        ],
+    )
+    @pytest.mark.parametrize('encoder_args', [None, {'crf': '18'}])
+    def test_crop(
+        self,
+        uses_db: None,
+        tmp_path: Path,
+        bbox_format: Literal['xywh', 'xyxy', 'cxcywh'],
+        bbox: list[int],
+        encoder_args: dict[str, Any] | None,
+    ) -> None:
+        t = pxt.create_table('crop_test', {'video': pxt.Video})
+        videos = get_video_files()
+        validate_update_status(t.insert({'video': f} for f in videos), expected_rows=len(videos))
+
+        crop = t.video.crop(bbox, bbox_format=bbox_format, video_encoder_args=encoder_args)
+        result = t.select(md=t.video.get_metadata(), cropped=crop, cropped_md=crop.get_metadata()).collect()
+
+        # validate output dimensions
+        assert all(md['streams'][0]['width'] == 160 for md in result['cropped_md'])
+        assert all(md['streams'][0]['height'] == 80 for md in result['cropped_md'])
+
+        # insert cropped videos to verify they're valid
+        t.insert(({'video': row['cropped']} for row in result), on_error='abort')
+
+    def test_crop_with_column(self, uses_db: None) -> None:
+        """Test crop() with bbox values from a table column."""
+        t = pxt.create_table('crop_column_test', {'video': pxt.Video, 'bbox': pxt.Json})
+        videos = get_video_files()
+        validate_update_status(
+            t.insert({'video': f, 'bbox': [0, 0, 160, 80]} for f in videos), expected_rows=len(videos)
+        )
+
+        # Test with bbox from column
+        result = t.select(
+            cropped=t.video.crop(t.bbox, bbox_format='xywh'),
+            cropped_md=t.video.crop(t.bbox, bbox_format='xywh').get_metadata(),
+        ).collect()
+
+        assert all(md['streams'][0]['width'] == 160 for md in result['cropped_md'])
+        assert all(md['streams'][0]['height'] == 80 for md in result['cropped_md'])
+
+    def test_crop_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('crop_error_test', {'video': pxt.Video})
+        t.insert({'video': f} for f in get_video_files()[:1])
+
+        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+            t.select(t.video.crop([0, 0, 100])).collect()
+
+        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+            t.select(t.video.crop([0, 0, 100, 100, 50])).collect()
+
+        with pytest.raises(pxt.Error, match='bbox_format must be one of'):
+            t.select(t.video.crop([0, 0, 100, 100], bbox_format='invalid')).collect()
+
+        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+            t.select(t.video.crop([-1, 0, 100, 100], bbox_format='xywh')).collect()
+
+        with pytest.raises(pxt.Error, match='bbox must have exactly 4 non-negative integers'):
+            t.select(t.video.crop([0, -1, 100, 100], bbox_format='xywh')).collect()
+
+        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+            t.select(t.video.crop([100, 0, 50, 100], bbox_format='xyxy')).collect()
+
+        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+            t.select(t.video.crop([0, 100, 100, 50], bbox_format='xyxy')).collect()
+
+        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+            t.select(t.video.crop([50, 0, 50, 100], bbox_format='xyxy')).collect()
+
+        with pytest.raises(pxt.Error, match='x2 must be greater than x1 and y2 must be greater than y1'):
+            t.select(t.video.crop([0, 50, 100, 50], bbox_format='xyxy')).collect()
+
     # TODO: Not working with VFR sample video or .mpg samples (PXT-986, PXT-987)
     def test_with_audio(self, uses_db: None) -> None:
         from pixeltable.functions.video import with_audio
@@ -1143,9 +1277,7 @@ class TestVideo:
 
         # make sure the output is usable for the VideoSplitter
         v = pxt.create_view(
-            'scenes_view',
-            t,
-            iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate'),  # type: ignore[arg-type]
+            'scenes_view', t, iterator=video_splitter(t.video, segment_times=t.scenes[1:].start_time, mode='accurate')
         )
         _ = v.collect()
 

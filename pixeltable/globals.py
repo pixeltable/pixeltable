@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
 
 import pandas as pd
 import pydantic
@@ -16,7 +15,9 @@ from pixeltable.catalog.insertable_table import OnErrorParameter
 from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.io.table_data_conduit import QueryTableDataConduit, TableDataConduit
-from pixeltable.iterators import ComponentIterator
+from pixeltable.runtime import get_runtime
+from pixeltable.share.protocol import PxtUri
+from pixeltable.types import ColumnSpec
 
 if TYPE_CHECKING:
     import datasets  # type: ignore[import-untyped]
@@ -36,20 +37,17 @@ if TYPE_CHECKING:
     ]
 
 
-_logger = logging.getLogger('pixeltable')
-
-
 def init(config_overrides: dict[str, Any] | None = None) -> None:
     """Initializes the Pixeltable environment."""
     if config_overrides is None:
         config_overrides = {}
     Config.init(config_overrides)
-    _ = Catalog.get()
+    _ = get_runtime().catalog
 
 
 def create_table(
     path: str,
-    schema: dict[str, Any] | None = None,
+    schema: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     *,
     source: TableDataSource | None = None,
     source_format: Literal['csv', 'excel', 'parquet', 'json'] | None = None,
@@ -58,7 +56,7 @@ def create_table(
     on_error: Literal['abort', 'ignore'] = 'abort',
     primary_key: str | list[str] | None = None,
     num_retained_versions: int = 10,
-    comment: str = '',
+    comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
@@ -202,7 +200,7 @@ def create_table(
         data_source.src_schema_overrides = src_schema_overrides
         data_source.src_pk = primary_key
         data_source.infer_schema()
-        schema = data_source.pxt_schema
+        schema = data_source.pxt_schema  # type: ignore[assignment]
         primary_key = data_source.pxt_pk
         is_direct_query = data_source.is_direct_query()
     else:
@@ -213,15 +211,17 @@ def create_table(
             'Unable to create a proper schema from supplied `source`. Please use appropriate `schema_overrides`.'
         )
 
-    if not isinstance(comment, str):
-        raise excs.Error('`comment` must be a string')
+    if comment is not None and not isinstance(comment, str):
+        raise excs.Error('`comment` must be a string or None')
+    elif comment == '':
+        comment = None
 
     try:
         json.dumps(custom_metadata)
     except (TypeError, ValueError) as err:
         raise excs.Error('`custom_metadata` must be JSON-serializable') from err
 
-    tbl, was_created = Catalog.get().create_table(
+    tbl, was_created = get_runtime().catalog.create_table(
         path_obj,
         schema,
         if_exists=if_exists_,
@@ -238,7 +238,7 @@ def create_table(
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
         if isinstance(data_source, QueryTableDataConduit):
             query = data_source.pxt_query
-            with Catalog.get().begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
+            with get_runtime().catalog.begin_xact(tbl=tbl._tbl_version_path, for_write=True, lock_mutable_tree=True):
                 tbl._tbl_version.get().insert(None, query, fail_on_exception=fail_on_exception)
         elif data_source is not None and not is_direct_query:
             tbl.insert_table_data_source(data_source=data_source, fail_on_exception=fail_on_exception)
@@ -250,12 +250,12 @@ def create_view(
     path: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: dict[str, Any] | None = None,
+    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
     is_snapshot: bool = False,
     create_default_idxs: bool = False,
-    iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
+    iterator: func.GeneratingFunctionCall | None = None,
     num_retained_versions: int = 10,
-    comment: str = '',
+    comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
@@ -308,13 +308,13 @@ def create_view(
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
+        >>> view = pxt.create_view('my_view', tbl.where(tbl.col1 > 10))
 
         Create a view `my_view` of an existing table `my_table`, filtering on rows where `col1` is greater than 10,
         and if it not already exist. Otherwise, get the existing view named `my_view`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view(
+        >>> view = pxt.create_view(
         ...     'my_view', tbl.where(tbl.col1 > 10), if_exists='ignore'
         ... )
 
@@ -322,7 +322,7 @@ def create_view(
         and replace any existing view named `my_view`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... view = pxt.create_view(
+        >>> view = pxt.create_view(
         ...     'my_view', tbl.where(tbl.col1 > 100), if_exists='replace_force'
         ... )
     """
@@ -364,15 +364,20 @@ def create_view(
                     f'{tbl_version_path.get_column(col_name).get_tbl().name}.'
                 )
 
-    if not isinstance(comment, str):
-        raise excs.Error('`comment` must be a string')
+    if iterator is not None and not isinstance(iterator, func.GeneratingFunctionCall):
+        raise excs.Error('The specified `iterator` is not a valid Pixeltable iterator')
+
+    if comment is not None and not isinstance(comment, str):
+        raise excs.Error('`comment` must be a string or None')
+    elif comment == '':
+        comment = None
 
     try:
         json.dumps(custom_metadata)
     except (TypeError, ValueError) as err:
         raise excs.Error('`custom_metadata` must be JSON-serializable') from err
 
-    return Catalog.get().create_view(
+    return get_runtime().catalog.create_view(
         path_obj,
         tbl_version_path,
         select_list=select_list,
@@ -394,10 +399,10 @@ def create_snapshot(
     path_str: str,
     base: catalog.Table | Query,
     *,
-    additional_columns: dict[str, Any] | None = None,
-    iterator: tuple[type[ComponentIterator], dict[str, Any]] | None = None,
+    additional_columns: Mapping[str, type | ColumnSpec | exprs.Expr] | None = None,
+    iterator: func.GeneratingFunctionCall | None = None,
     num_retained_versions: int = 10,
-    comment: str = '',
+    comment: str | None = None,
     custom_metadata: Any = None,
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
@@ -445,13 +450,13 @@ def create_snapshot(
         Create a snapshot `my_snapshot` of a table `my_table`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... snapshot = pxt.create_snapshot('my_snapshot', tbl)
+        >>> snapshot = pxt.create_snapshot('my_snapshot', tbl)
 
         Create a snapshot `my_snapshot` of a view `my_view` with additional int column `col3`,
         if `my_snapshot` does not already exist:
 
         >>> view = pxt.get_table('my_view')
-        ... snapshot = pxt.create_snapshot(
+        >>> snapshot = pxt.create_snapshot(
         ...     'my_snapshot',
         ...     view,
         ...     additional_columns={'col3': pxt.Int},
@@ -461,7 +466,7 @@ def create_snapshot(
         Create a snapshot `my_snapshot` on a table `my_table`, and replace any existing snapshot named `my_snapshot`:
 
         >>> tbl = pxt.get_table('my_table')
-        ... snapshot = pxt.create_snapshot(
+        >>> snapshot = pxt.create_snapshot(
         ...     'my_snapshot', tbl, if_exists='replace_force'
         ... )
     """
@@ -500,13 +505,12 @@ def publish(
             - `'public'`: Anyone can access this replica.
             - `'private'`: Only the host organization can access.
     """
-    if not destination_uri.startswith('pxt://'):
-        raise excs.Error("`destination_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
+    pxt_uri = _parse_pxt_uri(destination_uri, 'destination_uri')
 
     if isinstance(source, str):
         source = get_table(source)
 
-    share.push_replica(destination_uri, source, bucket_name, access)
+    share.push_replica(pxt_uri, source, bucket_name, access)
 
 
 def replicate(remote_uri: str, local_path: str) -> catalog.Table:
@@ -524,10 +528,8 @@ def replicate(remote_uri: str, local_path: str) -> catalog.Table:
     Returns:
         A handle to the newly created local replica table.
     """
-    if not remote_uri.startswith('pxt://'):
-        raise excs.Error("`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'")
-
-    return share.pull_replica(local_path, remote_uri)
+    pxt_uri = _parse_pxt_uri(remote_uri, 'remote_uri')
+    return share.pull_replica(local_path, pxt_uri)
 
 
 def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') -> catalog.Table | None:
@@ -566,7 +568,7 @@ def get_table(path: str, if_not_exists: Literal['error', 'ignore'] = 'error') ->
     """
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
     path_obj = catalog.Path.parse(path, allow_versioned_path=True)
-    tbl = Catalog.get().get_table(path_obj, if_not_exists_)
+    tbl = get_runtime().catalog.get_table(path_obj, if_not_exists_)
     return tbl
 
 
@@ -599,11 +601,11 @@ def move(
     Examples:
         Move a table to a different directory:
 
-        >>>> pxt.move('dir1/my_table', 'dir2/my_table')
+        >>> pxt.move('dir1/my_table', 'dir2/my_table')
 
         Rename a table:
 
-        >>>> pxt.move('dir1/my_table', 'dir1/new_name')
+        >>> pxt.move('dir1/my_table', 'dir1/new_name')
     """
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
     if if_exists_ not in (catalog.IfExistsParam.ERROR, catalog.IfExistsParam.IGNORE):
@@ -614,7 +616,7 @@ def move(
     path_obj, new_path_obj = catalog.Path.parse(path), catalog.Path.parse(new_path)
     if path_obj.is_ancestor(new_path_obj):
         raise excs.Error(f'move(): cannot move {path!r} into its own subdirectory')
-    Catalog.get().move(path_obj, new_path_obj, if_exists_, if_not_exists_)
+    get_runtime().catalog.move(path_obj, new_path_obj, if_exists_, if_not_exists_)
 
 
 def drop_table(
@@ -658,7 +660,7 @@ def drop_table(
     if isinstance(table, catalog.Table):
         # if we're dropping a table by handle, we first need to get the current path, then drop the S lock on
         # the Table record, and then get X locks in the correct order (first containing directory, then table)
-        with Catalog.get().begin_xact(for_write=False):
+        with get_runtime().catalog.begin_xact(for_write=False):
             tbl_path = table._path()
     else:
         assert isinstance(table, str)
@@ -666,16 +668,17 @@ def drop_table(
 
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
 
-    if tbl_path.startswith('pxt://'):
+    if PxtUri.is_pxt_uri(tbl_path):
+        pxt_uri = PxtUri(tbl_path)
         # Remote table
         if force:
             raise excs.Error('Cannot use `force=True` with a cloud replica URI.')
         # TODO: Handle if_not_exists properly
-        share.delete_replica(tbl_path)
+        share.delete_replica(pxt_uri)
     else:
         # Local table
         path_obj = catalog.Path.parse(tbl_path)
-        Catalog.get().drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
+        get_runtime().catalog.drop_table(path_obj, force=force, if_not_exists=if_not_exists_)
 
 
 def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents':
@@ -703,7 +706,7 @@ def get_dir_contents(dir_path: str = '', recursive: bool = True) -> 'DirContents
         >>> pxt.get_dir_contents('dir1')
     """
     path_obj = catalog.Path.parse(dir_path, allow_empty_path=True)
-    catalog_entries = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
+    catalog_entries = get_runtime().catalog.get_dir_contents(path_obj, recursive=recursive)
     dirs: list[str] = []
     tables: list[str] = []
     _assemble_dir_contents(dir_path, catalog_entries, dirs, tables)
@@ -757,7 +760,7 @@ def list_tables(dir_path: str = '', recursive: bool = True) -> list[str]:
 
 def _list_tables(dir_path: str = '', recursive: bool = True, allow_system_paths: bool = False) -> list[str]:
     path_obj = catalog.Path.parse(dir_path, allow_empty_path=True, allow_system_path=allow_system_paths)
-    contents = Catalog.get().get_dir_contents(path_obj, recursive=recursive)
+    contents = get_runtime().catalog.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Table)]
 
 
@@ -810,7 +813,7 @@ def create_dir(
     """
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')
-    return Catalog.get().create_dir(path_obj, if_exists=if_exists_, parents=parents)
+    return get_runtime().catalog.create_dir(path_obj, if_exists=if_exists_, parents=parents)
 
 
 def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ignore'] = 'error') -> None:
@@ -852,7 +855,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
     """
     path_obj = catalog.Path.parse(path)  # validate format
     if_not_exists_ = catalog.IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
-    Catalog.get().drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
+    get_runtime().catalog.drop_dir(path_obj, if_not_exists=if_not_exists_, force=force)
 
 
 def ls(path: str = '') -> pd.DataFrame:
@@ -868,7 +871,7 @@ def ls(path: str = '') -> pd.DataFrame:
     from pixeltable.catalog import retry_loop
     from pixeltable.metadata import schema
 
-    cat = Catalog.get()
+    cat = get_runtime().catalog
     path_obj = catalog.Path.parse(path, allow_empty_path=True)
     dir_entries = cat.get_dir_contents(path_obj)
 
@@ -957,7 +960,7 @@ def list_dirs(path: str = '', recursive: bool = True) -> list[str]:
         ['my_dir', 'my_dir/sub_dir1']
     """
     path_obj = catalog.Path.parse(path, allow_empty_path=True)  # validate format
-    cat = Catalog.get()
+    cat = get_runtime().catalog
     contents = cat.get_dir_contents(path_obj, recursive=recursive)
     return [str(p) for p in _extract_paths(contents, parent=path_obj, entry_type=catalog.Dir)]
 
@@ -1087,3 +1090,15 @@ class DirContents(TypedDict):
     """List of directory paths contained in this directory."""
     tables: list[str]
     """List of table paths contained in this directory."""
+
+
+def _parse_pxt_uri(uri_str: str, param_name: str) -> PxtUri:
+    """Parse a URI string into a PxtUri, raising a user-friendly error on failure."""
+    try:
+        return PxtUri(uri_str)
+    except ValueError as e:
+        raise excs.Error(
+            f"`{param_name}` must be a remote Pixeltable URI with the prefix 'pxt://'"
+            " (such as 'pxt://org:db/path/to/table') or a pixeltable.com URL"
+            ' (such as https://pixeltable.com/t/org:db/path/to/table).'
+        ) from e

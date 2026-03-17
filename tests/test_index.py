@@ -19,12 +19,14 @@ from .utils import (
     ReloadTester,
     assert_resultset_eq,
     get_sentences,
+    list_store_indexes,
     reload_catalog,
     skip_test_if_not_installed,
     validate_update_status,
 )
 
 
+@pytest.mark.cockroachdb
 class TestIndex:
     # returns string
     @staticmethod
@@ -459,7 +461,7 @@ class TestIndex:
             new_rows.append(row)
 
         # create table with fewer rows to speed up testing
-        schema = {'pkey': ts.IntType(nullable=False), 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
+        schema = {'pkey': pxt.Required[pxt.Int], 'img': pxt.Image, 'category': pxt.String, 'split': pxt.String}
         tbl_name = 'update_test'
         img_t = pxt.create_table(tbl_name, schema, primary_key='pkey')
         img_t.insert(new_rows)
@@ -718,10 +720,13 @@ class TestIndex:
             img_t.add_embedding_index('does_not_exist', idx_name='idx0', image_embed=clip_embed)
         assert 'Unknown column: does_not_exist' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error,
+            match=r'`embed`, `string_embed`, `image_embed`, `audio_embed`, `video_embed`, or `document_embed` '
+            'must be specified',
+        ):
             # no embedding function specified
             img_t.add_embedding_index('img')
-        assert '`embed`, `string_embed`, or `image_embed` must be specified' in str(exc_info.value)
 
         with pytest.raises(pxt.Error, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."):
             # wrong column type
@@ -753,7 +758,7 @@ class TestIndex:
         with pytest.raises(
             pxt.Error,
             match=r'The function `clip` is not a valid embedding: '
-            'it must take a single string, image, audio, or video parameter',
+            'it must take a single string, image, audio, video, or document parameter',
         ):
             # no matching signature
             img_t.add_embedding_index('img', embedding=clip)
@@ -981,3 +986,41 @@ class TestIndex:
         sim = t.text.similarity(string='one')
         res = t.select(t.rowid, t.text, sim=sim).order_by(sim, asc=False).collect()
         assert res[0]['rowid'] == 1
+
+    @pytest.mark.parametrize('index_type', ['btree', 'embedding'])
+    def test_drop_index(self, index_type: str, uses_db: None, request: pytest.FixtureRequest) -> None:
+        """Test that indices (B-tree and embedding) are properly dropped from the store"""
+        # Create table and insert data
+        t = pxt.create_table('index_drop_test', {'id': pxt.Int, 'text': pxt.String}, if_exists='replace')
+        t.insert([{'id': 1, 'text': 'hello world'}, {'id': 2, 'text': 'goodbye'}])
+
+        # Find or create an index to drop
+        if index_type == 'btree':
+            idx_info_list = [info for info in t._tbl_version.get().idxs_by_name.values() if info.col.name == 'text']
+            assert len(idx_info_list) == 1, "Should have one B-tree index on 'text'"
+            idx_info = idx_info_list[0]
+        else:
+            skip_test_if_not_installed('sentence_transformers')
+            e5_embed = request.getfixturevalue('e5_embed')
+            t.add_embedding_index('text', idx_name='text_idx', string_embed=e5_embed)
+            idx_info = t._tbl_version.get().idxs_by_name['text_idx']
+
+        assert idx_info.id in t._tbl_version.get().idxs
+        store_idx_name = t._tbl_version.get()._store_idx_name(idx_info.id)
+
+        # Verify index exists in the store
+        assert store_idx_name in list_store_indexes(t), f'Index {store_idx_name} should exist before drop'
+
+        # Drop it
+        if index_type == 'btree':
+            t.drop_index(column='text')
+        else:
+            t.drop_embedding_index(idx_name='text_idx')
+
+        # Verify index no longer exists in the store
+        assert store_idx_name not in list_store_indexes(t), f'Index {store_idx_name} should not exist after drop'
+        # Or the metadata
+        assert idx_info.id not in t._tbl_version.get().idxs
+        reload_catalog()
+        t = pxt.get_table('index_drop_test')
+        assert idx_info.id not in t._tbl_version.get().idxs

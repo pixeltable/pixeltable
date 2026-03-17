@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import builtins
 import datetime
 import glob
@@ -18,20 +17,16 @@ import threading
 import types
 import typing
 import warnings
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import Any, Callable, Iterator, TypeVar
+from typing import Any, Callable, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import nest_asyncio  # type: ignore[import-untyped]
 import pixeltable_pgserver
 import sqlalchemy as sql
 import tzlocal
 from pillow_heif import register_heif_opener  # type: ignore[import-untyped]
-from rich.progress import Progress
-from sqlalchemy import orm
 from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
@@ -54,11 +49,10 @@ class Env:
     For a non-local environment, Pixeltable uses a connection string to the externally managed database.
     """
 
-    SERIALIZABLE_ISOLATION_LEVEL = 'SERIALIZABLE'
-
     _instance: Env | None = None
     __initializing: bool = False
-    _log_fmt_str = '%(asctime)s %(levelname)s %(name)s %(filename)s:%(lineno)d: %(message)s'
+    _init_lock: threading.RLock = threading.RLock()
+    _log_fmt_str = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
     _media_dir: Path | None
     _file_cache_dir: Path | None  # cached object files with external URL
@@ -79,6 +73,9 @@ class Env:
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
     _logger: logging.Logger
+    _sql_logger: logging.Logger
+    # List of loggers and file handlers to cleanup in the end. File handlers can repeat.
+    _managed_logging_handlers: list[tuple[logging.Logger, logging.Handler]]
     _default_log_level: int
     _logfilename: str | None
     _log_to_stdout: bool
@@ -90,19 +87,20 @@ class Env:
     _stdout_handler: logging.StreamHandler
     _default_video_encoder: str | None
     _initialized: bool
-    _progress: Progress | None
 
     _resource_pool_info: dict[str, Any]
-    _current_conn: sql.Connection | None
-    _current_session: orm.Session | None
-    _current_isolation_level: str | None
+    _resource_pool_lock: threading.Lock
     _dbms: Dbms | None
-    _event_loop: asyncio.AbstractEventLoop | None  # event loop for ExecNode
 
     @classmethod
     def get(cls) -> Env:
-        if cls._instance is None:
-            cls._init_env()
+        if cls._instance is not None:
+            return cls._instance
+        # _init_lock is a reentrant lock, so that circular calls to _init_env() don't end up deadlocking (and instead
+        # hit the assertion in _init_env())
+        with cls._init_lock:
+            if cls._instance is None:
+                cls._init_env()
         return cls._instance
 
     @classmethod
@@ -150,44 +148,16 @@ class Env:
         self._logfilename = None
         self._log_to_stdout = False
         self._module_log_level = {}  # module name -> log level
+        self._managed_logging_handlers = []
 
         # create logging handler to also log to stdout
         self._stdout_handler = logging.StreamHandler(stream=sys.stdout)
         self._stdout_handler.setFormatter(logging.Formatter(self._log_fmt_str))
         self._initialized = False
-        self._progress = None
 
         self._resource_pool_info = {}
-        self._current_conn = None
-        self._current_session = None
-        self._current_isolation_level = None
+        self._resource_pool_lock = threading.Lock()
         self._dbms = None
-        self._event_loop = None
-
-    def _init_event_loop(self) -> None:
-        try:
-            # check if we are already in an event loop (eg, Jupyter's); if so, patch it to allow
-            # multiple run_until_complete()
-            running_loop = asyncio.get_running_loop()
-            self._event_loop = running_loop
-            _logger.debug('Patched running loop')
-        except RuntimeError:
-            self._event_loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(self._event_loop)
-            # we set a deliberately long duration to avoid warnings getting printed to the console in debug mode
-            self._event_loop.slow_callback_duration = 3600
-
-        # always allow nested event loops, we need that to run async udfs synchronously (eg, for SimilarityExpr);
-        # see run_coroutine_synchronously()
-        nest_asyncio.apply()
-        if _logger.isEnabledFor(logging.DEBUG):
-            self._event_loop.set_debug(True)
-
-    @property
-    def event_loop(self) -> asyncio.AbstractEventLoop:
-        if self._event_loop is None:
-            self._init_event_loop()
-        return self._event_loop
 
     @property
     def db_url(self) -> str:
@@ -233,16 +203,6 @@ class Env:
         return self._verbosity
 
     @property
-    def conn(self) -> sql.Connection | None:
-        assert self._current_conn is not None
-        return self._current_conn
-
-    @property
-    def session(self) -> orm.Session | None:
-        assert self._current_session is not None
-        return self._current_session
-
-    @property
     def dbms(self) -> Dbms | None:
         assert self._dbms is not None
         return self._dbms
@@ -251,10 +211,6 @@ class Env:
     def is_using_cockroachdb(self) -> bool:
         assert self._dbms is not None
         return isinstance(self._dbms, CockroachDbms)
-
-    @property
-    def in_xact(self) -> bool:
-        return self._current_conn is not None
 
     @property
     def is_local(self) -> bool:
@@ -281,70 +237,6 @@ class Env:
         except NameError:
             return False
 
-    def start_progress(self, create_fn: Callable[[], Progress]) -> Progress:
-        if self._progress is None:
-            self._progress = create_fn()
-            self._progress.start()
-        return self._progress
-
-    def stop_progress(self) -> None:
-        if self._progress is None:
-            return
-        try:
-            self._progress.stop()
-        except Exception as e:
-            self._logger.warning(f'Error stopping progress: {e}')
-        finally:
-            self._progress = None
-
-        # if we're running in a notebook, we need to clear the Progress output manually
-        if self.is_notebook():
-            try:
-                from IPython.display import clear_output
-
-                clear_output(wait=False)
-            except ImportError:
-                pass
-
-    @contextmanager
-    def report_progress(self) -> Iterator[None]:
-        """Context manager for the Progress instance."""
-        try:
-            yield
-        finally:
-            self.stop_progress()
-
-    @contextmanager
-    def begin_xact(self, *, for_write: bool = False) -> Iterator[sql.Connection]:
-        """
-        Call Catalog.begin_xact() instead, unless there is a specific reason to call this directly.
-
-        for_write: if True, uses serializable isolation; if False, uses repeatable_read
-
-        TODO: repeatable read is not available in Cockroachdb; instead, run queries against a snapshot TVP
-        that avoids tripping over any pending ops
-        """
-        if self._current_conn is None:
-            assert self._current_session is None
-            try:
-                self._current_isolation_level = self.SERIALIZABLE_ISOLATION_LEVEL
-                with (
-                    self.engine.connect().execution_options(isolation_level=self._current_isolation_level) as conn,
-                    orm.Session(conn) as session,
-                    conn.begin(),
-                ):
-                    self._current_conn = conn
-                    self._current_session = session
-                    yield conn
-            finally:
-                self._current_session = None
-                self._current_conn = None
-                self._current_isolation_level = None
-        else:
-            assert self._current_session is not None
-            assert self._current_isolation_level == self.SERIALIZABLE_ISOLATION_LEVEL or not for_write
-            yield self._current_conn
-
     def configure_logging(
         self,
         *,
@@ -357,24 +249,24 @@ class Env:
 
         Args:
             to_stdout: if True, also log to stdout
-            level: default log level
+            level: default log level for pixeltable and its dependencies
             add: comma-separated list of 'module name:log level' pairs; ex.: add='video:10'
             remove: comma-separated list of module names
         """
         if to_stdout is not None:
-            self.log_to_stdout(to_stdout)
+            self._set_log_to_stdout(to_stdout)
         if level is not None:
             self.set_log_level(level)
         if add is not None:
             for module, level_str in [t.split(':') for t in add.split(',')]:
-                self.set_module_log_level(module, int(level_str))
+                self._set_module_log_level(module, int(level_str))
         if remove is not None:
             for module in remove.split(','):
-                self.set_module_log_level(module, None)
+                self._set_module_log_level(module, None)
         if to_stdout is None and level is None and add is None and remove is None:
-            self.print_log_config()
+            self._print_log_config()
 
-    def print_log_config(self) -> None:
+    def _print_log_config(self) -> None:
         print(f'logging to {self._logfilename}')
         print(f'{"" if self._log_to_stdout else "not "}logging to stdout')
         print(f'default log level: {logging.getLevelName(self._default_log_level)}')
@@ -383,7 +275,7 @@ class Env:
             f'{",".join([name + ":" + logging.getLevelName(val) for name, val in self._module_log_level.items()])}'
         )
 
-    def log_to_stdout(self, enable: bool = True) -> None:
+    def _set_log_to_stdout(self, enable: bool = True) -> None:
         self._log_to_stdout = enable
         if enable:
             self._logger.addHandler(self._stdout_handler)
@@ -392,8 +284,9 @@ class Env:
 
     def set_log_level(self, level: int) -> None:
         self._default_log_level = level
+        self._sql_logger.setLevel(level)
 
-    def set_module_log_level(self, module: str, level: int | None) -> None:
+    def _set_module_log_level(self, module: str, level: int | None) -> None:
         if level is None:
             self._module_log_level.pop(module, None)
         else:
@@ -505,6 +398,7 @@ class Env:
         stdout_handler.setLevel(map_level(self._verbosity))
         stdout_handler.addFilter(ConsoleMessageFilter())
         self._logger.addHandler(stdout_handler)
+        self._managed_logging_handlers.append((self._logger, stdout_handler))
         self._console_logger = ConsoleLogger(self._logger)
 
         # configure _logger to log to a file
@@ -512,12 +406,14 @@ class Env:
         fh = logging.FileHandler(self._log_dir / self._logfilename, mode='w')
         fh.setFormatter(logging.Formatter(self._log_fmt_str))
         self._logger.addHandler(fh)
+        self._managed_logging_handlers.append((self._logger, fh))
 
-        # configure sqlalchemy logging
-        sql_logger = logging.getLogger('sqlalchemy.engine')
-        sql_logger.setLevel(logging.INFO)
-        sql_logger.addHandler(fh)
-        sql_logger.propagate = False
+        # Configure sqlalchemy logging. Pixeltable users don't need to see the SQL queries by default
+        self._sql_logger = logging.getLogger('sqlalchemy.engine')
+        self._sql_logger.setLevel(logging.WARNING)
+        self._sql_logger.addHandler(fh)
+        self._sql_logger.propagate = False
+        self._managed_logging_handlers.append((self._sql_logger, fh))
 
         # configure pyav logging
         av_logfilename = self._logfilename.replace('.log', '_av.log')
@@ -525,6 +421,7 @@ class Env:
         av_fh.setFormatter(logging.Formatter(self._log_fmt_str))
         av_logger = logging.getLogger('libav')
         av_logger.addHandler(av_fh)
+        self._managed_logging_handlers.append((av_logger, av_fh))
         av_logger.propagate = False
 
         # configure web-server logging
@@ -533,6 +430,7 @@ class Env:
         http_fh.setFormatter(logging.Formatter(self._log_fmt_str))
         http_logger = logging.getLogger('pixeltable.http.server')
         http_logger.addHandler(http_fh)
+        self._managed_logging_handlers.append((http_logger, http_fh))
         http_logger.propagate = False
 
         self.clear_tmp_dir()
@@ -566,7 +464,7 @@ class Env:
 
         # we now have a home directory and db; start other services
         self._set_up_runtime()
-        self.log_to_stdout(False)
+        self._set_log_to_stdout(False)
 
     def _init_db(self, config: Config) -> None:
         """
@@ -714,22 +612,16 @@ class Env:
         """Get the Pixeltable API key from config"""
         return Config.get().get_string_value('api_key')
 
-    def get_client(self, name: str) -> Any:
+    def create_client(self, name: str) -> Any:
         """
-        Gets the client with the specified name, initializing it if necessary.
-
-        Args:
-            - name: The name of the client
+        Resolves config parameters and calls the registered init function to create a new client instance.
         """
-        # Return the existing client if it has already been constructed
-        with _registered_clients_lock:
-            cl = _registered_clients[name]
-            if cl.client_obj is not None:
-                return cl.client_obj  # Already initialized
+        with _client_factories_lock:
+            client_factory = _client_factories[name]
 
         # Retrieve parameters required to construct the requested client.
         init_kwargs: dict[str, Any] = {}
-        for param in cl.params.values():
+        for param in client_factory.params.values():
             # Determine the type of the parameter for proper config parsing.
             pname = param.name
             t = param.annotation
@@ -751,13 +643,9 @@ class Env:
                     f'or put `{pname.lower()}` in the `{name.lower()}` section of $PIXELTABLE_HOME/config.toml.'
                 )
 
-        # Construct the requested client
-        with _registered_clients_lock:
-            if cl.client_obj is not None:
-                return cl.client_obj  # Already initialized
-            cl.client_obj = cl.init_fn(**init_kwargs)
-            self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
-            return cl.client_obj
+        client = client_factory.init_fn(**init_kwargs)
+        self._logger.info(f'Initialized `{name}` client with parameters: {init_kwargs}.')
+        return client
 
     def _start_web_server(self) -> None:
         """
@@ -938,11 +826,12 @@ class Env:
     # def get_resource_pool_info(self, pool_id: str, pool_info_cls: Type[T] | None) -> T:
     def get_resource_pool_info(self, pool_id: str, make_pool_info: Callable[[], T] | None = None) -> T:
         """Returns the info object for the given id, creating it if necessary."""
-        info = self._resource_pool_info.get(pool_id)
-        if info is None and make_pool_info is not None:
-            info = make_pool_info()
-            self._resource_pool_info[pool_id] = info
-        return info
+        with self._resource_pool_lock:
+            info = self._resource_pool_info.get(pool_id)
+            if info is None and make_pool_info is not None:
+                info = make_pool_info()
+                self._resource_pool_info[pool_id] = info
+            return info
 
     @property
     def media_dir(self) -> Path:
@@ -982,9 +871,6 @@ class Env:
         Internal cleanup method that properly closes all resources and resets state.
         This is called before destroying the singleton instance.
         """
-        assert self._current_session is None
-        assert self._current_conn is None
-
         # Stop HTTP server
         if self._httpd is not None:
             try:
@@ -1017,22 +903,20 @@ class Env:
             except Exception as e:
                 _logger.warning(f'Error disposing engine: {e}')
 
-        # Close event loop
-        if self._event_loop is not None:
+        for logger, handler in self._managed_logging_handlers:
             try:
-                if self._event_loop.is_running():
-                    self._event_loop.stop()
-                self._event_loop.close()
-            except Exception as e:
-                _logger.warning(f'Error closing event loop: {e}')
-
-        # Remove logging handlers
-        for handler in self._logger.handlers[:]:
-            try:
-                handler.close()
-                self._logger.removeHandler(handler)
+                logger.removeHandler(handler)
             except Exception as e:
                 _logger.warning(f'Error removing handler: {e}')
+
+        handlers_set = {fh for _, fh in self._managed_logging_handlers}
+        for handler in handlers_set:
+            try:
+                handler.close()
+            except Exception as e:
+                _logger.warning(f'Error closing handler: {e}')
+
+        self._managed_logging_handlers.clear()
 
 
 def register_client(name: str) -> Callable:
@@ -1063,21 +947,20 @@ def register_client(name: str) -> Callable:
     def decorator(fn: Callable) -> None:
         sig = inspect.signature(fn)
         params = dict(sig.parameters)
-        with _registered_clients_lock:
-            _registered_clients[name] = ApiClient(init_fn=fn, params=params)
+        with _client_factories_lock:
+            _client_factories[name] = ApiClientFactory(init_fn=fn, params=params)
 
     return decorator
 
 
-_registered_clients_lock: threading.Lock = threading.Lock()
-_registered_clients: dict[str, ApiClient] = {}
+_client_factories_lock: threading.Lock = threading.Lock()
+_client_factories: dict[str, ApiClientFactory] = {}
 
 
 @dataclass
-class ApiClient:
+class ApiClientFactory:
     init_fn: Callable
     params: dict[str, inspect.Parameter]
-    client_obj: Any | None = None
 
 
 @dataclass
@@ -1104,6 +987,8 @@ class RateLimitsInfo:
     - get_retry_delay()
     - get_request_resources(self, ...) -> dict[str, int]
     with parameters that are a subset of those of the udf that creates the subclass's instance
+
+    All mutable state is protected by _lock (a reentrant lock, since subclass record_exc() may call self.record()).
     """
 
     # get_request_resources:
@@ -1114,15 +999,19 @@ class RateLimitsInfo:
 
     resource_limits: dict[str, RateLimitInfo] = field(default_factory=dict)
     has_exc: bool = False
+    _lock: threading.RLock = field(default_factory=threading.RLock, repr=False, compare=False)
 
     def debug_str(self) -> str:
-        return ','.join(info.debug_str() for info in self.resource_limits.values())
+        with self._lock:
+            return ','.join(info.debug_str() for info in self.resource_limits.values())
 
     def is_initialized(self) -> bool:
-        return len(self.resource_limits) > 0
+        with self._lock:
+            return len(self.resource_limits) > 0
 
     def reset(self) -> None:
-        self.resource_limits.clear()
+        with self._lock:
+            self.resource_limits.clear()
 
     def record(self, request_ts: datetime.datetime, reset_exc: bool = False, **kwargs: Any) -> None:
         """Update self.resource_limits with the provided rate limit info.
@@ -1130,40 +1019,43 @@ class RateLimitsInfo:
             - request_ts: time at which the request was made
             - reset_exc: if True, reset the has_exc flag
         """
-        if len(self.resource_limits) == 0:
-            self.resource_limits = {k: RateLimitInfo(k, request_ts, *v) for k, v in kwargs.items() if v is not None}
-            # TODO: remove
-            for info in self.resource_limits.values():
-                _logger.debug(f'Updated resource state: {info}')
-        else:
-            if self.has_exc and not reset_exc:
-                # ignore updates until we're asked to reset
-                _logger.debug(f'rate_limits.record(): ignoring update {kwargs}')
-                return
-            self.has_exc = False
-            for k, v in kwargs.items():
-                if v is not None:
-                    self.resource_limits[k].update(request_ts, *v)
-                    _logger.debug(f'Updated resource state: {self.resource_limits[k]}')
+        with self._lock:
+            if len(self.resource_limits) == 0:
+                self.resource_limits = {k: RateLimitInfo(k, request_ts, *v) for k, v in kwargs.items() if v is not None}
+                # TODO: remove
+                for info in self.resource_limits.values():
+                    _logger.debug(f'Updated resource state: {info}')
+            else:
+                if self.has_exc and not reset_exc:
+                    # ignore updates until we're asked to reset
+                    _logger.debug(f'rate_limits.record(): ignoring update {kwargs}')
+                    return
+                self.has_exc = False
+                for k, v in kwargs.items():
+                    if v is not None:
+                        self.resource_limits[k].update(request_ts, *v)
+                        _logger.debug(f'Updated resource state: {self.resource_limits[k]}')
 
     def record_exc(self, request_ts: datetime.datetime, exc: Exception) -> None:
         """Update self.resource_limits based on the exception headers
         Args:
             - request_ts: time at which the request that caused the exception was made
             - exc: the exception raised"""
-        self.has_exc = True
+        with self._lock:
+            self.has_exc = True
 
     def get_retry_delay(self, exc: Exception, attempt: int) -> float | None:
         """Returns number of seconds to wait before retry, or None if not retryable"""
-        # Find the highest wait until at least 5% availability of all resources
-        max_wait = 0.0
-        for limit_info in self.resource_limits.values():
-            time_until = limit_info.estimated_resource_refill_delay(
-                math.ceil(TARGET_RATE_LIMIT_RESOURCE_FRACT * limit_info.limit)
-            )
-            if time_until is not None:
-                max_wait = max(max_wait, time_until)
-        return max_wait if max_wait > 0 else None
+        with self._lock:
+            # Find the highest wait until at least 5% availability of all resources
+            max_wait = 0.0
+            for limit_info in self.resource_limits.values():
+                time_until = limit_info.estimated_resource_refill_delay(
+                    math.ceil(TARGET_RATE_LIMIT_RESOURCE_FRACT * limit_info.limit)
+                )
+                if time_until is not None:
+                    max_wait = max(max_wait, time_until)
+            return max_wait if max_wait > 0 else None
 
 
 @dataclass

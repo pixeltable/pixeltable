@@ -1,0 +1,493 @@
+import abc
+import collections.abc
+import inspect
+import typing
+from dataclasses import dataclass
+from textwrap import dedent
+from types import MethodType
+from typing import TYPE_CHECKING, Any, Callable, Generic, Iterator, TypeVar, overload
+
+from typing_extensions import Self
+
+from pixeltable import exceptions as excs, exprs, type_system as ts
+from pixeltable.catalog.globals import _POS_COLUMN_NAME
+from pixeltable.func.globals import resolve_symbol
+
+from .signature import Signature
+
+if TYPE_CHECKING:
+    from pixeltable.iterators.base import ComponentIterator
+
+
+ITERATOR_GUIDE_URL = 'https://docs.pixeltable.com/howto/cookbooks/core/custom-iterators'
+
+# We'd like to say bound=dict, but mypy inexplicably doesn't understand that a TypedDict is a dict (!)
+T = TypeVar('T')
+
+
+@dataclass(frozen=True)
+class IteratorOutput:
+    orig_name: str
+    is_stored: bool
+    col_type: ts.ColumnType
+
+    @property
+    def is_pos_column(self) -> bool:
+        return self.orig_name == _POS_COLUMN_NAME
+
+    def as_dict(self) -> dict[str, Any]:
+        return {'orig_name': self.orig_name, 'is_stored': self.is_stored, 'col_type': self.col_type.as_dict()}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> 'IteratorOutput':
+        return cls(orig_name=d['orig_name'], is_stored=d['is_stored'], col_type=ts.ColumnType.from_dict(d['col_type']))
+
+
+class PxtIterator(abc.ABC, Iterator[T], Generic[T]):
+    def __iter__(self) -> Self:
+        return self
+
+    @abc.abstractmethod
+    def __next__(self) -> T: ...
+
+    def close(self) -> None:
+        pass
+
+    def seek(self, pos: int, **kwargs: Any) -> None:
+        raise NotImplementedError()
+
+    @classmethod
+    def validate(cls, bound_args: dict[str, Any]) -> None:
+        pass
+
+    @classmethod
+    def conditional_output_schema(cls, bound_args: dict[str, Any]) -> dict[str, type] | None:
+        return None
+
+
+class GeneratingFunction:
+    """
+    A function that evaluates to iterators over its inputs.
+
+    It is the Pixeltable equivalent of a table generating function in SQL.
+
+    It is the "lift" of a PxtIterator: a PxtIterator represents a one-to-many expansion of its inputs; the
+    corresponding GeneratingFunction represents a one-to-many expansion of *columns* of inputs.
+    """
+
+    decorated_callable: Callable
+    unstored_cols: list[str]
+    fqn: str
+    name: str
+    signature: Signature
+    has_seek: bool
+    is_legacy_retrofit: bool
+
+    _default_output_schema: dict[str, ts.ColumnType] | None
+    _conditional_output_schema: Callable[[dict[str, Any]], dict[str, type]] | None
+    _validate: Callable[[dict[str, Any]], bool] | None
+
+    def __init__(self, decorated_callable: Callable, unstored_cols: list[str], fqn: str | None = None) -> None:
+        self.decorated_callable = decorated_callable
+        self.unstored_cols = unstored_cols
+        if fqn is None:
+            self.fqn = f'{decorated_callable.__module__}.{decorated_callable.__qualname__}'
+        else:
+            self.fqn = fqn
+        self.name = decorated_callable.__name__
+        self._conditional_output_schema = None
+        self._validate = None
+        self.signature = Signature.create(decorated_callable, return_type=ts.JsonType())
+
+        self._infer_properties()
+
+        if len(self.unstored_cols) > 0 and not self.has_seek:
+            raise excs.Error(f'Iterator `{self.fqn}` with `unstored_cols` must implement a `seek()` method.')
+
+        self.is_legacy_retrofit = False
+
+    def _infer_properties(self) -> None:
+        self.py_sig = inspect.signature(self.decorated_callable)
+        output_schema_type: type[dict]
+        iter_fn: Callable
+
+        if isinstance(self.decorated_callable, type):
+            # Case 1: decorating a subclass of PxtIterator
+            if not issubclass(self.decorated_callable, PxtIterator):
+                raise excs.Error(
+                    f'@pxt.iterator-decorated class `{self.fqn}` must be a subclass of `pixeltable.PxtIterator`.'
+                )
+            if self.decorated_callable.__next__ is PxtIterator.__next__:
+                raise excs.Error(f'@pxt.iterator-decorated class `{self.fqn}` must implement a `__next__()` method.')
+            self.has_seek = self.decorated_callable.seek is not PxtIterator.seek
+
+            if not isinstance(self.decorated_callable.validate, MethodType):
+                raise excs.Error(f'`validate()` method of @pxt.iterator `{self.fqn}` must be a @classmethod.')
+            assert isinstance(PxtIterator.validate, MethodType)
+            if self.decorated_callable.validate.__func__ is not PxtIterator.validate.__func__:
+                # The PxtIterator subclass defines a validate() method; use it as the validator (but strip the `cls`
+                # parameter)
+                self._validate = self.decorated_callable.validate
+
+            if not isinstance(self.decorated_callable.conditional_output_schema, MethodType):
+                raise excs.Error(
+                    f'`conditional_output_schema()` method of @pxt.iterator `{self.fqn}` must be a @classmethod.'
+                )
+            assert isinstance(PxtIterator.conditional_output_schema, MethodType)
+            if (
+                self.decorated_callable.conditional_output_schema.__func__
+                is not PxtIterator.conditional_output_schema.__func__
+            ):
+                # The PxtIterator subclass defines a conditional_output_schema() method; use it
+                self._conditional_output_schema = self.decorated_callable.conditional_output_schema
+
+            iter_fn = self.decorated_callable.__next__
+            return_type = typing.get_type_hints(iter_fn).get('return')
+
+            # remove type args from return_type (e.g., convert `dict[str, Any]` to `dict`)
+            element_type = typing.get_origin(return_type) or return_type
+            if not isinstance(element_type, type) or not issubclass(element_type, dict):
+                raise excs.Error(
+                    f'`__next__()` method of @pxt.iterator-decorated class `{self.fqn}` '
+                    'must have return type `dict` or a subclass of `TypedDict`.'
+                )
+            output_schema_type = element_type
+
+        else:
+            # Case 2: decorating a function that returns an Iterator[T]
+            iter_fn = self.decorated_callable
+            self.has_seek = False
+            return_type = typing.get_type_hints(iter_fn).get('return')
+
+            # Allowed return_types: Iterator[dict], Iterator[dict[str, Any]], Iterator[MyTypedDict]
+            return_type_args = typing.get_args(return_type)
+            element_type = None
+            if len(return_type_args) >= 1:
+                # element_type is calculated so that in the above cases it's (respectively):
+                # dict, dict, MyTypedDict
+                element_type = typing.get_origin(return_type_args[0]) or return_type_args[0]
+            if (
+                typing.get_origin(return_type) is not collections.abc.Iterator
+                or not isinstance(element_type, type)
+                or not issubclass(element_type, dict)
+            ):
+                raise excs.Error(
+                    f'@pxt.iterator-decorated function `{self.fqn}()` '
+                    'must have return type `Iterator[dict]`, or `Iterator[T]` for a subclass `T` of `TypedDict`.'
+                )
+            output_schema_type = element_type
+
+        if not hasattr(output_schema_type, '__orig_bases__') or not hasattr(output_schema_type, '__annotations__'):
+            # The return type is a dict, but not a TypedDict. There is no way to infer the output schema at this stage;
+            # the user must later define an appropriate conditional_output_schema.
+            self._default_output_schema = None
+            return
+
+        annotations = output_schema_type.__annotations__.items()
+        self._default_output_schema = {}
+        for name, type_ in annotations:
+            if name == _POS_COLUMN_NAME:
+                raise excs.Error(f'{_POS_COLUMN_NAME!r} is reserved and cannot be the name of an iterator output.')
+            col_type = ts.ColumnType.from_python_type(type_)
+            if col_type is None:
+                raise excs.Error(
+                    f'Could not infer Pixeltable type for output field {name!r} (with Python type `{type_.__name__}`).'
+                    '\nThis field was mentioned in the return type '
+                    f'`{output_schema_type.__module__}.{output_schema_type.__qualname__}` '
+                    f'in function `{iter_fn.__module__}.{iter_fn.__qualname__}()`.'
+                )
+            self._default_output_schema[name] = col_type
+
+    def call_output_schema(self, bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
+        if self._conditional_output_schema is None:
+            if self._default_output_schema is None:
+                raise excs.Error(
+                    f'Iterator `{self.fqn}` must either return a `TypedDict` or define a `conditional_output_schema`.'
+                )
+            return self._default_output_schema
+
+        else:
+            output_schema = self._conditional_output_schema(bound_kwargs)
+            if output_schema is None:
+                raise excs.Error(
+                    f'The `conditional_output_schema` for iterator `{self.fqn}` returned None; '
+                    'it must return a valid output schema dictionary.'
+                )
+            return {name: ts.ColumnType.from_python_type(type_) for name, type_ in output_schema.items()}
+
+    def bind_to_signature(self, args: list['exprs.Expr'], kwargs: dict[str, 'exprs.Expr']) -> dict[str, 'exprs.Expr']:
+        try:
+            bound_args = self.py_sig.bind(*args, **kwargs).arguments
+        except TypeError as exc:
+            raise excs.Error(f'Invalid iterator arguments: {exc}') from exc
+        self.signature.validate_args(bound_args, context=f'in iterator `{self.fqn}`')
+        return bound_args
+
+    def __call__(self, *args: Any, **kwargs: Any) -> 'GeneratingFunctionCall':
+        args = [exprs.Expr.from_object(arg) for arg in args]
+        kwargs = {k: exprs.Expr.from_object(v) for k, v in kwargs.items()}
+
+        # Promptly validate args and kwargs, as much as possible at this stage.
+        bound_args = self.bind_to_signature(args, kwargs)
+
+        # Build the dict of literal args for validation and output schema determination
+        literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
+
+        # Also include in literal_args default values for any unbound args that have them
+        for param_name, param in self.py_sig.parameters.items():
+            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
+                literal_args[param_name] = param.default
+
+        # Run custom iterator validation on whatever args are bound to literals at this stage
+        if self._validate is not None:
+            self._validate(literal_args)
+
+        output_schema = self.call_output_schema(literal_args)
+
+        # a component view exposes the pos column of its rowid;
+        # we create that column here, so it gets assigned a column id;
+        # stored=False: it is not stored separately (it's already stored as part of the rowid)
+        outputs = {_POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())}
+        outputs.update(
+            {
+                name: IteratorOutput(orig_name=name, is_stored=(name not in self.unstored_cols), col_type=col_type)
+                for name, col_type in output_schema.items()
+            }
+        )
+
+        return GeneratingFunctionCall(self, args, kwargs, bound_args, outputs, validation_error=None)
+
+    @classmethod
+    def _retrofit(cls, iterator_cls: type['ComponentIterator']) -> 'GeneratingFunction':
+        it = GeneratingFunction.__new__(GeneratingFunction)
+        it.decorated_callable = iterator_cls
+        it.fqn = f'{iterator_cls.__module__}.{iterator_cls.__qualname__}'
+        it.signature = Signature.create(iterator_cls, return_type=ts.JsonType())
+        it.py_sig = inspect.signature(iterator_cls)
+        it.unstored_cols = []
+
+        def call_output_schema(bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
+            schema, _ = iterator_cls.output_schema(**bound_kwargs)
+            return schema
+
+        it.call_output_schema = call_output_schema  # type: ignore[method-assign]
+        it._validate = lambda _: None  # Validation in legacy iterators was done in output_schema()
+        it.is_legacy_retrofit = True
+        return it
+
+    # validate decorator
+    def validate(self, fn: Callable[[dict[str, Any]], bool]) -> Callable[[dict[str, Any]], bool]:
+        if self._validate is not None:
+            raise excs.Error(f'@pxt.iterator `{self.fqn}` already defines a `validate()` method.')
+        self._validate = fn
+        return fn
+
+    # conditional_output_schema decorator
+    def conditional_output_schema(
+        self, fn: Callable[[dict[str, Any]], dict[str, type]]
+    ) -> Callable[[dict[str, Any]], dict[str, type]]:
+        if self._conditional_output_schema is not None:
+            raise excs.Error(f'@pxt.iterator `{self.fqn}` already defines a `conditional_output_schema()` method.')
+        self._conditional_output_schema = fn
+        return fn
+
+    def as_dict(self) -> dict[str, Any]:
+        return {'fqn': self.fqn}
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> 'GeneratingFunction':
+        from pixeltable.iterators.base import ComponentIterator
+
+        try:
+            fqn = d['fqn']
+            iterator_cls = resolve_symbol(fqn)
+            if isinstance(iterator_cls, GeneratingFunction):
+                return iterator_cls
+            if isinstance(iterator_cls, type) and issubclass(iterator_cls, ComponentIterator):
+                # Support legacy ComponentIterator pattern for backward compatibility
+                return cls._retrofit(iterator_cls)
+            return InvalidGeneratingFunction(
+                fqn,
+                d,
+                f'the symbol `{fqn}` is no longer a Pixeltable iterator. (Was the `@pxt.iterator` decorator removed?)',
+            )
+        except (AttributeError, ImportError):
+            return InvalidGeneratingFunction(
+                fqn, d, f'the symbol `{fqn}` no longer exists. (Was the iterator moved or renamed?)'
+            )
+
+
+class InvalidGeneratingFunction(GeneratingFunction):
+    fqn: str
+    fn_dict: dict[str, Any]
+    error_msg: str
+
+    def __init__(self, fqn: str, d: dict[str, Any], error_msg: str) -> None:
+        self.fqn = fqn
+        self.fn_dict = d
+        self.error_msg = error_msg
+
+    def __call__(self, *args: Any, **kwargs: Any) -> 'GeneratingFunctionCall':
+        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+
+    def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
+        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+
+    def call_output_schema(self, bound_kwargs: dict[str, Any]) -> dict[str, ts.ColumnType]:
+        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+
+    def _validate(self, bound_args: dict[str, Any]) -> None:
+        raise excs.Error(f'The iterator `{self.fqn}` cannot be used, because\n{self.error_msg}')
+
+    def as_dict(self) -> dict[str, Any]:
+        return self.fn_dict
+
+
+@dataclass(frozen=True)
+class GeneratingFunctionCall:
+    it: GeneratingFunction
+    args: list['exprs.Expr']
+    kwargs: dict[str, 'exprs.Expr']
+    bound_args: dict[str, 'exprs.Expr']
+    outputs: dict[str, IteratorOutput] | None
+    validation_error: str | None
+
+    @property
+    def is_valid(self) -> bool:
+        return self.validation_error is None
+
+    def eval(self, bound_args: dict[str, Any]) -> Iterator[dict]:
+        assert self.is_valid
+
+        # Run custom iterator validation on fully bound args
+        bound_args_with_defaults = bound_args.copy()
+        for param_name, param in self.it.py_sig.parameters.items():
+            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
+                bound_args_with_defaults[param_name] = param.default
+        if self.it._validate is not None:
+            self.it._validate(bound_args_with_defaults)
+
+        return self.it.decorated_callable(**bound_args)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            'fn': self.it.as_dict(),
+            'args': [arg.as_dict() for arg in self.args],
+            'kwargs': {k: v.as_dict() for k, v in self.kwargs.items()},
+            'outputs': {name: output_info.as_dict() for name, output_info in self.outputs.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> 'GeneratingFunctionCall':
+        it = GeneratingFunction.from_dict(d['fn'])
+        args = [exprs.Expr.from_dict(arg_dict) for arg_dict in d['args']]
+        kwargs = {k: exprs.Expr.from_dict(v_dict) for k, v_dict in d['kwargs'].items()}
+        outputs: dict[str, IteratorOutput] | None = None
+        validation_error = None
+
+        if d['outputs'] is not None:
+            outputs = {
+                name: IteratorOutput.from_dict(output_info_dict) for name, output_info_dict in d['outputs'].items()
+            }
+
+        if isinstance(it, InvalidGeneratingFunction):
+            validation_error = f'The iterator `{it.fqn}` cannot be located, because\n{it.error_msg}'
+            # We can't instantiate the GeneratingFunction, so nothing more to do (we can't bind arguments nor
+            # reconstruct outputs of legacy iterators).
+            return cls(it, args, kwargs, {}, outputs, validation_error)
+
+        # Bind args and kwargs against the latest version of the iterator defined as in code.
+        try:
+            bound_args = it.bind_to_signature(args, kwargs)
+        except excs.Error:
+            args_str = [f'pxt.{arg.col_type}' for arg in args]
+            args_str.extend(f'{name}: pxt.{arg.col_type}' for name, arg in kwargs.items())
+            call_signature_str = f'({", ".join(args_str)}) -> ...'
+            fn_signature_str = str(it.signature).removesuffix('pxt.Json') + '...'
+            validation_error = dedent(
+                f"""
+                The signature stored in the database for a call to `{it.fqn}` no longer
+                matches its signature as currently defined in the code. This probably means that the
+                code for `{it.fqn}` has changed in a backward-incompatible way.
+                Signature of iterator in the database: {call_signature_str}
+                Signature of iterator as currently defined in code: {fn_signature_str}
+                """
+            ).strip()
+            return cls(it, args, kwargs, {}, outputs, validation_error)
+
+        literal_args = {k: v.val for k, v in bound_args.items() if isinstance(v, exprs.Literal)}
+        for param_name, param in it.py_sig.parameters.items():
+            if param_name not in bound_args and param.default is not inspect.Parameter.empty:
+                literal_args[param_name] = param.default
+        output_schema = it.call_output_schema(literal_args)
+
+        if outputs is None:
+            # For legacy iterators, `outputs` was not persisted, and there is no practical way to reconstruct it as
+            # part of the schema migration. In that case we just query the iterator for it, but we lose the ability to
+            # sanity check against any schema evolution of the iterator.
+            if it.is_legacy_retrofit:
+                _, unstored_cols = it.decorated_callable.output_schema(literal_args)  # type: ignore[attr-defined]
+            else:
+                unstored_cols = it.unstored_cols
+            outputs = {
+                _POS_COLUMN_NAME: IteratorOutput(orig_name=_POS_COLUMN_NAME, is_stored=False, col_type=ts.IntType())
+            }
+            outputs.update(
+                {
+                    name: IteratorOutput(orig_name=name, is_stored=(name in unstored_cols), col_type=col_type)
+                    for name, col_type in output_schema.items()
+                }
+            )
+        else:
+            # Validate call_output_schema against stored outputs
+            assert any(output.is_pos_column for output in outputs.values())
+            for output in outputs.values():
+                if output.is_pos_column:
+                    continue  # the pos column is not represented explicitly in the output schema
+                if output.orig_name not in output_schema:
+                    # TODO: should we in fact allow this, and just put Nones in the column, to allow for
+                    #     "deprecated" output columns?
+                    validation_error = dedent(
+                        f"""
+                        The output schema stored in the database for a call to `{it.fqn}` no longer
+                        matches its output schema as currently defined in the code. This probably means that the
+                        code for `{it.fqn}` has changed in a backward-incompatible way.
+                        The output field {output.orig_name!r} is no longer present in the output schema.
+                        """
+                    ).strip()
+                elif not output.col_type.is_supertype_of(output_schema[output.orig_name]):
+                    validation_error = dedent(
+                        f"""
+                        The output schema stored in the database for a call to `{it.fqn}` no longer
+                        matches its output schema as currently defined in the code. This probably means that the
+                        code for `{it.fqn}` has changed in a backward-incompatible way.
+                        The type of output field {output.orig_name!r} is incompatible
+                        (expected `pxt.{output.col_type}`; got `pxt.{output_schema[output.orig_name]}`).
+                        """
+                    ).strip()
+
+        return cls(it, args, kwargs, bound_args, outputs, validation_error)
+
+
+@overload
+def iterator(decorated_fn: Callable) -> GeneratingFunction: ...
+
+
+@overload
+def iterator(*, unstored_cols: list[str] | None = None) -> Callable[[Callable], GeneratingFunction]: ...
+
+
+def iterator(*args, **kwargs):  # type: ignore[no-untyped-def]
+    if len(args) == 1 and len(kwargs) == 0 and callable(args[0]):
+        return GeneratingFunction(decorated_callable=args[0], unstored_cols=[])
+    else:
+        unstored_cols = kwargs.pop('unstored_cols', None)
+        if len(kwargs) > 0:
+            raise excs.Error(f'Invalid @iterator decorator kwargs: {", ".join(kwargs.keys())}')
+        if len(args) > 0:
+            raise excs.Error('Unexpected @iterator decorator arguments.')
+
+        def decorator(decorated_fn: Callable) -> GeneratingFunction:
+            return GeneratingFunction(decorated_callable=decorated_fn, unstored_cols=unstored_cols)
+
+        return decorator
