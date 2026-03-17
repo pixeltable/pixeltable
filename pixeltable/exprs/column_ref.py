@@ -182,7 +182,11 @@ class ColumnRef(Expr):
         image: str | PIL.Image.Image | None = None,
         audio: str | None = None,
         video: str | None = None,
+<<<<<<< HEAD
         vector: np.ndarray | None = None,
+=======
+        document: str | None = None,
+>>>>>>> main
         idx: str | None = None,
     ) -> Expr:
         from .similarity_expr import SimilarityExpr
@@ -195,7 +199,11 @@ class ColumnRef(Expr):
                 '  .similarity(image=...)\n'
                 '  .similarity(audio=...)\n'
                 '  .similarity(video=...)\n'
+<<<<<<< HEAD
                 '  .similarity(vector=...)',
+=======
+                '  .similarity(document=...)',
+>>>>>>> main
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -205,7 +213,11 @@ class ColumnRef(Expr):
             + (image is not None)
             + (audio is not None)
             + (video is not None)
+<<<<<<< HEAD
             + (vector is not None)
+=======
+            + (document is not None)
+>>>>>>> main
         )
 
         if item is not None and arg_count != 0:
@@ -213,11 +225,17 @@ class ColumnRef(Expr):
 
         if arg_count > 1:
             raise excs.Error(
+<<<<<<< HEAD
                 'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., vector=...'
+=======
+                'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., document=...'
+>>>>>>> main
             )
 
         expr: Expr
 
+        # TODO: For audio/video/document, we're storing the local file path in the Literal for the similarity
+        #     expression. This is problematic in scenarios where the similarity expression is serialized.
         if item is not None:
             if isinstance(item, Expr):  # This can happen when using similarity() with @query
                 if not (item.col_type.is_string_type() or item.col_type.is_image_type()):
@@ -232,7 +250,7 @@ class ColumnRef(Expr):
         if string is not None:
             if isinstance(string, Expr):
                 if not string.col_type.is_string_type():
-                    raise excs.Error(f'similarity(string=...): expected `String`; got `{expr.col_type}`')
+                    raise excs.Error(f'similarity(string=...): expected `String`; got `{string.col_type}`')
                 expr = string
             else:
                 if not isinstance(string, str):
@@ -283,6 +301,7 @@ class ColumnRef(Expr):
                 video_path = fetch_url(video, allow_local_file=True)
                 expr = Literal(str(video_path), ts.VideoType())
 
+<<<<<<< HEAD
         if vector is not None:
             if isinstance(vector, Expr):
                 if not vector.col_type.is_array_type():
@@ -304,6 +323,23 @@ class ColumnRef(Expr):
                 expr = Literal(vector, col_type=col_type)
 
         return SimilarityExpr(expr, col_ref=self, idx_name=idx)
+=======
+        if document is not None:
+            if isinstance(document, Expr):
+                if not document.col_type.is_document_type():
+                    raise excs.Error(f'similarity(document=...): expected `Document`; got `{document.col_type}`')
+                expr = document
+            else:
+                if not isinstance(document, str):
+                    raise excs.Error(
+                        'similarity(document=...): expected `str` (path to document file); '
+                        f'got `{type(document).__name__}`'
+                    )
+                document_path = fetch_url(document, allow_local_file=True)
+                expr = Literal(str(document_path), ts.DocumentType())
+
+        return SimilarityExpr(self, expr, idx_name=idx)
+>>>>>>> main
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
         from pixeltable.index import EmbeddingIndex
