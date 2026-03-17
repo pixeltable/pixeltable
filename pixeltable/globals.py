@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Mapping, TypedDict, Union
 
 import pandas as pd
 import pydantic
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
         Path,  # OS paths, filenames, URLs
         Iterable[dict[str, Any]],  # dictionaries of values
         Iterable[pydantic.BaseModel],  # Pydantic model instances
+        Iterator,
         catalog.Table,  # Pixeltable Table
         Query,  # Pixeltable Query
         pd.DataFrame,  # pandas DataFrame
