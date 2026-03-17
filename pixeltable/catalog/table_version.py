@@ -490,7 +490,7 @@ class TableVersion:
             for md in visible_idxs:
                 idx = idxs[md.id]
                 indexed_col_id = QColumnId(UUID(md.indexed_col_tbl_id), md.indexed_col_id)
-                idx_col = self.lookup_column(indexed_col_id)
+                idx_col = self._lookup_column(indexed_col_id)
                 info = self.IndexInfo(
                     id=md.id,
                     name=md.name,
@@ -579,7 +579,7 @@ class TableVersion:
             cols.append(col)
         return cols
 
-    def lookup_column(self, qid: QColumnId) -> Column | None:
+    def _lookup_column(self, qid: QColumnId) -> Column | None:
         """
         Look up the column with the given table id and column id, searching through the ancestors of this TableVersion
         to find it. We avoid referencing TableVersionPath in order to work properly with snapshots as well.
@@ -589,7 +589,16 @@ class TableVersion:
         if qid.tbl_id == self.id:
             return next((col for col in self.cols if col.id == qid.col_id), None)
         elif self.base is not None:
-            return self.base.get().lookup_column(qid)
+            return self.base.get()._lookup_column(qid)
+        else:
+            return None
+
+    def get_visible_column(self, qid: QColumnId) -> Column | None:
+        """Look up a currently visible column by QColumnId, searching through this version and its bases."""
+        if qid.tbl_id == self.id:
+            return self.cols_by_id.get(qid.col_id)
+        elif self.base is not None:
+            return self.base.get().get_visible_column(qid)
         else:
             return None
 

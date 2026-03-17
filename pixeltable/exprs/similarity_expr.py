@@ -30,8 +30,8 @@ class SimilarityExpr(Expr):
     """
 
     table_version_key: TableVersionKey
-    idx_name: str | None = None  # index name could be optional
-    col_qid: QColumnId | None = None  # used to find the first embedding index when index name is not provided
+    idx_name: str | None = None  # index name; None if not specified by the user
+    col_qid: QColumnId | None = None  # identifies the indexed column
 
     def __init__(
         self,
@@ -65,7 +65,7 @@ class SimilarityExpr(Expr):
             tv = get_runtime().catalog.get_tbl_version(
                 self.table_version_key, check_pending_ops=False, validate_initialized=False
             )
-            column = tv.lookup_column(self.col_qid)
+            column = tv.get_visible_column(self.col_qid)
             if column is None:
                 raise excs.Error(
                     f'Column {self.col_qid!r} not found in table version {self.table_version_key!r} or its bases'
@@ -74,6 +74,8 @@ class SimilarityExpr(Expr):
         idx_info = tv.get_idx(column, self.idx_name, EmbeddingIndex)
         idx = idx_info.idx
         assert isinstance(idx, EmbeddingIndex)
+        # Ensure we always store the concrete index name resolved by the catalog, even if idx_name was omitted
+        self.idx_name = idx_info.name
 
         # Skip for array columns; similarity search uses the raw vector directly.
         if not item.col_type.is_array_type() and item.col_type._type not in idx.embeddings:
@@ -90,19 +92,48 @@ class SimilarityExpr(Expr):
         assert self.col_qid is not None
 
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version.lookup_column(self.col_qid)
+        col = tbl_version.get_visible_column(self.col_qid)
         assert col is not None
         return f'{col.name}.similarity({self.components[0]}, {self.idx_name!r})'
 
     def _id_attrs(self) -> list[tuple[str, Any]]:
-        return [*super()._id_attrs(), ('idx_name', self.idx_name)]
+        return [
+            *super()._id_attrs(),
+            ('table_version_key', self.table_version_key),
+            ('col_qid', self.col_qid),
+            ('idx_name', self.idx_name),
+        ]
+
+    def _equals(self, other: 'SimilarityExpr') -> bool:
+        return (
+            self.table_version_key == other.table_version_key
+            and self.col_qid == other.col_qid
+            and self.idx_name == other.idx_name
+        )
 
     def tbl_ids(self) -> set[UUID]:
         return {self.table_version_key.tbl_id} | super().tbl_ids()
 
+    @classmethod
+    def get_refd_column_ids(cls, expr_dict: dict[str, Any]) -> set[catalog.QColumnId]:
+        result = super().get_refd_column_ids(expr_dict)
+        if 'col_qid' in expr_dict:
+            result.add(
+                catalog.QColumnId(tbl_id=UUID(expr_dict['col_qid']['tbl_id']), col_id=expr_dict['col_qid']['col_id'])
+            )
+        return result
+
+    @property
+    def validation_error(self) -> str | None:
+        try:
+            self._resolve_idx(validate_initialized=False)
+            return None
+        except excs.Error as e:
+            return str(e)
+
     def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version.lookup_column(self.col_qid)
+        col = tbl_version.get_visible_column(self.col_qid)
         if col is None:
             return False
         return any(tbl.has_column(col) for tbl in tbls)
@@ -137,15 +168,19 @@ class SimilarityExpr(Expr):
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info.idx.order_by_clause(idx_info.val_col, self.components[0], is_asc)
 
-    def _resolve_idx(self) -> 'TableVersion.IndexInfo':
+    def _resolve_idx(self, validate_initialized: bool = True) -> 'TableVersion.IndexInfo':
+        """Resolve the embedding index; validate_initialized=False is used during schema initialization."""
         from pixeltable.index import EmbeddingIndex
 
-        tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version.lookup_column(self.col_qid)
+        tbl_version = get_runtime().catalog.get_tbl_version(
+            self.table_version_key, validate_initialized=validate_initialized
+        )
+        col = tbl_version.get_visible_column(self.col_qid)
         if col is None:
             raise excs.Error(
-                f'Embedding index {self.idx_name!r} no longer exists because column {self.col_qid!r} was dropped'
+                f'Embedding index {self.idx_name!r} no longer exists because the indexed column was dropped'
             )
+        # get_idx() raises if the index no longer exists (e.g. it was dropped)
         idx_info = tbl_version.get_idx(col, self.idx_name, EmbeddingIndex)
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info
