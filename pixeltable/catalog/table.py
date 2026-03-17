@@ -966,7 +966,7 @@ class Table(SchemaObject):
         if provided, it will be used to convert query values into embeddings for similarity search.
 
         Args:
-            column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
+            column: The name of, or reference to, the column to be indexed; must be a `String`, `Image` or `Array` column.
             idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
                 automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
             embedding: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`

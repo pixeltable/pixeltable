@@ -24,7 +24,7 @@ def _substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     col_qid = ColumnRef.get_column_id(d=col_ref_dict)
     tbl_id = col_qid.tbl_id
     tbl_version = col_ref_dict['tbl_version']
-    table_version_key = {'id': tbl_id, 'effective_version': tbl_version, 'anchor_tbl_id': None}
+    table_version_key = {'id': str(tbl_id), 'effective_version': tbl_version, 'anchor_tbl_id': None}
     # copy index name, class name etc
     new_d: dict[str, Any] = {kk: vv for kk, vv in v.items() if kk != 'components'}
     # Skip column ref from components

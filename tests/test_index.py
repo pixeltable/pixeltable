@@ -988,7 +988,7 @@ class TestIndex:
     def test_array_column_embedding_index(
         self, uses_db: None, e5_embed: pxt.Function, reload_tester: ReloadTester
     ) -> None:
-        skip_test_if_not_installed('transformers')
+        skip_test_if_not_installed('transformers', 'sentence_transformers')
 
         texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
 
@@ -1134,3 +1134,32 @@ class TestIndex:
         reload_catalog()
         t = pxt.get_table('index_drop_test')
         assert idx_info.id not in t._tbl_version.get().idxs
+
+    def test_similarity_index_lifecycle(self, uses_db: None, e5_embed: pxt.Function) -> None:
+        """Test similarity when index is dropped, recreated, and column is dropped."""
+        skip_test_if_not_installed('transformers', 'sentence_transformers')
+
+        t = pxt.create_table('lifecycle_test', {'id': pxt.Int, 'text': pxt.String})
+        texts = ['a dog playing in the park', 'a cat sitting on a mat', 'a bird flying in the sky']
+        validate_update_status(t.insert([{'id': i, 'text': s} for i, s in enumerate(texts)]), expected_rows=3)
+        t.add_embedding_index('text', idx_name='emb_idx', string_embed=e5_embed)
+
+        sim = t.text.similarity(string='a cat', idx='emb_idx')
+        query = t.select(t.id, t.text, sim=sim).order_by(sim, asc=False).limit(3)
+        res = query.collect()
+        assert res[0]['text'] == 'a cat sitting on a mat'
+
+        # drop index: query should fail with a clear error
+        t.drop_embedding_index(idx_name='emb_idx')
+        with pytest.raises(pxt.Error, match=r"(?i).*No embedding index found for column 'text'.*"):
+            query.collect()
+
+        # recreate index under same name: query should work again
+        t.add_embedding_index('text', idx_name='emb_idx', string_embed=e5_embed)
+        res = query.collect()
+        assert res[0]['text'] == 'a cat sitting on a mat'
+
+        # drop the column: query should fail
+        t.drop_column('text')
+        with pytest.raises(pxt.Error, match=r'(?i).*column was dropped.*'):
+            query.collect()

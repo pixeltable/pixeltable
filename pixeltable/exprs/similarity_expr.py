@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 import sqlalchemy as sql
+from typing_extensions import Self
 
 import pixeltable.catalog as catalog
 import pixeltable.exceptions as excs
@@ -69,19 +70,8 @@ class SimilarityExpr(Expr):
                 raise excs.Error(
                     f'Column {self.col_qid!r} not found in table version {self.table_version_key!r} or its bases'
                 )
-
-        # determine index to use
-        if self.idx_name is None:
-            # Look up index by column
-            idx_info = tv.get_idx(column, None, EmbeddingIndex)
-            self.idx_name = idx_info.name
-        else:
-            # Look up index by name, not by id, so that the expr is still valid when the index
-            # gets dropped and re-created
-            idx_info = tv.idxs_by_name.get(idx_name)
-            if idx_info is None:
-                raise excs.Error(f'Index {idx_name!r} not found for column {column.name!r}')
-
+        # Get embedding index for given column
+        idx_info = tv.get_idx(column, self.idx_name, EmbeddingIndex)
         idx = idx_info.idx
         assert isinstance(idx, EmbeddingIndex)
 
@@ -117,6 +107,13 @@ class SimilarityExpr(Expr):
             return False
         return any(tbl.has_column(col) for tbl in tbls)
 
+    def _retarget(self, tbl_versions: dict[UUID, catalog.TableVersion]) -> Self:
+        super()._retarget(tbl_versions)
+        tv = tbl_versions.get(self.table_version_key.tbl_id)
+        if tv is not None:
+            self.table_version_key = tv.key
+        return self
+
     def default_column_name(self) -> str:
         return 'similarity'
 
@@ -150,10 +147,6 @@ class SimilarityExpr(Expr):
                 f'Embedding index {self.idx_name!r} no longer exists because column {self.col_qid!r} was dropped'
             )
         idx_info = tbl_version.get_idx(col, self.idx_name, EmbeddingIndex)
-        if idx_info is None:
-            raise excs.Error(
-                f'Embedding index {self.idx_name!r} on column {col.name!r} no longer exists (it may have been dropped)'
-            )
         assert isinstance(idx_info.idx, EmbeddingIndex)
         return idx_info
 
