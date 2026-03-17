@@ -93,7 +93,8 @@ class SimilarityExpr(Expr):
 
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
         col = tbl_version.get_visible_column(self.col_qid)
-        assert col is not None
+        if col is None:
+            return f'<invalid>.similarity({self.components[0]}, {self.idx_name!r})'
         return f'{col.name}.similarity({self.components[0]}, {self.idx_name!r})'
 
     def _id_attrs(self) -> list[tuple[str, Any]]:

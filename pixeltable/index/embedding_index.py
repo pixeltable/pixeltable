@@ -210,11 +210,6 @@ class EmbeddingIndex(IndexBase):
         stmt = Env.get().dbms.create_vector_index_stmt(store_index_name, sa_value_col, metric=metric)
         return stmt
 
-    def drop_index(self, index_name: str, index_value_col: catalog.Column) -> None:
-        """Drop the index on the index value column"""
-        # TODO: implement
-        raise NotImplementedError()
-
     def _validate_query_vector(self, query_vector: np.ndarray, val_column_type: ts.ArrayType) -> None:
         """Validate that the query vector matches the index column dimensions."""
         if query_vector.ndim != 1:
