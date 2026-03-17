@@ -726,12 +726,6 @@ class TestIndex:
         ):
             # no embedding function specified
             img_t.add_embedding_index('img')
-<<<<<<< HEAD
-        assert '`embed`, `string_embed`, `image_embed`, `audio_embed` or `video_embed` must be specified' in str(
-            exc_info.value
-        )
-=======
->>>>>>> main
 
         with pytest.raises(pxt.Error, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."):
             # wrong column type
@@ -763,11 +757,7 @@ class TestIndex:
         with pytest.raises(
             pxt.Error,
             match=r'The function `clip` is not a valid embedding: '
-<<<<<<< HEAD
-            'it must take a single string, image, audio or video parameter',
-=======
             'it must take a single string, image, audio, video, or document parameter',
->>>>>>> main
         ):
             # no matching signature
             img_t.add_embedding_index('img', embedding=clip)
@@ -1160,6 +1150,12 @@ class TestIndex:
         res = query.collect()
         assert res[0]['text'] == 'a cat sitting on a mat'
 
+        # verify query works after catalog reload
+        reload_catalog()
+        t = pxt.get_table('lifecycle_test')
+        res = query.collect()
+        assert res[0]['text'] == 'a cat sitting on a mat'
+
         # drop index: query should fail with a clear error
         t.drop_embedding_index(idx_name='emb_idx')
         with pytest.raises(pxt.Error, match=r"(?i).*No embedding index found for column 'text'.*"):
@@ -1167,6 +1163,12 @@ class TestIndex:
 
         # recreate index under same name: query should work again
         t.add_embedding_index('text', idx_name='emb_idx', string_embed=e5_embed)
+        res = query.collect()
+        assert res[0]['text'] == 'a cat sitting on a mat'
+
+        # verify it still works after reload with recreated index
+        reload_catalog()
+        t = pxt.get_table('lifecycle_test')
         res = query.collect()
         assert res[0]['text'] == 'a cat sitting on a mat'
 

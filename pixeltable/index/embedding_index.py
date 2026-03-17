@@ -65,35 +65,19 @@ class EmbeddingIndex(IndexBase):
         image_embed: func.Function | None = None,
         audio_embed: func.Function | None = None,
         video_embed: func.Function | None = None,
-<<<<<<< HEAD
+        document_embed: func.Function | None = None,
         column: catalog.Column | None = None,  # Column being indexed; None during deserialization.
     ):
         if (
             column is not None
             and not column.col_type.is_array_type()  # embedding function is optional for array columns
-            and not any((embed, string_embed, image_embed, audio_embed, video_embed))
-        ):
-            raise excs.Error(
-                'At least one of `embed`, `string_embed`, `image_embed`, `audio_embed` or `video_embed` '
-                'must be specified'
-            )
-
-=======
-        document_embed: func.Function | None = None,
-    ):
-        if (
-            embed is None
-            and string_embed is None
-            and image_embed is None
-            and audio_embed is None
-            and video_embed is None
-            and document_embed is None
+            and not any((embed, string_embed, image_embed, audio_embed, video_embed, document_embed))
         ):
             raise excs.Error(
                 'At least one of `embed`, `string_embed`, `image_embed`, `audio_embed`, '
                 '`video_embed`, or `document_embed` must be specified'
             )
->>>>>>> main
+
         metric_names = [m.name.lower() for m in self.Metric]
         if metric.lower() not in metric_names:
             raise excs.Error(f'Invalid metric {metric}, must be one of {metric_names}')
@@ -130,11 +114,7 @@ class EmbeddingIndex(IndexBase):
             # `embed` was specified and contains no matching signatures.
             raise excs.Error(
                 f'The function `{embed.name}` is not a valid embedding: '
-<<<<<<< HEAD
-                'it must take a single string, image, audio or video parameter'
-=======
                 'it must take a single string, image, audio, video, or document parameter'
->>>>>>> main
             )
 
         # Validate array column shape
@@ -169,11 +149,8 @@ class EmbeddingIndex(IndexBase):
             ts.ColumnType.Type.IMAGE,
             ts.ColumnType.Type.AUDIO,
             ts.ColumnType.Type.VIDEO,
-<<<<<<< HEAD
-            ts.ColumnType.Type.ARRAY,
-=======
             ts.ColumnType.Type.DOCUMENT,
->>>>>>> main
+            ts.ColumnType.Type.ARRAY,
         ):
             raise excs.Error(f'Type `{c.col_type}` of column {c.name!r} is not a valid type for an embedding index.')
 
@@ -383,11 +360,7 @@ class EmbeddingIndex(IndexBase):
         image_embed = func.Function.from_dict(d['image_embed']) if d.get('image_embed') is not None else None
         audio_embed = func.Function.from_dict(d['audio_embed']) if d.get('audio_embed') is not None else None
         video_embed = func.Function.from_dict(d['video_embed']) if d.get('video_embed') is not None else None
-<<<<<<< HEAD
-
-=======
         document_embed = func.Function.from_dict(d['document_embed']) if d.get('document_embed') is not None else None
->>>>>>> main
         return cls(
             metric=d['metric'],
             precision=d['precision'],
@@ -396,9 +369,5 @@ class EmbeddingIndex(IndexBase):
             image_embed=image_embed,
             audio_embed=audio_embed,
             video_embed=video_embed,
-<<<<<<< HEAD
-=======
             document_embed=document_embed,
-            precision=d['precision'],
->>>>>>> main
         )
