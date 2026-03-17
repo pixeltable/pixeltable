@@ -96,12 +96,7 @@ class GeminiRateLimitsInfo(env.RateLimitsInfo):
 
 @pxt.udf(is_deterministic=False)
 async def generate_content(
-    contents: pxt.Json,
-    *,
-    model: str,
-    config: dict | None = None,
-    tools: list[dict] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None
 ) -> dict:
     """
     Generate content from the specified model.
@@ -229,9 +224,7 @@ def _(model: str) -> str:
 
 
 @pxt.udf(is_deterministic=False)
-async def generate_images(
-    prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx | None = None
-) -> PIL.Image.Image:
+async def generate_images(prompt: str, *, model: str, config: dict | None = None) -> PIL.Image.Image:
     """
     Generates images based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/image-generation>
@@ -280,12 +273,7 @@ def _(model: str) -> str:
 
 @pxt.udf(is_deterministic=False)
 async def generate_videos(
-    prompt: str | None = None,
-    image: PIL.Image.Image | None = None,
-    *,
-    model: str,
-    config: dict | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
 ) -> pxt.Video:
     """
     Generates videos based on a text description and configuration. For additional details, see:
@@ -365,12 +353,7 @@ def _(model: str) -> str:
 
 @pxt.udf(batch_size=4)
 async def embed_content(
-    contents: Batch[str],
-    *,
-    model: str,
-    config: dict[str, Any] | None = None,
-    use_batch_api: bool = False,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    contents: Batch[str], *, model: str, config: dict[str, Any] | None = None, use_batch_api: bool = False
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     """
     Generate embeddings for text, images, video, and other content. For more information on Gemini embeddings API, see:
@@ -410,44 +393,28 @@ async def embed_content(
 
 @embed_content.overload
 async def _(
-    contents: Batch[PIL.Image.Image],
-    *,
-    model: str,
-    config: dict[str, Any] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    contents: Batch[PIL.Image.Image], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_content(contents, model, config, use_batch_api=False)
 
 
 @embed_content.overload
 async def _(
-    contents: Batch[pxt.Audio],
-    *,
-    model: str,
-    config: dict[str, Any] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    contents: Batch[pxt.Audio], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_file_content(contents, model, config, use_batch_api=False)
 
 
 @embed_content.overload
 async def _(
-    contents: Batch[pxt.Video],
-    *,
-    model: str,
-    config: dict[str, Any] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    contents: Batch[pxt.Video], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_file_content(contents, model, config, use_batch_api=False)
 
 
 @embed_content.overload
 async def _(
-    contents: Batch[pxt.Document],
-    *,
-    model: str,
-    config: dict[str, Any] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    contents: Batch[pxt.Document], *, model: str, config: dict[str, Any] | None = None
 ) -> Batch[pxt.Array[(None,), np.float32]]:
     return await _embed_file_content(contents, model, config, use_batch_api=False)
 
