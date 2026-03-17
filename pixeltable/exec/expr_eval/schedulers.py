@@ -88,7 +88,6 @@ class RateLimitsScheduler(Scheduler):
             if item is None:
                 item = await self.queue.get()
                 assert isinstance(item.request.fn_call.fn, func.CallableFunction)
-                assert '_runtime_ctx' in item.request.fn_call.fn.signature.system_parameters
                 if item.num_retries > 0:
                     self.total_retried += 1
 
@@ -182,7 +181,9 @@ class RateLimitsScheduler(Scheduler):
                 for row, result in zip(request.rows, batch_result):
                     row[request.fn_call.slot_idx] = result
             else:
-                request_kwargs = {**request.kwargs, '_runtime_ctx': env.RuntimeCtx(is_retry=num_retries > 0)}
+                request_kwargs = request.kwargs
+                if '_runtime_ctx' in pxt_fn.signature.system_parameters:
+                    request_kwargs = {**request_kwargs, '_runtime_ctx': env.RuntimeCtx(is_retry=num_retries > 0)}
                 result = await pxt_fn.aexec(*request.args, **request_kwargs)
                 request.row[request.fn_call.slot_idx] = result
             end_ts = datetime.datetime.now(tz=datetime.timezone.utc)
