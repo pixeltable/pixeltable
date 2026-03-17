@@ -127,8 +127,13 @@ class ColumnMd:
     # if True, the column is present in the stored table
     stored: bool | None
 
+<<<<<<< HEAD
     # if set, this is the default value expression (literal) for the column
     default_value_expr: dict | None = None
+=======
+    # Indicates if this column has another accessory column that stores cell metadata such as execution errors
+    stores_cellmd: bool
+>>>>>>> main
 
     # If present, the URI for the destination for column values
     destination: str | None = None

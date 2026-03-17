@@ -26,6 +26,7 @@ from .utils import (
 )
 
 
+@pytest.mark.cockroachdb
 class TestIndex:
     # returns string
     @staticmethod
@@ -719,10 +720,13 @@ class TestIndex:
             img_t.add_embedding_index('does_not_exist', idx_name='idx0', image_embed=clip_embed)
         assert 'Unknown column: does_not_exist' in str(exc_info.value)
 
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error,
+            match=r'`embed`, `string_embed`, `image_embed`, `audio_embed`, `video_embed`, or `document_embed` '
+            'must be specified',
+        ):
             # no embedding function specified
             img_t.add_embedding_index('img')
-        assert '`embed`, `string_embed`, or `image_embed` must be specified' in str(exc_info.value)
 
         with pytest.raises(pxt.Error, match=r"Type `Int` of column 'c2' is not a valid type for an embedding index."):
             # wrong column type
@@ -754,7 +758,7 @@ class TestIndex:
         with pytest.raises(
             pxt.Error,
             match=r'The function `clip` is not a valid embedding: '
-            'it must take a single string, image, audio, or video parameter',
+            'it must take a single string, image, audio, video, or document parameter',
         ):
             # no matching signature
             img_t.add_embedding_index('img', embedding=clip)

@@ -98,6 +98,7 @@ class TestTable:
         def value(self) -> int:
             return 1
 
+    @pytest.mark.cockroachdb
     def test_create(self, uses_db: None, reload_tester: ReloadTester) -> None:
         pxt.create_dir('dir1')
         schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp}
@@ -160,6 +161,7 @@ class TestTable:
         with pytest.raises(pxt.Error, match="'insert' is a reserved name in Pixeltable"):
             pxt.create_table('test', {'insert': pxt.Int})
 
+    @pytest.mark.cockroachdb
     def test_create_if_exists(self, uses_db: None, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter of create_table API"""
         schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp}
@@ -271,6 +273,7 @@ class TestTable:
         with pytest.raises(pxt.Error, match=r'move\(\): source and destination cannot be identical'):
             pxt.move('tbl1', 'tbl1')
 
+    @pytest.mark.cockroachdb
     def test_columns(self, uses_db: None) -> None:
         schema = {'c1': pxt.String, 'c2': pxt.Int, 'c3': pxt.Float, 'c4': pxt.Timestamp}
         t = pxt.create_table('test', schema)
@@ -485,6 +488,7 @@ class TestTable:
             _ = pxt.create_table('validation_error', {'img': {'type': pxt.Image, 'media_validation': 'wrong_value'}})  # type: ignore[dict-item]
         assert "media_validation must be one of: ['on_read', 'on_write']" in str(exc_info.value)
 
+    @pytest.mark.cockroachdb
     def test_validate_on_read(self, uses_db: None, reload_tester: ReloadTester) -> None:
         files = get_video_files(include_bad_video=True)
         rows = [{'id': i, 'media': f, 'is_bad_media': f.endswith('bad_video.mp4')} for i, f in enumerate(files)]
@@ -562,6 +566,7 @@ class TestTable:
         )
         assert_resultset_eq(on_read_res_1, on_read_res_2)
 
+    @pytest.mark.cockroachdb
     def test_create_from_query(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         query1 = t.where(t.c2 >= 50).order_by(t.c2, asc=False).select(t.c2, t.c3, t.c7, t.c2 + 26, t.c1.contains('19'))
@@ -865,6 +870,7 @@ class TestTable:
 
     # Test the various combinations of type hints available in schema definitions and validate that they map to the
     # correct ColumnType instances.
+    @pytest.mark.cockroachdb
     def test_schema_types(self, uses_db: None) -> None:
         test_columns: dict[str, type] = {
             'str_col': pxt.String,
@@ -1063,6 +1069,7 @@ class TestTable:
         _ = pxt.get_table('test3')
         pxt.drop_table(t)
 
+    @pytest.mark.cockroachdb
     def test_drop_table_force(self, test_tbl: pxt.Table) -> None:
         t = pxt.get_table('test_tbl')
         v1 = pxt.create_view('v1', t)
@@ -1091,6 +1098,7 @@ class TestTable:
         pxt.drop_table(t, force=True)  # Drops everything else
         assert len(pxt.list_tables()) == 0
 
+    @pytest.mark.cockroachdb
     def test_drop_table_if_not_exists(self, uses_db: None) -> None:
         """Test the if_not_exists parameter of drop_table API"""
         non_existing_t = 'non_existing_table'
@@ -1521,6 +1529,7 @@ class TestTable:
         with av.open(local_path) as container:
             assert container.streams.video[0].codec_context.name == 'h264'
 
+    @pytest.mark.cockroachdb
     def test_insert_nulls(self, uses_db: None) -> None:
         schema = {
             'c1': pxt.String,
@@ -1537,6 +1546,7 @@ class TestTable:
         assert status.num_rows == 1
         assert status.num_excs == 0
 
+    @pytest.mark.cockroachdb
     def test_insert(self, uses_db: None) -> None:
         schema: dict[str, type] = {
             'c1': pxt.Required[pxt.String],
@@ -1647,6 +1657,7 @@ class TestTable:
         t.insert(str_col='Hello there.')  # Succeeds because column 'bad' is dropped
         pxt.drop_table('test')
 
+    @pytest.mark.cockroachdb
     def test_insert_string_with_null(self, uses_db: None) -> None:
         t = pxt.create_table('test', {'c1': pxt.String})
 
@@ -1668,6 +1679,7 @@ class TestTable:
         t2 = pxt.get_table('test')
         _ = t2.show(n=0)
 
+    @pytest.mark.cockroachdb
     def test_batch_update(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         num_rows = t.count()
@@ -1753,6 +1765,7 @@ class TestTable:
             # some rows are missing rowids
             _ = t2.batch_update([{'c1': 'one', '_rowid': (1,)}, {'c1': 'two'}])
 
+    @pytest.mark.cockroachdb
     def test_update(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl
         # update every type with a literal
@@ -1868,6 +1881,7 @@ class TestTable:
             img_t.update({'split': 'train'}, where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
+    @pytest.mark.cockroachdb
     def test_cascading_update(self, test_tbl: pxt.InsertableTable) -> None:
         t = test_tbl
         t.add_computed_column(d1=t.c3 - 1)
@@ -1881,6 +1895,7 @@ class TestTable:
         r2 = t.where(t.c2 < 5).select(t.c3, t.c10, t.d1, t.d2).order_by(t.c2).collect()
         assert_resultset_eq(r1, r2)
 
+    @pytest.mark.cockroachdb
     def test_delete(self, test_tbl: pxt.Table, small_img_tbl: pxt.Table) -> None:
         t = test_tbl
 
@@ -1915,6 +1930,7 @@ class TestTable:
             img_t.delete(where=img_t.img.width > 100)
         assert 'not expressible' in str(excinfo.value)
 
+    @pytest.mark.cockroachdb
     def test_computed_cols(self, uses_db: None) -> None:
         schema = {'c1': pxt.Int, 'c2': pxt.Float, 'c3': pxt.Json}
         t: pxt.Table = pxt.create_table('test', schema)
@@ -1999,6 +2015,7 @@ class TestTable:
         for row in t_res:
             assert row['c3'] + 1000 == row['c4']
 
+    @pytest.mark.cockroachdb
     def test_expr_udf_computed_cols(self, uses_db: None) -> None:
         t = pxt.create_table('test', {'c1': pxt.Int})
         rows = [{'c1': i} for i in range(100)]
@@ -2033,6 +2050,7 @@ class TestTable:
         assert status.num_excs == 0
         check(t)
 
+    @pytest.mark.cockroachdb
     def test_computed_col_exceptions(self, uses_db: None, test_tbl: pxt.Table) -> None:
         if Env.get().is_using_cockroachdb:
             # TODO Fix this on CockroachDB; it's a problem!
@@ -2156,6 +2174,7 @@ class TestTable:
         new_t.insert(rows)
         _ = new_t.collect()
 
+    @pytest.mark.cockroachdb
     def test_revert(self, uses_db: None) -> None:
         t1 = make_tbl('test1', ['c1', 'c2'])
         assert t1._get_version() == 0
@@ -2181,6 +2200,7 @@ class TestTable:
             t1.revert()
         assert 'version 0' in str(excinfo.value)
 
+    @pytest.mark.cockroachdb
     def test_add_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         orig_cols = set(t.columns())
@@ -2342,6 +2362,7 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
+    @pytest.mark.cockroachdb
     def test_add_column_if_exists(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         """Test the if_exists parameter of add_column."""
         t = test_tbl
@@ -2457,6 +2478,7 @@ class TestTable:
             raise RuntimeError(f'Error in recompute_udf for value {i}')
         return str(i + TestTable.recompute_udf_increment)
 
+    @pytest.mark.cockroachdb
     def test_recompute_column(self, uses_db: None) -> None:
         t = pxt.create_table('recompute_test', schema={'i': pxt.Int, 's': pxt.String})
         status = t.add_computed_column(i1=self.recompute_int_udf(t.i))
@@ -2582,6 +2604,7 @@ class TestTable:
         # if_not_exists='ignore' does nothing if the column does not exist
         t.drop_column(non_existing_col, if_not_exists='ignore')
 
+    @pytest.mark.cockroachdb
     def test_drop_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         dummy_t = pxt.create_table('dummy', {'dummy_col': pxt.Int})
@@ -2675,6 +2698,7 @@ class TestTable:
         pxt.drop_table(t1)
         pxt.drop_table(t2)
 
+    @pytest.mark.cockroachdb
     def test_rename_column(self, test_tbl: pxt.Table) -> None:
         t = test_tbl
         num_orig_cols = len(t.columns())
@@ -2715,6 +2739,7 @@ class TestTable:
         t = pxt.get_table(t._name)
         check_rename(t, 'c1', 'c1_renamed')
 
+    @pytest.mark.cockroachdb
     def test_add_computed_column(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
         status = t.add_computed_column(add1=t.c2 + 10)
@@ -2749,6 +2774,7 @@ class TestTable:
 
         reload_tester.run_reload_test()
 
+    @pytest.mark.cockroachdb
     def test_computed_column_types(self, uses_db: None) -> None:
         t = pxt.create_table(
             'test', {'c1': pxt.Int, 'c1_r': pxt.Required[pxt.Int], 'c2': pxt.String, 'c2_r': pxt.Required[pxt.String]}
@@ -3084,6 +3110,7 @@ class TestTable:
         with pytest.raises(pxt.Error, match=unknown_tbl_msg):
             t.revert()
 
+    @pytest.mark.cockroachdb
     def test_drop_column_in_view_predicate(self, uses_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
         v1 = pxt.create_view('view1', t.where(t.c1 % 2 == 0), additional_columns={'vc1': pxt.Int})
@@ -3112,6 +3139,7 @@ class TestTable:
         assert 'view: view2, predicate: (c1 + vc1) % 2 == 0' in str(e.value).lower()
         assert 'view: view3, predicate: ((vc1 + vc2) - (c1 + c2)) % 5 == 0' in str(e.value).lower()
 
+    @pytest.mark.cockroachdb
     def test_drop_last_column(self, uses_db: None, reload_tester: ReloadTester) -> None:
         t = pxt.create_table('tbl', {'c1': pxt.Int, 'c2': pxt.Int})
         # drop the first column
@@ -3351,6 +3379,7 @@ class TestTable:
         assert 'c4' in t.columns()
         assert t.get_metadata()['columns']['c4']['media_validation'] == 'on_read'
 
+    @pytest.mark.cockroachdb
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_table_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
         t = pxt.create_table('tbl', {'c': pxt.Int}, comment='This is a test table.')
@@ -3364,6 +3393,7 @@ class TestTable:
         with pytest.raises(pxt.Error, match='`comment` must be a string'):
             pxt.create_table('tbl_invalid', {'c': pxt.Int}, comment={'comment': 'This is a test table.'})  # type: ignore[arg-type]
 
+    @pytest.mark.cockroachdb
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_table_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
@@ -3378,6 +3408,7 @@ class TestTable:
         with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_table('tbl_invalid', {'c': pxt.Int}, custom_metadata={'key': set})
 
+    @pytest.mark.cockroachdb
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_column_custom_metadata(self, uses_db: None, do_reload_catalog: bool) -> None:
         custom_metadata = {'key1': 'value1', 'key2': 2, 'key3': [1, 2, 3]}
@@ -3392,6 +3423,7 @@ class TestTable:
         with pytest.raises(pxt.Error, match='`custom_metadata` must be JSON-serializable'):
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'custom_metadata': {'key': set}}})
 
+    @pytest.mark.cockroachdb
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])
     def test_column_comment(self, uses_db: None, do_reload_catalog: bool) -> None:
         t = pxt.create_table('tbl', {'c': {'type': pxt.Int, 'comment': 'This is a test column.'}})

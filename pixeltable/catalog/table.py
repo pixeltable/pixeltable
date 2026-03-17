@@ -5,7 +5,6 @@ import builtins
 import datetime
 import json
 import logging
-from keyword import iskeyword as is_python_keyword
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping
 from uuid import UUID
@@ -28,12 +27,12 @@ from pixeltable.metadata.utils import MetadataUtils
 from pixeltable.runtime import get_runtime
 from pixeltable.types import ColumnSpec
 from pixeltable.utils.formatter import Formatter
-from pixeltable.utils.object_stores import ObjectOps
 
 from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .column import Column
+<<<<<<< HEAD
 from .globals import (
     _ROWID_COLUMN_NAME,
     MAX_DEFAULT_VALUE_SIZE,
@@ -43,6 +42,9 @@ from .globals import (
     is_system_column_name,
     is_valid_identifier,
 )
+=======
+from .globals import _ROWID_COLUMN_NAME, IfExistsParam, IfNotExistsParam, MediaValidation, is_valid_identifier
+>>>>>>> main
 from .schema_object import SchemaObject
 from .table_version_handle import TableVersionHandle
 from .table_version_path import TableVersionPath
@@ -623,7 +625,7 @@ class Table(SchemaObject):
             result = UpdateStatus()
             if len(schema) == 0:
                 return result
-            new_cols = self._create_columns(schema)
+            new_cols = [Column.create(name, spec) for name, spec in schema.items()]
             for new_col in new_cols:
                 self._verify_column(new_col)
 
@@ -808,7 +810,7 @@ class Table(SchemaObject):
                 assert cols_to_ignore[0] == col_name
                 return result
 
-            new_col = self._create_columns({col_name: col_schema})[0]
+            new_col = Column.create(col_name, col_schema)
             self._verify_column(new_col)
             assert self._tbl_version is not None
             result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
@@ -816,6 +818,7 @@ class Table(SchemaObject):
             return result
 
     @classmethod
+<<<<<<< HEAD
     def _validate_column_spec(cls, name: str, spec: ColumnSpec) -> None:
         """Check integrity of user-supplied Column spec
 
@@ -1044,20 +1047,11 @@ class Table(SchemaObject):
             raise excs.Error(f'Invalid column name: {name}')
 
     @classmethod
+=======
+>>>>>>> main
     def _verify_column(cls, col: Column) -> None:
         """Check integrity of user-supplied Column and supply defaults"""
-        cls.validate_column_name(col.name)
-        if col.stored is False and not col.is_computed:
-            raise excs.Error(f'Column {col.name!r}: `stored={col.stored}` only applies to computed columns')
-        if col.stored is False and col.has_window_fn_call():
-            raise excs.Error(
-                (
-                    f'Column {col.name!r}: `stored={col.stored}` is not valid for image columns computed with a '
-                    f'streaming function'
-                )
-            )
-        if col._explicit_destination is not None and not (col.stored and col.is_computed):
-            raise excs.Error(f'Column {col.name!r}: `destination` property only applies to stored computed columns')
+        col.verify()
 
     @classmethod
     def _verify_schema(cls, schema: list[Column]) -> None:
@@ -1327,7 +1321,7 @@ class Table(SchemaObject):
 
             # idx_name must be a valid pixeltable column name
             if idx_name is not None:
-                Table.validate_column_name(idx_name)
+                Column.validate_name(idx_name)
 
             # validate EmbeddingIndex args
             idx = EmbeddingIndex(
@@ -1891,9 +1885,8 @@ class Table(SchemaObject):
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pushing
         parsed_uri = PxtUri(uri=pxt_uri)
         uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
-        uuid_uri = str(uuid_uri_obj)
 
-        push_replica(uuid_uri, self)
+        push_replica(uuid_uri_obj, self)
 
     def pull(self) -> None:
         from pixeltable.share import pull_replica
@@ -1918,9 +1911,8 @@ class Table(SchemaObject):
         # Parse the pxt URI to extract org/db and create a UUID-based URI for pulling
         parsed_uri = PxtUri(uri=pxt_uri)
         uuid_uri_obj = PxtUri.from_components(org=parsed_uri.org, id=self._id, db=parsed_uri.db)
-        uuid_uri = str(uuid_uri_obj)
 
-        pull_replica(self._path(), uuid_uri)
+        pull_replica(self._path(), uuid_uri_obj)
 
     def external_stores(self) -> list[str]:
         return list(self._tbl_version.get().external_stores.keys())

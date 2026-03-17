@@ -763,7 +763,7 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         prompt=prompt, model=model, response_format='b64_json', **model_kwargs
     )
 
-    result = result_model.model_dump()
+    result = result_model.model_dump(mode='json')
 
     # Decode images in response
     for i in range(len(result['data'])):

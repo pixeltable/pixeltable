@@ -1,116 +1,141 @@
 ---
 title: 'Building with LLMs'
-description: 'Use LLMs to build Pixeltable applications'
+description: 'Use AI coding tools to build Pixeltable applications faster'
 ---
 
-## Vibe Coding with Pixeltable
+## Why Pixeltable Is Easy to Vibe-Code
 
-Pixeltable's declarative primitives make it ideal for LLM-assisted development. Instead of writing complex orchestration code, you describe *what* you want—and LLMs can generate correct Pixeltable code on the first try.
+Pixeltable's API is declarative — you say *what* you want, not *how* to wire it up. That means LLMs get it right on the first try. Ask your AI tool to "summarize articles with GPT-4o-mini" and you get working code:
 
 ```python
-# LLMs can easily generate this pattern
 import pixeltable as pxt
-from pixeltable.functions.huggingface import sentence_transformer
+from pixeltable.functions.openai import chat_completions
 
-t = pxt.create_table('myapp.docs', {'text': pxt.String}, if_exists='ignore')
-t.add_embedding_index('text', embedding=sentence_transformer.using(model_id='all-MiniLM-L6-v2'))
+t = pxt.create_table('app.articles', {'title': pxt.String, 'body': pxt.String})
+
+t.add_computed_column(response=chat_completions(
+    messages=[{'role': 'user', 'content': t.body}], model='gpt-4o-mini'))
+t.add_computed_column(summary=t.response.choices[0].message.content)
+
+t.insert([{'title': 'Climate Report', 'body': 'Global temperatures rose 1.2°C ...'}])
+t.select(t.title, t.summary).collect()
 ```
+
+Ten lines of code — and the result is **persistent**, **versioned**, **traceable**, and **incrementally optimized**. Every output is stored, every transformation is replayable, and new rows only recompute what changed. The same pattern scales to [RAG pipelines](/howto/cookbooks/agents/pattern-rag-pipeline), [video frame extraction](/howto/cookbooks/video/video-extract-frames), [tool-calling agents](/howto/cookbooks/agents/llm-tool-calling), and [semantic search](/howto/cookbooks/search/search-semantic-text).
 
 ---
 
-## Agent Instructions Files
+## Set Up Your AI Tool
 
-We provide instruction files for AI coding agents (Cursor, Claude Code, Windsurf, etc.) to understand the Pixeltable codebase:
+Pick the setup that matches your editor. These aren't mutually exclusive — use whichever combination helps.
+
+<Tabs>
+  <Tab title="Cursor / Windsurf">
+    Drop our [AGENTS.md](https://github.com/pixeltable/pixeltable/blob/main/AGENTS.md) into your project root. Cursor, Windsurf, and similar agents pick it up automatically and use it as context for code generation.
+
+    ```bash
+    curl -o AGENTS.md https://raw.githubusercontent.com/pixeltable/pixeltable/main/AGENTS.md
+    ```
+
+    For Claude-based editors, the same file is also available as [CLAUDE.md](https://github.com/pixeltable/pixeltable/blob/main/CLAUDE.md).
+  </Tab>
+  <Tab title="Claude Code">
+    Install the [Pixeltable Skill](https://github.com/pixeltable/pixeltable-skill) — Claude discovers it automatically when you ask about Pixeltable. It loads a concise `SKILL.md` first, then pulls in the full API reference only when needed.
+
+    ```bash
+    # Plugin install (recommended — auto-updates)
+    /plugin marketplace add pixeltable/pixeltable-skill
+    /plugin install pixeltable-skill@pixeltable-skill
+
+    # Or manual install
+    git clone https://github.com/pixeltable/pixeltable-skill.git /tmp/pxt-skill
+    cp -r /tmp/pxt-skill/skills/pixeltable-skill ~/.claude/skills/
+    ```
+  </Tab>
+  <Tab title="Any LLM">
+    Append `.md` to any docs URL to get a plain-text version optimized for LLMs. Paste it straight into your chat.
+
+    | Resource | URL |
+    |----------|-----|
+    | Any docs page as markdown | `https://docs.pixeltable.com/<path>.md` — e.g., [this page](https://docs.pixeltable.com/overview/building-pixeltable-with-llms.md) |
+    | Site index for LLMs | [llms.txt](https://docs.pixeltable.com/llms.txt) ([standard](https://llmstxt.org/)) |
+    | Full site map with metadata | [llms-full.txt](https://docs.pixeltable.com/llms-full.txt) |
+  </Tab>
+</Tabs>
+
+---
+
+## MCP Servers
+
+Connect your AI tool to Pixeltable directly via the [Model Context Protocol](https://modelcontextprotocol.io). We ship two servers — or you can build your own using [`pxt.mcp_udfs()`](/libraries/mcp).
+
+<Tabs>
+  <Tab title="Docs Search (Hosted)">
+    Search the full documentation from Claude Desktop, Cursor, or Windsurf:
+
+    ```
+    https://docs.pixeltable.com/mcp
+    ```
+
+    Exposes a `SearchPixeltableDocumentation` tool that returns relevant content, code examples, and direct links.
+  </Tab>
+  <Tab title="Developer Server">
+    32 tools for creating tables, running queries, managing dependencies, and executing Python — all from your AI editor. Experimental; great for prototyping.
+
+    ```bash
+    # Install
+    uv tool install --from git+https://github.com/pixeltable/mcp-server-pixeltable-developer.git mcp-server-pixeltable-developer
+
+    # Add to Claude Code
+    claude mcp add pixeltable mcp-server-pixeltable-developer
+    ```
+
+    See [configuration for Cursor, Claude Desktop, and more](https://github.com/pixeltable/mcp-server-pixeltable-developer) in the repo README.
+  </Tab>
+  <Tab title="Build Your Own">
+    Any Pixeltable UDF or query function can be exposed as an MCP tool with a single call:
+
+    ```python
+    import pixeltable as pxt
+
+    @pxt.udf
+    def lookup_customer(name: str) -> str:
+        """Look up customer info by name."""
+        t = pxt.get_table('app.customers')
+        return t.where(t.name == name).select(t.info).collect()[0]['info']
+
+    tools = pxt.tools(lookup_customer)
+    ```
+
+    `pxt.tools()` wraps your functions so any MCP-compatible client can call them. See the [MCP integration guide](/libraries/mcp) for the full setup.
+  </Tab>
+</Tabs>
+
+---
+
+## Start Building
+
+Use the app template to scaffold a full-stack project. It wires up a FastAPI backend and React frontend on top of Pixeltable — document upload, cross-modal search, and a tool-calling agent, all powered by computed columns. Ask your AI tool to customize it from there.
+
+<Card title="Pixeltable App Template" icon="github" href="https://github.com/pixeltable/pixeltable-app-template">
+  Full-stack skeleton: FastAPI + React + Pixeltable for multimodal AI workloads
+</Card>
+
+---
+
+## Next Steps
 
 <CardGroup cols={2}>
-  <Card title="AGENTS.md" icon="file-code" href="https://github.com/pixeltable/pixeltable/blob/main/AGENTS.md">
-    Instructions for AI agents: project structure, conventions, and patterns
+  <Card title="Quick Start" icon="bolt" href="/overview/quick-start">
+    Install and run your first pipeline in 5 minutes
   </Card>
-  <Card title="CLAUDE.md" icon="file-code" href="https://github.com/pixeltable/pixeltable/blob/main/CLAUDE.md">
-    Claude-specific agent instructions (same content as AGENTS.md)
+  <Card title="Computed Columns" icon="wand-magic-sparkles" href="/tutorials/computed-columns">
+    The core pattern LLMs generate — learn how it works
+  </Card>
+  <Card title="Tool Calling" icon="wrench" href="/howto/cookbooks/agents/llm-tool-calling">
+    Build agents with UDFs, queries, and MCP tools
+  </Card>
+  <Card title="Agents & MCP" icon="robot" href="/use-cases/agents-mcp">
+    Full use case walkthrough for AI agents
   </Card>
 </CardGroup>
-
-Add these to your project or point your AI assistant to them for better Pixeltable code generation.
-
----
-
-## Plain text docs
-
-You can access all of our documentation as plain text markdown files by adding `.md` to the end of any url. For example, you can find the plain text version of this page itself at [https://docs.pixeltable.com/overview/building-pixeltable-with-llms.md](https://docs.pixeltable.com/overview/building-pixeltable-with-llms.md).
-
-This helps AI tools and agents consume our content and allows you to copy and paste the entire contents of a doc into an LLM. This format is preferable to scraping or copying from our HTML and JavaScript-rendered pages because:
-
-* Plain text contains fewer formatting tokens.
-* Content that isn't rendered in the default view (for example, it's hidden in a tab) of a given page is rendered in the plain text version.
-* LLMs can parse and understand markdown hierarchy.
-
-We host two files to assist AI tools and agents:
-
-1. [https://docs.pixeltable.com/llms.txt](https://docs.pixeltable.com/llms.txt): This file instructs how to retrieve plain text versions of our pages. It follows the [emerging standard](https://llmstxt.org/) for making websites and content more accessible to LLMs.
-
-2. [https://docs.pixeltable.com/llms-full.txt](https://docs.pixeltable.com/llms-full.txt): This file contains more comprehensive instructions and metadata about our documentation structure.
-
-These files help AI tools navigate and understand our documentation more effectively.
-
-## Hosted MCP server
-
-We provide a hosted MCP server that AI applications can connect to directly for searching our documentation.
-
-**MCP Server URL:**
-```
-https://docs.pixeltable.com/mcp
-```
-
-**Available Tools:**
-
-| Tool | Description |
-|------|-------------|
-| `SearchPixeltableDocumentation` | Search across the Pixeltable documentation to find relevant information, code examples, API references, and guides. Returns contextual content with titles and direct links. |
-
-<Tip>
-Use this URL to connect AI applications like Claude Desktop, Cursor, or Windsurf to our documentation.
-</Tip>
-
-## Self-hosted MCP server
-
-For developers who want more control or need to call the Pixeltable API directly, we provide a self-hosted [Pixeltable MCP server](/libraries/mcp). This server provides AI agents tools for calling the Pixeltable API and searching our knowledge base.
-
-<Card title="Pixeltable MCP servers" icon="github" href="https://github.com/pixeltable/pixeltable-mcp-server">
-  View the source code and contribute to our Pixeltable MCP servers
-</Card>
-
-The self-hosted server gives agents direct access to Pixeltable's multimodal capabilities:
-- **Audio:** Transcription, speaker diarization, audio search
-- **Video:** Frame extraction, scene detection, object tracking
-- **Images:** Object detection, classification, similarity search
-- **Text:** RAG retrieval, document parsing, semantic search
-
----
-
-## Pixelagent Toolkit
-
-If you're building agentic software, we provide an SDK for adding Pixeltable functionality to your agent's capabilities.
-
-<Card title="Pixelagent" icon="github" href="https://github.com/pixeltable/pixelagent">
-  Agent engineering blueprint powered on Pixeltable
-</Card>
-
-Pixelagent provides:
-- **Multi-agent systems:** Coordinate multiple agents with shared memory
-- **Tool calling:** Register UDFs and queries as callable tools
-- **State management:** Automatic persistence of conversation history
-- **Observability:** Full lineage tracking of agent decisions
-
-Learn more in our [Pixelagent documentation](/libraries/pixelagent).
-
----
-
-## See also
-
-- [UDFs in Pixeltable](/platform/udfs-in-pixeltable) — Custom functions
-- [Computed Columns](/tutorials/computed-columns) — Declarative transformations
-- [Embedding Indexes](/platform/embedding-indexes) — Semantic search
-- [Agents & MCP](/use-cases/agents-mcp) — Build AI agents with Pixeltable
-- [Model Context Protocol](/libraries/mcp) — MCP server documentation
-- [Tool Calling Cookbook](/howto/cookbooks/agents/llm-tool-calling) — Hands-on examples

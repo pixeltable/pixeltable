@@ -1,8 +1,10 @@
 import uuid
+from unittest.mock import PropertyMock, patch
 
 import pytest
 
 import pixeltable as pxt
+from pixeltable.env import Env
 from tests.conftest import clean_db
 from tests.utils import (
     assert_resultset_eq,
@@ -72,7 +74,7 @@ class TestPublish:
         skip_test_if_no_pxt_credentials()
 
         tbl = pxt.create_table('tbl', {'icol': pxt.Int, 'scol': pxt.String})
-        remote_uri = f'pxt://pxt-test/test_{uuid.uuid4().hex}'
+        remote_uri = f'https://pixeltable.com/t/pxt-test/test_{uuid.uuid4().hex}'
         pxt.publish(tbl, remote_uri)
         result_sets: list[pxt.ResultSet] = []
         for version in range(1, 8):
@@ -180,3 +182,14 @@ class TestPublish:
             pxt.publish('tbl', 'not-a-uri')
         with pytest.raises(pxt.Error, match=r"`remote_uri` must be a remote Pixeltable URI with the prefix 'pxt://'"):
             pxt.replicate('not-a-uri', 'replica')
+
+    def test_replicate_public_dataset_without_api_key(self, uses_db: None) -> None:
+        with (
+            pytest.warns(pxt.PixeltableWarning, match='No Pixeltable API key found'),
+            patch.object(type(Env.get()), 'pxt_api_key', new_callable=PropertyMock, return_value=None),
+        ):
+            try:
+                pxt.replicate('pxt://pixeltable:main/pixelbot-video-audio-chunks', 'local_replica')
+            except Exception as e:
+                # replicating public table may fail, ignore it
+                print(f'Failed to replicate pxt://pixeltable:main/pixelbot-video-audio-chunks {e}')
