@@ -24,6 +24,9 @@ def create_chat_completion(
     model_path: str | None = None,
     repo_id: str | None = None,
     repo_filename: str | None = None,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: dict[str, Any] | None = None,
+    chat_format: str | None = None,
     model_kwargs: dict[str, Any] | None = None,
 ) -> dict:
     """
@@ -45,6 +48,9 @@ def create_chat_completion(
         model_kwargs: Additional keyword args for the llama_cpp `create_chat_completions` API, such as `max_tokens`,
             `temperature`, `top_p`, and `top_k`. For details, see the
             [llama_cpp create_chat_completions documentation](https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion).
+        tools: An optional list of tools (functions) the model may call, specified as `pxt.Tools`.
+        tool_choice: An optional `pxt.ToolChoice` controlling which tool(s) the model should use.
+        chat_format: TODO
     """
     Env.get().require_package('llama_cpp', min_version=[0, 3, 1])
 
@@ -56,13 +62,26 @@ def create_chat_completion(
     if (repo_id is None) and (repo_filename is not None):
         raise excs.Error('`repo_filename` can only be provided along with `repo_id`.')
 
+    if tools is not None:
+        model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
+
+    if tool_choice is not None:
+        if tool_choice['auto']:
+            model_kwargs['tool_choice'] = 'auto'
+        elif tool_choice['required']:
+            model_kwargs['tool_choice'] = 'required'
+        else:
+            assert tool_choice['tool'] is not None
+            model_kwargs['tool_choice'] = {'type': 'function', 'function': {'name': tool_choice['tool']}}
+
     n_gpu_layers = -1 if _is_gpu_available() else 0  # 0 = CPU only, -1 = offload all layers to GPU
 
     if model_path is not None:
-        llm = _lookup_local_model(model_path, n_gpu_layers)
+        llm = _lookup_local_model(model_path, n_gpu_layers, chat_format=chat_format)
     else:
         Env.get().require_package('huggingface_hub')
-        llm = _lookup_pretrained_model(repo_id, repo_filename, n_gpu_layers)
+        llm = _lookup_pretrained_model(repo_id, repo_filename, n_gpu_layers, chat_format=chat_format)
+
     return llm.create_chat_completion(messages, **model_kwargs)  # type: ignore
 
 
@@ -78,29 +97,31 @@ def _is_gpu_available() -> bool:
     return _IS_GPU_AVAILABLE
 
 
-def _lookup_local_model(model_path: str, n_gpu_layers: int) -> 'llama_cpp.Llama':
+def _lookup_local_model(model_path: str, n_gpu_layers: int, *, chat_format: str | None) -> 'llama_cpp.Llama':
     import llama_cpp
 
-    key = (model_path, None, n_gpu_layers)
+    key = (model_path, None, n_gpu_layers, chat_format)
     if key not in _model_cache:
-        llm = llama_cpp.Llama(model_path, n_gpu_layers=n_gpu_layers, verbose=False)
+        llm = llama_cpp.Llama(model_path, n_gpu_layers=n_gpu_layers, chat_format=chat_format, verbose=False)
         _model_cache[key] = llm
     return _model_cache[key]
 
 
-def _lookup_pretrained_model(repo_id: str, filename: str | None, n_gpu_layers: int) -> 'llama_cpp.Llama':
+def _lookup_pretrained_model(
+    repo_id: str, filename: str | None, n_gpu_layers: int, *, chat_format: str | None
+) -> 'llama_cpp.Llama':
     import llama_cpp
 
-    key = (repo_id, filename, n_gpu_layers)
+    key = (repo_id, filename, n_gpu_layers, chat_format)
     if key not in _model_cache:
         llm = llama_cpp.Llama.from_pretrained(
-            repo_id=repo_id, filename=filename, n_gpu_layers=n_gpu_layers, verbose=False
+            repo_id=repo_id, filename=filename, n_gpu_layers=n_gpu_layers, chat_format=chat_format, verbose=False
         )
         _model_cache[key] = llm
     return _model_cache[key]
 
 
-_model_cache: dict[tuple[str, str, int], 'llama_cpp.Llama'] = {}
+_model_cache: dict[tuple[str, str, int, str | None], 'llama_cpp.Llama'] = {}
 _IS_GPU_AVAILABLE: bool | None = None
 
 
