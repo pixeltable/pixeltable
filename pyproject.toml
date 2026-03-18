@@ -94,8 +94,6 @@ override-dependencies = [
     "numpy>=2.2",  # Required because 'whisperx' hard-codes 'numpy<2.1'
     "sse-starlette>=2.0",  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
     "ruff>=0.14",  # Required because 'fireworks-ai' hard-codes 'ruff<10'
-    "torch~=2.9",  # Required because 'whisperx' hard-codes 'torch~=2.8'
-    "torchaudio~=2.9",  # Required because 'whisperx' hard-codes 'torch~=2.8'
 ]
 
 [tool.uv-dynamic-versioning]
@@ -137,8 +135,8 @@ dev = [
     "mistune>=3.0.2,<4",
     "markitdown[pptx,docx,xlsx]>=0.1.3 ; python_version < '3.14'",
     "pyiceberg>=0.6.0",
-    "torch~=2.9",
-    "torchaudio~=2.9",
+    "torch>=2.8",
+    "torchaudio>=2.8",
     "torchvision>=0.22",
     "torchcodec>=0.10.0",
     "openai>=2",
