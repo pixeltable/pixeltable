@@ -28,8 +28,7 @@ class RateLimitsScheduler(Scheduler):
     - try to stay below resource limits by utilizing reported RateLimitInfo.remaining
     - also take into account the estimated resource usage for in-flight requests
       (obtained via RateLimitsInfo.get_request_resources())
-    - issue synchronous requests when we don't have a RateLimitsInfo yet or when we depleted a resource and need to
-      wait for a reset
+    - issue a synchronous request when we don't have a RateLimitsInfo yet (first request bootstraps rate limit info)
     - does not wake early on in-flight request completion: API quota is refilled linearly by the provider, not
       freed by returning responses, so waking on every return just wastes CPU to go back to sleep immediately
     - est_usage must not be zeroed out when responses return: the provider's remaining quota (from response headers)
