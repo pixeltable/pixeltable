@@ -32,6 +32,9 @@ class RateLimitsScheduler(Scheduler):
       wait for a reset
     - does not wake early on in-flight request completion: API quota is refilled linearly by the provider, not
       freed by returning responses, so waking on every return just wastes CPU to go back to sleep immediately
+    - est_usage must not be zeroed out when responses return: the provider's remaining quota (from response headers)
+      only reflects completed requests, not in-flight ones. Without est_usage we'd over-schedule based on stale
+      remaining values that don't account for ongoing requests
 
     TODO:
     - limit the number of in-flight requests based on the open file limit
