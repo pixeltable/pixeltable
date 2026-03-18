@@ -1215,41 +1215,59 @@ class TestVideo:
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
 
     def test_resize(self, uses_db: None, tmp_path: Path) -> None:
-        video_path = generate_test_video(tmp_path, duration=1.0, size='640x360')
+        videos = get_video_files()
+        videos.append(generate_test_video(tmp_path, duration=1.0, size='640x360'))
         t = pxt.create_table('resize_test', {'video': pxt.Video})
-        t.insert([{'video': video_path}])
+        t.insert([{'video': v} for v in videos])
+
+        md = t.video.get_metadata()
+
+        def _even(x: float) -> int:
+            """Round to nearest even integer, matching ffmpeg's -2 behavior."""
+            return round(x / 2) * 2
 
         # resize with width only
         t.add_computed_column(resized_w=t.video.resize(width=320))
         res = t.select(
-            w=t.resized_w.get_metadata().streams[0].width, h=t.resized_w.get_metadata().streams[0].height
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            w=t.resized_w.get_metadata().streams[0].width,
+            h=t.resized_w.get_metadata().streams[0].height,
         ).collect()
-        assert res[0]['w'] == 320 and res[0]['h'] == 180
+        assert all(row['w'] == 320 for row in res)
+        assert all(row['h'] == _even(row['orig_h'] * 320 / row['orig_w']) for row in res)
 
         # resize with height only
         t.add_computed_column(resized_h=t.video.resize(height=180))
         res = t.select(
-            w=t.resized_h.get_metadata().streams[0].width, h=t.resized_h.get_metadata().streams[0].height
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            w=t.resized_h.get_metadata().streams[0].width,
+            h=t.resized_h.get_metadata().streams[0].height,
         ).collect()
-        assert res[0]['w'] == 320 and res[0]['h'] == 180
+        assert all(row['w'] == _even(row['orig_w'] * 180 / row['orig_h']) for row in res)
+        assert all(row['h'] == 180 for row in res)
 
-        # resize both
+        # resize with both width and height
         t.add_computed_column(resized_wh=t.video.resize(width=400, height=300))
         res = t.select(
             w=t.resized_wh.get_metadata().streams[0].width, h=t.resized_wh.get_metadata().streams[0].height
         ).collect()
-        assert res[0]['w'] == 400 and res[0]['h'] == 300
+        assert all(row['w'] == 400 for row in res)
+        assert all(row['h'] == 300 for row in res)
 
         # resize with scale
         t.add_computed_column(resized_s=t.video.resize(scale=0.5))
         res = t.select(
-            w=t.resized_s.get_metadata().streams[0].width, h=t.resized_s.get_metadata().streams[0].height
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            w=t.resized_s.get_metadata().streams[0].width,
+            h=t.resized_s.get_metadata().streams[0].height,
         ).collect()
-        assert res[0]['w'] == 320 and res[0]['h'] == 180
+        assert all(row['w'] == _even(row['orig_w'] * 0.5) for row in res)
+        assert all(row['h'] == _even(row['orig_h'] * 0.5) for row in res)
 
         # check that resize() produces valid video files
-        videos = get_video_files()
-        validate_update_status(t.insert([{'video': v} for v in videos]))
         res = t.collect()
         resized_videos = res['resized_w'] + res['resized_h'] + res['resized_s'] + res['resized_wh']
         t2 = pxt.create_table('validated', schema={'video': pxt.Video})

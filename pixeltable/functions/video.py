@@ -1128,8 +1128,20 @@ def resize(
     output_path = str(TempStore.create_path(extension='.mp4'))
     video_encoder = Env.get().default_video_encoder
 
-    cmd = ['ffmpeg', '-i', str(video), '-vf', scale_filter, '-c:a', 'copy', '-c:v', video_encoder]
-    cmd.extend(['-loglevel', 'error', output_path])
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-vf',
+        scale_filter,
+        '-c:a',
+        'copy',
+        '-c:v',
+        video_encoder,
+        '-loglevel',
+        'error',
+        output_path,
+    ]
     _logger.debug(f'resize(): {" ".join(cmd)}')
 
     try:
