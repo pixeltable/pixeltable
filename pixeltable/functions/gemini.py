@@ -96,12 +96,7 @@ class GeminiRateLimitsInfo(env.RateLimitsInfo):
 
 @pxt.udf(is_deterministic=False)
 async def generate_content(
-    contents: pxt.Json,
-    *,
-    model: str,
-    config: dict | None = None,
-    tools: list[dict] | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    contents: pxt.Json, *, model: str, config: dict | None = None, tools: list[dict] | None = None
 ) -> dict:
     """
     Generate content from the specified model.
@@ -229,9 +224,7 @@ def _(model: str) -> str:
 
 
 @pxt.udf(is_deterministic=False)
-async def generate_images(
-    prompt: str, *, model: str, config: dict | None = None, _runtime_ctx: env.RuntimeCtx | None = None
-) -> PIL.Image.Image:
+async def generate_images(prompt: str, *, model: str, config: dict | None = None) -> PIL.Image.Image:
     """
     Generates images based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/image-generation>
@@ -280,12 +273,7 @@ def _(model: str) -> str:
 
 @pxt.udf(is_deterministic=False)
 async def generate_videos(
-    prompt: str | None = None,
-    image: PIL.Image.Image | None = None,
-    *,
-    model: str,
-    config: dict | None = None,
-    _runtime_ctx: env.RuntimeCtx | None = None,
+    prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
 ) -> pxt.Video:
     """
     Generates videos based on a text description and configuration. For additional details, see:
