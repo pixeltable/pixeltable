@@ -5623,7 +5623,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=9.3.0" },
     { name = "pillow-heif", specifier = ">=0.15.0" },
     { name = "pixeltable-pgserver", specifier = "==0.5.0" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.3" },
+    { name = "psycopg", extras = ["binary"], specifier = ">=3.1.18" },
     { name = "puremagic", specifier = ">=1.20" },
     { name = "pyarrow", specifier = ">=19" },
     { name = "pydantic", specifier = ">=2.7.4" },
