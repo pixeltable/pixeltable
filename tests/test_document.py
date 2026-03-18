@@ -51,8 +51,7 @@ class TestDocument:
         return [get_video_files()[0], get_audio_files()[0], get_image_files()[0]]
 
     def test_insert(self, uses_db: None) -> None:
-        skip_test_if_not_installed('mistune')
-        skip_test_if_not_installed('markitdown')
+        skip_test_if_not_installed('markitdown', 'mistune')
 
         file_paths = self.valid_doc_paths()
         doc_t = pxt.create_table('docs', {'doc': pxt.Document})
@@ -68,8 +67,7 @@ class TestDocument:
         assert status.num_excs >= len(file_paths)
 
     def test_get_document_handle(self) -> None:
-        skip_test_if_not_installed('mistune')
-        skip_test_if_not_installed('markitdown')
+        skip_test_if_not_installed('markitdown', 'mistune')
 
         file_paths = self.valid_doc_paths()
         for path in file_paths:
@@ -155,9 +153,7 @@ class TestDocument:
 
     @pytest.mark.parametrize('pdf', [True, False], ids=['pdf_docs', 'non_pdf_docs'])
     def test_doc_splitter(self, pdf: bool, uses_db: None) -> None:
-        skip_test_if_not_installed('tiktoken')
-        skip_test_if_not_installed('spacy')
-        skip_test_if_not_installed('markitdown')
+        skip_test_if_not_installed('markitdown', 'spacy', 'tiktoken')
 
         # DocumentSplitter does not support XML
         file_paths = [path for path in self.valid_doc_paths() if not path.endswith('.xml')]
@@ -258,8 +254,7 @@ class TestDocument:
             pxt.drop_table('chunks')
 
     def test_doc_splitter_headings(self, uses_db: None) -> None:
-        skip_test_if_not_installed('spacy')
-        skip_test_if_not_installed('markitdown')
+        skip_test_if_not_installed('markitdown', 'spacy')
 
         file_paths = [
             p for p in self.valid_doc_paths() if not (p.endswith('.pdf') or p.endswith('.xml') or p.endswith('.txt'))

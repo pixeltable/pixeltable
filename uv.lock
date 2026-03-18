@@ -3839,15 +3839,15 @@ name = "mcp"
 version = "1.9.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "anyio" },
-    { name = "httpx" },
-    { name = "httpx-sse" },
-    { name = "pydantic" },
-    { name = "pydantic-settings" },
-    { name = "python-multipart" },
-    { name = "sse-starlette" },
-    { name = "starlette" },
-    { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
+    { name = "anyio", marker = "python_full_version < '4'" },
+    { name = "httpx", marker = "python_full_version < '4'" },
+    { name = "httpx-sse", marker = "python_full_version < '4'" },
+    { name = "pydantic", marker = "python_full_version < '4'" },
+    { name = "pydantic-settings", marker = "python_full_version < '4'" },
+    { name = "python-multipart", marker = "python_full_version < '4'" },
+    { name = "sse-starlette", marker = "python_full_version < '4'" },
+    { name = "starlette", marker = "python_full_version < '4'" },
+    { name = "uvicorn", marker = "python_full_version < '4' and sys_platform != 'emscripten'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/06/f2/dc2450e566eeccf92d89a00c3e813234ad58e2ba1e31d11467a09ac4f3b9/mcp-1.9.4.tar.gz", hash = "sha256:cfb0bcd1a9535b42edaef89947b9e18a8feb49362e1cc059d6e7fc636f2cb09f", size = 333294, upload-time = "2025-06-12T08:20:30.158Z" }
 wheels = [
@@ -5496,7 +5496,7 @@ dev = [
     { name = "lancedb" },
     { name = "llama-cpp-python", marker = "sys_platform == 'linux'" },
     { name = "markitdown", extra = ["docx", "pptx", "xlsx"], marker = "python_full_version < '3.14'" },
-    { name = "mcp" },
+    { name = "mcp", marker = "python_full_version < '3.14'" },
     { name = "mdformat" },
     { name = "mistralai" },
     { name = "mistune" },
@@ -5577,7 +5577,7 @@ requires-dist = [
     { name = "aiohttp", specifier = ">=3.10" },
     { name = "av", specifier = ">=10.0.0" },
     { name = "beautifulsoup4", specifier = ">=4.10" },
-    { name = "cloudpickle", specifier = ">=3.1.1" },
+    { name = "cloudpickle", specifier = ">=2.2.1" },
     { name = "deprecated", specifier = ">=1.2.15" },
     { name = "ftfy", specifier = ">=6.2.0" },
     { name = "httpcore", specifier = ">=1.0.3" },
@@ -5632,7 +5632,7 @@ dev = [
     { name = "lancedb", specifier = ">=0.20" },
     { name = "llama-cpp-python", marker = "sys_platform == 'linux'", specifier = ">=0.3.16" },
     { name = "markitdown", extras = ["pptx", "docx", "xlsx"], marker = "python_full_version < '3.14'", specifier = ">=0.1.3" },
-    { name = "mcp", specifier = ">=1.9.4" },
+    { name = "mcp", marker = "python_full_version < '3.14'", specifier = ">=1.9.4" },
     { name = "mdformat", specifier = ">=1.0.0" },
     { name = "mistralai", specifier = ">=1.8.2" },
     { name = "mistune", specifier = ">=3.0.2,<4" },
@@ -6710,9 +6710,9 @@ name = "pydantic-settings"
 version = "2.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "typing-inspection" },
+    { name = "pydantic", marker = "python_full_version < '4'" },
+    { name = "python-dotenv", marker = "python_full_version < '4'" },
+    { name = "typing-inspection", marker = "python_full_version < '4'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/67/1d/42628a2c33e93f8e9acbde0d5d735fa0850f3e6a2f8cb1eb6c40b9a732ac/pydantic_settings-2.9.1.tar.gz", hash = "sha256:c509bf79d27563add44e8446233359004ed85066cd096d8b510f715e6ef5d268", size = 163234, upload-time = "2025-04-18T16:44:48.265Z" }
 wheels = [
@@ -8433,7 +8433,7 @@ name = "sse-starlette"
 version = "2.3.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "anyio" },
+    { name = "anyio", marker = "python_full_version < '4'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/8c/f4/989bc70cb8091eda43a9034ef969b25145291f3601703b82766e5172dfed/sse_starlette-2.3.6.tar.gz", hash = "sha256:0382336f7d4ec30160cf9ca0518962905e1b69b72d6c1c995131e0a703b436e3", size = 18284, upload-time = "2025-05-30T13:34:12.914Z" }
 wheels = [
@@ -8468,7 +8468,7 @@ name = "starlette"
 version = "0.41.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "anyio" },
+    { name = "anyio", marker = "python_full_version < '4'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3e/da/1fb4bdb72ae12b834becd7e1e7e47001d32f91ec0ce8d7bc1b618d9f0bd9/starlette-0.41.2.tar.gz", hash = "sha256:9834fd799d1a87fd346deb76158668cfa0b0d56f85caefe8268e2d97c3468b62", size = 2573867, upload-time = "2024-10-27T08:20:02.818Z" }
 wheels = [
@@ -9514,8 +9514,8 @@ name = "uvicorn"
 version = "0.34.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click" },
-    { name = "h11" },
+    { name = "click", marker = "python_full_version < '4'" },
+    { name = "h11", marker = "python_full_version < '4'" },
     { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/de/ad/713be230bcda622eaa35c28f0d328c3675c371238470abdea52417f17a8e/uvicorn-0.34.3.tar.gz", hash = "sha256:35919a9a979d7a59334b6b10e05d77c1d0d574c50e0fc98b8b1a0f165708b55a", size = 76631, upload-time = "2025-06-01T07:48:17.531Z" }
