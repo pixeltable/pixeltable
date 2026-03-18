@@ -435,10 +435,7 @@ def _validate_bboxes(bboxes: list, error_prefix: str, validate_range: bool = Tru
     is_absolute = all(
         isinstance(x, int) and (not validate_range or x >= 0) for x in itertools.chain.from_iterable(bboxes)
     )
-    is_relative = all(
-        isinstance(x, float) and (not validate_range or (0.0 <= x <= 1.0))
-        for x in itertools.chain.from_iterable(bboxes)
-    )
+    is_relative = all(isinstance(x, float) and (not validate_range or (0.0 <= x <= 1.0)) for box in bboxes for x in box)
     if not (is_absolute or is_relative):
         raise pxt.Error(
             f'{error_prefix}: bounding box coordinates must be either all int'
@@ -753,16 +750,17 @@ def bboxes_scale(
     h: np.ndarray
     cx: np.ndarray
     cy: np.ndarray
-    if format == 'xyxy':
-        w, h = c2 - c0, c3 - c1
-        cx, cy = c0 + w / 2, c1 + h / 2
-    elif format == 'xywh':
-        w, h = c2, c3
-        cx, cy = c0 + w / 2, c1 + h / 2
-    elif format == 'cxcywh':
-        cx, cy, w, h = c0, c1, c2, c3
-    else:
-        raise pxt.Error(f'Invalid format: {format!r}')
+    match format:
+        case 'xyxy':
+            w, h = c2 - c0, c3 - c1
+            cx, cy = c0 + w / 2, c1 + h / 2
+        case 'xywh':
+            w, h = c2, c3
+            cx, cy = c0 + w / 2, c1 + h / 2
+        case 'cxcywh':
+            cx, cy, w, h = c0, c1, c2, c3
+        case _:
+            raise pxt.Error(f'Invalid format: {format!r}')
 
     valid = (w > 0) & (h > 0)
     orig: np.ndarray | None = None
