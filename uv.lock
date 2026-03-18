@@ -29,6 +29,8 @@ overrides = [
     { name = "numpy", specifier = ">=2.2" },
     { name = "ruff", specifier = ">=0.14" },
     { name = "sse-starlette", specifier = ">=2.0" },
+    { name = "torch", specifier = "~=2.9" },
+    { name = "torchaudio", specifier = "~=2.9" },
 ]
 
 [[package]]
@@ -5671,8 +5673,8 @@ dev = [
     { name = "tiktoken", specifier = ">=0.10" },
     { name = "timm", specifier = ">=1.0.11,<2" },
     { name = "together", specifier = ">=1.5.26" },
-    { name = "torch", specifier = ">=2.9" },
-    { name = "torchaudio", specifier = "~=2.7" },
+    { name = "torch", specifier = "~=2.9" },
+    { name = "torchaudio", specifier = "~=2.9" },
     { name = "torchcodec", specifier = ">=0.10.0" },
     { name = "torchvision", specifier = ">=0.22" },
     { name = "transformers", specifier = "~=4.52" },
@@ -9741,7 +9743,7 @@ wheels = [
 
 [[package]]
 name = "whisperx"
-version = "3.7.2"
+version = "3.7.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "av", version = "15.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '4'" },
@@ -9756,9 +9758,9 @@ dependencies = [
     { name = "transformers", marker = "python_full_version < '4'" },
     { name = "triton", marker = "python_full_version < '4' and platform_machine == 'x86_64' and sys_platform == 'linux'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/af/ac/044a7800d0ef593189050342cff2cf2f1e2fddf634b33eb2cb476e76750a/whisperx-3.7.2.tar.gz", hash = "sha256:cb3c02fb7bdb5aea47205f2da22c31487afd46a162c5d0df580aaedd8a0a2607", size = 16488053, upload-time = "2025-10-12T08:39:15.126Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/2f/7b304c50a84891bd2cec16fb4695f7cbd0860065ce3018d3de08ebad4ddb/whisperx-3.7.4.tar.gz", hash = "sha256:e0075a7b7902859be5261b29ac223dbf1d044688ddc692850726e813fd319f8c", size = 16488015, upload-time = "2025-10-16T07:43:11.804Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/15/33/cc3146fb0324eda6e3458841a3216aad1fb54823b933d4f324469dbedce0/whisperx-3.7.2-py3-none-any.whl", hash = "sha256:de31099e4d958fbba6074471e7822dff52b74b128abec836c8dc2f0e5a17574c", size = 16485187, upload-time = "2025-10-12T08:39:12.584Z" },
+    { url = "https://files.pythonhosted.org/packages/2e/3d/080f90280f217f2e9ca3a3d7576fbb3fd0ac6634452cda77658b0e490820/whisperx-3.7.4-py3-none-any.whl", hash = "sha256:79317183dbc39e8542956dec2a6c2cf2bfb466a14301ca9d1f3e200eda40837a", size = 16485207, upload-time = "2025-10-16T07:43:08.229Z" },
 ]
 
 [[package]]
