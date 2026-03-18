@@ -30,9 +30,13 @@ class RateLimitsScheduler(Scheduler):
       (obtained via RateLimitsInfo.get_request_resources())
     - issue synchronous requests when we don't have a RateLimitsInfo yet or when we depleted a resource and need to
       wait for a reset
+    - does not wake early on in-flight request completion: API quota is refilled linearly by the provider, not
+      freed by returning responses, so waking on every return just wastes CPU to go back to sleep immediately
 
     TODO:
     - limit the number of in-flight requests based on the open file limit
+    - single-threaded asyncio caps throughput at ~2k RPM even when providers allow 10k RPM (scheduling overhead
+      saturates one core). Address when we have free-threading (3.14t) or Rust kernels.
     """
 
     get_request_resources_param_names: list[str]  # names of parameters of RateLimitsInfo.get_request_resources()

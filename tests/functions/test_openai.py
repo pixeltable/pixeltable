@@ -501,17 +501,25 @@ class TestOpenai:
         assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']
 
     @pytest.mark.expensive
-    def test_chat_completions_throughput(self, uses_db: None) -> None:
+    @pytest.mark.parametrize(
+        'num_rows, max_tokens',
+        [
+            (20, None),  # default estimator, modest batch
+            (2000, 500),  # explicit max_tokens, high volume — triggers 429s
+        ],
+        ids=['throughput', '429_recovery'],
+    )
+    def test_chat_completions_scheduler(self, uses_db: None, num_rows: int, max_tokens: int | None) -> None:
         """
-        Performance test: sends N chat_completions requests and reports throughput.
+        Scheduler stress test: verifies throughput and 429 retry recovery.
 
-        Verifies that the scheduler can drive requests through without total failure.
-        When no max_tokens is specified, the scheduler estimates token cost via
-        _default_max_tokens(), which may be conservative but prevents over-scheduling.
+        Two scenarios:
+          - throughput: 20 rows, no max_tokens (tests conservative default estimator)
+          - 429_recovery: 2000 rows, max_tokens=500 (exhausts TPM, tests retry logic)
 
         Run with:
             pytest -m "remote_api and expensive" \
-                tests/functions/test_openai.py::TestOpenai::test_chat_completions_throughput -s
+                tests/functions/test_openai.py::TestOpenai::test_chat_completions_scheduler -s -v
         """
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
@@ -520,68 +528,22 @@ class TestOpenai:
         with open('tests/data/random_words', encoding='utf-8') as f:
             wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
 
-        n = 20
-        model = 'gpt-5-nano'  # cheapest model; each row costs ~$0.0001
-
-        t = pxt.create_table('perf_tbl', {'word1': pxt.String, 'word2': pxt.String})
-        t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
-        t.add_computed_column(response=chat_completions(t.prompt, model=model))
-        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
-        t0 = time.monotonic()
-        t.insert(rows)
-        elapsed = time.monotonic() - t0
-        pxt.drop_table('perf_tbl')
-
-        _logger.debug(f'rows={n}, elapsed={elapsed:.2f}s  ({n / max(elapsed, 0.001):.2f} req/s)')
-
-    @pytest.mark.expensive
-    def test_chat_completions_429_recovery(self, uses_db: None) -> None:
-        """
-        Stress test that deliberately triggers 429 rate-limit errors and verifies recovery.
-
-        Strategy: send N rows with max_tokens=500, which causes the scheduler to fire many
-        concurrent requests. Each request consumes ~500 tokens, so a 200k TPM account
-        exhausts within the first ~400 requests. Once 429s start arriving, the retry logic
-        (RateLimitsScheduler._exec) kicks in.
-
-        What to look for in output:
-          - errors=0  (all rows eventually succeed after retries)
-
-        Approximate cost: ~$0.50 for 2000 rows on gpt-4o-mini.
-
-        Run with:
-            pytest -m "remote_api and expensive" \
-                tests/functions/test_openai.py::TestOpenai::test_chat_completions_429_recovery -s -v
-        """
-        skip_test_if_not_installed('openai')
-        skip_test_if_no_client('openai')
-        from pixeltable.functions.openai import chat_completions
-
-        with open('tests/data/random_words', encoding='utf-8') as f:
-            wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
-
-        n = 2000
         model = 'gpt-4o-mini'
-        # Large enough output to exhaust TPM quickly; small enough to stay cheap
-        max_tokens = 500
+        model_kwargs = {'max_tokens': max_tokens} if max_tokens is not None else None
 
-        t = pxt.create_table('test_429_tbl', {'word1': pxt.String, 'word2': pxt.String})
+        t = pxt.create_table('scheduler_tbl', {'word1': pxt.String, 'word2': pxt.String})
         t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
-        t.add_computed_column(
-            response=chat_completions(
-                t.prompt, model=model, model_kwargs={'max_tokens': max_tokens, 'temperature': 0.7}
-            )
-        )
+        t.add_computed_column(response=chat_completions(t.prompt, model=model, model_kwargs=model_kwargs))
 
-        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(n))]
+        rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(num_rows))]
 
         t0 = time.monotonic()
         status = t.insert(rows, on_error='ignore')
         elapsed = time.monotonic() - t0
 
-        succeeded = n - status.num_excs
+        succeeded = num_rows - status.num_excs
         _logger.debug(
-            f'model={model}, max_tokens={max_tokens}, rows={n}, '
+            f'model={model}, max_tokens={max_tokens}, rows={num_rows}, '
             f'succeeded={succeeded}, errors={status.num_excs}, '
             f'elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
         )
