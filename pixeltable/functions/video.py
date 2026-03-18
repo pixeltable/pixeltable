@@ -1112,6 +1112,11 @@ def resize(
             raise pxt.Error(f'`scale` must be positive, got {scale}')
         scale_filter = f'scale=trunc(iw*{scale}/2)*2:trunc(ih*{scale}/2)*2'
     elif width is not None or height is not None:
+        if width is not None and width <= 0:
+            raise pxt.Error(f'`width` must be positive, got {width}')
+        if height is not None and height <= 0:
+            raise pxt.Error(f'`height` must be positive, got {height}')
+
         # Use -2 for the unspecified dimension: like -1 (preserve aspect ratio),
         # but rounds to the nearest even value (required by most codecs)
         w_expr = str(width) if width is not None else '-2'

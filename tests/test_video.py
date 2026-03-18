@@ -1264,6 +1264,14 @@ class TestVideo:
             t.select(t.video.resize(width=320, scale=0.5)).collect()
         with pytest.raises(pxt.Error, match='`scale` is mutually exclusive with `width` and `height`'):
             t.select(t.video.resize(height=240, scale=0.5)).collect()
+        with pytest.raises(pxt.Error, match='`width` must be positive'):
+            t.select(t.video.resize(width=0)).collect()
+        with pytest.raises(pxt.Error, match='`width` must be positive'):
+            t.select(t.video.resize(width=-180)).collect()
+        with pytest.raises(pxt.Error, match='`height` must be positive'):
+            t.select(t.video.resize(height=0)).collect()
+        with pytest.raises(pxt.Error, match='`height` must be positive'):
+            t.select(t.video.resize(height=-180)).collect()
         with pytest.raises(pxt.Error, match='`scale` must be positive'):
             t.select(t.video.resize(scale=0)).collect()
         with pytest.raises(pxt.Error, match='`scale` must be positive'):
