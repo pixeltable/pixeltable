@@ -639,50 +639,6 @@ class TableVersion:
         status = self._add_index(col, idx_name=None, idx=index.BtreeIndex())
         return status
 
-    @classmethod
-    def _create_index_columns(
-        cls,
-        col: Column,
-        idx: index.IndexBase,
-        schema_version: int,
-        tbl_handle: TableVersionHandle,
-        id_cb: Callable[[], int],
-    ) -> tuple[Column, Column]:
-        """Create value and undo columns for the given index.
-        Args:
-            idx:  index for which columns will be created.
-        Returns:
-            A tuple containing the value column and the undo column, both of which are nullable.
-        """
-        value_expr = idx.create_value_expr(col)
-        val_col = Column(
-            col_id=id_cb(),
-            name=None,
-            computed_with=value_expr,
-            value_expr_dict=value_expr.as_dict(),
-            sa_col_type=idx.get_index_sa_type(value_expr.col_type),
-            stored=True,
-            stores_cellmd=idx.records_value_errors(),
-            schema_version_add=schema_version,
-            schema_version_drop=None,
-        )
-        val_col.col_type = val_col.col_type.copy(nullable=True)
-        val_col.tbl_handle = tbl_handle
-
-        undo_col = Column(
-            col_id=id_cb(),
-            name=None,
-            col_type=val_col.col_type,
-            sa_col_type=val_col.sa_col_type,
-            stored=True,
-            stores_cellmd=False,
-            schema_version_add=schema_version,
-            schema_version_drop=None,
-        )
-        undo_col.col_type = undo_col.col_type.copy(nullable=True)
-        undo_col.tbl_handle = tbl_handle
-        return val_col, undo_col
-
     def _create_index_md(
         self, col: Column, val_col: Column, undo_col: Column, idx_name: str | None, idx: index.IndexBase
     ) -> int:
