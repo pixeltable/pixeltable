@@ -165,6 +165,7 @@ class TestVLMRun:
         assert extracted is not None
         assert len(extracted) > 0
 
+    @pytest.mark.expensive
     def test_generate_image(self, uses_db: None) -> None:
         """Test generate_image returns a PIL Image (text-to-image)."""
         skip_test_if_not_installed('vlmrun')
@@ -172,7 +173,7 @@ class TestVLMRun:
         from pixeltable.functions.vlmrun import generate_image
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
-        t.add_computed_column(image=generate_image(t.prompt))
+        t.add_computed_column(image=generate_image(t.prompt, timeout=300.0))
 
         validate_update_status(t.insert(prompt='A red circle on a white background'), 1)
         results = t.collect()
@@ -182,6 +183,7 @@ class TestVLMRun:
         assert img.size[0] > 0
         assert img.size[1] > 0
 
+    @pytest.mark.expensive
     def test_generate_image_edit(self, uses_db: None) -> None:
         """Test generate_image with file_path returns an edited PIL Image."""
         skip_test_if_not_installed('vlmrun')
@@ -189,7 +191,7 @@ class TestVLMRun:
         from pixeltable.functions.vlmrun import generate_image
 
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
-        t.add_computed_column(edited=generate_image('Blur all the faces in this image', file_path=t.image.localpath))
+        t.add_computed_column(edited=generate_image('Blur all the faces in this image', file_path=t.image.localpath, timeout=300.0))
 
         image_file = get_image_files()[0]
         validate_update_status(t.insert(image=image_file), 1)
@@ -209,7 +211,7 @@ class TestVLMRun:
 
         t = pxt.create_table('test_tbl', {'image': pxt.Image})
         t.add_computed_column(
-            annotated=annotate_image('Draw bounding boxes around all objects', file_path=t.image.localpath)
+            annotated=annotate_image('Draw bounding boxes around all objects', file_path=t.image.localpath, timeout=300.0)
         )
 
         image_file = get_image_files()[0]
@@ -229,7 +231,7 @@ class TestVLMRun:
         from pixeltable.functions.vlmrun import generate_video
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
-        t.add_computed_column(video=generate_video(t.prompt))
+        t.add_computed_column(video=generate_video(t.prompt, timeout=600.0))
 
         validate_update_status(t.insert(prompt='A red dot'), 1)
         results = t.collect()

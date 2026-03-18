@@ -106,9 +106,9 @@ async def _upload_files(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 async def _download_artifact(
-    object_id: str, session_id: str, *, max_retries: int = 1, retry_delay: float = 5.0
+    object_id: str, session_id: str, *, poll_interval: float = 5.0, timeout: float = 600.0
 ) -> bytes:
-    """Download an artifact's raw bytes with optional retries.
+    """Download an artifact's raw bytes, polling until ready or *timeout* seconds elapse.
 
     Works around an SDK bug where ``artifacts.get()`` uses a path-based URL
     (``/artifacts/{session_id}/{object_id}``) instead of query parameters.
@@ -122,7 +122,10 @@ async def _download_artifact(
         url = f'{client.base_url}/artifacts'
         headers = {'Authorization': f'Bearer {client.api_key}'}
         params = {'object_id': object_id, 'session_id': session_id}
-        for attempt in range(max_retries):
+        deadline = time.monotonic() + timeout
+        attempt = 0
+        while True:
+            attempt += 1
             resp = requests.get(url, params=params, headers=headers, timeout=120)
             if resp.status_code == 200:
                 data = resp.content
@@ -132,12 +135,14 @@ async def _download_artifact(
                     actual.raise_for_status()
                     return actual.content
                 return data
+            if time.monotonic() >= deadline:
+                raise RuntimeError(
+                    f'Artifact {object_id} not ready after {timeout}s ({attempt} attempts, status {resp.status_code})'
+                )
             _logger.warning(
-                'Artifact %s attempt %d/%d returned status %d', object_id, attempt + 1, max_retries, resp.status_code
+                'Artifact %s attempt %d returned status %d, retrying...', object_id, attempt, resp.status_code
             )
-            if attempt < max_retries - 1:
-                time.sleep(retry_delay)
-        raise RuntimeError(f'Failed to retrieve artifact {object_id} after {max_retries} attempts (status {resp.status_code})')
+            time.sleep(poll_interval)
 
     return await asyncio.to_thread(_fetch)
 
@@ -203,6 +208,7 @@ async def generate_image(
     file_path: str | None = None,
     model: str = 'vlmrun-orion-1:auto',
     model_kwargs: dict[str, Any] | None = None,
+    timeout: float = 600.0,
 ) -> PIL.Image.Image:
     """
     Generates or edits an image using VLM Run.
@@ -222,6 +228,7 @@ async def generate_image(
             columns, use ``.localpath``.  Omit for text-to-image generation.
         model: The model to use.  Defaults to ``'vlmrun-orion-1:auto'``.
         model_kwargs: Additional keyword args for the VLM Run API.
+        timeout: Maximum seconds to wait for the artifact.  Defaults to 600.
 
     Returns:
         The generated or edited image.
@@ -244,7 +251,10 @@ async def generate_image(
     content: list[dict[str, Any]] = [{'type': 'text', 'text': prompt}]
     if file_path is not None:
         content.append({'type': 'input_file', 'file_path': file_path})
-    messages: list[dict[str, Any]] = [{'role': 'user', 'content': content}]
+    messages: list[dict[str, Any]] = [
+        {'role': 'system', 'content': 'Always return a generated image in your response.'},
+        {'role': 'user', 'content': content},
+    ]
 
     # Build kwargs
     kwargs = dict(model_kwargs) if model_kwargs else {}
@@ -270,7 +280,7 @@ async def generate_image(
     artifact_id = artifact_data['id'] if isinstance(artifact_data, dict) else artifact_data
 
     # Download and return image
-    data = await _download_artifact(artifact_id, session_id)
+    data = await _download_artifact(artifact_id, session_id, timeout=timeout)
     img = PIL.Image.open(io.BytesIO(data))
     img.load()
     return img
@@ -283,6 +293,7 @@ async def annotate_image(
     file_path: str,
     model: str = 'vlmrun-orion-1:auto',
     model_kwargs: dict[str, Any] | None = None,
+    timeout: float = 600.0,
 ) -> PIL.Image.Image:
     """
     Annotates an image with bounding boxes, keypoints, or segmentation masks.
@@ -303,6 +314,7 @@ async def annotate_image(
             ``.localpath``.
         model: The model to use.  Defaults to ``'vlmrun-orion-1:auto'``.
         model_kwargs: Additional keyword args for the VLM Run API.
+        timeout: Maximum seconds to wait for the artifact.  Defaults to 600.
 
     Returns:
         The annotated image.
@@ -323,7 +335,10 @@ async def annotate_image(
         {'type': 'text', 'text': prompt},
         {'type': 'input_file', 'file_path': file_path},
     ]
-    messages: list[dict[str, Any]] = [{'role': 'user', 'content': content}]
+    messages: list[dict[str, Any]] = [
+        {'role': 'system', 'content': 'Always return an annotated image in your response.'},
+        {'role': 'user', 'content': content},
+    ]
 
     # Build kwargs
     kwargs = dict(model_kwargs) if model_kwargs else {}
@@ -349,7 +364,7 @@ async def annotate_image(
     artifact_id = artifact_data['id'] if isinstance(artifact_data, dict) else artifact_data
 
     # Download and return image
-    data = await _download_artifact(artifact_id, session_id)
+    data = await _download_artifact(artifact_id, session_id, timeout=timeout)
     img = PIL.Image.open(io.BytesIO(data))
     img.load()
     return img
@@ -362,6 +377,7 @@ async def generate_video(
     file_path: str | None = None,
     model: str = 'vlmrun-orion-1:auto',
     model_kwargs: dict[str, Any] | None = None,
+    timeout: float = 600.0,
 ) -> pxt.Video:
     """
     Generates a video from a text prompt using VLM Run.
@@ -378,6 +394,7 @@ async def generate_video(
             columns, use ``.localpath``.
         model: The model to use.  Defaults to ``'vlmrun-orion-1:auto'``.
         model_kwargs: Additional keyword args for the VLM Run API.
+        timeout: Maximum seconds to wait for the artifact.  Defaults to 600.
 
     Returns:
         A video file.
@@ -394,7 +411,10 @@ async def generate_video(
     content: list[dict[str, Any]] = [{'type': 'text', 'text': prompt}]
     if file_path is not None:
         content.append({'type': 'input_file', 'file_path': file_path})
-    messages: list[dict[str, Any]] = [{'role': 'user', 'content': content}]
+    messages: list[dict[str, Any]] = [
+        {'role': 'system', 'content': 'Always return a generated video in your response.'},
+        {'role': 'user', 'content': content},
+    ]
 
     # Build kwargs
     kwargs = dict(model_kwargs) if model_kwargs else {}
@@ -420,7 +440,7 @@ async def generate_video(
     artifact_id = artifact_data['id'] if isinstance(artifact_data, dict) else artifact_data
 
     # Download and write video (videos are generated asynchronously, so retry)
-    data = await _download_artifact(artifact_id, session_id, max_retries=24, retry_delay=10.0)
+    data = await _download_artifact(artifact_id, session_id, poll_interval=10.0, timeout=timeout)
     path = TempStore.create_path(extension='.mp4')
     path.write_bytes(data)
     return str(path)
