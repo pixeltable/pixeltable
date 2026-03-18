@@ -1,5 +1,12 @@
+from __future__ import annotations
+
+import csv
+import json
+import logging
 import os
+import typing
 import uuid
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -11,6 +18,12 @@ import pixeltable as pxt
 import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
+
+if typing.TYPE_CHECKING:
+    import pixeltable as pxt
+
+_logger = logging.getLogger('pixeltable')
 
 
 def import_pandas(
@@ -244,3 +257,82 @@ def _df_row_to_pxt_row(
             nval = val
         pxt_row[pxt_name] = nval
     return pxt_row
+
+
+def export_csv(
+    table_or_query: pxt.Table | pxt.Query,
+    file_path: str | Path,
+    *,
+    delimiter: str = ',',
+    quoting: int = csv.QUOTE_MINIMAL,
+) -> None:
+    """
+    Exports a query result or table to a CSV file.
+
+    Pixeltable column types are mapped to CSV values as follows:
+
+    - String, Int, Float, Bool: native CSV representation
+    - Timestamp, Date: ISO 8601 string representation
+    - UUID: string representation
+    - Json: JSON-encoded string
+    - Array: JSON-encoded string (via ``tolist()``)
+    - Binary: excluded from export (not representable in CSV)
+    - Image, Video, Audio, Document: file path or URL string
+
+    Args:
+        table_or_query: Table or Query to export.
+        file_path: Path to the output CSV file.
+        delimiter: Field delimiter character. Default ``','``.
+        quoting: CSV quoting style (a ``csv.QUOTE_*`` constant). Default ``csv.QUOTE_MINIMAL``.
+    """
+    query: pxt.Query
+    if isinstance(table_or_query, pxt.catalog.Table):
+        query = table_or_query.select()
+    else:
+        query = table_or_query
+
+    # Build export list (skip binary columns)
+    col_names: list[str] = []
+    col_types: list[ts.ColumnType] = []
+    for col_name, col_type in query.schema.items():
+        if col_type.is_binary_type():
+            continue
+        col_names.append(col_name)
+        col_types.append(col_type)
+
+    file_path = Path(file_path)
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    schema_keys = list(query.schema.keys())
+
+    try:
+        with get_runtime().catalog.begin_xact(for_write=False), open(file_path, 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f, delimiter=delimiter, quoting=quoting)  # type: ignore[arg-type]
+            writer.writerow(col_names)
+
+            select_exprs = query._select_list_exprs
+            for data_row in query._exec():
+                csv_row: list[Any] = []
+                for col_name, col_type in zip(col_names, col_types):
+                    idx = schema_keys.index(col_name)
+                    slot_idx = select_exprs[idx].slot_idx
+                    if col_type.is_image_type():
+                        # Images are loaded as PIL.Image; export the file path instead
+                        val = data_row.file_paths[slot_idx] or data_row.file_urls[slot_idx]
+                    elif col_type.is_media_type():
+                        # Video, Audio, Document values are already path strings
+                        val = data_row[slot_idx]
+                    else:
+                        val = data_row[slot_idx]
+                    if val is None:
+                        csv_row.append('')
+                    elif col_type.is_json_type():
+                        csv_row.append(json.dumps(val))
+                    elif col_type.is_array_type():
+                        csv_row.append(json.dumps(val.tolist() if isinstance(val, np.ndarray) else val))
+                    else:
+                        csv_row.append(val)
+                writer.writerow(csv_row)
+
+    except excs.ExprEvalError as e:
+        query._raise_expr_eval_err(e)
