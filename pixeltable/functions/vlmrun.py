@@ -404,8 +404,10 @@ async def generate_video(
 
         >>> tbl.add_computed_column(video=vlmrun.generate_video(tbl.prompt))
     """
+    import requests as _requests
+
     from pydantic import BaseModel as _BaseModel
-    from vlmrun.types.refs import VideoRef  # type: ignore[import-untyped]
+    from pydantic import Field as _Field
 
     # Build messages
     content: list[dict[str, Any]] = [{'type': 'text', 'text': prompt}]
@@ -416,9 +418,12 @@ async def generate_video(
         {'role': 'user', 'content': content},
     ]
 
-    # Build kwargs
+    # Build kwargs — use a plain URL schema instead of VideoRef so the API
+    # returns a direct download link rather than an artifact ID that requires polling.
     kwargs = dict(model_kwargs) if model_kwargs else {}
-    schema = type('_Out', (_BaseModel,), {'__annotations__': {'video': VideoRef}}).model_json_schema()
+    schema = type(
+        '_Out', (_BaseModel,), {'__annotations__': {'url': str}, 'url': _Field(..., description='The URL of the generated video')}
+    ).model_json_schema()
     kwargs['response_format'] = {'type': 'json_schema', 'schema': schema}
     extra_body = kwargs.pop('extra_body', {})
     extra_body['toolsets'] = ['video']
@@ -429,18 +434,28 @@ async def generate_video(
     result = await _vlmrun_client().chat.completions.with_raw_response.create(messages=processed, model=model, **kwargs)
     raw = json.loads(result.text)
 
-    # Extract session_id (ephemeral) and artifact ID
     session_id = raw.get('session_id')
-    if not session_id:
-        raise RuntimeError('VLM Run did not return a session_id for artifact retrieval')
-
     response_content = raw['choices'][0]['message']['content']
     parsed = json.loads(response_content)
-    artifact_data = parsed['video']
-    artifact_id = artifact_data['id'] if isinstance(artifact_data, dict) else artifact_data
+    video_ref = parsed['url']
 
-    # Download and write video (videos are generated asynchronously, so retry)
-    data = await _download_artifact(artifact_id, session_id, poll_interval=10.0, timeout=timeout)
+    # The API may return a direct URL or an artifact reference (e.g. url_f41446, vid_a1b2c3).
+    # Artifact refs match the pattern: <type>_<6-hex-chars>.
+    import re as _re
+
+    if _re.fullmatch(r'[a-z]+_[0-9a-f]{6}', video_ref):
+        # Artifact reference — resolve via the artifacts endpoint
+        if not session_id:
+            raise RuntimeError('VLM Run did not return a session_id for artifact retrieval')
+        data = await _download_artifact(video_ref, session_id, poll_interval=10.0, timeout=timeout)
+    else:
+        # Direct URL — download the video
+        def _download_video() -> bytes:
+            resp = _requests.get(video_ref.strip(), timeout=timeout)
+            resp.raise_for_status()
+            return resp.content
+
+        data = await asyncio.to_thread(_download_video)
     path = TempStore.create_path(extension='.mp4')
     path.write_bytes(data)
     return str(path)
