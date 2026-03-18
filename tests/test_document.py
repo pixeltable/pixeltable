@@ -52,6 +52,7 @@ class TestDocument:
 
     def test_insert(self, uses_db: None) -> None:
         skip_test_if_not_installed('mistune')
+        skip_test_if_not_installed('markitdown')
 
         file_paths = self.valid_doc_paths()
         doc_t = pxt.create_table('docs', {'doc': pxt.Document})
@@ -68,6 +69,7 @@ class TestDocument:
 
     def test_get_document_handle(self) -> None:
         skip_test_if_not_installed('mistune')
+        skip_test_if_not_installed('markitdown')
 
         file_paths = self.valid_doc_paths()
         for path in file_paths:
@@ -257,6 +259,8 @@ class TestDocument:
 
     def test_doc_splitter_headings(self, uses_db: None) -> None:
         skip_test_if_not_installed('spacy')
+        skip_test_if_not_installed('markitdown')
+
         file_paths = [
             p for p in self.valid_doc_paths() if not (p.endswith('.pdf') or p.endswith('.xml') or p.endswith('.txt'))
         ]
