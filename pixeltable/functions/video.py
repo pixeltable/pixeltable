@@ -1071,6 +1071,91 @@ def crop(
 
 
 @pxt.udf(is_method=True)
+def resize(
+    video: pxt.Video, *, width: int | None = None, height: int | None = None, scale: float | None = None
+) -> pxt.Video:
+    """
+    Resize a video using ffmpeg's scale filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        width: Width of the output video. Maintains the existing aspect ratio if no `height` is provided.
+        height: Height of the output video. Maintains the existing aspect ratio if no `width` is provided.
+        scale: Scale factor. Mutually exclusive with `width` and `height`.
+
+    Returns:
+        The resized video.
+
+    Examples:
+        Resize to a specific width, preserving aspect ratio:
+
+        >>> tbl.select(tbl.video.resize(width=640)).collect()
+
+        Resize to exact dimensions:
+
+        >>> tbl.select(tbl.video.resize(width=1280, height=720)).collect()
+
+        Scale down by half:
+
+        >>> tbl.select(tbl.video.resize(scale=0.5)).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+
+    if scale is not None and (width is not None or height is not None):
+        raise pxt.Error('`scale` is mutually exclusive with `width` and `height`')
+    if scale is not None:
+        if scale <= 0:
+            raise pxt.Error(f'`scale` must be positive, got {scale}')
+        scale_filter = f'scale=trunc(iw*{scale}/2)*2:trunc(ih*{scale}/2)*2'
+    elif width is not None or height is not None:
+        if width is not None and width <= 0:
+            raise pxt.Error(f'`width` must be positive, got {width}')
+        if height is not None and height <= 0:
+            raise pxt.Error(f'`height` must be positive, got {height}')
+
+        # Use -2 for the unspecified dimension: like -1 (preserve aspect ratio),
+        # but rounds to the nearest even value (required by most codecs)
+        w_expr = str(width) if width is not None else '-2'
+        h_expr = str(height) if height is not None else '-2'
+        scale_filter = f'scale={w_expr}:{h_expr}'
+    else:
+        raise pxt.Error('At least one of `width`, `height`, or `scale` must be specified')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    video_encoder = Env.get().default_video_encoder
+
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-vf',
+        scale_filter,
+        '-c:a',
+        'copy',
+        '-c:v',
+        video_encoder,
+        '-loglevel',
+        'error',
+        output_path,
+    ]
+    _logger.debug(f'resize(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
+@pxt.udf(is_method=True)
 def scene_detect_adaptive(
     video: pxt.Video,
     *,
