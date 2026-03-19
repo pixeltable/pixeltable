@@ -757,9 +757,14 @@ class Planner:
         assert view.is_view
         target = view.tbl_version.get()
 
-        # Columns to recompute are recompute targets plus their index value columns
+        # Columns to recompute are recompute targets plus their index value columns.
+        # We need to recompute ALL index value columns: delete_rows nullifies them on the expired rows,
+        # so they can't be copied from the source rows.
         recomputed_cols = target.get_idx_val_columns(recompute_targets)
         recomputed_cols.update(recompute_targets)
+        all_view_cols = [c for c in target.cols_by_id.values() if c.get_tbl().id == target.id]
+        idx_val_cols = target.get_idx_val_columns(all_view_cols)
+        recomputed_cols.update(idx_val_cols)
 
         # Copied columns are all other stored columns
         copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in recomputed_cols]
@@ -772,12 +777,15 @@ class Planner:
         select_list.extend(recomputed_exprs)
 
         # we need to retrieve the PK columns of the existing rows
+        # deleted_at_version for the view itself: propagate_update expires old view rows before running this plan,
+        # so we read the just-expired rows (v_max == current_version) to copy their stored column values
         plan = cls.create_query_plan(
             FromClause(tbls=[view]),
             select_list,
             where_clause=target.predicate,
             ignore_errors=True,
             exact_version_only=view.get_bases(),
+            deleted_at_version=[view.tbl_version],
         )
         materialized_cols = copied_cols + list(recomputed_cols)  # same order as select_list
         for i, col in enumerate(materialized_cols):
