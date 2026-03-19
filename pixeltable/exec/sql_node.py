@@ -591,8 +591,7 @@ class SqlLookupNode(SqlNode):
         stmt = super()._create_stmt()
         refd_tbl_ids = exprs.Expr.all_tbl_ids(self.select_list) | self._ordering_tbl_ids()
         stmt = self.create_from_clause(
-            self.tbl, stmt, refd_tbl_ids,
-            deleted_at_version={t.id for t in self.deleted_at_version},
+            self.tbl, stmt, refd_tbl_ids, deleted_at_version={t.id for t in self.deleted_at_version}
         )
         return stmt
 
