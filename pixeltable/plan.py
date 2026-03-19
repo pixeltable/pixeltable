@@ -457,10 +457,11 @@ class Planner:
                 recomputed_cols |= target.get_dependent_columns(recomputed_cols)
         else:
             recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
-        # We need to recompute all index value columns: delete_rows nullifies them on the expired rows,
-        # so they can't be copied from the source rows.
+        # delete_rows modifies index columns on the expired rows (nullifies val, copies val -> undo),
+        # so neither can be copied from the source rows: val columns must be recomputed, undo columns excluded.
         all_base_cols = [c for c in target.cols_by_id.values() if c.get_tbl().id == target.id]
         idx_val_cols = target.get_idx_val_columns(all_base_cols)
+        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
         recomputed_cols.update(idx_val_cols)
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
@@ -474,7 +475,10 @@ class Planner:
         copied_cols = [
             col
             for col in target.cols_by_id.values()
-            if col.is_stored and col not in updated_cols and col not in recomputed_base_cols
+            if col.is_stored
+            and col not in updated_cols
+            and col not in recomputed_base_cols
+            and col not in idx_undo_cols
         ]
         select_list: list[exprs.Expr] = list(update_targets.values())
 
@@ -665,10 +669,11 @@ class Planner:
         # retrieve all stored cols and all target exprs
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
-        # We need to recompute all index value columns: delete_rows nullifies them on the expired rows,
-        # so they can't be copied from the source rows.
+        # delete_rows modifies index columns on the expired rows (nullifies val, copies val -> undo),
+        # so neither can be copied from the source rows: val columns must be recomputed, undo columns excluded.
         all_base_cols = [c for c in target.cols_by_id.values() if c.get_tbl().id == target.id]
         idx_val_cols = target.get_idx_val_columns(all_base_cols)
+        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
         recomputed_cols.update(idx_val_cols)
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
@@ -676,7 +681,10 @@ class Planner:
         copied_cols = [
             col
             for col in target.cols_by_id.values()
-            if col.is_stored and col not in updated_cols and col not in recomputed_base_cols
+            if col.is_stored
+            and col not in updated_cols
+            and col not in recomputed_base_cols
+            and col not in idx_undo_cols
         ]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols]
 
@@ -757,17 +765,21 @@ class Planner:
         assert view.is_view
         target = view.tbl_version.get()
 
-        # Columns to recompute are recompute targets plus their index value columns.
-        # We need to recompute ALL index value columns: delete_rows nullifies them on the expired rows,
-        # so they can't be copied from the source rows.
+        # delete_rows modifies index columns on the expired rows (nullifies val, copies val -> undo),
+        # so neither can be copied from the source rows: val columns must be recomputed, undo columns excluded.
         recomputed_cols = target.get_idx_val_columns(recompute_targets)
         recomputed_cols.update(recompute_targets)
         all_view_cols = [c for c in target.cols_by_id.values() if c.get_tbl().id == target.id]
         idx_val_cols = target.get_idx_val_columns(all_view_cols)
+        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
         recomputed_cols.update(idx_val_cols)
 
         # Copied columns are all other stored columns
-        copied_cols = [col for col in target.cols_by_id.values() if col.is_stored and col not in recomputed_cols]
+        copied_cols = [
+            col
+            for col in target.cols_by_id.values()
+            if col.is_stored and col not in recomputed_cols and col not in idx_undo_cols
+        ]
 
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
         # resolve recomputed exprs to stored columns in the base
