@@ -150,6 +150,61 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
     return rows
 
 
+def create_all_types_tbl(name: str, num_rows: int = 5) -> tuple[pxt.Table, list[dict[str, Any]]]:
+    """Create a table with every exportable Pixeltable type and insert rows with varied data.
+
+    Includes: String, Int, Float, Bool, Timestamp, Date, UUID, Json, Array, Image, Video, Audio, Document.
+    """
+    from zoneinfo import ZoneInfo
+
+    image_files = get_image_files()
+    video_files = get_video_files()
+    audio_files = get_audio_files()
+    doc_files = get_documents()
+    n = min(num_rows, len(image_files), len(video_files), len(audio_files), len(doc_files))
+
+    schema = {
+        'c_string': pxt.String,
+        'c_int': pxt.Int,
+        'c_float': pxt.Float,
+        'c_bool': pxt.Bool,
+        'c_timestamp': pxt.Timestamp,
+        'c_date': pxt.Date,
+        'c_uuid': pxt.UUID,
+        'c_json': pxt.Json,
+        'c_array': pxt.Array[(3,), np.float64],  # type: ignore[misc]
+        'c_image': pxt.Image,
+        'c_video': pxt.Video,
+        'c_audio': pxt.Audio,
+        'c_document': pxt.Document,
+    }
+    t = pxt.create_table(name, schema)
+
+    tz = ZoneInfo('UTC')
+    rows = []
+    for i in range(n):
+        rows.append(
+            {
+                'c_string': f'row_{i}',
+                'c_int': i * 10,
+                'c_float': i * 1.1,
+                'c_bool': i % 2 == 0,
+                'c_timestamp': datetime.datetime(2024, 1, 1 + i, 10, 30, 0, tzinfo=tz),
+                'c_date': datetime.date(2024, 6, 15 + i),
+                'c_uuid': uuid.uuid5(uuid.NAMESPACE_DNS, f'row{i}'),
+                'c_json': {'index': i, 'tags': list(range(i))},
+                'c_array': np.array([i * 1.0, i * 2.0, i * 3.0]),
+                'c_image': image_files[i],
+                'c_video': video_files[i],
+                'c_audio': audio_files[i],
+                'c_document': doc_files[i],
+            }
+        )
+
+    validate_update_status(t.insert(rows), expected_rows=n)
+    return t, rows
+
+
 def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
     schema: dict[str, type | ColumnSpec] = {
         'c1': {'type': pxt.Required[pxt.String], 'comment': 'String column with no nulls'},
