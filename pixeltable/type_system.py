@@ -899,7 +899,8 @@ class JsonType(ColumnType):
                 raise excs.Error('Invalid type schema: `...` allowed only in last position')
 
             return JsonType.TypeSchema(
-                content=[cls._validate_type_schema(item) for item in type_arg], variadic_type=variadic_type
+                content=[cls._validate_type_schema(item) for item in type_arg],
+                variadic_type=cls.from_python_type(variadic_type),
             )
 
         # Anything else: Convert it to a ColumnType instance in the usual fashion.
@@ -1105,17 +1106,23 @@ class JsonType(ColumnType):
         variadic_type: ColumnType | None = None
         optional_keys: list[str] = dataclasses.field(default_factory=list)
 
+        def __post_init__(self):
+            assert self.variadic_type is None or isinstance(self.variadic_type, ColumnType), self.variadic_type
+
         def validate_literal(self, val: Any) -> None:
             if isinstance(self.content, list):
                 if not isinstance(val, list):
                     raise TypeError(f'Expected a list; got `{val.__class__.__name__}`: {val!r}')
+                if len(val) < len(self.content):
+                    qualifier = 'exactly' if self.variadic_type is None else 'at least'
+                    raise TypeError(f'Too few items in list: expected {qualifier} {len(self.content)}; got {len(val)}')
                 for i, item in enumerate(val):
                     if i < len(self.content):
                         expected_type = self.content[i]
                     elif self.variadic_type is not None:
                         expected_type = self.variadic_type
                     else:
-                        raise TypeError(f'Too many items in list: expected at most {len(self.content)}; got {len(val)}')
+                        raise TypeError(f'Too many items in list: expected exactly {len(self.content)}; got {len(val)}')
                     expected_type.validate_literal(item)
             else:
                 if not isinstance(val, dict):

@@ -1288,12 +1288,44 @@ class TestTable:
             c: float
             d: bool
 
-        t = pxt.create_table('test', {'json_col_1': MySchema, 'json_col_2': MySchemaOpt})
+        t = pxt.create_table(
+            'test',
+            {
+                'json_col_1': MySchema,
+                'json_col_2': MySchemaOpt,
+                'json_col_3': pxt.Json[tuple[pxt.Int, pxt.String]],
+                'json_col_4': pxt.Json[tuple[pxt.Int, pxt.String, ...]],
+            },
+        )
         t.insert(json_col_1={'a': 'coconuts', 'b': 1, 'c': 3.0, 'd': True})
         t.update({'json_col_2': {'a': 'mangoes', 'b': 2}})  # Omit optional properties ok since total=False
+        t.update({'json_col_3': [1, 'two']})  # List of correct length ok
+        t.update({'json_col_4': [1]})  # Variadic list of minimal length ok
+        t.update({'json_col_4': [1, 'two', 'three', 'four']})  # Longer variadic list ok
+
+        with pytest.raises(pxt.Error, match=r"expected a list; got `str`: 'not a list'"):
+            t.insert(json_col_3='not a list')  # Wrong type
+
+        with pytest.raises(pxt.Error, match=r'expected string, got int'):
+            t.insert(json_col_3=[1, 2])  # Wrong type of list item
+
+        with pytest.raises(pxt.Error, match=r'expected string, got int'):
+            t.insert(json_col_4=[1, 'two', 'three', 4])  # Wrong type of variadic list item
+
+        with pytest.raises(pxt.Error, match=r'too few items in list: expected exactly 2; got 1'):
+            t.insert(json_col_3=[1])  # List is too short
+
+        with pytest.raises(pxt.Error, match=r'too many items in list: expected exactly 2; got 3'):
+            t.insert(json_col_3=[1, 'two', 'three'])  # Non-variadic list is too long
+
+        with pytest.raises(pxt.Error, match=r'too few items in list: expected at least 1; got 0'):
+            t.insert(json_col_4=[])  # Variadic list is too short
+
+        with pytest.raises(pxt.Error, match=r"expected a dict; got `str`: 'not a dict'"):
+            t.insert(json_col_1='not a dict')  # Wrong type
 
         with pytest.raises(pxt.Error, match=r'expected int, got str') as exc_info:
-            t.insert(json_col_2={'a': 'apples', 'b': 'elephant'})  # Wrong type
+            t.insert(json_col_2={'a': 'apples', 'b': 'elephant'})  # Wrong type of dict value
 
         with pytest.raises(pxt.Error, match=r"missing required key: 'b'") as exc_info:
             t.insert(json_col_1={'a': 'apples'})  # Missing required field
