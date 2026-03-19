@@ -207,7 +207,7 @@ class TestPandas:
 
     def test_pandas_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')  # This test relies on s3 URLs
-        from pixeltable.io.pandas import import_csv
+        from pixeltable.io import import_csv
 
         # Test overriding string type to images
         t4 = import_csv('images', 'tests/data/datasets/images.csv', schema_overrides={'image': pxt.Image})
