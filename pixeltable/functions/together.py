@@ -228,17 +228,19 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         ...     )
         ... )
     """
+    import together
+
     if model_kwargs is None:
         model_kwargs = {}
 
     result = await _together_client().images.generate(prompt=prompt, model=model, **model_kwargs)
     data = result.data[0]
-    if isinstance(data, together.types.ImageDataB64):
+    if isinstance(data, together.types.ImageDataB64) and data.b64_json is not None:
         b64_bytes = base64.b64decode(data.b64_json)
         img = PIL.Image.open(io.BytesIO(b64_bytes))
         img.load()
         return img
-    else:
+    elif isinstance(data, together.types.ImageDataURL) and data.url is not None:
         try:
             resp = requests.get(data.url)
             with io.BytesIO(resp.content) as fp:
