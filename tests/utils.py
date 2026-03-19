@@ -160,7 +160,7 @@ def create_all_types_tbl(name: str, num_rows: int = 5) -> tuple[pxt.Table, list[
     image_files = get_image_files()
     video_files = get_video_files()
     audio_files = get_audio_files()
-    doc_files = get_documents()
+    doc_files = [f for f in get_documents() if f.endswith(('.pdf', '.txt', '.html', '.md'))]
     n = min(num_rows, len(image_files), len(video_files), len(audio_files), len(doc_files))
 
     schema = {
