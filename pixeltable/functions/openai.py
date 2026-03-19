@@ -875,8 +875,8 @@ async def image_edits(
     if model_kwargs is None:
         model_kwargs = {}
 
-    image_file = _pil_to_png_bytes(image)
-    kwargs: dict[str, Any] = {'image': image_file, 'prompt': prompt, 'model': model, **model_kwargs}
+    png_image_buffer = _pil_to_png_bytes(image)
+    kwargs: dict[str, Any] = {'image': png_image_buffer, 'prompt': prompt, 'model': model, **model_kwargs}
 
     if mask is not None:
         kwargs['mask'] = _pil_to_png_bytes(mask)
@@ -936,8 +936,8 @@ async def image_variations(image: PIL.Image.Image, *, model: str, model_kwargs: 
     if model_kwargs is None:
         model_kwargs = {}
 
-    image_file = _pil_to_png_bytes(image)
-    kwargs: dict[str, Any] = {'image': image_file, 'model': model, **model_kwargs}
+    png_image_buffer = _pil_to_png_bytes(image)
+    kwargs: dict[str, Any] = {'image': png_image_buffer, 'model': model, **model_kwargs}
     # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
     # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.
     # https://developers.openai.com/api/reference/resources/images/methods/create_variation
