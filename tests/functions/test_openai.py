@@ -12,8 +12,8 @@ from ..utils import SAMPLE_IMAGE_URL, rerun, skip_test_if_no_client, skip_test_i
 from .tool_utils import run_tool_invocations_test, server_state, stock_price, weather
 
 
-# @pytest.mark.remote_api
-# @rerun(reruns=3, reruns_delay=8)
+@pytest.mark.remote_api
+@rerun(reruns=3, reruns_delay=8)
 class TestOpenai:
     @pytest.mark.expensive
     def test_audio(self, uses_db: None) -> None:
@@ -174,8 +174,8 @@ class TestOpenai:
         run_tool_invocations_test(make_table, test_tool_choice=True, test_individual_tool_choice=True)
 
     def test_custom_tool_invocations(self, uses_db: None) -> None:
-        # skip_test_if_not_installed('openai')
-        # skip_test_if_no_client('openai')
+        skip_test_if_not_installed('openai')
+        skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions, invoke_tools
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})

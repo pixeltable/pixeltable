@@ -4,7 +4,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import skip_test_if_not_installed, validate_update_status
+from ..utils import rerun, skip_test_if_not_installed, validate_update_status
 from .tool_utils import stock_price, weather
 
 
@@ -19,7 +19,7 @@ def cleanup_llama_cpp() -> Generator:
         print(f'cleanup failed: {e}')
 
 
-# @rerun(reruns=3, reruns_delay=15)  # Since it involes a HF model download
+@rerun(reruns=3, reruns_delay=15)  # Since it involes a HF model download
 class TestLlamaCpp:
     def test_create_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('llama_cpp')
@@ -56,9 +56,9 @@ class TestLlamaCpp:
         assert len(result['choices'][0]['message']['content']) > 0
         assert len(result2['choices'][0]['message']['content']) > 0
 
-    # TODO is retry needed?
     @pytest.mark.parametrize('model', ['mistral', 'gemma', 'qwen', 'salesforce'])
     def test_tool_invocations_3(self, uses_db: None, model: str) -> None:
+        skip_test_if_not_installed('llama_cpp')
         from pixeltable.functions import llama_cpp
         from pixeltable.functions.openai import invoke_tools
 
