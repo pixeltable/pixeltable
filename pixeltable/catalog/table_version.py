@@ -359,9 +359,9 @@ class TableVersion:
         if any(col.is_pk for col in cols):
             primary_index_md = schema.PrimaryIndexMd(
                 id=next(index_ids),
-                name=f'pk{tbl_id_str}',
-                indexed_cols_tbl_id=tbl_id_str,
-                indexed_col_id=[col.id for col in cols if col.is_pk],
+                name=f'pk{tbl_id.hex}',
+                indexed_col_tbl_id=tbl_id_str,
+                indexed_col_ids=[col.id for col in cols if col.is_pk],
             )
 
         tbl_md = schema.TableMd(

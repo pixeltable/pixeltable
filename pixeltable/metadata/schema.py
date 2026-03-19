@@ -160,8 +160,8 @@ class PrimaryIndexMd:
 
     id: int
     name: str
-    indexed_cols_tbl_id: str  # UUID of the table (as string) that contains columns being indexed
-    indexed_col_id: list[int]  # columns being indexed
+    indexed_col_tbl_id: str  # UUID of the table (as string) that contains columns being indexed
+    indexed_col_ids: list[int]  # columns being indexed
 
 
 # a stored table version path is a list of (table id as str, effective table version)

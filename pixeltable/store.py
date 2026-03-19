@@ -14,6 +14,7 @@ from pixeltable import catalog, exceptions as excs
 from pixeltable.catalog.update_status import RowCountStats
 from pixeltable.env import Env
 from pixeltable.exec import ExecNode
+from pixeltable.index.btree import BtreeIndex
 from pixeltable.metadata import schema
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.exception_handler import run_cleanup
@@ -145,13 +146,13 @@ class StoreBase:
 
         # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
         primary_index_md = tbl_version.tbl_md.primary_index_md
-        if primary_index_md is not None and len(primary_index_md.indexed_col_id) > 0:
+        if primary_index_md is not None and len(primary_index_md.indexed_col_ids) > 0:
             pk_idx_exprs: list[sql.ColumnElement] = []
             for col in tbl_version.cols:
-                if col.id not in primary_index_md.indexed_col_id:
+                if col.id not in primary_index_md.indexed_col_ids:
                     continue
                 if col.col_type.is_string_type():
-                    pk_idx_exprs.append(sql.func.left(col.sa_col, 256))
+                    pk_idx_exprs.append(sql.func.left(col.sa_col, BtreeIndex.MAX_STRING_LEN))
                 else:
                     pk_idx_exprs.append(col.sa_col)
             idx_name = f'pk_idx_{tbl_version.id.hex}'
@@ -503,7 +504,11 @@ class StoreBase:
         try:
             conn.execute(sql.insert(sa_tbl), [dict(zip(store_col_names, table_row)) for table_row in table_rows])
         except sql.exc.IntegrityError as e:
-            if isinstance(e.orig, psycopg.errors.UniqueViolation) and 'pk_idx_' in str(e.orig):
+            if (
+                isinstance(e.orig, psycopg.errors.UniqueViolation)
+                and e.orig.diag.constraint_name is not None
+                and e.orig.diag.constraint_name.startswith('pk_idx_')
+            ):
                 raise excs.Error('Duplicate primary key value') from None
             raise
 
