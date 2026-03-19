@@ -457,9 +457,10 @@ class Planner:
                 recomputed_cols |= target.get_dependent_columns(recomputed_cols)
         else:
             recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
-        # regardless of cascade, we need to update all indices on any updated/recomputed column
-        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
-        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
+        # We need to recompute all index value columns: delete_rows nullifies them on the expired rows,
+        # so they can't be copied from the source rows.
+        all_base_cols = [c for c in target.cols_by_id.values() if c.get_tbl().id == target.id]
+        idx_val_cols = target.get_idx_val_columns(all_base_cols)
         recomputed_cols.update(idx_val_cols)
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
@@ -485,13 +486,15 @@ class Planner:
         exprs.Expr.list_substitute(recomputed_exprs, spec)
         select_list.extend(recomputed_exprs)
 
-        # we need to retrieve the PK columns of the existing rows
+        # Read from rows that were just deleted (expired) at the current version.
+        # The where_clause is not passed here: it was already applied during deletion, and delete_rows nullifies
+        # index value columns, which would cause the where clause to fail on the expired rows.
         plan = cls.create_query_plan(
             FromClause(tbls=[tbl]),
             select_list=select_list,
             columns=copied_cols,
-            where_clause=where_clause,
             ignore_errors=True,
+            deleted_at_version=[tbl.tbl_version],
         )
         evaluated_cols = updated_cols + list(recomputed_base_cols)  # same order as select_list
         # update row builder with column information
@@ -943,6 +946,7 @@ class Planner:
         sample_clause: SampleClause | None = None,
         ignore_errors: bool = False,
         exact_version_only: list[catalog.TableVersionHandle] | None = None,
+        deleted_at_version: list[catalog.TableVersionHandle] | None = None,
     ) -> exec.ExecNode:
         """
         Return plan for executing a query.
@@ -962,6 +966,8 @@ class Planner:
             order_by_clause = []
         if exact_version_only is None:
             exact_version_only = []
+        if deleted_at_version is None:
+            deleted_at_version = []
 
         analyzer = Analyzer(
             from_clause,
@@ -990,6 +996,7 @@ class Planner:
             offset=offset,
             with_pk=True,
             exact_version_only=exact_version_only,
+            deleted_at_version=deleted_at_version,
         )
         plan.ctx.ignore_errors = ignore_errors
         select_list.clear()
@@ -1007,6 +1014,7 @@ class Planner:
         offset: exprs.Expr | None = None,
         with_pk: bool = False,
         exact_version_only: list[catalog.TableVersionHandle] | None = None,
+        deleted_at_version: list[catalog.TableVersionHandle] | None = None,
     ) -> exec.ExecNode:
         """
         Create plan to materialize eval_ctx.
@@ -1020,6 +1028,8 @@ class Planner:
             columns = []
         if exact_version_only is None:
             exact_version_only = []
+        if deleted_at_version is None:
+            deleted_at_version = []
         sql_elements = analyzer.sql_elements
         is_python_agg = not sql_elements.contains_all(analyzer.agg_fn_calls) or not sql_elements.contains_all(
             analyzer.window_fn_calls
@@ -1085,6 +1095,7 @@ class Planner:
                 set_pk=with_pk,
                 cell_md_col_refs=cls._cell_md_col_refs(tbl_scan_exprs),
                 exact_version_only=exact_version_only,
+                deleted_at_version=deleted_at_version,
             )
             tbl_scan_plans.append(plan)
 

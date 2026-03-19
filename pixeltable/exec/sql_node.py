@@ -275,6 +275,7 @@ class SqlNode(ExecNode):
         stmt: sql.Select,
         refd_tbl_ids: set[UUID] | None = None,
         exact_version_only: set[UUID] | None = None,
+        deleted_at_version: set[UUID] | None = None,
     ) -> sql.Select:
         """Add From clause to stmt for tables/views referenced by materialized_exprs
         Args:
@@ -282,6 +283,8 @@ class SqlNode(ExecNode):
             stmt: stmt to add From clause to
             materialized_exprs: list of exprs that reference tables in the join chain; if empty, include only the root
             exact_version_only: set of table ids for which we only want to see rows created at the current version
+            deleted_at_version: set of table ids for which we only want to see rows deleted (expired) at the current
+                version
         Returns:
             augmented stmt
         """
@@ -290,6 +293,8 @@ class SqlNode(ExecNode):
             refd_tbl_ids = set()
         if exact_version_only is None:
             exact_version_only = set()
+        if deleted_at_version is None:
+            deleted_at_version = set()
         candidates = tbl.get_tbl_versions()
         assert len(candidates) > 0
         joined_tbls: list[catalog.TableVersionHandle] = [candidates[0]]
@@ -301,7 +306,6 @@ class SqlNode(ExecNode):
         prev_tv: catalog.TableVersion | None = None
         for t in joined_tbls[::-1]:
             tv = t.get()
-            # _logger.debug(f'create_from_clause: tbl_id={tv.id} {id(tv.store_tbl.sa_tbl)}')
             if first:
                 stmt = stmt.select_from(tv.store_tbl.sa_tbl)
                 first = False
@@ -314,7 +318,9 @@ class SqlNode(ExecNode):
                 ]
                 stmt = stmt.join(tv.store_tbl.sa_tbl, sql.and_(*rowid_clauses))
 
-            if t.id in exact_version_only:
+            if t.id in deleted_at_version:
+                stmt = stmt.where(tv.store_tbl.v_max_col == tv.version)
+            elif t.id in exact_version_only:
                 stmt = stmt.where(tv.store_tbl.v_min_col == tv.version)
             else:
                 stmt = stmt.where(tv.store_tbl.sa_tbl.c.v_min <= tv.version)
@@ -496,6 +502,7 @@ class SqlScanNode(SqlNode):
     """
 
     exact_version_only: list[catalog.TableVersionHandle]
+    deleted_at_version: list[catalog.TableVersionHandle]
 
     def __init__(
         self,
@@ -506,6 +513,7 @@ class SqlScanNode(SqlNode):
         cell_md_col_refs: list[exprs.ColumnRef] | None = None,
         set_pk: bool = False,
         exact_version_only: list[catalog.TableVersionHandle] | None = None,
+        deleted_at_version: list[catalog.TableVersionHandle] | None = None,
     ):
         sql_elements = exprs.SqlElementCache()
         super().__init__(
@@ -520,15 +528,22 @@ class SqlScanNode(SqlNode):
         # create Select stmt
         if exact_version_only is None:
             exact_version_only = []
+        if deleted_at_version is None:
+            deleted_at_version = []
 
         self.exact_version_only = exact_version_only
+        self.deleted_at_version = deleted_at_version
 
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt()
         where_clause_tbl_ids = self.where_clause.tbl_ids() if self.where_clause is not None else set()
         refd_tbl_ids = exprs.Expr.all_tbl_ids(self.select_list) | where_clause_tbl_ids | self._ordering_tbl_ids()
         stmt = self.create_from_clause(
-            self.tbl, stmt, refd_tbl_ids, exact_version_only={t.id for t in self.exact_version_only}
+            self.tbl,
+            stmt,
+            refd_tbl_ids,
+            exact_version_only={t.id for t in self.exact_version_only},
+            deleted_at_version={t.id for t in self.deleted_at_version},
         )
         return stmt
 

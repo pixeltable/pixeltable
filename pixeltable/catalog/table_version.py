@@ -1264,13 +1264,13 @@ class TableVersion:
         create_new_table_version = plan is not None
         if create_new_table_version:
             self.bump_version(timestamp, bump_schema_version=False)
+            self.store_tbl.delete_rows(
+                self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
+            )
             cols_with_excs, row_counts = self.store_tbl.insert_rows(plan, v_min=self.version)
             result += UpdateStatus(
                 row_count_stats=row_counts.insert_to_update(),
                 cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
-            )
-            self.store_tbl.delete_rows(
-                self.version, base_versions=base_versions, match_on_vmin=True, where_clause=where_clause
             )
 
         if cascade:
