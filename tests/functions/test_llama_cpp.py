@@ -12,6 +12,10 @@ from .tool_utils import stock_price, weather
 def cleanup_llama_cpp() -> Generator:
     yield
     try:
+        import llama_cpp as _  # noqa: F401
+    except ImportError:
+        return
+    try:
         from pixeltable.functions import llama_cpp
 
         llama_cpp.cleanup()
