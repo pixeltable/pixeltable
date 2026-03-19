@@ -110,4 +110,4 @@ def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path, *,
         rows.append(row_dict)
 
     with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(rows, f, indent=indent, default=str, ensure_ascii=False)
+        json.dump(rows, f, indent=indent, default=str, ensure_ascii=False, allow_nan=False)
