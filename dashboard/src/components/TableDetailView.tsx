@@ -808,13 +808,18 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                     ? 'border-amber-500/20 bg-amber-500/5 text-amber-400 hover:bg-amber-500/10'
                     : 'border-border/40 bg-muted/20 text-muted-foreground hover:bg-muted/40',
                 )}
-                title={col.is_computed && col.computed_with ? `${col.name}: ${col.computed_with}` : col.name}
+                title={[
+                  col.is_computed && col.computed_with ? `${col.name}: ${col.computed_with}` : col.name,
+                  col.destination ? `→ ${col.destination}` : '',
+                  col.media_validation ? `validation: ${col.media_validation}` : '',
+                ].filter(Boolean).join('\n')}
               >
                 {col.is_primary_key && <Key className="h-2.5 w-2.5 text-k-yellow shrink-0" />}
                 {col.is_computed && !col.is_primary_key && <Zap className="h-2.5 w-2.5 shrink-0" />}
                 {!col.is_computed && !col.is_primary_key && <ColumnTypeIcon type={col.type} className="h-2.5 w-2.5" />}
                 <span className="font-mono font-medium">{col.name}</span>
                 <span className="text-[10px] opacity-70">{col.type}</span>
+                {col.destination && <ExternalLink className="h-2.5 w-2.5 text-orange-400/70 shrink-0" />}
               </div>
             ))}
             {filter && filtered.length === 0 && (
@@ -859,12 +864,36 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                       )}
                     </td>
                     <td className="py-1.5 px-2 text-[11px] text-muted-foreground">
-                      <span className="tabular-nums">v{col.version_added}</span>
-                      {col.comment && (
-                        <span className="ml-2 text-muted-foreground/60 italic" title={col.comment}>
-                          {col.comment.length > 40 ? col.comment.slice(0, 40) + '…' : col.comment}
-                        </span>
-                      )}
+                      <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                        <span className="tabular-nums">v{col.version_added}</span>
+                        {col.is_iterator_col && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-violet-400/10 text-violet-400 font-medium">iterator</span>
+                        )}
+                        {!col.is_stored && col.is_computed && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-sky-400/10 text-sky-400 font-medium" title="Computed on demand, not stored">dynamic</span>
+                        )}
+                        {col.media_validation && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-teal-400/10 text-teal-400 font-medium" title={`Media validated ${col.media_validation}`}>{col.media_validation}</span>
+                        )}
+                        {col.destination && (
+                          <span
+                            className="px-1.5 py-0.5 rounded text-[10px] bg-orange-400/10 text-orange-400 font-mono font-medium truncate max-w-[200px]"
+                            title={col.destination}
+                          >
+                            → {col.destination}
+                          </span>
+                        )}
+                        {col.comment && (
+                          <span className="text-muted-foreground/60 italic" title={col.comment}>
+                            {col.comment.length > 40 ? col.comment.slice(0, 40) + '…' : col.comment}
+                          </span>
+                        )}
+                        {col.custom_metadata != null && (
+                          <span className="text-muted-foreground/50" title={JSON.stringify(col.custom_metadata)}>
+                            [meta]
+                          </span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1035,6 +1064,11 @@ function TableHeader({ metadata, onTableClick, totalErrors }: { metadata: TableM
         )}
         {metadata.comment && (
           <span className="text-muted-foreground/60 font-sans ml-1">— {metadata.comment}</span>
+        )}
+        {metadata.iterator_type && (
+          <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-violet-400/10 text-violet-400 font-medium border border-violet-400/20">
+            {metadata.iterator_type}
+          </span>
         )}
       </div>
       {showSnippet && <SdkSnippet metadata={metadata} />}
@@ -1466,7 +1500,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
               Data
             </button>
             <button
-              onClick={() => setContentTab('lineage')}
+              onClick={() => { setContentTab('lineage'); setSchemaExpanded(false) }}
               className={cn('flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium transition-colors',
                 contentTab === 'lineage' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground')}
             >

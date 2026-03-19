@@ -28,6 +28,7 @@ import {
   ChevronDown,
   X,
   Zap,
+  Repeat2,
   Search as SearchIcon,
   ArrowLeft,
   RefreshCw,
@@ -67,6 +68,7 @@ function LabeledEdge({
   const edgeData = data as { label?: string; edgeType?: string } | undefined
   const label = edgeData?.label
   const isQuery = edgeData?.edgeType === 'query'
+  const isIterator = label != null && label !== 'view'
 
   return (
     <>
@@ -75,9 +77,9 @@ function LabeledEdge({
         path={edgePath}
         markerEnd={markerEnd}
         style={{
-          stroke: isQuery ? '#888' : '#333',
+          stroke: isQuery ? '#888' : isIterator ? 'hsl(263 60% 60%)' : '#555',
           strokeWidth: isQuery ? 1 : 1.5,
-          strokeDasharray: isQuery ? '5 3' : undefined,
+          strokeDasharray: isQuery ? '5 3' : '6 4',
           opacity: isQuery ? 0.5 : 0.8,
         }}
       />
@@ -87,9 +89,9 @@ function LabeledEdge({
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)` }}
             className={cn(
               'absolute pointer-events-all px-1.5 py-0.5 rounded border text-[10px] font-mono',
-              isQuery
-                ? 'bg-card border-border/40 text-muted-foreground'
-                : 'bg-card border-border/60 text-foreground',
+              isIterator
+                ? 'bg-card border-violet-400/30 text-violet-400'
+                : 'bg-card border-border/60 text-muted-foreground',
             )}
           >
             {label}
@@ -114,8 +116,9 @@ interface TableNodeData extends PipelineNodeType {
 
 function PipelineTableNode({ data }: { data: TableNodeData }) {
   const hasErrors = data.total_errors > 0
-  const computedCols = data.columns.filter((c) => c.is_computed)
-  const insertableCols = data.columns.filter((c) => !c.is_computed)
+  const iteratorCols = data.columns.filter((c) => c.is_iterator_col)
+  const computedCols = data.columns.filter((c) => c.is_computed && !c.is_iterator_col)
+  const insertableCols = data.columns.filter((c) => !c.is_computed && !c.is_iterator_col)
 
   return (
     <div
@@ -173,9 +176,24 @@ function PipelineTableNode({ data }: { data: TableNodeData }) {
           <div className="text-[10px] text-muted-foreground/70 pl-2.5">+{insertableCols.length - 3} more</div>
         )}
 
-        {computedCols.length > 0 && (
+        {iteratorCols.length > 0 && (
           <>
             {insertableCols.length > 0 && <div className="border-t border-border/30 my-1" />}
+            {iteratorCols.slice(0, 3).map((col) => (
+              <div key={col.name} className="flex items-center gap-1">
+                <Repeat2 className="h-2 w-2 shrink-0 text-violet-400/70" />
+                <span className="text-[10px] text-foreground/80 truncate">{col.name}</span>
+              </div>
+            ))}
+            {iteratorCols.length > 3 && (
+              <div className="text-[10px] text-muted-foreground/70 pl-2.5">+{iteratorCols.length - 3} more</div>
+            )}
+          </>
+        )}
+
+        {computedCols.length > 0 && (
+          <>
+            {(insertableCols.length > 0 || iteratorCols.length > 0) && <div className="border-t border-border/30 my-1" />}
             {computedCols.slice(0, 4).map((col) => {
               const ft = col.func_type ? FUNC_STYLES[col.func_type] : null
               return (
@@ -230,8 +248,9 @@ function DetailPanel({
   const [showVersions, setShowVersions] = useState(false)
   const hasColumnDeps = node.columns.some((c) => c.depends_on && c.depends_on.length > 0)
 
-  const computed = node.columns.filter((c) => c.is_computed)
-  const insertable = node.columns.filter((c) => !c.is_computed)
+  const iteratorProduced = node.columns.filter((c) => c.is_iterator_col)
+  const computed = node.columns.filter((c) => c.is_computed && !c.is_iterator_col)
+  const insertable = node.columns.filter((c) => !c.is_computed && !c.is_iterator_col)
 
   return (
     <div className="w-[360px] shrink-0 border-l border-border bg-card overflow-y-auto">
@@ -255,7 +274,7 @@ function DetailPanel({
               <ExternalLink className="h-2.5 w-2.5" />
             </button>
             {node.iterator_type && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent text-muted-foreground font-mono">
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-400/10 text-violet-400 font-mono border border-violet-400/20">
                 {node.iterator_type}
               </span>
             )}
@@ -346,6 +365,29 @@ function DetailPanel({
                 {col.defined_in && !col.defined_in_self && (
                   <span className="text-[10px] text-muted-foreground/60 italic shrink-0">from {col.defined_in}</span>
                 )}
+                <span className="ml-auto shrink-0"><ColumnTypeBadge type={col.type} /></span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Iterator-produced columns */}
+      {iteratorProduced.length > 0 && (
+        <div className="px-5 py-3 border-b border-border">
+          <div className="flex items-center gap-1.5 mb-2">
+            <Repeat2 className="h-3 w-3 text-violet-400" />
+            <SectionLabel className="mb-0">
+              Iterator Columns ({iteratorProduced.length})
+              {node.iterator_type && (
+                <span className="ml-1 normal-case tracking-normal font-mono text-violet-400">{node.iterator_type}</span>
+              )}
+            </SectionLabel>
+          </div>
+          <div className="space-y-1">
+            {iteratorProduced.map((col) => (
+              <div key={col.name} className="flex items-center gap-2 text-xs min-h-[22px]">
+                <span className="text-foreground shrink-0">{col.name}</span>
                 <span className="ml-auto shrink-0"><ColumnTypeBadge type={col.type} /></span>
               </div>
             ))}

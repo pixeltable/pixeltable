@@ -146,6 +146,7 @@ function DirectoryView({ tree }: { tree: TreeNode[] }) {
 // ── Welcome View ────────────────────────────────────────────────────────────
 
 function WelcomeView() {
+  const navigate = useNavigate()
   return (
     <div className="flex flex-col items-center justify-center h-full text-center p-8">
       <div className="mb-6">
@@ -154,20 +155,32 @@ function WelcomeView() {
       <h1 className="text-xl font-semibold text-foreground mb-2">
         Pixeltable Dashboard
       </h1>
-      <p className="text-sm text-muted-foreground/90 max-w-sm">
+      <p className="text-sm text-muted-foreground/90 max-w-md leading-relaxed">
         Explore your directories, tables, views, and snapshots.
-        Select an item from the sidebar to get started.
+        Select an item from the sidebar, or view the full pipeline lineage.
       </p>
 
-      {/* Quick actions */}
-      <div className="mt-8 flex flex-col items-center gap-3">
-        <div className="text-xs text-muted-foreground/90">
-          Press{' '}
-          <kbd className="px-1.5 py-0.5 bg-accent rounded border border-border text-[11px] text-muted-foreground">⌘K</kbd>
-          {' '}to search
+      {/* Primary actions */}
+      <div className="mt-8 flex flex-col items-center gap-5">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate('/lineage')}
+            className="flex items-center gap-2.5 rounded-lg bg-k-yellow text-background px-5 py-2.5 text-sm font-semibold hover:bg-k-yellow/90 transition-colors shadow-sm"
+          >
+            <GitBranch className="h-4 w-4" />
+            View pipeline lineage
+          </button>
+          <button
+            onClick={() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true }))}
+            className="flex items-center gap-2 rounded-lg border border-border px-4 py-2.5 text-sm text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          >
+            <Search className="h-4 w-4" />
+            Search tables
+            <kbd className="ml-1 px-1.5 py-0.5 bg-accent rounded border border-border text-[10px]">⌘K</kbd>
+          </button>
         </div>
 
-        <div className="flex items-center gap-4 mt-2">
+        <div className="flex items-center gap-4 mt-1">
           <a
             href="https://docs.pixeltable.com"
             target="_blank"

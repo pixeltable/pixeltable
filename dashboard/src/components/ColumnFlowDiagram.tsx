@@ -67,13 +67,15 @@ function ColumnEdge({
 
   const highlight = (data as Record<string, unknown> | undefined)?.highlight as string | undefined
 
-  const style = useMemo(() => {
-    if (highlight === 'active') return { stroke: 'hsl(42 98% 48% / 0.7)', strokeWidth: 2.5 }
-    if (highlight === 'dimmed') return { stroke: 'rgba(100, 100, 100, 0.12)', strokeWidth: 1 }
-    return { stroke: 'rgba(100, 100, 100, 0.35)', strokeWidth: 1.5 }
-  }, [highlight])
+  const isDimmed = highlight === 'dimmed'
 
-  return <BaseEdge id={id} path={edgePath} style={style} />
+  const style = useMemo(() => {
+    if (highlight === 'active') return { stroke: 'hsl(42 98% 48% / 0.7)', strokeWidth: 2.5, strokeDasharray: '6 4' }
+    if (isDimmed) return { stroke: 'rgba(100, 100, 100, 0.12)', strokeWidth: 1 }
+    return { stroke: 'rgba(100, 100, 100, 0.35)', strokeWidth: 1.5, strokeDasharray: '6 4' }
+  }, [highlight, isDimmed])
+
+  return <BaseEdge id={id} path={edgePath} style={style} className={isDimmed ? undefined : 'react-flow__edge-path-animated'} />
 }
 
 const edgeTypes = { columnEdge: ColumnEdge }
@@ -83,6 +85,7 @@ const edgeTypes = { columnEdge: ColumnEdge }
 function ColumnNodeComponent({ data, selected }: { data: ColumnNodeData; selected?: boolean }) {
   const { icon: Icon } = getColumnTypeMeta(data.type)
   const funcStyle = data.funcType ? FUNC_STYLES[data.funcType] : null
+  const inherited = !data.definedInSelf
 
   return (
     <div className={cn(
@@ -92,7 +95,7 @@ function ColumnNodeComponent({ data, selected }: { data: ColumnNodeData; selecte
       {data.upstreamColumns.length > 0 && (
         <Handle
           type="target"
-          position={Position.Left}
+          position={Position.Top}
           className={cn(
             '!w-2 !h-2 !border-2 !border-background transition-colors',
             data.isComputed ? '!bg-k-yellow' : '!bg-muted-foreground/50',
@@ -103,46 +106,61 @@ function ColumnNodeComponent({ data, selected }: { data: ColumnNodeData; selecte
       {data.downstreamColumns.length > 0 && (
         <Handle
           type="source"
-          position={Position.Right}
+          position={Position.Bottom}
           className="!w-2 !h-2 !bg-muted-foreground/50 !border-2 !border-background"
         />
       )}
 
       <div className={cn(
-        'border bg-card rounded-lg shadow-sm overflow-hidden transition-all duration-150',
-        data.isComputed
-          ? 'border-k-yellow/30'
-          : 'border-border/60',
+        'border rounded-lg shadow-sm overflow-hidden transition-all duration-150',
+        inherited
+          ? 'border-dashed border-border/50 bg-card/60 opacity-80'
+          : cn(
+              'bg-card',
+              data.isComputed ? 'border-k-yellow/30' : 'border-border/60',
+            ),
         data.errorCount > 0 && 'border-destructive/40',
-        selected && 'ring-1 ring-k-yellow/50 shadow-md border-k-yellow/50',
+        selected && 'ring-1 ring-k-yellow/50 shadow-md border-k-yellow/50 opacity-100',
       )}>
+        {/* Origin tag for inherited columns */}
+        {inherited && data.definedIn && (
+          <div className="px-3 py-1 bg-muted/20 border-b border-border/20">
+            <span className="text-[8px] uppercase tracking-wider text-muted-foreground/50 font-medium">
+              from {data.definedIn}
+            </span>
+          </div>
+        )}
+
         {/* Header */}
         <div className={cn(
           'px-3 py-2 flex items-center gap-2',
-          data.isComputed ? 'bg-k-yellow/5' : '',
+          !inherited && data.isComputed ? 'bg-k-yellow/5' : '',
         )}>
           <div className={cn(
             'w-5 h-5 rounded flex items-center justify-center shrink-0',
-            data.isComputed ? 'bg-k-yellow/15' : 'bg-muted/40',
+            !inherited && data.isComputed ? 'bg-k-yellow/15' : 'bg-muted/40',
           )}>
             <Icon className={cn(
               'h-3 w-3',
-              data.isComputed ? 'text-k-yellow' : 'text-muted-foreground',
+              !inherited && data.isComputed ? 'text-k-yellow' : 'text-muted-foreground',
             )} />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="text-[11px] font-semibold text-foreground truncate block leading-tight">
+            <span className={cn(
+              'text-[11px] font-semibold truncate block leading-tight',
+              inherited ? 'text-foreground/70' : 'text-foreground',
+            )}>
               {data.name}
             </span>
             <span className={cn(
               'text-[9px] font-mono leading-tight',
-              data.isComputed ? 'text-k-yellow/60' : 'text-muted-foreground/50',
+              !inherited && data.isComputed ? 'text-k-yellow/60' : 'text-muted-foreground/50',
             )}>
               {formatType(data.type)}
             </span>
           </div>
           {data.isComputed && (
-            <Zap className="h-2.5 w-2.5 text-k-yellow/60 shrink-0" />
+            <Zap className={cn('h-2.5 w-2.5 shrink-0', inherited ? 'text-muted-foreground/30' : 'text-k-yellow/60')} />
           )}
         </div>
 
@@ -229,16 +247,26 @@ function ColumnDetailPanel({
         </div>
       </div>
 
-      {/* Kind */}
+      {/* Kind + Origin */}
       <div className="px-4 py-2.5 border-b border-border/50">
         <div className="text-[9px] text-muted-foreground/60 uppercase tracking-wider mb-1">Kind</div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {node.isComputed && funcStyle ? (
             <span className={cn('text-[10px] font-semibold px-1.5 py-0.5 rounded', funcStyle.bg, funcStyle.text)}>
               {funcStyle.label}
             </span>
           ) : (
             <span className="text-[10px] text-muted-foreground/60 bg-muted/30 px-1.5 py-0.5 rounded">Source</span>
+          )}
+          {!node.definedInSelf && node.definedIn && (
+            <span className="text-[10px] text-muted-foreground/50 bg-muted/20 px-1.5 py-0.5 rounded border border-dashed border-border/40">
+              from {node.definedIn}
+            </span>
+          )}
+          {node.isIteratorCol && (
+            <span className="text-[10px] text-violet-400 bg-violet-400/10 px-1.5 py-0.5 rounded font-medium">
+              iterator
+            </span>
           )}
           {node.errorCount > 0 && (
             <span className="text-[10px] text-destructive bg-destructive/10 px-1.5 py-0.5 rounded">
@@ -442,6 +470,10 @@ function ColumnFlowContent({ columns }: { columns: PipelineColumn[] }) {
               <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground/60">
                 <div className="w-2.5 h-2.5 rounded-sm border border-k-yellow/40 bg-k-yellow/10" />
                 Computed Column
+              </div>
+              <div className="flex items-center gap-1.5 text-[9px] text-muted-foreground/60">
+                <div className="w-2.5 h-2.5 rounded-sm border border-dashed border-border/50 bg-card/60 opacity-70" />
+                Inherited (base table)
               </div>
             </div>
           </Panel>

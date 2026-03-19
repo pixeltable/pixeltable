@@ -7,7 +7,6 @@ formats suitable for the dashboard frontend.
 
 from __future__ import annotations
 
-import base64
 import csv
 import io
 import json
@@ -22,10 +21,6 @@ from pixeltable.catalog.table import Table
 from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.env import Env
 
-try:
-    from PIL import Image as PILImage
-except ImportError:
-    PILImage = None
 
 _logger = logging.getLogger('pixeltable.dashboard')
 
@@ -134,12 +129,14 @@ def _build_select(
         columns.append({'name': col_name, 'type': col_type, 'is_media': is_media, 'is_computed': is_computed})
 
         col_ref = getattr(tbl, col_name)
-        select_dict[col_name] = col_ref
 
         if is_media:
+            # Only fetch the URL — never download the actual media file
             url_key = f'{col_name}__url'
             select_dict[url_key] = col_ref.fileurl
             media_url_cols[col_name] = url_key
+        else:
+            select_dict[col_name] = col_ref
 
         if include_errors and (is_computed or is_media):
             try:
@@ -231,8 +228,28 @@ def get_table_metadata(table_path: str) -> dict[str, Any]:
     md = tbl.get_metadata()
     kind = _table_kind(md)
 
+    iterator_name, iter_col_names = _get_iterator_info(tbl) if kind == 'view' else (None, set())
+
+    # Access Column objects for properties not in the TypedDict metadata
+    col_objects: dict[str, Any] = {}
+    try:
+        tv = tbl._tbl_version_path.tbl_version.get()
+        col_objects = {c.name: c for c in tv.cols if c.name is not None}
+    except Exception:
+        pass
+
     columns = []
     for col_name, col_info in md['columns'].items():
+        col_obj = col_objects.get(col_name)
+        destination = None
+        if col_obj is not None:
+            try:
+                dest = col_obj._explicit_destination
+                if dest:
+                    destination = str(dest)
+            except Exception:
+                pass
+
         columns.append(
             {
                 'name': col_info.get('name', col_name),
@@ -244,6 +261,10 @@ def get_table_metadata(table_path: str) -> dict[str, Any]:
                 'defined_in': col_info.get('defined_in'),
                 'version_added': col_info.get('version_added', 0),
                 'comment': col_info.get('comment') or None,
+                'custom_metadata': col_info.get('custom_metadata'),
+                'is_iterator_col': col_name in iter_col_names,
+                'media_validation': col_info.get('media_validation'),
+                'destination': destination,
             }
         )
 
@@ -255,11 +276,13 @@ def get_table_metadata(table_path: str) -> dict[str, Any]:
         'schema_version': md['schema_version'],
         'created_at': md['version_created'].isoformat() if md['version_created'] else None,
         'comment': md['comment'],
+        'custom_metadata': md.get('custom_metadata'),
         'base': md['base'],
         'columns': columns,
         'indices': _extract_indices(md.get('indices', {})),
         'media_validation': md['media_validation'],
         'versions': _format_versions(tbl),
+        'iterator_type': iterator_name,
     }
 
 
@@ -313,22 +336,7 @@ def get_table_data(
 
             if col_info['is_media']:
                 fileurl = row.get(media_url_cols.get(col_name, ''))
-                if fileurl:
-                    row_data[col_name] = _resolve_fileurl(fileurl, http_address)
-                elif value is not None and PILImage is not None:
-                    try:
-                        if isinstance(value, PILImage.Image):
-                            buf = io.BytesIO()
-                            fmt = 'JPEG' if value.mode == 'RGB' else 'PNG'
-                            value.save(buf, format=fmt, quality=80)
-                            b64 = base64.b64encode(buf.getvalue()).decode()
-                            row_data[col_name] = f'data:image/{fmt.lower()};base64,{b64}'
-                        else:
-                            row_data[col_name] = None
-                    except Exception:
-                        row_data[col_name] = None
-                else:
-                    row_data[col_name] = None
+                row_data[col_name] = _resolve_fileurl(fileurl, http_address) if fileurl else None
             elif hasattr(value, 'isoformat'):
                 row_data[col_name] = value.isoformat()
             elif isinstance(value, (list, dict)):
@@ -574,18 +582,21 @@ def _parse_deps(computed_with: str | None, all_cols: set[str], own_name: str = '
     return sorted({t for t in tokens if t in all_cols and t != own_name})
 
 
-def _detect_iterator(columns: list[dict[str, Any]]) -> str | None:
-    """Detect the iterator type used to create a view from its column shapes."""
-    own_cols = {c['name'] for c in columns if c.get('defined_in_self')}
-    if {'frame_idx', 'pos_frame', 'frame'} & own_cols:
-        return 'FrameIterator'
-    if {'audio_chunk'} & own_cols and {'start_time_sec', 'end_time_sec'} & own_cols:
-        return 'AudioSplitter'
-    if {'heading', 'page', 'title'} & own_cols and 'pos' in own_cols:
-        return 'DocumentSplitter'
-    if 'text' in own_cols and 'pos' in own_cols:
-        return 'StringSplitter'
-    return None
+def _get_iterator_info(tbl: Table) -> tuple[str | None, set[str]]:
+    """Return (iterator_class_name, set_of_iterator_column_names) for a view.
+
+    Uses the fixed ``TableVersion.is_iterator_column`` (v0.5.19+) which
+    correctly identifies iterator-produced columns by column id.
+    """
+    try:
+        tv = tbl._tbl_version_path.tbl_version.get()
+        if tv.iterator_call is not None:
+            name = tv.iterator_call.it.name
+            iter_cols = {c.name for c in tv.cols if c.name and tv.is_iterator_column(c)}
+            return name, iter_cols
+    except Exception:
+        pass
+    return None, set()
 
 
 def get_pipeline() -> dict[str, Any]:
@@ -608,32 +619,45 @@ def get_pipeline() -> dict[str, Any]:
             col_errors = _column_error_counts(tbl, col_meta)
             table_error_total = _version_error_total(tbl)
 
+            is_view = md.get('is_view', False)
+            iterator_name: str | None = None
+            iter_col_names: set[str] = set()
+            if is_view:
+                iterator_name, iter_col_names = _get_iterator_info(tbl)
+
             columns: list[dict[str, Any]] = []
             computed_cols: list[str] = []
 
             for col_name, info in col_meta.items():
                 cw = info.get('computed_with')
+                is_iter_col = col_name in iter_col_names
+
+                # Iterator-produced columns: use the iterator name as computed_with
+                if is_iter_col and cw is None:
+                    cw = iterator_name
+
                 is_computed = cw is not None
                 if is_computed:
                     computed_cols.append(col_name)
                 defined_in = info.get('defined_in')
 
                 cw_str = str(cw)[:200] if cw else None
-                func_name = _extract_func_name(cw_str) if is_computed else None
+                func_name = _extract_func_name(cw_str) if is_computed and not is_iter_col else None
 
                 col_entry: dict[str, Any] = {
                     'name': col_name,
                     'type': info.get('type_', 'unknown'),
                     'is_computed': is_computed,
+                    'is_iterator_col': is_iter_col,
                     'computed_with': cw_str,
                     'defined_in': defined_in,
                     'defined_in_self': defined_in == short_name,
-                    'func_name': func_name,
-                    'func_type': _classify_func(cw_str) if is_computed else None,
+                    'func_name': iterator_name if is_iter_col else func_name,
+                    'func_type': 'iterator' if is_iter_col else (_classify_func(cw_str) if is_computed else None),
                     'error_count': col_errors.get(col_name, 0),
                 }
 
-                if is_computed and cw_str:
+                if is_computed and cw_str and not is_iter_col:
                     col_entry['depends_on'] = _parse_deps(cw_str, all_col_names, col_name)
 
                 columns.append(col_entry)
@@ -652,8 +676,6 @@ def get_pipeline() -> dict[str, Any]:
                 )
 
             base_path = md.get('base')
-            is_view = md.get('is_view', False)
-            iterator_type = _detect_iterator(columns) if is_view else None
 
             nodes.append(
                 {
@@ -669,12 +691,17 @@ def get_pipeline() -> dict[str, Any]:
                     'versions': _format_versions(tbl),
                     'computed_count': len(computed_cols),
                     'insertable_count': len(columns) - len(computed_cols),
-                    'iterator_type': iterator_type,
+                    'iterator_type': iterator_name,
                 }
             )
 
             if is_view and base_path:
-                edges.append({'source': base_path, 'target': path, 'type': 'view', 'label': iterator_type or 'view'})
+                edges.append({
+                    'source': base_path,
+                    'target': path,
+                    'type': 'view',
+                    'label': iterator_name or 'view',
+                })
 
         except Exception as e:
             _logger.warning(f'Pipeline: could not inspect {path}: {e}')

@@ -19,6 +19,10 @@ export interface ColumnInfo {
   defined_in: string | null;
   version_added: number;
   comment: string | null;
+  custom_metadata: unknown;
+  is_iterator_col: boolean;
+  media_validation: 'on_read' | 'on_write' | null;
+  destination: string | null;
 }
 
 export interface IndexInfo {
@@ -46,11 +50,13 @@ export interface TableMetadata {
   schema_version: number;
   created_at: string | null;
   comment: string | null;
+  custom_metadata: unknown;
   base: string | null;
   columns: ColumnInfo[];
   indices: IndexInfo[];
   media_validation: string;
   versions: VersionInfo[];
+  iterator_type: string | null;
 }
 
 export interface DataColumn {
@@ -91,11 +97,12 @@ export interface PipelineColumn {
   name: string;
   type: string;
   is_computed: boolean;
+  is_iterator_col: boolean;
   computed_with: string | null;
   defined_in: string | null;
   defined_in_self: boolean;
   func_name: string | null;
-  func_type: 'builtin' | 'custom_udf' | 'query' | 'unknown' | null;
+  func_type: 'builtin' | 'custom_udf' | 'query' | 'iterator' | 'unknown' | null;
   error_count: number;
   depends_on?: string[];
   comment?: string;

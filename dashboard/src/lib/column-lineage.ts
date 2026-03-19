@@ -4,12 +4,15 @@ import type { PipelineColumn } from '@/types'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type FuncType = 'builtin' | 'custom_udf' | 'query' | 'unknown' | null
+type FuncType = 'builtin' | 'custom_udf' | 'query' | 'iterator' | 'unknown' | null
 
 export interface ColumnNodeData extends Record<string, unknown> {
   name: string
   type: string
   isComputed: boolean
+  isIteratorCol: boolean
+  definedInSelf: boolean
+  definedIn: string | null
   computeExpression: string | null
   funcName: string | null
   funcType: FuncType
@@ -29,9 +32,9 @@ interface LineageResult {
 // ── Layout ───────────────────────────────────────────────────────────────────
 
 const LAYOUT = {
-  rankdir: 'LR' as const,
+  rankdir: 'TB' as const,
   nodesep: 40,
-  ranksep: 120,
+  ranksep: 80,
   edgesep: 20,
 } as const
 
@@ -112,6 +115,9 @@ export function buildLineageGraph(columns: PipelineColumn[]): LineageResult {
       name: col.name,
       type: col.type,
       isComputed: col.is_computed,
+      isIteratorCol: col.is_iterator_col,
+      definedInSelf: col.defined_in_self,
+      definedIn: col.defined_in,
       computeExpression: col.computed_with,
       funcName: col.func_name,
       funcType: col.func_type,

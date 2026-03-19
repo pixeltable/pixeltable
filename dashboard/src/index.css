@@ -145,6 +145,14 @@
 :root:not(.dark) .text-red-400 { color: rgb(220 38 38); }
 :root:not(.dark) .text-orange-400 { color: rgb(194 65 12); }
 :root:not(.dark) .text-orange-300 { color: rgb(194 65 12); }
-:root:not(.dark) .text-cyan-400 { color: rgb(8 145 178); }
+:root:not(.dark) .text-violet-400 { color: rgb(139 92 246); }
 :root:not(.dark) .text-yellow-400 { color: rgb(161 98 7); }
 :root:not(.dark) .text-green-500 { color: rgb(22 163 74); }
+
+/* Animated dashed flow for column lineage edges */
+.react-flow__edge-path-animated {
+  animation: columnFlowDash 1.2s linear infinite;
+}
+@keyframes columnFlowDash {
+  to { stroke-dashoffset: -20; }
+}
