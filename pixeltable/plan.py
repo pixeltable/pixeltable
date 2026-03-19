@@ -665,9 +665,10 @@ class Planner:
         # retrieve all stored cols and all target exprs
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
-        # regardless of cascade, we need to update all indices on any updated column
-        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
-        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
+        # We need to recompute all index value columns: delete_rows nullifies them on the expired rows,
+        # so they can't be copied from the source rows.
+        all_base_cols = [c for c in target.cols_by_id.values() if c.get_tbl().id == target.id]
+        idx_val_cols = target.get_idx_val_columns(all_base_cols)
         recomputed_cols.update(idx_val_cols)
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
@@ -705,6 +706,7 @@ class Planner:
             sa_key_cols=sa_key_cols,
             key_vals=key_vals,
             cell_md_col_refs=cell_md_col_refs,
+            deleted_at_version=[tbl.tbl_version],
         )
         col_vals = [{col: row[col].val for col in updated_cols} for row in batch]
         row_update_node = exec.RowUpdateNode(tbl, key_vals, len(rowids) > 0, col_vals, row_builder, sql_lookup_node)

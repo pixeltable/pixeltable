@@ -558,6 +558,8 @@ class SqlLookupNode(SqlNode):
         key_vals: list of key values to look up
     """
 
+    deleted_at_version: list[catalog.TableVersionHandle]
+
     def __init__(
         self,
         tbl: catalog.TableVersionPath,
@@ -567,6 +569,7 @@ class SqlLookupNode(SqlNode):
         sa_key_cols: list[sql.Column],
         key_vals: list[tuple],
         cell_md_col_refs: list[exprs.ColumnRef] | None = None,
+        deleted_at_version: list[catalog.TableVersionHandle] | None = None,
     ):
         sql_elements = exprs.SqlElementCache()
         super().__init__(
@@ -580,11 +583,17 @@ class SqlLookupNode(SqlNode):
         )
         # Where clause: (key-col-1, key-col-2, ...) IN ((val-1, val-2, ...), ...)
         self.where_clause_element = sql.tuple_(*sa_key_cols).in_(key_vals)
+        if deleted_at_version is None:
+            deleted_at_version = []
+        self.deleted_at_version = deleted_at_version
 
     def _create_stmt(self) -> sql.Select:
         stmt = super()._create_stmt()
         refd_tbl_ids = exprs.Expr.all_tbl_ids(self.select_list) | self._ordering_tbl_ids()
-        stmt = self.create_from_clause(self.tbl, stmt, refd_tbl_ids)
+        stmt = self.create_from_clause(
+            self.tbl, stmt, refd_tbl_ids,
+            deleted_at_version={t.id for t in self.deleted_at_version},
+        )
         return stmt
 
 
