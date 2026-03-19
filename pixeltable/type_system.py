@@ -342,9 +342,17 @@ class ColumnType:
             # It's something other than T | None, Required[T], or an explicitly annotated type.
             # for non-generic types, get_origin returns None, so we use the type itself as the origin
             origin = origin or t
-            if isinstance(origin, type) and issubclass(origin, _PxtType):
-                return t.as_col_type(nullable=nullable_default)
-            elif allow_builtin_types:
+            if isinstance(origin, type):
+                if issubclass(origin, _PxtType):
+                    # We always allow Pixeltable types
+                    return t.as_col_type(nullable=nullable_default)
+
+                if issubclass(origin, pydantic.BaseModel) or getattr(t, '__orig_bases__', None) == (typing.TypedDict,):
+                    # We always allow Pydantic models and TypedDicts
+                    return JsonType(type_schema=JsonType._validate_type_schema(t), nullable=nullable_default)
+
+            # Everything else is allowed only if allow_builtin_types=True
+            if allow_builtin_types:
                 if origin is Literal and len(type_args) > 0:
                     literal_type = cls.infer_common_literal_type(type_args)
                     if literal_type is None:
@@ -376,7 +384,6 @@ class ColumnType:
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
                 if isinstance(origin, type) and issubclass(origin, (Sequence, Mapping, pydantic.BaseModel)):
-                    print(f'===== {t} of type `{type(t)}`')
                     return JsonType(type_schema=JsonType._validate_type_schema(t), nullable=nullable_default)
         return None
 
@@ -823,7 +830,7 @@ class JsonType(ColumnType):
         origin = typing.get_origin(type_arg) or type_arg
         if isinstance(origin, type):
             subscripts = typing.get_args(type_arg)
-            if hasattr(type_arg, '__orig_bases__') and type_arg.__orig_bases__ == (typing.TypedDict,):
+            if getattr(type_arg, '__orig_bases__', None) == (typing.TypedDict,):
                 # It's a subclass of `TypedDict`.
                 return JsonType.TypeSchema(
                     content={key: cls.from_python_type(value) for key, value in type_arg.__annotations__.items()},
@@ -899,14 +906,18 @@ class JsonType(ColumnType):
         return cls.from_python_type(type_arg)
 
     @classmethod
-    def from_python_type(cls, t: type | _GenericAlias) -> ColumnType:
+    def from_python_type(cls, t: Any) -> ColumnType:
         if t is Any:
             return JsonType()
-        result = ColumnType.from_python_type(t)
-        print(f'FROM PYTHON TYPE: {t}; GOT RESULT: {result}')
-        if result is None:
+        if not isinstance(t, (type, _GenericAlias, types.UnionType)):
             raise excs.Error(
-                f'Invalid type schema: received Python type `{t.__name__}`, which does not represent a valid Pixeltable type'
+                f'Invalid type schema: expected a Python type; got a value of type `{type(t).__name__}`: {t!r}'
+            )
+        result = ColumnType.from_python_type(t)
+        if result is None:
+            name = getattr(t, '__name__', str(t))
+            raise excs.Error(
+                f'Invalid type schema: received Python type `{name}`, which does not represent a valid Pixeltable type'
             )
         return result
 
@@ -919,12 +930,16 @@ class JsonType(ColumnType):
     def _as_dict(self) -> dict:
         result = super()._as_dict()
         if self.type_schema is not None:
-            result.update({'type_schema': self.type_schema})
+            result.update({'type_schema': self.type_schema.as_dict()})
         return result
 
     @classmethod
     def _from_dict(cls, d: dict) -> ColumnType:
-        return cls(type_schema=d.get('type_schema'), nullable=d['nullable'])
+        type_schema = d.get('type_schema')
+        return cls(
+            type_schema=JsonType.TypeSchema.from_dict(type_schema) if type_schema is not None else None,
+            nullable=d['nullable'],
+        )
 
     @classmethod
     def to_sa_type(cls) -> sql.types.TypeEngine:
@@ -1113,6 +1128,32 @@ class JsonType(ColumnType):
                 if len(self.optional_keys) > 0:
                     r += f', optional_keys={self.optional_keys}'
                 return r
+
+        def as_dict(self) -> dict[str, Any]:
+            if isinstance(self.content, list):
+                content_d = [t.as_dict() for t in self.content]
+            else:
+                content_d = {k: t.as_dict() for k, t in self.content.items()}
+            return {
+                'content': content_d,
+                'variadic_type': self.variadic_type.as_dict() if self.variadic_type is not None else None,
+                'optional_keys': self.optional_keys,
+            }
+
+        @classmethod
+        def from_dict(cls, d: dict[str, Any]) -> JsonType.TypeSchema:
+            content_d = d['content']
+            if isinstance(content_d, list):
+                content = [ColumnType.from_dict(t) for t in content_d]
+            else:
+                assert isinstance(content_d, dict)
+                content = {k: ColumnType.from_dict(t) for k, t in content_d.items()}
+            variadic_type_d = d['variadic_type']
+            return cls(
+                content=content,
+                variadic_type=ColumnType.from_dict(variadic_type_d) if variadic_type_d is not None else None,
+                optional_keys=d['optional_keys'],
+            )
 
 
 ARRAY_SUPPORTED_NUMPY_DTYPES = [

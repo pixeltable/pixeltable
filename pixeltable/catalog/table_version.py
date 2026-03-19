@@ -1221,7 +1221,7 @@ class TableVersion:
             try:
                 # check if this is a literal
                 value_expr = exprs.Literal(val, col_type=col.col_type)
-            except (TypeError, jsonschema.exceptions.ValidationError) as exc:
+            except TypeError as exc:
                 if not allow_exprs:
                     raise excs.Error(
                         f'Column {col_name!r}: value is not a valid literal for this column '
