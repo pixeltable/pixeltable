@@ -982,6 +982,8 @@ class JsonType(ColumnType):
             val = val.model_dump()
         if not self.__is_valid_json(val):
             raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
+        if self.type_schema is not None:
+            self.type_schema.validate_literal(val)
 
     @classmethod
     def __is_valid_json(cls, val: Any) -> bool:
@@ -1102,6 +1104,30 @@ class JsonType(ColumnType):
         content: list[ColumnType] | dict[str, ColumnType]
         variadic_type: ColumnType | None = None
         optional_keys: list[str] = dataclasses.field(default_factory=list)
+
+        def validate_literal(self, val: Any) -> None:
+            if isinstance(self.content, list):
+                if not isinstance(val, list):
+                    raise TypeError(f'Expected a list; got `{val.__class__.__name__}`: {val!r}')
+                for i, item in enumerate(val):
+                    if i < len(self.content):
+                        expected_type = self.content[i]
+                    elif self.variadic_type is not None:
+                        expected_type = self.variadic_type
+                    else:
+                        raise TypeError(f'Too many items in list: expected at most {len(self.content)}; got {len(val)}')
+                    expected_type.validate_literal(item)
+            else:
+                if not isinstance(val, dict):
+                    raise TypeError(f'Expected a dict; got `{val.__class__.__name__}`: {val!r}')
+                for key, expected_type in self.content.items():
+                    if key in val:
+                        expected_type.validate_literal(val[key])
+                    elif key not in self.optional_keys:
+                        raise TypeError(f'Missing required key: {key!r}')
+                for key in val:
+                    if key not in self.content:
+                        raise TypeError(f'Unexpected key: {key}')
 
         def __eq__(self, other: object) -> bool:
             return (

@@ -1292,16 +1292,14 @@ class TestTable:
         t.insert(json_col_1={'a': 'coconuts', 'b': 1, 'c': 3.0, 'd': True})
         t.update({'json_col_2': {'a': 'mangoes', 'b': 2}})  # Omit optional properties ok since total=False
 
-        # with pytest.raises(ValidationError) as exc_info:
-        #     t.insert(json_col={'a': 'apples', 'b': 'elephant'})  # Wrong type
-        # assert "'elephant' is not of type 'integer'" in str(exc_info.value)
+        with pytest.raises(pxt.Error, match=r'expected int, got str') as exc_info:
+            t.insert(json_col_2={'a': 'apples', 'b': 'elephant'})  # Wrong type
 
-        # with pytest.raises(ValidationError) as exc_info:
-        #     t.insert(json_col={'a': 'apples'})  # Missing required field
-        # assert "'b' is a required property" in str(exc_info.value)
+        with pytest.raises(pxt.Error, match=r"missing required key: 'b'") as exc_info:
+            t.insert(json_col_1={'a': 'apples'})  # Missing required field
 
         with pytest.raises(
-            pxt.Error, match=r'Type `Json` of value.*is not compatible with the type.*of column \'json_col\''
+            pxt.Error, match=r"The literal value.*is not compatible with the type.*of column 'json_col_2'"
         ):
             t.update({'json_col_2': {'a': 15}})  # Validation error on update
 
