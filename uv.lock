@@ -1711,7 +1711,7 @@ name = "ffmpeg-python"
 version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "future" },
+    { name = "future", marker = "python_full_version < '3.14'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/dd/5e/d5f9105d59c1325759d838af4e973695081fbbc97182baf73afc78dec266/ffmpeg-python-0.2.0.tar.gz", hash = "sha256:65225db34627c578ef0e11c8b1eb528bb35e024752f6f10b78c011f6f64c4127", size = 21543, upload-time = "2019-07-06T00:19:08.989Z" }
 wheels = [
@@ -2934,7 +2934,7 @@ name = "jsonpatch"
 version = "1.33"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "jsonpointer" },
+    { name = "jsonpointer", marker = "python_full_version < '3.14'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/78/18813351fe5d63acad16aec57f94ec2b70a09e53ca98145589e185423873/jsonpatch-1.33.tar.gz", hash = "sha256:9fcd4009c41e6d12348b4a0ff2563ba56a2923a7dfee731d004e212e1ee5030c", size = 21699, upload-time = "2023-06-26T12:07:29.144Z" }
 wheels = [
@@ -3319,13 +3319,13 @@ name = "langchain-core"
 version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "jsonpatch" },
-    { name = "langsmith" },
-    { name = "packaging" },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-    { name = "tenacity" },
-    { name = "typing-extensions" },
+    { name = "jsonpatch", marker = "python_full_version < '3.14'" },
+    { name = "langsmith", marker = "python_full_version < '3.14'" },
+    { name = "packaging", marker = "python_full_version < '3.14'" },
+    { name = "pydantic", marker = "python_full_version < '3.14'" },
+    { name = "pyyaml", marker = "python_full_version < '3.14'" },
+    { name = "tenacity", marker = "python_full_version < '3.14'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.14'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1e/17/67c1cc2ace919e2b02dd9d783154d7fb3f1495a4ef835d9cd163b7855ac2/langchain_core-1.1.0.tar.gz", hash = "sha256:2b76a82d427922c8bc51c08404af4fc2a29e9f161dfe2297cb05091e810201e7", size = 781995, upload-time = "2025-11-21T21:01:26.958Z" }
 wheels = [
@@ -3337,7 +3337,7 @@ name = "langchain-text-splitters"
 version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "langchain-core" },
+    { name = "langchain-core", marker = "python_full_version < '3.14'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fa/2e/c833dcc379c1c086453708ef5eef7d4d1f808559ca4458bd6569d5d83ad7/langchain_text_splitters-1.0.0.tar.gz", hash = "sha256:d8580a20ad7ed10b432feb273e5758b2cc0902d094919629cec0e1ad691a6744", size = 264257, upload-time = "2025-10-17T14:33:41.743Z" }
 wheels = [
@@ -3358,13 +3358,13 @@ name = "langsmith"
 version = "0.4.52"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "httpx" },
-    { name = "orjson", marker = "platform_python_implementation != 'PyPy'" },
-    { name = "packaging" },
-    { name = "pydantic" },
-    { name = "requests" },
-    { name = "requests-toolbelt" },
-    { name = "zstandard" },
+    { name = "httpx", marker = "python_full_version < '3.14'" },
+    { name = "orjson", marker = "python_full_version < '3.14' and platform_python_implementation != 'PyPy'" },
+    { name = "packaging", marker = "python_full_version < '3.14'" },
+    { name = "pydantic", marker = "python_full_version < '3.14'" },
+    { name = "requests", marker = "python_full_version < '3.14'" },
+    { name = "requests-toolbelt", marker = "python_full_version < '3.14'" },
+    { name = "zstandard", marker = "python_full_version < '3.14'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f9/31/0857fee617ad0626076747a347e55c33533e7df78d8136cfe4d92d12e531/langsmith-0.4.52.tar.gz", hash = "sha256:6a0ad3db36e4e6ad2b810279bf926a1ec43c4d67bdc51df9c6a8bbf207bf6534", size = 989148, upload-time = "2025-12-02T22:49:42.627Z" }
 wheels = [
@@ -5668,7 +5668,7 @@ dev = [
     { name = "types-sqlalchemy-utils" },
     { name = "types-toml" },
     { name = "types-tqdm" },
-    { name = "voyageai" },
+    { name = "voyageai", marker = "python_full_version < '3.14'" },
     { name = "whisperx", marker = "python_full_version < '3.14'" },
 ]
 extra-dev = [
@@ -5804,7 +5804,7 @@ dev = [
     { name = "types-sqlalchemy-utils", specifier = "~=1.1" },
     { name = "types-toml", specifier = ">=0.10" },
     { name = "types-tqdm", specifier = "~=4.64" },
-    { name = "voyageai", specifier = ">=0.3.7" },
+    { name = "voyageai", marker = "python_full_version < '3.14'", specifier = ">=0.3.7" },
     { name = "whisperx", marker = "python_full_version < '3.14'", specifier = ">=3.7" },
 ]
 extra-dev = [{ name = "llama-cpp-python", marker = "sys_platform != 'win32'", specifier = ">=0.3.16" }]
@@ -7596,7 +7596,7 @@ name = "requests-toolbelt"
 version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "requests" },
+    { name = "requests", marker = "python_full_version < '3.14'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/f3/61/d7545dafb7ac2230c70d38d31cbfe4cc64f7144dc41f6e4e4b78ecd9f5bb/requests-toolbelt-1.0.0.tar.gz", hash = "sha256:7681a0a3d047012b5bdc0ee37d7f8f07ebe76ab08caeccfc3921ce23c88d5bc6", size = 206888, upload-time = "2023-05-01T04:11:33.229Z" }
 wheels = [
@@ -9934,16 +9934,16 @@ name = "voyageai"
 version = "0.3.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp" },
-    { name = "aiolimiter" },
-    { name = "ffmpeg-python" },
-    { name = "langchain-text-splitters" },
-    { name = "numpy" },
-    { name = "pillow" },
-    { name = "pydantic" },
-    { name = "requests" },
-    { name = "tenacity" },
-    { name = "tokenizers" },
+    { name = "aiohttp", marker = "python_full_version < '3.14'" },
+    { name = "aiolimiter", marker = "python_full_version < '3.14'" },
+    { name = "ffmpeg-python", marker = "python_full_version < '3.14'" },
+    { name = "langchain-text-splitters", marker = "python_full_version < '3.14'" },
+    { name = "numpy", marker = "python_full_version < '3.14'" },
+    { name = "pillow", marker = "python_full_version < '3.14'" },
+    { name = "pydantic", marker = "python_full_version < '3.14'" },
+    { name = "requests", marker = "python_full_version < '3.14'" },
+    { name = "tenacity", marker = "python_full_version < '3.14'" },
+    { name = "tokenizers", marker = "python_full_version < '3.14'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/94/16/1b46b3cd401e1717a68197c1fe336d7bb4e0a1833f8105e1738f5b1add05/voyageai-0.3.7.tar.gz", hash = "sha256:826cd97f97223f42b5babc5c459c9c80f3a8215ce5c0e007b0b276550f790d24", size = 26485, upload-time = "2025-12-16T18:43:05.26Z" }
 wheels = [
