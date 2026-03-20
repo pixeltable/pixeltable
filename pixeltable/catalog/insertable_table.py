@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import enum
 import time
-from typing import TYPE_CHECKING, Any, Iterator, Literal, Sequence, cast, overload
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, Any, Literal, Sequence, cast, overload
 from uuid import UUID
 
 import pydantic
