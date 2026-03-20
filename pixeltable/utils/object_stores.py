@@ -42,7 +42,7 @@ class StorageObjectAddress(NamedTuple):
     scheme: str  # The scheme parsed from the source
     account: str = ''  # Account number parsed from the source when applicable
     account_extension: str = ''  # Account extension parsed from the source when applicable
-    container: str = ''  # Container / bucket name parsed from the source (for pxt://, logical 'home'; physical R2 bucket is not in the URI)
+    container: str = ''  # Container / bucket name parsed from the source
     key: str = ''  # Key parsed from the source (prefix + object_name)
     prefix: str = ''  # Prefix (within the bucket) parsed from the source
     object_name: str = ''  # Object name parsed from the source (if requested and applicable)

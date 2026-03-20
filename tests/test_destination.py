@@ -18,9 +18,9 @@ from .utils import rerun, skip_test_if_not_installed
 
 class TestDestination:
     TESTED_DESTINATIONS = (
-        #StorageTarget.AZURE_STORE,
+        # StorageTarget.AZURE_STORE,
         StorageTarget.B2_STORE,
-        #StorageTarget.GCS_STORE,
+        # StorageTarget.GCS_STORE,
         StorageTarget.LOCAL_STORE,
         StorageTarget.PIXELTABLE_STORE,
         StorageTarget.R2_STORE,

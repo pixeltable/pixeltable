@@ -1,6 +1,5 @@
 import logging
 import re
-import threading
 import urllib.parse
 import uuid
 from pathlib import Path
@@ -23,13 +22,9 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger('pixeltable')
 
-client_lock = threading.Lock()
-
 
 class S3CompatClientDict(NamedTuple):
-    """Container for S3-compatible storage access objects (R2, B2, etc.).
-    Thread-safe via the module-level 'client_lock'.
-    """
+    """Container for S3-compatible storage access objects (R2, B2, etc.)."""
 
     profile: str | None  # AWS-style profile used to locate credentials
     clients: dict[str, Any]  # Map of endpoint URL → boto3 client instance
@@ -119,13 +114,11 @@ class S3Store(ObjectStoreBase):
     def _get_s3_compat_client(self, client_name: str) -> Any:
         """Helper to get S3-compatible client (R2, B2, Tigris) - caches per endpoint URI."""
         cd = get_runtime().get_client(client_name)
-        with client_lock:
-            if self.soa.container_free_uri not in cd.clients:
-                cd.clients[self.soa.container_free_uri] = S3Store.create_boto_client(
-                    profile_name=cd.profile,
-                    extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'},
-                )
-            return cd.clients[self.soa.container_free_uri]
+        if self.soa.container_free_uri not in cd.clients:
+            cd.clients[self.soa.container_free_uri] = S3Store.create_boto_client(
+                profile_name=cd.profile, extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'}
+            )
+        return cd.clients[self.soa.container_free_uri]
 
     def _get_s3_client_with_region(self) -> Any:
         """Helper to get S3 client with correct region - caches per region (not per bucket).
@@ -135,44 +128,43 @@ class S3Store(ObjectStoreBase):
         """
         cd = get_runtime().get_client('s3')
         default_key = 'default'
-        with client_lock:
-            if default_key not in cd.clients:
-                cd.clients[default_key] = S3Store.create_boto_client(profile_name=cd.profile)
+        if default_key not in cd.clients:
+            cd.clients[default_key] = S3Store.create_boto_client(profile_name=cd.profile)
 
-            default_client = cd.clients[default_key]
+        default_client = cd.clients[default_key]
 
-            # Detect bucket region
-            try:
-                bucket_location = default_client.get_bucket_location(Bucket=self.soa.container)
-                region = bucket_location.get('LocationConstraint')
-                if region is None:
-                    region = 'us-east-1'  # None means us-east-1
-            except ClientError:
-                return default_client
+        # Detect bucket region
+        try:
+            bucket_location = default_client.get_bucket_location(Bucket=self.soa.container)
+            region = bucket_location.get('LocationConstraint')
+            if region is None:
+                region = 'us-east-1'  # None means us-east-1
+        except ClientError:
+            return default_client
 
-            # Check if default already has the correct region
-            client_region = default_client._client_config.region_name
-            if region == client_region:
-                return default_client
+        # Check if default already has the correct region
+        client_region = default_client._client_config.region_name
+        if region == client_region:
+            return default_client
 
-            # Cache per region (reusable for all buckets in that region)
-            # Reuse config from default client, just change the region
-            region_key = region
-            if region_key not in cd.clients:
-                default_config = default_client._client_config
-                session = self.create_boto_session(cd.profile)
-                config = botocore.config.Config(
-                    max_pool_connections=default_config.max_pool_connections,
-                    connect_timeout=default_config.connect_timeout,
-                    read_timeout=default_config.read_timeout,
-                    retries=default_config.retries,
-                    signature_version=default_config.signature_version,
-                    s3=default_config.s3,
-                    user_agent_extra=default_config.user_agent_extra,
-                )
-                cd.clients[region_key] = session.client('s3', region_name=region, config=config)
+        # Cache per region (reusable for all buckets in that region)
+        # Reuse config from default client, just change the region
+        region_key = region
+        if region_key not in cd.clients:
+            default_config = default_client._client_config
+            session = self.create_boto_session(cd.profile)
+            config = botocore.config.Config(
+                max_pool_connections=default_config.max_pool_connections,
+                connect_timeout=default_config.connect_timeout,
+                read_timeout=default_config.read_timeout,
+                retries=default_config.retries,
+                signature_version=default_config.signature_version,
+                s3=default_config.s3,
+                user_agent_extra=default_config.user_agent_extra,
+            )
+            cd.clients[region_key] = session.client('s3', region_name=region, config=config)
 
-            return cd.clients[region_key]
+        return cd.clients[region_key]
 
     def client(self) -> Any:
         """Return a boto3 client to access the store.
@@ -192,45 +184,42 @@ class S3Store(ObjectStoreBase):
     def _get_s3_compat_resource(self, client_name: str) -> Any:
         """Helper to get S3-compatible resource (R2, B2, Tigris) - caches per endpoint URI."""
         cd = get_runtime().get_client(client_name)
-        with client_lock:
-            if self.soa.container_free_uri not in cd.clients:
-                cd.clients[self.soa.container_free_uri] = S3Store.create_boto_resource(
-                    profile_name=cd.profile,
-                    extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'},
-                )
-            return cd.clients[self.soa.container_free_uri]
+        if self.soa.container_free_uri not in cd.clients:
+            cd.clients[self.soa.container_free_uri] = S3Store.create_boto_resource(
+                profile_name=cd.profile, extra_args={'endpoint_url': self.soa.container_free_uri, 'region_name': 'auto'}
+            )
+        return cd.clients[self.soa.container_free_uri]
 
     def _get_s3_resource_with_region(self) -> Any:
         """Helper to get S3 resource with correct region - caches per region (not per bucket)."""
         cd = get_runtime().get_client('s3_resource')
         default_key = 'default'
-        with client_lock:
-            if default_key not in cd.clients:
-                cd.clients[default_key] = S3Store.create_boto_resource(profile_name=cd.profile)
+        if default_key not in cd.clients:
+            cd.clients[default_key] = S3Store.create_boto_resource(profile_name=cd.profile)
 
-            default_resource = cd.clients[default_key]
+        default_resource = cd.clients[default_key]
 
-            # Detect bucket region using the resource's client
-            try:
-                bucket_location = default_resource.meta.client.get_bucket_location(Bucket=self.soa.container)
-                region = bucket_location.get('LocationConstraint')
-                if region is None:
-                    region = 'us-east-1'
-            except ClientError:
-                return default_resource
+        # Detect bucket region using the resource's client
+        try:
+            bucket_location = default_resource.meta.client.get_bucket_location(Bucket=self.soa.container)
+            region = bucket_location.get('LocationConstraint')
+            if region is None:
+                region = 'us-east-1'
+        except ClientError:
+            return default_resource
 
-            # Check if default resource already has the correct region
-            resource_region = default_resource.meta.client._client_config.region_name
-            if region == resource_region:
-                return default_resource
+        # Check if default resource already has the correct region
+        resource_region = default_resource.meta.client._client_config.region_name
+        if region == resource_region:
+            return default_resource
 
-            # Cache resource per region (reusable for all buckets in that region)
-            region_key = region
-            if region_key not in cd.clients:
-                session = self.create_boto_session(cd.profile)
-                cd.clients[region_key] = session.resource('s3', region_name=region)
+        # Cache resource per region (reusable for all buckets in that region)
+        region_key = region
+        if region_key not in cd.clients:
+            session = self.create_boto_session(cd.profile)
+            cd.clients[region_key] = session.resource('s3', region_name=region)
 
-            return cd.clients[region_key]
+        return cd.clients[region_key]
 
     def get_resource(self) -> Any:
         """Return a boto3 resource to access the store.
