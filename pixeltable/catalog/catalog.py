@@ -722,17 +722,17 @@ class Catalog:
                         f'is_final_op={is_final_op}, transactional={op.needs_xact}'
                     )
 
-                    if op.needs_xact:
-                        tv = (
-                            self._get_tbl_version(
-                                TableVersionKey(tbl_id, tbl_version, None),
-                                check_pending_ops=False,
-                                validate_initialized=True,
-                                convert_db_excs=False,
-                            )
-                            if op.needs_tv
-                            else None
+                    tv = (
+                        self._get_tbl_version(
+                            TableVersionKey(tbl_id, tbl_version, None),
+                            check_pending_ops=False,
+                            validate_initialized=True,
+                            convert_db_excs=False,
                         )
+                        if op.needs_tv
+                        else None
+                    )
+                    if op.needs_xact:
                         # TODO: The above TableVersionKey instance will need to be updated if we see a replica here.
                         # For now, just assert that we don't.
                         # assert not tv.is_replica
@@ -754,16 +754,6 @@ class Catalog:
                         continue
 
                 # this op runs outside of a transaction
-                tv = (
-                    self._get_tbl_version(
-                        TableVersionKey(tbl_id, tbl_version, None),
-                        check_pending_ops=False,
-                        validate_initialized=True,
-                        convert_db_excs=False,
-                    )
-                    if op.needs_tv
-                    else None
-                )
                 if is_rollback:
                     op.undo(tv)
                 else:
@@ -1819,13 +1809,12 @@ class Catalog:
         """
         if get_runtime().in_xact:
             return self._get_tbl_version(key, validate_initialized=validate_initialized)
-        # if we are not already in a transaction, we can retry in a loop that finalizes pending table ops
-        while True:
-            try:
-                return self._get_tbl_version(key, validate_initialized=validate_initialized)
-            except PendingTableOpsError as e:
-                _logger.info('Caught PendingTableOpsError, attempting to finalize', exc_info=True)
-                self._finalize_pending_ops(e.tbl_id)
+
+        @retry_loop(for_write=False)
+        def do_get_tbl_version() -> TableVersion | None:
+            return self._get_tbl_version(key, validate_initialized=validate_initialized)
+
+        return do_get_tbl_version()
 
     def _get_tbl_version(
         self,
@@ -1841,84 +1830,83 @@ class Catalog:
         If present in the cache and the instance isn't validated, validates version and view_sn against the stored
         metadata.
         """
-        # we need a transaction here, if we're not already in one; if this starts a new transaction,
-        # the returned TableVersion instance will not be validated
-        with self.begin_xact(for_write=False, convert_db_excs=convert_db_excs) as conn:
-            tv = self._tbl_versions.get(key)
-            if tv is None:
-                tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
-            elif not tv.is_validated:
-                # only live instances are invalidated
-                assert key.effective_version is None
-                # _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
-                where_clause: sql.ColumnElement[bool]
-                if check_pending_ops:
-                    # if we don't want to see pending ops, we also don't want to see dropped tables
-                    where_clause = self._active_tbl_clause(tbl_id=key.tbl_id)
-                else:
-                    where_clause = schema.Table.id == key.tbl_id
+        conn = get_runtime().conn
+        assert conn is not None
+        tv = self._tbl_versions.get(key)
+        if tv is None:
+            tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
+        elif not tv.is_validated:
+            # only live instances are invalidated
+            assert key.effective_version is None
+            # _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
+            where_clause: sql.ColumnElement[bool]
+            if check_pending_ops:
+                # if we don't want to see pending ops, we also don't want to see dropped tables
+                where_clause = self._active_tbl_clause(tbl_id=key.tbl_id)
+            else:
+                where_clause = schema.Table.id == key.tbl_id
+            q = sql.select(schema.Table.md).where(where_clause)
+            row = conn.execute(q).one_or_none()
+            if row is None:
+                raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
+
+            reload = False
+
+            if tv.anchor_tbl_id is None:
+                # live non-replica table; compare our cached TableMd.current_version/view_sn to what's stored
                 q = sql.select(schema.Table.md).where(where_clause)
                 row = conn.execute(q).one_or_none()
                 if row is None:
                     raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
-
-                reload = False
-
-                if tv.anchor_tbl_id is None:
-                    # live non-replica table; compare our cached TableMd.current_version/view_sn to what's stored
-                    q = sql.select(schema.Table.md).where(where_clause)
-                    row = conn.execute(q).one_or_none()
-                    if row is None:
-                        raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
-                    current_version, view_sn = row.md['current_version'], row.md['view_sn']
-                    if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
-                        _logger.debug(
-                            f'reloading metadata for live table {key.tbl_id} '
-                            f'(cached/current version: {tv.version}/{current_version}, '
-                            f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
-                        )
-                        reload = True
-
-                else:
-                    # live replica table; use the anchored version
-                    anchor_tbl_version_md = self.head_version_md(tv.anchor_tbl_id)
-                    assert anchor_tbl_version_md is not None
-                    q = sql.select(schema.TableVersion.md)
-                    if check_pending_ops:
-                        q = q.join(schema.Table, schema.Table.id == schema.TableVersion.tbl_id).where(
-                            self._active_tbl_clause(tbl_id=key.tbl_id)
-                        )
-                    q = (
-                        q.where(schema.TableVersion.tbl_id == key.tbl_id)
-                        .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= anchor_tbl_version_md.created_at)
-                        .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
-                        .limit(1)
+                current_version, view_sn = row.md['current_version'], row.md['view_sn']
+                if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
+                    _logger.debug(
+                        f'reloading metadata for live table {key.tbl_id} '
+                        f'(cached/current version: {tv.version}/{current_version}, '
+                        f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
                     )
-                    row = conn.execute(q).one_or_none()
-                    if row is None:
-                        raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
-                    version = row.md['version']
-                    if version != tv.version:  # TODO: How will view_sn work for replicas?
-                        _logger.debug(
-                            f'reloading metadata for replica table {key.tbl_id} (anchor {key.anchor_tbl_id}) '
-                            f'(cached/anchored version: {tv.version}/{version})'
-                        )
-                        reload = True
+                    reload = True
 
-                # the stored version can be behind TableVersion.version, because we don't roll back the in-memory
-                # metadata changes after a failed update operation
-                if reload:
-                    # the cached metadata is invalid
-                    tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
-                else:
-                    # the cached metadata is valid
-                    tv.is_validated = True
+            else:
+                # live replica table; use the anchored version
+                anchor_tbl_version_md = self.head_version_md(tv.anchor_tbl_id)
+                assert anchor_tbl_version_md is not None
+                q = sql.select(schema.TableVersion.md)
+                if check_pending_ops:
+                    q = q.join(schema.Table, schema.Table.id == schema.TableVersion.tbl_id).where(
+                        self._active_tbl_clause(tbl_id=key.tbl_id)
+                    )
+                q = (
+                    q.where(schema.TableVersion.tbl_id == key.tbl_id)
+                    .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= anchor_tbl_version_md.created_at)
+                    .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
+                    .limit(1)
+                )
+                row = conn.execute(q).one_or_none()
+                if row is None:
+                    raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
+                version = row.md['version']
+                if version != tv.version:  # TODO: How will view_sn work for replicas?
+                    _logger.debug(
+                        f'reloading metadata for replica table {key.tbl_id} (anchor {key.anchor_tbl_id}) '
+                        f'(cached/anchored version: {tv.version}/{version})'
+                    )
+                    reload = True
 
-            assert tv.anchor_tbl_id == key.anchor_tbl_id
-            assert tv.is_validated, f'{key} not validated\n{tv.__dict__}\n{self._debug_str()}'
-            if validate_initialized:
-                assert tv.is_initialized, f'{key} not initialized\n{tv.__dict__}\n{self._debug_str()}'
-            return tv
+            # the stored version can be behind TableVersion.version, because we don't roll back the in-memory
+            # metadata changes after a failed update operation
+            if reload:
+                # the cached metadata is invalid
+                tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
+            else:
+                # the cached metadata is valid
+                tv.is_validated = True
+
+        assert tv.anchor_tbl_id == key.anchor_tbl_id
+        assert tv.is_validated, f'{key} not validated\n{tv.__dict__}\n{self._debug_str()}'
+        if validate_initialized:
+            assert tv.is_initialized, f'{key} not initialized\n{tv.__dict__}\n{self._debug_str()}'
+        return tv
 
     def remove_tbl_version(self, key: TableVersionKey) -> None:
         assert isinstance(key, TableVersionKey)
