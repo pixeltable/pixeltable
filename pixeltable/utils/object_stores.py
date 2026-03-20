@@ -42,7 +42,7 @@ class StorageObjectAddress(NamedTuple):
     scheme: str  # The scheme parsed from the source
     account: str = ''  # Account number parsed from the source when applicable
     account_extension: str = ''  # Account extension parsed from the source when applicable
-    container: str = ''  # Container / bucket name parsed from the source
+    container: str = ''  # Container / bucket name parsed from the source (for pxt://, logical 'home'; physical R2 bucket is not in the URI)
     key: str = ''  # Key parsed from the source (prefix + object_name)
     prefix: str = ''  # Prefix (within the bucket) parsed from the source
     object_name: str = ''  # Object name parsed from the source (if requested and applicable)
@@ -77,6 +77,8 @@ class StorageObjectAddress(NamedTuple):
     @property
     def prefix_free_uri(self) -> str:
         """Return the URI without any prefixes."""
+        if self.storage_target == StorageTarget.PIXELTABLE_STORE:
+            return f'{self.scheme}://{self.account}:{self.account_extension}/{self.container}/'
         if self.is_azure_scheme:
             return f'{self.scheme}://{self.container}@{self.account}.{self.account_extension}/'
         if self.account and self.account_extension:
@@ -89,6 +91,8 @@ class StorageObjectAddress(NamedTuple):
     def container_free_uri(self) -> str:
         """Return the URI without any prefixes."""
         assert not self.is_azure_scheme, 'Azure storage requires a container name'
+        if self.storage_target == StorageTarget.PIXELTABLE_STORE:
+            return f'{self.scheme}://{self.account}:{self.account_extension}/'
         if self.account and self.account_extension:
             return f'{self.scheme}://{self.account}.{self.account_extension}/'
         if self.account_extension:
@@ -103,6 +107,11 @@ class StorageObjectAddress(NamedTuple):
 
     def __str__(self) -> str:
         """A debug aid to override default str representation. Not to be used for any purpose."""
+        if self.storage_target == StorageTarget.PIXELTABLE_STORE:
+            return (
+                f'{self.storage_target}..{self.scheme}://{self.account}:{self.account_extension}/'
+                f'{self.container}/{self.prefix}{self.object_name}'
+            )
         return f'{self.storage_target}..{self.scheme}://{self.account}.{self.account_extension}/{self.container}/{self.prefix}{self.object_name}'
 
     def __repr__(self) -> str:
@@ -257,6 +266,7 @@ class ObjectPath:
             netloc_parts = parsed.netloc.split(':')
             account_name = netloc_parts[0]  # org slug
             account_extension = netloc_parts[1] if len(netloc_parts) > 1 else ''  # db slug
+            container = 'home'  # logical bucket segment from URI (not the physical R2 bucket name)
             raw_path = parsed.path.lstrip('/')
             if not raw_path.startswith('home'):
                 raise ValueError(f'pxt:// URI must start with /home, got: {parsed.path}')
@@ -406,7 +416,7 @@ class ObjectOps:
             return LocalStore(soa)
         if soa.storage_target == StorageTarget.PIXELTABLE_STORE:
             env.Env.get().require_package('boto3')
-            from pixeltable.utils.s3_store import PxtStore
+            from pixeltable.utils.pxt_store import PxtStore
 
             return PxtStore(soa)
         if soa.storage_target in (

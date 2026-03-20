@@ -30,7 +30,10 @@ class TestDestination:
 
     @classmethod
     def resolve_destination_uri(cls, dest_id: StorageTarget, skip_on_failure: bool = True) -> str | None:
-        assert dest_id in cls.TESTED_DESTINATIONS
+        # `TESTED_DESTINATIONS` is used for parameterized destination tests.
+        # Some tests (e.g. `test_dest_local_copy`) need `LOCAL_STORE` even though it's
+        # excluded from the parameterized set.
+        assert dest_id in cls.TESTED_DESTINATIONS or dest_id == StorageTarget.LOCAL_STORE
         uri: str
         match dest_id:
             case StorageTarget.AZURE_STORE:
@@ -160,12 +163,15 @@ class TestDestination:
         assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
         assert soa.account == 'myorg'
         assert soa.account_extension == 'mydb'
+        assert soa.container == 'home'
 
         soa = ObjectPath.parse_object_storage_addr('pxt://myorg:mydb/home/media/images', allow_obj_name=False)
         assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
+        assert soa.container == 'home'
 
         soa = ObjectPath.parse_object_storage_addr(f'pxt://org:db/home/{p_name2}/{o_name}', allow_obj_name=True)
         assert soa.storage_target == StorageTarget.PIXELTABLE_STORE
+        assert soa.container == 'home'
         assert soa.has_object
         assert soa.object_name == o_name
         assert soa.prefix == f'{p_name2}/'

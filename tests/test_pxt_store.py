@@ -32,13 +32,12 @@ class TestPxtStore:
         t = pxt.create_table('test_pxt_store', schema={'img': pxt.Image})
         t.add_computed_column(img_rot=t.img.rotate(90), destination=dest1_uri)
         validate_update_status(
-            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]),
-            expected_rows=1,
+            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
         )
 
         result = t.select(t.img_rot.fileurl).collect()
         assert len(result) == 1
-        file_url = result['img_rot'][0]
+        file_url = result['img_rot_fileurl'][0]
         assert file_url.startswith('pxt://'), f'Expected pxt:// URL, got: {file_url}'
 
         assert ObjectOps.count(t._id, dest=dest1_uri) == 1
@@ -51,11 +50,10 @@ class TestPxtStore:
         src_table = pxt.create_table('pxt_src', schema={'img': pxt.Image})
         src_table.add_computed_column(img_stored=src_table.img.rotate(90), destination=dest1_uri)
         validate_update_status(
-            src_table.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]),
-            expected_rows=1,
+            src_table.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
         )
 
-        pxt_url = src_table.select(src_table.img_stored.fileurl).collect()['img_stored'][0]
+        pxt_url = src_table.select(src_table.img_stored.fileurl).collect()['img_stored_fileurl'][0]
         assert pxt_url.startswith('pxt://')
 
         reader_table = pxt.create_table('pxt_reader', schema={'img': pxt.Image})
@@ -73,8 +71,7 @@ class TestPxtStore:
         t = pxt.create_table('test_pxt_drop', schema={'img': pxt.Image})
         t.add_computed_column(img_rot=t.img.rotate(90), destination=dest1_uri)
         validate_update_status(
-            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]),
-            expected_rows=1,
+            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
         )
 
         assert ObjectOps.count(t._id, dest=dest1_uri) == 1
@@ -93,8 +90,7 @@ class TestPxtStore:
 
         # First insert succeeds -- populates the cache entry
         validate_update_status(
-            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]),
-            expected_rows=1,
+            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
         )
         assert ObjectOps.count(t._id, dest=dest1_uri) == 1
 
@@ -114,7 +110,6 @@ class TestPxtStore:
         # Restore and verify writes work again
         entry.no_space_left = False
         validate_update_status(
-            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]),
-            expected_rows=1,
+            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
         )
         assert ObjectOps.count(t._id, dest=dest1_uri) == 2

@@ -7,9 +7,7 @@ such as obtaining temporary credentials for home buckets.
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 from typing import Literal, Optional
 
 import requests
@@ -17,14 +15,12 @@ import requests
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
 from pixeltable.env import Env
-from pixeltable.share.protocol.home_bucket import (
-    GetHomeBucketCredentialsRequest,
-    GetHomeBucketCredentialsResponse,
-)
+from pixeltable.share.protocol.home_bucket import GetHomeBucketCredentialsRequest, GetHomeBucketCredentialsResponse
+from pixeltable.share.protocol.presigned_url import GetPresignedUrlRequest, GetPresignedUrlResponse
 
 _logger = logging.getLogger('pixeltable')
 
-PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
+PIXELTABLE_API_URL = 'https://dev-internal-api.pixeltable.com'  # TODO os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 
 
 def _api_headers() -> dict[str, str]:
@@ -41,9 +37,7 @@ def _api_headers() -> dict[str, str]:
     return headers
 
 
-def get_home_bucket_credentials(
-    org: str, db: str, prefix: Optional[str] = None
-) -> GetHomeBucketCredentialsResponse:
+def get_home_bucket_credentials(org: str, db: str, prefix: Optional[str] = None) -> GetHomeBucketCredentialsResponse:
     """
     Fetch temporary R2 credentials for a home bucket from the cloud control plane.
 
@@ -57,14 +51,13 @@ def get_home_bucket_credentials(
     """
     request = GetHomeBucketCredentialsRequest(org_slug=org, db_slug=db, prefix=prefix)
     try:
-        response = requests.post(
-            PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=15
-        )
+        response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=15)
         if response.status_code != 200:
             raise excs.Error(f'Failed to get home bucket credentials: {response.text}')
         body = response.json()
         if isinstance(body, dict) and 'body' in body:
             import json
+
             body = json.loads(body['body'])
         return GetHomeBucketCredentialsResponse.model_validate(body)
     except requests.exceptions.RequestException as e:
@@ -72,30 +65,18 @@ def get_home_bucket_credentials(
 
 
 def get_presigned_url_from_cloud(
-    org_slug: str,
-    db_slug: str,
-    key: str,
-    method: Literal['get', 'put'] = 'get',
-    expiration: int = 3600,
+    org_slug: str, db_slug: str, key: str, method: Literal['get', 'put'] = 'get', expiration: int = 3600
 ) -> str:
     """
     Request a presigned URL from Pixeltable Cloud for a key in the org/db home bucket.
     Uses backend credentials on the cloud so URL expiry is independent of temp credential TTL.
     """
-    body = {
-        'operation_type': 'get_presigned_url',
-        'org_slug': org_slug,
-        'db_slug': db_slug,
-        'key': key,
-        'method': method,
-        'expiration': expiration,
-    }
-    response = requests.post(
-        PIXELTABLE_API_URL, json=body, headers=_api_headers(), timeout=30
-    )
-    response.raise_for_status()
+    request = GetPresignedUrlRequest(org_slug=org_slug, db_slug=db_slug, key=key, method=method, expiration=expiration)
+
+    response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)
+    if response.status_code != 200:
+        raise excs.Error(f'get_presigned_url failed: {response.text}')
+
     data = response.json()
-    if data.get('statusCode') != 200:
-        raise excs.Error(f'get_presigned_url failed: {data}')
-    result = json.loads(data['body']) if isinstance(data.get('body'), str) else data.get('body', data)
-    return result['url']
+    parsed = GetPresignedUrlResponse.model_validate(data)
+    return parsed.url
