@@ -139,7 +139,8 @@ class InsertableTable(Table):
         from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
         if isinstance(source, Iterator):
-            # Iterator is the only supported non-replayable source. Materialize it to a list so that the insert can be retried correctly.
+            # Iterator is the only supported non-replayable source. Materialize it to a list so that the insert can be
+            # retried correctly.
             source = list(source)
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
             raise excs.Error('Cannot insert an empty sequence.')
