@@ -11,16 +11,9 @@ from .tool_utils import stock_price, weather
 @pytest.fixture(autouse=True)
 def cleanup_llama_cpp() -> Generator:
     yield
-    try:
-        import llama_cpp as _  # noqa: F401
-    except ImportError:
-        return
-    try:
-        from pixeltable.functions import llama_cpp
+    from pixeltable.functions import llama_cpp
 
-        llama_cpp.cleanup()
-    except Exception as e:
-        print(f'cleanup failed: {e}')
+    llama_cpp.cleanup()
 
 
 @rerun(reruns=3, reruns_delay=15)  # Since it involes a HF model download
