@@ -92,7 +92,8 @@ source = "uv-dynamic-versioning"
 required-version = ">=0.8"
 default-groups = ["dev", "test"]
 override-dependencies = [
-    "numpy>=2.2",  # Required because 'whisperx' hard-codes 'numpy<2.1'
+    "numpy>=2.2 ; python_version < '3.14'",
+    "numpy>=2.4 ; python_version >= '3.14'",
     "sse-starlette>=2.0",  # Required because 'fiftyone' hard-codes 'sse-starlette<1'
     "ruff>=0.14",  # Required because 'fireworks-ai' hard-codes 'ruff<10'
 ]
@@ -161,7 +162,7 @@ dev = [
     "datasets>=3.5.0",
     "openpyxl>=3.1",
     "openai-whisper>=20250625 ; python_version < '3.14'",
-    "whisperx>=3.7 ; python_version < '3.14'",
+    "whisperx==3.7.4 ; python_version < '3.14'",
     "label-studio-sdk>=1.0.18 ; python_version < '3.14'",
     "ollama>=0.5.1",
     "llama-cpp-python>=0.3.16 ; sys_platform == 'linux'",
