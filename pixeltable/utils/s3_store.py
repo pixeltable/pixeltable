@@ -66,6 +66,8 @@ def _create_pxt_credential_refresher(org: str, db: str, entry: _PxtHomeCacheEntr
         expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
 
         entry.no_space_left = creds.no_space_left
+        if creds.bucket_name:
+            entry.bucket_name = creds.bucket_name
         if creds.no_space_left:
             warnings.warn(
                 f'Pixeltable store for {org}:{db} has no space left. '
@@ -254,6 +256,11 @@ class S3Store(ObjectStoreBase):
         from pixeltable.utils.cloud_utils import get_home_bucket_credentials
 
         creds = get_home_bucket_credentials(org, db)
+        if not creds.bucket_name:
+            raise excs.Error(
+                f'Pixeltable cloud returned an empty home bucket name for {org}:{db}. '
+                'Ensure the control plane get_home_bucket_credentials response includes bucket_name.'
+            )
         expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
         initial_metadata = {
             'access_key': creds.access_key_id,
