@@ -92,7 +92,7 @@ class TestLlamaCpp:
                 chat_format = 'chatml-function-calling'
                 tool_choice = tools.choice(auto=True)
             case _:
-                raise AssertionError(f'Unknown model: {model}')
+                raise AssertionError(f'Not implemented: {model}')
 
         t = pxt.create_table('test_tbl', {'prompt': pxt.String})
         messages = [{'role': 'user', 'content': t.prompt}]
