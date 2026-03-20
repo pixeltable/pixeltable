@@ -63,6 +63,7 @@ class TestLlamaCpp:
 
         match model:
             case 'qwen':
+                # file size: 639MB
                 repo_id = 'Qwen/Qwen3-0.6B-GGUF'
                 repo_filename = '*Q8_0.gguf'
                 # The 'chatml-function-calling' chat format results in an extremely verbose prompt from this model
@@ -73,16 +74,19 @@ class TestLlamaCpp:
                 # XML output to a dict.
                 tool_choice = tools.choice(tool=weather)
             case 'salesforce':
+                # file size: 8.5GB
                 repo_id = 'Salesforce/Llama-xLAM-2-8b-fc-r-gguf'
                 repo_filename = '*Q8_0.gguf'
                 chat_format = 'chatml-function-calling'
                 tool_choice = tools.choice(auto=True)
             case 'mistral':
+                # file size: 4.4GB
                 repo_id = 'NousResearch/Hermes-2-Pro-Mistral-7B-GGUF'
                 repo_filename = '*Q4_K_M.gguf'
                 chat_format = 'chatml-function-calling'
                 tool_choice = tools.choice(auto=True)
             case 'gemma':
+                # file size: 4.1GB
                 repo_id = 'lmstudio-community/gemma-3-4b-it-GGUF'
                 repo_filename = '*Q8_0.gguf'
                 chat_format = 'chatml-function-calling'
