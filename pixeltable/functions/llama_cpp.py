@@ -65,6 +65,7 @@ def create_chat_completion(
     if tools is not None:
         model_kwargs['tools'] = [{'type': 'function', 'function': tool} for tool in tools]
 
+    # Note: parallel_tool_calls doesn't seem to be supported
     if tool_choice is not None:
         if tool_choice['auto']:
             model_kwargs['tool_choice'] = 'auto'
