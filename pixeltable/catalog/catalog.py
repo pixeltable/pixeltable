@@ -151,9 +151,15 @@ class Catalog:
     via retry_loop().
 
     When calling functions that involve Table or TableVersion instances, the catalog needs to get a chance to finalize
-    pending ops against those tables. To that end,
-    - use begin_xact(tbl) or begin_xact(tbl_id) if only accessing a single table
-    - use retry_loop() when accessing multiple tables (eg, pxt.ls())
+    pending ops against those tables. The protocol depends on where metadata loads occur relative to the atomic
+    operation:
+    - If all metadata loads happen at the beginning of an atomic operation (eg, insert/update/delete), use
+      begin_xact(). It will finalize pending ops before locking.
+    - If metadata loads happen in the middle of an atomic operation, wrap the entire operation in retry_loop(), which
+      handles pending ops and serialization retries.
+
+    get_tbl_version() manages its own retry loop internally if called outside of a transaction or a retry loop. Callers
+    that don't need to perform multiple of these atomically do not need to wrap the call.
 
     Metadata changes: all Table operations that change metadata need follow this protocol:
     - write the metadata changes to the store in a single transaction, including the op log that implements the updates
@@ -1806,6 +1812,9 @@ class Catalog:
     def get_tbl_version(self, key: TableVersionKey, *, validate_initialized: bool = False) -> TableVersion | None:
         """
         Returns the TableVersion instance for the given table version key, and updates the cache if necessary.
+
+        This function can, but doesn't have to be called inside a transcaction or a retry loop. It can manage its own
+        retry loop internally if necessary.
         """
         if get_runtime().in_xact:
             return self._get_tbl_version(key, validate_initialized=validate_initialized)
