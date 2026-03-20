@@ -54,7 +54,7 @@ class TestLlamaCpp:
         assert len(result2['choices'][0]['message']['content']) > 0
 
     @pytest.mark.parametrize('model', ['mistral', 'gemma', 'qwen', 'salesforce'])
-    def test_tool_invocations_3(self, uses_db: None, model: str) -> None:
+    def test_tool_invocations(self, uses_db: None, model: str) -> None:
         skip_test_if_not_installed('llama_cpp')
         from pixeltable.functions import llama_cpp
         from pixeltable.functions.openai import invoke_tools
