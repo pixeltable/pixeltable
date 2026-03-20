@@ -105,6 +105,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import retry_loop
 
+        # Retry loop to handle a potential PendingTableOpsError
         @retry_loop(for_write=False)
         def op() -> 'TableMetadata':
             return self._get_metadata()
@@ -171,6 +172,7 @@ class Table(SchemaObject):
     def _get_pxt_uri(self) -> str | None:
         from pixeltable.catalog import retry_loop
 
+        # Retry loop to handle a potential PendingTableOpsError
         @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> str | None:
             return get_runtime().catalog.get_additional_md(self._id).get('pxt_uri')
@@ -184,6 +186,7 @@ class Table(SchemaObject):
         """Return a ColumnRef for the given name."""
         from pixeltable.catalog import retry_loop
 
+        # Retry loop to handle a potential PendingTableOpsError
         @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> ColumnRef:
             col = self._tbl_version_path.get_column(name)
@@ -210,6 +213,7 @@ class Table(SchemaObject):
         """
         from pixeltable.catalog import retry_loop
 
+        # Retry loop to handle a potential PendingTableOpsError
         # we need retry_loop() here, because we end up loading Tables for the views
         @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> list[str]:
@@ -235,6 +239,7 @@ class Table(SchemaObject):
         from pixeltable.catalog import retry_loop
         from pixeltable.plan import FromClause
 
+        # Retry loop to handle a potential PendingTableOpsError
         @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> 'pxt.Query':
             query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
@@ -252,6 +257,7 @@ class Table(SchemaObject):
 
         from pixeltable.catalog import retry_loop
 
+        # Retry loop to handle a potential PendingTableOpsError
         @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> 'pxt.Query':
             return self.select().where(pred)
@@ -265,6 +271,7 @@ class Table(SchemaObject):
 
         from pixeltable.catalog import retry_loop
 
+        # Retry loop to handle a potential PendingTableOpsError
         @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> 'pxt.Query':
             return self.select().join(other, on=on, how=how)
@@ -279,6 +286,7 @@ class Table(SchemaObject):
 
         from pixeltable.catalog import retry_loop
 
+        # Retry loop to handle a potential PendingTableOpsError
         @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> 'pxt.Query':
             return self.select().order_by(*items, asc=asc)
@@ -293,6 +301,7 @@ class Table(SchemaObject):
 
         from pixeltable.catalog import retry_loop
 
+        # Retry loop to handle a potential PendingTableOpsError
         @retry_loop(tbl_id=self._id, for_write=False)
         def op() -> 'pxt.Query':
             return self.select().group_by(*items)
@@ -1766,6 +1775,7 @@ class Table(SchemaObject):
         base_tv = self._tbl_version_path.get_tbl_versions()[-1]
         base_tvp = TableVersionPath(base_tv)
 
+        # Retry loop to handle a potential PendingTableOpsError
         @retry_loop(tbl=base_tvp, for_write=True, lock_mutable_tree=True)
         def do_sync() -> UpdateStatus:
             all_stores = self.external_stores()
