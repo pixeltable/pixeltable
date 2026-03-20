@@ -97,13 +97,13 @@ class TestJson:
         # Compact
         compact_path = tmp_path / 'compact.json'
         pxt.io.export_json(t, compact_path)
-        compact = compact_path.read_text()
+        compact = compact_path.read_text(encoding='utf-8')
         assert '\n' not in compact.strip() or compact.count('\n') <= 1
 
         # Pretty-printed with non-ASCII preserved
         pretty_path = tmp_path / 'pretty.json'
         pxt.io.export_json(t, pretty_path, indent=2)
-        pretty = pretty_path.read_text()
+        pretty = pretty_path.read_text(encoding='utf-8')
         assert pretty.count('\n') > 1
         assert 'Manwë' in pretty
 
