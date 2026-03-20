@@ -733,7 +733,6 @@ class Catalog:
                             TableVersionKey(tbl_id, tbl_version, None),
                             check_pending_ops=False,
                             validate_initialized=True,
-                            convert_db_excs=False,
                         )
                         if op.needs_tv
                         else None
@@ -1826,12 +1825,7 @@ class Catalog:
         return do_get_tbl_version()
 
     def _get_tbl_version(
-        self,
-        key: TableVersionKey,
-        *,
-        check_pending_ops: bool = True,
-        validate_initialized: bool = False,
-        convert_db_excs: bool = True,
+        self, key: TableVersionKey, *, check_pending_ops: bool = True, validate_initialized: bool = False
     ) -> TableVersion | None:
         """
         Returns the TableVersion instance for the given table key, and updates the cache if necessary.
