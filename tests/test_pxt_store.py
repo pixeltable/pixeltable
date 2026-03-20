@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 
 import pixeltable as pxt
-from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectOps, StorageTarget
 
 from .utils import skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status
 
 PXT_DEST_URI = 'pxt://pixeltable:main/home/pytest'
+_ORG_DB_KEY = 'pixeltable:main'
 
 
 class TestPxtStore:
@@ -39,7 +41,6 @@ class TestPxtStore:
         assert len(result) == 1
         file_url = result['img_rot_fileurl'][0]
         assert file_url.startswith('pxt://'), f'Expected pxt:// URL, got: {file_url}'
-
         assert ObjectOps.count(t._id, dest=dest1_uri) == 1
 
     def test_select_from_pxt_url(self, uses_db: None) -> None:
@@ -73,7 +74,6 @@ class TestPxtStore:
         validate_update_status(
             t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
         )
-
         assert ObjectOps.count(t._id, dest=dest1_uri) == 1
 
         save_id = t._id
@@ -88,27 +88,30 @@ class TestPxtStore:
         t = pxt.create_table('test_pxt_quota', schema={'img': pxt.Image})
         t.add_computed_column(img_rot=t.img.rotate(90), destination=dest1_uri)
 
-        # First insert succeeds -- populates the cache entry
         validate_update_status(
             t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
         )
         assert ObjectOps.count(t._id, dest=dest1_uri) == 1
 
-        # Flip no_space_left on the cached entry
-        cd = get_runtime().get_client('pxt_home')
-        entry = cd.clients['pixeltable:main']
-        entry.no_space_left = True
+        # Simulate quota exhaustion by injecting an entry with no_space_left=True.
+        # Patch _get_or_create_pxt_home_entry so every thread (including insert's
+        # worker pool) gets the controlled entry regardless of its local cache state.
+        from pixeltable.utils import pxt_store as pxt_store_mod
 
-        # Writes should fail
-        with pytest.raises(pxt.Error, match='No space left'):
-            t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
+        quota_entry = MagicMock()
+        quota_entry.no_space_left = True
+        quota_entry.bucket_name = 'mock-bucket'
 
-        # Reads should still work
-        result = t.select(t.img_rot.fileurl).collect()
-        assert len(result) == 1
+        with patch.object(pxt_store_mod, '_get_or_create_pxt_home_entry', return_value=quota_entry):
+            with pytest.raises(pxt.Error, match='No space left'):
+                t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}])
 
-        # Restore and verify writes work again
-        entry.no_space_left = False
+            # Reads go through copy_object_to_local_file (download), not copy_local_file,
+            # so they are unaffected by no_space_left.
+            result = t.select(t.img_rot.fileurl).collect()
+            assert len(result) == 1
+
+        # Validate inserts are working without space limit
         validate_update_status(
             t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
         )
