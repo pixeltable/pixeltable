@@ -1813,7 +1813,7 @@ class Catalog:
         """
         Returns the TableVersion instance for the given table version key, and updates the cache if necessary.
 
-        This function can, but doesn't have to be called inside a transcaction or a retry loop. It can manage its own
+        This function can, but doesn't have to be called inside a transaction or a retry loop. It can manage its own
         retry loop internally if necessary.
         """
         if get_runtime().in_xact:
