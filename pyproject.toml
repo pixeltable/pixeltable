@@ -146,7 +146,7 @@ dev = [
     "fal-client>=0.5.6",
     "fireworks-ai>=0.17.6",
     "mistralai>=1.8.2",
-    "replicate>=1.0.7,<2",
+    "replicate>=1.0.7 ; python_version < '3.14'",
     "google-genai>=1.67.0",
     "groq>=0.26.0",
     "boto3==1.36.23",
