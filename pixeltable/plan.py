@@ -457,12 +457,17 @@ class Planner:
                 recomputed_cols |= target.get_dependent_columns(recomputed_cols)
         else:
             recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
-        # delete_rows modifies index columns on the expired rows (nullifies val, copies val -> undo),
-        # so neither can be copied from the source rows: val columns must be recomputed, undo columns excluded.
-        all_base_cols = [c for c in target.cols_by_id.values() if c.get_tbl().id == target.id]
-        idx_val_cols = target.get_idx_val_columns(all_base_cols)
-        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
+        # regardless of cascade, we need to update all indices on any updated/recomputed column
+        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
+        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
         recomputed_cols.update(idx_val_cols)
+        # delete_rows nullifies index val columns and copies the original values to undo columns.
+        # For unmodified columns' indexes, we restore val from undo rather than recomputing.
+        undo_to_val: list[tuple[Column, Column]] = []  # (undo_col, val_col)
+        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
+        for info in target.idxs.values():
+            if info.val_col not in recomputed_cols:
+                undo_to_val.append((info.undo_col, info.val_col))
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
 
@@ -471,7 +476,9 @@ class Planner:
         # our query plan
         # - evaluates the update targets and recomputed columns
         # - copies all other stored columns
+        # - restores unmodified index val columns from undo columns
         recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == tbl.tbl_version.id}
+        undo_restored_val_cols = {val_col for _, val_col in undo_to_val}
         copied_cols = [
             col
             for col in target.cols_by_id.values()
@@ -479,6 +486,7 @@ class Planner:
             and col not in updated_cols
             and col not in recomputed_base_cols
             and col not in idx_undo_cols
+            and col not in undo_restored_val_cols
         ]
         select_list: list[exprs.Expr] = list(update_targets.values())
 
@@ -489,6 +497,9 @@ class Planner:
         spec: dict[exprs.Expr, exprs.Expr] = {exprs.ColumnRef(col): e for col, e in update_targets.items()}
         exprs.Expr.list_substitute(recomputed_exprs, spec)
         select_list.extend(recomputed_exprs)
+        # read undo columns so we can restore unmodified index val columns
+        undo_col_refs = [exprs.ColumnRef(undo_col) for undo_col, _ in undo_to_val]
+        select_list.extend(undo_col_refs)
 
         # Read from rows that were just deleted (expired) at the current version.
         # The where_clause is not passed here: it was already applied during deletion, and delete_rows nullifies
@@ -505,6 +516,9 @@ class Planner:
         plan.row_builder.add_table_columns(copied_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+        # map undo column slots to val columns (restore index values from undo)
+        for i, (_, val_col) in enumerate(undo_to_val):
+            plan.row_builder.add_table_column(val_col, undo_col_refs[i].slot_idx)
 
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
@@ -669,15 +683,21 @@ class Planner:
         # retrieve all stored cols and all target exprs
         updated_cols = batch[0].keys() - target.primary_key_columns()
         recomputed_cols = target.get_dependent_columns(updated_cols) if cascade else set()
-        # delete_rows modifies index columns on the expired rows (nullifies val, copies val -> undo),
-        # so neither can be copied from the source rows: val columns must be recomputed, undo columns excluded.
-        all_base_cols = [c for c in target.cols_by_id.values() if c.get_tbl().id == target.id]
-        idx_val_cols = target.get_idx_val_columns(all_base_cols)
-        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
+        # regardless of cascade, we need to update all indices on any updated/recomputed column
+        modified_base_cols = [c for c in set(updated_cols) | recomputed_cols if c.get_tbl().id == target.id]
+        idx_val_cols = target.get_idx_val_columns(modified_base_cols)
         recomputed_cols.update(idx_val_cols)
+        # delete_rows nullifies index val columns and copies the original values to undo columns.
+        # For unmodified columns' indexes, we restore val from undo rather than recomputing.
+        undo_to_val: list[tuple[Column, Column]] = []  # (undo_col, val_col)
+        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
+        for info in target.idxs.values():
+            if info.val_col not in recomputed_cols:
+                undo_to_val.append((info.undo_col, info.val_col))
         # we only need to recompute stored columns (unstored ones are substituted away)
         recomputed_cols = {c for c in recomputed_cols if c.is_stored}
         recomputed_base_cols = {col for col in recomputed_cols if col.get_tbl().id == target.id}
+        undo_restored_val_cols = {val_col for _, val_col in undo_to_val}
         copied_cols = [
             col
             for col in target.cols_by_id.values()
@@ -685,6 +705,7 @@ class Planner:
             and col not in updated_cols
             and col not in recomputed_base_cols
             and col not in idx_undo_cols
+            and col not in undo_restored_val_cols
         ]
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in updated_cols]
 
@@ -693,6 +714,9 @@ class Planner:
         ]
         # the RowUpdateNode updates columns in-place, ie, in the original ColumnRef; no further substitution is needed
         select_list.extend(recomputed_exprs)
+        # read undo columns so we can restore unmodified index val columns
+        undo_col_refs = [exprs.ColumnRef(undo_col) for undo_col, _ in undo_to_val]
+        select_list.extend(undo_col_refs)
 
         # ExecNode tree (from bottom to top):
         # - SqlLookupNode to retrieve the existing rows
@@ -729,6 +753,9 @@ class Planner:
         plan.row_builder.add_table_columns(copied_cols)
         for i, col in enumerate(evaluated_cols):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+        # map undo column slots to val columns (restore index values from undo)
+        for i, (_, val_col) in enumerate(undo_to_val):
+            plan.row_builder.add_table_column(val_col, undo_col_refs[i].slot_idx)
         ctx = exec.ExecContext(row_builder)
         # TODO: correct batch size?
         ctx.batch_size = 0
