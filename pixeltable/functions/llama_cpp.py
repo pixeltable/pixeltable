@@ -46,8 +46,8 @@ def create_chat_completion(
         repo_filename: A filename or glob pattern to match the model file in the repo (optional, if using a
             pretrained model).
         chat_format: An optional string specifying the chat format to use with the model.
-        tools: An optional list of tools (functions) the model may call, specified as `pxt.Tools`.
-        tool_choice: An optional `pxt.ToolChoice` controlling which tool(s) the model should use.
+        tools: An optional list of tools (functions) the model may call, specified as `pxt.func.tools.Tools`.
+        tool_choice: An optional `pxt.func.tools.ToolChoice` controlling which tool(s) the model should use.
         model_kwargs: Additional keyword args for the llama_cpp `create_chat_completions` API, such as `max_tokens`,
             `temperature`, `top_p`, and `top_k`. For details, see the
             [llama_cpp create_chat_completions documentation](https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion).
