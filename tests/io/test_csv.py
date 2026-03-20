@@ -3,22 +3,22 @@ import pathlib
 
 import pixeltable as pxt
 
-from ..utils import create_all_types_tbl, validate_update_status
+from ..utils import create_test_tbl, validate_update_status
 
 
 class TestCsv:
-    def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        """Export a table with every supported type, re-import, and compare."""
-        t, _ = create_all_types_tbl('test_csv_all')
-        original = t.collect()
+    def test_export_round_trip(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Export a table to CSV, re-import, and verify equality."""
+        t = create_test_tbl('test_csv_rt')
 
-        csv_path = tmp_path / 'all_types.csv'
-        pxt.io.export_csv(t, csv_path)
+        csv_path = tmp_path / 'round_trip.csv'
+        # Select only columns whose types survive CSV round-trip (string, int, float, bool)
+        query = t.select(t.c1, t.c1n, t.c2, t.c3, t.c4)
+        pxt.io.export_csv(query, csv_path)
 
-        t2 = pxt.io.import_csv('test_csv_all_reimported', str(csv_path))
-        reimported = t2.collect()
+        t2 = pxt.io.import_csv('test_csv_rt_reimported', str(csv_path))
 
-        assert len(reimported) == len(original)
+        assert query.collect() == t2.collect()
 
     def test_export_with_nulls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Nulls become empty strings in CSV."""

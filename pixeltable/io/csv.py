@@ -93,6 +93,8 @@ def export_csv(
                     csv_row.append('')
                 elif col_type.is_image_type():
                     csv_row.append(str(val.filename) if hasattr(val, 'filename') and val.filename else '')
+                elif col_type.is_timestamp_type() or col_type.is_date_type():
+                    csv_row.append(val.isoformat())
                 elif col_type.is_json_type():
                     csv_row.append(json.dumps(val))
                 elif col_type.is_array_type():

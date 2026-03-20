@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import typing
 import uuid
@@ -18,8 +17,6 @@ from pixeltable.env import Env
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
-
-_logger = logging.getLogger('pixeltable')
 
 
 def import_pandas(

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import typing
 from typing import Any, Iterable
 
@@ -10,8 +9,6 @@ import pixeltable.type_system as ts
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
-
-_logger = logging.getLogger('pixeltable')
 
 
 def _infer_schema_from_rows(
