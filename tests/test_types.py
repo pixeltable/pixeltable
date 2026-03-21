@@ -328,19 +328,31 @@ class TestTypes:
                         print(t1n.supertype(t2n))
                         raise type(e)(f'Failed test case {i} with n1={n1}, n2={n2}') from e
 
-    # def test_json_schemas(self, init_env: None) -> None:
-    #     skip_test_if_not_installed('pydantic')
-    #     import pydantic
-
-    #     class SampleModel(pydantic.BaseModel):
-    #         a: str
-    #         b: int
-    #         c: bool | None
-
-    #     json_type = ColumnType.from_python_type(Json[SampleModel.model_json_schema()])  # type: ignore[misc]
-    #     assert isinstance(json_type, JsonType)
-    #     assert str(json_type) == 'Json[SampleModel]'
-
-    #     with pytest.raises(jsonschema.exceptions.SchemaError) as exc_info:
-    #         Json[self.bad_json_schema]  # type: ignore[misc]
-    #     assert "'junk' is not valid under any of the given schemas" in str(exc_info.value)
+    def test_to_json_schema(self, init_env: None) -> None:
+        test_cases: list[tuple[ColumnType, dict]] = [
+            (StringType(nullable=False), {'type': 'string'}),
+            (IntType(nullable=True), {'anyOf': [{'type': 'integer'}, {'type': 'null'}]}),
+            (
+                JsonType(JsonType.TypeSchema([StringType(), BoolType()])),
+                {'type': 'array', 'prefixItems': [{'type': 'string'}, {'type': 'boolean'}], 'items': False},
+            ),
+            (
+                JsonType(JsonType.TypeSchema([StringType(), BoolType()], variadic_type=FloatType())),
+                {
+                    'type': 'array',
+                    'prefixItems': [{'type': 'string'}, {'type': 'boolean'}],
+                    'items': {'type': 'number'},
+                },
+            ),
+            (
+                JsonType(JsonType.TypeSchema({'a': StringType(), 'b': IntType()}, optional_keys=['a'])),
+                {
+                    'type': 'object',
+                    'properties': {'a': {'type': 'string'}, 'b': {'type': 'integer'}},
+                    'additionalProperties': False,
+                    'required': ['b'],
+                },
+            ),
+        ]
+        for col_type, expected_schema in test_cases:
+            assert col_type.to_json_schema() == expected_schema, col_type

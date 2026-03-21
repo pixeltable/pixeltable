@@ -938,6 +938,12 @@ class JsonType(ColumnType):
     def matches(self, other: ColumnType) -> bool:
         return isinstance(other, JsonType) and self.type_schema == other.type_schema
 
+    def _to_json_schema(self) -> dict[str, Any]:
+        if self.type_schema is None:
+            return {}
+        else:
+            return self.type_schema.to_json_schema()
+
     def _as_dict(self) -> dict:
         result = super()._as_dict()
         if self.type_schema is not None:
@@ -1145,6 +1151,22 @@ class JsonType(ColumnType):
                 for key in val:
                     if key not in self.content:
                         raise TypeError(f'Unexpected key: {key}')
+
+        def to_json_schema(self) -> dict[str, Any]:
+            if isinstance(self.content, list):
+                prefix_items_schema = [t.to_json_schema() for t in self.content]
+                if self.variadic_type is None:
+                    return {'type': 'array', 'prefixItems': prefix_items_schema, 'items': False}
+                else:
+                    items_schema = self.variadic_type.to_json_schema()
+                    return {'type': 'array', 'prefixItems': prefix_items_schema, 'items': items_schema}
+            else:
+                properties = {k: t.to_json_schema() for k, t in self.content.items()}
+                required = [k for k in self.content if k not in self.optional_keys]
+                schema: dict[str, Any] = {'type': 'object', 'properties': properties, 'additionalProperties': False}
+                if len(required) > 0:
+                    schema['required'] = required
+                return schema
 
         def __eq__(self, other: object) -> bool:
             return (
