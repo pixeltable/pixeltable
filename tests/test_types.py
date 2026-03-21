@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, TypedDict, Union
 
 import numpy as np
 import PIL.Image
+import pydantic
 
 from pixeltable.type_system import (
     UUID,
@@ -62,6 +63,13 @@ class TypedDict3(TypedDict):
     d: Tuple[int, str]  # Python 3.8-style Tuple
     e: list[int]
     f: List[int]  # Python 3.8-style List
+
+
+class Model1(pydantic.BaseModel):
+    a: str
+    b: list[int] | None
+    c: tuple[str, ...]
+    d: int | None = None
 
 
 class TestTypes:
@@ -181,6 +189,20 @@ class TestTypes:
                 ),
                 "Json[{'a': String, 'b': Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}], "
                 "'c': Json[(Int, ...)], 'd': Json[(Int, String)], 'e': Json[(Int, ...)], 'f': Json[(Int, ...)]}]",
+            ),
+            Json[Model1]: (
+                JsonType(
+                    JsonType.TypeSchema(
+                        {
+                            'a': StringType(),
+                            'b': JsonType(JsonType.TypeSchema([], variadic_type=IntType()), nullable=True),
+                            'c': JsonType(JsonType.TypeSchema([], variadic_type=StringType())),
+                            'd': IntType(nullable=True),
+                        },
+                        optional_keys=['d'],
+                    )
+                ),
+                "Json[{'a': String, 'b': Json[(Int, ...)] | None, 'c': Json[(String, ...)], 'd': Int | None}, optional_keys=['d']]",
             ),
             Image[100, 200]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),
             Image[100, None]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),
