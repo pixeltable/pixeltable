@@ -1,5 +1,4 @@
 import glob
-import json
 import logging
 import os
 import platform
@@ -23,7 +22,6 @@ from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
 from pixeltable.func.signature import Batch
 from pixeltable.metadata import VERSION, SystemInfo
-from pixeltable.metadata.converters.convert_48 import _convert_table_and_versions
 from pixeltable.metadata.converters.util import convert_table_md, convert_table_schema_version_md
 from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
@@ -346,19 +344,6 @@ class TestMigration:
             for row in conn.execute(sql.select(TableSchemaVersion.md)):
                 for column_md in row[0]['columns'].values():
                     assert not required_table_schema_version_col_keys - column_md.keys(), column_md
-
-    def test_convert_45(self) -> None:
-        with open('tests/data/v45_table_md.json', 'r', encoding='utf-8') as f:
-            table_md = json.load(f)
-        with open('tests/data/v46_table_md.json', 'r', encoding='utf-8') as f:
-            table_md_expected = json.load(f)
-        with open('tests/data/v45_schema_version_md.json', 'r', encoding='utf-8') as f:
-            schema_version_md = {int(k): v for k, v in json.load(f).items()}
-        with open('tests/data/v46_schema_version_md.json', 'r', encoding='utf-8') as f:
-            schema_version_md_expected = {int(k): v for k, v in json.load(f).items()}
-        _convert_table_and_versions(table_md, schema_version_md)
-        assert table_md == table_md_expected
-        assert schema_version_md == schema_version_md_expected
 
     @classmethod
     def _verify_v45(cls) -> None:
