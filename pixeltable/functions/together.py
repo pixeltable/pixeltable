@@ -19,10 +19,11 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import env
 from pixeltable.func import Batch
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 if TYPE_CHECKING:
-    import together  # type: ignore[import-untyped]
+    import together
 
 
 @env.register_client('together')
@@ -33,7 +34,7 @@ def _(api_key: str) -> 'together.AsyncTogether':
 
 
 def _together_client() -> 'together.AsyncTogether':
-    return env.Env.get().get_client('together')
+    return get_runtime().get_client('together')
 
 
 T = TypeVar('T')
@@ -43,7 +44,7 @@ def _retry(fn: Callable[..., T]) -> Callable[..., T]:
     import together
 
     return tenacity.retry(
-        retry=tenacity.retry_if_exception_type(together.error.RateLimitError),
+        retry=tenacity.retry_if_exception_type(together.RateLimitError),
         wait=tenacity.wait_random_exponential(multiplier=1, max=60),
         stop=tenacity.stop_after_attempt(20),
     )(fn)
@@ -91,7 +92,7 @@ async def completions(prompt: str, *, model: str, model_kwargs: dict[str, Any] |
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:together:chat')
 async def chat_completions(
-    messages: list[dict[str, str]], *, model: str, model_kwargs: dict[str, Any] | None = None
+    messages: list[dict[str, Any]], *, model: str, model_kwargs: dict[str, Any] | None = None
 ) -> dict:
     """
     Generate chat completions based on a given prompt using a specified model.
@@ -130,7 +131,7 @@ async def chat_completions(
     if model_kwargs is None:
         model_kwargs = {}
 
-    result = await _together_client().chat.completions.create(messages=messages, model=model, **model_kwargs)
+    result = await _together_client().chat.completions.create(messages=messages, model=model, **model_kwargs)  # type: ignore[arg-type]
     return result.dict()
 
 
@@ -227,18 +228,21 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         ...     )
         ... )
     """
+    import together
+
     if model_kwargs is None:
         model_kwargs = {}
 
     result = await _together_client().images.generate(prompt=prompt, model=model, **model_kwargs)
-    if result.data[0].b64_json is not None:
-        b64_bytes = base64.b64decode(result.data[0].b64_json)
+    data = result.data[0]
+    if isinstance(data, together.types.ImageDataB64) and data.b64_json is not None:
+        b64_bytes = base64.b64decode(data.b64_json)
         img = PIL.Image.open(io.BytesIO(b64_bytes))
         img.load()
         return img
-    if result.data[0].url is not None:
+    elif isinstance(data, together.types.ImageDataURL) and data.url is not None:
         try:
-            resp = requests.get(result.data[0].url)
+            resp = requests.get(data.url)
             with io.BytesIO(resp.content) as fp:
                 image = PIL.Image.open(fp)
                 image.load()

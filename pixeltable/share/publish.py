@@ -4,6 +4,7 @@ import logging
 import os
 import urllib.parse
 import urllib.request
+import warnings
 from pathlib import Path
 from types import TracebackType
 from typing import Any, BinaryIO, Literal
@@ -16,10 +17,10 @@ from urllib3.util.retry import Retry
 
 import pixeltable as pxt
 from pixeltable import exceptions as excs
-from pixeltable.catalog import Catalog
 from pixeltable.catalog.table_version import TableVersionMd
 from pixeltable.config import Config
 from pixeltable.env import Env
+from pixeltable.runtime import get_runtime
 from pixeltable.utils import sha256sum
 from pixeltable.utils.local_store import TempStore
 
@@ -72,14 +73,17 @@ PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.
 
 
 def push_replica(
-    dest_tbl_uri: str, src_tbl: pxt.Table, bucket: str | None = None, access: Literal['public', 'private'] = 'private'
+    dest_tbl_uri: PxtUri,
+    src_tbl: pxt.Table,
+    bucket: str | None = None,
+    access: Literal['public', 'private'] = 'private',
 ) -> str:
     _logger.info(f'Publishing replica for {src_tbl._name!r} to: {dest_tbl_uri}')
 
     packager = TablePackager(src_tbl)
     # Create the publish request using packager's bundle_md
     publish_request = PublishRequest(
-        table_uri=PxtUri(uri=dest_tbl_uri),
+        table_uri=dest_tbl_uri,
         pxt_version=packager.bundle_md['pxt_version'],
         pxt_md_version=packager.bundle_md['pxt_md_version'],
         md=[TableVersionMd.from_dict(md_dict) for md_dict in packager.bundle_md['md']],
@@ -96,8 +100,8 @@ def push_replica(
         Env.get().console_logger.info(
             f'Replica for version {publish_request.md[0].version_md.version} already exists at {existing_table_uri}.'
         )
-        with Catalog.get().begin_xact(tbl_id=src_tbl._id, for_write=True):
-            Catalog.get().update_additional_md(src_tbl._id, {'pxt_uri': existing_table_uri})
+        with get_runtime().catalog.begin_xact(tbl_id=src_tbl._id, for_write=True):
+            get_runtime().catalog.update_additional_md(src_tbl._id, {'pxt_uri': existing_table_uri})
         return existing_table_uri
     if response.status_code != 200:
         raise excs.Error(f'Error publishing {src_tbl._display_name()}: {response.text}')
@@ -123,7 +127,7 @@ def push_replica(
     Env.get().console_logger.info('Finalizing replica ...')
     # Use preview data from packager's bundle_md (set during package())
     finalize_request = FinalizeRequest(
-        table_uri=PxtUri(uri=dest_tbl_uri),
+        table_uri=dest_tbl_uri,
         upload_id=upload_id,
         datafile=bundle.name,
         size=bundle.stat().st_size,
@@ -142,8 +146,8 @@ def push_replica(
     confirmed_tbl_uri = finalize_response.confirmed_table_uri
     Env.get().console_logger.info(f'The published table is now available at: {confirmed_tbl_uri}')
 
-    with Catalog.get().begin_xact(tbl_id=src_tbl._id, for_write=True):
-        Catalog.get().update_additional_md(src_tbl._id, {'pxt_uri': str(confirmed_tbl_uri)})
+    with get_runtime().catalog.begin_xact(tbl_id=src_tbl._id, for_write=True):
+        get_runtime().catalog.update_additional_md(src_tbl._id, {'pxt_uri': str(confirmed_tbl_uri)})
 
     return str(confirmed_tbl_uri)
 
@@ -155,7 +159,7 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
 
     Env.get().console_logger.info(f'Uploading replica to: {bucket}:{remote_path}')
 
-    s3_client = Env.get().get_client('s3')
+    s3_client = get_runtime().get_client('s3')
 
     upload_args = {'ChecksumAlgorithm': 'SHA256'}
 
@@ -170,10 +174,11 @@ def _upload_bundle_to_s3(bundle: Path, parsed_location: urllib.parse.ParseResult
         )
 
 
-def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
-    parsed_uri = PxtUri(src_tbl_uri)
-    clone_request = ReplicateRequest(table_uri=parsed_uri)
-    response = requests.post(PIXELTABLE_API_URL, data=clone_request.model_dump_json(), headers=_api_headers())
+def pull_replica(dest_path: str, src_tbl_uri: PxtUri) -> pxt.Table:
+    clone_request = ReplicateRequest(table_uri=src_tbl_uri)
+    response = requests.post(
+        PIXELTABLE_API_URL, data=clone_request.model_dump_json(), headers=_api_headers(require_api_key=False)
+    )
     if response.status_code != 200:
         raise excs.Error(f'Error cloning replica: {response.text}')
     clone_response = ReplicateResponse.model_validate(response.json())
@@ -213,7 +218,7 @@ def pull_replica(dest_path: str, src_tbl_uri: str) -> pxt.Table:
         dest_path, {'pxt_version': pxt.__version__, 'pxt_md_version': clone_response.pxt_md_version, 'md': md_list}
     )
 
-    tbl = restorer.restore(bundle_path, pxt_uri, explicit_version=parsed_uri.version)
+    tbl = restorer.restore(bundle_path, pxt_uri, explicit_version=src_tbl_uri.version)
     Env.get().console_logger.info(f'Created local replica {tbl._path()!r} from URI: {src_tbl_uri}')
     return tbl
 
@@ -225,7 +230,7 @@ def _download_bundle_from_s3(parsed_location: urllib.parse.ParseResult, bundle_f
 
     Env.get().console_logger.info(f'Downloading replica from: {bucket}:{remote_path}')
 
-    s3_client = Env.get().get_client('s3')
+    s3_client = get_runtime().get_client('s3')
 
     obj = s3_client.head_object(Bucket=bucket, Key=remote_path)  # Check if the object exists
     bundle_size = obj['ContentLength']
@@ -324,14 +329,14 @@ def _download_from_presigned_url(
         session.close()
 
 
-def delete_replica(dest_path: str, version: int | None = None) -> None:
+def delete_replica(dest_uri: PxtUri, version: int | None = None) -> None:
     """Delete cloud replica"""
-    delete_request = DeleteRequest(table_uri=PxtUri(uri=dest_path), version=version)
+    delete_request = DeleteRequest(table_uri=dest_uri, version=version)
     response = requests.post(PIXELTABLE_API_URL, data=delete_request.model_dump_json(), headers=_api_headers())
     if response.status_code != 200:
         raise excs.Error(f'Error deleting replica: {response.text}')
     DeleteResponse.model_validate(response.json())
-    Env.get().console_logger.info(f'Deleted replica at: {dest_path}')
+    Env.get().console_logger.info(f'Deleted replica at: {dest_uri}')
 
 
 def list_table_versions(table_uri: str) -> list[dict[str, Any]]:
@@ -344,15 +349,25 @@ def list_table_versions(table_uri: str) -> list[dict[str, Any]]:
     return response_data.get('versions', [])
 
 
-def _api_headers() -> dict[str, str]:
+def _api_headers(require_api_key: bool = True) -> dict[str, str]:
     headers = {'Content-Type': 'application/json'}
     api_key = Env.get().pxt_api_key
     if api_key is None:
-        raise excs.Error(
-            'A Pixeltable API key is required to use this feature. '
-            'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
+        if require_api_key:
+            raise excs.Error(
+                'A Pixeltable API key is required to use this feature. '
+                'Set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
+                f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
+                'For details, see https://docs.pixeltable.com/use-cases/get-started'
+            )
+        warnings.warn(
+            'No Pixeltable API key found; proceeding in read-only mode with limited functionality. '
+            'To enable full access, set it with `os.environ["PIXELTABLE_API_KEY"] = "your-key"`, '
             f'or add `api_key = "your-key"` to the `[pixeltable]` section in {Config.get().config_file}.\n'
-            'For details, see https://docs.pixeltable.com/platform/configuration'
+            'For details, see https://docs.pixeltable.com/use-cases/get-started',
+            category=excs.PixeltableWarning,
+            stacklevel=2,
         )
-    headers['X-api-key'] = api_key
+    else:
+        headers['X-api-key'] = api_key
     return headers

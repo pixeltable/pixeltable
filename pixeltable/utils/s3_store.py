@@ -13,6 +13,7 @@ from botocore.exceptions import ClientError, ConnectionError
 
 from pixeltable import env, exceptions as excs
 from pixeltable.config import Config
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.object_stores import ObjectPath, ObjectStoreBase, StorageObjectAddress, StorageTarget
 
 if TYPE_CHECKING:
@@ -111,7 +112,7 @@ class S3Store(ObjectStoreBase):
 
     def _get_s3_compat_client(self, client_name: str) -> Any:
         """Helper to get S3-compatible client (R2, B2, Tigris) - caches per endpoint URI."""
-        cd = env.Env.get().get_client(client_name)
+        cd = get_runtime().get_client(client_name)
         with client_lock:
             if self.soa.container_free_uri not in cd.clients:
                 cd.clients[self.soa.container_free_uri] = S3Store.create_boto_client(
@@ -126,7 +127,7 @@ class S3Store(ObjectStoreBase):
         Clients are scoped to a region and are bucket-agnostic, allowing to use presigned URLs
         for any bucket in that region. The bucket name is just a parameter in API calls.
         """
-        cd = env.Env.get().get_client('s3')
+        cd = get_runtime().get_client('s3')
         default_key = 'default'
         with client_lock:
             if default_key not in cd.clients:
@@ -184,7 +185,7 @@ class S3Store(ObjectStoreBase):
 
     def _get_s3_compat_resource(self, client_name: str) -> Any:
         """Helper to get S3-compatible resource (R2, B2, Tigris) - caches per endpoint URI."""
-        cd = env.Env.get().get_client(client_name)
+        cd = get_runtime().get_client(client_name)
         with client_lock:
             if self.soa.container_free_uri not in cd.clients:
                 cd.clients[self.soa.container_free_uri] = S3Store.create_boto_resource(
@@ -195,7 +196,7 @@ class S3Store(ObjectStoreBase):
 
     def _get_s3_resource_with_region(self) -> Any:
         """Helper to get S3 resource with correct region - caches per region (not per bucket)."""
-        cd = env.Env.get().get_client('s3_resource')
+        cd = get_runtime().get_client('s3_resource')
         default_key = 'default'
         with client_lock:
             if default_key not in cd.clients:

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 import pixeltable as pxt
 from pixeltable import exprs
 from pixeltable.env import Env, register_client
+from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
 
 from .openai import _openai_response_to_pxt_tool_calls
@@ -26,7 +27,7 @@ def _(api_key: str) -> 'groq.AsyncGroq':
 
 
 def _groq_client() -> 'groq.AsyncGroq':
-    return Env.get().get_client('groq')
+    return get_runtime().get_client('groq')
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:groq')
@@ -95,7 +96,7 @@ async def chat_completions(
         model=model,
         **model_kwargs,
     )
-    return result.model_dump()
+    return result.model_dump(mode='json')
 
 
 def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict:

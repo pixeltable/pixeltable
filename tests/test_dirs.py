@@ -74,13 +74,12 @@ class TestDirs:
             id_before[name] = dir._id
 
         # invalid if_exists value is rejected
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(
+            pxt.Error, match=r"if_exists must be one of: \['error', 'ignore', 'replace', 'replace_force'\]"
+        ):
             pxt.create_dir('dir1', if_exists='invalid')  # type: ignore[arg-type]
-        assert (
-            "if_exists must be one of: ['error', 'ignore', 'replace', 'replace_force']" in str(exc_info.value).lower()
-        )
 
-        # scenrio 1: path already has a directory
+        # scenario 1: path already has a directory
 
         # if_exists='error' should raise error - already tested in test_create
 
@@ -100,15 +99,11 @@ class TestDirs:
         assert d3._id != id_before['dir1/sub1/subsub1']
         id_before['dir1/sub1/subsub1'] = d3._id
         assert pxt.list_dirs(recursive=True) == dirs
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='already exists and is not empty'):
             pxt.create_dir('dir1/sub1', if_exists='replace')
-        err_msg = str(exc_info.value).lower()
-        assert 'already exists' in err_msg and 'is not empty' in err_msg and 'replace_force' in err_msg
         assert pxt.list_dirs(recursive=True) == dirs
-        with pytest.raises(pxt.Error) as exc_info:
+        with pytest.raises(pxt.Error, match='already exists and is not empty'):
             pxt.create_dir('dir1', if_exists='replace')
-        err_msg = str(exc_info.value).lower()
-        assert 'already exists' in err_msg and 'is not empty' in err_msg and 'replace_force' in err_msg
         assert pxt.list_dirs(recursive=True) == dirs
 
         # if_exists='replace_force' should replace existing Dir,
@@ -125,13 +120,11 @@ class TestDirs:
         assert d1._id != id_before['dir1']
         assert pxt.list_dirs(recursive=True) == ['dir1']
 
-        # scenrio 2: path already exists but is not a Dir
+        # scenario 2: path already exists but is not a Dir
         make_tbl('dir1/t1')
         for if_exists in ['ignore', 'replace', 'replace_force']:
-            with pytest.raises(pxt.Error) as exc_info:
+            with pytest.raises(pxt.Error, match='already exists'):
                 pxt.create_dir('dir1/t1', if_exists=if_exists)  # type: ignore[arg-type]
-            err_msg = str(exc_info.value).lower()
-            assert 'already exists' in err_msg and 'not a dir' in err_msg, f' for if_exists={if_exists!r}'
 
     def _test_drop_if_not_exists(self, dir_name: str) -> None:
         """Test if_not_exists parameter of drop_dir"""

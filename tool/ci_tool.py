@@ -20,7 +20,7 @@ class MatrixConfig(NamedTuple):
     os: str
     python_version: str
     uv_options: str = ''
-    pytest_options: str = "-m 'not expensive'"
+    pytest_options: str = "-m 'not expensive and not benchmark'"
     pre_test_cmd: str = ''  # Extra bash command to be run just before tests
 
     @property
@@ -74,7 +74,11 @@ def generate_matrix(args: argparse.Namespace) -> None:
     # Exclude expensive tests on everything except Ubuntu
     configs.extend(
         MatrixConfig(
-            'full', 'py', os, '3.10', pytest_options="-m ''" if os.startswith('ubuntu') else "-m 'not expensive'"
+            'full',
+            'py',
+            os,
+            '3.10',
+            pytest_options="-m 'not benchmark'" if os.startswith('ubuntu') else "-m 'not expensive and not benchmark'",
         )
         for os in (
             # Same as BASIC_PLATFORMS, but upgrade the Ubuntu VM for non-PR triggers.
@@ -86,31 +90,32 @@ def generate_matrix(args: argparse.Namespace) -> None:
     )
 
     if force_all or trigger != 'pull_request':
-        # Full test suite on basic platforms on Python 3.13
-        configs.extend(MatrixConfig('full', 'py', os, '3.13') for os in BASIC_PLATFORMS)
+        # Full test suite on basic platforms on Python 3.14
+        configs.extend(MatrixConfig('full', 'py', os, '3.14') for os in BASIC_PLATFORMS)
 
         # Full test suite on Ubuntu on intermediate Python versions
-        configs.extend(MatrixConfig('full', 'py', 'ubuntu-24.04', py) for py in ('3.11', '3.12'))
+        configs.extend(MatrixConfig('full', 'py', 'ubuntu-24.04', py) for py in ('3.11', '3.12', '3.13'))
 
-        # Minimal test on Python 3.13
-        configs.append(MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.13', uv_options='--no-dev'))
+        # Minimal test on Python 3.14
+        configs.append(MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.14', uv_options='--no-dev'))
 
         # Minimal tests on alternative platforms (we don't run the full suite on these, since dev dependencies
         # can be hit-or-miss)
         configs.extend(MatrixConfig('minimal', 'py', os, '3.10', uv_options='--no-dev') for os in ALTERNATIVE_PLATFORMS)
 
-        # tests_table.py only, against CockroachDB backend
-        # if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
-        #     configs.append(
-        #         MatrixConfig(
-        #             'cockroach',
-        #             'py',
-        #             'ubuntu-24.04',
-        #             '3.10',
-        #             pytest_options='--reruns 2 tests/test_table.py',
-        #             pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
-        #         )
-        #     )
+        if os.environ.get('PXTTEST_COCKROACH_DB_CONNECT_STR'):
+            cockroach_test_modules = ('table', 'index')
+            configs.extend(
+                MatrixConfig(
+                    f'cockroach-{module}',
+                    'py',
+                    'ubuntu-24.04',
+                    '3.10',
+                    pytest_options=f'--reruns 2 -m cockroachdb tests/test_{module}.py',
+                    pre_test_cmd='export PIXELTABLE_DB_CONNECT_STR="$PXTTEST_COCKROACH_DB_CONNECT_STR"',
+                )
+                for module in cockroach_test_modules
+            )
 
         # Minimal tests with S3 media destination. We use a unique bucket name that incorporates today's date, so that
         # different test runs don't interfere with each other and any stale data is easy to clean up.

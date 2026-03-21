@@ -83,7 +83,7 @@ class TestPxtUri:
 
     def test_parse_invalid_scheme(self) -> None:
         """Test parsing with invalid scheme."""
-        with pytest.raises(ValueError, match='URI must start with pxt://'):
+        with pytest.raises(ValueError, match='Expected a pxt:// URI or a Pixeltable URL'):
             PxtUri('http://org_name/table')
 
     def test_parse_missing_org_slug(self) -> None:
@@ -143,3 +143,78 @@ class TestPxtUri:
         assert uri.version == 0
         uri = PxtUri.from_components('org_name', path='table', version=10)
         assert uri.version == 10
+
+    @pytest.mark.parametrize(
+        'url,expected_uri,expected_org,expected_db,expected_path',
+        [
+            (
+                'https://pixeltable.com/t/pixeltable:fiftyone/coco_mini_2017',
+                'pxt://pixeltable:fiftyone/coco_mini_2017',
+                'pixeltable',
+                'fiftyone',
+                'coco_mini_2017',
+            ),
+            (
+                'https://www.pixeltable.com/t/pixeltable:fiftyone/coco_mini_2017',
+                'pxt://pixeltable:fiftyone/coco_mini_2017',
+                'pixeltable',
+                'fiftyone',
+                'coco_mini_2017',
+            ),
+            ('http://pixeltable.com/t/myorg/mytable', 'pxt://myorg/mytable', 'myorg', None, 'mytable'),
+            ('http://www.pixeltable.com/t/myorg/mytable', 'pxt://myorg/mytable', 'myorg', None, 'mytable'),
+            (
+                'https://pixeltable.com/t/org:db/dir/subdir/table',
+                'pxt://org:db/dir/subdir/table',
+                'org',
+                'db',
+                'dir/subdir/table',
+            ),
+            ('https://pixeltable.com/t/org:db/table:5', 'pxt://org:db/table:5', 'org', 'db', 'table'),
+        ],
+    )
+    def test_normalize_https_url(
+        self, url: str, expected_uri: str, expected_org: str, expected_db: str | None, expected_path: str
+    ) -> None:
+        uri = PxtUri(url)
+        assert str(uri) == expected_uri
+        assert uri.org == expected_org
+        assert uri.db == expected_db
+        assert uri.path == expected_path
+
+    def test_normalize_preserves_version(self) -> None:
+        uri = PxtUri('https://pixeltable.com/t/org:db/table:5')
+        assert uri.version == 5
+        assert str(uri) == 'pxt://org:db/table:5'
+
+    def test_normalize_uuid_url(self) -> None:
+        test_uuid = '550e8400-e29b-41d4-a716-446655440000'
+        uri = PxtUri(f'https://pixeltable.com/t/org:db/{test_uuid}')
+        assert uri.id == UUID(test_uuid)
+        assert uri.path is None
+        assert str(uri) == f'pxt://org:db/{test_uuid}'
+
+    def test_normalized_uri_stored_not_original_url(self) -> None:
+        url = 'https://www.pixeltable.com/t/org:db/table'
+        uri = PxtUri(url)
+        assert str(uri).startswith('pxt://')
+        assert 'pixeltable.com' not in str(uri)
+
+    def test_dict_input_with_https_url(self) -> None:
+        uri = PxtUri({'uri': 'https://pixeltable.com/t/org:db/table'})
+        assert str(uri) == 'pxt://org:db/table'
+        assert uri.org == 'org'
+
+    def test_reject_invalid_urls(self) -> None:
+        with pytest.raises(ValueError, match=r'Invalid URI .* Expected a pxt:// URI or a Pixeltable URL'):
+            PxtUri('https://noop.com/t/org/table')  # wrong domain
+        with pytest.raises(ValueError, match=r'Invalid URI .* Expected a pxt:// URI or a Pixeltable URL'):
+            PxtUri('https://notpixeltable.com/t/org/table')  # wrong domain but with pixeltable.com in it
+        with pytest.raises(ValueError, match=r'Invalid URI .* Expected a pxt:// URI or a Pixeltable URL'):
+            PxtUri('https://pixeltable.com/org/table')  # missing /t/ prefix
+        with pytest.raises(ValueError, match='URI must have an organization'):
+            PxtUri('https://pixeltable.com/t/')  # missing org
+        with pytest.raises(ValueError, match=r'Invalid URI .* Expected a pxt:// URI or a Pixeltable URL'):
+            PxtUri('ftp://pixeltable.com/t/org/table')  # unsupported scheme
+        with pytest.raises(ValueError, match=r'Invalid URI .* Expected a pxt:// URI or a Pixeltable URL'):
+            PxtUri('http://t/org/table')  # missing domain

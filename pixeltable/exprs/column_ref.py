@@ -12,6 +12,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable import func
 from pixeltable.catalog.table_version import TableVersionKey
+from pixeltable.runtime import get_runtime
 
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
@@ -159,7 +160,7 @@ class ColumnRef(Expr):
         return super().__getattr__(name)
 
     def recompute(self, *, cascade: bool = True, errors_only: bool = False) -> catalog.UpdateStatus:
-        cat = catalog.Catalog.get()
+        cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(tbl=self.reference_tbl, for_write=True, lock_mutable_tree=True):
             tbl_version = self.col_handle.tbl_version.get()
@@ -180,6 +181,7 @@ class ColumnRef(Expr):
         image: str | PIL.Image.Image | None = None,
         audio: str | None = None,
         video: str | None = None,
+        document: str | None = None,
         idx: str | None = None,
     ) -> Expr:
         from .similarity_expr import SimilarityExpr
@@ -191,21 +193,32 @@ class ColumnRef(Expr):
                 '  .similarity(string=...)\n'
                 '  .similarity(image=...)\n'
                 '  .similarity(audio=...)\n'
-                '  .similarity(video=...)',
+                '  .similarity(video=...)\n'
+                '  .similarity(document=...)',
                 DeprecationWarning,
                 stacklevel=2,
             )
 
-        arg_count = (string is not None) + (image is not None) + (audio is not None) + (video is not None)
+        arg_count = (
+            (string is not None)
+            + (image is not None)
+            + (audio is not None)
+            + (video is not None)
+            + (document is not None)
+        )
 
         if item is not None and arg_count != 0:
             raise excs.Error('similarity(): `item` is deprecated and cannot be used together with modality arguments')
 
         if arg_count > 1:
-            raise excs.Error('similarity(): expected exactly one of string=..., image=..., audio=..., video=...')
+            raise excs.Error(
+                'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., document=...'
+            )
 
         expr: Expr
 
+        # TODO: For audio/video/document, we're storing the local file path in the Literal for the similarity
+        #     expression. This is problematic in scenarios where the similarity expression is serialized.
         if item is not None:
             if isinstance(item, Expr):  # This can happen when using similarity() with @query
                 if not (item.col_type.is_string_type() or item.col_type.is_image_type()):
@@ -220,7 +233,7 @@ class ColumnRef(Expr):
         if string is not None:
             if isinstance(string, Expr):
                 if not string.col_type.is_string_type():
-                    raise excs.Error(f'similarity(string=...): expected `String`; got `{expr.col_type}`')
+                    raise excs.Error(f'similarity(string=...): expected `String`; got `{string.col_type}`')
                 expr = string
             else:
                 if not isinstance(string, str):
@@ -271,6 +284,20 @@ class ColumnRef(Expr):
                 video_path = fetch_url(video, allow_local_file=True)
                 expr = Literal(str(video_path), ts.VideoType())
 
+        if document is not None:
+            if isinstance(document, Expr):
+                if not document.col_type.is_document_type():
+                    raise excs.Error(f'similarity(document=...): expected `Document`; got `{document.col_type}`')
+                expr = document
+            else:
+                if not isinstance(document, str):
+                    raise excs.Error(
+                        'similarity(document=...): expected `str` (path to document file); '
+                        f'got `{type(document).__name__}`'
+                    )
+                document_path = fetch_url(document, allow_local_file=True)
+                expr = Literal(str(document_path), ts.DocumentType())
+
         return SimilarityExpr(self, expr, idx_name=idx)
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
@@ -295,7 +322,7 @@ class ColumnRef(Expr):
 
         if self.reference_tbl is None:
             # No reference table; use the current version of the table to which the column belongs
-            tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl_handle.id)
+            tbl = get_runtime().catalog.get_table_by_id(self.col.tbl_handle.id)
             return tbl.select(self)
         else:
             # Explicit reference table; construct a Query directly from it
@@ -330,11 +357,12 @@ class ColumnRef(Expr):
         return self._descriptors().to_html()
 
     def _descriptors(self) -> DescriptionHelper:
-        with catalog.Catalog.get().begin_xact():
-            tbl = catalog.Catalog.get().get_table_by_id(self.col.tbl_handle.id)
+        with get_runtime().catalog.begin_xact():
+            tbl = get_runtime().catalog.get_table_by_id(self.col.tbl_handle.id)
         helper = DescriptionHelper()
         helper.append(f'Column\n{self.col.name!r}\n(of table {tbl._path()!r})')
-        helper.append(tbl._col_descriptor([self.col.name]))
+        col_df, _ = tbl._col_descriptor([self.col.name])
+        helper.append(col_df)
         idxs = tbl._index_descriptor([self.col.name])
         if len(idxs) > 0:
             helper.append(idxs)
@@ -429,7 +457,7 @@ class ColumnRef(Expr):
         tbl_id, version, col_id = UUID(d['tbl_id']), d['tbl_version'], d['col_id']
         # validate_initialized=False: this gets called as part of TableVersion.init()
         # TODO: When we have views on replicas, we will need to store anchor_tbl_id in metadata as well.
-        tbl_version = catalog.Catalog.get().get_tbl_version(
+        tbl_version = get_runtime().catalog.get_tbl_version(
             TableVersionKey(tbl_id, version, None), validate_initialized=False
         )
         # don't use tbl_version.cols_by_id here, this might be a snapshot reference to a column that was then dropped
