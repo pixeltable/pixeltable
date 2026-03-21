@@ -90,14 +90,14 @@ def generate_matrix(args: argparse.Namespace) -> None:
     )
 
     if force_all or trigger != 'pull_request':
-        # Full test suite on basic platforms on Python 3.13
-        configs.extend(MatrixConfig('full', 'py', os, '3.13') for os in BASIC_PLATFORMS)
+        # Full test suite on basic platforms on Python 3.14
+        configs.extend(MatrixConfig('full', 'py', os, '3.14') for os in BASIC_PLATFORMS)
 
         # Full test suite on Ubuntu on intermediate Python versions
-        configs.extend(MatrixConfig('full', 'py', 'ubuntu-24.04', py) for py in ('3.11', '3.12'))
+        configs.extend(MatrixConfig('full', 'py', 'ubuntu-24.04', py) for py in ('3.11', '3.12', '3.13'))
 
-        # Minimal test on Python 3.13
-        configs.append(MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.13', uv_options='--no-dev'))
+        # Minimal test on Python 3.14
+        configs.append(MatrixConfig('minimal', 'py', 'ubuntu-24.04', '3.14', uv_options='--no-dev'))
 
         # Minimal tests on alternative platforms (we don't run the full suite on these, since dev dependencies
         # can be hit-or-miss)
