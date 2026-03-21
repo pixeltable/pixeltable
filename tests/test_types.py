@@ -2,12 +2,10 @@
 
 import datetime
 import uuid
-from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, TypedDict, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, TypedDict, Union
 
-import jsonschema.exceptions
 import numpy as np
 import PIL.Image
-import pytest
 
 from pixeltable.type_system import (
     UUID,
@@ -41,8 +39,6 @@ from pixeltable.type_system import (
     Video,
     VideoType,
 )
-
-from .utils import skip_test_if_not_installed
 
 FLOAT32 = np.dtype('float32')
 

@@ -9,7 +9,6 @@ import uuid
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator, Literal
 from uuid import UUID
 
-import jsonschema.exceptions
 import sqlalchemy as sql
 from sqlalchemy import exc as sql_exc
 

@@ -35,7 +35,8 @@ class Parameter:
                 raise excs.Error(f'Default value for parameter {self.name!r} is not a constant')
             if not self.col_type.is_supertype_of(self.default.col_type):
                 raise excs.Error(
-                    f'Default value for parameter {self.name!r} has type `{self.default.col_type}`, which is not of type `{self.col_type!r}`: {self.default}'
+                    f'Default value for parameter {self.name!r} has type `{self.default.col_type}`, '
+                    f'which is not of type `{self.col_type!r}`: {self.default}'
                 )
 
     def has_default(self) -> bool:

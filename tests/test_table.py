@@ -14,7 +14,6 @@ import pandas as pd
 import PIL.Image
 import pydantic
 import pytest
-from jsonschema.exceptions import ValidationError
 
 import pixeltable as pxt
 import pixeltable.functions as pxtf
@@ -1298,7 +1297,7 @@ class TestTable:
                 'json_col_2': MySchemaOpt,
                 'json_col_3': pxt.Json[tuple[pxt.Int, pxt.String]],  # type: ignore[misc]
                 'json_col_4': pxt.Json[tuple[pxt.Int, ...]],  # type: ignore[misc]
-                'json_col_5': pxt.Json[(pxt.Int, pxt.String, ...)],  # type: ignore[misc]  # mixed tuple with variadic final part
+                'json_col_5': pxt.Json[pxt.Int, pxt.String, ...],  # type: ignore[misc]  # mixed tuple with variadic final part
             },
         )
         t.insert(json_col_1={'a': 'coconuts', 'b': 1, 'c': 3.0, 'd': True})
@@ -1333,10 +1332,10 @@ class TestTable:
         with pytest.raises(pxt.Error, match=r"expected a dict; got `str`: 'not a dict'"):
             t.insert(json_col_1='not a dict')  # Wrong type
 
-        with pytest.raises(pxt.Error, match=r'expected int, got str') as exc_info:
+        with pytest.raises(pxt.Error, match=r'expected int, got str'):
             t.insert(json_col_2={'a': 'apples', 'b': 'elephant'})  # Wrong type of dict value
 
-        with pytest.raises(pxt.Error, match=r"missing required key: 'b'") as exc_info:
+        with pytest.raises(pxt.Error, match=r"missing required key: 'b'"):
             t.insert(json_col_1={'a': 'apples'})  # Missing required field
 
         with pytest.raises(
