@@ -823,7 +823,10 @@ class TestTable:
             _ = t.insert([BadModel1(s='str_0', j=N2(s='str_0', i=0, c=PIL.Image.new('RGB', (100, 100))))])
 
         # nested model with field that's not json-convertible
-        with pytest.raises(pxt.Error, match=r"Invalid type schema: received Python type `set`, which does not represent a valid Pixeltable type"):
+        with pytest.raises(
+            pxt.Error,
+            match=r'Invalid type schema: received Python type `set`, which does not represent a valid Pixeltable type',
+        ):
 
             class N3(pydantic.BaseModel):
                 s: set[int]

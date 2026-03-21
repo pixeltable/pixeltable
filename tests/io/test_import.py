@@ -8,7 +8,6 @@ import pixeltable.type_system as ts
 
 from ..utils import ensure_s3_pytest_resources_access
 
-
 EXPECTED_SCHEMA = {
     'name': ts.StringType(nullable=True),
     'human': ts.BoolType(nullable=True),
@@ -20,7 +19,6 @@ EXPECTED_SCHEMA = {
 
 
 class TestImport:
-
     def test_import_rows(self, uses_db: None) -> None:
         example = Path(__file__).parent.parent / 'data' / 'json' / 'example.json'
         with open(example, encoding='utf-8') as fp:
