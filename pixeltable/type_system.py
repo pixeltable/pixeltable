@@ -351,9 +351,13 @@ class ColumnType:
                     # We always allow Pixeltable types
                     return origin.as_col_type(nullable=nullable_default)
 
-                if issubclass(origin, pydantic.BaseModel) or getattr(origin, '__orig_bases__', None) == (typing.TypedDict,):
+                if issubclass(origin, pydantic.BaseModel) or getattr(origin, '__orig_bases__', None) == (
+                    typing.TypedDict,
+                ):
                     # We always allow Pydantic models and TypedDicts
-                    return JsonType(type_schema=JsonType._validate_type_schema_strict(origin), nullable=nullable_default)
+                    return JsonType(
+                        type_schema=JsonType._validate_type_schema_strict(origin), nullable=nullable_default
+                    )
 
             # Everything else is allowed only if allow_builtin_types=True
             if allow_builtin_types:
@@ -837,7 +841,7 @@ class JsonType(ColumnType):
             if getattr(type_arg, '__orig_bases__', None) == (typing.TypedDict,):
                 # It's a subclass of `TypedDict`.
                 return JsonType.TypeSchema(
-                    content={key: cls.from_python_type(value) for key, value in type_arg.__annotations__.items()},
+                    content={key: cls.from_python_type_2(value) for key, value in type_arg.__annotations__.items()},
                     optional_keys=list(getattr(type_arg, '__optional_keys__', [])),
                 )
 
@@ -846,14 +850,14 @@ class JsonType(ColumnType):
                 fields: dict[str, ColumnType] = {}
                 optional_keys: list[str] = []
                 for name, info in type_arg.model_fields.items():
-                    fields[name] = cls.from_python_type(info.annotation)
+                    fields[name] = cls.from_python_type_2(info.annotation)
                     if not info.is_required():
                         optional_keys.append(name)
                 return JsonType.TypeSchema(content=fields, optional_keys=optional_keys)
 
             if origin is list and len(subscripts) == 1:
                 # It's a type hint of the form `list[T]`; the validated schema is a variadic tuple.
-                return JsonType.TypeSchema(content=[], variadic_type=cls.from_python_type(subscripts[0]))
+                return JsonType.TypeSchema(content=[], variadic_type=cls.from_python_type_2(subscripts[0]))
 
             if origin is tuple and len(subscripts) > 0:
                 # It's a type hint of the form `tuple[T1, T2, ...]`.
@@ -869,8 +873,8 @@ class JsonType(ColumnType):
                     raise excs.Error('Invalid type schema: `...` allowed only in last position')
 
                 return JsonType.TypeSchema(
-                    content=[cls.from_python_type(subscript) for subscript in subscripts],
-                    variadic_type=cls.from_python_type(variadic_type) if variadic_type is not None else None,
+                    content=[cls.from_python_type_2(subscript) for subscript in subscripts],
+                    variadic_type=cls.from_python_type_2(variadic_type) if variadic_type is not None else None,
                 )
 
             if issubclass(origin, (Sequence, Mapping)):
@@ -914,7 +918,7 @@ class JsonType(ColumnType):
             )
 
         # Anything else: Convert it to a ColumnType instance in the usual fashion.
-        return cls.from_python_type(type_arg)
+        return cls.from_python_type_2(type_arg)
 
     @classmethod
     def _validate_type_schema_strict(cls, type_arg: Any) -> TypeSchema | None:
@@ -929,7 +933,7 @@ class JsonType(ColumnType):
         return type_schema
 
     @classmethod
-    def from_python_type(cls, t: Any) -> ColumnType:
+    def from_python_type_2(cls, t: Any) -> ColumnType:
         if t is Any:
             return JsonType()
         if not isinstance(t, (type, _GenericAlias, types.UnionType)):
@@ -954,7 +958,7 @@ class JsonType(ColumnType):
             assert isinstance(type_schema, JsonType.TypeSchema)
             return JsonType(type_schema=type_schema)
         else:
-            return cls.from_python_type(t)
+            return cls.from_python_type_2(t)
 
     def copy(self, nullable: bool) -> ColumnType:
         return JsonType(type_schema=self.type_schema, nullable=nullable)
@@ -1078,7 +1082,7 @@ class JsonType(ColumnType):
             else:
                 variadic_type = b.variadic_type
 
-            joined_content = []
+            joined_list: list[ColumnType] = []
             for item_a, item_b in itertools.zip_longest(a.content, b.content):
                 if item_a is None:
                     assert isinstance(item_b, ColumnType)
@@ -1104,12 +1108,12 @@ class JsonType(ColumnType):
                     item_supertype = item_a.supertype(item_b)
                     if item_supertype is None:
                         return None  # incompatible types in this position
-                    joined_content.append(item_supertype)
+                    joined_list.append(item_supertype)
 
-            return JsonType.TypeSchema(content=joined_content, variadic_type=variadic_type)
+            return JsonType.TypeSchema(content=joined_list, variadic_type=variadic_type)
 
         if isinstance(a.content, dict) and isinstance(b.content, dict):
-            joined_content: dict[str, ColumnType] = {}
+            joined_dict: dict[str, ColumnType] = {}
             optional_keys: list[str] = []
             for key, item_a in a.content.items():
                 if key in b.content:
@@ -1117,20 +1121,20 @@ class JsonType(ColumnType):
                     if item_supertype is None:
                         return None  # incompatible types for this key
                     else:
-                        joined_content[key] = item_supertype
+                        joined_dict[key] = item_supertype
                         # key is in both a and b, so optionality is derived from a and b
                         if key in a.optional_keys or key in b.optional_keys:
                             optional_keys.append(key)
                 else:
-                    joined_content[key] = item_a
+                    joined_dict[key] = item_a
                     # key is only in a, so it's optional in the supertype, regardless of its status in a
                     optional_keys.append(key)
             for key, item_b in b.content.items():
                 if key not in a.content:
-                    joined_content[key] = item_b
+                    joined_dict[key] = item_b
                     optional_keys.append(key)
 
-            return JsonType.TypeSchema(content=joined_content, optional_keys=optional_keys)
+            return JsonType.TypeSchema(content=joined_dict, optional_keys=optional_keys)
 
         return None
 
@@ -1146,7 +1150,7 @@ class JsonType(ColumnType):
         variadic_type: ColumnType | None = None
         optional_keys: list[str] = dataclasses.field(default_factory=list)
 
-        def __post_init__(self):
+        def __post_init__(self) -> None:
             assert self.variadic_type is None or isinstance(self.variadic_type, ColumnType), self.variadic_type
 
         def validate_literal(self, val: Any) -> None:
@@ -1219,6 +1223,7 @@ class JsonType(ColumnType):
                 return r
 
         def as_dict(self) -> dict[str, Any]:
+            content_d: list | dict
             if isinstance(self.content, list):
                 content_d = [t.as_dict() for t in self.content]
             else:
@@ -1232,6 +1237,7 @@ class JsonType(ColumnType):
         @classmethod
         def from_dict(cls, d: dict[str, Any]) -> JsonType.TypeSchema:
             content_d = d['content']
+            content: list | dict
             if isinstance(content_d, list):
                 content = [ColumnType.from_dict(t) for t in content_d]
             else:

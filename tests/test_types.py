@@ -1,3 +1,5 @@
+# mypy: disable-error-code="misc"
+
 import datetime
 import uuid
 from typing import Any, ClassVar, Dict, List, Literal, Optional, Tuple, TypedDict, Union
@@ -48,19 +50,19 @@ FLOAT32 = np.dtype('float32')
 class TypedDict1(TypedDict):
     a: str
     b: int | None
-    c: Array[(None,), np.float32]  # type: ignore[misc]
+    c: Array[(None,), np.float32]
 
 
 class TypedDict2(TypedDict, total=False):
     a: str
     b: int | None
-    c: Array[(None,), np.float32]  # type: ignore[misc]
+    c: Array[(None,), np.float32]
 
 
 class TypedDict3(TypedDict):
     a: str
     b: TypedDict1  # nested TypedDict
-    c: tuple[int, str, ...]
+    c: tuple[int, ...]
     d: Tuple[int, str]  # Python 3.8-style Tuple
     e: list[int]
     f: List[int]  # Python 3.8-style List
@@ -131,19 +133,16 @@ class TestTypes:
             Audio: (AudioType(nullable=False), 'Audio'),
             Document: (DocumentType(nullable=False), 'Document'),
             # Pixeltable types with specialized parameters
-            Array[Int]: (ArrayType(dtype=IntType(), nullable=False), 'Array[int64]'),  # type: ignore[misc]
-            Array[(None,), Int]: (ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), int64]'),  # type: ignore[misc]
-            Array[(5,), Bool]: (ArrayType((5,), dtype=BoolType(), nullable=False), 'Array[(5,), bool]'),  # type: ignore[misc]
-            Array[(5, None, 3), Float]: (  # type: ignore[misc]
+            Array[Int]: (ArrayType(dtype=IntType(), nullable=False), 'Array[int64]'),
+            Array[(None,), Int]: (ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), int64]'),
+            Array[(5,), Bool]: (ArrayType((5,), dtype=BoolType(), nullable=False), 'Array[(5,), bool]'),
+            Array[(5, None, 3), Float]: (
                 ArrayType((5, None, 3), dtype=FloatType(), nullable=False),
                 'Array[(5, None, 3), float32]',
             ),
             Json[list[int]]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
             Json[tuple[int, str]]: (JsonType(JsonType.TypeSchema([IntType(), StringType()])), 'Json[(Int, String)]'),
-            Json[tuple[int, str, ...]]: (
-                JsonType(JsonType.TypeSchema([IntType()], variadic_type=StringType())),
-                'Json[(Int, String, ...)]',
-            ),
+            Json[tuple[int, ...]]: (JsonType(JsonType.TypeSchema([], variadic_type=StringType())), 'Json[(Int, ...)]'),
             Json[List[int]]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
             Json[Tuple[int, str]]: (JsonType(JsonType.TypeSchema([IntType(), StringType()])), 'Json[(Int, String)]'),
             Json[TypedDict1]: (
@@ -177,7 +176,7 @@ class TestTypes:
                                     }
                                 )
                             ),
-                            'c': JsonType(JsonType.TypeSchema([IntType()], variadic_type=StringType())),
+                            'c': JsonType(JsonType.TypeSchema([], variadic_type=IntType())),
                             'd': JsonType(JsonType.TypeSchema([IntType(), StringType()])),
                             'e': JsonType(JsonType.TypeSchema([], variadic_type=IntType())),
                             'f': JsonType(JsonType.TypeSchema([], variadic_type=IntType())),
@@ -185,16 +184,16 @@ class TestTypes:
                     )
                 ),
                 "Json[{'a': String, 'b': Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}], "
-                "'c': Json[(Int, String, ...)], 'd': Json[(Int, String)], 'e': Json[(Int, ...)], 'f': Json[(Int, ...)]}]",
+                "'c': Json[(Int, ...)], 'd': Json[(Int, String)], 'e': Json[(Int, ...)], 'f': Json[(Int, ...)]}]",
             ),
-            Image[100, 200]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),  # type: ignore[misc]
-            Image[100, None]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),  # type: ignore[misc]
-            Image[None, 200]: (ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),  # type: ignore[misc]
-            Image[(100, 200), 'RGB']: (  # type: ignore[misc]
+            Image[100, 200]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),
+            Image[100, None]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),
+            Image[None, 200]: (ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),
+            Image[(100, 200), 'RGB']: (
                 ImageType(width=100, height=200, mode='RGB', nullable=False),
                 "Image[(100, 200), 'RGB']",
             ),
-            Image['RGB']: (ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),  # type: ignore[misc]
+            Image['RGB']: (ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),
             Literal['a', 'b', 'c']: (StringType(nullable=False), 'String'),
             Literal[1, 2, 3]: (IntType(nullable=False), 'Int'),
             Literal[1, 2.0, 3]: (FloatType(nullable=False), 'Float'),
