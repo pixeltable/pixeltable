@@ -843,7 +843,13 @@ class JsonType(ColumnType):
 
             if isinstance(type_arg, type) and issubclass(type_arg, pydantic.BaseModel):
                 # It's a subclass of `pydantic.BaseModel`.
-                raise NotImplementedError('Pydantic BaseModel support not yet implemented')
+                fields: dict[str, ColumnType] = {}
+                optional_keys: list[str] = []
+                for name, info in type_arg.model_fields.items():
+                    fields[name] = cls.from_python_type(info.annotation)
+                    if not info.is_required():
+                        optional_keys.append(name)
+                return JsonType.TypeSchema(content=fields, optional_keys=optional_keys)
 
             if origin is list and len(subscripts) == 1:
                 # It's a type hint of the form `list[T]`; the validated schema is a variadic tuple.
