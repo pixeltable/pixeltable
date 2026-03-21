@@ -349,11 +349,11 @@ class ColumnType:
             if isinstance(origin, type):
                 if issubclass(origin, _PxtType):
                     # We always allow Pixeltable types
-                    return t.as_col_type(nullable=nullable_default)
+                    return origin.as_col_type(nullable=nullable_default)
 
-                if issubclass(origin, pydantic.BaseModel) or getattr(t, '__orig_bases__', None) == (typing.TypedDict,):
+                if issubclass(origin, pydantic.BaseModel) or getattr(origin, '__orig_bases__', None) == (typing.TypedDict,):
                     # We always allow Pydantic models and TypedDicts
-                    return JsonType(type_schema=JsonType._validate_type_schema(t), nullable=nullable_default)
+                    return JsonType(type_schema=JsonType._validate_type_schema_strict(origin), nullable=nullable_default)
 
             # Everything else is allowed only if allow_builtin_types=True
             if allow_builtin_types:
@@ -388,7 +388,7 @@ class ColumnType:
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
                 if isinstance(origin, type) and issubclass(origin, (Sequence, Mapping, pydantic.BaseModel)):
-                    return JsonType(type_schema=JsonType._validate_type_schema(t), nullable=nullable_default)
+                    return JsonType(type_schema=JsonType._validate_type_schema_strict(t), nullable=nullable_default)
         return None
 
     @classmethod
@@ -879,13 +879,13 @@ class JsonType(ColumnType):
 
         if isinstance(type_arg, dict):
             # Convenience dictionary; all keys are assumed to be required.
-            content: dict[str, Any] = {}
+            content: dict[str, ColumnType] = {}
             for key, value in type_arg.items():
                 if not isinstance(key, str):
                     raise excs.Error(
                         f'Invalid type schema: expected keys of type `str`; got type `{type(key).__name__}`'
                     )
-                content[key] = cls._validate_type_schema(value)
+                content[key] = cls.from_python_type_or_conv(value)
             return JsonType.TypeSchema(content)
 
         if isinstance(type_arg, list):
@@ -894,7 +894,7 @@ class JsonType(ColumnType):
                 raise excs.Error(
                     f'Invalid type schema: expected a single-item list; got a list of length {len(type_arg)}'
                 )
-            return JsonType.TypeSchema(content=[], variadic_type=cls._validate_type_schema(type_arg[0]))
+            return JsonType.TypeSchema(content=[], variadic_type=cls.from_python_type_or_conv(type_arg[0]))
 
         if isinstance(type_arg, tuple):
             # Convenience tuple. We allow ..., but only in last position.
@@ -909,12 +909,24 @@ class JsonType(ColumnType):
                 raise excs.Error('Invalid type schema: `...` allowed only in last position')
 
             return JsonType.TypeSchema(
-                content=[cls._validate_type_schema(item) for item in type_arg],
-                variadic_type=cls.from_python_type(variadic_type),
+                content=[cls.from_python_type_or_conv(item) for item in type_arg],
+                variadic_type=cls.from_python_type_or_conv(variadic_type),
             )
 
         # Anything else: Convert it to a ColumnType instance in the usual fashion.
         return cls.from_python_type(type_arg)
+
+    @classmethod
+    def _validate_type_schema_strict(cls, type_arg: Any) -> TypeSchema | None:
+        """
+        Strict version of _validate_type_schema: requires that the return value be a TypeSchema instance
+        (not a base type such as String)
+        """
+        type_schema = JsonType._validate_type_schema(type_arg)
+        if isinstance(type_schema, ColumnType):
+            # ColumnTypes can appear recursively inside JsonType schemas, but not directly as the type argument
+            raise excs.Error(f'Invalid type schema: expected a JSON type schema; got `{type_schema}`')
+        return type_schema
 
     @classmethod
     def from_python_type(cls, t: Any) -> ColumnType:
@@ -931,6 +943,18 @@ class JsonType(ColumnType):
                 f'Invalid type schema: received Python type `{name}`, which does not represent a valid Pixeltable type'
             )
         return result
+
+    @classmethod
+    def from_python_type_or_conv(cls, t: Any) -> ColumnType:
+        """
+        Accepts *either* a Python type *or* a convenience structure (dict/tuple/list)
+        """
+        if isinstance(t, (dict, list, tuple)):
+            type_schema = cls._validate_type_schema(t)
+            assert isinstance(type_schema, JsonType.TypeSchema)
+            return JsonType(type_schema=type_schema)
+        else:
+            return cls.from_python_type(t)
 
     def copy(self, nullable: bool) -> ColumnType:
         return JsonType(type_schema=self.type_schema, nullable=nullable)
@@ -1687,11 +1711,7 @@ class Json(_PxtType):
         """
         `item` (the type subscript) must be a `dict` representing a valid JSON Schema.
         """
-        type_schema = JsonType._validate_type_schema(item)
-        if isinstance(type_schema, ColumnType):
-            # ColumnTypes can appear recursively inside JsonType schemas, but not directly as the type argument
-            raise excs.Error(f'Invalid type schema: expected a JSON type schema; got `{type_schema}`')
-        return typing.Annotated[Any, JsonType(type_schema=type_schema, nullable=False)]
+        return typing.Annotated[Any, JsonType(type_schema=JsonType._validate_type_schema_strict(item), nullable=False)]
 
     @classmethod
     def as_col_type(cls, nullable: bool) -> ColumnType:
