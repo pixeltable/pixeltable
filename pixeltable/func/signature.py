@@ -191,7 +191,7 @@ class Signature:
             # non-nullable parameters can still accept nullable arguments (since in that event, FunctionCall.eval()
             # detects the Nones and skips evaluation).
             if not (
-                param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True)
+                param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True, strict_json=False)
                 # TODO: this is a hack to allow JSON columns to be passed to functions that accept scalar
                 # types. It's necessary to avoid littering notebooks with `apply(str)` calls or equivalent.
                 # (Previously, this wasn't necessary because `is_supertype_of()` was improperly implemented.)

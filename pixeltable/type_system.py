@@ -193,14 +193,18 @@ class ColumnType:
     def __hash__(self) -> int:
         return hash((self._type, self.nullable))
 
-    def is_supertype_of(self, other: ColumnType, ignore_nullable: bool = False) -> bool:
+    def is_supertype_of(self, other: ColumnType, ignore_nullable: bool = False, strict_json: bool = True) -> bool:
+        self_ = self
+        if not strict_json and self.is_json_type():
+            # strict_json is turned off; erase the type schema
+            self_ = JsonType(nullable=self_.nullable)
         if ignore_nullable:
-            supertype = self.supertype(other)
+            supertype = self_.supertype(other)
             if supertype is None:
                 return False
-            return supertype.matches(self)
+            return supertype.matches(self_)
         else:
-            return self.supertype(other) == self
+            return self_.supertype(other) == self_
 
     def matches(self, other: ColumnType) -> bool:
         """Two types match if they're equal, aside from nullability"""
