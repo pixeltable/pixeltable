@@ -350,13 +350,14 @@ class ColumnType:
                     # We always allow Pixeltable types
                     return origin.as_col_type(nullable=nullable_default)
 
-                if issubclass(origin, pydantic.BaseModel) or getattr(origin, '__orig_bases__', None) == (
-                    typing.TypedDict,
-                ):
-                    # We always allow Pydantic models and TypedDicts
-                    return JsonType(
-                        type_schema=JsonType._validate_type_schema_strict(origin), nullable=nullable_default
-                    )
+                if getattr(origin, '__orig_bases__', None) == (typing.TypedDict,):
+                    # We always allow TypedDicts
+                    assert isinstance(origin, type)
+                    return cls.__from_typed_dict(nullable_default, origin)
+
+                if issubclass(origin, pydantic.BaseModel):
+                    # We always allow Pydantic models
+                    return cls.__from_pydantic_model_type(nullable_default, origin)
 
             # Everything else is allowed only if allow_builtin_types=True
             if allow_builtin_types:
@@ -390,9 +391,72 @@ class ColumnType:
                     return BinaryType(nullable=nullable_default)
                 if t is PIL.Image.Image:
                     return ImageType(nullable=nullable_default)
-                if isinstance(origin, type) and issubclass(origin, (Sequence, Mapping, pydantic.BaseModel)):
-                    return JsonType(type_schema=JsonType._validate_type_schema_strict(t), nullable=nullable_default)
+                if origin is tuple:
+                    return cls.__from_tuple_type(nullable_default, type_args)
+                if isinstance(origin, type) and issubclass(origin, Sequence):
+                    return cls.__from_list_type(nullable_default, type_args)
+                if isinstance(origin, type) and issubclass(origin, Mapping):
+                    # dict or Mapping that's not a TypedDict subclass; treat it is untyped JSON.
+                    return JsonType(nullable=nullable_default)
+
         return None
+
+    @classmethod
+    def __from_tuple_type(cls, nullable_default: bool, subscripts: tuple) -> JsonType:
+        # It's a type hint of the form `tuple[T1, T2, T3]` or `tuple[T, ...]`.
+        # Technically this logic will also work for semi-variadic tuples (`tuple[T1, T2, ...]`) but Python
+        # doesn't allow that syntax.
+        if len(subscripts) == 0:
+            return JsonType(nullable=nullable_default)  # treat unparameterized tuple as untyped JSON
+        variadic_type = None
+        if len(subscripts) > 0 and subscripts[-1] is Ellipsis:
+            if len(subscripts) == 1:
+                raise excs.Error('Invalid type schema: tuple with only `...` is not allowed')
+            variadic_type = subscripts[-2]
+            subscripts = subscripts[:-2]
+
+        if Ellipsis in subscripts:
+            raise excs.Error('Invalid type schema: `...` allowed only in last position')
+
+        return JsonType(
+            JsonType.TypeSchema(
+                type_spec=[cls.from_python_type(subscript) for subscript in subscripts],
+                variadic_type=cls.from_python_type(variadic_type) if variadic_type is not None else None,
+            ),
+            nullable=nullable_default,
+        )
+
+    @classmethod
+    def __from_list_type(cls, nullable_default: bool, subscripts: tuple) -> JsonType:
+        if len(subscripts) == 0:
+            return JsonType(nullable=nullable_default)  # treat unparameterized list as untyped JSON
+        if len(subscripts) > 1:
+            raise excs.Error('Invalid type schema: `list` or `Sequence` must have at most one type argument')
+        return JsonType(
+            JsonType.TypeSchema(type_spec=[], variadic_type=cls.from_python_type(subscripts[0])),
+            nullable=nullable_default,
+        )
+
+    @classmethod
+    def __from_typed_dict(cls, nullable_default: bool, t: type) -> JsonType:
+        # It's a subclass of `TypedDict`.
+        return JsonType(
+            JsonType.TypeSchema(
+                type_spec={key: cls.from_python_type(value) for key, value in t.__annotations__.items()},
+                optional_keys=list(getattr(t, '__optional_keys__', [])),
+            ),
+            nullable=nullable_default,
+        )
+
+    @classmethod
+    def __from_pydantic_model_type(cls, nullable_default: bool, t: type[pydantic.BaseModel]) -> JsonType:
+        fields: dict[str, ColumnType] = {}
+        optional_keys: list[str] = []
+        for name, info in t.model_fields.items():
+            fields[name] = cls.from_python_type(info.annotation)
+            if not info.is_required():
+                optional_keys.append(name)
+        return JsonType(JsonType.TypeSchema(type_spec=fields, optional_keys=optional_keys), nullable=nullable_default)
 
     @classmethod
     def normalize_type(
@@ -819,145 +883,67 @@ class JsonType(ColumnType):
         self.type_schema = type_schema
 
     @classmethod
-    def _validate_type_schema(cls, type_arg: Any) -> TypeSchema | ColumnType | None:
+    def from_json_type_arg(cls, json_subscript: Any) -> JsonType:
         """
-        Checks that the given `type_arg` is a valid Pixeltable JSON type schema, i.e., one of the following:
+        Constructs a JsonType instance from a subscript, i.e., a value `T` that appears in a type hint of the form
+        `Json[T]`. It must be one of the following:
 
-        - A `TypedDict` subclass, all of whose fields are valid Pixeltable types
-        - A Pydantic `BaseModel` subclass, all of whose fields are valid Pixeltable types
-        - A type hint of the form `list[T]` or `tuple[T1, T2, ...]` (ellipsis optional), where all of the contained
-            types are valid Pixeltable types
-        - A "convenience" dictionary, list, or tuple
-
-        In all cases, returns a `TypeSchema` representing the validated schema.
+        - A Python type that represents a JsonType instance: either a `TypedDict` subclass, a `pydantic.BaseModel`
+            subclass, or a type hint of the form `list[T]` or `tuple[T1, T2, ...]` (ellipsis optional), where all of
+            the contained types are valid Pixeltable types. In all such cases, the interpretation is identical to
+            the same type appearing without the `Json[]` wrapper.
+        - A "convenience" list, tuple, or dictionary, directly specifying the type schema. The values/elements of
+            the list, tuple, or dictionary may themselves be either valid types or convenience structures.
         """
-        if type_arg is None:
-            return None
+        if json_subscript is None:
+            return JsonType()  # untyped JSON
 
-        origin = typing.get_origin(type_arg) or type_arg
-        if isinstance(origin, type):
-            subscripts = typing.get_args(type_arg)
-            if getattr(type_arg, '__orig_bases__', None) == (typing.TypedDict,):
-                # It's a subclass of `TypedDict`.
-                return JsonType.TypeSchema(
-                    content={key: cls.from_python_type_2(value) for key, value in type_arg.__annotations__.items()},
-                    optional_keys=list(getattr(type_arg, '__optional_keys__', [])),
+        if isinstance(json_subscript, list):
+            # Convenience list, such as `[Int]`, interpreted as a pure-variadic tuple.
+            if len(json_subscript) != 1:
+                raise excs.Error(
+                    f'Invalid type schema: expected a single-item list; got a list of length {len(json_subscript)}'
                 )
+            return JsonType(JsonType.TypeSchema(type_spec=[], variadic_type=cls.from_json_type_arg(json_subscript[0])))
 
-            if isinstance(type_arg, type) and issubclass(type_arg, pydantic.BaseModel):
-                # It's a subclass of `pydantic.BaseModel`.
-                fields: dict[str, ColumnType] = {}
-                optional_keys: list[str] = []
-                for name, info in type_arg.model_fields.items():
-                    fields[name] = cls.from_python_type_2(info.annotation)
-                    if not info.is_required():
-                        optional_keys.append(name)
-                return JsonType.TypeSchema(content=fields, optional_keys=optional_keys)
+        if isinstance(json_subscript, tuple):
+            # Convenience tuple, such as `(String, Int, Float)` or `(String, Int, ...)`. A single ellipsis is
+            # allowed only in last position.
+            variadic_type = None
+            if len(json_subscript) > 0 and json_subscript[-1] is Ellipsis:
+                if len(json_subscript) == 1:
+                    raise ValueError('Invalid type schema: tuple with only `...` is not allowed')
+                variadic_type = json_subscript[-2]
+                fixed_types = json_subscript[:-2]
 
-            if origin is list and len(subscripts) == 1:
-                # It's a type hint of the form `list[T]`; the validated schema is a variadic tuple.
-                return JsonType.TypeSchema(content=[], variadic_type=cls.from_python_type_2(subscripts[0]))
+            if Ellipsis in fixed_types:
+                raise excs.Error('Invalid type schema: `...` allowed only in last position')
 
-            if origin is tuple and len(subscripts) > 0:
-                # It's a type hint of the form `tuple[T1, T2, ...]`.
-                # We allow ... in a tuple, but only in last position.
-                variadic_type = None
-                if len(subscripts) > 0 and subscripts[-1] is Ellipsis:
-                    if len(subscripts) == 1:
-                        raise excs.Error('Invalid type schema: tuple with only `...` is not allowed')
-                    variadic_type = subscripts[-2]
-                    subscripts = subscripts[:-2]
-
-                if Ellipsis in subscripts:
-                    raise excs.Error('Invalid type schema: `...` allowed only in last position')
-
-                return JsonType.TypeSchema(
-                    content=[cls.from_python_type_2(subscript) for subscript in subscripts],
-                    variadic_type=cls.from_python_type_2(variadic_type) if variadic_type is not None else None,
+            return JsonType(
+                JsonType.TypeSchema(
+                    type_spec=[cls.from_json_type_arg(item) for item in fixed_types],
+                    variadic_type=cls.from_json_type_arg(variadic_type),
                 )
+            )
 
-            if issubclass(origin, (Sequence, Mapping)):
-                # It's an unsubscripted list, tuple, or dict, or a generic dictionary; treat it as untyped JSON.
-                return None
-
-        if isinstance(type_arg, dict):
+        if isinstance(json_subscript, dict):
             # Convenience dictionary; all keys are assumed to be required.
-            content: dict[str, ColumnType] = {}
-            for key, value in type_arg.items():
+            type_spec: dict[str, ColumnType] = {}
+            for key, value in json_subscript.items():
                 if not isinstance(key, str):
                     raise excs.Error(
                         f'Invalid type schema: expected keys of type `str`; got type `{type(key).__name__}`'
                     )
-                content[key] = cls.from_python_type_or_conv(value)
-            return JsonType.TypeSchema(content)
-
-        if isinstance(type_arg, list):
-            # Convenience list; we interpret this as a pure-variadic tuple
-            if len(type_arg) != 1:
-                raise excs.Error(
-                    f'Invalid type schema: expected a single-item list; got a list of length {len(type_arg)}'
-                )
-            return JsonType.TypeSchema(content=[], variadic_type=cls.from_python_type_or_conv(type_arg[0]))
-
-        if isinstance(type_arg, tuple):
-            # Convenience tuple. We allow ..., but only in last position.
-            variadic_type = None
-            if len(type_arg) > 0 and type_arg[-1] is Ellipsis:
-                if len(type_arg) == 1:
-                    raise ValueError('Invalid type schema: tuple with only `...` is not allowed')
-                variadic_type = type_arg[-2]
-                type_arg = type_arg[:-2]
-
-            if Ellipsis in type_arg:
-                raise excs.Error('Invalid type schema: `...` allowed only in last position')
-
-            return JsonType.TypeSchema(
-                content=[cls.from_python_type_or_conv(item) for item in type_arg],
-                variadic_type=cls.from_python_type_or_conv(variadic_type),
-            )
+                type_spec[key] = cls.from_json_type_arg(value)
+            return JsonType(JsonType.TypeSchema(type_spec))
 
         # Anything else: Convert it to a ColumnType instance in the usual fashion.
-        return cls.from_python_type_2(type_arg)
-
-    @classmethod
-    def _validate_type_schema_strict(cls, type_arg: Any) -> TypeSchema | None:
-        """
-        Strict version of _validate_type_schema: requires that the return value be a TypeSchema instance
-        (not a base type such as String)
-        """
-        type_schema = JsonType._validate_type_schema(type_arg)
-        if isinstance(type_schema, ColumnType):
-            # ColumnTypes can appear recursively inside JsonType schemas, but not directly as the type argument
-            raise excs.Error(f'Invalid type schema: expected a JSON type schema; got `{type_schema}`')
-        return type_schema
-
-    @classmethod
-    def from_python_type_2(cls, t: Any) -> ColumnType:
-        if t is Any:
-            return JsonType()
-        if not isinstance(t, (type, _GenericAlias, types.UnionType)):
+        result = ColumnType.from_python_type(json_subscript)
+        if not isinstance(result, JsonType):
             raise excs.Error(
-                f'Invalid type schema: expected a Python type; got a value of type `{type(t).__name__}`: {t!r}'
-            )
-        result = ColumnType.from_python_type(t)
-        if result is None:
-            name = getattr(t, '__name__', str(t))
-            raise excs.Error(
-                f'Invalid type schema: received Python type `{name}`, which does not represent a valid Pixeltable type'
+                f'Invalid type schema: type argument does not represent a valid JSON type: {json_subscript}'
             )
         return result
-
-    @classmethod
-    def from_python_type_or_conv(cls, t: Any) -> ColumnType:
-        """
-        Accepts *either* a Python type *or* a convenience structure (dict/tuple/list)
-        """
-        if isinstance(t, (dict, list, tuple)):
-            type_schema = cls._validate_type_schema(t)
-            assert isinstance(type_schema, JsonType.TypeSchema)
-            return JsonType(type_schema=type_schema)
-        else:
-            return cls.from_python_type_2(t)
 
     def copy(self, nullable: bool) -> ColumnType:
         return JsonType(type_schema=self.type_schema, nullable=nullable)
@@ -1011,10 +997,10 @@ class JsonType(ColumnType):
 
         type_schema: JsonType.TypeSchema
         if isinstance(val, (list, tuple)):
-            type_schema = JsonType.TypeSchema(content=[cls.infer_literal_type(item) for item in val])
+            type_schema = JsonType.TypeSchema(type_spec=[cls.infer_literal_type(item) for item in val])
         else:
             type_schema = JsonType.TypeSchema(
-                content={key: cls.infer_literal_type(value) for key, value in val.items()}
+                type_spec={key: cls.infer_literal_type(value) for key, value in val.items()}
             )
 
         return JsonType(type_schema, nullable)
@@ -1070,7 +1056,7 @@ class JsonType(ColumnType):
         if a is None or b is None:
             return None
 
-        if isinstance(a.content, list) and isinstance(b.content, list):
+        if isinstance(a.type_spec, list) and isinstance(b.type_spec, list):
             variadic_type: ColumnType | None = None
             if a.variadic_type is not None:
                 variadic_type = a.variadic_type
@@ -1082,7 +1068,7 @@ class JsonType(ColumnType):
                 variadic_type = b.variadic_type
 
             joined_list: list[ColumnType] = []
-            for item_a, item_b in itertools.zip_longest(a.content, b.content):
+            for item_a, item_b in itertools.zip_longest(a.type_spec, b.type_spec):
                 if item_a is None:
                     assert isinstance(item_b, ColumnType)
                     # We're past the end of a's type args. The supertype will still be valid as long as the type of
@@ -1109,14 +1095,14 @@ class JsonType(ColumnType):
                         return None  # incompatible types in this position
                     joined_list.append(item_supertype)
 
-            return JsonType.TypeSchema(content=joined_list, variadic_type=variadic_type)
+            return JsonType.TypeSchema(type_spec=joined_list, variadic_type=variadic_type)
 
-        if isinstance(a.content, dict) and isinstance(b.content, dict):
+        if isinstance(a.type_spec, dict) and isinstance(b.type_spec, dict):
             joined_dict: dict[str, ColumnType] = {}
             optional_keys: list[str] = []
-            for key, item_a in a.content.items():
-                if key in b.content:
-                    item_supertype = item_a.supertype(b.content[key])
+            for key, item_a in a.type_spec.items():
+                if key in b.type_spec:
+                    item_supertype = item_a.supertype(b.type_spec[key])
                     if item_supertype is None:
                         return None  # incompatible types for this key
                     else:
@@ -1128,12 +1114,12 @@ class JsonType(ColumnType):
                     joined_dict[key] = item_a
                     # key is only in a, so it's optional in the supertype, regardless of its status in a
                     optional_keys.append(key)
-            for key, item_b in b.content.items():
-                if key not in a.content:
+            for key, item_b in b.type_spec.items():
+                if key not in a.type_spec:
                     joined_dict[key] = item_b
                     optional_keys.append(key)
 
-            return JsonType.TypeSchema(content=joined_dict, optional_keys=optional_keys)
+            return JsonType.TypeSchema(type_spec=joined_dict, optional_keys=optional_keys)
 
         return None
 
@@ -1145,7 +1131,7 @@ class JsonType(ColumnType):
 
     @dataclasses.dataclass(frozen=True)
     class TypeSchema:
-        content: list[ColumnType] | dict[str, ColumnType]
+        type_spec: list[ColumnType] | dict[str, ColumnType]
         variadic_type: ColumnType | None = None
         optional_keys: list[str] = dataclasses.field(default_factory=list)
 
@@ -1153,43 +1139,47 @@ class JsonType(ColumnType):
             assert self.variadic_type is None or isinstance(self.variadic_type, ColumnType), self.variadic_type
 
         def validate_literal(self, val: Any) -> None:
-            if isinstance(self.content, list):
+            if isinstance(self.type_spec, list):
                 if not isinstance(val, list):
                     raise TypeError(f'Expected a list; got `{val.__class__.__name__}`: {val!r}')
-                if len(val) < len(self.content):
+                if len(val) < len(self.type_spec):
                     qualifier = 'exactly' if self.variadic_type is None else 'at least'
-                    raise TypeError(f'Too few items in list: expected {qualifier} {len(self.content)}; got {len(val)}')
+                    raise TypeError(
+                        f'Too few items in list: expected {qualifier} {len(self.type_spec)}; got {len(val)}'
+                    )
                 for i, item in enumerate(val):
-                    if i < len(self.content):
-                        expected_type = self.content[i]
+                    if i < len(self.type_spec):
+                        expected_type = self.type_spec[i]
                     elif self.variadic_type is not None:
                         expected_type = self.variadic_type
                     else:
-                        raise TypeError(f'Too many items in list: expected exactly {len(self.content)}; got {len(val)}')
+                        raise TypeError(
+                            f'Too many items in list: expected exactly {len(self.type_spec)}; got {len(val)}'
+                        )
                     expected_type.validate_literal(item)
             else:
                 if not isinstance(val, dict):
                     raise TypeError(f'Expected a dict; got `{val.__class__.__name__}`: {val!r}')
-                for key, expected_type in self.content.items():
+                for key, expected_type in self.type_spec.items():
                     if key in val:
                         expected_type.validate_literal(val[key])
                     elif key not in self.optional_keys:
                         raise TypeError(f'Missing required key: {key!r}')
                 for key in val:
-                    if key not in self.content:
+                    if key not in self.type_spec:
                         raise TypeError(f'Unexpected key: {key}')
 
         def to_json_schema(self) -> dict[str, Any]:
-            if isinstance(self.content, list):
-                prefix_items_schema = [t.to_json_schema() for t in self.content]
+            if isinstance(self.type_spec, list):
+                prefix_items_schema = [t.to_json_schema() for t in self.type_spec]
                 if self.variadic_type is None:
                     return {'type': 'array', 'prefixItems': prefix_items_schema, 'items': False}
                 else:
                     items_schema = self.variadic_type.to_json_schema()
                     return {'type': 'array', 'prefixItems': prefix_items_schema, 'items': items_schema}
             else:
-                properties = {k: t.to_json_schema() for k, t in self.content.items()}
-                required = [k for k in self.content if k not in self.optional_keys]
+                properties = {k: t.to_json_schema() for k, t in self.type_spec.items()}
+                required = [k for k in self.type_spec if k not in self.optional_keys]
                 schema: dict[str, Any] = {'type': 'object', 'properties': properties, 'additionalProperties': False}
                 if len(required) > 0:
                     schema['required'] = required
@@ -1198,53 +1188,55 @@ class JsonType(ColumnType):
         def __eq__(self, other: object) -> bool:
             return (
                 isinstance(other, JsonType.TypeSchema)
-                and self.content == other.content
+                and self.type_spec == other.type_spec
                 and self.variadic_type == other.variadic_type
                 and set(self.optional_keys) == set(other.optional_keys)
             )
 
         def __hash__(self) -> int:
-            content_hash = (
-                hash(tuple(self.content)) if isinstance(self.content, list) else hash(frozenset(self.content.items()))
+            type_spec_hash = (
+                hash(tuple(self.type_spec))
+                if isinstance(self.type_spec, list)
+                else hash(frozenset(self.type_spec.items()))
             )
-            return hash((content_hash, self.variadic_type, frozenset(self.optional_keys)))
+            return hash((type_spec_hash, self.variadic_type, frozenset(self.optional_keys)))
 
         def __repr__(self) -> str:
-            if isinstance(self.content, list):
-                reprs = [repr(t) for t in self.content]
+            if isinstance(self.type_spec, list):
+                reprs = [repr(t) for t in self.type_spec]
                 if self.variadic_type is not None:
                     reprs.append(f'{self.variadic_type!r}, ...')
                 return f'({", ".join(reprs)})'
             else:
-                r = repr(self.content)
+                r = repr(self.type_spec)
                 if len(self.optional_keys) > 0:
                     r += f', optional_keys={self.optional_keys}'
                 return r
 
         def as_dict(self) -> dict[str, Any]:
-            content_d: list | dict
-            if isinstance(self.content, list):
-                content_d = [t.as_dict() for t in self.content]
+            type_spec_d: list | dict
+            if isinstance(self.type_spec, list):
+                type_spec_d = [t.as_dict() for t in self.type_spec]
             else:
-                content_d = {k: t.as_dict() for k, t in self.content.items()}
+                type_spec_d = {k: t.as_dict() for k, t in self.type_spec.items()}
             return {
-                'content': content_d,
+                'type_spec': type_spec_d,
                 'variadic_type': self.variadic_type.as_dict() if self.variadic_type is not None else None,
                 'optional_keys': self.optional_keys,
             }
 
         @classmethod
         def from_dict(cls, d: dict[str, Any]) -> JsonType.TypeSchema:
-            content_d = d['content']
-            content: list | dict
-            if isinstance(content_d, list):
-                content = [ColumnType.from_dict(t) for t in content_d]
+            type_spec_d = d['type_spec']
+            type_spec: list | dict
+            if isinstance(type_spec_d, list):
+                type_spec = [ColumnType.from_dict(t) for t in type_spec_d]
             else:
-                assert isinstance(content_d, dict)
-                content = {k: ColumnType.from_dict(t) for k, t in content_d.items()}
+                assert isinstance(type_spec_d, dict)
+                type_spec = {k: ColumnType.from_dict(t) for k, t in type_spec_d.items()}
             variadic_type_d = d['variadic_type']
             return cls(
-                content=content,
+                type_spec=type_spec,
                 variadic_type=ColumnType.from_dict(variadic_type_d) if variadic_type_d is not None else None,
                 optional_keys=d['optional_keys'],
             )
@@ -1716,7 +1708,7 @@ class Json(_PxtType):
         """
         `item` (the type subscript) must be a `dict` representing a valid JSON Schema.
         """
-        return typing.Annotated[Any, JsonType(type_schema=JsonType._validate_type_schema_strict(item), nullable=False)]
+        return typing.Annotated[Any, JsonType.from_json_type_arg(item)]
 
     @classmethod
     def as_col_type(cls, nullable: bool) -> ColumnType:

@@ -101,7 +101,7 @@ class InlineList(Expr):
     def __init__(self, elements: Iterable):
         exprs = [Expr.from_object(el) for el in elements]
 
-        type_schema = ts.JsonType.TypeSchema(content=[expr.col_type for expr in exprs])
+        type_schema = ts.JsonType.TypeSchema(type_spec=[expr.col_type for expr in exprs])
         super().__init__(ts.JsonType(type_schema))
         self.components.extend(exprs)
         self.id = self._create_id()
@@ -148,7 +148,7 @@ class InlineDict(Expr):
             self.keys.append(key)
             exprs.append(Expr.from_object(val))
 
-        type_schema = ts.JsonType.TypeSchema(content={key: expr.col_type for key, expr in zip(self.keys, exprs)})
+        type_schema = ts.JsonType.TypeSchema(type_spec={key: expr.col_type for key, expr in zip(self.keys, exprs)})
         super().__init__(ts.JsonType(type_schema))
         self.components.extend(exprs)
         self.id = self._create_id()
