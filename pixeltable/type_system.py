@@ -898,13 +898,29 @@ class JsonType(ColumnType):
         if json_subscript is None:
             return JsonType()  # untyped JSON
 
+        result = cls.from_json_type_arg_r(json_subscript)
+        if not isinstance(result, JsonType):
+            raise excs.Error(
+                f'Invalid type schema: type argument does not represent a valid JSON type: {json_subscript}'
+            )
+        return result
+
+    @classmethod
+    def from_json_type_arg_r(cls, json_subscript: Any) -> ColumnType:
+        """
+        Recursive helper for `from_json_type_arg`. The primary difference is that `from_json_type_arg_r` may return
+        types other than `JsonType`: they may appear nested inside a `Json[]` type argument, but not at top level.
+        (To appreciate the difference: `Json[{'a': int}]` is valid, but `Json[int]` is not.)
+        """
         if isinstance(json_subscript, list):
             # Convenience list, such as `[Int]`, interpreted as a pure-variadic tuple.
             if len(json_subscript) != 1:
                 raise excs.Error(
                     f'Invalid type schema: expected a single-item list; got a list of length {len(json_subscript)}'
                 )
-            return JsonType(JsonType.TypeSchema(type_spec=[], variadic_type=cls.from_json_type_arg(json_subscript[0])))
+            return JsonType(
+                JsonType.TypeSchema(type_spec=[], variadic_type=cls.from_json_type_arg_r(json_subscript[0]))
+            )
 
         if isinstance(json_subscript, tuple):
             # Convenience tuple, such as `(String, Int, Float)` or `(String, Int, ...)`. A single ellipsis is
@@ -921,8 +937,8 @@ class JsonType(ColumnType):
 
             return JsonType(
                 JsonType.TypeSchema(
-                    type_spec=[cls.from_json_type_arg(item) for item in fixed_types],
-                    variadic_type=cls.from_json_type_arg(variadic_type),
+                    type_spec=[cls.from_json_type_arg_r(item) for item in fixed_types],
+                    variadic_type=cls.from_json_type_arg_r(variadic_type),
                 )
             )
 
@@ -934,16 +950,11 @@ class JsonType(ColumnType):
                     raise excs.Error(
                         f'Invalid type schema: expected keys of type `str`; got type `{type(key).__name__}`'
                     )
-                type_spec[key] = cls.from_json_type_arg(value)
+                type_spec[key] = cls.from_json_type_arg_r(value)
             return JsonType(JsonType.TypeSchema(type_spec))
 
         # Anything else: Convert it to a ColumnType instance in the usual fashion.
-        result = ColumnType.from_python_type(json_subscript)
-        if not isinstance(result, JsonType):
-            raise excs.Error(
-                f'Invalid type schema: type argument does not represent a valid JSON type: {json_subscript}'
-            )
-        return result
+        return ColumnType.from_python_type(json_subscript)
 
     def copy(self, nullable: bool) -> ColumnType:
         return JsonType(type_schema=self.type_schema, nullable=nullable)

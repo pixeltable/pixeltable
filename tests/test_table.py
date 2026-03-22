@@ -826,7 +826,7 @@ class TestTable:
         # nested model with field that's not json-convertible
         with pytest.raises(
             pxt.Error,
-            match=r'Invalid type schema: received Python type `set`, which does not represent a valid Pixeltable type',
+            match=r"Pydantic model `BadModel2` has field 'j' with nested model `N4`, which is not JSON-convertible",
         ):
 
             class N3(pydantic.BaseModel):
@@ -1302,7 +1302,7 @@ class TestTable:
                 'json_col_2': MySchemaOpt,
                 'json_col_3': pxt.Json[tuple[pxt.Int, pxt.String]],  # type: ignore[misc]
                 'json_col_4': pxt.Json[tuple[pxt.Int, ...]],  # type: ignore[misc]
-                'json_col_5': pxt.Json[pxt.Int, pxt.String, ...],  # type: ignore[misc]  # mixed tuple with variadic final part
+                'json_col_5': pxt.Json[(pxt.Int, pxt.String, ...)],  # type: ignore[misc]  # noqa: RUF031
             },
         )
         t.insert(json_col_1={'a': 'coconuts', 'b': 1, 'c': 3.0, 'd': True})

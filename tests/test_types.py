@@ -202,7 +202,8 @@ class TestTypes:
                         optional_keys=['d'],
                     )
                 ),
-                "Json[{'a': String, 'b': Json[(Int, ...)] | None, 'c': Json[(String, ...)], 'd': Int | None}, optional_keys=['d']]",
+                "Json[{'a': String, 'b': Json[(Int, ...)] | None, 'c': Json[(String, ...)], 'd': Int | None}, "
+                "optional_keys=['d']]",
             ),
             Image[100, 200]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),
             Image[100, None]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),
