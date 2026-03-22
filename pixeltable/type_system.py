@@ -402,38 +402,38 @@ class ColumnType:
         return None
 
     @classmethod
-    def __from_tuple_type(cls, nullable_default: bool, subscripts: tuple) -> JsonType:
+    def __from_tuple_type(cls, nullable_default: bool, type_args: tuple) -> JsonType:
         # It's a type hint of the form `tuple[T1, T2, T3]` or `tuple[T, ...]`.
         # Technically this logic will also work for semi-variadic tuples (`tuple[T1, T2, ...]`) but Python
         # doesn't allow that syntax.
-        if len(subscripts) == 0:
+        if len(type_args) == 0:
             return JsonType(nullable=nullable_default)  # treat unparameterized tuple as untyped JSON
         variadic_type = None
-        if len(subscripts) > 0 and subscripts[-1] is Ellipsis:
-            if len(subscripts) == 1:
+        if len(type_args) > 0 and type_args[-1] is Ellipsis:
+            if len(type_args) == 1:
                 raise excs.Error('Invalid type schema: tuple with only `...` is not allowed')
-            variadic_type = subscripts[-2]
-            subscripts = subscripts[:-2]
+            variadic_type = type_args[-2]
+            type_args = type_args[:-2]
 
-        if Ellipsis in subscripts:
+        if Ellipsis in type_args:
             raise excs.Error('Invalid type schema: `...` allowed only in last position')
 
         return JsonType(
             JsonType.TypeSchema(
-                type_spec=[cls.from_python_type(subscript) for subscript in subscripts],
+                type_spec=[cls.from_python_type(type_arg) for type_arg in type_args],
                 variadic_type=cls.from_python_type(variadic_type) if variadic_type is not None else None,
             ),
             nullable=nullable_default,
         )
 
     @classmethod
-    def __from_list_type(cls, nullable_default: bool, subscripts: tuple) -> JsonType:
-        if len(subscripts) == 0:
+    def __from_list_type(cls, nullable_default: bool, type_args: tuple) -> JsonType:
+        if len(type_args) == 0:
             return JsonType(nullable=nullable_default)  # treat unparameterized list as untyped JSON
-        if len(subscripts) > 1:
+        if len(type_args) > 1:
             raise excs.Error('Invalid type schema: `list` or `Sequence` must have at most one type argument')
         return JsonType(
-            JsonType.TypeSchema(type_spec=[], variadic_type=cls.from_python_type(subscripts[0])),
+            JsonType.TypeSchema(type_spec=[], variadic_type=cls.from_python_type(type_args[0])),
             nullable=nullable_default,
         )
 
@@ -883,9 +883,9 @@ class JsonType(ColumnType):
         self.type_schema = type_schema
 
     @classmethod
-    def from_json_type_arg(cls, json_subscript: Any) -> JsonType:
+    def from_json_type_arg(cls, json_type_arg: Any) -> JsonType:
         """
-        Constructs a JsonType instance from a subscript, i.e., a value `T` that appears in a type hint of the form
+        Constructs a JsonType instance from a type argument, i.e., a value `T` that appears in a type hint of the form
         `Json[T]`. It must be one of the following:
 
         - A Python type that represents a JsonType instance: either a `TypedDict` subclass, a `pydantic.BaseModel`
@@ -895,42 +895,40 @@ class JsonType(ColumnType):
         - A "convenience" list, tuple, or dictionary, directly specifying the type schema. The values/elements of
             the list, tuple, or dictionary may themselves be either valid types or convenience structures.
         """
-        if json_subscript is None:
+        if json_type_arg is None:
             return JsonType()  # untyped JSON
 
-        result = cls.from_json_type_arg_r(json_subscript)
+        result = cls.from_json_type_arg_r(json_type_arg)
         if not isinstance(result, JsonType):
             raise excs.Error(
-                f'Invalid type schema: type argument does not represent a valid JSON type: {json_subscript}'
+                f'Invalid type schema: type argument does not represent a valid JSON type: {json_type_arg}'
             )
         return result
 
     @classmethod
-    def from_json_type_arg_r(cls, json_subscript: Any) -> ColumnType:
+    def from_json_type_arg_r(cls, json_type_arg: Any) -> ColumnType:
         """
         Recursive helper for `from_json_type_arg`. The primary difference is that `from_json_type_arg_r` may return
         types other than `JsonType`: they may appear nested inside a `Json[]` type argument, but not at top level.
         (To appreciate the difference: `Json[{'a': int}]` is valid, but `Json[int]` is not.)
         """
-        if isinstance(json_subscript, list):
+        if isinstance(json_type_arg, list):
             # Convenience list, such as `[Int]`, interpreted as a pure-variadic tuple.
-            if len(json_subscript) != 1:
+            if len(json_type_arg) != 1:
                 raise excs.Error(
-                    f'Invalid type schema: expected a single-item list; got a list of length {len(json_subscript)}'
+                    f'Invalid type schema: expected a single-item list; got a list of length {len(json_type_arg)}'
                 )
-            return JsonType(
-                JsonType.TypeSchema(type_spec=[], variadic_type=cls.from_json_type_arg_r(json_subscript[0]))
-            )
+            return JsonType(JsonType.TypeSchema(type_spec=[], variadic_type=cls.from_json_type_arg_r(json_type_arg[0])))
 
-        if isinstance(json_subscript, tuple):
+        if isinstance(json_type_arg, tuple):
             # Convenience tuple, such as `(String, Int, Float)` or `(String, Int, ...)`. A single ellipsis is
             # allowed only in last position.
             variadic_type = None
-            if len(json_subscript) > 0 and json_subscript[-1] is Ellipsis:
-                if len(json_subscript) == 1:
+            if len(json_type_arg) > 0 and json_type_arg[-1] is Ellipsis:
+                if len(json_type_arg) == 1:
                     raise ValueError('Invalid type schema: tuple with only `...` is not allowed')
-                variadic_type = json_subscript[-2]
-                fixed_types = json_subscript[:-2]
+                variadic_type = json_type_arg[-2]
+                fixed_types = json_type_arg[:-2]
 
             if Ellipsis in fixed_types:
                 raise excs.Error('Invalid type schema: `...` allowed only in last position')
@@ -942,10 +940,10 @@ class JsonType(ColumnType):
                 )
             )
 
-        if isinstance(json_subscript, dict):
+        if isinstance(json_type_arg, dict):
             # Convenience dictionary; all keys are assumed to be required.
             type_spec: dict[str, ColumnType] = {}
-            for key, value in json_subscript.items():
+            for key, value in json_type_arg.items():
                 if not isinstance(key, str):
                     raise excs.Error(
                         f'Invalid type schema: expected keys of type `str`; got type `{type(key).__name__}`'
@@ -954,7 +952,7 @@ class JsonType(ColumnType):
             return JsonType(JsonType.TypeSchema(type_spec))
 
         # Anything else: Convert it to a ColumnType instance in the usual fashion.
-        return ColumnType.from_python_type(json_subscript)
+        return ColumnType.from_python_type(json_type_arg)
 
     def copy(self, nullable: bool) -> ColumnType:
         return JsonType(type_schema=self.type_schema, nullable=nullable)
