@@ -92,66 +92,66 @@ class TestTypes:
             assert ColumnType.infer_literal_type(val) == expected_type, val
 
     def test_from_python_type(self, init_env: None) -> None:
-        # Test cases: map of python_type to expected (pxt_type, str(pxt_type))
-        test_cases: dict[Any, tuple[ColumnType, str]] = {
+        # Test cases: (python_type, pxt_type, str(pxt_type))
+        test_cases: tuple[Any, ColumnType, str] = (
             # Builtin and standard types
-            str: (StringType(nullable=False), 'String'),
-            int: (IntType(nullable=False), 'Int'),
-            float: (FloatType(nullable=False), 'Float'),
-            bool: (BoolType(nullable=False), 'Bool'),
-            datetime.datetime: (TimestampType(nullable=False), 'Timestamp'),
-            datetime.date: (DateType(nullable=False), 'Date'),
-            uuid.UUID: (UUIDType(nullable=False), 'UUID'),
-            bytes: (BinaryType(nullable=False), 'Binary'),
-            list: (JsonType(nullable=False), 'Json'),
-            dict: (JsonType(nullable=False), 'Json'),
-            list[int]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType()), nullable=False), 'Json[(Int, ...)]'),
-            list[dict[str, int]]: (
+            (str, StringType(nullable=False), 'String'),
+            (int, IntType(nullable=False), 'Int'),
+            (float, FloatType(nullable=False), 'Float'),
+            (bool, BoolType(nullable=False), 'Bool'),
+            (datetime.datetime, TimestampType(nullable=False), 'Timestamp'),
+            (datetime.date, DateType(nullable=False), 'Date'),
+            (uuid.UUID, UUIDType(nullable=False), 'UUID'),
+            (bytes, BinaryType(nullable=False), 'Binary'),
+            (list, JsonType(nullable=False), 'Json'),
+            (dict, JsonType(nullable=False), 'Json'),
+            (list[int], JsonType(JsonType.TypeSchema([], variadic_type=IntType()), nullable=False), 'Json[(Int, ...)]'),
+            (list[dict[str, int]],
                 JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=False),
                 'Json[(Json, ...)]',
             ),
-            dict[int, str]: (JsonType(nullable=False), 'Json'),
-            dict[dict[str, int], list[int]]: (JsonType(nullable=False), 'Json'),
-            List: (JsonType(nullable=False), 'Json'),
-            Dict: (JsonType(nullable=False), 'Json'),
-            List[int]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType()), nullable=False), 'Json[(Int, ...)]'),
-            List[Dict[str, int]]: (
+            (dict[int, str], JsonType(nullable=False), 'Json'),
+            (dict[dict[str, int], list[int]], JsonType(nullable=False), 'Json'),
+            (List, JsonType(nullable=False), 'Json'),
+            (Dict, JsonType(nullable=False), 'Json'),
+            (List[int], JsonType(JsonType.TypeSchema([], variadic_type=IntType()), nullable=False), 'Json[(Int, ...)]'),
+            (List[Dict[str, int]],
                 JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=False),
                 'Json[(Json, ...)]',
             ),
-            Dict[int, str]: (JsonType(nullable=False), 'Json'),
-            PIL.Image.Image: (ImageType(nullable=False), 'Image'),
+            (Dict[int, str], JsonType(nullable=False), 'Json'),
+            (PIL.Image.Image, ImageType(nullable=False), 'Image'),
             # Pixeltable types
-            String: (StringType(nullable=False), 'String'),
-            Int: (IntType(nullable=False), 'Int'),
-            Float: (FloatType(nullable=False), 'Float'),
-            Bool: (BoolType(nullable=False), 'Bool'),
-            Timestamp: (TimestampType(nullable=False), 'Timestamp'),
-            Date: (DateType(nullable=False), 'Date'),
-            UUID: (UUIDType(nullable=False), 'UUID'),
-            Binary: (BinaryType(nullable=False), 'Binary'),
-            Array: (ArrayType(nullable=False), 'Array'),
-            Json: (JsonType(nullable=False), 'Json'),
-            Image: (ImageType(height=None, width=None, mode=None, nullable=False), 'Image'),
-            Video: (VideoType(nullable=False), 'Video'),
-            Audio: (AudioType(nullable=False), 'Audio'),
-            Document: (DocumentType(nullable=False), 'Document'),
+            (String, StringType(nullable=False), 'String'),
+            (Int, IntType(nullable=False), 'Int'),
+            (Float, FloatType(nullable=False), 'Float'),
+            (Bool, BoolType(nullable=False), 'Bool'),
+            (Timestamp, TimestampType(nullable=False), 'Timestamp'),
+            (Date, DateType(nullable=False), 'Date'),
+            (UUID, UUIDType(nullable=False), 'UUID'),
+            (Binary, BinaryType(nullable=False), 'Binary'),
+            (Array, ArrayType(nullable=False), 'Array'),
+            (Json, JsonType(nullable=False), 'Json'),
+            (Image, ImageType(height=None, width=None, mode=None, nullable=False), 'Image'),
+            (Video, VideoType(nullable=False), 'Video'),
+            (Audio, AudioType(nullable=False), 'Audio'),
+            (Document, DocumentType(nullable=False), 'Document'),
             # Pixeltable types with specialized parameters
-            Array[Int]: (ArrayType(dtype=IntType(), nullable=False), 'Array[int64]'),
-            Array[(None,), Int]: (ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), int64]'),
-            Array[(5,), Bool]: (ArrayType((5,), dtype=BoolType(), nullable=False), 'Array[(5,), bool]'),
-            Array[(5, None, 3), Float]: (
+            (Array[Int], ArrayType(dtype=IntType(), nullable=False), 'Array[int64]'),
+            (Array[(None,), Int], ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), int64]'),
+            (Array[(5,), Bool], ArrayType((5,), dtype=BoolType(), nullable=False), 'Array[(5,), bool]'),
+            (Array[(5, None, 3), Float],
                 ArrayType((5, None, 3), dtype=FloatType(), nullable=False),
                 'Array[(5, None, 3), float32]',
             ),
             # Json list or tuple
-            Json[list[int]]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
-            Json[tuple[int, str]]: (JsonType(JsonType.TypeSchema([IntType(), StringType()])), 'Json[(Int, String)]'),
-            Json[tuple[int, ...]]: (JsonType(JsonType.TypeSchema([], variadic_type=StringType())), 'Json[(Int, ...)]'),
-            Json[List[int]]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
-            Json[Tuple[int, str]]: (JsonType(JsonType.TypeSchema([IntType(), StringType()])), 'Json[(Int, String)]'),
+            (Json[list[int]], JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
+            (Json[tuple[int, str]], JsonType(JsonType.TypeSchema([IntType(), StringType()])), 'Json[(Int, String)]'),
+            (Json[tuple[int, ...]], JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
+            (Json[List[int]], JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
+            (Json[Tuple[int, str]], JsonType(JsonType.TypeSchema([IntType(), StringType()])), 'Json[(Int, String)]'),
             # Json TypedDict
-            Json[TypedDict1]: (
+            (Json[TypedDict1],
                 JsonType(
                     JsonType.TypeSchema(
                         {'a': StringType(), 'b': IntType(nullable=True), 'c': ArrayType((None,), dtype=FloatType())}
@@ -159,7 +159,7 @@ class TestTypes:
                 ),
                 "Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}]",
             ),
-            Json[TypedDict2]: (
+            (Json[TypedDict2],
                 JsonType(
                     JsonType.TypeSchema(
                         {'a': StringType(), 'b': IntType(nullable=True), 'c': ArrayType((None,), dtype=FloatType())},
@@ -168,7 +168,7 @@ class TestTypes:
                 ),
                 "Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}, optional_keys=['a', 'b', 'c']]",
             ),
-            Json[TypedDict3]: (
+            (Json[TypedDict3],
                 JsonType(
                     JsonType.TypeSchema(
                         {
@@ -193,7 +193,7 @@ class TestTypes:
                 "'c': Json[(Int, ...)], 'd': Json[(Int, String)], 'e': Json[(Int, ...)], 'f': Json[(Int, ...)]}]",
             ),
             # Json Pydantic Models
-            Json[Model1]: (
+            (Json[Model1],
                 JsonType(
                     JsonType.TypeSchema(
                         {
@@ -209,18 +209,18 @@ class TestTypes:
                 "optional_keys=['d']]",
             ),
             # Json "convenience structures"
-            Json[[int]]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
-            Json[(int,)]: (JsonType(JsonType.TypeSchema([IntType()])), 'Json[(Int,)]'),
-            Json[(int, str, float)]: (
+            (Json[[int]], JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
+            (Json[(int,)], JsonType(JsonType.TypeSchema([IntType()])), 'Json[(Int,)]'),
+            (Json[(int, str, float)],
                 JsonType(JsonType.TypeSchema([IntType(), StringType(), FloatType()])),
                 'Json[(Int, String, Float)]',
             ),
-            Json[(int, ...)]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
-            Json[(int, str, float, ...)]: (
+            (Json[(int, ...)], JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
+            (Json[(int, str, float, ...)],
                 JsonType(JsonType.TypeSchema([IntType(), StringType()], variadic_type=FloatType())),
                 'Json[(Int, String, Float, ...)]',
             ),
-            Json[{'a': int, 'b': str, 'c': [int], 'd': (int, str, ...), 'e': {'x': int, 'y': TypedDict1}}]: (
+            (Json[{'a': int, 'b': str, 'c': [int], 'd': (int, str, ...), 'e': {'x': int, 'y': TypedDict1}}],
                 JsonType(
                     JsonType.TypeSchema(
                         {
@@ -250,23 +250,25 @@ class TestTypes:
                 "Json[{'a': Int, 'b': String, 'c': Json[(Int, ...)], 'd': Json[(Int, String, ...)], "
                 "'e': Json[{'x': Int, 'y': Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}]}]}]",
             ),
-            Image[100, 200]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),
-            Image[100, None]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),
-            Image[None, 200]: (ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),
-            Image[(100, 200), 'RGB']: (
+            (Image[100, 200], ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),
+            (Image[100, None], ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),
+            (Image[None, 200], ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),
+            (Image[(100, 200), 'RGB'],
                 ImageType(width=100, height=200, mode='RGB', nullable=False),
                 "Image[(100, 200), 'RGB']",
             ),
-            Image['RGB']: (ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),
-            Literal['a', 'b', 'c']: (StringType(nullable=False), 'String'),
-            Literal[1, 2, 3]: (IntType(nullable=False), 'Int'),
-            Literal[1, 2.0, 3]: (FloatType(nullable=False), 'Float'),
-            Literal['a', 'b', None]: (StringType(nullable=True), 'String'),  # noqa: PYI061
-        }
-        for py_type, (pxt_type, string) in test_cases.items():
+            (Image['RGB'], ImageType(height=None, width=None, mode='RGB', nullable=False), "Image['RGB']"),
+            (Literal['a', 'b', 'c'], StringType(nullable=False), 'String'),
+            (Literal[1, 2, 3], IntType(nullable=False), 'Int'),
+            (Literal[1, 2.0, 3], FloatType(nullable=False), 'Float'),
+            (Literal['a', 'b', None], StringType(nullable=True), 'String'),  # noqa: PYI061
+        )
+        for py_type, pxt_type, string in test_cases:
             print(py_type)
             non_nullable_pxt_type = pxt_type.copy(nullable=False)
             nullable_pxt_type = pxt_type.copy(nullable=True)
+            assert non_nullable_pxt_type.matches(pxt_type)  # sanity check behavior of matches() and copy()
+            assert nullable_pxt_type.matches(pxt_type)
 
             assert ColumnType.from_python_type(py_type) == pxt_type
             assert ColumnType.from_python_type(Required[py_type]) == non_nullable_pxt_type  # type: ignore[valid-type]
