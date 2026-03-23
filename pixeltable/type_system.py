@@ -420,8 +420,8 @@ class ColumnType:
 
         return JsonType(
             JsonType.TypeSchema(
-                type_spec=[cls.from_python_type(type_arg) for type_arg in type_args],
-                variadic_type=cls.from_python_type(variadic_type) if variadic_type is not None else None,
+                type_spec=[cls.__from_python_type_or_exc(type_arg) for type_arg in type_args],
+                variadic_type=cls.__from_python_type_or_exc(variadic_type) if variadic_type is not None else None,
             ),
             nullable=nullable_default,
         )
@@ -432,18 +432,34 @@ class ColumnType:
             return JsonType(nullable=nullable_default)  # treat unparameterized list as untyped JSON
         if len(type_args) > 1:
             raise excs.Error('Invalid type schema: `list` or `Sequence` must have at most one type argument')
+        if type_args[0] is Any:
+            return JsonType(nullable=nullable_default)  # treat list[Any] as untyped JSON
         return JsonType(
-            JsonType.TypeSchema(type_spec=[], variadic_type=cls.from_python_type(type_args[0])),
+            JsonType.TypeSchema(type_spec=[], variadic_type=cls.__from_python_type_or_exc(type_args[0])),
             nullable=nullable_default,
         )
 
     @classmethod
+    def __from_python_type_or_exc(cls, t: type | _GenericAlias | None) -> ColumnType:
+        col_type = cls.from_python_type(t)
+        if col_type is None:
+            raise excs.Error(f'Python type found in type argument is not a valid Pixeltable type: {t.__name__}')
+        return col_type
+
+    @classmethod
     def __from_typed_dict(cls, nullable_default: bool, t: type) -> JsonType:
         # It's a subclass of `TypedDict`.
+        type_spec: dict[str, ColumnType] = {}
+        for key, value in t.__annotations__.items():
+            col_type = cls.from_python_type(value)
+            if col_type is None:
+                raise excs.Error(
+                    f'Field {key!r} in TypedDict `{t.__name__}` is not a valid Pixeltable type: {value!r}'
+                )
+            type_spec[key] = col_type
         return JsonType(
             JsonType.TypeSchema(
-                type_spec={key: cls.from_python_type(value) for key, value in t.__annotations__.items()},
-                optional_keys=list(getattr(t, '__optional_keys__', [])),
+                type_spec=type_spec, optional_keys=list(getattr(t, '__optional_keys__', [])),
             ),
             nullable=nullable_default,
         )
@@ -456,9 +472,10 @@ class ColumnType:
             col_type = cls.from_python_type(info.annotation)
             if col_type is None:
                 raise excs.Error(
-                    f'Field {name!r} in Pydantic model `{t.__name__}` is not a valid Pixeltable type: {info.annotation}'
+                    f'Field {name!r} in Pydantic model `{t.__name__}` '
+                    f'is not a valid Pixeltable type: {info.annotation!r}'
                 )
-            fields[name] = cls.from_python_type(info.annotation)
+            fields[name] = col_type
             if not info.is_required():
                 optional_keys.append(name)
         return JsonType(JsonType.TypeSchema(type_spec=fields, optional_keys=optional_keys), nullable=nullable_default)
@@ -905,7 +922,7 @@ class JsonType(ColumnType):
 
         result = cls.from_json_type_arg_r(json_type_arg)
         if not isinstance(result, JsonType):
-            raise excs.Error(
+            raise ValueError(
                 f'Invalid type schema: type argument does not represent a valid JSON type: {json_type_arg}'
             )
         return result
@@ -920,7 +937,7 @@ class JsonType(ColumnType):
         if isinstance(json_type_arg, list):
             # Convenience list, such as `[Int]`, interpreted as a pure-variadic tuple.
             if len(json_type_arg) != 1:
-                raise excs.Error(
+                raise ValueError(
                     f'Invalid type schema: expected a single-item list; got a list of length {len(json_type_arg)}'
                 )
             return JsonType(JsonType.TypeSchema(type_spec=[], variadic_type=cls.from_json_type_arg_r(json_type_arg[0])))
@@ -939,12 +956,12 @@ class JsonType(ColumnType):
                 fixed_types = json_type_arg
 
             if Ellipsis in fixed_types:
-                raise excs.Error('Invalid type schema: `...` allowed only in last position')
+                raise ValueError('Invalid type schema: `...` allowed only in last position')
 
             return JsonType(
                 JsonType.TypeSchema(
                     type_spec=[cls.from_json_type_arg_r(item) for item in fixed_types],
-                    variadic_type=cls.from_json_type_arg_r(variadic_type),
+                    variadic_type=cls.from_json_type_arg_r(variadic_type) if variadic_type is not None else None,
                 )
             )
 
@@ -953,14 +970,17 @@ class JsonType(ColumnType):
             type_spec: dict[str, ColumnType] = {}
             for key, value in json_type_arg.items():
                 if not isinstance(key, str):
-                    raise excs.Error(
+                    raise ValueError(
                         f'Invalid type schema: expected keys of type `str`; got type `{type(key).__name__}`'
                     )
                 type_spec[key] = cls.from_json_type_arg_r(value)
             return JsonType(JsonType.TypeSchema(type_spec))
 
         # Anything else: Convert it to a ColumnType instance in the usual fashion.
-        return ColumnType.from_python_type(json_type_arg)
+        result = ColumnType.from_python_type(json_type_arg)
+        if result is None:
+            raise ValueError(f'Invalid type schema: type argument contains an invalid Pixeltable type: {json_type_arg}')
+        return result
 
     def copy(self, nullable: bool) -> ColumnType:
         return JsonType(type_schema=self.type_schema, nullable=nullable)
@@ -1733,7 +1753,8 @@ class _PxtType:
 class Json(_PxtType):
     def __class_getitem__(cls, item: Any) -> _AnnotatedAlias:
         """
-        `item` (the type subscript) must be a `dict` representing a valid JSON Schema.
+        `item` (the type subscript) must be a valid Pixeltable JSON type specifier (see from_json_type_arg
+        docstring for details).
         """
         return typing.Annotated[Any, JsonType.from_json_type_arg(item)]
 

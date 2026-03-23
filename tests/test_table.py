@@ -826,7 +826,7 @@ class TestTable:
         # nested model with field that's not json-convertible
         with pytest.raises(
             pxt.Error,
-            match=r"Pydantic model `BadModel2` has field 'j' with nested model `N4`, which is not JSON-convertible",
+            match=r"Field 's' in Pydantic model `N3` is not a valid Pixeltable type: set\[int\]",
         ):
 
             class N3(pydantic.BaseModel):
