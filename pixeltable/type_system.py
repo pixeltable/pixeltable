@@ -453,6 +453,11 @@ class ColumnType:
         fields: dict[str, ColumnType] = {}
         optional_keys: list[str] = []
         for name, info in t.model_fields.items():
+            col_type = cls.from_python_type(info.annotation)
+            if col_type is None:
+                raise excs.Error(
+                    f'Field {name!r} in Pydantic model `{t.__name__}` is not a valid Pixeltable type: {info.annotation}'
+                )
             fields[name] = cls.from_python_type(info.annotation)
             if not info.is_required():
                 optional_keys.append(name)
@@ -929,6 +934,9 @@ class JsonType(ColumnType):
                     raise ValueError('Invalid type schema: tuple with only `...` is not allowed')
                 variadic_type = json_type_arg[-2]
                 fixed_types = json_type_arg[:-2]
+            else:
+                variadic_type = None
+                fixed_types = json_type_arg
 
             if Ellipsis in fixed_types:
                 raise excs.Error('Invalid type schema: `...` allowed only in last position')
@@ -1026,8 +1034,10 @@ class JsonType(ColumnType):
 
     @classmethod
     def __is_valid_json(cls, val: Any) -> bool:
-        if val is None or isinstance(val, (str, int, float, bool, np.ndarray, PIL.Image.Image, bytes)):
+        if val is None or isinstance(val, (str, int, float, bool, PIL.Image.Image, bytes)):
             return True
+        if isinstance(val, np.ndarray):
+            return val.dtype.type in ARRAY_SUPPORTED_NUMPY_DTYPES
         if isinstance(val, (list, tuple)):
             return all(cls.__is_valid_json(v) for v in val)
         if isinstance(val, dict):
@@ -1145,6 +1155,10 @@ class JsonType(ColumnType):
         optional_keys: list[str] = dataclasses.field(default_factory=list)
 
         def __post_init__(self) -> None:
+            if isinstance(self.type_spec, list):
+                assert all(col_type is not None for col_type in self.type_spec), self.type_spec
+            else:
+                assert all(col_type is not None for col_type in self.type_spec.values()), self.type_spec
             assert self.variadic_type is None or isinstance(self.variadic_type, ColumnType), self.variadic_type
 
         def validate_literal(self, val: Any) -> None:
@@ -1214,8 +1228,12 @@ class JsonType(ColumnType):
             if isinstance(self.type_spec, list):
                 reprs = [repr(t) for t in self.type_spec]
                 if self.variadic_type is not None:
-                    reprs.append(f'{self.variadic_type!r}, ...')
-                return f'({", ".join(reprs)})'
+                    reprs.append(repr(self.variadic_type))
+                    reprs.append('...')
+                type_spec_str = ', '.join(reprs)
+                if len(reprs) == 1:
+                    type_spec_str += ','  # add trailing comma for single-item tuples
+                return f'({type_spec_str})'
             else:
                 r = repr(self.type_spec)
                 if len(self.optional_keys) > 0:

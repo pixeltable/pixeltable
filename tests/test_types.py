@@ -144,11 +144,13 @@ class TestTypes:
                 ArrayType((5, None, 3), dtype=FloatType(), nullable=False),
                 'Array[(5, None, 3), float32]',
             ),
+            # Json list or tuple
             Json[list[int]]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
             Json[tuple[int, str]]: (JsonType(JsonType.TypeSchema([IntType(), StringType()])), 'Json[(Int, String)]'),
             Json[tuple[int, ...]]: (JsonType(JsonType.TypeSchema([], variadic_type=StringType())), 'Json[(Int, ...)]'),
             Json[List[int]]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
             Json[Tuple[int, str]]: (JsonType(JsonType.TypeSchema([IntType(), StringType()])), 'Json[(Int, String)]'),
+            # Json TypedDict
             Json[TypedDict1]: (
                 JsonType(
                     JsonType.TypeSchema(
@@ -190,6 +192,7 @@ class TestTypes:
                 "Json[{'a': String, 'b': Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}], "
                 "'c': Json[(Int, ...)], 'd': Json[(Int, String)], 'e': Json[(Int, ...)], 'f': Json[(Int, ...)]}]",
             ),
+            # Json Pydantic Models
             Json[Model1]: (
                 JsonType(
                     JsonType.TypeSchema(
@@ -204,6 +207,48 @@ class TestTypes:
                 ),
                 "Json[{'a': String, 'b': Json[(Int, ...)] | None, 'c': Json[(String, ...)], 'd': Int | None}, "
                 "optional_keys=['d']]",
+            ),
+            # Json "convenience structures"
+            Json[[int]]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
+            Json[(int,)]: (JsonType(JsonType.TypeSchema([IntType()])), 'Json[(Int,)]'),
+            Json[(int, str, float)]: (
+                JsonType(JsonType.TypeSchema([IntType(), StringType(), FloatType()])),
+                'Json[(Int, String, Float)]',
+            ),
+            Json[(int, ...)]: (JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
+            Json[(int, str, float, ...)]: (
+                JsonType(JsonType.TypeSchema([IntType(), StringType()], variadic_type=FloatType())),
+                'Json[(Int, String, Float, ...)]',
+            ),
+            Json[{'a': int, 'b': str, 'c': [int], 'd': (int, str, ...), 'e': {'x': int, 'y': TypedDict1}}]: (
+                JsonType(
+                    JsonType.TypeSchema(
+                        {
+                            'a': IntType(),
+                            'b': StringType(),
+                            'c': JsonType(JsonType.TypeSchema([], variadic_type=IntType())),
+                            'd': JsonType(JsonType.TypeSchema([IntType()], variadic_type=StringType())),
+                            'e': JsonType(
+                                JsonType.TypeSchema(
+                                    {
+                                        'x': IntType(),
+                                        'y': JsonType(
+                                            JsonType.TypeSchema(
+                                                {
+                                                    'a': StringType(),
+                                                    'b': IntType(nullable=True),
+                                                    'c': ArrayType((None,), dtype=FloatType()),
+                                                }
+                                            )
+                                        ),
+                                    }
+                                )
+                            ),
+                        }
+                    )
+                ),
+                "Json[{'a': Int, 'b': String, 'c': Json[(Int, ...)], 'd': Json[(Int, String, ...)], "
+                "'e': Json[{'x': Int, 'y': Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}]}]}]",
             ),
             Image[100, 200]: (ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),
             Image[100, None]: (ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),
