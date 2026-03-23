@@ -9,6 +9,7 @@ from uuid import UUID
 import more_itertools
 import psycopg
 import sqlalchemy as sql
+from sqlalchemy.engine.interfaces import ReflectedColumn
 
 from pixeltable import catalog, exceptions as excs
 from pixeltable.catalog.update_status import RowCountStats
@@ -84,24 +85,21 @@ class StoreBase:
     def _create_rowid_columns(self) -> list[sql.Column]:
         """Create and return rowid columns"""
 
-    def _create_system_columns(self) -> list[sql.Column]:
-        """Create and return system columns"""
+    def _create_system_columns(self, reflected_cols: list[ReflectedColumn]) -> list[sql.Column]:
+        """Create and return system columns. If the store table already exists, use its reflected columns."""
         rowid_cols: list[sql.Column]
-        if self._store_tbl_exists():
-            # derive our rowid Columns from the existing table, without having to access self.base.store_tbl:
-            # self.base may not exist anymore (both this table and our base got dropped in the same transaction, and
-            # the base was finalized before this table)
-            with get_runtime().begin_xact(for_write=False) as conn:
-                q = (
-                    f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r} '
-                    'ORDER BY ordinal_position'
-                )
-                col_names = [row[0] for row in conn.execute(sql.text(q)).fetchall()]
-                num_rowid_cols = col_names.index('v_min')
-                rowid_cols = [
-                    sql.Column(col_name, sql.BigInteger, nullable=False) for col_name in col_names[:num_rowid_cols]
-                ]
+        if reflected_cols:
+            # The table already exists in the store. Derive our rowid Columns from its columns, without having to
+            # access self.base.store_tbl: self.base may not exist anymore (both this table and our base got dropped in
+            # the same transaction, and the base was finalized before this table)
+            col_names = [c['name'] for c in reflected_cols]
+            num_rowid_cols = col_names.index('v_min')
+            assert num_rowid_cols > 0, col_names
+            rowid_cols = [
+                sql.Column(col_name, sql.BigInteger, nullable=False) for col_name in col_names[:num_rowid_cols]
+            ]
         else:
+            # The store table doesn't exist yet
             rowid_cols = self._create_rowid_columns()
         self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
         self.v_max_col = sql.Column(
@@ -114,16 +112,49 @@ class StoreBase:
         """Create self.sa_tbl from self.tbl_version."""
         if tbl_version is None:
             tbl_version = self.tbl_version.get()
-        system_cols = self._create_system_columns()
+
+        with get_runtime().begin_xact(for_write=False) as conn:
+            inspector = sql.inspect(conn)
+            store_tbl_exists = inspector.has_table(self._storage_name())
+
+            reflected_cols = []
+            if store_tbl_exists:
+                # Reflect the columns of the existing store table
+                reflected_cols = inspector.get_columns(self._storage_name())
+
+        system_cols = self._create_system_columns(reflected_cols)
         all_cols = system_cols.copy()
-        # we captured all columns, including dropped ones: they're still part of the physical table
+
+        # Create sql.Columns that this TableVersion knows about
+        tbl_version_sa_cols: dict[str, sql.Column] = {}  # store column name to sql.Column
         for col in [c for c in tbl_version.cols if c.is_stored]:
             # re-create sql.Column for each column, regardless of whether it already has sa_col set: it was bound
             # to the last sql.Table version we created and cannot be reused
-            col.create_sa_cols()
-            all_cols.append(col.sa_col)
-            if col.stores_cellmd:
-                all_cols.append(col.sa_cellmd_col)
+            sa_col, sa_cellmd_col = col.create_sa_cols()
+            assert sa_col.name not in tbl_version_sa_cols, (tbl_version.id, sa_col.name)
+            tbl_version_sa_cols[sa_col.name] = sa_col
+            if sa_cellmd_col is not None:
+                assert sa_cellmd_col.name not in tbl_version_sa_cols, (tbl_version.id, sa_cellmd_col.name)
+                tbl_version_sa_cols[sa_cellmd_col.name] = sa_cellmd_col
+
+        if store_tbl_exists:
+            # Go over the reflected non-system columns, and add them to all_cols. Pop them from tbl_version_sa_cols as
+            # we go, if present. The goal is for all_cols to fully reflect the columns of the store table in the right
+            # order.
+            for reflected_col in reflected_cols[len(system_cols) :]:
+                col_name = reflected_col['name']
+                if col_name in tbl_version_sa_cols:
+                    # TableVersion knows about this column, so just reuse the already instantiated sql.Column object
+                    sa_col = tbl_version_sa_cols.pop(col_name)
+                    all_cols.append(sa_col)
+                else:
+                    # TableVersion is not aware of this column, but we still want our Table object to reflect
+                    # the store table as closely as possible.
+                    all_cols.append(sql.Column(col_name, reflected_col['type'], nullable=reflected_col['nullable']))
+
+        # At this point tbl_version_sa_cols contains only the columns that are missing from the store table, if it
+        # exists. If not, it'll have all non-system columns.
+        all_cols.extend(tbl_version_sa_cols.values())
 
         if self.sa_tbl is not None:
             # if we're called in response to a schema change, we need to remove the old table first
@@ -144,7 +175,6 @@ class StoreBase:
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
-        # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
 
     @abc.abstractmethod
     def _rowid_join_predicate(self) -> sql.ColumnElement[bool]:
