@@ -453,14 +453,10 @@ class ColumnType:
         for key, value in t.__annotations__.items():
             col_type = cls.from_python_type(value)
             if col_type is None:
-                raise excs.Error(
-                    f'Field {key!r} in TypedDict `{t.__name__}` is not a valid Pixeltable type: {value!r}'
-                )
+                raise excs.Error(f'Field {key!r} in TypedDict `{t.__name__}` is not a valid Pixeltable type: {value!r}')
             type_spec[key] = col_type
         return JsonType(
-            JsonType.TypeSchema(
-                type_spec=type_spec, optional_keys=list(getattr(t, '__optional_keys__', [])),
-            ),
+            JsonType.TypeSchema(type_spec=type_spec, optional_keys=list(getattr(t, '__optional_keys__', []))),
             nullable=nullable_default,
         )
 
@@ -955,7 +951,7 @@ class JsonType(ColumnType):
                 variadic_type = None
                 fixed_types = json_type_arg
 
-            if Ellipsis in fixed_types:
+            if Ellipsis in fixed_types or variadic_type is Ellipsis:
                 raise ValueError('Invalid type schema: `...` allowed only in last position')
 
             return JsonType(

@@ -1,4 +1,5 @@
 # mypy: disable-error-code="misc"
+# ruff:  noqa: RUF031
 
 import datetime
 import uuid
@@ -7,7 +8,9 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, TypedDict, Union
 import numpy as np
 import PIL.Image
 import pydantic
+import pytest
 
+from pixeltable import exceptions as excs
 from pixeltable.type_system import (
     UUID,
     Array,
@@ -93,7 +96,7 @@ class TestTypes:
 
     def test_from_python_type(self, init_env: None) -> None:
         # Test cases: (python_type, pxt_type, str(pxt_type))
-        test_cases: tuple[Any, ColumnType, str] = (
+        test_cases: tuple[tuple[Any, ColumnType, str], ...] = (
             # Builtin and standard types
             (str, StringType(nullable=False), 'String'),
             (int, IntType(nullable=False), 'Int'),
@@ -106,7 +109,8 @@ class TestTypes:
             (list, JsonType(nullable=False), 'Json'),
             (dict, JsonType(nullable=False), 'Json'),
             (list[int], JsonType(JsonType.TypeSchema([], variadic_type=IntType()), nullable=False), 'Json[(Int, ...)]'),
-            (list[dict[str, int]],
+            (
+                list[dict[str, int]],
                 JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=False),
                 'Json[(Json, ...)]',
             ),
@@ -115,7 +119,8 @@ class TestTypes:
             (List, JsonType(nullable=False), 'Json'),
             (Dict, JsonType(nullable=False), 'Json'),
             (List[int], JsonType(JsonType.TypeSchema([], variadic_type=IntType()), nullable=False), 'Json[(Int, ...)]'),
-            (List[Dict[str, int]],
+            (
+                List[Dict[str, int]],
                 JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=False),
                 'Json[(Json, ...)]',
             ),
@@ -140,7 +145,8 @@ class TestTypes:
             (Array[Int], ArrayType(dtype=IntType(), nullable=False), 'Array[int64]'),
             (Array[(None,), Int], ArrayType((None,), dtype=IntType(), nullable=False), 'Array[(None,), int64]'),
             (Array[(5,), Bool], ArrayType((5,), dtype=BoolType(), nullable=False), 'Array[(5,), bool]'),
-            (Array[(5, None, 3), Float],
+            (
+                Array[(5, None, 3), Float],
                 ArrayType((5, None, 3), dtype=FloatType(), nullable=False),
                 'Array[(5, None, 3), float32]',
             ),
@@ -151,7 +157,8 @@ class TestTypes:
             (Json[List[int]], JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
             (Json[Tuple[int, str]], JsonType(JsonType.TypeSchema([IntType(), StringType()])), 'Json[(Int, String)]'),
             # Json TypedDict
-            (Json[TypedDict1],
+            (
+                Json[TypedDict1],
                 JsonType(
                     JsonType.TypeSchema(
                         {'a': StringType(), 'b': IntType(nullable=True), 'c': ArrayType((None,), dtype=FloatType())}
@@ -159,7 +166,8 @@ class TestTypes:
                 ),
                 "Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}]",
             ),
-            (Json[TypedDict2],
+            (
+                Json[TypedDict2],
                 JsonType(
                     JsonType.TypeSchema(
                         {'a': StringType(), 'b': IntType(nullable=True), 'c': ArrayType((None,), dtype=FloatType())},
@@ -168,7 +176,8 @@ class TestTypes:
                 ),
                 "Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}, optional_keys=['a', 'b', 'c']]",
             ),
-            (Json[TypedDict3],
+            (
+                Json[TypedDict3],
                 JsonType(
                     JsonType.TypeSchema(
                         {
@@ -193,7 +202,8 @@ class TestTypes:
                 "'c': Json[(Int, ...)], 'd': Json[(Int, String)], 'e': Json[(Int, ...)], 'f': Json[(Int, ...)]}]",
             ),
             # Json Pydantic Models
-            (Json[Model1],
+            (
+                Json[Model1],
                 JsonType(
                     JsonType.TypeSchema(
                         {
@@ -211,16 +221,19 @@ class TestTypes:
             # Json "convenience structures"
             (Json[[int]], JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
             (Json[(int,)], JsonType(JsonType.TypeSchema([IntType()])), 'Json[(Int,)]'),
-            (Json[(int, str, float)],
+            (
+                Json[(int, str, float)],
                 JsonType(JsonType.TypeSchema([IntType(), StringType(), FloatType()])),
                 'Json[(Int, String, Float)]',
             ),
             (Json[(int, ...)], JsonType(JsonType.TypeSchema([], variadic_type=IntType())), 'Json[(Int, ...)]'),
-            (Json[(int, str, float, ...)],
+            (
+                Json[(int, str, float, ...)],
                 JsonType(JsonType.TypeSchema([IntType(), StringType()], variadic_type=FloatType())),
                 'Json[(Int, String, Float, ...)]',
             ),
-            (Json[{'a': int, 'b': str, 'c': [int], 'd': (int, str, ...), 'e': {'x': int, 'y': TypedDict1}}],
+            (
+                Json[{'a': int, 'b': str, 'c': [int], 'd': (int, str, ...), 'e': {'x': int, 'y': TypedDict1}}],
                 JsonType(
                     JsonType.TypeSchema(
                         {
@@ -253,7 +266,8 @@ class TestTypes:
             (Image[100, 200], ImageType(width=100, height=200, mode=None, nullable=False), 'Image[(100, 200)]'),
             (Image[100, None], ImageType(width=100, height=None, mode=None, nullable=False), 'Image[(100, None)]'),
             (Image[None, 200], ImageType(width=None, height=200, mode=None, nullable=False), 'Image[(None, 200)]'),
-            (Image[(100, 200), 'RGB'],
+            (
+                Image[(100, 200), 'RGB'],
                 ImageType(width=100, height=200, mode='RGB', nullable=False),
                 "Image[(100, 200), 'RGB']",
             ),
@@ -421,3 +435,25 @@ class TestTypes:
         ]
         for col_type, expected_schema in test_cases:
             assert col_type.to_json_schema() == expected_schema, col_type
+
+    def test_json_type_errors(self, init_env: None) -> None:
+        invalid_type_args = (
+            (int, r"Invalid type schema: type argument does not represent a valid JSON type: <class 'int'>"),
+            (list[int, str], r'Invalid type schema: `list` or `Sequence` must have at most one type argument'),
+            (list[set], r'Python type found in type argument is not a valid Pixeltable type: set'),
+            (tuple[int, str, set], r'Python type found in type argument is not a valid Pixeltable type: set'),
+            ([int, str], r'Invalid type schema: expected a single-item list; got a list of length 2'),
+            ([set], r"Invalid type schema: type argument contains an invalid Pixeltable type: <class 'set'>"),
+            ((int, str, set), r"Invalid type schema: type argument contains an invalid Pixeltable type: <class 'set'>"),
+            ((int, set, ...), r"Invalid type schema: type argument contains an invalid Pixeltable type: <class 'set'>"),
+            ((int, str, ..., float), r'Invalid type schema: `...` allowed only in last position'),
+            ((int, str, ..., ...), r'Invalid type schema: `...` allowed only in last position'),
+            ((...,), r'Invalid type schema: tuple with only `...` is not allowed'),
+            (
+                {'a': int, 'b': set},
+                r"Invalid type schema: type argument contains an invalid Pixeltable type: <class 'set'>",
+            ),
+        )
+        for subscript, message in invalid_type_args:
+            with pytest.raises((excs.Error, ValueError), match=message):
+                Json[subscript]
