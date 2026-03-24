@@ -4,13 +4,14 @@ import pathlib
 
 import pixeltable as pxt
 
-from ..utils import create_all_types_tbl, validate_update_status
+from ..utils import create_all_datatypes_tbl, validate_update_status
 
 
 class TestJson:
     def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Export a table with every supported type and verify the JSON output."""
-        t, rows = create_all_types_tbl('test_json_all')
+        t = create_all_datatypes_tbl()
+        rows = t.collect()
 
         json_path = tmp_path / 'all_types.json'
         pxt.io.export_json(t, json_path, indent=2)

@@ -146,63 +146,13 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
         if col_type.is_audio_type():
             audio_path = get_audio_files()[0]
             col_data = [audio_path] * num_rows
+        if col_type.is_document_type():
+            docs = get_documents()
+            col_data = [docs[i % len(docs)] for i in range(num_rows)]
+            
         data[col_name] = col_data
     rows = [{col_name: data[col_name][i] for col_name in col_names} for i in range(num_rows)]
     return rows
-
-
-def create_all_types_tbl(name: str, num_rows: int = 5) -> tuple[pxt.Table, list[dict[str, Any]]]:
-    """Create a table with every exportable Pixeltable type and insert rows with varied data.
-
-    Includes: String, Int, Float, Bool, Timestamp, Date, UUID, Json, Array, Image, Video, Audio, Document.
-    """
-
-    image_files = get_image_files()
-    video_files = get_video_files()
-    audio_files = get_audio_files()
-    doc_files = [f for f in get_documents() if f.endswith(('.pdf', '.txt', '.html', '.md'))]
-    n = min(num_rows, len(image_files), len(video_files), len(audio_files), len(doc_files))
-
-    schema = {
-        'c_string': pxt.String,
-        'c_int': pxt.Int,
-        'c_float': pxt.Float,
-        'c_bool': pxt.Bool,
-        'c_timestamp': pxt.Timestamp,
-        'c_date': pxt.Date,
-        'c_uuid': pxt.UUID,
-        'c_json': pxt.Json,
-        'c_array': pxt.Array[(3,), np.float64],  # type: ignore[misc]
-        'c_image': pxt.Image,
-        'c_video': pxt.Video,
-        'c_audio': pxt.Audio,
-        'c_document': pxt.Document,
-    }
-    t = pxt.create_table(name, schema)
-
-    tz = ZoneInfo('UTC')
-    rows = []
-    for i in range(n):
-        rows.append(
-            {
-                'c_string': f'row_{i}',
-                'c_int': i * 10,
-                'c_float': i * 1.1,
-                'c_bool': i % 2 == 0,
-                'c_timestamp': datetime.datetime(2024, 1, 1 + i, 10, 30, 0, tzinfo=tz),
-                'c_date': datetime.date(2024, 6, 15 + i),
-                'c_uuid': uuid.uuid5(uuid.NAMESPACE_DNS, f'row{i}'),
-                'c_json': {'index': i, 'tags': list(range(i))},
-                'c_array': np.array([i * 1.0, i * 2.0, i * 3.0]),
-                'c_image': image_files[i],
-                'c_video': video_files[i],
-                'c_audio': audio_files[i],
-                'c_document': doc_files[i],
-            }
-        )
-
-    validate_update_status(t.insert(rows), expected_rows=n)
-    return t, rows
 
 
 def create_test_tbl(name: str = 'test_tbl') -> pxt.Table:
@@ -296,6 +246,7 @@ def create_all_datatypes_tbl() -> pxt.Table:
         'c_uuid': pxt.UUID,
         'c_binary': pxt.Binary,
         'c_video': pxt.Video,
+        'c_document': pxt.Document,
     }
     tbl = pxt.create_table('all_datatype_tbl', schema)
     example_rows = create_table_data(tbl, num_rows=11)
