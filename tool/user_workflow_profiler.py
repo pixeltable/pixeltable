@@ -1,6 +1,6 @@
 import time
 
-from tabulate import tabulate  # type: ignore
+from tabulate import tabulate
 
 import pixeltable as pxt
 
@@ -363,7 +363,7 @@ def run_user_workflow_test() -> None:
             '-',
         ]
 
-        print(tabulate([*data, total_row], headers=headers, tablefmt='grid'))
+        print(tabulate([*data, total_row], headers=headers, tablefmt='grid'))  # type: ignore[list-item]
 
         print('\nUser workflow test completed.')
 
