@@ -67,14 +67,14 @@ def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path, *,
     - Date: ISO 8601 string
     - UUID: string
     - Json: native JSON value (object, array, etc.)
-    - Array: nested JSON array (via ``tolist()``)
+    - Array: nested JSON array (via `tolist()`)
     - Binary: excluded from export (not representable in JSON)
     - Image, Video, Audio, Document: file path or URL string
 
     Args:
         table_or_query: Table or Query to export.
         file_path: Path to the output JSON file.
-        indent: Number of spaces for pretty-printing indentation. Default ``None`` (compact output).
+        indent: Number of spaces for pretty-printing indentation. Default `None` (compact output).
     """
 
     if isinstance(table_or_query, pxt.catalog.Table):

@@ -59,15 +59,15 @@ def export_csv(
     - Timestamp, Date: ISO 8601 string representation
     - UUID: string representation
     - Json: JSON-encoded string
-    - Array: JSON-encoded string (via ``tolist()``)
+    - Array: JSON-encoded string (via `tolist()`)
     - Binary: excluded from export (not representable in CSV)
     - Image, Video, Audio, Document: file path or URL string
 
     Args:
         table_or_query: Table or Query to export.
         file_path: Path to the output CSV file.
-        delimiter: Field delimiter character. Default ``','``.
-        quoting: CSV quoting style (a ``csv.QUOTE_*`` constant). Default ``csv.QUOTE_MINIMAL``.
+        delimiter: Field delimiter character. Default `','`.
+        quoting: CSV quoting style (a `csv.QUOTE_*` constant). Default `csv.QUOTE_MINIMAL`.
     """
     if isinstance(table_or_query, pxt.catalog.Table):
         query = table_or_query.select()
