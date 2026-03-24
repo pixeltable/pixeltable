@@ -27,6 +27,7 @@ from . import (
     json,
     llama_cpp,
     math,
+    minimax,
     mistralai,
     net,
     ollama,
