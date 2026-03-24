@@ -140,6 +140,15 @@ def _start_dashboard_background(port: int) -> None:
             from pixeltable.dashboard.server import run_server
 
             run_server(port=actual_port)
+        except OSError as e:
+            # EADDRINUSE (Address already in use) can happen if we lost a race condition
+            # with another notebook starting up at the exact same millisecond.
+            # If that happens, we just fall back to being a watchdog.
+            if "Address already in use" in str(e):
+                _start_dashboard_watchdog(actual_port)
+            else:
+                startup_errors.append(str(e))
+                _logger.error(f'Dashboard server error: {e}')
         except Exception as e:
             startup_errors.append(str(e))
             _logger.error(f'Dashboard server error: {e}')
