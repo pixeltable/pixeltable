@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, TypedDict
 from unittest import TestCase
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import more_itertools
 import numpy as np
@@ -155,7 +156,6 @@ def create_all_types_tbl(name: str, num_rows: int = 5) -> tuple[pxt.Table, list[
 
     Includes: String, Int, Float, Bool, Timestamp, Date, UUID, Json, Array, Image, Video, Audio, Document.
     """
-    from zoneinfo import ZoneInfo
 
     image_files = get_image_files()
     video_files = get_video_files()
