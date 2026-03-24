@@ -65,7 +65,7 @@ class SimilarityExpr(Expr):
             tv = get_runtime().catalog.get_tbl_version(
                 self.table_version_key, check_pending_ops=False, validate_initialized=False
             )
-            column = tv.get_visible_column(self.col_qid)
+            column = tv.path.get_column_by_qid(self.col_qid)
             if column is None:
                 raise excs.Error(
                     f'Column {self.col_qid!r} not found in table version {self.table_version_key!r} or its bases'
@@ -92,7 +92,7 @@ class SimilarityExpr(Expr):
         assert self.col_qid is not None
 
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version.get_visible_column(self.col_qid)
+        col = tbl_version.path.get_column_by_qid(self.col_qid)
         if col is None:
             return f'<invalid>.similarity({self.components[0]}, {self.idx_name!r})'
         return f'{col.name}.similarity({self.components[0]}, {self.idx_name!r})'
@@ -134,7 +134,7 @@ class SimilarityExpr(Expr):
 
     def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version.get_visible_column(self.col_qid)
+        col = tbl_version.path.get_column_by_qid(self.col_qid)
         if col is None:
             return False
         return any(tbl.has_column(col) for tbl in tbls)
@@ -176,7 +176,7 @@ class SimilarityExpr(Expr):
         tbl_version = get_runtime().catalog.get_tbl_version(
             self.table_version_key, validate_initialized=validate_initialized
         )
-        col = tbl_version.get_visible_column(self.col_qid)
+        col = tbl_version.path.get_column_by_qid(self.col_qid)
         if col is None:
             raise excs.Error(
                 f'Embedding index {self.idx_name!r} no longer exists because the indexed column was dropped'

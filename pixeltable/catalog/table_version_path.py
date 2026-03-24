@@ -8,7 +8,7 @@ from uuid import UUID
 from pixeltable.metadata import schema
 
 from .column import Column
-from .globals import MediaValidation
+from .globals import MediaValidation, QColumnId
 from .table_version import TableVersion, TableVersionKey
 from .table_version_handle import TableVersionHandle
 
@@ -195,15 +195,10 @@ class TableVersionPath:
             result.extend(c for c in base_cols if c.name not in self._cached_tbl_version.cols_by_name)
         return result
 
-    def cols_by_name(self) -> dict[str, Column]:
-        """Return a dict of all user columns visible in this tbl version path, including columns from bases"""
-        cols = self.columns()
-        return {col.name: col for col in cols}
-
-    def cols_by_id(self) -> dict[int, Column]:
-        """Return a dict of all user columns visible in this tbl version path, including columns from bases"""
-        cols = self.columns()
-        return {col.id: col for col in cols}
+    def get_column_by_qid(self, col_qid: QColumnId) -> Column | None:
+        return next(
+            (col for col in self.columns() if col.id == col_qid.col_id and col.tbl_handle.id == col_qid.tbl_id), None
+        )
 
     def get_column(self, name: str) -> Column | None:
         """Return the column with the given name, or None if not found"""

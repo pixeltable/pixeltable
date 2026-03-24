@@ -593,15 +593,6 @@ class TableVersion:
         else:
             return None
 
-    def get_visible_column(self, qid: QColumnId) -> Column | None:
-        """Look up a currently visible column by QColumnId, searching through this version and its bases."""
-        if qid.tbl_id == self.id:
-            return self.cols_by_id.get(qid.col_id)
-        elif self.base is not None:
-            return self.base.get().get_visible_column(qid)
-        else:
-            return None
-
     def _write_md(self, new_version: bool, new_schema_version: bool) -> None:
         get_runtime().catalog.write_tbl_md(
             self.id,
