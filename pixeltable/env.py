@@ -676,12 +676,13 @@ class Env:
         register_heif_opener()
         self._start_web_server()
         self.__register_packages()
-        dashboard_enabled = Config.get().get_bool_value('dashboard_enabled')
-        if dashboard_enabled is None:
-            dashboard_enabled = True
-        port = Config.get().get_int_value('dashboard_port') or 20096
-        self._dashboard_harness = DashboardHarness(port)
-        self._dashboard_harness.start()
+
+        dashboard_port = Config.get().get_int_value('dashboard_port') or 20096
+        self._dashboard_harness = DashboardHarness(dashboard_port)
+
+        start_dashboard = Config.get().get_bool_value('start_dashboard')
+        if start_dashboard is not False:  # this curious conditional ensures we interpret `None` (default) as `True`
+            self._dashboard_harness.start()
 
     @property
     def default_video_encoder(self) -> str | None:

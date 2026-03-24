@@ -49,9 +49,9 @@ class _RawResponse(NamedTuple):
 
 
 def _route_health(_m: re.Match, _q: dict) -> dict:
-    import pixeltable
+    import pixeltable as pxt
 
-    return {'status': 'ok', 'version': getattr(pixeltable, '__version__', 'unknown')}
+    return {'status': 'ok', 'version': pxt.__version__}
 
 
 def _route_dirs(_m: re.Match, _q: dict) -> list:
@@ -100,7 +100,7 @@ def _route_table_export(m: re.Match, q: dict) -> _RawResponse:
 
 # Order matters: more specific patterns first.
 _API_ROUTES: list[Route] = [
-    (re.compile(r'^/api/health$'), _route_health),
+    (re.compile(r'^/api/pixeltable-health$'), _route_health),
     (re.compile(r'^/api/dirs$'), _route_dirs),
     (re.compile(r'^/api/pipeline$'), _route_pipeline),
     (re.compile(r'^/api/status$'), _route_status),

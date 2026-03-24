@@ -43,9 +43,7 @@ import logging
 _logger = logging.getLogger('pixeltable')
 
 
-def init(
-    config_overrides: dict[str, Any] | None = None
-) -> None:
+def init(config_overrides: dict[str, Any] | None = None) -> None:
     """Initializes the Pixeltable environment.
 
     Args:

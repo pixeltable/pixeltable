@@ -21,7 +21,6 @@ from pixeltable.catalog.table import Table
 from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.env import Env
 
-
 _logger = logging.getLogger('pixeltable.dashboard')
 
 

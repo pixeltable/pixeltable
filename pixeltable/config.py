@@ -170,7 +170,7 @@ KNOWN_CONFIG_OPTIONS = {
         'api_key': 'API key for Pixeltable cloud',
         'input_media_dest': 'Default destination URI for input media data',
         'output_media_dest': 'Default destination URI for output (computed) media data',
-        'dashboard_enabled': 'Whether to launch the dashboard server as startup (default: true)',
+        'start_dashboard': 'Whether to launch the dashboard server as startup (default: true)',
         'dashboard_port': 'Port for the dashboard server (default: 20096)',
         'r2_profile': 'AWS config profile name used to access R2 storage',
         's3_profile': 'AWS config profile name used to access S3 storage',
