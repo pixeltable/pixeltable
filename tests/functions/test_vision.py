@@ -7,9 +7,14 @@ import pytest
 import pixeltable as pxt
 from pixeltable.functions.video import frame_iterator
 from pixeltable.functions.vision import (
+    bboxes_clip_to_canvas,
     bboxes_convert,
+    bboxes_crop_canvas,
     bboxes_draw,
+    bboxes_pad,
     bboxes_resize,
+    bboxes_resize_canvas,
+    bboxes_scale,
     eval_detections,
     mean_ap,
     overlay_segmentation,
@@ -165,7 +170,7 @@ class TestVision:
             assert res['out'][0] == []
             pxt.drop_table(t)
 
-            input_bboxes = [convert_fmt(*b, fmt) for b in abs_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt, is_abs=True) for b in abs_boxes]
             t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -206,7 +211,7 @@ class TestVision:
 
             pxt.drop_table(t)
 
-            input_bboxes = [convert_fmt(*b, fmt) for b in rel_boxes]
+            input_bboxes = [convert_cxcywh(*b, fmt, is_abs=False) for b in rel_boxes]
             t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
             validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -346,6 +351,258 @@ class TestVision:
 
         self._test_bbox_validation(t, bboxes_resize(t.bboxes, 'xyxy', width=50))
 
+    def test_bboxes_scale(self, uses_db: None) -> None:
+        # absolute coordinates, in cxcywh format
+        abs_boxes: list[tuple[int, int, int, int]] = [
+            (150, 200, 100, 200),
+            (200, 100, 400, 200),
+            (50, 50, 40, 60),
+            (300, 300, 200, 100),
+            (100, 100, 80, 80),
+        ]
+        # relative coordinates, in cxcywh format
+        rel_boxes: list[tuple[float, float, float, float]] = [
+            (0.3, 0.5, 0.4, 0.6),
+            (0.5, 0.5, 0.2, 0.2),
+            (0.7, 0.3, 0.1, 0.4),
+            (0.2, 0.8, 0.3, 0.1),
+            (0.9, 0.1, 0.1, 0.1),
+        ]
+
+        formats = ['xyxy', 'xywh', 'cxcywh']
+        for fmt in formats:
+            # corner case: empty list
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
+            res = t.select(out=bboxes_scale(t.bboxes, fmt, factor=2.0)).collect()
+            assert res['out'][0] == []
+            pxt.drop_table(t)
+
+            # absolute coordinates
+
+            input_bboxes = [convert_cxcywh(*b, fmt, is_abs=True) for b in abs_boxes]
+            t = pxt.create_table('bbox_abs', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
+
+            # factor=2.0: doubles both w and h, center stays same
+            res = t.select(out=bboxes_scale(t.bboxes, fmt, factor=2.0)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) * 2, abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt) * 2, abs=1)
+
+            # x_factor=2.0: doubles w only
+            res = t.select(out=bboxes_scale(t.bboxes, fmt, x_factor=2.0)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) * 2, abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt), abs=1)
+
+            # y_factor=0.5: halves h only
+            res = t.select(out=bboxes_scale(t.bboxes, fmt, y_factor=0.5)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt), abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt) * 0.5, abs=1)
+
+            # x_factor=2.0, y_factor=3.0: scales independently
+            res = t.select(out=bboxes_scale(t.bboxes, fmt, x_factor=2.0, y_factor=3.0)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) * 2, abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt) * 3, abs=1)
+
+            pxt.drop_table(t)
+
+            # relative coordinates
+
+            input_bboxes = [convert_cxcywh(*b, fmt, is_abs=False) for b in rel_boxes]
+            t = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
+
+            # factor=2.0
+            res = t.select(out=bboxes_scale(t.bboxes, fmt, factor=2.0)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) * 2)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt) * 2)
+
+            # x_factor=0.5
+            res = t.select(out=bboxes_scale(t.bboxes, fmt, x_factor=0.5)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) * 0.5)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt))
+
+            # y_factor=3.0
+            res = t.select(out=bboxes_scale(t.bboxes, fmt, y_factor=3.0)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt))
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt) * 3)
+
+            pxt.drop_table(t)
+
+    def test_bboxes_scale_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': [[100, 100, 200, 300]]}])
+
+        # invalid format
+        with pytest.raises(pxt.Error, match='Invalid format'):
+            t.select(bboxes_scale(t.bboxes, 'coco', factor=2.0)).collect()
+
+        # no factors specified
+        with pytest.raises(pxt.Error, match='at least one of'):
+            t.select(bboxes_scale(t.bboxes, 'xyxy')).collect()
+
+        # factor with x_factor
+        with pytest.raises(pxt.Error, match='mutually exclusive'):
+            t.select(bboxes_scale(t.bboxes, 'xyxy', factor=2.0, x_factor=1.5)).collect()
+
+        # factor with y_factor
+        with pytest.raises(pxt.Error, match='mutually exclusive'):
+            t.select(bboxes_scale(t.bboxes, 'xyxy', factor=2.0, y_factor=1.5)).collect()
+
+        # factor with both x_factor and y_factor
+        with pytest.raises(pxt.Error, match='mutually exclusive'):
+            t.select(bboxes_scale(t.bboxes, 'xyxy', factor=2.0, x_factor=1.5, y_factor=1.5)).collect()
+
+        # zero factor
+        with pytest.raises(pxt.Error, match='factor must be positive'):
+            t.select(bboxes_scale(t.bboxes, 'xyxy', factor=0.0)).collect()
+
+        # negative factor
+        with pytest.raises(pxt.Error, match='factor must be positive'):
+            t.select(bboxes_scale(t.bboxes, 'xyxy', factor=-1.0)).collect()
+
+        # zero x_factor
+        with pytest.raises(pxt.Error, match='x_factor must be positive'):
+            t.select(bboxes_scale(t.bboxes, 'xyxy', x_factor=0.0)).collect()
+
+        # negative x_factor
+        with pytest.raises(pxt.Error, match='x_factor must be positive'):
+            t.select(bboxes_scale(t.bboxes, 'xyxy', x_factor=-1.0)).collect()
+
+        # zero y_factor
+        with pytest.raises(pxt.Error, match='y_factor must be positive'):
+            t.select(bboxes_scale(t.bboxes, 'xyxy', y_factor=0.0)).collect()
+
+        # negative y_factor
+        with pytest.raises(pxt.Error, match='y_factor must be positive'):
+            t.select(bboxes_scale(t.bboxes, 'xyxy', y_factor=-1.0)).collect()
+
+    def test_bboxes_scale_degenerate(self, uses_db: None) -> None:
+        degenerate_boxes = [
+            [10, 20, 10, 40],  # zero width (xyxy)
+            [10, 20, 30, 20],  # zero height (xyxy)
+            [10, 20, 10, 20],  # zero width and height (xyxy)
+            [30, 40, 10, 20],  # negative width and height (xyxy, x2<x1, y2<y1)
+        ]
+        t = pxt.create_table('degenerate', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': degenerate_boxes}])
+        res = t.select(out=bboxes_scale(t.bboxes, 'xyxy', factor=2.0)).collect()
+        assert res['out'][0] == degenerate_boxes  # all passed through unchanged
+
+        self._test_bbox_validation(t, bboxes_scale(t.bboxes, 'xyxy', factor=2.0))
+
+    def test_bboxes_pad(self, uses_db: None) -> None:
+        # absolute coordinates, in cxcywh format
+        abs_boxes: list[tuple[int, int, int, int]] = [
+            (150, 200, 100, 200),
+            (200, 100, 400, 200),
+            (50, 50, 40, 60),
+            (300, 300, 200, 100),
+            (100, 100, 80, 80),
+        ]
+
+        formats = ['xyxy', 'xywh', 'cxcywh']
+        for fmt in formats:
+            # corner case: empty list
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, x=10)).collect()
+            assert res['out'][0] == []
+            pxt.drop_table(t)
+
+            input_bboxes = [convert_cxcywh(*b, fmt, is_abs=True) for b in abs_boxes]
+            t = pxt.create_table('bbox_pad', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
+
+            # symmetric: x=10, y=20 — w grows by 20, h grows by 40, center unchanged
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, x=10, y=20)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) + 20, abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt) + 40, abs=1)
+
+            # asymmetric: left=5, right=15, top=10, bottom=30 — w grows by 20, h grows by 40
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, left=5, right=15, top=10, bottom=30)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) + 20, abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt) + 40, abs=1)
+
+            # single side: left=10 only — w grows by 10
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, left=10)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) + 10, abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt), abs=1)
+
+            # x only: height unchanged
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, x=10)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt) + 20, abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt), abs=1)
+
+            # y only: width unchanged
+            res = t.select(out=bboxes_pad(t.bboxes, fmt, y=15)).collect()
+            for b_in, b_out in zip(input_bboxes, res['out'][0]):
+                assert get_w(b_out, fmt) == pytest.approx(get_w(b_in, fmt), abs=1)
+                assert get_h(b_out, fmt) == pytest.approx(get_h(b_in, fmt) + 30, abs=1)
+
+            pxt.drop_table(t)
+
+    def test_bboxes_pad_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('bbox_tbl', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': [[100, 100, 200, 300]]}])
+
+        # invalid format
+        with pytest.raises(pxt.Error, match='Invalid format'):
+            t.select(bboxes_pad(t.bboxes, 'coco', x=10)).collect()
+
+        # no params specified
+        with pytest.raises(pxt.Error, match='at least one padding parameter'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy')).collect()
+
+        # x with left
+        with pytest.raises(pxt.Error, match='mutually exclusive'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy', x=10, left=5)).collect()
+
+        # x with right
+        with pytest.raises(pxt.Error, match='mutually exclusive'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy', x=10, right=5)).collect()
+
+        # y with top
+        with pytest.raises(pxt.Error, match='mutually exclusive'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy', y=10, top=5)).collect()
+
+        # y with bottom
+        with pytest.raises(pxt.Error, match='mutually exclusive'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy', y=10, bottom=5)).collect()
+
+        # negative value
+        with pytest.raises(pxt.Error, match='must be >= 0'):
+            t.select(bboxes_pad(t.bboxes, 'xyxy', x=-5)).collect()
+
+        # relative bboxes
+        t2 = pxt.create_table('bbox_rel', {'bboxes': pxt.Json})
+        t2.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
+        with pytest.raises(pxt.Error, match='absolute pixel coordinates'):
+            t2.select(bboxes_pad(t2.bboxes, 'xyxy', x=10)).collect()
+
+    def test_bboxes_pad_degenerate(self, uses_db: None) -> None:
+        degenerate_boxes = [
+            [10, 20, 10, 40],  # zero width (xyxy)
+            [10, 20, 30, 20],  # zero height (xyxy)
+            [10, 20, 10, 20],  # zero width and height (xyxy)
+            [30, 40, 10, 20],  # negative width and height (xyxy, x2<x1, y2<y1)
+        ]
+        t = pxt.create_table('degenerate', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': degenerate_boxes}])
+        res = t.select(out=bboxes_pad(t.bboxes, 'xyxy', x=10, y=20)).collect()
+        assert res['out'][0] == degenerate_boxes  # all passed through unchanged
+
     def test_bboxes_convert(self, uses_db: None) -> None:
         abs_boxes = [
             (150, 200, 100, 200),
@@ -374,7 +631,8 @@ class TestVision:
             pxt.drop_table(t)
 
             for boxes in [abs_boxes, rel_boxes]:
-                input_bboxes = [convert_fmt(*b, src_fmt) for b in boxes]  # type: ignore
+                is_abs = boxes is abs_boxes
+                input_bboxes = [convert_cxcywh(*b, src_fmt, is_abs=is_abs) for b in boxes]  # type: ignore
                 t = pxt.create_table('convert', {'bboxes': pxt.Json})
                 validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
 
@@ -430,9 +688,524 @@ class TestVision:
 
         self._test_bbox_validation(t, bboxes_convert(t.bboxes, src_format='xyxy', dst_format='xywh'))
 
+    def test_bboxes_clip_to_canvas(self, uses_db: None) -> None:
+        # cxcywh format
+        # absolute (640x480 canvas)
+        abs_boxes: list[tuple[int, int, int, int]] = [
+            (150, 200, 100, 200),  # fully inside
+            (630, 470, 40, 30),  # partially outside right+bottom, visibility=0.625
+            (300, 240, 60, 40),  # fully inside
+            (10, 240, 60, 40),  # partially outside left (x1=-20), visibility=0.667
+            (320, 540, 40, 40),  # fully outside bottom, visibility=0
+        ]
+        # relative ([0,1] canvas)
+        rel_boxes: list[tuple[float, float, float, float]] = [
+            (0.3, 0.5, 0.4, 0.6),  # fully inside
+            (0.95, 0.9, 0.2, 0.3),  # partially outside right+bottom, visibility=0.625
+            (0.5, 0.5, 0.2, 0.2),  # fully inside
+            (0.05, 0.5, 0.3, 0.2),  # partially outside left (x1=-0.1), visibility=0.667
+            (0.5, 1.2, 0.2, 0.1),  # fully outside bottom, visibility=0
+        ]
+        cases: list[tuple[Any, dict[str, Any]]] = [(abs_boxes, {'width': 640, 'height': 480}), (rel_boxes, {})]
+
+        for fmt in ['xyxy', 'xywh', 'cxcywh']:
+            # corner case: empty list
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
+            res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, width=640, height=480)).collect()
+            assert res['out'][0] == []
+            pxt.drop_table(t)
+
+            for boxes, canvas_args in cases:
+                is_abs = boxes is abs_boxes
+                input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt, is_abs=is_abs) for b in boxes]
+                t = pxt.create_table('bbox_clip', {'bboxes': pxt.Json})
+                validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
+
+                # basic clipping
+
+                res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, **canvas_args)).collect()
+                out = res['out'][0]
+                assert len(out) == 5
+                assert all(b is not None for b in out)
+
+                # fully inside boxes unchanged
+                assert out[0] == pytest.approx(input_bboxes[0])
+                assert out[2] == pytest.approx(input_bboxes[2])
+
+                # partially outside boxes have reduced w or h
+                assert get_w(out[1], fmt) < get_w(input_bboxes[1], fmt)
+                assert get_w(out[3], fmt) < get_w(input_bboxes[3], fmt)
+
+                # fully outside box has zero height
+                assert get_h(out[4], fmt) == pytest.approx(0, abs=1)
+
+                # filtering min_visibility
+
+                res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, **canvas_args, min_visibility=0.5)).collect()
+                out = res['out'][0]
+                for i in [0, 1, 2, 3]:
+                    assert out[i] is not None
+                assert out[4] is None
+
+                res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, **canvas_args, min_visibility=0.7)).collect()
+                out = res['out'][0]
+                for i in [0, 2]:
+                    assert out[i] is not None
+                for i in [1, 3, 4]:
+                    assert out[i] is None
+
+                # filtering min_area
+
+                if canvas_args:
+                    # absolute: clipped areas [20000, 750, 2400, 1600, 0]
+                    res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, **canvas_args, min_area=1000)).collect()
+                    out = res['out'][0]
+                    for i in [0, 2, 3]:
+                        assert out[i] is not None
+                    for i in [1, 4]:
+                        assert out[i] is None
+                else:
+                    # relative: clipped areas [0.24, 0.0375, 0.04, 0.04, 0]
+                    res = t.select(out=bboxes_clip_to_canvas(t.bboxes, fmt, **canvas_args, min_area=0.05)).collect()
+                    out = res['out'][0]
+                    assert out[0] is not None
+                    for i in [1, 2, 3, 4]:
+                        assert out[i] is None
+
+                pxt.drop_table(t)
+
+    def test_bboxes_clip_to_canvas_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('bbox_clip_err', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+
+        # invalid format
+        with pytest.raises(pxt.Error, match='Invalid format'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'coco', width=640, height=480)).collect()
+
+        # Missing both width/height for absolute coords
+        with pytest.raises(pxt.Error, match='both width and height must be specified'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy')).collect()
+
+        # Missing height for absolute coords
+        with pytest.raises(pxt.Error, match='both width and height must be specified'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640)).collect()
+
+        # Missing width for absolute coords
+        with pytest.raises(pxt.Error, match='both width and height must be specified'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', height=480)).collect()
+
+        # Invalid min_visibility
+        with pytest.raises(pxt.Error, match='min_visibility must be between'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480, min_visibility=1.5)).collect()
+
+        with pytest.raises(pxt.Error, match='min_visibility must be between'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480, min_visibility=-0.1)).collect()
+
+        # Negative min_area
+        with pytest.raises(pxt.Error, match='min_area must be >= 0'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480, min_area=-1.0)).collect()
+
+        t.delete()
+        t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
+
+        # width/height specified for relative coords
+        with pytest.raises(pxt.Error, match='must not be specified for relative'):
+            t.select(bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480)).collect()
+
+        self._test_bbox_validation(t, bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480))
+
+    def test_bboxes_clip_to_canvas_degenerate(self, uses_db: None) -> None:
+        degenerate_boxes = [
+            [10, 20, 10, 40],  # zero width (xyxy)
+            [10, 20, 30, 20],  # zero height (xyxy)
+            [10, 20, 10, 20],  # zero width and height (xyxy)
+            [30, 40, 10, 20],  # negative width and height (xyxy, x2<x1, y2<y1)
+        ]
+        t = pxt.create_table('degenerate_clip', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': degenerate_boxes}])
+        res = t.select(out=bboxes_clip_to_canvas(t.bboxes, 'xyxy', width=640, height=480)).collect()
+        assert res['out'][0] == degenerate_boxes  # all passed through unchanged
+
+    def test_bboxes_crop_canvas(self, uses_db: None) -> None:
+        # cxcywh format, 640x480 canvas
+        abs_boxes: list[tuple[int, int, int, int]] = [
+            (200, 200, 100, 100),  # [0] fully inside crop region
+            (350, 200, 100, 100),  # [1] partially outside crop right
+            (50, 200, 100, 100),  # [2] partially outside crop left
+            (200, 450, 100, 100),  # [3] partially outside crop bottom
+            (500, 400, 60, 40),  # [4] fully outside crop region
+        ]
+        abs_crop_xyxy = [100, 100, 400, 400]  # 300x300 crop area
+        abs_expected_cxcywh = [
+            (100, 100, 100, 100),
+            (250, 100, 100, 100),
+            (-50, 100, 100, 100),
+            (100, 350, 100, 100),
+            (400, 300, 60, 40),
+        ]
+
+        rel_boxes: list[tuple[float, float, float, float]] = [
+            (0.4, 0.4, 0.2, 0.2),  # [0] fully inside crop
+            (0.7, 0.4, 0.2, 0.2),  # [1] partially outside crop right
+            (0.15, 0.4, 0.2, 0.2),  # [2] partially outside crop left
+            (0.4, 0.85, 0.2, 0.2),  # [3] partially outside crop bottom
+            (0.9, 0.9, 0.1, 0.1),  # [4] fully outside crop
+        ]
+        rel_crop_xyxy = [0.2, 0.2, 0.8, 0.8]  # 0.6x0.6 crop area
+        rel_expected_cxcywh = [
+            (1 / 3, 1 / 3, 1 / 3, 1 / 3),
+            (5 / 6, 1 / 3, 1 / 3, 1 / 3),
+            (-1 / 12, 1 / 3, 1 / 3, 1 / 3),
+            (1 / 3, 13 / 12, 1 / 3, 1 / 3),
+            (7 / 6, 7 / 6, 1 / 6, 1 / 6),
+        ]
+
+        cases: list[tuple[Any, dict[str, Any], list]] = [
+            (abs_boxes, {'canvas_width': 640, 'canvas_height': 480}, abs_crop_xyxy),
+            (rel_boxes, {}, rel_crop_xyxy),
+        ]
+
+        for fmt in ['xyxy', 'xywh', 'cxcywh']:
+            for canvas_region_format in ['xyxy', 'xywh', 'cxcywh']:
+                # corner case: empty list
+                t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+                validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
+                region = convert_xyxy(100, 100, 400, 400, canvas_region_format)
+                res = t.select(
+                    out=bboxes_crop_canvas(
+                        t.bboxes,
+                        fmt,
+                        canvas_region=region,
+                        canvas_region_format=canvas_region_format,
+                        canvas_width=640,
+                        canvas_height=480,
+                    )
+                ).collect()
+                assert res['out'][0] == []
+                pxt.drop_table(t)
+
+                for boxes, canvas_args, crop_xyxy in cases:
+                    is_abs = boxes is abs_boxes
+                    input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt, is_abs=is_abs) for b in boxes]
+                    region = convert_xyxy(crop_xyxy[0], crop_xyxy[1], crop_xyxy[2], crop_xyxy[3], canvas_region_format)
+
+                    t = pxt.create_table('bbox_crop', {'bboxes': pxt.Json})
+                    validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
+
+                    res = t.select(
+                        out=bboxes_crop_canvas(
+                            t.bboxes,
+                            fmt,
+                            canvas_region=region,
+                            canvas_region_format=canvas_region_format,
+                            **canvas_args,
+                        )
+                    ).collect()
+                    out = res['out'][0]
+
+                    # All 5 boxes returned (no filtering)
+                    assert len(out) == 5
+                    assert all(b is not None for b in out)
+
+                    # Verify all boxes are correctly translated
+                    expected_cxcywh = abs_expected_cxcywh if canvas_args else rel_expected_cxcywh
+                    is_abs = bool(canvas_args)
+                    for i in range(5):
+                        cx, cy, w, h = expected_cxcywh[i]
+                        if fmt == 'xyxy':
+                            expected = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
+                        elif fmt == 'xywh':
+                            expected = [cx - w / 2, cy - h / 2, w, h]
+                        else:
+                            expected = [cx, cy, w, h]
+                        if is_abs:
+                            expected = [math.floor(x + 0.5) for x in expected]
+                        for j in range(4):
+                            assert out[i][j] == pytest.approx(expected[j], abs=1 if is_abs else 1e-6)
+
+                    pxt.drop_table(t)
+
+    def test_bboxes_crop_canvas_degenerate(self, uses_db: None) -> None:
+        # Test degenerate boxes pass through unchanged
+        degenerate_boxes = [
+            [10, 20, 10, 40],  # zero width (xyxy)
+            [10, 20, 30, 20],  # zero height (xyxy)
+            [30, 40, 10, 20],  # negative width and height (xyxy)
+        ]
+        t = pxt.create_table('degenerate_crop', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': degenerate_boxes}])
+        res = t.select(
+            out=bboxes_crop_canvas(
+                t.bboxes,
+                'xyxy',
+                canvas_region=[100, 100, 400, 400],
+                canvas_region_format='xyxy',
+                canvas_width=640,
+                canvas_height=480,
+            )
+        ).collect()
+        assert res['out'][0] == degenerate_boxes  # all passed through unchanged
+
+    def test_bboxes_crop_canvas_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('bbox_crop_err', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+
+        # invalid format
+        with pytest.raises(pxt.Error, match='Invalid format'):
+            t.select(
+                bboxes_crop_canvas(
+                    t.bboxes,
+                    'coco',
+                    canvas_region=[10, 10, 100, 100],
+                    canvas_region_format='xyxy',
+                    canvas_width=640,
+                    canvas_height=480,
+                )
+            ).collect()
+
+        # Missing canvas_width/canvas_height for absolute coords
+        with pytest.raises(pxt.Error, match='both canvas_width and canvas_height must be specified'):
+            t.select(
+                bboxes_crop_canvas(t.bboxes, 'xyxy', canvas_region=[10, 10, 100, 100], canvas_region_format='xyxy')
+            ).collect()
+
+        # Invalid canvas_region_format
+        with pytest.raises(pxt.Error, match='Invalid canvas_region_format'):
+            t.select(
+                bboxes_crop_canvas(
+                    t.bboxes,
+                    'xyxy',
+                    canvas_region=[10, 10, 100, 100],
+                    canvas_region_format='bad',
+                    canvas_width=640,
+                    canvas_height=480,
+                )
+            ).collect()
+
+        # Crop region with zero area (rx1 == rx2)
+        with pytest.raises(pxt.Error, match='must have positive area'):
+            t.select(
+                bboxes_crop_canvas(
+                    t.bboxes,
+                    'xyxy',
+                    canvas_region=[100, 100, 100, 400],
+                    canvas_region_format='xyxy',
+                    canvas_width=640,
+                    canvas_height=480,
+                )
+            ).collect()
+
+        # Crop region extending beyond canvas
+        with pytest.raises(pxt.Error, match='extends beyond canvas bounds'):
+            t.select(
+                bboxes_crop_canvas(
+                    t.bboxes,
+                    'xyxy',
+                    canvas_region=[100, 100, 700, 400],
+                    canvas_region_format='xyxy',
+                    canvas_width=640,
+                    canvas_height=480,
+                )
+            ).collect()
+
+        t.delete()
+        t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
+
+        # canvas_width/canvas_height specified for relative coords
+        with pytest.raises(pxt.Error, match='must not be specified for relative'):
+            t.select(
+                bboxes_crop_canvas(
+                    t.bboxes,
+                    'xyxy',
+                    canvas_region=[0.1, 0.1, 0.5, 0.5],
+                    canvas_region_format='xyxy',
+                    canvas_width=640,
+                    canvas_height=480,
+                )
+            ).collect()
+
+        # Crop region extending beyond relative canvas
+        with pytest.raises(pxt.Error, match='extends beyond canvas bounds'):
+            t.select(
+                bboxes_crop_canvas(t.bboxes, 'xyxy', canvas_region=[0.1, 0.1, 1.5, 0.5], canvas_region_format='xyxy')
+            ).collect()
+
+        self._test_bbox_validation(
+            t,
+            bboxes_crop_canvas(
+                t.bboxes,
+                'xyxy',
+                canvas_region=[10, 10, 100, 100],
+                canvas_region_format='xyxy',
+                canvas_width=640,
+                canvas_height=480,
+            ),
+        )
+
+    def test_bboxes_resize_canvas(self, uses_db: None) -> None:
+        # cxcywh format, 640x480 canvas
+        abs_boxes: list[tuple[int, int, int, int]] = [
+            (200, 200, 100, 100),  # square box
+            (50, 50, 60, 40),  # rectangular
+            (400, 300, 80, 120),  # tall rectangle
+            (0, 0, 20, 20),  # at origin
+            (620, 460, 40, 40),  # near corner
+        ]
+
+        cases: list[tuple[dict[str, Any], float, float]] = [
+            # canvas_scale=2.0
+            ({'canvas_scale': 2.0}, 2.0, 2.0),
+            # canvas_scale_x=2.0, canvas_scale_y=0.5
+            ({'canvas_scale_x': 2.0, 'canvas_scale_y': 0.5}, 2.0, 0.5),
+            # new_canvas_width/height (equivalent to scale=2.0)
+            ({'new_canvas_width': 1280, 'new_canvas_height': 960, 'canvas_width': 640, 'canvas_height': 480}, 2.0, 2.0),
+        ]
+
+        for fmt in ['xyxy', 'xywh', 'cxcywh']:
+            # Empty list
+            t = pxt.create_table('bbox_empty', {'bboxes': pxt.Json})
+            validate_update_status(t.insert([{'bboxes': []}]), expected_rows=1)
+            res = t.select(out=bboxes_resize_canvas(t.bboxes, fmt, canvas_scale=2.0)).collect()
+            assert res['out'][0] == []
+            pxt.drop_table(t)
+
+            for kwargs, sx, sy in cases:
+                expected_cxcywh = [(cx * sx, cy * sy, w * sx, h * sy) for cx, cy, w, h in abs_boxes]
+                input_bboxes = [convert_cxcywh(b[0], b[1], b[2], b[3], fmt, is_abs=True) for b in abs_boxes]
+
+                t = pxt.create_table('bbox_resize', {'bboxes': pxt.Json})
+                validate_update_status(t.insert([{'bboxes': input_bboxes}]), expected_rows=1)
+                res = t.select(out=bboxes_resize_canvas(t.bboxes, fmt, **kwargs)).collect()
+                out = res['out'][0]
+
+                assert len(out) == 5
+                for i in range(5):
+                    expected = convert_cxcywh(
+                        expected_cxcywh[i][0],
+                        expected_cxcywh[i][1],
+                        expected_cxcywh[i][2],
+                        expected_cxcywh[i][3],
+                        fmt,
+                        is_abs=True,
+                    )
+                    assert all(out[i][j] == pytest.approx(expected[j], abs=1) for j in range(4))
+                pxt.drop_table(t)
+
+    def test_bboxes_resize_canvas_degenerate(self, uses_db: None) -> None:
+        # Test degenerate boxes pass through unchanged
+        degenerate_boxes = [
+            [10, 20, 10, 40],  # zero width (xyxy)
+            [10, 20, 30, 20],  # zero height (xyxy)
+            [30, 40, 10, 20],  # negative width and height (xyxy)
+        ]
+        t = pxt.create_table('degenerate_resize', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': degenerate_boxes}])
+        res = t.select(out=bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0)).collect()
+        assert res['out'][0] == degenerate_boxes  # all passed through unchanged
+
+    def test_bboxes_resize_canvas_errors(self, uses_db: None) -> None:
+        t = pxt.create_table('bbox_resize_err', {'bboxes': pxt.Json})
+        t.insert([{'bboxes': [[10, 20, 30, 40]]}])
+
+        # invalid format
+        with pytest.raises(pxt.Error, match='Invalid format'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'coco', canvas_scale=2.0)).collect()
+
+        # No resize params specified
+        with pytest.raises(pxt.Error, match='requires either all of'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy')).collect()
+
+        # canvas_scale + canvas_scale_x (mutually exclusive)
+        with pytest.raises(pxt.Error, match='canvas_scale is mutually exclusive with canvas_scale_x/canvas_scale_y'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0, canvas_scale_x=1.5)).collect()
+
+        # new_canvas_width/height + canvas_scale (mutually exclusive)
+        with pytest.raises(pxt.Error, match='is mutually exclusive with canvas_scale'):
+            t.select(
+                bboxes_resize_canvas(
+                    t.bboxes,
+                    'xyxy',
+                    new_canvas_width=1280,
+                    new_canvas_height=960,
+                    canvas_scale=2.0,
+                    canvas_width=640,
+                    canvas_height=480,
+                )
+            ).collect()
+
+        # incomplete resize args
+        with pytest.raises(pxt.Error, match='requires either all of'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', new_canvas_width=1280, canvas_width=960)).collect()
+        with pytest.raises(pxt.Error, match='requires either all of'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', new_canvas_height=1280, canvas_height=960)).collect()
+
+        # new_canvas_width/height without canvas_width/canvas_height
+        with pytest.raises(pxt.Error, match='also require canvas_width/canvas_height'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=960)).collect()
+
+        # Non-positive scale factors
+        with pytest.raises(pxt.Error, match='canvas_scale must be positive'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=-1.0)).collect()
+
+        # Non-positive new dimensions
+        with pytest.raises(pxt.Error, match='new_canvas_width must be positive'):
+            t.select(
+                bboxes_resize_canvas(
+                    t.bboxes, 'xyxy', new_canvas_width=-100, new_canvas_height=960, canvas_width=640, canvas_height=480
+                )
+            ).collect()
+
+        with pytest.raises(pxt.Error, match='new_canvas_height must be positive'):
+            t.select(
+                bboxes_resize_canvas(
+                    t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=-100, canvas_width=640, canvas_height=480
+                )
+            ).collect()
+
+        # Non-positive canvas dimensions
+        with pytest.raises(pxt.Error, match='canvas_width must be positive'):
+            t.select(
+                bboxes_resize_canvas(
+                    t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=960, canvas_width=-640, canvas_height=480
+                )
+            ).collect()
+
+        with pytest.raises(pxt.Error, match='canvas_height must be positive'):
+            t.select(
+                bboxes_resize_canvas(
+                    t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=960, canvas_width=640, canvas_height=-480
+                )
+            ).collect()
+
+        # Non-positive scale_x/scale_y
+        with pytest.raises(pxt.Error, match='canvas_scale_x must be positive'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale_x=-1.0)).collect()
+
+        with pytest.raises(pxt.Error, match='canvas_scale_y must be positive'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale_y=-1.0)).collect()
+
+        t.delete()
+        t.insert([{'bboxes': [[0.1, 0.2, 0.3, 0.4]]}])
+
+        # Relative coords with new_canvas_width/height
+        with pytest.raises(pxt.Error, match='requires absolute bounding boxes'):
+            t.select(
+                bboxes_resize_canvas(
+                    t.bboxes, 'xyxy', new_canvas_width=1280, new_canvas_height=960, canvas_width=640, canvas_height=480
+                )
+            ).collect()
+
+        # Relative coords with canvas_scale
+        with pytest.raises(pxt.Error, match='requires absolute bounding boxes'):
+            t.select(bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0)).collect()
+
+        self._test_bbox_validation(t, bboxes_resize_canvas(t.bboxes, 'xyxy', canvas_scale=2.0))
+
     def _test_bbox_validation(self, t: pxt.Table, udf_call: Any) -> None:
         """Test that the bboxes parameter gets validated."""
         # Mixed int/float within a single box
+        t.delete()
         t.insert([{'bboxes': [[10, 20.0, 30, 40]]}])
         with pytest.raises(pxt.Error, match=r'either all int.*or all float'):
             t.select(udf_call).collect()
@@ -478,7 +1251,8 @@ class TestVision:
 # rudimentary bounding box utility functions for result validation
 
 
-def convert_fmt(cx: float | int, cy: float | int, w: float | int, h: float | int, fmt: str) -> list:
+def convert_cxcywh(cx: float | int, cy: float | int, w: float | int, h: float | int, fmt: str, is_abs: bool) -> list:
+    """Convert cxcywh to target format."""
     result: list
     if fmt == 'xyxy':
         result = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2]
@@ -486,12 +1260,20 @@ def convert_fmt(cx: float | int, cy: float | int, w: float | int, h: float | int
         result = [cx - w / 2, cy - h / 2, w, h]
     else:  # cxcywh
         result = [cx, cy, w, h]
-    if cx < 1.0:
-        # relative coords
-        return result
-    else:
-        # absolute coords
+    if is_abs:
         return [math.floor(x + 0.5) for x in result]
+    else:
+        return result
+
+
+def convert_xyxy(x1: float, y1: float, x2: float, y2: float, fmt: str) -> list:
+    """Convert xyxy to target format."""
+    if fmt == 'xyxy':
+        return [x1, y1, x2, y2]
+    elif fmt == 'xywh':
+        return [x1, y1, x2 - x1, y2 - y1]
+    else:  # cxcywh
+        return [(x1 + x2) / 2, (y1 + y2) / 2, x2 - x1, y2 - y1]
 
 
 def get_w(box: list, fmt: str) -> int | float:
