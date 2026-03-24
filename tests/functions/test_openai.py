@@ -639,10 +639,6 @@ class TestOpenai:
         Two scenarios:
           - throughput: 20 rows, no max_tokens (tests conservative default estimator)
           - 429_recovery: 2000 rows, max_tokens=500 (exhausts TPM, tests retry logic)
-
-        Run with:
-            pytest -m "remote_api and expensive" \
-                tests/functions/test_openai.py::TestOpenai::test_chat_completions_scheduler -s -v
         """
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')

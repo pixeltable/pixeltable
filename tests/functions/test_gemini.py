@@ -291,10 +291,6 @@ class TestGemini:
         """
         Scheduler stress test: 30 rows on gemini-2.5-flash free tier (~10 RPM) triggers 429s
         and verifies that retry logic recovers all rows.
-
-        Run with:
-            pytest -m "remote_api and expensive" \
-                tests/functions/test_gemini.py::TestGemini::test_generate_content_scheduler -s -v
         """
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
