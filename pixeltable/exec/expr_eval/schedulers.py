@@ -31,8 +31,8 @@ class RateLimitsScheduler(Scheduler):
     - issue a synchronous request when we don't have a RateLimitsInfo yet (first request bootstraps rate limit info)
     - does not wake early on in-flight request completion: API quota is refilled linearly by the provider, not
       freed by returning responses, so waking on every return just wastes CPU to go back to sleep immediately
-    - est_usage must not be zeroed out when responses return: the provider's remaining quota (from response headers)
-      only reflects completed requests, not in-flight ones. Without est_usage we'd over-schedule based on stale
+    - _est_in_flight_usage must not be zeroed out when responses return: the provider's remaining quota (from response headers)
+      only reflects completed requests, not in-flight ones. Without _est_in_flight_usage we'd over-schedule based on stale
       remaining values that don't account for ongoing requests
 
     TODO:
@@ -45,10 +45,10 @@ class RateLimitsScheduler(Scheduler):
 
     # scheduling-related state
     pool_info: env.RateLimitsInfo | None
-    est_usage: dict[str, int]  # value per resource; running sum of estimated costs for in-flight requests
+    _est_in_flight_usage: dict[str, int]  # value per resource; running sum of estimated costs for in-flight requests
 
     # Per-request estimated costs stored when a task is fired, keyed by id(request).
-    # Looked up and removed in _exec's finally block so we subtract only that request's contribution from est_usage.
+    # Looked up and removed in _exec's finally block so we subtract only that request's contribution from _est_in_flight_usage.
     _inflight_costs: dict[int, dict[str, int]]
 
     num_in_flight: int  # unfinished tasks
@@ -64,7 +64,7 @@ class RateLimitsScheduler(Scheduler):
         loop_task = asyncio.create_task(self._main_loop())
         self.dispatcher.register_task(loop_task)
         self.pool_info = None  # initialized in _main_loop by the first request
-        self.est_usage = {}
+        self._est_in_flight_usage = {}
         self._inflight_costs = {}
         self.num_in_flight = 0
         self.total_requests = 0
@@ -86,7 +86,7 @@ class RateLimitsScheduler(Scheduler):
         assert hasattr(self.pool_info, 'get_request_resources')
         sig = inspect.signature(self.pool_info.get_request_resources)
         self.get_request_resources_param_names = [p.name for p in sig.parameters.values()]
-        self.est_usage = dict.fromkeys(self._resources, 0)
+        self._est_in_flight_usage = dict.fromkeys(self._resources, 0)
 
     async def _main_loop(self) -> None:
         item: RateLimitsScheduler.QueueItem | None = None
@@ -119,7 +119,7 @@ class RateLimitsScheduler(Scheduler):
 
             # we have a new in-flight request
             for resource, val in request_resources.items():
-                self.est_usage[resource] = self.est_usage.get(resource, 0) + val
+                self._est_in_flight_usage[resource] = self._est_in_flight_usage.get(resource, 0) + val
             # Remember this request's individual cost so _exec can subtract only its share on completion.
             self._inflight_costs[id(item.request)] = request_resources
             _logger.debug(f'creating task for {self.resource_pool}')
@@ -155,11 +155,11 @@ class RateLimitsScheduler(Scheduler):
             highest_wait_resource = None
             for resource, usage in request_resources.items():
                 info = self.pool_info.resource_limits[resource]
-                # Note: usage and est_usage are estimated costs of requests, and it may be way off (for example, if
+                # Note: usage and _est_in_flight_usage are estimated costs of requests, and it may be way off (for example, if
                 # max tokens is unspecified for an openAI request).
                 time_until = info.estimated_resource_refill_delay(
                     math.ceil(
-                        info.limit * env.TARGET_RATE_LIMIT_RESOURCE_FRACT + usage + self.est_usage.get(resource, 0)
+                        info.limit * env.TARGET_RATE_LIMIT_RESOURCE_FRACT + usage + self._est_in_flight_usage.get(resource, 0)
                     )
                 )
                 if time_until is not None and highest_wait < time_until:
@@ -239,10 +239,10 @@ class RateLimitsScheduler(Scheduler):
         finally:
             _logger.debug(f'Scheduler stats: #requests={self.total_requests}, #retried={self.total_retried}')
             if is_task:
-                # Subtract only this request's estimated cost from est_usage.
+                # Subtract only this request's estimated cost from _est_in_flight_usage.
                 estimated_cost = self._inflight_costs.pop(id(request), {})
                 for resource, cost in estimated_cost.items():
-                    self.est_usage[resource] = max(0, self.est_usage.get(resource, 0) - cost)
+                    self._est_in_flight_usage[resource] = max(0, self._est_in_flight_usage.get(resource, 0) - cost)
                 self.num_in_flight -= 1
 
 
