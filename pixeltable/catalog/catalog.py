@@ -394,9 +394,7 @@ class Catalog:
                             if not _is_retriable_sql_exc(e):
                                 raise
                             if _MAX_RETRIES != -1 and num_retries >= _MAX_RETRIES:
-                                raise excs.Error(
-                                    f'SQL retry limit ({_MAX_RETRIES}) exceeded for {type(e.orig).__name__}'
-                                ) from e
+                                raise
                             # retry
                             num_retries += 1
                             _logger.debug(f'Retrying ({num_retries}) after {type(e.orig)}')
