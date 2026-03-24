@@ -79,15 +79,6 @@ def _probe_dashboard_port(port: int) -> str | None:
         return 'other'
 
 
-def _find_free_port() -> int:
-    """Ask the OS for a free port on localhost."""
-    import socket
-
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(('127.0.0.1', 0))
-        return s.getsockname()[1]
-
-
 def _start_dashboard_watchdog(port: int) -> None:
     """Start a background thread to monitor the primary dashboard server and take over if it dies."""
     import time
@@ -130,7 +121,9 @@ def _start_dashboard_background(port: int) -> None:
         _start_dashboard_watchdog(port)
         return
     if probe == 'other':
-        port = _find_free_port()
+        print(f'  Warning: Port {port} is in use by another application. Pixeltable Dashboard will not start.')
+        print(f'  To use a different port, set the PIXELTABLE_DASHBOARD_PORT environment variable.')
+        return
 
     startup_errors: list[str] = []
     actual_port = port
