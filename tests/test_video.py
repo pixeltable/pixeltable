@@ -1214,6 +1214,89 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='audio_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
 
+    def test_resize(self, uses_db: None, tmp_path: Path) -> None:
+        videos = get_video_files()
+        videos.append(generate_test_video(tmp_path, duration=1.0, size='640x360'))
+        t = pxt.create_table('resize_test', {'video': pxt.Video})
+        t.insert([{'video': v} for v in videos])
+
+        md = t.video.get_metadata()
+
+        def _even(x: float) -> int:
+            """Round to nearest even integer, matching ffmpeg's -2 behavior."""
+            return round(x / 2) * 2
+
+        # resize with width only
+        t.add_computed_column(resized_w=t.video.resize(width=320))
+        res = t.select(
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            w=t.resized_w.get_metadata().streams[0].width,
+            h=t.resized_w.get_metadata().streams[0].height,
+        ).collect()
+        assert all(row['w'] == 320 for row in res)
+        assert all(row['h'] == _even(row['orig_h'] * 320 / row['orig_w']) for row in res)
+
+        # resize with height only
+        t.add_computed_column(resized_h=t.video.resize(height=180))
+        res = t.select(
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            w=t.resized_h.get_metadata().streams[0].width,
+            h=t.resized_h.get_metadata().streams[0].height,
+        ).collect()
+        assert all(row['w'] == _even(row['orig_w'] * 180 / row['orig_h']) for row in res)
+        assert all(row['h'] == 180 for row in res)
+
+        # resize with both width and height
+        t.add_computed_column(resized_wh=t.video.resize(width=400, height=300))
+        res = t.select(
+            w=t.resized_wh.get_metadata().streams[0].width, h=t.resized_wh.get_metadata().streams[0].height
+        ).collect()
+        assert all(row['w'] == 400 for row in res)
+        assert all(row['h'] == 300 for row in res)
+
+        # resize with scale
+        t.add_computed_column(resized_s=t.video.resize(scale=0.5))
+        res = t.select(
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            w=t.resized_s.get_metadata().streams[0].width,
+            h=t.resized_s.get_metadata().streams[0].height,
+        ).collect()
+        assert all(row['w'] == _even(row['orig_w'] * 0.5) for row in res)
+        assert all(row['h'] == _even(row['orig_h'] * 0.5) for row in res)
+
+        # check that resize() produces valid video files
+        res = t.collect()
+        resized_videos = res['resized_w'] + res['resized_h'] + res['resized_s'] + res['resized_wh']
+        t2 = pxt.create_table('validated', schema={'video': pxt.Video})
+        validate_update_status(t2.insert([{'video': v} for v in resized_videos], on_error='abort'))
+
+    def test_resize_errors(self, uses_db: None, tmp_path: Path) -> None:
+        videos = get_video_files()
+        t = pxt.create_table('resize_err_test', {'video': pxt.Video})
+        validate_update_status(t.insert([{'video': v} for v in videos]))
+
+        with pytest.raises(pxt.Error, match='`scale` is mutually exclusive with `width` and `height`'):
+            t.select(t.video.resize(width=320, scale=0.5)).collect()
+        with pytest.raises(pxt.Error, match='`scale` is mutually exclusive with `width` and `height`'):
+            t.select(t.video.resize(height=240, scale=0.5)).collect()
+        with pytest.raises(pxt.Error, match='`width` must be positive'):
+            t.select(t.video.resize(width=0)).collect()
+        with pytest.raises(pxt.Error, match='`width` must be positive'):
+            t.select(t.video.resize(width=-180)).collect()
+        with pytest.raises(pxt.Error, match='`height` must be positive'):
+            t.select(t.video.resize(height=0)).collect()
+        with pytest.raises(pxt.Error, match='`height` must be positive'):
+            t.select(t.video.resize(height=-180)).collect()
+        with pytest.raises(pxt.Error, match='`scale` must be positive'):
+            t.select(t.video.resize(scale=0)).collect()
+        with pytest.raises(pxt.Error, match='`scale` must be positive'):
+            t.select(t.video.resize(scale=-1.0)).collect()
+        with pytest.raises(pxt.Error, match='At least one of `width`, `height`, or `scale` must be specified'):
+            t.select(t.video.resize()).collect()
+
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')
         video_filepaths = get_video_files()
