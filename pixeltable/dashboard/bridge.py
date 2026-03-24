@@ -696,12 +696,7 @@ def get_pipeline() -> dict[str, Any]:
             )
 
             if is_view and base_path:
-                edges.append({
-                    'source': base_path,
-                    'target': path,
-                    'type': 'view',
-                    'label': iterator_name or 'view',
-                })
+                edges.append({'source': base_path, 'target': path, 'type': 'view', 'label': iterator_name or 'view'})
 
         except Exception as e:
             _logger.warning(f'Pipeline: could not inspect {path}: {e}')

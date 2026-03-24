@@ -122,7 +122,7 @@ def _start_dashboard_background(port: int) -> None:
         return
     if probe == 'other':
         print(f'  Warning: Port {port} is in use by another application. Pixeltable Dashboard will not start.')
-        print(f'  To use a different port, set the PIXELTABLE_DASHBOARD_PORT environment variable.')
+        print('  To use a different port, set the PIXELTABLE_DASHBOARD_PORT environment variable.')
         return
 
     startup_errors: list[str] = []
@@ -137,7 +137,7 @@ def _start_dashboard_background(port: int) -> None:
             # EADDRINUSE (Address already in use) can happen if we lost a race condition
             # with another notebook starting up at the exact same millisecond.
             # If that happens, we just fall back to being a watchdog.
-            if "Address already in use" in str(e):
+            if 'Address already in use' in str(e):
                 _start_dashboard_watchdog(actual_port)
             else:
                 startup_errors.append(str(e))
