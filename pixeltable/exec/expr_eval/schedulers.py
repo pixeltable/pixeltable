@@ -48,9 +48,7 @@ class RateLimitsScheduler(Scheduler):
     pool_info: env.RateLimitsInfo | None
     _est_in_flight_usage: dict[str, int]  # value per resource; running sum of estimated costs for in-flight requests
 
-    # Per-request estimated costs stored when a task is fired, keyed by id(request).
-    # Looked up and removed in _exec's finally block so we subtract only that request's contribution
-    # from _est_in_flight_usage.
+    # Used to maintain _est_in_flight_usage as accurately as possible, keyed by id(request).
     _inflight_costs: dict[int, dict[str, int]]
 
     total_requests: int
