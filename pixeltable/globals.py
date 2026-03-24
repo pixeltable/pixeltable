@@ -42,158 +42,19 @@ import logging
 
 _logger = logging.getLogger('pixeltable')
 
-# ── Dashboard auto-start ─────────────────────────────────────────────────
-
-
-class _DashboardState:
-    """Mutable namespace for dashboard auto-start state (avoids `global` statements)."""
-
-    thread: threading.Thread | None = None
-    watchdog_thread: threading.Thread | None = None
-    disabled: bool = False
-    port_override: int | None = None
-
-
-_dashboard = _DashboardState()
-
-
-def _probe_dashboard_port(port: int) -> str | None:
-    """Check if a Pixeltable dashboard is already listening on *port*."""
-    import json
-    import urllib.error
-    import urllib.request
-
-    try:
-        resp = urllib.request.urlopen(f'http://localhost:{port}/api/health', timeout=1)
-        data = json.loads(resp.read().decode())
-        if data.get('status') == 'ok':
-            return 'pixeltable'
-        return 'other'
-    except urllib.error.HTTPError:
-        return 'other'
-    except urllib.error.URLError as e:
-        if isinstance(e.reason, ConnectionRefusedError):
-            return None
-        return 'other'
-    except Exception:
-        return 'other'
-
-
-def _start_dashboard_watchdog(port: int) -> None:
-    """Start a background thread to monitor the primary dashboard server and take over if it dies."""
-    import time
-    import threading
-
-    if _dashboard.watchdog_thread is not None and _dashboard.watchdog_thread.is_alive():
-        return
-
-    def _watchdog_loop() -> None:
-        while True:
-            time.sleep(3.0)
-            # If we somehow started our own server in the meantime, stop watching
-            if _dashboard.thread is not None and _dashboard.thread.is_alive():
-                break
-
-            probe = _probe_dashboard_port(port)
-            if probe != 'pixeltable':
-                # The primary server died (or something else took over).
-                # Let's try to start our own server.
-                _start_dashboard_background(port)
-                break
-
-    _dashboard.watchdog_thread = threading.Thread(
-        target=_watchdog_loop, daemon=True, name='pixeltable-dashboard-watchdog'
-    )
-    _dashboard.watchdog_thread.start()
-
-
-def _start_dashboard_background(port: int) -> None:
-    """Start the dashboard server in a daemon thread."""
-    import time
-    import threading
-
-    if _dashboard.thread is not None and _dashboard.thread.is_alive():
-        return
-
-    probe = _probe_dashboard_port(port)
-    if probe == 'pixeltable':
-        print(f'  Pixeltable Dashboard (already running): http://localhost:{port}')
-        _start_dashboard_watchdog(port)
-        return
-    if probe == 'other':
-        print(f'  Warning: Port {port} is in use by another application. Pixeltable Dashboard will not start.')
-        print('  To use a different port, set the PIXELTABLE_DASHBOARD_PORT environment variable.')
-        return
-
-    startup_errors: list[str] = []
-    actual_port = port
-
-    def _run() -> None:
-        try:
-            from pixeltable.dashboard.server import run_server
-
-            run_server(port=actual_port)
-        except OSError as e:
-            # EADDRINUSE (Address already in use) can happen if we lost a race condition
-            # with another notebook starting up at the exact same millisecond.
-            # If that happens, we just fall back to being a watchdog.
-            if 'Address already in use' in str(e):
-                _start_dashboard_watchdog(actual_port)
-            else:
-                startup_errors.append(str(e))
-                _logger.error(f'Dashboard server error: {e}')
-        except Exception as e:
-            startup_errors.append(str(e))
-            _logger.error(f'Dashboard server error: {e}')
-
-    _dashboard.thread = threading.Thread(target=_run, daemon=True, name='pixeltable-dashboard')
-    _dashboard.thread.start()
-
-    time.sleep(1.0)
-    if _dashboard.thread.is_alive():
-        print(f'  Pixeltable Dashboard: http://localhost:{actual_port}')
-    elif startup_errors:
-        print(f'  Warning: Dashboard failed to start — {startup_errors[0]}')
-
-
-def _auto_start_dashboard() -> None:
-    """Post-init callback: start the dashboard unless disabled."""
-    if _dashboard.disabled:
-        return
-    if os.environ.get('PIXELTABLE_DASHBOARD', '1') == '0':
-        return
-    port_str = os.environ.get('PIXELTABLE_DASHBOARD_PORT', '8080')
-    try:
-        port = _dashboard.port_override or int(port_str)
-    except ValueError:
-        port = _dashboard.port_override or 8080
-    _start_dashboard_background(port)
-
-
-Env._post_init_callbacks.append(_auto_start_dashboard)
-
 
 def init(
-    config_overrides: dict[str, Any] | None = None, *, dashboard: bool | None = None, dashboard_port: int | None = None
+    config_overrides: dict[str, Any] | None = None
 ) -> None:
     """Initializes the Pixeltable environment.
 
     Args:
         config_overrides: Optional dictionary of configuration overrides.
-        dashboard: Whether to start the dashboard server (default: auto-start).
-        dashboard_port: Port for the dashboard (default: 8080).
     """
-    if dashboard is True:
-        _dashboard.disabled = False
-        os.environ['PIXELTABLE_DASHBOARD'] = '1'
-    elif dashboard is False:
-        _dashboard.disabled = True
-    if dashboard_port is not None:
-        _dashboard.port_override = dashboard_port
     if config_overrides is None:
         config_overrides = {}
     Config.init(config_overrides)
-    _ = get_runtime().catalog  # triggers Env._set_up() → _set_up_runtime() → _auto_start_dashboard()
+    _ = get_runtime().catalog
 
 
 def create_table(

@@ -31,6 +31,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
+from pixeltable.dashboard.harness import DashboardHarness
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
@@ -54,10 +55,6 @@ class Env:
     _init_lock: threading.RLock = threading.RLock()
     _log_fmt_str = '%(asctime)s %(levelname)s %(threadName)s %(name)s %(filename)s:%(lineno)d: %(message)s'
 
-    # Callbacks fired once after _set_up_runtime() completes (used by globals.py
-    # to auto-start the dashboard without circular imports).
-    _post_init_callbacks: ClassVar[list[Callable[[], None]]] = []
-
     _media_dir: Path | None
     _file_cache_dir: Path | None  # cached object files with external URL
     _dataset_cache_dir: Path | None  # cached datasets (eg, pytorch or COCO)
@@ -76,6 +73,7 @@ class Env:
 
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
+    _dashboard_harness: DashboardHarness | None
     _logger: logging.Logger
     _sql_logger: logging.Logger
     # List of loggers and file handlers to cleanup in the end. File handlers can repeat.
@@ -678,13 +676,12 @@ class Env:
         register_heif_opener()
         self._start_web_server()
         self.__register_packages()
-
-        # Fire post-init callbacks (e.g. dashboard auto-start)
-        for cb in self._post_init_callbacks:
-            try:
-                cb()
-            except Exception as e:
-                self._logger.warning('Post-init callback failed: %s', e, exc_info=True)
+        dashboard_enabled = Config.get().get_bool_value('dashboard_enabled')
+        if dashboard_enabled is None:
+            dashboard_enabled = True
+        port = Config.get().get_int_value('dashboard_port') or 20096
+        self._dashboard_harness = DashboardHarness(port)
+        self._dashboard_harness.start()
 
     @property
     def default_video_encoder(self) -> str | None:
