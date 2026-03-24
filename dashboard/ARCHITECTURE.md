@@ -41,7 +41,7 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 | `/api/status` | Version, config, total_tables, total_errors | — |
 | `/api/search` | Matching dirs, tables, columns | `q`, `limit` (50, max 100) |
 | `/api/pipeline` | DAG nodes + edges | — |
-| `/api/tables/{path}` | Schema, columns, indices, versions | — |
+| `/api/tables/{path}` | Schema, columns, indices, versions, iterator info, media validation, destinations | — |
 | `/api/tables/{path}/data` | Paginated rows, media URLs, per-cell errors | `offset`, `limit` (50, max 500), `order_by`, `order_desc`, `errors_only` |
 | `/api/tables/{path}/export` | CSV download | `limit` (100k default, 1M max) |
 
@@ -60,11 +60,11 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 
 ## Key Decisions
 
-**Sort:** server-side `query.order_by()` → SQL. **Filter:** client-side on current page only. **Pagination:** SQL OFFSET (`query.limit(n, offset=k)`); deep pages slow. `errors_only` returns page-size total. **Media:** stored `file://` → HTTP proxy, unstored PIL → base64, external → passthrough. **Errors:** `BrokenPipeError`/`ConnectionResetError` silenced; `PixeltableWarning` suppressed during API calls. **CSV:** media → URLs, JSON → strings.
+**Sort:** server-side `query.order_by()` → SQL. **Filter:** client-side on current page only. **Pagination:** SQL OFFSET (`query.limit(n, offset=k)`); deep pages slow. `errors_only` returns page-size total. **Media:** `fileurl` is fetched instead of downloading raw media content (fixes S3 access issues). Local `file://` → HTTP proxy, external → passthrough. **Errors:** `BrokenPipeError`/`ConnectionResetError` silenced; `PixeltableWarning` suppressed during API calls. **CSV:** media → URLs, JSON → strings.
 
 ## Auto-start
 
-`pxt.init()` spawns server in a daemon thread. On by default.
+`pxt.init()` spawns server in a daemon thread. On by default. A background watchdog thread handles auto-failover if the primary dashboard server dies (e.g., when running multiple notebooks).
 
 | Control | Effect |
 |---------|--------|
@@ -74,11 +74,13 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 | `PIXELTABLE_DASHBOARD=0` | disable via env |
 | `PIXELTABLE_DASHBOARD_PORT=N` | env port override |
 
-Port conflicts auto-detected. Pre-built static ships in the wheel; no Node.js needed.
+Port conflicts auto-detected. If the configured port is taken by a non-Pixeltable app, it will gracefully warn the user instead of falling back to a random port. Pre-built static ships in the wheel; no Node.js needed.
 
-## Dev
+## Dev & Release
 
 ```
 cd dashboard && npm run dev   # :5173 hot reload → :8080 backend
 npm run build                 # → pixeltable/dashboard/static/
 ```
+
+During release (`scripts/release.sh`), the dashboard is automatically built via `npm run build` and bundled into the Python wheel via `hatchling` (`artifacts` in `pyproject.toml`). End users do not need Node.js.

@@ -82,6 +82,9 @@ if [ -f 'Makefile' ]; then
   make clean
 fi
 
+echo "Building dashboard UI ..."
+(cd dashboard && npm install && npm run build)
+
 uv build --wheel
 uv publish --token "$PYPI_API_KEY" dist/pixeltable-"$VERSION"-*.whl
 
