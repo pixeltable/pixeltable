@@ -49,6 +49,7 @@ class _DashboardState:
     """Mutable namespace for dashboard auto-start state (avoids `global` statements)."""
 
     thread: threading.Thread | None = None
+    watchdog_thread: threading.Thread | None = None
     disabled: bool = False
     port_override: int | None = None
 
@@ -87,9 +88,38 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
+def _start_dashboard_watchdog(port: int) -> None:
+    """Start a background thread to monitor the primary dashboard server and take over if it dies."""
+    import time
+    import threading
+
+    if _dashboard.watchdog_thread is not None and _dashboard.watchdog_thread.is_alive():
+        return
+
+    def _watchdog_loop() -> None:
+        while True:
+            time.sleep(3.0)
+            # If we somehow started our own server in the meantime, stop watching
+            if _dashboard.thread is not None and _dashboard.thread.is_alive():
+                break
+
+            probe = _probe_dashboard_port(port)
+            if probe != 'pixeltable':
+                # The primary server died (or something else took over).
+                # Let's try to start our own server.
+                _start_dashboard_background(port)
+                break
+
+    _dashboard.watchdog_thread = threading.Thread(
+        target=_watchdog_loop, daemon=True, name='pixeltable-dashboard-watchdog'
+    )
+    _dashboard.watchdog_thread.start()
+
+
 def _start_dashboard_background(port: int) -> None:
     """Start the dashboard server in a daemon thread."""
     import time
+    import threading
 
     if _dashboard.thread is not None and _dashboard.thread.is_alive():
         return
@@ -97,6 +127,7 @@ def _start_dashboard_background(port: int) -> None:
     probe = _probe_dashboard_port(port)
     if probe == 'pixeltable':
         print(f'  Pixeltable Dashboard (already running): http://localhost:{port}')
+        _start_dashboard_watchdog(port)
         return
     if probe == 'other':
         port = _find_free_port()
