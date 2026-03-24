@@ -145,7 +145,7 @@ dev = [
     "fireworks-ai>=0.17.6",
     "mistralai>=1.8.2",
     "replicate>=1.0.7,<2",
-    "google-genai>=1.53.0",
+    "google-genai>=1.67.0",
     "groq>=0.26.0",
     "boto3==1.36.23",
     "botocore==1.36.23",
@@ -188,6 +188,7 @@ test = [
     "pytest>=8.4",
     "pytest-xdist[psutil]>=3.8",
     "pytest-rerunfailures>=15.1",
+    "pytest-benchmark>=5.1",
     "coverage>=7.9",
     "filelock>=3.13",
 ]
@@ -210,6 +211,7 @@ template = "__version__: str = '{version}'\n"
 exclude = [
     ".pytest_cache",
     ".pytype",
+    "dashboard",
     "docs",
     "local",
     "tests",
@@ -220,10 +222,14 @@ exclude = [
 exclude = [
     ".pytest_cache",
     ".pytype",
+    "dashboard",
     "docs",
     "local",
     "tests",
     "tool",
+]
+artifacts = [
+    "pixeltable/dashboard/static/**",
 ]
 
 [tool.isort]
@@ -247,11 +253,13 @@ warn_return_any = true
 warn_unused_ignores = true
 
 [tool.pytest.ini_options]
-addopts = '-v -m "not remote_api and not expensive" --strict-markers'
+addopts = '-v -m "not remote_api and not expensive and not benchmark" --strict-markers'
 markers = [
     "expensive: marks tests as expensive to run",
     "remote_api: marks tests as calling a remote API (such as OpenAI)",
     "corrupts_db: marks tests as corrupting the database and disables the database validation after the test",
+    "benchmark: marks tests as benchmark tests (excluded from regular test runs)",
+    "cockroachdb: tests to run against CockroachDB",
 ]
 filterwarnings = [
     # Treat *our* warnings as errors (we shouldn't see them fall through in tests)

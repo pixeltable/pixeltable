@@ -6,6 +6,7 @@
 .mypy_cache
 .venv
 .vscode
+.benchmarks
 __pycache__
 *.iml
 
@@ -13,6 +14,7 @@ __pycache__
 /docs/local/
 /local/
 /pixeltable/_version.py
+/pixeltable/dashboard/static/
 /target/
 /tests/target/
 
