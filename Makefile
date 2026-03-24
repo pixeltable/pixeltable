@@ -95,6 +95,12 @@ endif
 	done
 	@touch .make-install/env
 
+DASHBOARD_SOURCES := $(shell find dashboard -type f)
+.make-install/dashboard: $(DASHBOARD_SOURCES)
+	@echo 'Building dashboard assets ...'
+	@(cd dashboard && npm install --silent && npm run build)
+	@touch .make-install/dashboard
+
 .PHONY: install-deps
 install-deps:
 	@echo 'Installing dependencies from uv ...'
@@ -108,7 +114,7 @@ install-deps:
 	@touch .make-install/others
 
 .PHONY: install
-install: setup-install .make-install/env install-deps .make-install/others
+install: setup-install .make-install/env .make-install/dashboard install-deps .make-install/others
 
 .PHONY: test
 test: pytest check
@@ -217,8 +223,8 @@ linkscheck: docs
 
 .PHONY: clean
 clean:
-	@rm -f *.mp4 docs/source/tutorials/*.mp4 || true
 	@rm -rf .make-install || true
+	@rm -rf pixeltable/dashboard/static || true
 	@rm -rf site || true
 	@rm -rf target || true
 	@rm -rf tests/target || true
