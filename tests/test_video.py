@@ -10,7 +10,7 @@ import pytest
 import pixeltable as pxt
 import pixeltable.functions as pxtf
 from pixeltable.env import Env
-from pixeltable.functions.video import frame_iterator, legacy_frame_iterator, video_splitter
+from pixeltable.functions.video import concat_videos_agg, frame_iterator, legacy_frame_iterator, video_splitter
 from pixeltable.utils.object_stores import ObjectOps
 
 from .utils import (
@@ -576,15 +576,16 @@ class TestVideo:
         )
         assert status.num_excs == 0
         res = u.select(
-            u.v1.get_metadata().streams[0].duration_seconds,
-            u.v2.get_metadata().streams[0].duration_seconds,
-            u.v3.get_metadata().streams[0].duration_seconds,
-            u.concat.get_metadata().streams[0].duration_seconds,
-        ).collect()
-        # Verify all videos were concatenated
-        durations = res.to_pandas().iloc[0]
-        concat_duration = durations.iloc[3]
-        assert concat_duration is not None
+            d1=u.v1.get_duration(), d2=u.v2.get_duration(), d3=u.v3.get_duration(), d_concat=u.concat.get_duration()
+        ).collect()[0]
+        input_duration = res['d1'] + res['d2'] + res['d3']
+        concat_duration = res['d_concat']
+        assert pytest.approx(input_duration, abs=0.1) == concat_duration
+
+        # empty inputs
+        validate_update_status(u.insert([{'v1': None, 'v2': None, 'v3': None}]), expected_rows=1)
+        res = u.where(u.v1 == None).select(u.concat).collect()
+        assert res[0]['concat'] is None
 
     def test_concat_videos_mixed_formats(self, uses_db: None, tmp_path: Path) -> None:
         from pixeltable.functions.video import concat_videos
@@ -629,6 +630,66 @@ class TestVideo:
             _ = t.add_computed_column(
                 concat=concat_videos([t.v1.astype(pxt.String), t.v2.astype(pxt.String), t.v3.astype(pxt.String)])
             )
+
+    def test_concat_videos_agg(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()[:3]
+        t = pxt.create_table('concat_agg_test', {'id': pxt.Int, 'video': pxt.Video})
+        t.insert({'id': i, 'video': p} for i, p in enumerate(video_filepaths))
+
+        # split each video into segments, then reassemble with group_by
+        segments = pxt.create_view('segments', t, iterator=video_splitter(t.video, duration=5.0))
+        result = (
+            segments.select(segments.id, video=concat_videos_agg(segments.pos, segments.video_segment))
+            .group_by(segments.id)
+            .collect()
+        )
+        assert len(result) == len(video_filepaths)
+
+        # verify reassembled durations match the originals
+        u = pxt.create_table('concat_results', {'id': pxt.Int, 'video': pxt.Video})
+        u.insert(list(result))
+        u.add_computed_column(duration=u.video.get_duration())
+        orig_durations = t.select(duration=t.video.get_duration()).order_by(t.id).collect()
+        concat_durations = u.select(u.duration).order_by(u.id).collect()
+        assert all(
+            abs(orig - concat) < 0.1 for orig, concat in zip(orig_durations['duration'], concat_durations['duration'])
+        )
+
+        # empty group: all-None videos should produce None
+        e = pxt.create_table('concat_empty', {'id': pxt.Int, 'video': pxt.Video, 'pos': pxt.Int})
+        e.insert(
+            [
+                {'id': 0, 'video': video_filepaths[0], 'pos': 0},
+                {'id': 1, 'video': None, 'pos': 0},
+                {'id': 1, 'video': None, 'pos': 1},
+            ]
+        )
+        result = e.select(e.id, video=concat_videos_agg(e.pos, e.video)).group_by(e.id).order_by(e.id).collect()
+        assert len(result) == 2
+        assert result[0]['video'] is not None  # id 0: has a video
+        assert result[1]['video'] is None  # id 1: empty group returns None
+
+    def test_concat_videos_agg_mixed_formats(self, uses_db: None, tmp_path: Path) -> None:
+        # mixed audio
+        no_audio = generate_test_video(tmp_path, duration=1.0, has_audio=False)
+        with_audio = generate_test_video(tmp_path, duration=1.5, has_audio=True)
+
+        t = pxt.create_table('test_agg_mixed_audio', {'id': pxt.Int, 'video': pxt.Video})
+        t.insert([{'id': 0, 'video': no_audio}, {'id': 1, 'video': with_audio}, {'id': 2, 'video': no_audio}])
+        concat_output = concat_videos_agg(t.id, t.video)
+        result = t.select(output=concat_output, duration=concat_output.get_duration()).collect()
+        assert len(result) == 1
+        concat_duration = result[0]['duration']
+        assert abs(concat_duration - (1.0 + 1.5 + 1.0)) < 0.2
+
+        # error case: mixed resolutions
+        low_res = generate_test_video(tmp_path, duration=0.5, size='176x144', has_audio=False)
+        high_res = generate_test_video(tmp_path, duration=0.5, size='1920x1080', has_audio=False)
+
+        t2 = pxt.create_table('test_agg_resolution', {'id': pxt.Int, 'video': pxt.Video})
+        t2.insert([{'id': 0, 'video': low_res}, {'id': 1, 'video': high_res}])
+        with pytest.raises(pxt.Error, match='requires that all videos have the same resolution'):
+            t2.select(concat_videos_agg(t2.id, t2.video)).collect()
 
     def _validate_splitter_segments(
         self,
@@ -1152,6 +1213,89 @@ class TestVideo:
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=0.0))
         with pytest.raises(pxt.Error, match='audio_duration must be positive'):
             t.add_computed_column(invalid=with_audio(t.video, t.audio, audio_duration=-1.0))
+
+    def test_resize(self, uses_db: None, tmp_path: Path) -> None:
+        videos = get_video_files()
+        videos.append(generate_test_video(tmp_path, duration=1.0, size='640x360'))
+        t = pxt.create_table('resize_test', {'video': pxt.Video})
+        t.insert([{'video': v} for v in videos])
+
+        md = t.video.get_metadata()
+
+        def _even(x: float) -> int:
+            """Round to nearest even integer, matching ffmpeg's -2 behavior."""
+            return round(x / 2) * 2
+
+        # resize with width only
+        t.add_computed_column(resized_w=t.video.resize(width=320))
+        res = t.select(
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            w=t.resized_w.get_metadata().streams[0].width,
+            h=t.resized_w.get_metadata().streams[0].height,
+        ).collect()
+        assert all(row['w'] == 320 for row in res)
+        assert all(row['h'] == _even(row['orig_h'] * 320 / row['orig_w']) for row in res)
+
+        # resize with height only
+        t.add_computed_column(resized_h=t.video.resize(height=180))
+        res = t.select(
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            w=t.resized_h.get_metadata().streams[0].width,
+            h=t.resized_h.get_metadata().streams[0].height,
+        ).collect()
+        assert all(row['w'] == _even(row['orig_w'] * 180 / row['orig_h']) for row in res)
+        assert all(row['h'] == 180 for row in res)
+
+        # resize with both width and height
+        t.add_computed_column(resized_wh=t.video.resize(width=400, height=300))
+        res = t.select(
+            w=t.resized_wh.get_metadata().streams[0].width, h=t.resized_wh.get_metadata().streams[0].height
+        ).collect()
+        assert all(row['w'] == 400 for row in res)
+        assert all(row['h'] == 300 for row in res)
+
+        # resize with scale
+        t.add_computed_column(resized_s=t.video.resize(scale=0.5))
+        res = t.select(
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            w=t.resized_s.get_metadata().streams[0].width,
+            h=t.resized_s.get_metadata().streams[0].height,
+        ).collect()
+        assert all(row['w'] == _even(row['orig_w'] * 0.5) for row in res)
+        assert all(row['h'] == _even(row['orig_h'] * 0.5) for row in res)
+
+        # check that resize() produces valid video files
+        res = t.collect()
+        resized_videos = res['resized_w'] + res['resized_h'] + res['resized_s'] + res['resized_wh']
+        t2 = pxt.create_table('validated', schema={'video': pxt.Video})
+        validate_update_status(t2.insert([{'video': v} for v in resized_videos], on_error='abort'))
+
+    def test_resize_errors(self, uses_db: None, tmp_path: Path) -> None:
+        videos = get_video_files()
+        t = pxt.create_table('resize_err_test', {'video': pxt.Video})
+        validate_update_status(t.insert([{'video': v} for v in videos]))
+
+        with pytest.raises(pxt.Error, match='`scale` is mutually exclusive with `width` and `height`'):
+            t.select(t.video.resize(width=320, scale=0.5)).collect()
+        with pytest.raises(pxt.Error, match='`scale` is mutually exclusive with `width` and `height`'):
+            t.select(t.video.resize(height=240, scale=0.5)).collect()
+        with pytest.raises(pxt.Error, match='`width` must be positive'):
+            t.select(t.video.resize(width=0)).collect()
+        with pytest.raises(pxt.Error, match='`width` must be positive'):
+            t.select(t.video.resize(width=-180)).collect()
+        with pytest.raises(pxt.Error, match='`height` must be positive'):
+            t.select(t.video.resize(height=0)).collect()
+        with pytest.raises(pxt.Error, match='`height` must be positive'):
+            t.select(t.video.resize(height=-180)).collect()
+        with pytest.raises(pxt.Error, match='`scale` must be positive'):
+            t.select(t.video.resize(scale=0)).collect()
+        with pytest.raises(pxt.Error, match='`scale` must be positive'):
+            t.select(t.video.resize(scale=-1.0)).collect()
+        with pytest.raises(pxt.Error, match='At least one of `width`, `height`, or `scale` must be specified'):
+            t.select(t.video.resize()).collect()
 
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')

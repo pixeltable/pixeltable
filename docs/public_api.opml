@@ -253,6 +253,7 @@
         <outline text="module|pixeltable.functions.video">
           <outline text="iter|pixeltable.functions.video.frame_iterator" />
           <outline text="iter|pixeltable.functions.video.video_splitter" />
+          <outline text="uda|pixeltable.functions.video.concat_videos_agg" />
           <outline text="uda|pixeltable.functions.video.make_video" />
           <outline text="udf|pixeltable.functions.video.clip" />
           <outline text="udf|pixeltable.functions.video.crop" />
@@ -302,8 +303,8 @@
           <outline text="udf|pixeltable.functions.fireworks.chat_completions" />
         </outline>
         <outline text="module|pixeltable.functions.gemini">
+          <outline text="udf|pixeltable.functions.gemini.embed_content" />
           <outline text="udf|pixeltable.functions.gemini.generate_content" />
-          <outline text="udf|pixeltable.functions.gemini.generate_embedding" />
           <outline text="udf|pixeltable.functions.gemini.generate_images" />
           <outline text="udf|pixeltable.functions.gemini.generate_videos" />
           <outline text="func|pixeltable.functions.gemini.invoke_tools" />
@@ -339,6 +340,8 @@
           <outline text="udf|pixeltable.functions.openai.vision" />
           <outline text="udf|pixeltable.functions.openai.embeddings" />
           <outline text="udf|pixeltable.functions.openai.image_generations" />
+          <outline text="udf|pixeltable.functions.openai.image_edits" />
+          <outline text="udf|pixeltable.functions.openai.image_variations" />
           <outline text="udf|pixeltable.functions.openai.moderations" />
           <outline text="func|pixeltable.functions.openai.invoke_tools" />
         </outline>
@@ -375,7 +378,9 @@
         </outline>
         <outline text="module|pixeltable.functions.vision">
           <outline text="func|pixeltable.functions.vision.eval_detections" />
-          <outline text="func|pixeltable.functions.vision.draw_bounding_boxes" />
+          <outline text="func|pixeltable.functions.vision.bboxes_convert" />
+          <outline text="func|pixeltable.functions.vision.bboxes_draw" />
+          <outline text="func|pixeltable.functions.vision.bboxes_resize" />
         </outline>
         <outline text="module|pixeltable.functions.voyageai">
           <outline text="udf|pixeltable.functions.voyageai.embeddings" />
