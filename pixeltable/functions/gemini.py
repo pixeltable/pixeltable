@@ -21,7 +21,7 @@ import mimetypes
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Sequence
+from typing import TYPE_CHECKING, Any, AsyncIterator, Coroutine, Literal, Sequence
 
 import numpy as np
 import PIL.Image
@@ -271,6 +271,37 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
+def _pil_to_gemini_image(image: PIL.Image.Image) -> 'genai.types.Image':
+    """Convert a PIL image to a Gemini API Image object."""
+    from google.genai import types
+
+    with io.BytesIO() as buffer:
+        image.save(buffer, format='webp')
+        return types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
+
+
+async def _generate_videos_impl(
+    model: str, prompt: str | None, image: 'genai.types.Image | None', config: 'genai.types.GenerateVideosConfig | None'
+) -> str:
+    """Shared implementation for video generation: submit request, poll for completion, download result."""
+    operation = await _genai_client().aio.models.generate_videos(model=model, prompt=prompt, image=image, config=config)
+    while not operation.done:
+        await asyncio.sleep(3)
+        operation = await _genai_client().aio.operations.get(operation)
+
+    if operation.error:
+        raise Exception(f'Video generation failed: {operation.error}')
+
+    video = operation.response.generated_videos[0]
+
+    video_bytes = await _genai_client().aio.files.download(file=video.video)  # type: ignore[arg-type]
+    assert video_bytes is not None
+
+    output_path = TempStore.create_path(extension='.mp4')
+    Path(output_path).write_bytes(video_bytes)
+    return str(output_path)
+
+
 @pxt.udf(is_deterministic=False)
 async def generate_videos(
     prompt: str | None = None, image: PIL.Image.Image | None = None, *, model: str, config: dict | None = None
@@ -279,7 +310,9 @@ async def generate_videos(
     Generates videos based on a text description and configuration. For additional details, see:
     <https://ai.google.dev/gemini-api/docs/video>
 
-    At least one of `prompt` or `image` must be provided.
+    At least one of `prompt` or `image` must be provided. When `image` is a single image, it is used as the first
+    frame of the generated video. When `image` is a list of images, they are used as reference images to guide the
+    style, subject, or asset appearance throughout the video (Veo 3.1+). See the overloaded signature for details.
 
     Request throttling:
     Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
@@ -291,7 +324,8 @@ async def generate_videos(
 
     Args:
         prompt: A text description of the videos to generate.
-        image: An image to use as the first frame of the video.
+        image: A single image to use as the first frame of the video, or a list of up to 3 reference images
+            for Veo 3.1 (see overloaded signature).
         model: The model to use.
         config: Configuration for generation, corresponding to keyword arguments of
             `genai.types.GenerateVideosConfig`. For details on the parameters, see:
@@ -307,6 +341,17 @@ async def generate_videos(
         >>> tbl.add_computed_column(
         ...     response=generate_videos(tbl.prompt, model='veo-3.0-generate-001')
         ... )
+
+        Use reference images with Veo 3.1 to guide video generation:
+
+        >>> tbl.add_computed_column(
+        ...     response=generate_videos(
+        ...         tbl.prompt,
+        ...         image=[tbl.ref_img1, tbl.ref_img2],
+        ...         reference_types=['asset', 'subject'],
+        ...         model='veo-3.1-generate-preview',
+        ...     )
+        ... )
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -317,36 +362,202 @@ async def generate_videos(
     if prompt is None and image is None:
         raise excs.Error('At least one of `prompt` or `image` must be provided.')
 
-    image_: types.Image | None = None
-    if image is not None:
-        with io.BytesIO() as buffer:
-            image.save(buffer, format='webp')
-            image_ = types.Image(image_bytes=buffer.getvalue(), mime_type='image/webp')
-
+    image_: types.Image | None = _pil_to_gemini_image(image) if image is not None else None
     config_ = types.GenerateVideosConfig(**config) if config else None
 
-    operation = await _genai_client().aio.models.generate_videos(
-        model=model, prompt=prompt, image=image_, config=config_
-    )
-    while not operation.done:
-        await asyncio.sleep(3)
-        operation = await _genai_client().aio.operations.get(operation)
+    return await _generate_videos_impl(model, prompt, image_, config_)
 
-    if operation.error:
-        raise Exception(f'Video generation failed: {operation.error}')
 
-    video = operation.response.generated_videos[0]
+@generate_videos.overload
+async def _(
+    prompt: str | None = None,
+    image: list[PIL.Image.Image] = [],  # noqa: B006
+    *,
+    model: str,
+    config: dict | None = None,
+    reference_types: list[Literal['style', 'subject', 'asset']] | None = None,
+) -> pxt.Video:
+    """Overload that accepts a list of reference images for Veo 3.1+.
 
-    video_bytes = await _genai_client().aio.files.download(file=video.video)  # type: ignore[arg-type]
-    assert video_bytes is not None
+    Args:
+        prompt: A text description of the videos to generate.
+        image: A list of up to 3 reference images to guide style, subject, or asset appearance.
+        model: The model to use.
+        config: Configuration for generation.
+        reference_types: A list of reference types corresponding to each image. Each must be one of
+            ``'style'``, ``'subject'``, or ``'asset'``. If not provided, defaults to ``'style'`` for all images.
+    """
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
 
-    # Create a temporary file to store the video bytes
-    output_path = TempStore.create_path(extension='.mp4')
-    Path(output_path).write_bytes(video_bytes)
-    return str(output_path)
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
+    if not image and prompt is None:
+        raise excs.Error('At least one of `prompt` or `image` must be provided.')
+
+    if len(image) > 3:
+        raise excs.Error(f'At most 3 reference images are allowed, but {len(image)} were provided.')
+
+    if reference_types is None:
+        reference_types = ['style'] * len(image)
+    elif len(reference_types) != len(image):
+        raise excs.Error(f'`reference_types` length ({len(reference_types)}) must match `image` length ({len(image)}).')
+
+    reference_images = [
+        types.VideoGenerationReferenceImage(image=_pil_to_gemini_image(img), reference_type=ref_type)
+        for img, ref_type in zip(image, reference_types)
+    ]
+
+    config_ = types.GenerateVideosConfig(**config) if config else types.GenerateVideosConfig()
+    config_.reference_images = reference_images
+
+    return await _generate_videos_impl(model, prompt, None, config_)
 
 
 @generate_videos.resource_pool
+def _(model: str) -> str:
+    return f'rate-limits:gemini:{model}'
+
+
+@pxt.udf(is_deterministic=False)
+async def generate_speech(text: str, *, model: str, voice: str = 'Kore', config: dict | None = None) -> pxt.Audio:
+    """
+    Generates speech audio from text using Gemini's text-to-speech capability. For additional details, see:
+    <https://ai.google.dev/gemini-api/docs/speech-generation>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    __Requirements:__
+
+    - `pip install google-genai`
+
+    Args:
+        text: The text to synthesize into speech.
+        model: The model to use (e.g. ``'gemini-2.5-flash-preview-tts'``).
+        voice: The voice profile to use. Supported voices include ``'Kore'``, ``'Puck'``, ``'Charon'``,
+            ``'Fenrir'``, ``'Aoede'``, ``'Leda'``, ``'Orus'``, ``'Zephyr'``, and others. See the
+            `speech generation docs <https://ai.google.dev/gemini-api/docs/speech-generation>`_ for the full list.
+        config: Additional configuration, corresponding to keyword arguments of
+            ``genai.types.GenerateContentConfig``. Keys such as ``response_modalities`` and ``speech_config``
+            are set automatically and should not be included.
+
+    Returns:
+        An audio file (WAV, 24 kHz mono 16-bit) containing the synthesized speech.
+
+    Examples:
+        Add a computed column that generates speech from text:
+
+        >>> tbl.add_computed_column(
+        ...     audio=generate_speech(
+        ...         tbl.text, model='gemini-2.5-flash-preview-tts', voice='Kore'
+        ...     )
+        ... )
+    """
+    import wave
+
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
+
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
+    config_ = types.GenerateContentConfig(**(config or {}))
+    config_.response_modalities = ['AUDIO']
+    config_.speech_config = types.SpeechConfig(
+        voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice))
+    )
+
+    response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
+
+    data = response.candidates[0].content.parts[0].inline_data.data
+    if isinstance(data, str):
+        data = base64.b64decode(data)
+
+    output_path = str(TempStore.create_path(extension='.wav'))
+    with wave.open(output_path, 'wb') as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(24000)
+        wf.writeframes(data)
+    return output_path
+
+
+@generate_speech.resource_pool
+def _(model: str) -> str:
+    return f'rate-limits:gemini:{model}'
+
+
+@pxt.udf
+async def transcribe(
+    audio: pxt.Audio, *, model: str, prompt: str = 'Generate a transcript of the speech.', config: dict | None = None
+) -> str:
+    """
+    Transcribes audio to text using Gemini's audio understanding capability. For additional details, see:
+    <https://ai.google.dev/gemini-api/docs/audio>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `gemini.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    __Requirements:__
+
+    - `pip install google-genai`
+
+    Args:
+        audio: The audio file to transcribe.
+        model: The model to use (e.g. ``'gemini-2.5-flash'``).
+        prompt: The instruction prompt sent alongside the audio. Defaults to
+            ``'Generate a transcript of the speech.'``.
+        config: Additional configuration, corresponding to keyword arguments of
+            ``genai.types.GenerateContentConfig``.
+
+    Returns:
+        The transcribed text.
+
+    Examples:
+        Add a computed column that transcribes audio:
+
+        >>> tbl.add_computed_column(
+        ...     transcript=transcribe(tbl.audio, model='gemini-2.5-flash')
+        ... )
+    """
+    env.Env.get().require_package('google.genai')
+    from google.genai import types
+
+    resource_pool_id = f'rate-limits:gemini:{model}'
+    env.Env.get().get_resource_pool_info(resource_pool_id, GeminiRateLimitsInfo)
+
+    config_ = types.GenerateContentConfig(**config) if config else None
+    client = _genai_client()
+
+    size_bytes = os.stat(audio).st_size
+    if size_bytes > GEMINI_INLINE_LIMIT_BYTES:
+        async with _gemini_file_uploads([audio]) as uploaded:
+            audio_part = types.Part.from_uri(file_uri=uploaded[0].uri, mime_type=uploaded[0].mime_type)
+            response = await client.aio.models.generate_content(
+                model=model,
+                contents=[audio_part, prompt],  # type: ignore[arg-type]
+                config=config_,
+            )
+    else:
+        mime_type, _ = mimetypes.guess_type(audio, strict=False)
+        if mime_type is None:
+            raise excs.Error(f'Could not identify mime type of file: {audio}')
+        audio_data = Path(audio).read_bytes()
+        audio_part = types.Part.from_bytes(data=audio_data, mime_type=mime_type)
+        response = await client.aio.models.generate_content(
+            model=model,
+            contents=[audio_part, prompt],  # type: ignore[arg-type]
+            config=config_,
+        )
+
+    return response.text
+
+
+@transcribe.resource_pool
 def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
