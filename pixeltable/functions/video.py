@@ -500,24 +500,11 @@ def segment_video(
             _handle_ffmpeg_error(e)
 
 
-@pxt.udf(is_method=True)
-def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
-    """
-    Merge multiple videos into a single video.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        videos: List of videos to merge.
-
-    Returns:
-        A new video containing the merged videos.
-    """
+def _concat_videos(videos: list[str], error_prefix: str) -> str | None:
+    """Concatenate videos and return the path to the output video, or None for an empty list"""
     Env.get().require_binary('ffmpeg')
     if len(videos) == 0:
-        raise pxt.Error('concat_videos(): empty argument list')
+        return None
 
     # Check that all videos have the same resolution
     resolutions: list[tuple[int, int]] = []
@@ -525,7 +512,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         metadata = av_utils.get_metadata(str(video))
         video_stream = next((stream for stream in metadata['streams'] if stream['type'] == 'video'), None)
         if video_stream is None:
-            raise pxt.Error(f'concat_videos(): file {video!r} has no video stream')
+            raise pxt.Error(f'{error_prefix}: file {video!r} has no video stream')
         resolutions.append((video_stream['width'], video_stream['height']))
 
     # check for divergence
@@ -533,7 +520,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     for i, (x, y) in enumerate(resolutions[1:], start=1):
         if (x0, y0) != (x, y):
             raise pxt.Error(
-                f'concat_videos(): requires that all videos have the same resolution, but:'
+                f'{error_prefix}: requires that all videos have the same resolution, but:'
                 f'\n  video 0 ({videos[0]!r}): {x0}x{y0}'
                 f'\n  video {i} ({videos[i]!r}): {x}x{y}.'
             )
@@ -549,7 +536,7 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
     try:
         # First attempt: fast copy without re-encoding (works for compatible formats)
         cmd = ['ffmpeg', '-f', 'concat', '-safe', '0', '-i', str(filelist_path), '-c', 'copy', '-y', str(output_path)]
-        _logger.debug(f'concat_videos(): {" ".join(cmd)}')
+        _logger.debug(f'_concat_videos(): {" ".join(cmd)}')
         try:
             _ = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return str(output_path)
@@ -604,6 +591,59 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video:
         _handle_ffmpeg_error(e)
     finally:
         filelist_path.unlink()
+
+
+@pxt.udf(is_method=True)
+def concat_videos(videos: list[pxt.Video]) -> pxt.Video | None:
+    """
+    Merge multiple videos into a single video.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        videos: List of videos to merge.
+
+    Returns:
+        A new video containing the merged videos, or None if the input list is empty.
+    """
+    Env.get().require_binary('ffmpeg')
+    videos = [v for v in videos if v is not None]
+    return _concat_videos(videos, error_prefix='concat_videos()')
+
+
+@pxt.uda(requires_order_by=True)
+class concat_videos_agg(pxt.Aggregator):
+    """
+    Aggregate function that merges videos into a single video.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+    - All videos must have the same resolution
+
+    Returns:
+        A new video containing all input videos concatenated in order, or None if all inputs are None.
+
+    Examples:
+        Concatenate all videos in a table, ordered by timestamp:
+
+        >>> tbl.select(concat_videos_agg(tbl.timestamp, tbl.video)).collect()
+    """
+
+    videos: list[str]
+
+    def __init__(self) -> None:
+        Env.get().require_binary('ffmpeg')
+        self.videos = []
+
+    def update(self, video: pxt.Video) -> None:
+        if video is not None:
+            self.videos.append(str(video))
+
+    def value(self) -> pxt.Video | None:
+        return _concat_videos(self.videos, error_prefix='concat_videos_agg()')
 
 
 @pxt.udf
@@ -1018,6 +1058,91 @@ def crop(
             cmd.extend([f'-{k}', str(v)])
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'crop(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
+@pxt.udf(is_method=True)
+def resize(
+    video: pxt.Video, *, width: int | None = None, height: int | None = None, scale: float | None = None
+) -> pxt.Video:
+    """
+    Resize a video using ffmpeg's scale filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        width: Width of the output video. Maintains the existing aspect ratio if no `height` is provided.
+        height: Height of the output video. Maintains the existing aspect ratio if no `width` is provided.
+        scale: Scale factor. Mutually exclusive with `width` and `height`.
+
+    Returns:
+        The resized video.
+
+    Examples:
+        Resize to a specific width, preserving aspect ratio:
+
+        >>> tbl.select(tbl.video.resize(width=640)).collect()
+
+        Resize to exact dimensions:
+
+        >>> tbl.select(tbl.video.resize(width=1280, height=720)).collect()
+
+        Scale down by half:
+
+        >>> tbl.select(tbl.video.resize(scale=0.5)).collect()
+    """
+    Env.get().require_binary('ffmpeg')
+
+    if scale is not None and (width is not None or height is not None):
+        raise pxt.Error('`scale` is mutually exclusive with `width` and `height`')
+    if scale is not None:
+        if scale <= 0:
+            raise pxt.Error(f'`scale` must be positive, got {scale}')
+        scale_filter = f'scale=trunc(iw*{scale}/2)*2:trunc(ih*{scale}/2)*2'
+    elif width is not None or height is not None:
+        if width is not None and width <= 0:
+            raise pxt.Error(f'`width` must be positive, got {width}')
+        if height is not None and height <= 0:
+            raise pxt.Error(f'`height` must be positive, got {height}')
+
+        # Use -2 for the unspecified dimension: like -1 (preserve aspect ratio),
+        # but rounds to the nearest even value (required by most codecs)
+        w_expr = str(width) if width is not None else '-2'
+        h_expr = str(height) if height is not None else '-2'
+        scale_filter = f'scale={w_expr}:{h_expr}'
+    else:
+        raise pxt.Error('At least one of `width`, `height`, or `scale` must be specified')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    video_encoder = Env.get().default_video_encoder
+
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-vf',
+        scale_filter,
+        '-c:a',
+        'copy',
+        '-c:v',
+        video_encoder,
+        '-loglevel',
+        'error',
+        output_path,
+    ]
+    _logger.debug(f'resize(): {" ".join(cmd)}')
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)

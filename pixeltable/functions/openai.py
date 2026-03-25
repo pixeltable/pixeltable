@@ -14,7 +14,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, Callable, Type
+from typing import TYPE_CHECKING, Any, Callable, Type, cast
 
 import httpx
 import numpy as np
@@ -710,6 +710,35 @@ def _(model: str, model_kwargs: dict[str, Any] | None = None) -> ts.ArrayType:
 #####################################
 # Images Endpoints
 
+_GPT_IMAGE_MODEL_PREFIXES = ('gpt-image-',)
+
+
+def _is_gpt_image_model(model: str) -> bool:
+    return any(model.startswith(prefix) for prefix in _GPT_IMAGE_MODEL_PREFIXES)
+
+
+def _pil_to_png_bytes(image: PIL.Image.Image) -> io.BytesIO:
+    """Serialize a PIL image to a PNG BytesIO. The OpenAI images/edits and images/variations endpoints
+    require images as PNG file objects."""
+    buf = io.BytesIO()
+    image.save(buf, format='PNG')
+    buf.seek(0)
+    cast(Any, buf).name = 'image.png'
+    return buf
+
+
+def _decode_image_response(result: dict) -> dict:
+    """Decode base64 image data in an OpenAI images API response dict, replacing each entry with a PIL image."""
+    for i in range(len(result['data'])):
+        b64_str = result['data'][i].get('b64_json')
+        if b64_str is None:
+            raise excs.Error('Image content is missing in the response.')
+        b64_bytes = base64.b64decode(b64_str)
+        img = PIL.Image.open(io.BytesIO(b64_bytes))
+        img.load()
+        result['data'][i] = img
+    return result
+
 
 @pxt.udf(is_deterministic=False)
 async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
@@ -729,9 +758,9 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
 
     Args:
         prompt: Prompt for the image.
-        model: The model to use for the generations.
+        model: The model to use for the generations. See the OpenAI docs for supported models.
         model_kwargs: Additional keyword args for the OpenAI `images/generations` API. For details on the available
-            parameters, see: <https://platform.openai.com/docs/api-reference/images/create>
+            parameters, see: <https://developers.openai.com/api/reference/resources/images/methods/generate>
 
     Returns:
         A dictionary containing the generated image data. Images will be deserialized into `PIL.Image.Image` objects,
@@ -755,27 +784,167 @@ async def image_generations(prompt: str, *, model: str, model_kwargs: dict[str, 
         >>> tbl.add_computed_column(
         ...     gen_image=image_generations(tbl.text, model='dall-e-2')
         ... )
+
+        Generate an image using the `gpt-image-1` model:
+
+        >>> tbl.add_computed_column(
+        ...     gen_image=image_generations(tbl.text, model='gpt-image-1')
+        ... )
     """
     if model_kwargs is None:
         model_kwargs = {}
 
-    result_model = await _openai_client().images.generate(
-        prompt=prompt, model=model, response_format='b64_json', **model_kwargs
-    )
+    kwargs: dict[str, Any] = {'prompt': prompt, 'model': model, **model_kwargs}
+    # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
+    # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.
+    # https://developers.openai.com/api/reference/resources/images/methods/generate
+    if not _is_gpt_image_model(model):
+        kwargs.setdefault('response_format', 'b64_json')
 
-    result = result_model.model_dump()
+    result_model = await _openai_client().images.generate(**kwargs)
+    return _decode_image_response(result_model.model_dump(mode='json'))
 
-    # Decode images in response
-    for i in range(len(result['data'])):
-        b64_str = result['data'][i]['b64_json']
-        if b64_str is None:
-            raise excs.Error('Image content is missing in the response.')
-        b64_bytes = base64.b64decode(b64_str)
-        img = PIL.Image.open(io.BytesIO(b64_bytes))
-        img.load()
-        result['data'][i] = img
 
-    return result
+@pxt.udf(is_deterministic=False)
+async def image_edits(
+    image: PIL.Image.Image,
+    *,
+    prompt: str,
+    model: str,
+    mask: PIL.Image.Image | None = None,
+    model_kwargs: dict[str, Any] | None = None,
+) -> dict:
+    """
+    Creates an edited or extended image given a source image and a prompt.
+
+    Equivalent to the OpenAI `images/edits` API endpoint.
+    For additional details, see: <https://developers.openai.com/api/docs/guides/image-generation#edit-images>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    __Requirements:__
+
+    - `pip install openai`
+
+    Args:
+        image: The source image to edit.
+        prompt: A text description of the desired edit.
+        model: The model to use for image editing.
+        mask: An optional mask image. See: <https://developers.openai.com/api/reference/resources/images/methods/edit>
+        model_kwargs: Additional keyword args for the OpenAI `images/edits` API. For details on the available
+            parameters, see: <https://developers.openai.com/api/reference/resources/images/methods/edit>
+
+    Returns:
+        A dictionary containing the edited image data. Images will be deserialized into `PIL.Image.Image` objects,
+        and the result dictionary will have the following form:
+        ```json
+        {
+            "created": 1234567890,
+            "data": [
+                PIL.Image.Image(...),
+                ...
+            ],
+            "usage": <optional usage data, depending on model>
+        }
+        ```
+
+    Examples:
+        Edit an image with a text prompt:
+
+        >>> tbl.add_computed_column(
+        ...     edited=image_edits(
+        ...         tbl.source_image,
+        ...         prompt='Add a sunset background',
+        ...         model='gpt-image-1',
+        ...     )
+        ... )
+
+        Edit an image with a mask to specify the edit area:
+
+        >>> tbl.add_computed_column(
+        ...     edited=image_edits(
+        ...         tbl.source_image,
+        ...         mask=tbl.mask_image,
+        ...         prompt='Replace with a beach scene',
+        ...         model='gpt-image-1',
+        ...     )
+        ... )
+    """
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    png_image_buffer = _pil_to_png_bytes(image)
+    kwargs: dict[str, Any] = {'image': png_image_buffer, 'prompt': prompt, 'model': model, **model_kwargs}
+
+    if mask is not None:
+        kwargs['mask'] = _pil_to_png_bytes(mask)
+
+    # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
+    # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.
+    # https://developers.openai.com/api/reference/resources/images/methods/edit
+    if not _is_gpt_image_model(model):
+        kwargs.setdefault('response_format', 'b64_json')
+
+    result_model = await _openai_client().images.edit(**kwargs)
+    return _decode_image_response(result_model.model_dump(mode='json'))
+
+
+@pxt.udf(is_deterministic=False)
+async def image_variations(image: PIL.Image.Image, *, model: str, model_kwargs: dict[str, Any] | None = None) -> dict:
+    """
+    Creates a variation of a given image.
+
+    Equivalent to the OpenAI `images/variations` API endpoint.
+    For additional details, see: <https://developers.openai.com/api/docs/guides/image-generation#image-variations>
+
+    Request throttling:
+    Applies the rate limit set in the config (section `openai.rate_limits`; use the model id as the key). If no rate
+    limit is configured, uses a default of 600 RPM.
+
+    __Requirements:__
+
+    - `pip install openai`
+
+    Args:
+        image: The source image to create a variation of.
+        model: The model to use for creating variations.
+        model_kwargs: Additional keyword args for the OpenAI `images/variations` API. For details on the available
+            parameters, see: <https://developers.openai.com/api/reference/resources/images/methods/create_variation>
+
+    Returns:
+        A dictionary containing the variation image data. Images will be deserialized into `PIL.Image.Image` objects,
+        and the result dictionary will have the following form:
+        ```json
+        {
+            "created": 1234567890,
+            "data": [
+                PIL.Image.Image(...),
+                ...
+            ]
+        }
+        ```
+
+    Examples:
+        Generate a variation of an existing image:
+
+        >>> tbl.add_computed_column(
+        ...     variation=image_variations(tbl.source_image, model='dall-e-2')
+        ... )
+    """
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    png_image_buffer = _pil_to_png_bytes(image)
+    kwargs: dict[str, Any] = {'image': png_image_buffer, 'model': model, **model_kwargs}
+    # GPT image models (gpt-image-1 etc.) do not support the response_format parameter and always return b64_json.
+    # DALL-E models default to returning URLs (which expire after 60 min), so we explicitly request b64_json.
+    # https://developers.openai.com/api/reference/resources/images/methods/create_variation
+    if not _is_gpt_image_model(model):
+        kwargs.setdefault('response_format', 'b64_json')
+    result_model = await _openai_client().images.create_variation(**kwargs)
+    return _decode_image_response(result_model.model_dump(mode='json'))
 
 
 # TODO: We can resurrect this logic once we have proper typed Json support.
@@ -841,6 +1010,8 @@ async def moderations(input: str, *, model: str = 'omni-moderation-latest') -> d
 @transcriptions.resource_pool
 @translations.resource_pool
 @image_generations.resource_pool
+@image_edits.resource_pool
+@image_variations.resource_pool
 @moderations.resource_pool
 def _(model: str) -> str:
     return f'request-rate:openai:{model}'
