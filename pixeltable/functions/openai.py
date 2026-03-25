@@ -14,7 +14,7 @@ import logging
 import math
 import pathlib
 import re
-from typing import TYPE_CHECKING, Any, Callable, Type, cast
+from typing import TYPE_CHECKING, Any, Type, cast
 
 import httpx
 import numpy as np
