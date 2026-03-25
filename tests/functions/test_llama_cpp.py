@@ -53,7 +53,7 @@ class TestLlamaCpp:
         assert len(result['choices'][0]['message']['content']) > 0
         assert len(result2['choices'][0]['message']['content']) > 0
 
-    @pytest.mark.expensive # downloads large models
+    @pytest.mark.expensive  # downloads large models
     @pytest.mark.parametrize('model', ['mistral', 'gemma', 'qwen', 'salesforce'])
     def test_tool_invocations(self, uses_db: None, model: str) -> None:
         skip_test_if_not_installed('llama_cpp')
@@ -87,9 +87,9 @@ class TestLlamaCpp:
                 chat_format = 'chatml-function-calling'
                 tool_choice = tools.choice(auto=True)
             case 'gemma':
-                # file size: 4.1GB
+                # file size: 2.2GB
                 repo_id = 'lmstudio-community/gemma-3-4b-it-GGUF'
-                repo_filename = '*Q8_0.gguf'
+                repo_filename = '*Q3_K_L.gguf'
                 chat_format = 'chatml-function-calling'
                 tool_choice = tools.choice(auto=True)
             case _:
