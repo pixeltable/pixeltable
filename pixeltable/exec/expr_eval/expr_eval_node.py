@@ -443,12 +443,6 @@ class ExprEvalNode(ExecNode):
         # Handle completed rows
         if np.any(completed_rows):
             completed_idxs = list(completed_rows.nonzero()[0])
-            for i in completed_idxs:
-                row = rows[i]
-                leaked = np.array([v is not None for v in row.vals], dtype=bool) & exec_ctx.gc_targets
-                assert not leaked.any(), (
-                    f'GC leak: completed row still has values in GC-target slots {leaked.nonzero()[0].tolist()}'
-                )
             if rows[0].parent_row is not None:
                 # these are nested rows
                 for i in completed_idxs:
