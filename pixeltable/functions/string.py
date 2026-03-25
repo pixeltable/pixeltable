@@ -13,6 +13,7 @@ t.select(t.str_col.capitalize()).collect()
 
 import builtins
 import re
+import sre_parse
 import textwrap
 from string import whitespace
 from typing import Any, Iterator, TypedDict
@@ -23,6 +24,131 @@ import pixeltable as pxt
 from pixeltable import exceptions as excs
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.spacy import get_spacy_model
+
+# ── Regex SQL-pushdown safety ────────────────────────────────────────────────
+# PostgreSQL ARE overlaps with but does not exactly match Python ``re``.
+# These helpers compile a regex into its sre_parse AST and whitelist only the
+# nodes that PG handles identically.  CATEGORY (\d \w \s) is excluded because
+# PG with LC_CTYPE='C' limits these to ASCII while Python is Unicode-aware.
+# ANY ('.') is excluded because PG matches '\n' by default while Python does not.
+
+_PG_SAFE_OPS = frozenset(
+    {
+        sre_parse.LITERAL,  # 'a'
+        sre_parse.NOT_LITERAL,  # '[^a]' (single-char negation)
+        sre_parse.AT,  # '^', '$'  (sub-type checked separately)
+        sre_parse.IN,  # '[abc]', '[a-z]'
+        sre_parse.BRANCH,  # 'a|b'
+        sre_parse.SUBPATTERN,  # '(a)', '(?:a)'
+        sre_parse.GROUPREF,  # '\1'
+        sre_parse.MAX_REPEAT,  # 'a*', 'a+', 'a{3}'
+        sre_parse.MIN_REPEAT,  # 'a*?', 'a+?'
+        sre_parse.ASSERT,  # '(?=a)'  (direction checked separately)
+        sre_parse.ASSERT_NOT,  # '(?!a)'  (direction checked separately)
+        sre_parse.NEGATE,  # '[^...]' negation marker inside IN
+        sre_parse.RANGE,  # 'a-z' inside IN
+    }
+)
+
+_PG_SAFE_SUBTYPES: dict[int, frozenset[int]] = {
+    sre_parse.AT: frozenset(
+        {
+            sre_parse.AT_BEGINNING,  # '^'
+            sre_parse.AT_END,  # '$'
+        }
+    )
+}
+
+_PG_RECURSE: dict[int, Any] = {
+    sre_parse.SUBPATTERN: lambda av: [av[-1]],
+    sre_parse.BRANCH: lambda av: av[1],
+    sre_parse.IN: lambda av: [av],
+    sre_parse.MAX_REPEAT: lambda av: [av[2]],
+    sre_parse.MIN_REPEAT: lambda av: [av[2]],
+    sre_parse.ASSERT: lambda av: [av[1]],
+    sre_parse.ASSERT_NOT: lambda av: [av[1]],
+}
+
+
+def _ast_is_pg_safe(nodes: Any) -> bool:
+    """Recursively verify every AST node is in the PG ARE whitelist."""
+    for op, av in nodes:
+        if op not in _PG_SAFE_OPS:
+            return False
+        if op in _PG_SAFE_SUBTYPES and av not in _PG_SAFE_SUBTYPES[op]:
+            return False
+        if op == sre_parse.LITERAL and av == 0:
+            return False  # null byte -- PG text cannot represent \x00
+        if op in (sre_parse.ASSERT, sre_parse.ASSERT_NOT) and av[0] < 0:
+            return False  # lookbehind -- not supported in PG
+        if op == sre_parse.SUBPATTERN and (av[1] or av[2]):
+            return False  # scoped inline flags like (?i:...)
+        if op in _PG_RECURSE and not all(_ast_is_pg_safe(c) for c in _PG_RECURSE[op](av)):
+            return False
+    return True
+
+
+def _literal_value(col: sql.ColumnElement) -> str | None:
+    """Return the literal string value of a SQL column element, or None."""
+    val = getattr(col, 'value', None)
+    return val if isinstance(val, str) else None
+
+
+def _can_pushdown_regex(pattern: sql.ColumnElement) -> bool:
+    """Return True if the pattern is a literal using only PG-safe regex constructs."""
+    val = _literal_value(pattern)
+    if val is None:
+        return False
+    try:
+        parsed = sre_parse.parse(val)
+    except re.error:
+        return False
+    if parsed.state.groupdict:
+        return False  # (?P<name>...) -- Python-only named groups
+    if parsed.state.flags & ~re.UNICODE:
+        return False  # inline flags like (?i) -- PG interprets them differently
+    return _ast_is_pg_safe(parsed)
+
+
+def _regex_match_sql(
+    self: sql.ColumnElement,
+    pattern: sql.ColumnElement,
+    case: sql.ColumnElement | None,
+    flags: sql.ColumnElement | None,
+    anchor_end: bool,
+) -> sql.ColumnElement | None:
+    """Shared SQL pushdown for match() and fullmatch().
+
+    Args:
+        anchor_end: If True, anchor at both ends (fullmatch); otherwise start only (match).
+    """
+    if flags is not None:
+        return None
+    if not _can_pushdown_regex(pattern):
+        return None
+    # ~* with LC_CTYPE='C' only does ASCII case folding; fall back for non-ASCII patterns
+    if case is not None and not (_literal_value(pattern) or '').isascii():
+        return None
+    suffix = ')$' if anchor_end else ')'
+    anchored = sql.func.concat('^(?:', pattern, suffix)
+    if case is None:
+        return self.op('~')(anchored)
+    return sql.case((case, self.op('~')(anchored)), else_=self.op('~*')(anchored))
+
+
+def _justify_sql(
+    self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None, pad_fn: Any
+) -> sql.ColumnElement | None:
+    """Shared SQL pushdown for ljust() and rjust()."""
+    # Python requires fillchar to be exactly 1 char; PG rpad/lpad silently accepts multi-char
+    if fillchar is not None:
+        val = _literal_value(fillchar)
+        if val is None or builtins.len(val) != 1:
+            return None
+    fill = fillchar if fillchar is not None else ' '
+    w = width.cast(sql.types.INT)
+    # Python doesn't truncate strings already at or exceeding width
+    return sql.case((sql.func.char_length(self) >= w, self), else_=pad_fn(self, w, fill))
 
 
 @pxt.udf(is_method=True)
@@ -110,6 +236,8 @@ def contains_re(self: str, pattern: str, flags: int = 0) -> bool:
 def _(self: sql.ColumnElement, pattern: sql.ColumnElement, flags: sql.ColumnElement | None = None) -> sql.ColumnElement:
     if flags is not None:
         return None  # Can't handle arbitrary re flags in SQL
+    if not _can_pushdown_regex(pattern):
+        return None
     return self.op('~')(pattern)
 
 
@@ -129,6 +257,8 @@ def count(self: str, pattern: str, flags: int = 0) -> int:
 def _(self: sql.ColumnElement, pattern: sql.ColumnElement, flags: sql.ColumnElement | None = None) -> sql.ColumnElement:
     if flags is not None:
         return None  # Can't handle arbitrary re flags in SQL
+    if not _can_pushdown_regex(pattern):
+        return None
     return sql.func.regexp_count(self, pattern)
 
 
@@ -233,7 +363,6 @@ def fullmatch(self: str, pattern: str, case: bool = True, flags: int = 0) -> boo
     """
     if not case:
         flags |= re.IGNORECASE
-    _ = bool(re.fullmatch(pattern, self, flags))
     return bool(re.fullmatch(pattern, self, flags))
 
 
@@ -244,14 +373,7 @@ def _(
     case: sql.ColumnElement | None = None,
     flags: sql.ColumnElement | None = None,
 ) -> sql.ColumnElement:
-    if flags is not None:
-        return None  # Can't handle arbitrary re flags in SQL
-    # Anchor pattern to match the full string; wrap in (?:...) to protect internal alternation
-    anchored = sql.func.concat('^(?:', pattern, ')$')
-    if case is None:
-        # Default case=True: case-sensitive
-        return self.op('~')(anchored)
-    return sql.case((case, self.op('~')(anchored)), else_=self.op('~*')(anchored))
+    return _regex_match_sql(self, pattern, case, flags, anchor_end=True)
 
 
 @pxt.udf(is_method=True)
@@ -436,10 +558,7 @@ def ljust(self: str, width: int, fillchar: str = ' ') -> str:
 def _(
     self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None
 ) -> sql.ColumnElement:
-    fill = fillchar if fillchar is not None else ' '
-    w = width.cast(sql.types.INT)
-    # Python's ljust doesn't truncate strings longer than width
-    return sql.case((sql.func.char_length(self) >= w, self), else_=sql.func.rpad(self, w, fill))
+    return _justify_sql(self, width, fillchar, sql.func.rpad)
 
 
 @pxt.udf(is_method=True)
@@ -498,14 +617,7 @@ def _(
     case: sql.ColumnElement | None = None,
     flags: sql.ColumnElement | None = None,
 ) -> sql.ColumnElement:
-    if flags is not None:
-        return None  # Can't handle arbitrary re flags in SQL
-    # Anchor pattern to match at start of string; wrap in (?:...) to protect internal alternation
-    anchored = sql.func.concat('^(?:', pattern, ')')
-    if case is None:
-        # Default case=True: case-sensitive
-        return self.op('~')(anchored)
-    return sql.case((case, self.op('~')(anchored)), else_=self.op('~*')(anchored))
+    return _regex_match_sql(self, pattern, case, flags, anchor_end=False)
 
 
 @pxt.udf(is_method=True)
@@ -647,6 +759,8 @@ def _(
 ) -> sql.ColumnElement:
     if n is not None or flags is not None:
         return None  # Can't bound replacements or handle re flags in SQL
+    if not _can_pushdown_regex(pattern):
+        return None
     return sql.func.regexp_replace(self, pattern, repl, 'g')
 
 
@@ -709,10 +823,7 @@ def rjust(self: str, width: int, fillchar: str = ' ') -> str:
 def _(
     self: sql.ColumnElement, width: sql.ColumnElement, fillchar: sql.ColumnElement | None = None
 ) -> sql.ColumnElement:
-    fill = fillchar if fillchar is not None else ' '
-    w = width.cast(sql.types.INT)
-    # Python's rjust doesn't truncate strings longer than width
-    return sql.case((sql.func.char_length(self) >= w, self), else_=sql.func.lpad(self, w, fill))
+    return _justify_sql(self, width, fillchar, sql.func.lpad)
 
 
 @pxt.udf(is_method=True)
