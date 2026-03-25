@@ -53,6 +53,7 @@ class TestLlamaCpp:
         assert len(result['choices'][0]['message']['content']) > 0
         assert len(result2['choices'][0]['message']['content']) > 0
 
+    @pytest.mark.expensive # downloads large models
     @pytest.mark.parametrize('model', ['mistral', 'gemma', 'qwen', 'salesforce'])
     def test_tool_invocations(self, uses_db: None, model: str) -> None:
         skip_test_if_not_installed('llama_cpp')
