@@ -3420,7 +3420,7 @@ wheels = [
 
 [[package]]
 name = "llama-cpp-python"
-version = "0.3.16"
+version = "0.3.18"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "diskcache", marker = "sys_platform != 'win32'" },
@@ -3428,7 +3428,7 @@ dependencies = [
     { name = "numpy", marker = "sys_platform != 'win32'" },
     { name = "typing-extensions", marker = "sys_platform != 'win32'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e4/b4/c8cd17629ced0b9644a71d399a91145aedef109c0333443bef015e45b704/llama_cpp_python-0.3.16.tar.gz", hash = "sha256:34ed0f9bd9431af045bb63d9324ae620ad0536653740e9bb163a2e1fcb973be6", size = 50688636, upload-time = "2025-08-15T04:58:29.212Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8f/f7/ae8c53ec5b388b0f5c750ab6a20eb3a33546c91335a8067024f8e01e3524/llama_cpp_python-0.3.18.tar.gz", hash = "sha256:56e060193a4b54fb19ad80f7067a688c259c0224ca027efdfc97ab8a91b2b43d", size = 61684351, upload-time = "2026-03-24T10:01:07.433Z" }
 
 [[package]]
 name = "llvmlite"
@@ -5559,7 +5559,7 @@ dev = [
     { name = "ipywidgets", specifier = ">=8.0.0" },
     { name = "label-studio-sdk", specifier = ">=1.0.18" },
     { name = "lancedb", specifier = ">=0.20" },
-    { name = "llama-cpp-python", marker = "sys_platform == 'linux'", specifier = ">=0.3.16" },
+    { name = "llama-cpp-python", marker = "sys_platform == 'linux'", specifier = ">=0.3.18" },
     { name = "markitdown", extras = ["pptx", "docx", "xlsx"], specifier = ">=0.1.3" },
     { name = "mcp", specifier = ">=1.9.4" },
     { name = "mdformat", specifier = ">=1.0.0" },
@@ -5619,7 +5619,7 @@ dev = [
     { name = "voyageai", specifier = ">=0.3.7" },
     { name = "whisperx", marker = "python_full_version < '3.14'", specifier = ">=3.7" },
 ]
-extra-dev = [{ name = "llama-cpp-python", marker = "sys_platform != 'win32'", specifier = ">=0.3.16" }]
+extra-dev = [{ name = "llama-cpp-python", marker = "sys_platform != 'win32'", specifier = ">=0.3.18" }]
 storage-sdks = [
     { name = "boto3", specifier = "==1.36.23" },
     { name = "botocore", specifier = "==1.36.23" },

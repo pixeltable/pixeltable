@@ -81,9 +81,9 @@ class TestLlamaCpp:
                 chat_format = 'chatml-function-calling'
                 tool_choice = tools.choice(auto=True)
             case 'mistral':
-                # file size: 4.4GB
-                repo_id = 'NousResearch/Hermes-2-Pro-Mistral-7B-GGUF'
-                repo_filename = '*Q4_K_M.gguf'
+                # file size: 2.5GB
+                repo_id = 'mistralai/Ministral-3-3B-Instruct-2512-GGUF'
+                repo_filename = '*Q5_K_M.gguf'
                 chat_format = 'chatml-function-calling'
                 tool_choice = tools.choice(auto=True)
             case 'gemma':
