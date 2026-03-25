@@ -786,10 +786,17 @@ class Catalog:
                 # we need to make sure not to swallow asserts
                 raise
 
-            except (sql_exc.DBAPIError, sql_exc.OperationalError) as e:
+            except (sql_exc.DBAPIError, sql_exc.OperationalError, sql_exc.InternalError) as e:
                 # TODO: why are we still seeing these here, instead of them getting taken care of by the retry
                 # logic of begin_xact()?
-                if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)):
+                if isinstance(
+                    e.orig,
+                    (
+                        psycopg.errors.SerializationFailure,
+                        psycopg.errors.LockNotAvailable,
+                        psycopg.errors.InFailedSqlTransaction,
+                    ),
+                ):
                     num_retries += 1
                     _logger.debug(f'Finalize pending ops({tbl_id}): retriable error: {e.orig} of type {type(e.orig)}')
                     log_msg: str
@@ -1843,10 +1850,6 @@ class Catalog:
 
                 if tv.anchor_tbl_id is None:
                     # live non-replica table; compare our cached TableMd.current_version/view_sn to what's stored
-                    q = sql.select(schema.Table.md).where(where_clause)
-                    row = conn.execute(q).one_or_none()
-                    if row is None:
-                        raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
                     current_version, view_sn = row.md['current_version'], row.md['view_sn']
                     if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
                         _logger.debug(
