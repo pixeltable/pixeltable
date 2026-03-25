@@ -25,28 +25,22 @@ from pixeltable import exceptions as excs
 from pixeltable.utils.code import local_public_names
 from pixeltable.utils.spacy import get_spacy_model
 
-# ── Regex SQL-pushdown safety ────────────────────────────────────────────────
-# PostgreSQL ARE overlaps with but does not exactly match Python ``re``.
-# These helpers compile a regex into its sre_parse AST and whitelist only the
-# nodes that PG handles identically.  CATEGORY (\d \w \s) is excluded because
-# PG with LC_CTYPE='C' limits these to ASCII while Python is Unicode-aware.
-# ANY ('.') is excluded because PG matches '\n' by default while Python does not.
-
+# Regex SQL-pushdown safety checks
 _PG_SAFE_OPS = frozenset(
     {
         sre_parse.LITERAL,  # 'a'
-        sre_parse.NOT_LITERAL,  # '[^a]' (single-char negation)
-        sre_parse.AT,  # '^', '$'  (sub-type checked separately)
+        sre_parse.NOT_LITERAL,  # '[^a]'
+        sre_parse.AT,  # '^', '$'
         sre_parse.IN,  # '[abc]', '[a-z]'
         sre_parse.BRANCH,  # 'a|b'
         sre_parse.SUBPATTERN,  # '(a)', '(?:a)'
         sre_parse.GROUPREF,  # '\1'
         sre_parse.MAX_REPEAT,  # 'a*', 'a+', 'a{3}'
         sre_parse.MIN_REPEAT,  # 'a*?', 'a+?'
-        sre_parse.ASSERT,  # '(?=a)'  (direction checked separately)
-        sre_parse.ASSERT_NOT,  # '(?!a)'  (direction checked separately)
-        sre_parse.NEGATE,  # '[^...]' negation marker inside IN
-        sre_parse.RANGE,  # 'a-z' inside IN
+        sre_parse.ASSERT,  # '(?=a)'
+        sre_parse.ASSERT_NOT,  # '(?!a)'
+        sre_parse.NEGATE,  # '[^...]'
+        sre_parse.RANGE,  # 'a-z'
     }
 )
 
