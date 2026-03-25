@@ -322,6 +322,10 @@
         <outline text="module|pixeltable.functions.llama_cpp">
           <outline text="udf|pixeltable.functions.llama_cpp.create_chat_completion" />
         </outline>
+        <outline text="module|pixeltable.functions.minimax">
+          <outline text="udf|pixeltable.functions.minimax.chat_completions" />
+          <outline text="func|pixeltable.functions.minimax.invoke_tools" />
+        </outline>
         <outline text="module|pixeltable.functions.mistralai">
           <outline text="udf|pixeltable.functions.mistralai.chat_completions" />
           <outline text="udf|pixeltable.functions.mistralai.fim_completions" />

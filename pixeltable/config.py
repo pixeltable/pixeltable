@@ -195,6 +195,7 @@ KNOWN_CONFIG_OPTIONS = {
     'groq': {'api_key': 'Groq API key', 'rate_limit': 'Rate limit for Groq API requests'},
     'jina': {'api_key': 'Jina AI API key', 'rate_limit': 'Rate limit for Jina AI API requests'},
     'label_studio': {'api_key': 'Label Studio API key', 'url': 'Label Studio server URL'},
+    'minimax': {'api_key': 'MiniMax API key', 'rate_limit': 'Rate limit for MiniMax API requests'},
     'mistral': {'api_key': 'Mistral API key', 'rate_limit': 'Rate limit for Mistral API requests'},
     'openai': {
         'api_key': 'OpenAI API key',

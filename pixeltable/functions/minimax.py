@@ -15,9 +15,11 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 import pixeltable as pxt
-from pixeltable import env
+from pixeltable import env, exprs
 from pixeltable.runtime import get_runtime
 from pixeltable.utils.code import local_public_names
+
+from .openai import _openai_response_to_pxt_tool_calls
 
 if TYPE_CHECKING:
     import openai
@@ -113,6 +115,11 @@ async def chat_completions(
     )
 
     return json.loads(result.text)
+
+
+def invoke_tools(tools: pxt.func.Tools, response: exprs.Expr) -> exprs.InlineDict:
+    """Converts a MiniMax response dict to Pixeltable tool invocation format and calls `tools._invoke()`."""
+    return tools._invoke(_openai_response_to_pxt_tool_calls(response))
 
 
 __all__ = local_public_names(__name__)
