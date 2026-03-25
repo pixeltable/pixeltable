@@ -92,7 +92,7 @@ class TestIndex:
         sample_img = res[0, 'img']
         sample_img_localpath = res[0, 'img_localpath']
         sample_img_file_url = res[0, 'img_fileurl']
-        assert 'file://' in sample_img_file_url
+        assert 'file:/' in sample_img_file_url
         sample_img_filename = Path(sample_img_localpath).name
         sample_img_http_url = f'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/imagenette2-160/{sample_img_filename}'
 
