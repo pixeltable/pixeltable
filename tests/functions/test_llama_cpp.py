@@ -1,4 +1,4 @@
-from collections.abc import Generator
+from typing import Iterator
 
 import pytest
 
@@ -9,7 +9,7 @@ from .tool_utils import stock_price, weather
 
 
 @pytest.fixture(autouse=True)
-def cleanup_llama_cpp() -> Generator:
+def cleanup_llama_cpp() -> Iterator[None]:
     yield
     from pixeltable.functions import llama_cpp
 
