@@ -8,9 +8,9 @@ name: tests
 #   - Random ops (for 30 minutes).
 #
 # In merge queue, all of the above configurations are run, and additionally:
-#   - Python 3.13 on ubuntu-24.04, macos-15, and windows-2022 runners.
-#   - Python 3.11 and 3.12 on ubuntu-24.04.
-#   - Minimal Pixeltable with Python 3.13 on ubuntu-24.04.
+#   - Python 3.14 on ubuntu-24.04, macos-15, and windows-2022 runners.
+#   - Python 3.11, 3.12, and 3.13 on ubuntu-24.04.
+#   - Minimal Pixeltable with Python 3.14 on ubuntu-24.04.
 #   - Minimal Pixeltable with Python 3.10 on ubuntu-24.04-arm and macos-15-intel.
 #
 # On a weekly schedule, all of the above configurations are run (against branch 'main'), and additionally:

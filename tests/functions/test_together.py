@@ -47,14 +47,12 @@ class TestTogether:
         t = pxt.create_table('test_tbl', {'input': pxt.String})
         messages = [{'role': 'user', 'content': t.input}]
         t.add_computed_column(
-            output=chat_completions(
-                messages=messages, model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', model_kwargs={'stop': ['\n']}
-            )
+            output=chat_completions(messages=messages, model='openai/gpt-oss-20b', model_kwargs={'stop': ['\n']})
         )
         t.add_computed_column(
             output_2=chat_completions(
                 messages=messages,
-                model='meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo',
+                model='openai/gpt-oss-20b',
                 model_kwargs={
                     'max_tokens': 300,
                     'stop': ['\n'],
@@ -64,7 +62,7 @@ class TestTogether:
                     'repetition_penalty': 1.1,
                     'logprobs': 1,
                     'n': 3,
-                    'safety_model': 'Meta-Llama/Meta-Llama-Guard-3-8B',
+                    'safety_model': 'meta-llama/Llama-Guard-4-12B',
                     'response_format': {'type': 'json_object'},
                 },
             )
@@ -80,7 +78,7 @@ class TestTogether:
         from pixeltable.functions.together import embeddings
 
         t = pxt.create_table('test_tbl', {'input': pxt.String})
-        t.add_computed_column(embed=embeddings(input=t.input, model='BAAI/bge-base-en-v1.5'))
+        t.add_computed_column(embed=embeddings(input=t.input, model='intfloat/multilingual-e5-large-instruct'))
         validate_update_status(t.insert(input='Together AI provides a variety of embeddings models.'), 1)
         assert len(t.collect()['embed'][0]) > 0
 
