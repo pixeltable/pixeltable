@@ -11,5 +11,5 @@ class TestPerftestTool:
         skip_test_if_not_installed('openai')
         skip_test_if_not_installed('google.genai')
         subprocess.run(
-            ('python', 'tool/perftest_providers.py', '--provider', 'openai', '--n', '1', '--t', '10'), check=True
+            ('python', '-m', 'tool.perftest_providers', '--provider', 'openai', '--n', '1', '--t', '10'), check=True
         )
