@@ -6,8 +6,8 @@ import urllib.error
 import urllib.request
 from typing import Literal
 
-
 _logger = logging.getLogger('pixeltable')
+
 
 class DashboardHarness:
     port: int

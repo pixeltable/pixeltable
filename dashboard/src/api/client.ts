@@ -22,7 +22,7 @@ export async function getDirectoryTree(): Promise<TreeNode[]> {
 }
 
 export async function getTableMetadata(path: string): Promise<TableMetadata> {
-  return fetchJson<TableMetadata>(`${API_BASE}/tables/${encodeURIComponent(path)}`);
+  return fetchJson<TableMetadata>(`${API_BASE}/tables/meta/${encodeURIComponent(path)}`);
 }
 
 export async function getTableData(
@@ -43,7 +43,7 @@ export async function getTableData(
   if (options.errorsOnly) params.set('errors_only', 'true');
 
   const query = params.toString();
-  return fetchJson<TableData>(`${API_BASE}/tables/${encodeURIComponent(path)}/data${query ? `?${query}` : ''}`);
+  return fetchJson<TableData>(`${API_BASE}/tables/data/${encodeURIComponent(path)}${query ? `?${query}` : ''}`);
 }
 
 export async function search(query: string, limit = 50): Promise<SearchResults> {

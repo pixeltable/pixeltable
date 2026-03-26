@@ -19,12 +19,10 @@ from typing import Any
 import pixeltable as pxt
 from pixeltable.catalog.table import Table
 from pixeltable.catalog.table_metadata import TableMetadata
+from pixeltable.config import Config
 from pixeltable.env import Env
 
-_logger = logging.getLogger('pixeltable.dashboard')
-
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
+_logger = logging.getLogger('pixeltable')
 
 
 def _version_error_total(tbl: Table) -> int:
@@ -159,9 +157,6 @@ def _resolve_fileurl(fileurl: str, http_address: str) -> str:
     return fileurl
 
 
-# ── Directory / tree ─────────────────────────────────────────────────────────
-
-
 def get_directory_tree() -> list[dict[str, Any]]:
     """
     Get the complete directory tree with all tables/views/snapshots.
@@ -214,9 +209,6 @@ def get_directory_tree() -> list[dict[str, Any]]:
             root_children.append(table_node)
 
     return root_children
-
-
-# ── Table metadata / data ────────────────────────────────────────────────────
 
 
 def get_table_metadata(table_path: str) -> dict[str, Any]:
@@ -368,9 +360,6 @@ def get_table_data(
     }
 
 
-# ── CSV export ────────────────────────────────────────────────────────────────
-
-
 def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
     """Export a table as CSV bytes. Media columns export their file URL."""
     tbl = pxt.get_table(table_path)
@@ -403,9 +392,6 @@ def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
         writer.writerow(csv_row)
 
     return buf.getvalue().encode('utf-8')
-
-
-# ── Search ───────────────────────────────────────────────────────────────────
 
 
 def search(query: str, limit: int = 50) -> dict[str, Any]:
@@ -462,8 +448,6 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
 
     return results
 
-
-# ── Pipeline helpers ─────────────────────────────────────────────────────────
 
 _FUNC_CALL_RE = re.compile(r'(\w+)\s*\(')
 _COL_REF_RE = re.compile(r'\b(\w+)\b')
@@ -721,17 +705,11 @@ def get_pipeline() -> dict[str, Any]:
     return {'nodes': nodes, 'edges': edges}
 
 
-# ── Status ───────────────────────────────────────────────────────────────────
-
-
 def get_status() -> dict[str, Any]:
     """
     Get system status including version, environment, connection info, and table count.
     """
-    import pixeltable
-    from pixeltable.config import Config
-
-    version = getattr(pixeltable, '__version__', 'unknown')
+    version = pxt.__version__
     all_tables = pxt.list_tables('', recursive=True)
 
     total_errors = 0

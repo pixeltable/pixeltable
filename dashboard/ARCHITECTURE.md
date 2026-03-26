@@ -41,9 +41,9 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 | `/api/status` | Version, config, total_tables, total_errors | — |
 | `/api/search` | Matching dirs, tables, columns | `q`, `limit` (50, max 100) |
 | `/api/pipeline` | DAG nodes + edges | — |
-| `/api/tables/{path}` | Schema, columns, indices, versions, iterator info, media validation, destinations | — |
-| `/api/tables/{path}/data` | Paginated rows, media URLs, per-cell errors | `offset`, `limit` (50, max 500), `order_by`, `order_desc`, `errors_only` |
-| `/api/tables/{path}/export` | CSV download | `limit` (100k default, 1M max) |
+| `/api/tables/meta/{path}` | Schema, columns, indices, versions, iterator info, media validation, destinations | — |
+| `/api/tables/data/{path}` | Paginated rows, media URLs, per-cell errors | `offset`, `limit` (50, max 500), `order_by`, `order_desc`, `errors_only` |
+| `/api/tables/export/{path}` | CSV download | `limit` (100k default, 1M max) |
 
 ## User Flows
 

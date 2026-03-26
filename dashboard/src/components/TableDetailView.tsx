@@ -1646,7 +1646,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
 
           {/* CSV export */}
           <a
-            href={`/api/tables/${encodeURIComponent(tablePath)}/export?limit=100000`}
+            href={`/api/tables/export/${encodeURIComponent(tablePath)}?limit=100000`}
             download
             className="p-1.5 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
             title="Export CSV (up to 100k rows)"

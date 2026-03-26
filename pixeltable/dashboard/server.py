@@ -10,6 +10,7 @@ Designed to bind to 127.0.0.1 only: never expose to the network.
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import mimetypes
@@ -19,7 +20,7 @@ import warnings
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 from urllib.parse import parse_qs, unquote, urlparse
 
 from pixeltable.dashboard import bridge
@@ -28,17 +29,7 @@ _logger = logging.getLogger('pixeltable.dashboard')
 
 DASHBOARD_DIST_PATH = Path(__file__).parent / 'static'
 
-_ALLOWED_ORIGINS = (
-    'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:8080', 'http://127.0.0.1:8080'
-)
-
-# ── Routing table ────────────────────────────────────────────────────────────
-#
-# Each entry: (compiled regex, handler function)
-# Handler signature: (match: re.Match, query: dict[str, str]) -> (dict | list)
-# Handlers are plain sync functions — they run in the request's own thread.
-
-Route = tuple[re.Pattern[str], Any]  # (pattern, handler_fn)
+_ALLOWED_ORIGINS = ('http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:8080', 'http://127.0.0.1:8080')
 
 
 class _RawResponse(NamedTuple):
@@ -49,67 +40,73 @@ class _RawResponse(NamedTuple):
     filename: str
 
 
-def _route_health(_m: re.Match, _q: dict) -> dict:
+_API_ROUTES: list[tuple[str, Callable[[str, dict], dict | list | _RawResponse]]] = []
+
+RouteHandler = Callable[[str, dict], dict | _RawResponse]
+
+
+def _api_route(prefix: str) -> Callable[[RouteHandler], RouteHandler]:
+    def decorator(handler: RouteHandler) -> RouteHandler:
+        _API_ROUTES.append((prefix, handler))
+        return handler
+
+    return decorator
+
+
+@_api_route('/api/pixeltable-health')
+def _(_path: str, _query: dict) -> dict:
     import pixeltable as pxt
 
     return {'status': 'ok', 'version': pxt.__version__}
 
 
-def _route_dirs(_m: re.Match, _q: dict) -> list:
+@_api_route('/api/dirs')
+def _(_path: str, _query: dict) -> list:
     return bridge.get_directory_tree()
 
 
-def _route_pipeline(_m: re.Match, _q: dict) -> dict:
+@_api_route('/api/pipeline')
+def _(_path: str, _query: dict) -> dict:
     return bridge.get_pipeline()
 
 
-def _route_status(_m: re.Match, _q: dict) -> dict:
+@_api_route('/api/status')
+def _(_path: str, _query: dict) -> dict:
     return bridge.get_status()
 
 
-def _route_search(_m: re.Match, q: dict) -> dict:
-    query = q.get('q', '')
+@_api_route('/api/search')
+def _(_path: str, query: dict) -> dict:
+    query = query.get('q', '')
     if not query:
         return {'query': '', 'directories': [], 'tables': [], 'columns': []}
-    limit = min(int(q.get('limit', '50')), 100)
+    limit = min(int(query.get('limit', '50')), 100)
     return bridge.search(query, limit=limit)
 
 
-def _route_table_data(m: re.Match, q: dict) -> dict:
-    path = unquote(m.group('path'))
+@_api_route('/api/tables/data')
+def _(path: str, query: dict) -> dict:
     return bridge.get_table_data(
         path,
-        offset=int(q.get('offset', '0')),
-        limit=min(int(q.get('limit', '50')), 500),
-        order_by=q.get('order_by'),
-        order_desc=q.get('order_desc', 'false').lower() == 'true',
-        errors_only=q.get('errors_only', 'false').lower() == 'true',
+        offset=int(query.get('offset', '0')),
+        limit=min(int(query.get('limit', '50')), 500),
+        order_by=query.get('order_by'),
+        order_desc=query.get('order_desc', 'false').lower() == 'true',
+        errors_only=query.get('errors_only', 'false').lower() == 'true',
     )
 
 
-def _route_table_meta(m: re.Match, _q: dict) -> dict:
-    return bridge.get_table_metadata(unquote(m.group('path')))
+@_api_route('/api/tables/meta')
+def _(path: str, _query: dict) -> dict:
+    return bridge.get_table_metadata(path)
 
 
-def _route_table_export(m: re.Match, q: dict) -> _RawResponse:
-    path = unquote(m.group('path'))
-    limit = min(int(q.get('limit', '100000')), 1_000_000)
+@_api_route('/api/tables/export')
+def _(path: str, query: dict) -> dict:
+    limit = min(int(query.get('limit', '100000')), 1_000_000)
     csv_bytes = bridge.export_table_csv(path, limit=limit)
     safe_name = path.replace('/', '_')
     return _RawResponse(csv_bytes, 'text/csv; charset=utf-8', f'{safe_name}.csv')
-
-
-# Order matters: more specific patterns first.
-_API_ROUTES: list[Route] = [
-    (re.compile(r'^/api/pixeltable-health$'), _route_health),
-    (re.compile(r'^/api/dirs$'), _route_dirs),
-    (re.compile(r'^/api/pipeline$'), _route_pipeline),
-    (re.compile(r'^/api/status$'), _route_status),
-    (re.compile(r'^/api/search$'), _route_search),
-    (re.compile(r'^/api/tables/(?P<path>.+)/export$'), _route_table_export),
-    (re.compile(r'^/api/tables/(?P<path>.+)/data$'), _route_table_data),
-    (re.compile(r'^/api/tables/(?P<path>.+)$'), _route_table_meta),
-]
 
 
 class _DashboardHandler(BaseHTTPRequestHandler):
@@ -171,13 +168,14 @@ class _DashboardHandler(BaseHTTPRequestHandler):
     def __handle_api(self, path: str, raw_query: str) -> None:
         query = {k: v[0] for k, v in parse_qs(raw_query).items()} if raw_query else {}
 
-        for pattern, handler in _API_ROUTES:
-            match = pattern.match(path)
-            if match:
+        for prefix, handler in _API_ROUTES:
+            if path.startswith(prefix):
                 try:
                     with warnings.catch_warnings():
                         warnings.simplefilter('ignore')
-                        result = handler(match, query)
+                        path = path.removeprefix(prefix)
+                        path = path.removeprefix('/')  # Do this separately since trailing path is optional
+                        result = handler(unquote(path), query)
                     if isinstance(result, _RawResponse):
                         self.__send_raw(result)
                     else:
@@ -190,7 +188,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
 
         self.__send_json({'error': 'Not found'}, status=HTTPStatus.NOT_FOUND)
 
-    def __send_json(self, data: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
+    def __send_json(self, data: dict | list, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(data, default=str).encode()
         allowed = self._cors_origin()
 
