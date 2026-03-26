@@ -244,7 +244,9 @@ class ColumnType:
         return None
 
     @classmethod
-    def infer_literal_type(cls, val: Any, nullable: bool = False) -> ColumnType | None:
+    def infer_literal_type(
+        cls, val: Any, nullable: bool = False, infer_json_type_schema: bool = True
+    ) -> ColumnType | None:
         if val is None:
             return InvalidType(nullable=True)
         if isinstance(val, str):
@@ -271,7 +273,10 @@ class ColumnType:
         if isinstance(val, np.ndarray):
             return ArrayType.from_literal(val, nullable=nullable)
         if isinstance(val, (list, tuple, dict, pydantic.BaseModel)):
-            return JsonType.from_literal(val, nullable=nullable)
+            if infer_json_type_schema:
+                return JsonType.from_literal(val, nullable=nullable)
+            else:
+                return JsonType(nullable=nullable)
         return None
 
     @classmethod
