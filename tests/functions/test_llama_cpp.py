@@ -64,9 +64,9 @@ class TestLlamaCpp:
 
         match model:
             case 'qwen':
-                # file size: 639MB
-                repo_id = 'Qwen/Qwen3-0.6B-GGUF'
-                repo_filename = '*Q8_0.gguf'
+                # file size: 397MB
+                repo_id = 'unsloth/Qwen3-0.6B-GGUF'
+                repo_filename = '*Q4_K_M.gguf'
                 # The 'chatml-function-calling' chat format results in an extremely verbose prompt from this model
                 chat_format = None
                 # 'auto' tool choice causes Qwen to generate the tool call in its own native XML format, so specify
