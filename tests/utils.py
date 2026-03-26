@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, TypedDict
 from unittest import TestCase
 from uuid import uuid4
-from zoneinfo import ZoneInfo
 
 import more_itertools
 import numpy as np
@@ -148,8 +147,13 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
             col_data = [audio_path] * num_rows
         if col_type.is_document_type():
             docs = get_documents()
+            # Office formats (PPTX, DOCX, XLSX) require optional 'mistune' package;
+            # exclude them when it is not installed so the table can still be created.
+            if not Env.get().is_installed_package('mistune'):
+                office_exts = {'.pptx', '.docx', '.xlsx'}
+                docs = [d for d in docs if Path(d).suffix.lower() not in office_exts]
             col_data = [docs[i % len(docs)] for i in range(num_rows)]
-            
+
         data[col_name] = col_data
     rows = [{col_name: data[col_name][i] for col_name in col_names} for i in range(num_rows)]
     return rows
