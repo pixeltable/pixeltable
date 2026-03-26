@@ -16,7 +16,7 @@ def cleanup_llama_cpp() -> Iterator[None]:
     llama_cpp.cleanup()
 
 
-@rerun(reruns=3, reruns_delay=15)  # Since it involes a HF model download
+@rerun(reruns=3, reruns_delay=15)  # Since it involves a HF model download
 class TestLlamaCpp:
     def test_create_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('llama_cpp')
