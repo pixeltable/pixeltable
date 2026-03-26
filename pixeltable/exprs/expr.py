@@ -21,7 +21,7 @@ from .data_row import DataRow
 from .globals import ArithmeticOperator, ComparisonOperator, LiteralPythonTypes, LogicalOperator, StringOperator
 
 if TYPE_CHECKING:
-    from pixeltable import exprs
+    from pixeltable import exprs, func
 
 
 class ExprScope:
@@ -125,6 +125,17 @@ class Expr(abc.ABC):
             None if this expression lacks a default name,
             or a valid identifier (according to catalog.is_valid_identifer) otherwise.
         """
+        return None
+
+    def salient_udf(self) -> func.Function | None:
+        """
+        Returns the topmost UDF in the expression tree, or None if there is no UDF call.
+        """
+        for expr in self.components:
+            fn = expr.salient_udf()
+            if fn is not None:
+                return fn
+
         return None
 
     @property

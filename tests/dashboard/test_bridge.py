@@ -240,6 +240,10 @@ class TestBridge:
             'iterator_type',
         }
         assert expected_keys.issubset(node.keys())
+        # Non-computed column has no func info
+        cols_by_name = {c['name']: c for c in node['columns']}
+        assert cols_by_name['c1']['func_name'] is None
+        assert cols_by_name['c1']['func_type'] is None
 
     def test_pipeline_view_edge(self, uses_db: None) -> None:
         pxt.create_dir('pp')
@@ -260,9 +264,20 @@ class TestBridge:
         node = bridge.get_pipeline()['nodes'][0]
         assert node['computed_count'] == 1
         assert node['insertable_count'] == 1
-        computed = [c for c in node['columns'] if c['is_computed']]
-        assert len(computed) == 1
-        assert computed[0]['name'] == 'upper'
+        cols_by_name = {c['name']: c for c in node['columns']}
+        assert cols_by_name['c1']['func_name'] is None
+        assert cols_by_name['c1']['func_type'] is None
+        assert cols_by_name['upper']['func_name'] == 'upper'
+        assert cols_by_name['upper']['func_type'] == 'builtin'
+
+    def test_pipeline_func_name(self, uses_db: None) -> None:
+        pxt.create_dir('pp')
+        t = pxt.create_table('pp/t', {'c1': pxt.String})
+        t.add_computed_column(emb=dummy_embed(t.c1))
+        node = bridge.get_pipeline()['nodes'][0]
+        cols_by_name = {c['name']: c for c in node['columns']}
+        assert cols_by_name['emb']['func_name'] == 'dummy_embed'
+        assert cols_by_name['emb']['func_type'] == 'custom_udf'
 
     def test_status(self, uses_db: None) -> None:
         result = bridge.get_status()

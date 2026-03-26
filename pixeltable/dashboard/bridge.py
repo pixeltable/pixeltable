@@ -349,112 +349,21 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
     return results
 
 
-_FUNC_CALL_RE = re.compile(r'(\w+)\s*\(')
 _COL_REF_RE = re.compile(r'\b(\w+)\b')
 
-_SKIP_FUNC_NAMES = frozenset(
-    {
-        'model',
-        'config',
-        'type',
-        'object',
-        'items',
-        'str',
-        'get',
-        'text',
-        'int',
-        'float',
-        'bool',
-        'list',
-        'dict',
-        'set',
-        'tuple',
-        'len',
-        'range',
-        'print',
-        'format',
-        'join',
-        'split',
-        'strip',
-        'lower',
-        'upper',
-        'replace',
-        'append',
-        'extend',
-        'keys',
-        'values',
-        'update',
-        'pop',
-        'map',
-        'filter',
-        'sorted',
-        'enumerate',
-        'zip',
-        'any',
-        'all',
-        'sum',
-        'min',
-        'max',
-        'abs',
-        'isinstance',
-        'hasattr',
-        'getattr',
-    }
-)
 
+def _classify_udf(value_expr: Any) -> str | None:
+    """Classify the salient UDF in an expression as 'builtin' or 'custom_udf'.
 
-def _extract_func_name(computed_with: str | None) -> str | None:
-    """Extract the primary function name from a computed_with expression."""
-    if not computed_with:
+    Returns None if the expression contains no UDF call.
+    """
+    if value_expr is None:
         return None
-    for match in _FUNC_CALL_RE.finditer(computed_with):
-        name = match.group(1)
-        if name not in _SKIP_FUNC_NAMES:
-            return name
-    return None
-
-
-_BUILTIN_PREFIXES = frozenset(
-    {
-        'openai',
-        'anthropic',
-        'together',
-        'fireworks',
-        'mistral',
-        'replicate',
-        'huggingface',
-        'bedrock',
-        'ollama',
-        'whisper',
-        'label_studio',
-        'string',
-        'image',
-        'video',
-        'audio',
-        'timestamp',
-        'json',
-        'math',
-        'nos',
-        'sentence_transformer',
-        'yolox',
-        'detr',
-        'clip',
-    }
-)
-
-
-def _classify_func(computed_with: str | None) -> str:
-    """Classify a computed_with expression as builtin, custom_udf, or unknown."""
-    if not computed_with:
-        return 'unknown'
-    if '.apply(' in computed_with or 'lambda ' in computed_with:
-        return 'custom_udf'
-    first_call = _FUNC_CALL_RE.search(computed_with)
-    if first_call:
-        name = first_call.group(1)
-        if name.split('.')[0] in _BUILTIN_PREFIXES or name.split('_')[0] in _BUILTIN_PREFIXES:
-            return 'builtin'
-    return 'unknown'
+    fn = value_expr.salient_udf()
+    if fn is None:
+        return None
+    path = fn.self_path
+    return 'builtin' if path and path.startswith('pixeltable.') else 'custom_udf'
 
 
 def _parse_deps(computed_with: str | None, all_cols: set[str], own_name: str = '') -> list[str]:
@@ -512,6 +421,8 @@ def get_pipeline() -> dict[str, Any]:
             computed_cols: list[str] = []
 
             for col_name, info in col_meta.items():
+                col_ref = getattr(tbl, col_name)
+                col = col_ref.col
                 cw = info['computed_with']
                 is_iter_col = col_name in iter_col_names
 
@@ -525,7 +436,8 @@ def get_pipeline() -> dict[str, Any]:
                 defined_in = info['defined_in']
 
                 cw_str = str(cw)[:200] if cw else None
-                func_name = _extract_func_name(cw_str) if is_computed and not is_iter_col else None
+                salient_fn = col.value_expr.salient_udf() if col.value_expr is not None else None
+                func_name = salient_fn.display_name if salient_fn is not None else None
 
                 col_entry: dict[str, Any] = {
                     'name': col_name,
@@ -536,7 +448,7 @@ def get_pipeline() -> dict[str, Any]:
                     'defined_in': defined_in,
                     'defined_in_self': defined_in == short_name,
                     'func_name': iterator_name if is_iter_col else func_name,
-                    'func_type': 'iterator' if is_iter_col else (_classify_func(cw_str) if is_computed else None),
+                    'func_type': 'iterator' if is_iter_col else _classify_udf(col.value_expr),
                     'error_count': col_errors.get(col_name, 0),
                 }
 
