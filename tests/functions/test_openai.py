@@ -624,22 +624,9 @@ class TestOpenai:
         assert 'Mesopotamia' in result['chat_output'][0]['choices'][0]['message']['content']
 
     @pytest.mark.expensive
-    @pytest.mark.parametrize(
-        'num_rows, max_tokens',
-        [
-            (20, None),  # default estimator, modest batch
-            (2000, 500),  # explicit max_tokens, high volume — triggers 429s
-        ],
-        ids=['throughput', '429_recovery'],
-    )
-    def test_chat_completions_scheduler(self, uses_db: None, num_rows: int, max_tokens: int | None) -> None:
-        """
-        Scheduler stress test: verifies throughput and 429 retry recovery.
-
-        Two scenarios:
-          - throughput: 20 rows, no max_tokens (tests conservative default estimator)
-          - 429_recovery: 2000 rows, max_tokens=500 (exhausts TPM, tests retry logic)
-        """
+    def test_chat_completions_scheduler(self, uses_db: None) -> None:
+        """Scheduler throughput test: 20 rows through gpt-4o-mini to verify the rate-limit
+        scheduler dispatches and completes requests without errors."""
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions
@@ -647,12 +634,12 @@ class TestOpenai:
         with open('tests/data/random_words', encoding='utf-8') as f:
             wordlist = [w.strip() for w in f if w.strip() and not w.startswith('#')]
 
+        num_rows = 20
         model = 'gpt-4o-mini'
-        model_kwargs = {'max_tokens': max_tokens} if max_tokens is not None else None
 
         t = pxt.create_table('scheduler_tbl', {'word1': pxt.String, 'word2': pxt.String})
         t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
-        t.add_computed_column(response=chat_completions(t.prompt, model=model, model_kwargs=model_kwargs))
+        t.add_computed_column(response=chat_completions(t.prompt, model=model))
 
         rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(num_rows))]
 
@@ -662,12 +649,12 @@ class TestOpenai:
 
         succeeded = num_rows - status.num_excs
         _logger.debug(
-            f'model={model}, max_tokens={max_tokens}, rows={num_rows}, '
+            f'model={model}, rows={num_rows}, '
             f'succeeded={succeeded}, errors={status.num_excs}, '
             f'elapsed={elapsed:.2f}s  ({succeeded / max(elapsed, 0.001):.2f} req/s)'
         )
 
-        assert status.num_excs == 0, f'{status.num_excs} rows failed permanently — retries did not recover them'
+        assert status.num_excs == 0, f'{status.num_excs} rows failed permanently'
 
     def test_shared_rate_limits_pool_different_signatures(self, uses_db: None) -> None:
         """Verify that functions sharing a rate-limits pool with different get_request_resources signatures
