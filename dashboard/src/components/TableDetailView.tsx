@@ -4,8 +4,8 @@ import { getTableMetadata, getTableData, getPipeline } from '@/api/client'
 import { useDebounce } from '@/hooks/useDebounce'
 import type {
   PipelineColumn, CellError, DataRow,
-  TableMetadata, TableData, DataColumn, ColumnInfo, IndexInfo, VersionInfo,
-  PipelineNode as PipelineNodeType, PipelineEdge,
+  TableMetadata, TableData, DataColumn, ColumnInfo, IndexInfo,
+  PipelineNode as PipelineNodeType, PipelineEdge, PipelineVersion,
 } from '@/types'
 import { cn } from '@/lib/utils'
 import {
@@ -753,7 +753,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
   const filtered = useMemo(() => {
     if (!filter) return columns
     const q = filter.toLowerCase()
-    return columns.filter(c => c.name.toLowerCase().includes(q) || c.type.toLowerCase().includes(q))
+    return columns.filter(c => c.name.toLowerCase().includes(q) || c.type_.toLowerCase().includes(q))
   }, [columns, filter])
 
   return (
@@ -816,9 +816,9 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
               >
                 {col.is_primary_key && <Key className="h-2.5 w-2.5 text-k-yellow shrink-0" />}
                 {col.is_computed && !col.is_primary_key && <Zap className="h-2.5 w-2.5 shrink-0" />}
-                {!col.is_computed && !col.is_primary_key && <ColumnTypeIcon type={col.type} className="h-2.5 w-2.5" />}
+                {!col.is_computed && !col.is_primary_key && <ColumnTypeIcon type={col.type_} className="h-2.5 w-2.5" />}
                 <span className="font-mono font-medium">{col.name}</span>
-                <span className="text-[10px] opacity-70">{col.type}</span>
+                <span className="text-[10px] opacity-70">{col.type_}</span>
                 {col.destination && <ExternalLink className="h-2.5 w-2.5 text-orange-400/70 shrink-0" />}
               </div>
             ))}
@@ -852,7 +852,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                       </div>
                     </td>
                     <td className="py-1.5 px-2">
-                      <ColumnTypeBadge type={col.type} />
+                      <ColumnTypeBadge type={col.type_} />
                     </td>
                     <td className="py-1.5 px-2">
                       {col.is_computed && col.computed_with ? (
@@ -918,9 +918,9 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
                   {indices.map(idx => (
                     <div key={idx.name} className="flex items-center gap-2 text-[11px] px-2 py-1 rounded bg-accent/30">
                       <span className="font-mono font-medium text-foreground">{idx.name}</span>
-                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/10 text-blue-400">{idx.type_}</span>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-blue-500/10 text-blue-400">{idx.index_type}</span>
                       <span className="text-muted-foreground">on</span>
-                      <span className="font-mono text-k-yellow">{idx.column}</span>
+                      <span className="font-mono text-k-yellow">{idx.columns.join(', ')}</span>
                       {idx.parameters && Object.keys(idx.parameters).length > 0 && (
                         <span className="text-[10px] text-muted-foreground/60 ml-auto">
                           {Object.entries(idx.parameters)
@@ -952,7 +952,7 @@ function ColumnChips({ columns, indices, expanded, onToggle }: {
 function SdkSnippet({ metadata }: { metadata: TableMetadata }) {
   const [copied, setCopied] = useState(false)
   const path = metadata.path
-  const cols = metadata.columns.filter(c => !c.is_primary_key).slice(0, 3).map(c => c.name)
+  const cols = Object.values(metadata.columns).filter(c => !c.is_primary_key).slice(0, 3).map(c => c.name)
   const snippet = [
     `import pixeltable as pxt`,
     ``,
@@ -981,15 +981,23 @@ function SdkSnippet({ metadata }: { metadata: TableMetadata }) {
   )
 }
 
+function tableKind(md: TableMetadata): 'table' | 'view' | 'snapshot' | 'replica' {
+  if (md.is_replica) return 'replica'
+  if (md.is_snapshot) return 'snapshot'
+  if (md.is_view) return 'view'
+  return 'table'
+}
+
 function TableHeader({ metadata, onTableClick, totalErrors }: { metadata: TableMetadata; onTableClick: (path: string) => void; totalErrors: number }) {
   const [showSnippet, setShowSnippet] = useState(false)
+  const kind = tableKind(metadata)
 
   const Icon = {
     table: Table2,
     view: Eye,
     snapshot: Camera,
     replica: Copy,
-  }[metadata.type] ?? Table2
+  }[kind] ?? Table2
 
   const typeClasses: Record<string, string> = {
     table: 'bg-blue-500/10 text-blue-400 border-blue-400/20',
@@ -1005,15 +1013,15 @@ function TableHeader({ metadata, onTableClick, totalErrors }: { metadata: TableM
         <h2 className="text-sm font-semibold text-foreground">{metadata.name}</h2>
         <span className={cn(
           'px-2 py-0.5 rounded-full text-[10px] font-medium border',
-          typeClasses[metadata.type] ?? typeClasses.replica,
+          typeClasses[kind] ?? typeClasses.replica,
         )}>
-          {metadata.type}
+          {kind}
         </span>
         <span className="text-xs text-muted-foreground tabular-nums">v{metadata.version}</span>
-        {metadata.indices.length > 0 && (
+        {Object.keys(metadata.indices).length > 0 && (
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Info className="h-3 w-3" />
-            <span className="tabular-nums">{metadata.indices.length} idx</span>
+            <span className="tabular-nums">{Object.keys(metadata.indices).length} idx</span>
           </span>
         )}
         {metadata.media_validation && (
@@ -1022,8 +1030,8 @@ function TableHeader({ metadata, onTableClick, totalErrors }: { metadata: TableM
             {metadata.media_validation}
           </span>
         )}
-        {metadata.created_at && (
-          <span className="text-[11px] text-muted-foreground">{new Date(metadata.created_at).toLocaleDateString()}</span>
+        {metadata.version_created && (
+          <span className="text-[11px] text-muted-foreground">{new Date(metadata.version_created).toLocaleDateString()}</span>
         )}
         {totalErrors > 0 && (
           <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-destructive/10 text-destructive border border-destructive/20">
@@ -1065,9 +1073,9 @@ function TableHeader({ metadata, onTableClick, totalErrors }: { metadata: TableM
         {metadata.comment && (
           <span className="text-muted-foreground/60 font-sans ml-1">— {metadata.comment}</span>
         )}
-        {metadata.iterator_type && (
+        {metadata.iterator_expr && (
           <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-violet-400/10 text-violet-400 font-medium border border-violet-400/20">
-            {metadata.iterator_type}
+            {metadata.iterator_expr}
           </span>
         )}
       </div>
@@ -1194,7 +1202,7 @@ function LineagePanel({ tablePath, pipelineData, pipelineColumns, onTableClick, 
 
 // ── History Panel ─────────────────────────────────────────────────────────
 
-function HistoryPanel({ versions }: { versions: Pick<VersionInfo, 'version' | 'created_at' | 'change_type' | 'inserts' | 'updates' | 'deletes' | 'errors'>[] }) {
+function HistoryPanel({ versions }: { versions: Pick<PipelineVersion, 'version' | 'created_at' | 'change_type' | 'inserts' | 'updates' | 'deletes' | 'errors'>[] }) {
   if (versions.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
@@ -1338,13 +1346,13 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
   }, [tablePath])
 
   const totalErrors = useMemo(
-    () => metadata?.versions?.reduce((s, v) => s + v.errors, 0) ?? 0,
-    [metadata],
+    () => pipelineData?.nodes.find(n => n.path === tablePath)?.total_errors ?? 0,
+    [pipelineData, tablePath],
   )
 
-  // Fetch pipeline data lazily when lineage tab is opened
+  // Fetch pipeline data (needed for error counts and lineage/history tabs)
   useEffect(() => {
-    if ((contentTab !== 'lineage' && contentTab !== 'history') || pipelineData) return
+    if (pipelineData) return
     getPipeline()
       .then(p => {
         setPipelineData(p)
@@ -1352,7 +1360,7 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
         if (node) setPipelineColumns(node.columns)
       })
       .catch(() => {})
-  }, [contentTab, tablePath, pipelineData])
+  }, [tablePath, pipelineData])
 
   // Fetch data
   const fetchData = useCallback(() => {
@@ -1479,8 +1487,8 @@ export function TableDetailView({ tablePath }: { tablePath: string }) {
 
       {/* ── Column Chips ────────────────────────────────────────────── */}
       <ColumnChips
-        columns={metadata.columns}
-        indices={metadata.indices}
+        columns={Object.values(metadata.columns)}
+        indices={Object.values(metadata.indices)}
         expanded={schemaExpanded}
         onToggle={() => setSchemaExpanded(!schemaExpanded)}
       />

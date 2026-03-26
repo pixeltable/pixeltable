@@ -60,23 +60,6 @@ def _table_kind(md: TableMetadata) -> str:
     return 'table'
 
 
-def _extract_indices(raw_indices: dict[str, Any]) -> list[dict[str, Any]]:
-    """Convert raw index metadata into a serialisable list."""
-    indices: list[dict[str, Any]] = []
-    for idx_name, idx_info in raw_indices.items():
-        idx_columns = idx_info.get('columns', [])
-        column_str = ', '.join(idx_columns) if idx_columns else idx_info.get('column', '')
-        indices.append(
-            {
-                'name': idx_info.get('name', idx_name),
-                'column': column_str,
-                'type_': idx_info.get('index_type', idx_info.get('type_', 'Unknown')),
-                'parameters': idx_info.get('parameters', {}),
-            }
-        )
-    return indices
-
-
 def _format_versions(tbl: Table) -> list[dict[str, Any]]:
     """Build a serialisable list of version dicts from a table's version history."""
     versions: list[dict[str, Any]] = []
@@ -211,70 +194,12 @@ def get_directory_tree() -> list[dict[str, Any]]:
     return root_children
 
 
-def get_table_metadata(table_path: str) -> dict[str, Any]:
+def get_table_metadata(table_path: str) -> TableMetadata:
     """
     Get detailed metadata for a table including schema, indices, and lineage info.
     """
     tbl = pxt.get_table(table_path)
-    md = tbl.get_metadata()
-    kind = _table_kind(md)
-
-    iterator_name, iter_col_names = _get_iterator_info(tbl) if kind == 'view' else (None, set())
-
-    # Access Column objects for properties not in the TypedDict metadata
-    col_objects: dict[str, Any] = {}
-    try:
-        tv = tbl._tbl_version_path.tbl_version.get()
-        col_objects = {c.name: c for c in tv.cols if c.name is not None}
-    except Exception:
-        pass
-
-    columns = []
-    for col_name, col_info in md['columns'].items():
-        col_obj = col_objects.get(col_name)
-        destination = None
-        if col_obj is not None:
-            try:
-                dest = col_obj._explicit_destination
-                if dest:
-                    destination = str(dest)
-            except Exception:
-                pass
-
-        columns.append(
-            {
-                'name': col_info.get('name', col_name),
-                'type': col_info.get('type_', 'Unknown'),
-                'is_computed': col_info.get('computed_with') is not None,
-                'computed_with': col_info.get('computed_with'),
-                'is_stored': col_info.get('is_stored', True),
-                'is_primary_key': col_info.get('is_primary_key', False),
-                'defined_in': col_info.get('defined_in'),
-                'version_added': col_info.get('version_added', 0),
-                'comment': col_info.get('comment') or None,
-                'custom_metadata': col_info.get('custom_metadata'),
-                'is_iterator_col': col_name in iter_col_names,
-                'media_validation': col_info.get('media_validation'),
-                'destination': destination,
-            }
-        )
-
-    return {
-        'path': md['path'],
-        'name': md['name'],
-        'type': kind,
-        'version': md['version'],
-        'schema_version': md['schema_version'],
-        'created_at': md['version_created'].isoformat() if md['version_created'] else None,
-        'comment': md['comment'],
-        'custom_metadata': md.get('custom_metadata'),
-        'base': md['base'],
-        'columns': columns,
-        'indices': _extract_indices(md.get('indices', {})),
-        'media_validation': md['media_validation'],
-        'versions': _format_versions(tbl),
-        'iterator_type': iterator_name,
-    }
+    return tbl.get_metadata()
 
 
 def get_table_data(

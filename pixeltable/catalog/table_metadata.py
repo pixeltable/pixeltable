@@ -17,6 +17,8 @@ class ColumnMetadata(TypedDict):
     """`True` if this column is part of the table's primary key."""
     media_validation: Literal['on_read', 'on_write'] | None
     """The media validation policy for this column."""
+    is_computed: bool
+    """`True` if this column is a computed column."""
     computed_with: str | None
     """Expression used to compute this column; `None` if this is not a computed column."""
     defined_in: str | None
@@ -27,6 +29,10 @@ class ColumnMetadata(TypedDict):
     """User-defined JSON metadata for this column, if any."""
     comment: str
     """User-provided column comment."""
+    is_iterator_col: bool
+    """`True` if this column is produced by an iterator (only applicable to views)."""
+    destination: str | None
+    """An object store reference for computed files, if one is configured."""
 
 
 class EmbeddingIndexParams(TypedDict):
@@ -82,6 +88,8 @@ class TableMetadata(TypedDict):
     """The media validation policy for this table."""
     base: str | None
     """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
+    iterator_expr: str | None
+    """The iterator expression for views that use an iterator; otherwise `None`."""
 
 
 class VersionMetadata(TypedDict):

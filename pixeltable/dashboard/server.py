@@ -40,12 +40,13 @@ class _RawResponse(NamedTuple):
     filename: str
 
 
-_API_ROUTES: list[tuple[str, Callable[[str, dict], dict | list | _RawResponse]]] = []
+RouteHandler = Callable[[str, dict], dict | list | _RawResponse]
 
-RouteHandler = Callable[[str, dict], dict | _RawResponse]
+_API_ROUTES: list[tuple[str, RouteHandler]] = []
 
 
 def _api_route(prefix: str) -> Callable[[RouteHandler], RouteHandler]:
+    """Decorator factory to register an API route."""
     def decorator(handler: RouteHandler) -> RouteHandler:
         _API_ROUTES.append((prefix, handler))
         return handler
@@ -98,11 +99,11 @@ def _(path: str, query: dict) -> dict:
 
 @_api_route('/api/tables/meta')
 def _(path: str, _query: dict) -> dict:
-    return bridge.get_table_metadata(path)
+    return dict(bridge.get_table_metadata(path))
 
 
 @_api_route('/api/tables/export')
-def _(path: str, query: dict) -> dict:
+def _(path: str, query: dict) -> _RawResponse:
     limit = min(int(query.get('limit', '100000')), 1_000_000)
     csv_bytes = bridge.export_table_csv(path, limit=limit)
     safe_name = path.replace('/', '_')

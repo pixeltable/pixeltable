@@ -9,54 +9,55 @@ export interface TreeNode {
   children?: TreeNode[];
 }
 
+// Matches Python ColumnMetadata TypedDict
 export interface ColumnInfo {
   name: string;
-  type: string;
-  is_computed: boolean;
-  computed_with: string | null;
+  type_: string;
+  version_added: number;
   is_stored: boolean;
   is_primary_key: boolean;
-  defined_in: string | null;
-  version_added: number;
-  comment: string | null;
-  custom_metadata: unknown;
-  is_iterator_col: boolean;
   media_validation: 'on_read' | 'on_write' | null;
+  is_computed: boolean;
+  computed_with: string | null;
+  defined_in: string | null;
+  custom_metadata: unknown;
+  comment: string | null;
+  is_iterator_col: boolean;
   destination: string | null;
 }
 
+// Matches Python EmbeddingIndexParams TypedDict
+export interface EmbeddingIndexParams {
+  metric: 'cosine' | 'ip' | 'l2';
+  embedding: string;
+  embedding_functions: string[];
+}
+
+// Matches Python IndexMetadata TypedDict
 export interface IndexInfo {
   name: string;
-  column: string;
-  type_: string;
-  parameters: Record<string, unknown>;
+  columns: string[];
+  index_type: string;
+  parameters: EmbeddingIndexParams;
 }
 
-export interface VersionInfo {
-  version: number;
-  created_at: string | null;
-  change_type: string | null;
-  inserts: number;
-  updates: number;
-  deletes: number;
-  errors: number;
-}
-
+// Matches Python TableMetadata TypedDict
 export interface TableMetadata {
-  path: string;
   name: string;
-  type: 'table' | 'view' | 'snapshot' | 'replica';
+  path: string;
+  columns: Record<string, ColumnInfo>;
+  indices: Record<string, IndexInfo>;
+  is_replica: boolean;
+  is_view: boolean;
+  is_snapshot: boolean;
   version: number;
+  version_created: string;
   schema_version: number;
-  created_at: string | null;
   comment: string | null;
   custom_metadata: unknown;
-  base: string | null;
-  columns: ColumnInfo[];
-  indices: IndexInfo[];
   media_validation: string;
-  versions: VersionInfo[];
-  iterator_type: string | null;
+  base: string | null;
+  iterator_expr: string | null;
 }
 
 export interface DataColumn {

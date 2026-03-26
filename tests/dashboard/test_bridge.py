@@ -46,27 +46,26 @@ class TestBridge:
         result = bridge.get_table_metadata('md/t')
         assert result['path'] == 'md/t'
         assert result['name'] == 't'
-        assert result['type'] == 'table'
+        assert result['is_view'] is False
+        assert result['is_snapshot'] is False
         assert result['base'] is None
+        assert result['iterator_expr'] is None
         assert isinstance(result['version'], int)
 
-        cols = {c['name']: c for c in result['columns']}
-        assert cols['c1']['is_computed'] is False
-        assert cols['c2']['is_primary_key'] is True
-        assert cols['upper']['is_computed'] is True
-        assert cols['upper']['computed_with'] is not None
-
-        assert len(result['versions']) >= 2
-        for v in result['versions']:
-            assert 'version' in v
-            assert 'created_at' in v
+        # columns is a dict keyed by column name
+        assert isinstance(result['columns'], dict)
+        assert 'c1' in result['columns']
+        assert result['columns']['c1']['is_computed'] is False
+        assert result['columns']['c2']['is_primary_key'] is True
+        assert result['columns']['upper']['is_computed'] is True
+        assert result['columns']['upper']['computed_with'] is not None
 
     def test_table_metadata_view(self, uses_db: None) -> None:
         pxt.create_dir('md')
         t = pxt.create_table('md/base', {'c1': pxt.String})
         pxt.create_view('md/v', t)
         result = bridge.get_table_metadata('md/v')
-        assert result['type'] == 'view'
+        assert result['is_view'] is True
         assert result['base'] == 'md/base'
 
     def test_table_metadata_indices(self, uses_db: None) -> None:
@@ -74,8 +73,13 @@ class TestBridge:
         t = pxt.create_table('md/t', {'c1': pxt.String})
         t.add_embedding_index('c1', embedding=dummy_embed)
         result = bridge.get_table_metadata('md/t')
+        # indices is a dict keyed by index name
+        assert isinstance(result['indices'], dict)
         assert len(result['indices']) > 0
-        assert 'name' in result['indices'][0]
+        idx = next(iter(result['indices'].values()))
+        assert 'name' in idx
+        assert 'columns' in idx
+        assert 'index_type' in idx
 
     def test_table_data_basic(self, uses_db: None) -> None:
         pxt.create_dir('td')
