@@ -20,7 +20,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from sys import stdout
-from typing import Any, Callable, ClassVar, TypeVar
+from typing import Any, Callable, TypeVar
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import pixeltable_pgserver

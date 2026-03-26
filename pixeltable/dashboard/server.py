@@ -10,11 +10,9 @@ Designed to bind to 127.0.0.1 only: never expose to the network.
 
 from __future__ import annotations
 
-import functools
 import json
 import logging
 import mimetypes
-import re
 import sys
 import warnings
 from http import HTTPStatus
@@ -47,6 +45,7 @@ _API_ROUTES: list[tuple[str, RouteHandler]] = []
 
 def _api_route(prefix: str) -> Callable[[RouteHandler], RouteHandler]:
     """Decorator factory to register an API route."""
+
     def decorator(handler: RouteHandler) -> RouteHandler:
         _API_ROUTES.append((prefix, handler))
         return handler

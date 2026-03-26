@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
 
