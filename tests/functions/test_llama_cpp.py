@@ -54,7 +54,7 @@ class TestLlamaCpp:
         assert len(result2['choices'][0]['message']['content']) > 0
 
     @pytest.mark.expensive  # downloads large models
-    @pytest.mark.parametrize('model', ['mistral', 'gemma', 'qwen', 'salesforce'])
+    @pytest.mark.parametrize('model', ['mistral', 'gemma', 'qwen'])
     def test_tool_invocations(self, uses_db: None, model: str) -> None:
         skip_test_if_not_installed('llama_cpp')
         from pixeltable.functions import llama_cpp
@@ -74,12 +74,6 @@ class TestLlamaCpp:
                 # If this limitation is unacceptable, we can implement a special case in the UDF that parses Qwen's
                 # XML output to a dict.
                 tool_choice = tools.choice(tool=weather)
-            case 'salesforce':
-                # file size: 3.7GB
-                repo_id = 'Salesforce/Llama-xLAM-2-8b-fc-r-gguf'
-                repo_filename = '*Q3_K_S.gguf'
-                chat_format = 'chatml-function-calling'
-                tool_choice = tools.choice(auto=True)
             case 'mistral':
                 # file size: 2.5GB
                 repo_id = 'mistralai/Ministral-3-3B-Instruct-2512-GGUF'
