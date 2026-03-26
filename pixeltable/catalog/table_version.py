@@ -586,7 +586,7 @@ class TableVersion:
         This will search through *all* known columns, including columns that are not visible in this TableVersion.
         """
         if qid.tbl_id == self.id:
-            return next(col for col in self.cols if col.id == qid.col_id)
+            return next((col for col in self.cols if col.id == qid.col_id), None)
         elif self.base is not None:
             return self.base.get()._lookup_column(qid)
         else:
