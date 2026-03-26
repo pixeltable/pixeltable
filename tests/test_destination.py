@@ -30,10 +30,7 @@ class TestDestination:
 
     @classmethod
     def resolve_destination_uri(cls, dest_id: StorageTarget, skip_on_failure: bool = True) -> str | None:
-        # `TESTED_DESTINATIONS` is used for parameterized destination tests.
-        # Some tests (e.g. `test_dest_local_copy`) need `LOCAL_STORE` even though it's
-        # excluded from the parameterized set.
-        assert dest_id in cls.TESTED_DESTINATIONS or dest_id == StorageTarget.LOCAL_STORE
+        assert dest_id in cls.TESTED_DESTINATIONS
         uri: str
         match dest_id:
             case StorageTarget.AZURE_STORE:

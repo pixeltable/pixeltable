@@ -264,15 +264,17 @@ class ObjectPath:
             # pxt://org:db/home[/optional/prefix]
             storage_target = StorageTarget.PIXELTABLE_STORE
             netloc_parts = parsed.netloc.split(':')
-            account_name = netloc_parts[0]  # org slug
-            account_extension = netloc_parts[1] if len(netloc_parts) > 1 else ''  # db slug
+            if len(netloc_parts) != 2 or not netloc_parts[0] or not netloc_parts[1]:
+                raise ValueError(f"Invalid pxt:// store URI '{parsed}': netloc must be 'org:db', got '{parsed.netloc}'")
+            account_name, account_extension = netloc_parts  # org slug, db slug
             container = 'home'  # logical bucket segment from URI (not the physical R2 bucket name)
             raw_path = parsed.path.lstrip('/')
             if not raw_path.startswith('home'):
-                raise ValueError(f'pxt:// URI must start with /home, got: {parsed.path}')
+                raise ValueError(
+                    f"Invalid pxt:// store URI '{parsed}': path must start with /home, got '{parsed.path}'"
+                )
             # Strip the 'home' prefix; remainder is the key prefix within the bucket
             key = raw_path[4:].lstrip('/')  # skip 'home' and any leading slash
-
         else:
             raise ValueError(f'Unsupported URI scheme: {parsed.scheme}')
 

@@ -8,6 +8,7 @@ such as obtaining temporary credentials for home buckets.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Literal, Optional
 
 import requests
@@ -20,7 +21,7 @@ from pixeltable.share.protocol.presigned_url import GetPresignedUrlRequest, GetP
 
 _logger = logging.getLogger('pixeltable')
 
-PIXELTABLE_API_URL = 'https://dev-internal-api.pixeltable.com'  # TODO os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
+PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 
 
 def _api_headers() -> dict[str, str]:
