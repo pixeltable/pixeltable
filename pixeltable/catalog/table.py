@@ -164,6 +164,7 @@ class Table(SchemaObject):
             comment=self._get_comment(),
             custom_metadata=self._get_custom_metadata(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
+            kind=self._display_name(),  # type: ignore[typeddict-item]
             base=None,
             iterator_expr=None,
         )

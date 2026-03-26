@@ -49,17 +49,6 @@ def _column_error_counts(tbl: Table, col_meta: dict[str, Any]) -> dict[str, int]
     return counts
 
 
-def _table_kind(md: TableMetadata) -> str:
-    """Determine the kind of a table from its metadata dict."""
-    if md['is_replica']:
-        return 'replica'
-    if md['is_snapshot']:
-        return 'snapshot'
-    if md['is_view']:
-        return 'view'
-    return 'table'
-
-
 def _format_versions(tbl: Table) -> list[dict[str, Any]]:
     """Build a serialisable list of version dicts from a table's version history."""
     versions: list[dict[str, Any]] = []
@@ -176,7 +165,7 @@ def get_directory_tree() -> list[dict[str, Any]]:
         try:
             tbl = pxt.get_table(tbl_path)
             md = tbl.get_metadata()
-            kind = _table_kind(md)
+            kind = md['kind']
             version = md['version'] if kind != 'snapshot' else None
             error_count = _version_error_total(tbl)
         except Exception as e:
@@ -354,7 +343,7 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
                 continue
 
         if table_matches and len(results['tables']) < limit and tbl_md:
-            results['tables'].append({'path': tbl_path, 'name': tbl_name, 'type': _table_kind(tbl_md)})
+            results['tables'].append({'path': tbl_path, 'name': tbl_name, 'type': tbl_md['kind']})
 
         # Search columns within this table (reuse tbl_md)
         if tbl_md and len(results['columns']) < limit:

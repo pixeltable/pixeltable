@@ -64,6 +64,8 @@ class TableMetadata(TypedDict):
     """The name of the table (ex: `'my_table'`)."""
     path: str
     """The full path of the table (ex: `'my_dir.my_subdir.my_table'`)."""
+    kind: Literal['table', 'view', 'snapshot', 'replica']
+    """The kind of table: `'table'`, `'view'`, `'snapshot'`, or `'replica'`."""
     columns: dict[str, ColumnMetadata]
     """Column metadata for all of the visible columns of the table."""
     indices: dict[str, IndexMetadata]

@@ -981,16 +981,9 @@ function SdkSnippet({ metadata }: { metadata: TableMetadata }) {
   )
 }
 
-function tableKind(md: TableMetadata): 'table' | 'view' | 'snapshot' | 'replica' {
-  if (md.is_replica) return 'replica'
-  if (md.is_snapshot) return 'snapshot'
-  if (md.is_view) return 'view'
-  return 'table'
-}
-
 function TableHeader({ metadata, onTableClick, totalErrors }: { metadata: TableMetadata; onTableClick: (path: string) => void; totalErrors: number }) {
   const [showSnippet, setShowSnippet] = useState(false)
-  const kind = tableKind(metadata)
+  const kind = metadata.kind
 
   const Icon = {
     table: Table2,

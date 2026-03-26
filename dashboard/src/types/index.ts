@@ -55,7 +55,8 @@ export interface TableMetadata {
   schema_version: number;
   comment: string | null;
   custom_metadata: unknown;
-  media_validation: string;
+  media_validation: 'on_read' | 'on_write';
+  kind: 'table' | 'view' | 'snapshot' | 'replica';
   base: string | null;
   iterator_expr: string | null;
 }
