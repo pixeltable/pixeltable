@@ -210,18 +210,20 @@ class TestGemini:
             output=generate_videos(
                 t.prompt,
                 image=[t.ref1, t.ref2],
-                reference_types=['asset', 'subject'],
+                reference_types=['asset', 'style'],
                 model='veo-3.1-generate-preview',
                 config={'duration_seconds': 8},
             )
         )
         validate_update_status(
             t.insert(
-                {
-                    'prompt': 'A woman wearing the dress walks confidently through a sun-drenched lagoon',
-                    'ref1': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
-                    'ref2': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
-                }
+                [
+                    {
+                        'prompt': 'A woman wearing the dress walks confidently through a sun-drenched lagoon',
+                        'ref1': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
+                        'ref2': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
+                    }
+                ]
             ),
             expected_rows=1,
         )

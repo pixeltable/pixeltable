@@ -348,7 +348,7 @@ async def generate_videos(
         ...     response=generate_videos(
         ...         tbl.prompt,
         ...         image=[tbl.ref_img1, tbl.ref_img2],
-        ...         reference_types=['asset', 'subject'],
+        ...         reference_types=['asset', 'style'],
         ...         model='veo-3.1-generate-preview',
         ...     )
         ... )
@@ -375,17 +375,17 @@ async def _(
     *,
     model: str,
     config: dict | None = None,
-    reference_types: list[Literal['style', 'subject', 'asset']] | None = None,
+    reference_types: list[Literal['style', 'asset']] | None = None,
 ) -> pxt.Video:
     """Overload that accepts a list of reference images for Veo 3.1+.
 
     Args:
         prompt: A text description of the videos to generate.
-        image: A list of up to 3 reference images to guide style, subject, or asset appearance.
+        image: A list of up to 3 reference images to guide style or asset appearance.
         model: The model to use.
         config: Configuration for generation.
         reference_types: A list of reference types corresponding to each image. Each must be one of
-            ``'style'``, ``'subject'``, or ``'asset'``. If not provided, defaults to ``'style'`` for all images.
+            ``'style'`` or ``'asset'``. If not provided, defaults to ``'style'`` for all images.
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
