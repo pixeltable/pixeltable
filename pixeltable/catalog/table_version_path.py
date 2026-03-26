@@ -195,9 +195,9 @@ class TableVersionPath:
             result.extend(c for c in base_cols if c.name not in self._cached_tbl_version.cols_by_name)
         return result
 
-    def get_column_by_qid(self, col_qid: QColumnId) -> Column | None:
+    def get_column_by_qid(self, qcol_id: QColumnId) -> Column | None:
         return next(
-            (col for col in self.columns() if col.id == col_qid.col_id and col.tbl_handle.id == col_qid.tbl_id), None
+            (col for col in self.columns() if col.id == qcol_id.col_id and col.tbl_handle.id == qcol_id.tbl_id), None
         )
 
     def get_column(self, name: str) -> Column | None:

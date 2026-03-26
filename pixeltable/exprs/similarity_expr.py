@@ -31,14 +31,14 @@ class SimilarityExpr(Expr):
 
     table_version_key: TableVersionKey
     idx_name: str | None = None  # index name; None if not specified by the user
-    col_qid: QColumnId | None = None  # identifies the indexed column
+    qcol_id: QColumnId | None = None  # identifies the indexed column
 
     def __init__(
         self,
         item: Expr,
         col_ref: ColumnRef | None = None,
         idx_name: str | None = None,
-        col_qid: QColumnId | None = None,
+        qcol_id: QColumnId | None = None,
         table_version_key: TableVersionKey | None = None,
     ) -> None:
         from pixeltable.index import EmbeddingIndex
@@ -47,28 +47,28 @@ class SimilarityExpr(Expr):
         self.components = [item]
         self.idx_name = idx_name
 
-        # We store `col_qid` + `table_version_key` instead of keeping `col_ref` as a component in
+        # We store `qcol_id` + `table_version_key` instead of keeping `col_ref` as a component in
         # `self.components`. ColumnRef gets evaluated and materialized during query execution, which
         # is unnecessary here — we only need the column to resolve the embedding index at plan time,
         # not at eval time. Storing column and table version identifiers avoids that overhead.
         if col_ref is not None:
             tv = col_ref.tbl.get()
             column = col_ref.col
-            self.col_qid = column.qid
+            self.qcol_id = column.qid
             self.table_version_key = tv.key
         else:
             # During deserialization
             assert table_version_key is not None
-            assert col_qid is not None
-            self.col_qid = col_qid
+            assert qcol_id is not None
+            self.qcol_id = qcol_id
             self.table_version_key = table_version_key
             tv = get_runtime().catalog.get_tbl_version(
                 self.table_version_key, check_pending_ops=False, validate_initialized=False
             )
-            column = tv.path.get_column_by_qid(self.col_qid)
+            column = tv.path.get_column_by_qid(self.qcol_id)
             if column is None:
                 raise excs.Error(
-                    f'Column {self.col_qid!r} not found in table version {self.table_version_key!r} or its bases'
+                    f'Column {self.qcol_id!r} not found in table version {self.table_version_key!r} or its bases'
                 )
         # Get embedding index for given column
         idx_info = tv.get_idx(column, self.idx_name, EmbeddingIndex)
@@ -89,10 +89,10 @@ class SimilarityExpr(Expr):
 
     def __repr__(self) -> str:
         assert self.idx_name is not None
-        assert self.col_qid is not None
+        assert self.qcol_id is not None
 
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version.path.get_column_by_qid(self.col_qid)
+        col = tbl_version.path.get_column_by_qid(self.qcol_id)
         if col is None:
             return f'<invalid>.similarity({self.components[0]}, {self.idx_name!r})'
         return f'{col.name}.similarity({self.components[0]}, {self.idx_name!r})'
@@ -101,14 +101,14 @@ class SimilarityExpr(Expr):
         return [
             *super()._id_attrs(),
             ('table_version_key', self.table_version_key),
-            ('col_qid', self.col_qid),
+            ('qcol_id', self.qcol_id),
             ('idx_name', self.idx_name),
         ]
 
     def _equals(self, other: 'SimilarityExpr') -> bool:
         return (
             self.table_version_key == other.table_version_key
-            and self.col_qid == other.col_qid
+            and self.qcol_id == other.qcol_id
             and self.idx_name == other.idx_name
         )
 
@@ -118,9 +118,9 @@ class SimilarityExpr(Expr):
     @classmethod
     def get_refd_column_ids(cls, expr_dict: dict[str, Any]) -> set[catalog.QColumnId]:
         result = super().get_refd_column_ids(expr_dict)
-        if 'col_qid' in expr_dict:
+        if 'qcol_id' in expr_dict:
             result.add(
-                catalog.QColumnId(tbl_id=UUID(expr_dict['col_qid']['tbl_id']), col_id=expr_dict['col_qid']['col_id'])
+                catalog.QColumnId(tbl_id=UUID(expr_dict['qcol_id']['tbl_id']), col_id=expr_dict['qcol_id']['col_id'])
             )
         return result
 
@@ -134,7 +134,7 @@ class SimilarityExpr(Expr):
 
     def is_bound_by(self, tbls: list[catalog.TableVersionPath]) -> bool:
         tbl_version = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=True)
-        col = tbl_version.path.get_column_by_qid(self.col_qid)
+        col = tbl_version.path.get_column_by_qid(self.qcol_id)
         if col is None:
             return False
         return any(tbl.has_column(col) for tbl in tbls)
@@ -176,7 +176,7 @@ class SimilarityExpr(Expr):
         tbl_version = get_runtime().catalog.get_tbl_version(
             self.table_version_key, validate_initialized=validate_initialized
         )
-        col = tbl_version.path.get_column_by_qid(self.col_qid)
+        col = tbl_version.path.get_column_by_qid(self.qcol_id)
         if col is None:
             raise excs.Error(
                 f'Embedding index {self.idx_name!r} no longer exists because the indexed column was dropped'
@@ -193,7 +193,7 @@ class SimilarityExpr(Expr):
         return {
             'idx_name': self.idx_name,
             'table_version_key': self.table_version_key.as_dict(),
-            'col_qid': {'tbl_id': str(self.col_qid.tbl_id), 'col_id': self.col_qid.col_id},
+            'qcol_id': {'tbl_id': str(self.qcol_id.tbl_id), 'col_id': self.qcol_id.col_id},
             **super()._as_dict(),
         }
 
@@ -201,5 +201,5 @@ class SimilarityExpr(Expr):
     def _from_dict(cls, d: dict, components: list[Expr]) -> 'SimilarityExpr':
         table_version_key = TableVersionKey.from_dict(d['table_version_key'])
         idx_name = d.get('idx_name')
-        col_qid = QColumnId(tbl_id=UUID(d['col_qid']['tbl_id']), col_id=d['col_qid']['col_id'])
-        return cls(item=components[0], idx_name=idx_name, table_version_key=table_version_key, col_qid=col_qid)
+        qcol_id = QColumnId(tbl_id=UUID(d['qcol_id']['tbl_id']), col_id=d['qcol_id']['col_id'])
+        return cls(item=components[0], idx_name=idx_name, table_version_key=table_version_key, qcol_id=qcol_id)

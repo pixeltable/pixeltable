@@ -21,8 +21,8 @@ def _substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     col_ref_dict = components[0]
     from pixeltable.exprs import ColumnRef
 
-    col_qid = ColumnRef.get_column_id(d=col_ref_dict)
-    tbl_id = col_qid.tbl_id
+    qcol_id = ColumnRef.get_column_id(d=col_ref_dict)
+    tbl_id = qcol_id.tbl_id
     tbl_version = col_ref_dict['tbl_version']
     table_version_key = {'id': str(tbl_id), 'effective_version': tbl_version, 'anchor_tbl_id': None}
     # copy index name, class name etc
@@ -31,7 +31,7 @@ def _substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
     new_d['components'] = [components[1]]
     new_d['table_version_key'] = table_version_key
     new_d['idx_name'] = v.get('idx_name')
-    new_d['col_qid'] = {'tbl_id': str(col_qid.tbl_id), 'col_id': col_qid.col_id}
+    new_d['qcol_id'] = {'tbl_id': str(qcol_id.tbl_id), 'col_id': qcol_id.col_id}
     new_d['_classname'] = v['_classname']
     return (k, new_d)
 

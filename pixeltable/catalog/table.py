@@ -960,7 +960,7 @@ class Table(SchemaObject):
         rows are inserted into the table.
 
         To add an embedding index, specify the column to be indexed and, if the column is not an `Array` column, an
-        embedding UDF. `String`, `Image`, and `Array` columns are currently supported.
+        embedding UDF. `String`, `Image`, `Video`, `Audio` and `Array` columns are currently supported.
 
         For `Array` columns, which are assumed to contain precomputed embeddings, an embedding function is optional;
         if provided, it will be used to convert query values into embeddings for similarity search.
