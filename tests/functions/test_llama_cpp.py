@@ -75,9 +75,9 @@ class TestLlamaCpp:
                 # XML output to a dict.
                 tool_choice = tools.choice(tool=weather)
             case 'salesforce':
-                # file size: 4.9GB
+                # file size: 3.7GB
                 repo_id = 'Salesforce/Llama-xLAM-2-8b-fc-r-gguf'
-                repo_filename = '*Q4_K_M.gguf'
+                repo_filename = '*Q3_K_S.gguf'
                 chat_format = 'chatml-function-calling'
                 tool_choice = tools.choice(auto=True)
             case 'mistral':
