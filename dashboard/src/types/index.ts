@@ -3,7 +3,7 @@
 export interface TreeNode {
   name: string;
   path: string;
-  type: 'directory' | 'table' | 'view' | 'snapshot' | 'replica';
+  kind: 'directory' | 'table' | 'view' | 'snapshot' | 'replica';
   version?: number | null;
   error_count?: number;
   children?: TreeNode[];
@@ -89,7 +89,7 @@ export interface TableData {
 export interface SearchResults {
   query: string;
   directories: { path: string; name: string }[];
-  tables: { path: string; name: string; type: string }[];
+  tables: { path: string; name: string; kind: string }[];
   columns: { name: string; table: string; type: string; is_computed: boolean }[];
 }
 

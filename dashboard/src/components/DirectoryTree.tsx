@@ -62,7 +62,7 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
 }) {
   const [manualOpen, setManualOpen] = useState<boolean | null>(null)
   const hasChildren = node.children && node.children.length > 0
-  const isDirectory = node.type === 'directory'
+  const isDirectory = node.kind === 'directory'
   const descendantCount = useMemo(() => countDescendants(node), [node])
   const hasErrors = (node.error_count ?? 0) > 0
 
@@ -81,7 +81,7 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
 
   const handleClick = () => {
     if (isDirectory && hasChildren) setManualOpen(!isOpen)
-    onSelect(node.path, node.type)
+    onSelect(node.path, node.kind)
   }
 
   return (
@@ -95,7 +95,7 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
         )}
         style={{ paddingLeft: `${level * 12 + 8}px` }}
         onClick={handleClick}
-        title={`${node.type}: ${node.path}`}
+        title={`${node.kind}: ${node.path}`}
       >
         {isDirectory && hasChildren ? (
           <span className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
@@ -107,7 +107,7 @@ function TreeItem({ node, level, selectedPath, onSelect, filter, collapsedAll }:
           <span className="w-3.5 h-3.5 shrink-0" />
         )}
 
-        {getNodeIcon(node.type, isOpen)}
+        {getNodeIcon(node.kind, isOpen)}
         <span className="flex-1 text-[13px] truncate">{node.name}</span>
 
         {hasErrors && (

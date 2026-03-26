@@ -33,16 +33,14 @@ def _version_error_total(tbl: Table) -> int:
         return 0
 
 
-def _column_error_counts(tbl: Table, col_meta: dict[str, Any]) -> dict[str, int]:
+def _column_error_counts(tbl: Table) -> dict[str, int]:
     """Count rows with errors per computed or media column. Returns {col_name: count}."""
     counts: dict[str, int] = {}
-    for col_name, info in col_meta.items():
-        is_computed = info.get('computed_with') is not None
-        is_media = _is_media_type(info.get('type_', ''))
-        if not is_computed and not is_media:
+    for col_name in tbl.columns():
+        col_ref = getattr(tbl, col_name)
+        if not col_ref.col.is_computed and not col_ref.col_type.is_media_type():
             continue
         try:
-            col_ref = getattr(tbl, col_name)
             counts[col_name] = tbl.where(col_ref.errortype != None).count()
         except Exception:
             counts[col_name] = 0
@@ -57,12 +55,12 @@ def _format_versions(tbl: Table) -> list[dict[str, Any]]:
             versions.append(
                 {
                     'version': v['version'],
-                    'created_at': v['created_at'].isoformat() if v.get('created_at') else None,
-                    'change_type': v.get('change_type'),
-                    'inserts': v.get('inserts', 0),
-                    'updates': v.get('updates', 0),
-                    'deletes': v.get('deletes', 0),
-                    'errors': v.get('errors', 0),
+                    'created_at': v['created_at'].isoformat(),
+                    'change_type': v['change_type'],
+                    'inserts': v['inserts'],
+                    'updates': v['updates'],
+                    'deletes': v['deletes'],
+                    'errors': v['errors'],
                 }
             )
     except Exception:
@@ -70,17 +68,8 @@ def _format_versions(tbl: Table) -> list[dict[str, Any]]:
     return versions
 
 
-_MEDIA_TYPES = frozenset({'image', 'video', 'audio', 'document'})
-
-
-def _is_media_type(col_type: str) -> bool:
-    """Check if a column type string represents a media type."""
-    t = col_type.lower()
-    return any(m in t for m in _MEDIA_TYPES)
-
-
 def _build_select(
-    tbl: Table, col_meta: dict[str, Any], *, include_errors: bool = False
+    tbl: Table, *, include_errors: bool = False
 ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, str], dict[str, tuple[str, str]]]:
     """Build column info list, select dict, media URL map, and error column map.
 
@@ -91,13 +80,12 @@ def _build_select(
     media_url_cols: dict[str, str] = {}
     error_cols: dict[str, tuple[str, str]] = {}
 
-    for col_name, col_info in col_meta.items():
-        col_type = col_info.get('type_', 'Unknown')
-        is_media = _is_media_type(col_type)
-        is_computed = col_info.get('computed_with') is not None
-        columns.append({'name': col_name, 'type': col_type, 'is_media': is_media, 'is_computed': is_computed})
-
+    for col_name in tbl.columns():
         col_ref = getattr(tbl, col_name)
+        col_type_str = col_ref.col_type._to_str(as_schema=True)
+        is_media = col_ref.col_type.is_media_type()
+        is_computed = col_ref.col.is_computed
+        columns.append({'name': col_name, 'type': col_type_str, 'is_media': is_media, 'is_computed': is_computed})
 
         if is_media:
             # Only fetch the URL — never download the actual media file
@@ -145,7 +133,7 @@ def get_directory_tree() -> list[dict[str, Any]]:
     # First pass: create all directory nodes
     for dir_path in sorted(all_dirs):
         parts = dir_path.split('/')
-        node = {'name': parts[-1], 'path': dir_path, 'type': 'directory', 'children': []}
+        node = {'name': parts[-1], 'path': dir_path, 'kind': 'directory', 'children': []}
         dir_nodes[dir_path] = node
 
         if len(parts) == 1:
@@ -173,7 +161,7 @@ def get_directory_tree() -> list[dict[str, Any]]:
             kind = 'table'
             version = None
 
-        table_node = {'name': tbl_name, 'path': tbl_path, 'type': kind, 'version': version, 'error_count': error_count}
+        table_node = {'name': tbl_name, 'path': tbl_path, 'kind': kind, 'version': version, 'error_count': error_count}
 
         if parent_path and parent_path in dir_nodes:
             dir_nodes[parent_path]['children'].append(table_node)
@@ -203,10 +191,9 @@ def get_table_data(
     Get paginated data from a table with media URLs resolved.
     """
     tbl = pxt.get_table(table_path)
-    md = tbl.get_metadata()
     http_address = Env.get().http_address
 
-    columns, select_dict, media_url_cols, error_cols = _build_select(tbl, md['columns'], include_errors=True)
+    columns, select_dict, media_url_cols, error_cols = _build_select(tbl, include_errors=True)
 
     query = tbl.select(**select_dict)
 
@@ -277,10 +264,9 @@ def get_table_data(
 def export_table_csv(table_path: str, limit: int = 100_000) -> bytes:
     """Export a table as CSV bytes. Media columns export their file URL."""
     tbl = pxt.get_table(table_path)
-    md = tbl.get_metadata()
     http_address = Env.get().http_address
 
-    columns, select_dict, media_url_cols, _ = _build_select(tbl, md['columns'])
+    columns, select_dict, media_url_cols, _ = _build_select(tbl)
     col_names = [c['name'] for c in columns]
 
     results = list(tbl.select(**select_dict).limit(limit).collect())
@@ -339,11 +325,11 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
             except Exception:
                 # If we can't get metadata, record table match with defaults
                 if table_matches and len(results['tables']) < limit:
-                    results['tables'].append({'path': tbl_path, 'name': tbl_name, 'type': 'table'})
+                    results['tables'].append({'path': tbl_path, 'name': tbl_name, 'kind': 'table'})
                 continue
 
         if table_matches and len(results['tables']) < limit and tbl_md:
-            results['tables'].append({'path': tbl_path, 'name': tbl_name, 'type': tbl_md['kind']})
+            results['tables'].append({'path': tbl_path, 'name': tbl_name, 'kind': tbl_md['kind']})
 
         # Search columns within this table (reuse tbl_md)
         if tbl_md and len(results['columns']) < limit:
@@ -353,8 +339,8 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
                         {
                             'name': col_name,
                             'table': tbl_path,
-                            'type': col_info.get('type_', 'Unknown'),
-                            'is_computed': col_info.get('computed_with') is not None,
+                            'type': col_info['type_'],
+                            'is_computed': col_info['is_computed'],
                         }
                     )
                     if len(results['columns']) >= limit:
@@ -507,16 +493,16 @@ def get_pipeline() -> dict[str, Any]:
         try:
             tbl = pxt.get_table(path)
             md = tbl.get_metadata()
-            col_meta = md.get('columns', {})
+            col_meta = md['columns']
             row_count = tbl.count()
 
             all_col_names = set(col_meta.keys())
             short_name = path.rsplit('/', 1)[-1]
 
-            col_errors = _column_error_counts(tbl, col_meta)
+            col_errors = _column_error_counts(tbl)
             table_error_total = _version_error_total(tbl)
 
-            is_view = md.get('is_view', False)
+            is_view = md['is_view']
             iterator_name: str | None = None
             iter_col_names: set[str] = set()
             if is_view:
@@ -526,7 +512,7 @@ def get_pipeline() -> dict[str, Any]:
             computed_cols: list[str] = []
 
             for col_name, info in col_meta.items():
-                cw = info.get('computed_with')
+                cw = info['computed_with']
                 is_iter_col = col_name in iter_col_names
 
                 # Iterator-produced columns: use the iterator name as computed_with
@@ -536,14 +522,14 @@ def get_pipeline() -> dict[str, Any]:
                 is_computed = cw is not None
                 if is_computed:
                     computed_cols.append(col_name)
-                defined_in = info.get('defined_in')
+                defined_in = info['defined_in']
 
                 cw_str = str(cw)[:200] if cw else None
                 func_name = _extract_func_name(cw_str) if is_computed and not is_iter_col else None
 
                 col_entry: dict[str, Any] = {
                     'name': col_name,
-                    'type': info.get('type_', 'unknown'),
+                    'type': info['type_'],
                     'is_computed': is_computed,
                     'is_iterator_col': is_iter_col,
                     'computed_with': cw_str,
@@ -560,19 +546,19 @@ def get_pipeline() -> dict[str, Any]:
                 columns.append(col_entry)
 
             # Indices
-            raw_indices = md.get('indices', {})
+            raw_indices = md['indices']
             indices: list[dict[str, Any]] = []
             for idx_name, idx_info in raw_indices.items():
                 indices.append(
                     {
                         'name': idx_name,
-                        'columns': idx_info.get('columns', []),
-                        'type': idx_info.get('index_type', 'unknown'),
-                        'embedding': str(idx_info.get('parameters', {}).get('embedding', ''))[:120],
+                        'columns': idx_info['columns'],
+                        'type': idx_info['index_type'],
+                        'embedding': str(idx_info['parameters']['embedding'])[:120],
                     }
                 )
 
-            base_path = md.get('base')
+            base_path = md['base']
 
             nodes.append(
                 {
@@ -581,7 +567,7 @@ def get_pipeline() -> dict[str, Any]:
                     'is_view': is_view,
                     'base': base_path,
                     'row_count': row_count,
-                    'version': md.get('version', 0),
+                    'version': md['version'],
                     'total_errors': table_error_total,
                     'columns': columns,
                     'indices': indices,

@@ -62,7 +62,7 @@ function findTreeNode(nodes: TreeNode[], path: string): TreeNode | null {
 function flattenTables(node: TreeNode): TreeNode[] {
   const tables: TreeNode[] = []
   for (const c of node.children ?? []) {
-    if (c.type === 'directory') tables.push(...flattenTables(c))
+    if (c.kind === 'directory') tables.push(...flattenTables(c))
     else tables.push(c)
   }
   return tables
@@ -122,7 +122,7 @@ function DirectoryView({ tree }: { tree: TreeNode[] }) {
                 <tr key={t.path} className="border-b border-border/20 hover:bg-accent/20 transition-colors cursor-pointer"
                   onClick={() => navigate(`/table/${t.path}`)}>
                   <td className="py-2 px-3 font-mono text-xs font-medium">{t.name}</td>
-                  <td className="py-2 px-3 text-xs text-muted-foreground">{t.type}</td>
+                  <td className="py-2 px-3 text-xs text-muted-foreground">{t.kind}</td>
                   <td className="py-2 px-3 text-xs tabular-nums text-right">
                     {(t.error_count ?? 0) > 0 ? (
                       <span className="text-destructive flex items-center justify-end gap-1">

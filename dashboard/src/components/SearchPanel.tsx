@@ -176,7 +176,7 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
   const flattenedResults = useMemo<SearchResultItem[]>(() => results
     ? [
         ...results.directories.map(d => ({ type: 'directory' as const, name: d.name, path: d.path })),
-        ...results.tables.map(t => ({ type: 'table' as const, name: t.name, path: t.path, subtype: t.type })),
+        ...results.tables.map(t => ({ type: 'table' as const, name: t.name, path: t.path, subtype: t.kind })),
         ...results.columns.map(c => ({ type: 'column' as const, name: c.name, path: c.table, extra: c.type })),
       ]
     : [], [results])
@@ -338,9 +338,9 @@ export function SearchPanel({ isOpen, onClose, onSelect }: SearchPanelProps) {
                         return (
                           <ResultItem
                             key={`tbl-${t.path}`}
-                            item={{ type: 'table', name: t.name, path: t.path, subtype: t.type }}
+                            item={{ type: 'table', name: t.name, path: t.path, subtype: t.kind }}
                             isSelected={selectedIndex === idx}
-                            onClick={() => handleItemClick({ type: 'table', name: t.name, path: t.path, subtype: t.type })}
+                            onClick={() => handleItemClick({ type: 'table', name: t.name, path: t.path, subtype: t.kind })}
                             onHover={() => setSelectedIndex(idx)}
                           />
                         )

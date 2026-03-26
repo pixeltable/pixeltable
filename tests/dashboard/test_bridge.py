@@ -27,14 +27,14 @@ class TestBridge:
         assert len(tree) == 1
         root = tree[0]
         assert root['name'] == 'a'
-        assert root['type'] == 'directory'
+        assert root['kind'] == 'directory'
 
         children_by_name = {n['name']: n for n in root['children']}
-        assert children_by_name['t1']['type'] == 'table'
-        assert children_by_name['v']['type'] == 'view'
-        assert children_by_name['snap']['type'] == 'snapshot'
+        assert children_by_name['t1']['kind'] == 'table'
+        assert children_by_name['v']['kind'] == 'view'
+        assert children_by_name['snap']['kind'] == 'snapshot'
         assert children_by_name['t1']['error_count'] == 0
-        assert children_by_name['b']['type'] == 'directory'
+        assert children_by_name['b']['kind'] == 'directory'
         assert len(children_by_name['b']['children']) == 1
 
     def test_table_metadata_basic(self, uses_db: None) -> None:
