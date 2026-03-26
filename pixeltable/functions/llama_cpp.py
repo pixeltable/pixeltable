@@ -53,6 +53,8 @@ def create_chat_completion(
             [llama_cpp create_chat_completion documentation](https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion).
     """
     Env.get().require_package('llama_cpp', min_version=[0, 3, 1])
+    if tools is not None:
+        Env.get().require_package('llama_cpp', min_version=[0, 3, 9])
 
     if model_kwargs is None:
         model_kwargs = {}
