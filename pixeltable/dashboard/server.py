@@ -1,11 +1,11 @@
 """
 HTTP server for the Pixeltable Dashboard.
 
-Uses stdlib ``http.server.ThreadingHTTPServer`` — every request runs in
+Uses stdlib `http.server.ThreadingHTTPServer`: every request runs in
 its own thread, so synchronous bridge calls never block other requests.
 No asyncio, no event loop, no third-party server dependency.
 
-Designed to bind to 127.0.0.1 only — never expose to the network.
+Designed to bind to 127.0.0.1 only: never expose to the network.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ import json
 import logging
 import mimetypes
 import re
+import sys
 import warnings
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,8 +28,8 @@ _logger = logging.getLogger('pixeltable.dashboard')
 
 DASHBOARD_DIST_PATH = Path(__file__).parent / 'static'
 
-_ALLOWED_ORIGINS = frozenset(
-    {'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:8080', 'http://127.0.0.1:8080'}
+_ALLOWED_ORIGINS = (
+    'http://localhost:5173', 'http://127.0.0.1:5173', 'http://localhost:8080', 'http://127.0.0.1:8080'
 )
 
 # ── Routing table ────────────────────────────────────────────────────────────
@@ -111,9 +112,6 @@ _API_ROUTES: list[Route] = [
 ]
 
 
-# ── Request Handler ──────────────────────────────────────────────────────────
-
-
 class _DashboardHandler(BaseHTTPRequestHandler):
     """Handles GET requests: API routes + SPA static files."""
 
@@ -142,39 +140,35 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         path = parsed.path
 
-        # ── API routes ────────────────────────────────────────────────
         if path.startswith('/api/'):
-            self._handle_api(path, parsed.query)
+            self.__handle_api(path, parsed.query)
             return
 
-        # ── Static files ──────────────────────────────────────────────
-        self._serve_static(path)
+        self.__serve_static(path)
 
     def do_HEAD(self) -> None:
         self.do_GET()
 
     # Block all other methods
     def do_POST(self) -> None:
-        self._method_not_allowed()
+        self.__method_not_allowed()
 
     def do_PUT(self) -> None:
-        self._method_not_allowed()
+        self.__method_not_allowed()
 
     def do_DELETE(self) -> None:
-        self._method_not_allowed()
+        self.__method_not_allowed()
 
     def do_PATCH(self) -> None:
-        self._method_not_allowed()
+        self.__method_not_allowed()
 
-    def _method_not_allowed(self) -> None:
+    def __method_not_allowed(self) -> None:
         self.send_response(HTTPStatus.METHOD_NOT_ALLOWED)
         self.send_header('Content-Type', 'text/plain')
         self.end_headers()
-        self._safe_write(b'Method not allowed')
+        self.__safe_write(b'Method not allowed')
 
-    # ── API handling ──────────────────────────────────────────────────
-
-    def _handle_api(self, path: str, raw_query: str) -> None:
+    def __handle_api(self, path: str, raw_query: str) -> None:
         query = {k: v[0] for k, v in parse_qs(raw_query).items()} if raw_query else {}
 
         for pattern, handler in _API_ROUTES:
@@ -185,18 +179,18 @@ class _DashboardHandler(BaseHTTPRequestHandler):
                         warnings.simplefilter('ignore')
                         result = handler(match, query)
                     if isinstance(result, _RawResponse):
-                        self._send_raw(result)
+                        self.__send_raw(result)
                     else:
-                        self._send_json(result)
+                        self.__send_json(result)
                 except Exception as e:
                     _logger.exception('Error handling %s', path)
                     safe = str(e).split('\n')[0][:200] if str(e) else f'{type(e).__name__}: (no message)'
-                    self._send_json({'error': safe}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
+                    self.__send_json({'error': safe}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
                 return
 
-        self._send_json({'error': 'Not found'}, status=HTTPStatus.NOT_FOUND)
+        self.__send_json({'error': 'Not found'}, status=HTTPStatus.NOT_FOUND)
 
-    def _send_json(self, data: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
+    def __send_json(self, data: Any, status: HTTPStatus = HTTPStatus.OK) -> None:
         body = json.dumps(data, default=str).encode()
         allowed = self._cors_origin()
 
@@ -210,9 +204,9 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         if allowed:
             self.send_header('Access-Control-Allow-Origin', allowed)
         self.end_headers()
-        self._safe_write(body)
+        self.__safe_write(body)
 
-    def _send_raw(self, resp: _RawResponse) -> None:
+    def __send_raw(self, resp: _RawResponse) -> None:
         allowed = self._cors_origin()
 
         self.send_response(HTTPStatus.OK)
@@ -223,37 +217,24 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         if allowed:
             self.send_header('Access-Control-Allow-Origin', allowed)
         self.end_headers()
-        self._safe_write(resp.body)
+        self.__safe_write(resp.body)
 
-    # ── Static file serving ───────────────────────────────────────────
-
-    def _serve_static(self, path: str) -> None:
-        if not DASHBOARD_DIST_PATH.exists():
-            self.send_response(HTTPStatus.OK)
-            self.send_header('Content-Type', 'text/html')
-            self.end_headers()
-            self.wfile.write(
-                b'<h1>Pixeltable Dashboard</h1>'
-                b'<p>Frontend not built. Run: <code>cd dashboard && npm install && npm run build</code></p>'
-                b'<p><a href="/api/dirs">/api/dirs</a></p>'
-            )
-            return
-
+    def __serve_static(self, path: str) -> None:
         # Try to serve the exact file (for /assets/*, /logo.png, etc.)
         if path != '/':
             file_path = DASHBOARD_DIST_PATH / path.lstrip('/')
             if file_path.exists() and file_path.is_file() and DASHBOARD_DIST_PATH in file_path.resolve().parents:
-                self._send_file(file_path)
+                self.__send_file(file_path)
                 return
 
         # Everything else → index.html (SPA routing)
         index = DASHBOARD_DIST_PATH / 'index.html'
         if index.exists():
-            self._send_file(index)
+            self.__send_file(index)
         else:
             self.send_error(HTTPStatus.NOT_FOUND, 'Dashboard not found')
 
-    def _send_file(self, file_path: Path) -> None:
+    def __send_file(self, file_path: Path) -> None:
         content_type, _ = mimetypes.guess_type(str(file_path))
         body = file_path.read_bytes()
 
@@ -263,48 +244,48 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         if '/assets/' in str(file_path):
             self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
         self.end_headers()
-        self._safe_write(body)
+        self.__safe_write(body)
 
-    def _safe_write(self, data: bytes) -> None:
+    def __safe_write(self, data: bytes) -> None:
         try:
             self.wfile.write(data)
         except (BrokenPipeError, ConnectionResetError):
             pass
 
 
-# ── Server entry point ───────────────────────────────────────────────────────
-
-
 class _QuietServer(ThreadingHTTPServer):
     """ThreadingHTTPServer that silences BrokenPipeError tracebacks."""
 
     def handle_error(self, request: Any, client_address: Any) -> None:
-        import sys
-
         exc = sys.exc_info()[1]
         if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
             return
         super().handle_error(request, client_address)
 
 
-def run_server(host: str = '127.0.0.1', port: int = 8080) -> None:
+def run_server(port: int) -> None:
     """Run the dashboard server (blocks the calling thread).
 
-    Uses ``ThreadingHTTPServer`` — each request is handled in its own
+    Uses `ThreadingHTTPServer` — each request is handled in its own
     thread, so synchronous Pixeltable calls never block other requests.
 
-    Called from a daemon thread spawned by ``_start_dashboard_background``
-    in ``globals.py``.
+    Called from a daemon thread spawned by `_start_dashboard_background`
+    in `globals.py`.
 
     Args:
-        host: Address to bind to (default ``127.0.0.1``; never use ``0.0.0.0``).
+        host: Address to bind to (default `127.0.0.1`; never use `0.0.0.0`).
         port: Port number.
     """
-    server = _QuietServer((host, port), _DashboardHandler)
+    assert DASHBOARD_DIST_PATH.exists(), f'Static site distribution not found at: {DASHBOARD_DIST_PATH}'
+
+    server = _QuietServer(('127.0.0.1', port), _DashboardHandler)
     server.daemon_threads = True
-    _logger.info('Pixeltable Dashboard serving on http://%s:%s', host, port)
+    _logger.info('Pixeltable Dashboard initialized on http://127.0.0.1:%s', port)
 
     try:
         server.serve_forever()
+    except Exception as exc:
+        _logger.error('Dashboard server terminated unexpectedly: %s', exc)
+        raise
     finally:
         server.server_close()
