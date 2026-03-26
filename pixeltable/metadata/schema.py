@@ -11,6 +11,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
 from ..catalog.update_status import UpdateStatus
+from ..type_system import ColumnType
 
 # Base has to be marked explicitly as a type, in order to be used elsewhere as a type hint. But in addition to being
 # a type, it's also a `DeclarativeMeta`. The following pattern enables us to expose both `Base` and `Base.metadata`
@@ -122,6 +123,12 @@ class ColumnMd:
 
     # Indicates if this column has another accessory column that stores cell metadata such as execution errors
     stores_cellmd: bool
+
+    # The complete column type can be found SchemaColumn.col_type. Here we store only the high level type enum that
+    # no alter column operation can change.
+    # TODO this requires a migration
+    # TODO rename to col_type or something
+    data_type: ColumnType.Type
 
     def is_live_in_version(self, schema_version: int) -> bool:
         """Returns True if the column is live in the given schema version."""

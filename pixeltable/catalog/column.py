@@ -340,6 +340,7 @@ class Column:
             schema_version_drop=self.schema_version_drop,
             stored=self.stored,
             stores_cellmd=self.stores_cellmd,
+            data_type=self.col_type.type_enum,
         )
         sch_md = schema.SchemaColumn(
             name=self.name,
@@ -527,9 +528,11 @@ class Column:
             return
         self.value_expr.fn.source()
 
-    def create_sa_cols(self) -> None:
+    def create_sa_cols(self) -> tuple[sql.Column, sql.Column | None]:
         """
-        These need to be recreated for every sql.Table instance
+        Instantiates sql.Column(s) for this Column. These need to be recreated for every sql.Table instance.
+
+        Returns a tuple of (sa_col, sa_cellmd_col). sa_cellmd_col is None if stores_cellmd is False.
         """
         assert self.is_stored
         assert self.stores_cellmd is not None
@@ -537,6 +540,9 @@ class Column:
         self.sa_col = sql.Column(self.store_name(), self.sa_col_type, nullable=True)
         if self.stores_cellmd:
             self.sa_cellmd_col = sql.Column(self.cellmd_store_name(), self.sa_cellmd_type(), nullable=True)
+        else:
+            assert self.sa_cellmd_col is None
+        return (self.sa_col, self.sa_cellmd_col)
 
     @classmethod
     def cellmd_type(cls) -> ts.ColumnType:
