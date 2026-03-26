@@ -207,16 +207,15 @@ class ExprEvalCtx:
         # Shape: (num_rows, num_slots)
         has_val = np.stack([r.has_val for r in rows], axis=0)
 
-        # Vectorized missing_dependents computation
-        # dependencies[i, j] means expr i depends on expr j
-        # new_missing_dependents[i, slot] = for row i, count of exprs that depend on 'slot' and don't have a value
-        # bool -> int16: bool @ bool does boolean ops (True + True = True), not arithmetic
-        dependencies = self.row_builder.dependencies  # (num_slots, num_slots)
-        new_missing_dependents = (~has_val).astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
-
         # Vectorized missing_slots computation
         # missing_slots = eval_ctx slots that don't have values yet
         new_missing_slots = self.eval_ctx & (~has_val)  # (num_rows, num_slots)
+
+        # Vectorized missing_dependents computation
+        # missing_dependents[slot] = count of unevaluated eval_ctx slots that depend on 'slot'
+        # Uses missing_slots, consistent with dispatch()
+        dependencies = self.row_builder.dependencies  # (num_slots, num_slots)
+        new_missing_dependents = new_missing_slots.astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
 
         # Write back to individual rows
         for i, row in enumerate(rows):
