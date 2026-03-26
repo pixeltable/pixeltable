@@ -792,32 +792,24 @@ class Planner:
         assert view.is_view
         target = view.tbl_version.get()
 
-        # delete_rows modifies index columns on the expired rows (nullifies val, copies val -> undo),
-        # so neither can be copied from the source rows: val columns must be recomputed, undo columns excluded.
+        # Recompute index val cols only for modified columns; restore the rest from undo
         recomputed_cols = target.get_idx_val_columns(recompute_targets)
         recomputed_cols.update(recompute_targets)
-        all_view_cols = [c for c in target.cols_by_id.values() if c.get_tbl().id == target.id]
-        idx_val_cols = target.get_idx_val_columns(all_view_cols)
-        idx_undo_cols = {info.undo_col for info in target.idxs.values()}
-        recomputed_cols.update(idx_val_cols)
+        undo_to_val = [(i.undo_col, i.val_col) for i in target.idxs.values() if i.val_col not in recomputed_cols]
+        skip_cols = {i.undo_col for i in target.idxs.values()} | {v for _, v in undo_to_val}
 
-        # Copied columns are all other stored columns
         copied_cols = [
-            col
-            for col in target.cols_by_id.values()
-            if col.is_stored and col not in recomputed_cols and col not in idx_undo_cols
+            c for c in target.cols_by_id.values() if c.is_stored and c not in recomputed_cols and c not in skip_cols
         ]
-
         select_list: list[exprs.Expr] = [exprs.ColumnRef(col) for col in copied_cols]
-        # resolve recomputed exprs to stored columns in the base
         recomputed_exprs = [
             c.value_expr.copy().resolve_computed_cols(resolve_cols=recomputed_cols) for c in recomputed_cols
         ]
         select_list.extend(recomputed_exprs)
+        undo_col_refs = [exprs.ColumnRef(u) for u, _ in undo_to_val]
+        select_list.extend(undo_col_refs)
 
-        # we need to retrieve the PK columns of the existing rows
-        # deleted_at_version for the view itself: propagate_update expires old view rows before running this plan,
-        # so we read the just-expired rows (v_max == current_version) to copy their stored column values
+        # Read the just-expired rows (v_max == current_version) to copy stored column values
         plan = cls.create_query_plan(
             FromClause(tbls=[view]),
             select_list,
@@ -826,9 +818,10 @@ class Planner:
             exact_version_only=view.get_bases(),
             deleted_at_version=[view.tbl_version],
         )
-        materialized_cols = copied_cols + list(recomputed_cols)  # same order as select_list
-        for i, col in enumerate(materialized_cols):
+        for i, col in enumerate(copied_cols + list(recomputed_cols)):
             plan.row_builder.add_table_column(col, select_list[i].slot_idx)
+        for i, (_, val_col) in enumerate(undo_to_val):
+            plan.row_builder.add_table_column(val_col, undo_col_refs[i].slot_idx)
         plan = cls._add_cell_materialization_node(plan)
         plan = cls._add_save_node(plan)
 
