@@ -37,7 +37,7 @@ def create_chat_completion(
     is provided, then an optional `repo_filename` can also be specified.
 
     For additional details, see the
-    [llama_cpp create_chat_completions documentation](https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion).
+    [llama_cpp create_chat_completion documentation](https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion).
 
     Args:
         messages: A list of messages to generate a response for.
@@ -48,9 +48,9 @@ def create_chat_completion(
         chat_format: An optional string specifying the chat format to use with the model.
         tools: An optional list of tools (functions) the model may call, specified as `pxt.func.tools.Tools`.
         tool_choice: An optional `pxt.func.tools.ToolChoice` controlling which tool(s) the model should use.
-        model_kwargs: Additional keyword args for the llama_cpp `create_chat_completions` API, such as `max_tokens`,
+        model_kwargs: Additional keyword args for the llama_cpp `create_chat_completion` API, such as `max_tokens`,
             `temperature`, `top_p`, and `top_k`. For details, see the
-            [llama_cpp create_chat_completions documentation](https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion).
+            [llama_cpp create_chat_completion documentation](https://llama-cpp-python.readthedocs.io/en/latest/api-reference/#llama_cpp.Llama.create_chat_completion).
     """
     Env.get().require_package('llama_cpp', min_version=[0, 3, 1])
 
