@@ -147,11 +147,11 @@ def create_table_data(t: pxt.Table, col_names: list[str] | None = None, num_rows
             col_data = [audio_path] * num_rows
         if col_type.is_document_type():
             docs = get_documents()
-            # Office formats (PPTX, DOCX, XLSX) require optional 'mistune' package;
+            # Markdown and office formats (PPTX, DOCX, XLSX) require optional 'mistune' package;
             # exclude them when it is not installed so the table can still be created.
             if not Env.get().is_installed_package('mistune'):
-                office_exts = {'.pptx', '.docx', '.xlsx'}
-                docs = [d for d in docs if Path(d).suffix.lower() not in office_exts]
+                mistune_exts = {'.md', '.pptx', '.docx', '.xlsx'}
+                docs = [d for d in docs if Path(d).suffix.lower() not in mistune_exts]
             col_data = [docs[i % len(docs)] for i in range(num_rows)]
 
         data[col_name] = col_data
