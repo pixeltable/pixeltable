@@ -7,7 +7,6 @@ such as obtaining temporary credentials for home buckets.
 
 from __future__ import annotations
 
-import logging
 import os
 from typing import Literal, Optional
 
@@ -18,8 +17,6 @@ from pixeltable.config import Config
 from pixeltable.env import Env
 from pixeltable.share.protocol.home_bucket import GetHomeBucketCredentialsRequest, GetHomeBucketCredentialsResponse
 from pixeltable.share.protocol.presigned_url import GetPresignedUrlRequest, GetPresignedUrlResponse
-
-_logger = logging.getLogger('pixeltable')
 
 PIXELTABLE_API_URL = os.environ.get('PIXELTABLE_API_URL', 'https://internal-api.pixeltable.com')
 
@@ -73,11 +70,13 @@ def get_presigned_url_from_cloud(
     Uses backend credentials on the cloud so URL expiry is independent of temp credential TTL.
     """
     request = GetPresignedUrlRequest(org_slug=org_slug, db_slug=db_slug, key=key, method=method, expiration=expiration)
+    try:
+        response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)
+        if response.status_code != 200:
+            raise excs.Error(f'Failed to get presigned URL from Pixeltable Cloud : {response.text}')
 
-    response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)
-    if response.status_code != 200:
-        raise excs.Error(f'get_presigned_url failed: {response.text}')
-
-    data = response.json()
-    parsed = GetPresignedUrlResponse.model_validate(data)
-    return parsed.url
+        data = response.json()
+        parsed = GetPresignedUrlResponse.model_validate(data)
+        return parsed.url
+    except requests.exceptions.RequestException as e:
+        raise excs.Error(f'Failed to get presigned URL from Pixeltable Cloud: {e}') from e

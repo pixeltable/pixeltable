@@ -10,7 +10,6 @@ from pixeltable.utils.object_stores import ObjectOps
 from .utils import skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status
 
 PXT_DEST_URI = 'pxt://pixeltable:main/home/pytest'
-_ORG_DB_KEY = 'pixeltable:main'
 
 
 class TestPxtStore:

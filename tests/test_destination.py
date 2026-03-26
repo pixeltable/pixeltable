@@ -175,6 +175,22 @@ class TestDestination:
         assert soa.account == 'org'
         assert soa.account_extension == 'db'
 
+        # Negative cases for pxt:// uris
+        with pytest.raises(ValueError, match='Invalid pxt:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxt://orgonly/home', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxt:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxt://:db/home', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxt:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxt://org:/home', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxt:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxt://org:db/notbucket', allow_obj_name=False)
+
+        with pytest.raises(ValueError, match='Invalid pxt:// store URI'):
+            ObjectPath.parse_object_storage_addr('pxt://org:db/homebucket', allow_obj_name=False)
+
     @pytest.mark.parametrize('dest_id', TESTED_DESTINATIONS)
     def test_destination(self, uses_db: None, dest_id: StorageTarget) -> None:
         """Test various media destinations."""

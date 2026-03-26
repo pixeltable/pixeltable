@@ -269,12 +269,15 @@ class ObjectPath:
             account_name, account_extension = netloc_parts  # org slug, db slug
             container = 'home'  # logical bucket segment from URI (not the physical R2 bucket name)
             raw_path = parsed.path.lstrip('/')
-            if not raw_path.startswith('home'):
+            if raw_path == 'home':
+                key = ''
+            elif raw_path.startswith('home/'):
+                key = raw_path[len('home/') :]
+            else:
                 raise ValueError(
-                    f"Invalid pxt:// store URI '{parsed}': path must start with /home, got '{parsed.path}'"
+                    f"Invalid pxt:// store URI '{parsed}': path must be '/home' or start with '/home/', "
+                    f"got '{parsed.path}'"
                 )
-            # Strip the 'home' prefix; remainder is the key prefix within the bucket
-            key = raw_path[4:].lstrip('/')  # skip 'home' and any leading slash
         else:
             raise ValueError(f'Unsupported URI scheme: {parsed.scheme}')
 

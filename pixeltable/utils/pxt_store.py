@@ -191,7 +191,9 @@ class PxtStore(S3Store):
 
     def __init__(self, soa: StorageObjectAddress) -> None:
         if soa.storage_target != StorageTarget.PIXELTABLE_STORE:
-            raise AssertionError(f'PxtStore requires PIXELTABLE_STORE, got {soa.storage_target}')
+            raise excs.Error(
+                f'Invalid storage target for PxtStore: expected PIXELTABLE_STORE, got {soa.storage_target!s}.'
+            )
         org, db = soa.account, soa.account_extension
         self._pxt_store_entry = _get_or_create_pxt_store_entry(org, db)
         super().__init__(soa, resolved_physical_bucket_name=self._pxt_store_entry.bucket_name)
