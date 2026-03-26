@@ -73,7 +73,7 @@ def get_presigned_url_from_cloud(
     try:
         response = requests.post(PIXELTABLE_API_URL, data=request.model_dump_json(), headers=_api_headers(), timeout=30)
         if response.status_code != 200:
-            raise excs.Error(f'Failed to get presigned URL from Pixeltable Cloud : {response.text}')
+            raise excs.Error(f'Failed to get presigned URL from Pixeltable Cloud: {response.text}')
 
         data = response.json()
         parsed = GetPresignedUrlResponse.model_validate(data)
