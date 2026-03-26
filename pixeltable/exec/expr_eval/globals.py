@@ -215,7 +215,9 @@ class ExprEvalCtx:
         # missing_dependents[slot] = count of unevaluated eval_ctx slots that depend on 'slot'
         # Uses missing_slots, consistent with dispatch()
         dependencies = self.row_builder.dependencies  # (num_slots, num_slots)
-        new_missing_dependents = new_missing_slots.astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
+        new_missing_dependents = new_missing_slots.astype(np.int16) @ dependencies.astype(
+            np.int16
+        )  # (num_rows, num_slots)
 
         # Write back to individual rows
         for i, row in enumerate(rows):
