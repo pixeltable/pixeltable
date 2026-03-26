@@ -1,7 +1,5 @@
 """Tests for the expression evaluation engine (pixeltable/exec/expr_eval/)."""
 
-import time
-
 import pixeltable as pxt
 
 
@@ -11,33 +9,28 @@ def add_one(x: int) -> int:
 
 
 @pxt.udf
-def slow_add(x: int, y: int) -> int:
-    """Slow UDF to force late completion."""
-    time.sleep(0.1)
+def add_two(x: int, y: int) -> int:
     return x + y
 
 
 def test_gc_bug_leaked_slot(uses_db: None) -> None:
     """Reproduce the GC bug where has_val doesn't distinguish 'not computed' from 'already GC'd'.
 
-    NOTE: This test only fails when there is an assertion in ExprEvalNode verifying that all
-    completed rows have their gc-target slots collected (has_val=False). Without that assertion,
-    the leaked slot is silently ignored and this test passes vacuously.
-
     Graph:
         x (from DB, slot 0)
         S = add_one(x)           -- gc target, depends on x
         T = add_one(S)           -- gc target, depends on S (fast branch)
         V = add_one(T)           -- output (fast branch finishes first)
-        U = slow_add(S, V)       -- gc target, depends on S AND V (slow, starts after V)
+        U = add_two(S, V)        -- gc target, depends on S AND V
         W = add_one(U)           -- output
 
-    Execution order:
+    The DAG structure alone determines execution order (all scalar UDFs run
+    synchronously on the event loop, so no timing tricks are needed):
     1. S computed -> x GC'd
     2. T computed -> S should be GC-able but has 2 deps (T, U). U not done -> S stays.
     3. V computed (output) -> T's only dep (V) done -> T GC'd. has_val[T]=False
     4. U can now start (needs S and V). S still has val.
-       But: new_missing_dep[S] counts T (GC'd, has_val=False) as needing S -> S not GC'd!
+       Bug: new_missing_dep[S] counts T (GC'd, has_val=False) as needing S -> S not GC'd!
     5. U computed -> W scheduled
     6. W computed -> row complete. S still has has_val=True -> ASSERTION FIRES
     """
@@ -47,8 +40,8 @@ def test_gc_bug_leaked_slot(uses_db: None) -> None:
     s = add_one(t.x)
     fast = add_one(s)  # T
     v_out = add_one(fast)  # V - output
-    slow = slow_add(s, v_out)  # U - depends on S and V, slow
-    w_out = add_one(slow)  # W - output
+    joined = add_two(s, v_out)  # U - depends on S and V
+    w_out = add_one(joined)  # W - output
 
     result = t.select(v_out, w_out).collect()
     assert len(result) == 3
