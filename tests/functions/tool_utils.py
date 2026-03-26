@@ -6,7 +6,7 @@ import pixeltable as pxt
 def run_tool_invocations_test(
     make_table: Callable[[pxt.Tools, pxt.ToolChoice], pxt.Table],
     *,
-    test_random_question: bool = True,
+    test_non_tool_question: bool = True,
     test_multiple_tool_use: bool = True,
     test_tool_choice: bool = False,
     test_individual_tool_choice: bool = False,
@@ -44,7 +44,7 @@ def run_tool_invocations_test(
         # Request for stock price: works except when tool_choice is set explicitly to weather
         print(f'Checking stock price inquiry [tool_choice: {tool_choice}]')
         if tool_choice is None or tool_choice.tool != 'weather':
-            assert res[0]['tool_calls'] == {'stock_price': [131.17], 'weather': None}
+            assert res[0]['tool_calls'] == {'stock_price': [131.17], 'weather': None}, res[0]['tool_calls']
         else:  # Explicitly set to weather; we may or may not get stock price also
             assert res[0]['tool_calls'] in [
                 {'stock_price': None, 'weather': ['Unknown city']},
@@ -54,15 +54,17 @@ def run_tool_invocations_test(
         # Request for weather: works except when tool_choice is set explicitly to stock_price
         print(f'Checking weather inquiry [tool_choice: {tool_choice}]')
         if tool_choice is None or tool_choice.tool != 'stock_price':
-            assert res[1]['tool_calls'] == {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']}
+            assert res[1]['tool_calls'] == {'stock_price': None, 'weather': ['Cloudy with a chance of meatballs']}, res[
+                1
+            ]['tool_calls']
         else:  # Explicitly set to stock_price; we may or may not get weather also
             assert res[1]['tool_calls'] in [
                 {'stock_price': [0.0], 'weather': None},
                 {'stock_price': [0.0], 'weather': ['Cloudy with a chance of meatballs']},
             ]
 
-        if test_random_question:
-            print(f'Checking random question [tool_choice: {tool_choice}]')
+        if test_non_tool_question:
+            print(f'Checking non-tool question [tool_choice: {tool_choice}]')
             if tool_choice is None or tool_choice.auto:
                 assert res[3]['tool_calls'] == {'stock_price': None, 'weather': None}, res[3]['tool_calls']
             elif tool_choice.tool == 'stock_price':

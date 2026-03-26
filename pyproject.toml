@@ -165,7 +165,7 @@ dev = [
     "whisperx==3.7.4 ; python_version < '3.14'",
     "label-studio-sdk>=1.0.18 ; python_version < '3.14'",
     "ollama>=0.5.1",
-    "llama-cpp-python>=0.3.16 ; sys_platform == 'linux'",
+    "llama-cpp-python>=0.3.18 ; sys_platform == 'linux'",
     "mcp>=1.9.4",
     "pixeltable-yolox==0.4.2 ; python_version < '3.13' or sys_platform != 'win32'",
     "fiftyone>=1.7 ; python_version < '3.14'",
@@ -197,7 +197,7 @@ test = [
 ]
 extra-dev = [
     # This is for dependencies that will be installed locally for devs (via `make install`), but not in CI.
-    "llama-cpp-python>=0.3.16 ; sys_platform != 'win32'"
+    "llama-cpp-python>=0.3.18 ; sys_platform != 'win32'"
 ]
 storage-sdks = [
     # Used for CI configurations that need only the storage SDKs (in addition to basic dependencies).
