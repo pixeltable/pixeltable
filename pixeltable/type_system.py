@@ -244,6 +244,18 @@ class ColumnType:
         return None
 
     @classmethod
+    def common_supertype(cls, types: Iterable[ColumnType], for_inference: bool = False) -> ColumnType | None:
+        supertype: ColumnType | None = None
+        for t in types:
+            if supertype is None:
+                supertype = t
+            else:
+                supertype = supertype.supertype(t, for_inference=for_inference)
+            if supertype is None:
+                return None
+        return supertype
+
+    @classmethod
     def infer_literal_type(
         cls, val: Any, nullable: bool = False, infer_json_type_schema: bool = True
     ) -> ColumnType | None:

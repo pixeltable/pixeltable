@@ -677,6 +677,60 @@ class TestExprs:
         assert all(res['slice_range_step'][i] == orig[i][3:7:2] for i in range(len(orig)))
         assert all(res['slice_range_step_item'][i] == orig[i][3:7:2] for i in range(len(orig)))
 
+    def test_json_path_types(self, uses_db: None) -> None:
+        spec = {
+            'f1': str,
+            'f2': {
+                'f2a': int,
+                'f2b': (int, str, pxt.Video, {'f2b1': str}),
+                'f2c': (int, bool, float, ...),
+                'f2d': (int, {'f2b1': str}, ...),
+            },
+            'f3': (
+                pxt.Array[(2, 5, 6, 8), np.float32],
+                pxt.Array[(2, 4, 7, 8), np.float32],
+                pxt.Array[(2, 4, 6, 9), np.float32],
+                ...,
+            ),
+        }
+        t = pxt.create_table('test', {'col': pxt.Json[spec]})
+        cases: tuple[tuple[Expr, ts._PxtType], ...] = (
+            (t.col.f1, pxt.String),
+            (t.col.not_a_field, pxt.Json),  # "invalid" field defaults to untyped json
+            (t.col[3], pxt.Json),  # index access on non-array defaults to untyped json
+            (t.col[3:10], pxt.Json),  # slice access on non-array defaults to untyped json
+            (t.col.f1.cannot_be_a_field, pxt.Json),  # also test attempts to deference a primitive type
+            (t.col.f1[3], pxt.Json),
+            (t.col.not_a_field[19][3:44].another_non_field, pxt.Json),  # once untyped, always untyped
+            (t.col.f2.f2a, pxt.Int),
+            (t.col.f2.f2b[1], pxt.String),
+            (t.col.f2.f2b[93], pxt.Json),  # out-of-range index defaults to untyped json
+            (t.col.f2.f2b[-2], pxt.Video),  # negative index on fixed-shape array
+            (t.col.f2.f2b[-93], pxt.Json),  # out-of-range negative index
+            (t.col.f2.f2b[3].f2b1, pxt.String),  # chained field/index access
+            (t.col.f2.f2c, pxt.Json[(int, bool, float, ...)]),
+            (t.col.f2.f2c[0], pxt.Int),
+            (t.col.f2.f2c[93], pxt.Float),  # variadic index access
+            (t.col.f2.f2d[93].f2b1, pxt.String),  # variadic index access with chained field access
+            (t.col.f3[-9], pxt.Array[(2, None, None, None), np.float32]),  # variadic negative index (common supertype)
+            (t.col.f3[-1], pxt.Array[(2, 4, None, None), np.float32]),  # in this case it could not reference index 0
+            (t.col.f2.f2b[1:3], pxt.Json[(str, pxt.Video)]),  # slice access on fixed-length tuple
+            (t.col.f2.f2b[1:], pxt.Json[(str, pxt.Video, {'f2b1': str})]),
+            (t.col.f2.f2b[:2], pxt.Json[(int, str)]),
+            (t.col.f2.f2b[1:][2].f2b1, pxt.String),  # chained slice access
+            (t.col.f2.f2c[1:], pxt.Json[(bool, float, ...)]),  # slice access on variadic tuple
+            (t.col.f2.f2c[91:], pxt.Json[(float, ...)]),
+            (t.col.f2.f2c[1:6], pxt.Json[(bool, float, ...)]),
+            (t.col.f2.f2c[:2], pxt.Json[(int, bool)]),
+            (t.col.f2.f2c[:91], pxt.Json[(int, bool, float, ...)]),
+            # negative slice on variadic tuple
+            (t.col.f3[-9:], pxt.Json[[pxt.Array[(2, None, None, None), np.float32]]]),
+        )
+        for expr, expected_type in cases:
+            print(expr)
+            col_type = ts.ColumnType.from_python_type(expected_type, nullable_default=True, allow_builtin_types=False)
+            assert expr.col_type == col_type, f'{expr!r}: expected `{col_type}`; got `{expr.col_type}`'
+
     def test_json_mapper(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
 
