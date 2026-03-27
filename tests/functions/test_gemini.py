@@ -199,7 +199,9 @@ class TestGemini:
             assert video_stream['duration_seconds'] == duration, metadata
             assert audio_stream['duration_seconds'] == duration, metadata
 
+    @pytest.mark.skip('Very expensive')
     @pytest.mark.expensive
+    @rerun(reruns=3, reruns_delay=30)
     def test_generate_videos_reference_images(self, uses_db: None) -> None:
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')
@@ -221,7 +223,7 @@ class TestGemini:
                     {
                         'prompt': 'A woman wearing the dress walks confidently through a sun-drenched lagoon',
                         'ref1': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
-                        'ref2': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000025.jpg',
+                        'ref2': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/docs/resources/images/000000000030.jpg',
                     }
                 ]
             ),

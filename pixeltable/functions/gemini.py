@@ -312,7 +312,7 @@ async def generate_videos(
 
     At least one of `prompt` or `image` must be provided. When `image` is a single image, it is used as the first
     frame of the generated video. When `image` is a list of images, they are used as reference images to guide the
-    style, subject, or asset appearance throughout the video (Veo 3.1+). See the overloaded signature for details.
+    style or asset appearance throughout the video (Veo 3.1+). See the overloaded signature for details.
 
     Request throttling:
     Applies the rate limit set in the config (section `veo.rate_limits`; use the model id as the key). If no rate
@@ -385,7 +385,7 @@ async def _(
         model: The model to use.
         config: Configuration for generation.
         reference_types: A list of reference types corresponding to each image. Each must be one of
-            ``'style'`` or ``'asset'``. If not provided, defaults to ``'style'`` for all images.
+            `'style'` or `'asset'`. If not provided, defaults to `'style'` for all images.
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -436,12 +436,12 @@ async def generate_speech(text: str, *, model: str, voice: str = 'Kore', config:
 
     Args:
         text: The text to synthesize into speech.
-        model: The model to use (e.g. ``'gemini-2.5-flash-preview-tts'``).
-        voice: The voice profile to use. Supported voices include ``'Kore'``, ``'Puck'``, ``'Charon'``,
-            ``'Fenrir'``, ``'Aoede'``, ``'Leda'``, ``'Orus'``, ``'Zephyr'``, and others. See the
+        model: The model to use (e.g. `'gemini-2.5-flash-preview-tts'`).
+        voice: The voice profile to use. Supported voices include `'Kore'`, `'Puck'`, `'Charon'`,
+            `'Fenrir'`, `'Aoede'`, `'Leda'`, `'Orus'`, `'Zephyr'`, and others. See the
             `speech generation docs <https://ai.google.dev/gemini-api/docs/speech-generation>`_ for the full list.
         config: Additional configuration, corresponding to keyword arguments of
-            ``genai.types.GenerateContentConfig``. Keys such as ``response_modalities`` and ``speech_config``
+            `genai.types.GenerateContentConfig`. Keys such as `response_modalities` and `speech_config`
             are set automatically and should not be included.
 
     Returns:
@@ -472,7 +472,10 @@ async def generate_speech(text: str, *, model: str, voice: str = 'Kore', config:
 
     response = await _genai_client().aio.models.generate_content(model=model, contents=text, config=config_)
 
-    data = response.candidates[0].content.parts[0].inline_data.data
+    try:
+        data = response.candidates[0].content.parts[0].inline_data.data
+    except (IndexError, AttributeError) as exc:
+        raise excs.Error(f'Gemini TTS returned unexpected response structure for model {model}.') from exc
     if isinstance(data, str):
         data = base64.b64decode(data)
 
@@ -490,7 +493,7 @@ def _(model: str) -> str:
     return f'rate-limits:gemini:{model}'
 
 
-@pxt.udf
+@pxt.udf(is_deterministic=False)
 async def transcribe(
     audio: pxt.Audio, *, model: str, prompt: str = 'Generate a transcript of the speech.', config: dict | None = None
 ) -> str:
@@ -508,11 +511,11 @@ async def transcribe(
 
     Args:
         audio: The audio file to transcribe.
-        model: The model to use (e.g. ``'gemini-2.5-flash'``).
+        model: The model to use (e.g. `'gemini-2.5-flash'`).
         prompt: The instruction prompt sent alongside the audio. Defaults to
-            ``'Generate a transcript of the speech.'``.
+            `'Generate a transcript of the speech.'`.
         config: Additional configuration, corresponding to keyword arguments of
-            ``genai.types.GenerateContentConfig``.
+            `genai.types.GenerateContentConfig`.
 
     Returns:
         The transcribed text.
