@@ -348,7 +348,7 @@ async def generate_videos(
         ...     response=generate_videos(
         ...         tbl.prompt,
         ...         image=[tbl.ref_img1, tbl.ref_img2],
-        ...         reference_types=['asset', 'style'],
+        ...         reference_types=['asset', 'asset'],
         ...         model='veo-3.1-generate-preview',
         ...     )
         ... )
@@ -385,7 +385,8 @@ async def _(
         model: The model to use.
         config: Configuration for generation.
         reference_types: A list of reference types corresponding to each image. Each must be one of
-            `'style'` or `'asset'`. If not provided, defaults to `'style'` for all images.
+            `'style'` or `'asset'`. `'style'` is only supported on Vertex AI. If not provided, defaults to
+            `'asset'` for all images.
     """
     env.Env.get().require_package('google.genai')
     from google.genai import types
@@ -400,7 +401,7 @@ async def _(
         raise excs.Error(f'At most 3 reference images are allowed, but {len(image)} were provided.')
 
     if reference_types is None:
-        reference_types = ['style'] * len(image)
+        reference_types = ['asset'] * len(image)
     elif len(reference_types) != len(image):
         raise excs.Error(f'`reference_types` length ({len(reference_types)}) must match `image` length ({len(image)}).')
 

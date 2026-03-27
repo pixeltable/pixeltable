@@ -212,7 +212,7 @@ class TestGemini:
             output=generate_videos(
                 t.prompt,
                 image=[t.ref1, t.ref2],
-                reference_types=['asset', 'style'],
+                reference_types=['asset', 'asset'],
                 model='veo-3.1-generate-preview',
                 config={'duration_seconds': 8},
             )
