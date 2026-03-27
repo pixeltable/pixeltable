@@ -77,11 +77,11 @@ def _(_path: str, _query: dict) -> dict:
 
 @_api_route('/api/search')
 def _(_path: str, query: dict) -> dict:
-    query = query.get('q', '')
-    if not query:
+    q = query.get('q', '')
+    if not q:
         return {'query': '', 'directories': [], 'tables': [], 'columns': []}
     limit = min(int(query.get('limit', '50')), 100)
-    return bridge.search(query, limit=limit)
+    return bridge.search(q, limit=limit)
 
 
 @_api_route('/api/tables/data')
