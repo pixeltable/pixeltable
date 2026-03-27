@@ -7,6 +7,11 @@ from pixeltable.dashboard import bridge
 
 
 @pxt.udf
+def my_udf(x: int) -> int:
+    return x + 1
+
+
+@pxt.udf
 def dummy_embed(text: str) -> pxt.Array[(3,), pxt.Float]:
     return np.array([1.0, 2.0, 3.0])
 
@@ -210,10 +215,11 @@ class TestBridge:
             pxt.create_table(f'sl/match_{i}', {'c1': pxt.String})
         assert len(bridge.search('match', limit=3)['tables']) == 3
 
-    def test_pipeline_empty(self, uses_db: None) -> None:
+    def test_pipeline(self, uses_db: None) -> None:
+        # Test when empty
         assert bridge.get_pipeline() == {'nodes': [], 'edges': []}
 
-    def test_pipeline_single_table(self, uses_db: None) -> None:
+        # Now add some structure
         pxt.create_dir('pp')
         t = pxt.create_table('pp/t', {'c1': pxt.String})
         t.insert([{'c1': 'hello'}])
@@ -261,23 +267,17 @@ class TestBridge:
         pxt.create_dir('pp')
         t = pxt.create_table('pp/t', {'c1': pxt.String})
         t.add_computed_column(upper=t.c1.upper())
+        t.add_computed_column(plus_one=my_udf(t.c1.len()))
         node = bridge.get_pipeline()['nodes'][0]
-        assert node['computed_count'] == 1
+        assert node['computed_count'] == 2
         assert node['insertable_count'] == 1
         cols_by_name = {c['name']: c for c in node['columns']}
         assert cols_by_name['c1']['func_name'] is None
         assert cols_by_name['c1']['func_type'] is None
         assert cols_by_name['upper']['func_name'] == 'upper'
         assert cols_by_name['upper']['func_type'] == 'builtin'
-
-    def test_pipeline_func_name(self, uses_db: None) -> None:
-        pxt.create_dir('pp')
-        t = pxt.create_table('pp/t', {'c1': pxt.String})
-        t.add_computed_column(emb=dummy_embed(t.c1))
-        node = bridge.get_pipeline()['nodes'][0]
-        cols_by_name = {c['name']: c for c in node['columns']}
-        assert cols_by_name['emb']['func_name'] == 'dummy_embed'
-        assert cols_by_name['emb']['func_type'] == 'custom_udf'
+        assert cols_by_name['plus_one']['func_name'] == 'my_udf'
+        assert cols_by_name['plus_one']['func_type'] == 'custom_udf'
 
     def test_status(self, uses_db: None) -> None:
         result = bridge.get_status()

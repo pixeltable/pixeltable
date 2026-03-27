@@ -16,6 +16,7 @@ import urllib.request
 from typing import Any
 
 import pixeltable as pxt
+import pixeltable.functions as pxtf
 from pixeltable import exprs
 from pixeltable.catalog.table import Table
 from pixeltable.catalog.table_metadata import TableMetadata
@@ -27,24 +28,21 @@ _logger = logging.getLogger('pixeltable')
 
 def _version_error_total(tbl: Table) -> int:
     """Sum errors across all versions of a table (cheap, no row scans)."""
-    try:
-        return sum(v['errors'] for v in tbl.get_versions())
-    except Exception:
-        return 0
+    return sum(v['errors'] for v in tbl.get_versions())
 
 
 def _column_error_counts(tbl: Table) -> dict[str, int]:
     """Count rows with errors per computed or media column. Returns {col_name: count}."""
-    counts: dict[str, int] = {}
+    select_list: dict[str, exprs.Expr] = {}
     for col_name in tbl.columns():
         col_ref = getattr(tbl, col_name)
-        if not col_ref.col.is_computed and not col_ref.col_type.is_media_type():
-            continue
-        try:
-            counts[col_name] = tbl.where(col_ref.errortype != None).count()
-        except Exception:
-            counts[col_name] = 0
-    return counts
+        if col_ref.col.is_computed or col_ref.col_type.is_media_type():
+            select_list[col_name] = pxtf.count(col_ref.errortype)
+    if not select_list:
+        return {}
+    results = tbl.select(**select_list).collect()
+    assert len(results) == 1
+    return results[0]
 
 
 def _build_select(
