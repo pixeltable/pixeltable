@@ -62,9 +62,7 @@ class SimilarityExpr(Expr):
             assert qcol_id is not None
             self.qcol_id = qcol_id
             self.table_version_key = table_version_key
-            tv = get_runtime().catalog.get_tbl_version(
-                self.table_version_key, check_pending_ops=False, validate_initialized=False
-            )
+            tv = get_runtime().catalog.get_tbl_version(self.table_version_key, validate_initialized=False)
             column = tv.path.get_column_by_qid(self.qcol_id)
             if column is None:
                 raise excs.Error(
