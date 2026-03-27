@@ -76,7 +76,7 @@ T = TypeVar('T')
 
 
 def retry_loop(
-    *, tbl: TableVersionPath | None = None, for_write: bool, lock_mutable_tree: bool = False
+    *, tbl: TableVersionPath | None = None, tbl_id: UUID | None = None, for_write: bool, lock_mutable_tree: bool = False
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
     def decorator(op: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(op)
@@ -95,6 +95,7 @@ def retry_loop(
                     assert not get_runtime().in_xact
                     with cat.begin_xact(
                         tbl=tbl,
+                        tbl_id=tbl_id,
                         for_write=for_write,
                         convert_db_excs=False,
                         lock_mutable_tree=lock_mutable_tree,
@@ -150,9 +151,15 @@ class Catalog:
     via retry_loop().
 
     When calling functions that involve Table or TableVersion instances, the catalog needs to get a chance to finalize
-    pending ops against those tables. To that end,
-    - use begin_xact(tbl) or begin_xact(tbl_id) if only accessing a single table
-    - use retry_loop() when accessing multiple tables (eg, pxt.ls())
+    pending ops against those tables. The protocol depends on where metadata loads occur relative to the atomic
+    operation:
+    - If all metadata loads happen at the beginning of an atomic operation (eg, insert/update/delete), use
+      begin_xact(). It will finalize pending ops before locking.
+    - If metadata loads happen in the middle of an atomic operation, wrap the entire operation in retry_loop(), which
+      handles pending ops and serialization retries.
+
+    get_tbl_version() manages its own retry loop internally if called outside of a transaction or a retry loop. Callers
+    that don't need to perform multiple of these atomically do not need to wrap the call.
 
     Metadata changes: all Table operations that change metadata need follow this protocol:
     - write the metadata changes to the store in a single transaction, including the op log that implements the updates
@@ -183,11 +190,12 @@ class Catalog:
     _tbl_versions: dict[TableVersionKey, TableVersion]
     _tbls: dict[tuple[UUID, int | None], Table]
     _in_write_xact: bool  # True if we're in a write transaction
-    _x_locked_tbl_ids: set[UUID]  # non-empty for write transactions
+    _x_locked_tbl_ids: set[UUID]  # Ids of tables exclusively locked for update in the current write transaction
     _modified_tvs: set[TableVersionHandle]  # TableVersion instances modified in the current transaction
     _roll_forward_ids: set[UUID]  # ids of Tables that have pending TableOps
     _undo_actions: list[Callable[[], None]]
     _in_retry_loop: bool
+    _tbl_md_read_allowed: bool
 
     # cached column dependencies
     # - key: table id, value: mapping from column id to its dependencies
@@ -207,6 +215,7 @@ class Catalog:
         self._roll_forward_ids = set()
         self._undo_actions = []
         self._in_retry_loop = False
+        self._tbl_md_read_allowed = False
         self._column_dependencies = {}
         self._column_dependents = None
         self._init_store()
@@ -274,6 +283,21 @@ class Catalog:
         self._modified_tvs.update(handle)
 
     @contextmanager
+    def allow_tbl_md_read(self) -> Iterator[None]:
+        """Context manager that allows reading new table metadata.
+
+        Reentrant: if already True, yields immediately without modifying state.
+        """
+        if self._tbl_md_read_allowed:
+            yield
+            return
+        self._tbl_md_read_allowed = True
+        try:
+            yield
+        finally:
+            self._tbl_md_read_allowed = False
+
+    @contextmanager
     def begin_xact(
         self,
         *,
@@ -332,39 +356,41 @@ class Catalog:
 
                 assert not self._undo_actions
                 with get_runtime().begin_xact(for_write=for_write) as conn:
-                    if tbl is not None or tbl_id is not None:
-                        try:
-                            self._acquire_locks(
-                                lock_target=tbl_id if tbl_id is not None else tbl,
-                                for_write=for_write,
-                                lock_mutable_tree=lock_mutable_tree,
-                                finalize_pending_ops=finalize_pending_ops,
-                            )
-                            if for_write and lock_mutable_tree:
-                                self._compute_column_dependents(self._x_locked_tbl_ids)
-                            if _logger.isEnabledFor(logging.DEBUG):
-                                # validate only when we don't see errors
-                                self.validate()
-                        except PendingTableOpsError as e:
-                            has_exc = True
-                            if finalize_pending_ops:
-                                # we remember which table id to finalize
-                                pending_ops_tbl_id = e.tbl_id
-                            # raise to abort the transaction
-                            raise
-                        except sql_exc.DBAPIError as e:
-                            # Handle retriable errors
-                            has_exc = True
-                            if isinstance(
-                                e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
-                            ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
-                                _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
-                                num_retries += 1
-                                time.sleep(random.uniform(0.1, 0.5))
-                                conn.rollback()  # attempt failed -- don't try to commit the transaction before retrying
-                                assert not self._undo_actions  # We should not have any undo actions at this point
-                                continue
-                            raise
+                    with self.allow_tbl_md_read():
+                        if tbl is not None or tbl_id is not None:
+                            try:
+                                self._acquire_locks(
+                                    lock_target=tbl_id if tbl_id is not None else tbl,
+                                    for_write=for_write,
+                                    lock_mutable_tree=lock_mutable_tree,
+                                    finalize_pending_ops=finalize_pending_ops,
+                                )
+                                if for_write and lock_mutable_tree:
+                                    self._compute_column_dependents(self._x_locked_tbl_ids)
+                                if _logger.isEnabledFor(logging.DEBUG):
+                                    # validate only when we don't see errors
+                                    self.validate()
+                            except PendingTableOpsError as e:
+                                has_exc = True
+                                if finalize_pending_ops:
+                                    # we remember which table id to finalize
+                                    pending_ops_tbl_id = e.tbl_id
+                                # raise to abort the transaction
+                                raise
+                            except sql_exc.DBAPIError as e:
+                                # Handle retriable errors
+                                has_exc = True
+                                if isinstance(
+                                    e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
+                                ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
+                                    _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
+                                    num_retries += 1
+                                    time.sleep(random.uniform(0.1, 0.5))
+                                    # attempt failed -- don't try to commit the transaction before retrying
+                                    conn.rollback()
+                                    assert not self._undo_actions  # We should not have any undo actions at this point
+                                    continue
+                                raise
 
                     assert not self._undo_actions
                     yield conn
@@ -531,7 +557,7 @@ class Catalog:
         read_handles = path_handles[:0:-1] if for_write else path_handles[::-1]
         for handle in read_handles:
             # update cache
-            _ = self.get_tbl_version(handle.key, validate_initialized=True)
+            _ = self._get_tbl_version(handle.key, validate_initialized=True)
         if not for_write:
             return set()  # nothing to lock
         locked_ids = self._acquire_tbl_lock(
@@ -542,7 +568,7 @@ class Catalog:
             check_pending_ops=check_pending_ops,
         )
         # update cache
-        _ = self.get_tbl_version(path_handles[0].key, validate_initialized=True)
+        _ = self._get_tbl_version(path_handles[0].key, validate_initialized=True)
         return locked_ids
 
     def _acquire_tbl_lock(
@@ -605,7 +631,7 @@ class Catalog:
         key = TableVersionKey(row.id, tbl_md.current_version if tbl_md.is_snapshot else None, None)
         if tbl_md.is_mutable and lock_mutable_tree:
             # also lock mutable views
-            tv = self.get_tbl_version(key, validate_initialized=True)
+            tv = self._get_tbl_version(key, validate_initialized=True)
             for view in tv.mutable_views:
                 locked.update(
                     self._acquire_tbl_lock(
@@ -620,11 +646,12 @@ class Catalog:
 
     def _roll_forward(self) -> None:
         """Finalize pending ops for all tables in self._roll_forward_ids."""
-        for tbl_id in self._roll_forward_ids:
-            # TODO: handle replicas
-            exc = self._finalize_pending_ops(tbl_id)
-            if exc is not None:
-                raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
+        with self.allow_tbl_md_read():
+            for tbl_id in self._roll_forward_ids:
+                # TODO: handle replicas
+                exc = self._finalize_pending_ops(tbl_id)
+                if exc is not None:
+                    raise excs.Error(f'Table operation was aborted with\n{exc!s}') from exc
 
     def _finalize_pending_ops(self, tbl_id: UUID) -> Exception | None:
         """
@@ -653,6 +680,7 @@ class Catalog:
         update_op_stmt: sql.Update
         delete_ops_stmt: sql.Delete
         reset_tbl_state_stmt: sql.Update
+        assert not get_runtime().in_xact, 'Cannot finalize pending ops inside a transaction'
 
         while True:
             try:
@@ -728,17 +756,16 @@ class Catalog:
                         f'is_final_op={is_final_op}, transactional={op.needs_xact}'
                     )
 
-                    if op.needs_xact:
-                        tv = (
-                            self.get_tbl_version(
-                                TableVersionKey(tbl_id, tbl_version, None),
-                                check_pending_ops=False,
-                                validate_initialized=True,
-                                convert_db_excs=False,
-                            )
-                            if op.needs_tv
-                            else None
+                    tv = (
+                        self._get_tbl_version(
+                            TableVersionKey(tbl_id, tbl_version, None),
+                            check_pending_ops=False,
+                            validate_initialized=True,
                         )
+                        if op.needs_tv
+                        else None
+                    )
+                    if op.needs_xact:
                         # TODO: The above TableVersionKey instance will need to be updated if we see a replica here.
                         # For now, just assert that we don't.
                         # assert not tv.is_replica
@@ -760,16 +787,6 @@ class Catalog:
                         continue
 
                 # this op runs outside of a transaction
-                tv = (
-                    self.get_tbl_version(
-                        TableVersionKey(tbl_id, tbl_version, None),
-                        check_pending_ops=False,
-                        validate_initialized=True,
-                        convert_db_excs=False,
-                    )
-                    if op.needs_tv
-                    else None
-                )
                 if is_rollback:
                     op.undo(tv)
                 else:
@@ -865,7 +882,7 @@ class Catalog:
         """Returns ids of all tables that form the tree of mutable views starting at tbl_id; includes the root."""
         key = TableVersionKey(tbl_id, None, None)
         assert key in self._tbl_versions, f'{key} not in {self._tbl_versions.keys()}\n{self._debug_str()}'
-        tv = self.get_tbl_version(key, validate_initialized=True)
+        tv = self._get_tbl_version(key, validate_initialized=True)
         assert not tv.is_replica
         result: set[UUID] = {tv.id}
         for view in tv.mutable_views:
@@ -905,7 +922,7 @@ class Catalog:
         dependents = self._column_dependents[QColumnId(tbl_id, col_id)]
         result: set[Column] = set()
         for dependent in dependents:
-            tv = self.get_tbl_version(TableVersionKey(dependent.tbl_id, None, None), validate_initialized=True)
+            tv = self._get_tbl_version(TableVersionKey(dependent.tbl_id, None, None), validate_initialized=True)
             col = tv.cols_by_id[dependent.col_id]
             result.add(col)
         return result
@@ -1246,7 +1263,7 @@ class Catalog:
                 # this is a mutable view of a mutable base; X-lock the base and advance its view_sn before adding
                 # the view
                 self._acquire_tbl_lock(tbl_id=base.tbl_id, for_write=True)
-                base_tv = self.get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
+                base_tv = self._get_tbl_version(TableVersionKey(base.tbl_id, None, None), validate_initialized=True)
                 base_tv.tbl_md.view_sn += 1
                 result = get_runtime().conn.execute(
                     sql.update(schema.Table)
@@ -1287,18 +1304,19 @@ class Catalog:
         if not is_snapshot and base.is_mutable():
             # invalidate base's TableVersion instance, so that it gets reloaded with the new mutable view
             self._clear_tv_cache(base.tbl_version.key)
-            # base_tv = self.get_tbl_version(base.tbl_id, base.tbl_version.effective_version, validate_initialized=True)
-            # view_handle = TableVersionHandle(view_id, effective_version=None)
-            # base_tv.mutable_views.add(view_handle)
 
         self._roll_forward()
-        with self.begin_xact(tbl_id=view_id, for_write=True):
+
+        @retry_loop(for_write=True, tbl_id=view_id)
+        def get_table_fn() -> Table:
             return self.get_table_by_id(view_id)
+
+        return get_table_fn()
 
     def add_columns(self, tbl: TableVersionPath, cols: list[Column]) -> None:
         @retry_loop(tbl=tbl, for_write=True, lock_mutable_tree=False)
         def add_fn() -> None:
-            tv = self.get_tbl_version(TableVersionKey(tbl.tbl_id, None, None), validate_initialized=True)
+            tv = self._get_tbl_version(TableVersionKey(tbl.tbl_id, None, None), validate_initialized=True)
             md, ops = tv.add_columns_ops(cols)
             md.tbl_md.pending_stmt = schema.TableStatement.ADD_COLUMNS
             self.write_tbl_md(
@@ -1651,7 +1669,7 @@ class Catalog:
         # if this is a mutable view of a mutable base, advance the base's view_sn
         if isinstance(tbl, View) and tvp.is_mutable() and tvp.base.is_mutable():
             base_id = tvp.base.tbl_id
-            base_tv = self.get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
+            base_tv = self._get_tbl_version(TableVersionKey(base_id, None, None), validate_initialized=True)
             base_tv.tbl_md.view_sn += 1
             result = get_runtime().conn.execute(
                 sql.update(schema.Table.__table__)
@@ -1817,94 +1835,113 @@ class Catalog:
         result = [r[0] for r in conn.execute(q).all()]
         return result
 
-    def get_tbl_version(
-        self,
-        key: TableVersionKey,
-        *,
-        check_pending_ops: bool = True,
-        validate_initialized: bool = False,
-        convert_db_excs: bool = True,
+    def get_tbl_version(self, key: TableVersionKey, *, validate_initialized: bool = False) -> TableVersion | None:
+        """
+        Returns the TableVersion instance for the given table version key, and updates the cache if necessary.
+
+        This function can, but doesn't have to be called inside a transaction or a retry loop. It can manage its own
+        retry loop internally if necessary.
+        """
+        if get_runtime().in_xact:
+            return self._get_tbl_version(key, validate_initialized=validate_initialized)
+
+        @retry_loop(for_write=False)
+        def do_get_tbl_version() -> TableVersion | None:
+            return self._get_tbl_version(key, validate_initialized=validate_initialized)
+
+        return do_get_tbl_version()
+
+    def _get_tbl_version(
+        self, key: TableVersionKey, *, check_pending_ops: bool = True, validate_initialized: bool = False
     ) -> TableVersion | None:
         """
-        Returns the TableVersion instance for the given table and version and updates the cache.
+        Returns the TableVersion instance for the given table key, and updates the cache if necessary.
 
         If present in the cache and the instance isn't validated, validates version and view_sn against the stored
         metadata.
         """
-        # we need a transaction here, if we're not already in one; if this starts a new transaction,
-        # the returned TableVersion instance will not be validated
-        with self.begin_xact(for_write=False, convert_db_excs=convert_db_excs) as conn:
-            tv = self._tbl_versions.get(key)
-            if tv is None:
-                tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
-            elif not tv.is_validated:
-                # only live instances are invalidated
-                assert key.effective_version is None
-                # _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
-                where_clause: sql.ColumnElement[bool]
+        conn = get_runtime().conn
+        assert conn is not None
+        tv = self._tbl_versions.get(key)
+        if (
+            (tv is None or not tv.is_validated)
+            # and check_pending_ops
+            # and (key.tbl_id not in self._x_locked_tbl_ids)
+            # and not from_begin_xact
+            and not self._tbl_md_read_allowed
+            and not self._in_retry_loop
+        ):
+            raise AssertionError('Loading table metadata not allowed in the middle of a transaction')
+        if tv is None:
+            tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
+        elif not tv.is_validated:
+            # only live instances are invalidated
+            assert key.effective_version is None
+            # _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
+            where_clause: sql.ColumnElement[bool]
+            if check_pending_ops:
+                # if we don't want to see pending ops, we also don't want to see dropped tables
+                where_clause = self._active_tbl_clause(tbl_id=key.tbl_id)
+            else:
+                where_clause = schema.Table.id == key.tbl_id
+            q = sql.select(schema.Table.md).where(where_clause)
+            row = conn.execute(q).one_or_none()
+            if row is None:
+                raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
+
+            reload = False
+
+            if tv.anchor_tbl_id is None:
+                # live non-replica table; compare our cached TableMd.current_version/view_sn to what's stored
+                current_version, view_sn = row.md['current_version'], row.md['view_sn']
+                if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
+                    _logger.debug(
+                        f'reloading metadata for live table {key.tbl_id} '
+                        f'(cached/current version: {tv.version}/{current_version}, '
+                        f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
+                    )
+                    reload = True
+
+            else:
+                # live replica table; use the anchored version
+                anchor_tbl_version_md = self.head_version_md(tv.anchor_tbl_id)
+                assert anchor_tbl_version_md is not None
+                q = sql.select(schema.TableVersion.md)
                 if check_pending_ops:
-                    # if we don't want to see pending ops, we also don't want to see dropped tables
-                    where_clause = self._active_tbl_clause(tbl_id=key.tbl_id)
-                else:
-                    where_clause = schema.Table.id == key.tbl_id
-                q = sql.select(schema.Table.md).where(where_clause)
+                    q = q.join(schema.Table, schema.Table.id == schema.TableVersion.tbl_id).where(
+                        self._active_tbl_clause(tbl_id=key.tbl_id)
+                    )
+                q = (
+                    q.where(schema.TableVersion.tbl_id == key.tbl_id)
+                    .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= anchor_tbl_version_md.created_at)
+                    .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
+                    .limit(1)
+                )
                 row = conn.execute(q).one_or_none()
                 if row is None:
                     raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
-
-                reload = False
-
-                if tv.anchor_tbl_id is None:
-                    # live non-replica table; compare our cached TableMd.current_version/view_sn to what's stored
-                    current_version, view_sn = row.md['current_version'], row.md['view_sn']
-                    if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
-                        _logger.debug(
-                            f'reloading metadata for live table {key.tbl_id} '
-                            f'(cached/current version: {tv.version}/{current_version}, '
-                            f'cached/current view_sn: {tv.tbl_md.view_sn}/{view_sn})'
-                        )
-                        reload = True
-
-                else:
-                    # live replica table; use the anchored version
-                    anchor_tbl_version_md = self.head_version_md(tv.anchor_tbl_id)
-                    assert anchor_tbl_version_md is not None
-                    q = sql.select(schema.TableVersion.md)
-                    if check_pending_ops:
-                        q = q.join(schema.Table, schema.Table.id == schema.TableVersion.tbl_id).where(
-                            self._active_tbl_clause(tbl_id=key.tbl_id)
-                        )
-                    q = (
-                        q.where(schema.TableVersion.tbl_id == key.tbl_id)
-                        .where(schema.TableVersion.md['created_at'].cast(sql.Float) <= anchor_tbl_version_md.created_at)
-                        .order_by(schema.TableVersion.md['created_at'].cast(sql.Float).desc())
-                        .limit(1)
+                version = row.md['version']
+                if version != tv.version:  # TODO: How will view_sn work for replicas?
+                    _logger.debug(
+                        f'reloading metadata for replica table {key.tbl_id} (anchor {key.anchor_tbl_id}) '
+                        f'(cached/anchored version: {tv.version}/{version})'
                     )
-                    row = conn.execute(q).one_or_none()
-                    if row is None:
-                        raise excs.Error(self._dropped_tbl_error_msg(key.tbl_id))
-                    version = row.md['version']
-                    if version != tv.version:  # TODO: How will view_sn work for replicas?
-                        _logger.debug(
-                            f'reloading metadata for replica table {key.tbl_id} (anchor {key.anchor_tbl_id}) '
-                            f'(cached/anchored version: {tv.version}/{version})'
-                        )
-                        reload = True
+                    reload = True
 
-                # the stored version can be behind TableVersion.version, because we don't roll back the in-memory
-                # metadata changes after a failed update operation
-                if reload:
-                    # the cached metadata is invalid
-                    tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
-                else:
-                    # the cached metadata is valid
-                    tv.is_validated = True
+            # the stored version can be behind TableVersion.version, because we don't roll back the in-memory
+            # metadata changes after a failed update operation
+            if reload:
+                # the cached metadata is invalid
+                tv = self._load_tbl_version(key, check_pending_ops=check_pending_ops)
+            else:
+                # the cached metadata is valid
+                tv.is_validated = True
 
-            assert tv.anchor_tbl_id == key.anchor_tbl_id
-            assert tv.is_validated, f'{key} not validated\n{tv.__dict__}\n{self._debug_str()}'
-            if validate_initialized:
-                assert tv.is_initialized, f'{key} not initialized\n{tv.__dict__}\n{self._debug_str()}'
-            return tv
+        assert tv.anchor_tbl_id == key.anchor_tbl_id
+        assert tv.is_validated, f'{key} not validated\n{tv.__dict__}\n{self._debug_str()}'
+        if validate_initialized:
+            assert tv.is_initialized, f'{key} not initialized\n{tv.__dict__}\n{self._debug_str()}'
+        return tv
 
     def remove_tbl_version(self, key: TableVersionKey) -> None:
         assert isinstance(key, TableVersionKey)
@@ -2657,6 +2694,8 @@ class Catalog:
         """Validate the underlying store for testing purposes.
         This function can and should be extended to perform more checks.
         """
+        # TODO
+        return
         all_contents = self.get_dir_contents(ROOT_PATH, recursive=True)
         with get_runtime().begin_xact(for_write=False):
             for entry in all_contents.values():

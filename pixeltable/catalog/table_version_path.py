@@ -69,6 +69,7 @@ class TableVersionPath:
 
     def refresh_cached_md(self) -> None:
         from pixeltable.runtime import get_runtime
+        # from pixeltable.catalog import retry_loop
 
         if get_runtime().in_xact:
             # when we're running inside a transaction, we need to make sure to supply current metadata;
@@ -80,8 +81,11 @@ class TableVersionPath:
         elif self._cached_tbl_version is not None:
             return
 
-        with get_runtime().catalog.begin_xact(tbl_id=self.tbl_version.id, for_write=False):
+        # @retry_loop(for_write=False, tbl_id=self.tbl_version.id)
+        def do_refresh() -> None:
             self._cached_tbl_version = self.tbl_version.get()
+
+        do_refresh()
 
     def anchor_to(self, anchor_tbl_id: UUID | None) -> TableVersionPath:
         """

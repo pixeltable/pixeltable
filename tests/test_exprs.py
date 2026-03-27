@@ -24,7 +24,6 @@ from pixeltable import exprs, functions as pxtf
 from pixeltable.exprs import ColumnRef, Expr, Literal
 from pixeltable.functions.globals import cast
 from pixeltable.functions.video import legacy_frame_iterator
-from pixeltable.runtime import get_runtime
 
 from .utils import (
     ReloadTester,
@@ -134,19 +133,17 @@ class TestExprs:
         _ = t.where((t.c1 == 'test string') & (t.c6.f1 > 50)).collect()
         _ = t.where((t.c1 == 'test string') & (t.c2 > 50)).collect()
         sql_elements = exprs.SqlElementCache()
-        # Expr.sql_expr() needs to run in the context of a transaction
-        with get_runtime().catalog.begin_xact(for_write=False):
-            e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
-            assert len(e.clauses) == 2
+        e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50)))
+        assert len(e.clauses) == 2
 
-            e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0)))
-            assert len(e.clauses) == 3
-            e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50)))
-            assert len(e.clauses) == 2
-            e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50) | (t.c3 < 1.0)))
-            assert len(e.clauses) == 3
-            e = sql_elements.get((~(t.c1 == 'test string')))
-            assert isinstance(e, sql.sql.expression.BinaryExpression)
+        e = sql_elements.get(((t.c1 == 'test string') & (t.c2 > 50) & (t.c3 < 1.0)))
+        assert len(e.clauses) == 3
+        e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50)))
+        assert len(e.clauses) == 2
+        e = sql_elements.get(((t.c1 == 'test string') | (t.c2 > 50) | (t.c3 < 1.0)))
+        assert len(e.clauses) == 3
+        e = sql_elements.get((~(t.c1 == 'test string')))
+        assert isinstance(e, sql.sql.expression.BinaryExpression)
 
         with pytest.raises(TypeError) as exc_info:
             _ = t.where((t.c1 == 'test string') or (t.c6.f1 > 50)).collect()

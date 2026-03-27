@@ -5,7 +5,6 @@ import copy
 import dataclasses
 import hashlib
 import json
-import logging
 import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Hashable, Iterator, NoReturn, Sequence, TypeVar
@@ -28,8 +27,6 @@ if TYPE_CHECKING:
     import torch.utils.data
 
 __all__ = ['Query']
-
-_logger = logging.getLogger('pixeltable')
 
 
 class ResultSet:
@@ -140,38 +137,6 @@ class ResultSet:
 
     def __hash__(self) -> int:
         return hash(self.to_pandas())
-
-
-# # TODO: remove this; it's only here as a reminder that we still need to call release() in the current implementation
-# class AnalysisInfo:
-#     def __init__(self, tbl: catalog.TableVersion):
-#         self.tbl = tbl
-#         # output of the SQL scan stage
-#         self.sql_scan_output_exprs: list[exprs.Expr] = []
-#         # output of the agg stage
-#         self.agg_output_exprs: list[exprs.Expr] = []
-#         # Where clause of the Select stmt of the SQL scan stage
-#         self.sql_where_clause: sql.ClauseElement | None = None
-#         # filter predicate applied to input rows of the SQL scan stage
-#         self.filter: exprs.Predicate | None = None
-#         self.similarity_clause: exprs.ImageSimilarityPredicate | None = None
-#         self.agg_fn_calls: list[exprs.FunctionCall] = []  # derived from unique_exprs
-#         self.has_frame_col: bool = False  # True if we're referencing the frame col
-#
-#         self.evaluator: exprs.Evaluator | None = None
-#         self.sql_scan_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of SQL scan stage
-#         self.agg_eval_ctx: list[exprs.Expr] = []  # needed to materialize output of agg stage
-#         self.filter_eval_ctx: list[exprs.Expr] = []
-#         self.group_by_eval_ctx: list[exprs.Expr] = []
-#
-#     def finalize_exec(self) -> None:
-#         """
-#         Call release() on all collected Exprs.
-#         """
-#         exprs.Expr.release_list(self.sql_scan_output_exprs)
-#         exprs.Expr.release_list(self.agg_output_exprs)
-#         if self.filter is not None:
-#             self.filter.release()
 
 
 class Query:
@@ -1278,7 +1243,8 @@ class Query:
         self._validate_mutable('recompute_columns', False)
         with get_runtime().catalog.begin_xact(tbl=self._first_tbl, for_write=True, lock_mutable_tree=True):
             tbl = get_runtime().catalog.get_table_by_id(self._first_tbl.tbl_id)
-            return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
+
+        return tbl.recompute_columns(*columns, where=self.where_clause, errors_only=errors_only, cascade=cascade)
 
     def delete(self) -> UpdateStatus:
         """Delete rows form the underlying table of the Query.
@@ -1360,7 +1326,10 @@ class Query:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> 'Query':
         # we need to wrap the construction with a transaction, because it might need to load metadata
-        with get_runtime().catalog.begin_xact(for_write=False):
+        from pixeltable.catalog import retry_loop
+
+        @retry_loop(for_write=False)
+        def do_from_dict() -> 'Query':
             tbls = [catalog.TableVersionPath.from_dict(tbl_dict) for tbl_dict in d['from_clause']['tbls']]
             join_clauses = [plan.JoinClause(**clause_dict) for clause_dict in d['from_clause']['join_clauses']]
             from_clause = plan.FromClause(tbls=tbls, join_clauses=join_clauses)
@@ -1394,6 +1363,8 @@ class Query:
                 offset=offset_val,
                 sample_clause=sample_clause,
             )
+
+        return do_from_dict()
 
     def _hash_result_set(self) -> str:
         """Return a hash that changes when the result set changes."""

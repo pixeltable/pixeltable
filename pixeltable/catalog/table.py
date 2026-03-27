@@ -226,49 +226,68 @@ class Table(SchemaObject):
 
         See [`Query.select`][pixeltable.Query.select] for more details.
         """
+        from pixeltable.catalog import retry_loop
         from pixeltable.plan import FromClause
 
-        query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
-        if len(items) == 0 and len(named_items) == 0:
-            return query  # Select(*); no further processing is necessary
-
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def do_select() -> 'pxt.Query':
+            query = pxt.Query(FromClause(tbls=[self._tbl_version_path]))
+            if len(items) == 0 and len(named_items) == 0:
+                return query  # Select(*); no further processing is necessary
             return query.select(*items, **named_items)
+
+        return do_select()
 
     def where(self, pred: 'exprs.Expr') -> 'pxt.Query':
         """Filter rows from this table based on the expression.
 
         See [`Query.where`][pixeltable.Query.where] for more details.
         """
+        from pixeltable.catalog import retry_loop
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def do_where() -> 'pxt.Query':
             return self.select().where(pred)
+
+        return do_where()
 
     def join(
         self, other: 'Table', *, on: 'exprs.Expr' | None = None, how: 'pixeltable.plan.JoinType.LiteralType' = 'inner'
     ) -> 'pxt.Query':
         """Join this table with another table."""
+        from pixeltable.catalog import retry_loop
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def do_join() -> 'pxt.Query':
             return self.select().join(other, on=on, how=how)
+
+        return do_join()
 
     def order_by(self, *items: 'exprs.Expr', asc: bool = True) -> 'pxt.Query':
         """Order the rows of this table based on the expression.
 
         See [`Query.order_by`][pixeltable.Query.order_by] for more details.
         """
+        from pixeltable.catalog import retry_loop
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def do_order_by() -> 'pxt.Query':
             return self.select().order_by(*items, asc=asc)
+
+        return do_order_by()
 
     def group_by(self, *items: 'exprs.Expr') -> 'pxt.Query':
         """Group the rows of this table based on the expression.
 
         See [`Query.group_by`][pixeltable.Query.group_by] for more details.
         """
+        from pixeltable.catalog import retry_loop
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=False):
+        @retry_loop(tbl=self._tbl_version_path, for_write=False)
+        def do_group_by() -> 'pxt.Query':
             return self.select().group_by(*items)
+
+        return do_group_by()
 
     def distinct(self) -> 'pxt.Query':
         """Remove duplicate rows from table."""
@@ -595,33 +614,36 @@ class Table(SchemaObject):
             ... tbl.add_columns(schema)
         """
 
-        # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
-        new_cols: list[Column]
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
-            self.__check_mutable('add columns to')
+        # make a copy of schema so del operations below don't modify the caller's dict
+        schema_copy = dict(schema)
 
-            # make a copy of schema so del operations below don't modify the caller's dict
-            schema = dict(schema)
+        # lock_mutable_tree=True: we might end up having to drop existing columns, which requires locking the tree
+        @catalog.retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)
+        def do_add_columns() -> list[Column]:
+            """Returns True if schema changed"""
+            self.__check_mutable('add columns to')
 
             # handle existing columns based on if_exists parameter
             cols_to_ignore = self._ignore_or_drop_existing_columns(
-                list(schema.keys()), IfExistsParam.validated(if_exists, 'if_exists')
+                list(schema_copy.keys()), IfExistsParam.validated(if_exists, 'if_exists')
             )
             # if all columns to be added already exist and user asked to ignore
             # existing columns, there's nothing to do.
             for cname in cols_to_ignore:
-                assert cname in schema
-                del schema[cname]
-            result = UpdateStatus()
-            if len(schema) == 0:
-                return result
-            new_cols = [Column.create(name, spec) for name, spec in schema.items()]
+                assert cname in schema_copy
+                del schema_copy[cname]
+            if len(schema_copy) == 0:
+                return []
+            new_cols = [Column.create(name, spec) for name, spec in schema_copy.items()]
             for new_col in new_cols:
                 self._verify_column(new_col)
+            return new_cols
 
-        assert self._tbl_version is not None
-        get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
-        FileCache.get().emit_eviction_warnings()
+        new_cols = do_add_columns()
+        if new_cols:
+            assert self._tbl_version is not None
+            get_runtime().catalog.add_columns(self._tbl_version_path, new_cols)
+            FileCache.get().emit_eviction_warnings()
         # TODO: return the row count here?
         return UpdateStatus()
 
@@ -745,7 +767,8 @@ class Table(SchemaObject):
             >>> tbl.add_computed_column(rotated=tbl.frame.rotate(90), stored=False)
         """
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        @catalog.retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)
+        def do_add_computed_column() -> UpdateStatus:
             self.__check_mutable('add columns to')
             if len(kwargs) != 1:
                 raise excs.Error(
@@ -778,17 +801,18 @@ class Table(SchemaObject):
             )
             # if the column to add already exists and user asked to ignore
             # existing column, there's nothing to do.
-            result = UpdateStatus()
             if len(cols_to_ignore) != 0:
                 assert cols_to_ignore[0] == col_name
-                return result
+                return UpdateStatus()
 
             new_col = Column.create(col_name, col_schema)
             self._verify_column(new_col)
             assert self._tbl_version is not None
-            result += self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
-            FileCache.get().emit_eviction_warnings()
-            return result
+            return self._tbl_version.get().add_columns([new_col], print_stats=print_stats, on_error=on_error)
+
+        result = do_add_computed_column()
+        FileCache.get().emit_eviction_warnings()
+        return result
 
     @classmethod
     def _verify_column(cls, col: Column) -> None:
@@ -831,11 +855,13 @@ class Table(SchemaObject):
             >>> tbl = pxt.get_table('my_table')
             ... tbl.drop_col(tbl.col, if_not_exists='ignore')
         """
+        from pixeltable.catalog import retry_loop
 
         cat = get_runtime().catalog
 
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
-        with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        @retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)
+        def do_drop_column() -> None:
             self.__check_mutable('drop columns from')
             col: Column = None
             if_not_exists_ = IfNotExistsParam.validated(if_not_exists, 'if_not_exists')
@@ -914,6 +940,8 @@ class Table(SchemaObject):
                 )
 
             self._tbl_version.get().drop_column(col)
+
+        do_drop_column()
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column.
@@ -1044,9 +1072,16 @@ class Table(SchemaObject):
             ... )
         """
 
+        # Resolve column parameter in a separate retry loop because we don't know if the column belogs to this table
+        # or not
+        @catalog.retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)
+        def resolve_column() -> Column:
+            return self._resolve_column_parameter(column)
+
+        col = resolve_column()
+
         with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
             self.__check_mutable('add an index to')
-            col = self._resolve_column_parameter(column)
 
             if idx_name is not None and idx_name in self._tbl_version.get().idxs_by_name:
                 if_exists_ = IfExistsParam.validated(if_exists, 'if_exists')
@@ -1137,13 +1172,16 @@ class Table(SchemaObject):
         if (column is None) == (idx_name is None):
             raise excs.Error("Exactly one of 'column' or 'idx_name' must be provided")
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        @catalog.retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)
+        def do_drop_embedding_index() -> None:
             col: Column = None
             if idx_name is None:
                 col = self._resolve_column_parameter(column)
                 assert col is not None
 
             self._drop_index(col=col, idx_name=idx_name, _idx_class=index.EmbeddingIndex, if_not_exists=if_not_exists)
+
+        return do_drop_embedding_index()
 
     def _resolve_column_parameter(self, column: str | ColumnRef) -> Column:
         """Resolve a column parameter to a Column object"""
@@ -1536,6 +1574,13 @@ class Table(SchemaObject):
             >>> tbl.recompute_columns('c1', errors_only=True)
         """
 
+        @catalog.retry_loop(tbl=self._tbl_version_path, for_write=False, lock_mutable_tree=True)
+        def validate_where() -> None:
+            if where is not None and not where.is_bound_by([self._tbl_version_path]):
+                raise excs.Error(f'`where` predicate ({where}) is not bound by {self._display_str()}')
+
+        validate_where()
+
         cat = get_runtime().catalog
         # lock_mutable_tree=True: we need to be able to see whether any transitive view has column dependents
         with cat.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
@@ -1565,9 +1610,6 @@ class Table(SchemaObject):
                 if col.get_tbl().id != self._tbl_version_path.tbl_id:
                     raise excs.Error(f'Cannot recompute column of a base: {col_name}')
                 col_names.append(col_name)
-
-            if where is not None and not where.is_bound_by([self._tbl_version_path]):
-                raise excs.Error(f'`where` predicate ({where}) is not bound by {self._display_str()}')
 
             result = self._tbl_version.get().recompute_columns(
                 col_names, where=where, errors_only=errors_only, cascade=cascade
