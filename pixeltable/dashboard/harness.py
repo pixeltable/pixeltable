@@ -84,7 +84,9 @@ class DashboardHarness:
 
     def _start_watchdog(self) -> None:
         """Start a background thread to monitor the primary dashboard server and take over if it dies."""
-        if self.watchdog_thread is not None and self.watchdog_thread.is_alive():
+        if (self.watchdog_thread is not None and self.watchdog_thread.is_alive()) or (
+            self.dashboard_thread is not None and self.dashboard_thread.is_alive()
+        ):
             return
 
         def watchdog_loop() -> None:

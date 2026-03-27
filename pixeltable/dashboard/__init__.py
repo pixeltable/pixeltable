@@ -6,16 +6,15 @@ Usage:
     pxt.dashboard.serve()
 """
 
-import logging
-
-from pixeltable.config import Config
-
-_logger = logging.getLogger('pixeltable.dashboard')
+from time import time
 
 
 def serve(open_browser: bool = True) -> None:
     """
-    Start the Pixeltable dashboard UI server.
+    Ensure the Pixeltable dashboard is running and optionally open it in a browser.
+
+    The dashboard is started automatically when Pixeltable initializes. This function
+    ensures it is running (starting it if necessary) and optionally opens a browser tab.
 
     Args:
         open_browser: Whether to automatically open the browser (default: True)
@@ -24,18 +23,12 @@ def serve(open_browser: bool = True) -> None:
         >>> import pixeltable as pxt
         >>> pxt.dashboard.serve()  # Opens browser to http://localhost:{port}
     """
-    from pixeltable.dashboard.server import run_server
+    from pixeltable.env import Env
 
-    port = Config.get('dashboard_port')
-
-    url = f'http://localhost:{port}'
-    _logger.info(f'Starting Pixeltable Dashboard at {url}')
-
-    print(f'\n  Pixeltable Dashboard running at {url}\n')
-
+    harness = Env.get().dashboard_harness
+    harness.start()
     if open_browser:
-        import webbrowser
+        import webbrowser  # Intentionally scope-limited since this is the only place `webbrowser` is used
 
-        webbrowser.open(url)
-
-    run_server(port=port)
+        time.sleep(0.5)
+        webbrowser.open(f'http://localhost:{harness.port}')

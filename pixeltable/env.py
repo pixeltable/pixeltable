@@ -172,6 +172,11 @@ class Env:
         return self._http_address
 
     @property
+    def dashboard_harness(self) -> DashboardHarness:
+        assert self._dashboard_harness is not None
+        return self._dashboard_harness
+
+    @property
     def user(self) -> str | None:
         return Config.get().get_string_value('user')
 
