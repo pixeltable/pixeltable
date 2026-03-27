@@ -195,7 +195,10 @@ format: install
 
 .PHONY: release
 release: install
-	@scripts/release.sh
+	@if [ ! -f 'admin/scripts/release.sh' ]; then \
+		echo 'Release script not found. You must be a Pixeltable admin and check out the admin repo to run this target.'; exit 1; \
+	fi
+	@admin/scripts/release.sh
 
 .PHONY: docs
 docs: install

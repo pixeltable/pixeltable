@@ -57,4 +57,4 @@ class TestGroq:
         # are no tests currently (until we better understand Groq's behavior).
         # Groq also seems to do something random in response to a random question (unlike OpenAI, which consistently
         # calls no tools, as expected).
-        run_tool_invocations_test(make_table, test_random_question=False)
+        run_tool_invocations_test(make_table, test_non_tool_question=False)
