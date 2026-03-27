@@ -141,7 +141,7 @@ class RateLimitsScheduler(Scheduler):
             return list(self.pool_info.resource_limits.keys())
 
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
-        estimator = request.fn_call.fn.resource_estimator_fn
+        estimator = request.fn_call.fn._resource_estimator
         param_names = [p.name for p in inspect.signature(estimator).parameters.values()]
         if len(param_names) == 0:
             result = estimator()

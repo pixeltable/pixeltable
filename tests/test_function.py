@@ -1325,14 +1325,14 @@ class TestFunction:
         def _(a: int) -> dict[str, int]:
             return {'requests': 1, 'tokens': a}
 
-        assert self.f1.resource_estimator_fn(5) == {'requests': 1, 'tokens': 5}
+        assert self.f1._resource_estimator(5) == {'requests': 1, 'tokens': 5}
 
         # Valid: zero-arg estimator
         @self.f2.resource_estimator
         def _() -> dict[str, int]:
             return {'requests': 1}
 
-        assert self.f2.resource_estimator_fn() == {'requests': 1}
+        assert self.f2._resource_estimator() == {'requests': 1}
 
         # Invalid: estimator has params not in function signature
         with pytest.raises(pxt.Error, match='not in the function signature'):

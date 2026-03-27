@@ -37,7 +37,7 @@ class Function(ABC):
     # Returns estimated resources needed for a specific request as a dict (key: resource name, value: estimated cost).
     # Overridden for specific Function instances via the resource_estimator() decorator. The override must accept a
     # subset of the parameters of the original function.
-    resource_estimator_fn: Callable[..., dict[str, int]]
+    _resource_estimator: Callable[..., dict[str, int]]
     _conditional_return_type: Callable[..., ts.ColumnType] | None
 
     # We cache the overload resolutions in self._resolutions. This ensures that each resolution is represented
@@ -75,7 +75,7 @@ class Function(ABC):
         self.__resolved_fns = []
         self._to_sql = self.__default_to_sql
         self._resource_pool = self.__default_resource_pool
-        self.resource_estimator_fn = self.__default_resource_estimator
+        self._resource_estimator = self.__default_resource_estimator
 
     @property
     def is_valid(self) -> bool:
@@ -449,7 +449,7 @@ class Function(ABC):
                 f'resource_estimator for {self.self_path or self} has parameters '
                 f'{estimator_params - fn_params} that are not in the function signature'
             )
-        self.resource_estimator_fn = fn
+        self._resource_estimator = fn
         return fn
 
     def __default_resource_estimator(self) -> dict[str, int]:
