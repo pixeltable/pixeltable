@@ -419,11 +419,11 @@ class ExprEvalNode(ExecNode):
 
         # GC computation
         # Compute new_missing_dependents for all rows
-        # new_missing_dependents[i, slot] = for row i, count of exprs that depend on 'slot' and don't have a value
+        # new_missing_dependents[i, slot] = for row i, count of unevaluated exprs that depend on 'slot'
         # dependencies[i, j] means expr i depends on expr j
-        # For each slot j, we count how many slots i (that don't have values) depend on j
+        # For each slot j, we count how many unevaluated slots i depend on j
         # bool -> int16: bool @ bool does boolean ops (True + True = True), not arithmetic
-        new_missing_dependents = (~has_val).astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
+        new_missing_dependents = missing_slots.astype(np.int16) @ dependencies.astype(np.int16)  # (num_rows, num_slots)
 
         # gc_targets[i, j] = Boolean mask where slot j can be garbage collected for row i if True
         gc_targets = (
