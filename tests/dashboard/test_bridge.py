@@ -293,13 +293,3 @@ class TestBridge:
         pxt.create_table('st/t1', {'c1': pxt.String})
         pxt.create_table('st/t2', {'c1': pxt.String})
         assert bridge.get_status()['total_tables'] == 2
-
-    def test_format_versions(self, uses_db: None) -> None:
-        pxt.create_dir('fv')
-        t = pxt.create_table('fv/t', {'c1': pxt.String})
-        t.insert([{'c1': 'a'}])
-        versions = bridge._format_versions(t)
-        assert len(versions) >= 2
-        for v in versions:
-            assert 'version' in v
-            assert 'created_at' in v

@@ -11,12 +11,12 @@ import csv
 import io
 import json
 import logging
-import re
 import urllib.parse
 import urllib.request
 from typing import Any
 
 import pixeltable as pxt
+from pixeltable import exprs
 from pixeltable.catalog.table import Table
 from pixeltable.catalog.table_metadata import TableMetadata
 from pixeltable.config import Config
@@ -28,7 +28,7 @@ _logger = logging.getLogger('pixeltable')
 def _version_error_total(tbl: Table) -> int:
     """Sum errors across all versions of a table (cheap, no row scans)."""
     try:
-        return sum(v.get('errors', 0) for v in tbl.get_versions())
+        return sum(v['errors'] for v in tbl.get_versions())
     except Exception:
         return 0
 
@@ -45,27 +45,6 @@ def _column_error_counts(tbl: Table) -> dict[str, int]:
         except Exception:
             counts[col_name] = 0
     return counts
-
-
-def _format_versions(tbl: Table) -> list[dict[str, Any]]:
-    """Build a serialisable list of version dicts from a table's version history."""
-    versions: list[dict[str, Any]] = []
-    try:
-        for v in tbl.get_versions():
-            versions.append(
-                {
-                    'version': v['version'],
-                    'created_at': v['created_at'].isoformat(),
-                    'change_type': v['change_type'],
-                    'inserts': v['inserts'],
-                    'updates': v['updates'],
-                    'deletes': v['deletes'],
-                    'errors': v['errors'],
-                }
-            )
-    except Exception:
-        pass
-    return versions
 
 
 def _build_select(
@@ -349,10 +328,7 @@ def search(query: str, limit: int = 50) -> dict[str, Any]:
     return results
 
 
-_COL_REF_RE = re.compile(r'\b(\w+)\b')
-
-
-def _classify_udf(value_expr: Any) -> str | None:
+def _classify_udf(value_expr: exprs.Expr | None) -> str | None:
     """Classify the salient UDF in an expression as 'builtin' or 'custom_udf'.
 
     Returns None if the expression contains no UDF call.
@@ -366,12 +342,11 @@ def _classify_udf(value_expr: Any) -> str | None:
     return 'builtin' if path and path.startswith('pixeltable.') else 'custom_udf'
 
 
-def _parse_deps(computed_with: str | None, all_cols: set[str], own_name: str = '') -> list[str]:
-    """Extract column names referenced in a computed_with expression."""
-    if not computed_with:
+def _parse_deps(value_expr: exprs.Expr | None, own_name: str = '') -> list[str]:
+    """Extract column names referenced in an expression."""
+    if value_expr is None:
         return []
-    tokens = _COL_REF_RE.findall(computed_with)
-    return sorted({t for t in tokens if t in all_cols and t != own_name})
+    return sorted({ref.col.name for ref in value_expr.subexprs(exprs.ColumnRef) if ref.col.name != own_name})
 
 
 def _get_iterator_info(tbl: Table) -> tuple[str | None, set[str]]:
@@ -402,11 +377,8 @@ def get_pipeline() -> dict[str, Any]:
         try:
             tbl = pxt.get_table(path)
             md = tbl.get_metadata()
-            col_meta = md['columns']
+            column_md = md['columns']
             row_count = tbl.count()
-
-            all_col_names = set(col_meta.keys())
-            short_name = path.rsplit('/', 1)[-1]
 
             col_errors = _column_error_counts(tbl)
             table_error_total = _version_error_total(tbl)
@@ -420,8 +392,8 @@ def get_pipeline() -> dict[str, Any]:
             columns: list[dict[str, Any]] = []
             computed_cols: list[str] = []
 
-            for col_name, info in col_meta.items():
-                col_ref = getattr(tbl, col_name)
+            for col_name, info in column_md.items():
+                col_ref: exprs.ColumnRef = getattr(tbl, col_name)
                 col = col_ref.col
                 cw = info['computed_with']
                 is_iter_col = col_name in iter_col_names
@@ -446,14 +418,14 @@ def get_pipeline() -> dict[str, Any]:
                     'is_iterator_col': is_iter_col,
                     'computed_with': cw_str,
                     'defined_in': defined_in,
-                    'defined_in_self': defined_in == short_name,
+                    'defined_in_self': defined_in == tbl._name,
                     'func_name': iterator_name if is_iter_col else func_name,
                     'func_type': 'iterator' if is_iter_col else _classify_udf(col.value_expr),
                     'error_count': col_errors.get(col_name, 0),
                 }
 
                 if is_computed and cw_str and not is_iter_col:
-                    col_entry['depends_on'] = _parse_deps(cw_str, all_col_names, col_name)
+                    col_entry['depends_on'] = _parse_deps(col.value_expr, col_name)
 
                 columns.append(col_entry)
 
@@ -475,7 +447,7 @@ def get_pipeline() -> dict[str, Any]:
             nodes.append(
                 {
                     'path': path,
-                    'name': short_name,
+                    'name': tbl._name,
                     'is_view': is_view,
                     'base': base_path,
                     'row_count': row_count,
@@ -483,7 +455,7 @@ def get_pipeline() -> dict[str, Any]:
                     'total_errors': table_error_total,
                     'columns': columns,
                     'indices': indices,
-                    'versions': _format_versions(tbl),
+                    'versions': tbl.get_versions(),
                     'computed_count': len(computed_cols),
                     'insertable_count': len(columns) - len(computed_cols),
                     'iterator_type': iterator_name,
