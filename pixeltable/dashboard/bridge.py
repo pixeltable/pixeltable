@@ -8,6 +8,7 @@ formats suitable for the dashboard frontend.
 from __future__ import annotations
 
 import csv
+import datetime
 import io
 import json
 import logging
@@ -204,19 +205,14 @@ def get_table_data(
             value = row.get(col_name)
 
             if col_info['is_media']:
-                fileurl = row.get(media_url_cols.get(col_name, ''))
-                row_data[col_name] = _resolve_fileurl(fileurl, http_address) if fileurl else None
-            elif hasattr(value, 'isoformat'):
-                row_data[col_name] = value.isoformat()
-            elif isinstance(value, (list, dict)):
+                fileurl = row.get(media_url_cols.get(col_name))
+                row_data[col_name] = _resolve_fileurl(fileurl, http_address) if fileurl is not None else None
+            elif value is None or isinstance(value, (int, float, bool, str, list, dict)):
                 row_data[col_name] = value
-            elif value is not None:
-                try:
-                    row_data[col_name] = value if isinstance(value, (int, float, bool, str)) else str(value)
-                except Exception:
-                    row_data[col_name] = str(value)
+            elif isinstance(value, (datetime.datetime, datetime.date)):
+                row_data[col_name] = value.isoformat()
             else:
-                row_data[col_name] = None
+                row_data[col_name] = str(value)
 
             if col_name in error_cols:
                 et_key, em_key = error_cols[col_name]
