@@ -4,6 +4,7 @@ import warnings
 from typing import TYPE_CHECKING, Any, Iterator, Sequence, cast
 from uuid import UUID
 
+import numpy as np
 import PIL.Image
 import sqlalchemy as sql
 
@@ -191,6 +192,7 @@ class ColumnRef(Expr):
         audio: str | None = None,
         video: str | None = None,
         document: str | None = None,
+        vector: np.ndarray | None = None,
         idx: str | None = None,
     ) -> Expr:
         from .similarity_expr import SimilarityExpr
@@ -203,7 +205,8 @@ class ColumnRef(Expr):
                 '  .similarity(image=...)\n'
                 '  .similarity(audio=...)\n'
                 '  .similarity(video=...)\n'
-                '  .similarity(document=...)',
+                '  .similarity(document=...)\n'
+                '  .similarity(vector=...)',
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -214,6 +217,7 @@ class ColumnRef(Expr):
             + (audio is not None)
             + (video is not None)
             + (document is not None)
+            + (vector is not None)
         )
 
         if item is not None and arg_count != 0:
@@ -221,7 +225,8 @@ class ColumnRef(Expr):
 
         if arg_count > 1:
             raise excs.Error(
-                'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., document=...'
+                'similarity(): expected exactly one of string=..., image=..., audio=..., video=..., document=...,'
+                ' vector=...'
             )
 
         expr: Expr
@@ -307,7 +312,27 @@ class ColumnRef(Expr):
                 document_path = fetch_url(document, allow_local_file=True)
                 expr = Literal(str(document_path), ts.DocumentType())
 
-        return SimilarityExpr(self, expr, idx_name=idx)
+        if vector is not None:
+            if isinstance(vector, Expr):
+                if not vector.col_type.is_array_type():
+                    raise excs.Error(f'similarity(vector=...): expected `Array`; got `{vector.col_type}`')
+                expr = vector
+            else:
+                if not isinstance(vector, np.ndarray):
+                    raise excs.Error(
+                        f'similarity(vector=...): expected `numpy.ndarray`, or array `Expr`; '
+                        f'got `{type(vector).__name__}`'
+                    )
+                if vector.ndim != 1:
+                    raise excs.Error(f'similarity(vector=...): expected 1-dimensional array; got shape {vector.shape}')
+
+                if not np.issubdtype(vector.dtype, np.floating):
+                    raise excs.Error(f'similarity(vector=...): expected float array; got dtype {vector.dtype}')
+
+                col_type = ts.ColumnType.infer_literal_type(vector)
+                expr = Literal(vector, col_type=col_type)
+
+        return SimilarityExpr(expr, col_ref=self, idx_name=idx)
 
     def embedding(self, *, idx: str | None = None) -> ColumnRef:
         from pixeltable.index import EmbeddingIndex
