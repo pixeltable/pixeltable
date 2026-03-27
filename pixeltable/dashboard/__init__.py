@@ -6,7 +6,7 @@ Usage:
     pxt.dashboard.serve()
 """
 
-from time import time
+import time
 
 
 def serve(open_browser: bool = True) -> None:

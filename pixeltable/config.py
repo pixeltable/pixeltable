@@ -171,7 +171,7 @@ KNOWN_CONFIG_OPTIONS = {
         'input_media_dest': 'Default destination URI for input media data',
         'output_media_dest': 'Default destination URI for output (computed) media data',
         'start_dashboard': 'Whether to launch the dashboard server as startup (default: true)',
-        'dashboard_port': 'Port for the dashboard server (default: 20096)',
+        'dashboard_port': 'Port for the dashboard server (default: 22089)',
         'r2_profile': 'AWS config profile name used to access R2 storage',
         's3_profile': 'AWS config profile name used to access S3 storage',
         'b2_profile': 'AWS config profile name used to access Backblaze B2 storage',

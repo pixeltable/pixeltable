@@ -682,7 +682,7 @@ class Env:
         self._start_web_server()
         self.__register_packages()
 
-        dashboard_port = Config.get().get_int_value('dashboard_port') or 20096
+        dashboard_port = Config.get().get_int_value('dashboard_port') or 22089
         self._dashboard_harness = DashboardHarness(dashboard_port)
 
         start_dashboard = Config.get().get_bool_value('start_dashboard')
