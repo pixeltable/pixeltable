@@ -1293,6 +1293,43 @@ def reverse(
         _handle_ffmpeg_error(e)
 
 
+def _fade(
+    video: str,
+    direction: Literal['in', 'out'],
+    duration: float,
+    color: str,
+    video_duration: float | None = None,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> str:
+    Env.get().require_binary('ffmpeg')
+    if duration <= 0:
+        raise pxt.Error(f'duration must be positive, got {duration}')
+
+    if direction == 'in':
+        start_time = 0.0
+    else:
+        assert video_duration is not None
+        start_time = max(0, video_duration - duration)
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    fade_filter = f'fade={direction}:st={start_time}:d={duration}:color={color}'
+    cmd = ['ffmpeg', '-i', str(video), '-vf', fade_filter, '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
+    cmd.extend(['-loglevel', 'error', output_path])
+    _logger.debug(f'fade_{direction}(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
 @pxt.udf(is_method=True)
 def fade_in(
     video: pxt.Video,
@@ -1329,27 +1366,7 @@ def fade_in(
 
         >>> tbl.select(tbl.video.fade_in(duration=2.0, color='white')).collect()
     """
-    Env.get().require_binary('ffmpeg')
-    if duration <= 0:
-        raise pxt.Error(f'duration must be positive, got {duration}')
-
-    output_path = str(TempStore.create_path(extension='.mp4'))
-    # fade=in:st=0:d=<duration>:color=<color>
-    fade_filter = f'fade=in:st=0:d={duration}:color={color}'
-    cmd = ['ffmpeg', '-i', str(video), '-vf', fade_filter, '-c:a', 'copy']
-    _append_video_encoder(cmd, video_encoder, video_encoder_args)
-    cmd.extend(['-loglevel', 'error', output_path])
-    _logger.debug(f'fade_in(): {" ".join(cmd)}')
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _fade(video, 'in', duration, color, video_encoder=video_encoder, video_encoder_args=video_encoder_args)
 
 
 @pxt.udf(is_method=True)
@@ -1388,33 +1405,18 @@ def fade_out(
 
         >>> tbl.select(tbl.video.fade_out(duration=3.0, color='white')).collect()
     """
-    Env.get().require_binary('ffmpeg')
-    if duration <= 0:
-        raise pxt.Error(f'duration must be positive, got {duration}')
-
-    # Need video duration to compute fade start time
     video_duration = av_utils.get_video_duration(video)
     if video_duration is None:
         raise pxt.Error('fade_out(): could not determine video duration')
-
-    start_time = max(0, video_duration - duration)
-    output_path = str(TempStore.create_path(extension='.mp4'))
-    # fade=out:st=<start>:d=<duration>:color=<color>
-    fade_filter = f'fade=out:st={start_time}:d={duration}:color={color}'
-    cmd = ['ffmpeg', '-i', str(video), '-vf', fade_filter, '-c:a', 'copy']
-    _append_video_encoder(cmd, video_encoder, video_encoder_args)
-    cmd.extend(['-loglevel', 'error', output_path])
-    _logger.debug(f'fade_out(): {" ".join(cmd)}')
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _fade(
+        video,
+        'out',
+        duration,
+        color,
+        video_duration=video_duration,
+        video_encoder=video_encoder,
+        video_encoder_args=video_encoder_args,
+    )
 
 
 @pxt.udf(is_method=True)
