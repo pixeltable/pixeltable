@@ -1257,10 +1257,6 @@ def reverse(
     #   ffmpeg -i input.mp4 -filter_complex "<filtergraph>" -map [v] -c:v libx264 -map [a] -loglevel error out.mp4
     # audio='keep': -map 0:a -c:a copy (passes original audio through without the filtergraph)
     # audio='drop': no audio mapping, so ffmpeg omits audio from the output
-    output_path = str(TempStore.create_path(extension='.mp4'))
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
-
     cmd = ['ffmpeg', '-i', str(video), '-filter_complex', filtergraph, '-map', '[v]']
     _append_video_encoder(cmd, video_encoder, video_encoder_args)
 
@@ -1269,6 +1265,7 @@ def reverse(
     elif audio == 'keep' and has_audio:
         cmd.extend(['-map', '0:a', '-c:a', 'copy'])
 
+    output_path = str(TempStore.create_path(extension='.mp4'))
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'reverse(): {" ".join(cmd)}')
 

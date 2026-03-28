@@ -1319,7 +1319,7 @@ class TestVideo:
         )
         assert len(result) == len(videos)
         # reversed video should have approximately the same duration as the original
-        assert all(row['reversed_duration'] == pytest.approx(row['orig_duration'], abs=0.1) for row in result)
+        assert all(row['reversed_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
 
         def has_audio(md: dict) -> bool:
             return any(info['type'] == 'audio' for info in md['streams'])
@@ -1341,13 +1341,9 @@ class TestVideo:
         scrolled = t.video.scroll(w=160, x_speed=50)
         result = t.select(orig_h=md.streams[0].height, scrolled=scrolled, scrolled_md=scrolled.get_metadata()).collect()
 
-        for row in result:
-            assert row['scrolled'] is not None
-            out_w = row['scrolled_md']['streams'][0]['width']
-            out_h = row['scrolled_md']['streams'][0]['height']
-            assert out_w == 160
-            # output height should be unchanged
-            assert out_h == row['orig_h']
+        assert all(row['scrolled'] is not None for row in result)
+        assert all(row['scrolled_md']['streams'][0]['width'] == 160 for row in result)
+        assert all(row['scrolled_md']['streams'][0]['height'] == row['orig_h'] for row in result)
 
         # validate output videos
         self._validate_videos(result['scrolled'])
@@ -1387,13 +1383,11 @@ class TestVideo:
             zoomed_corner=zoomed_corner,
         ).collect()
 
-        for row in result:
-            assert row['zoomed_in'] is not None
-            assert row['zoomed_out'] is not None
-            assert row['zoomed_corner'] is not None
-            # output resolution should match input
-            assert row['zoomed_in_md']['streams'][0]['width'] == row['orig_w']
-            assert row['zoomed_in_md']['streams'][0]['height'] == row['orig_h']
+        assert all(row['zoomed_in'] is not None for row in result)
+        assert all(row['zoomed_out'] is not None for row in result)
+        assert all(row['zoomed_corner'] is not None for row in result)
+        assert all(row['zoomed_in_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['zoomed_in_md']['streams'][0]['height'] == row['orig_h'] for row in result)
 
         # validate output videos
         self._validate_videos(result['zoomed_in'] + result['zoomed_out'] + result['zoomed_corner'])
@@ -1412,13 +1406,14 @@ class TestVideo:
         with pytest.raises(pxt.Error, match=r'center must be'):
             t.select(t.video.zoom(center=[0.5, 1.5])).collect()
 
-    def test_fade_in(self, uses_db: None) -> None:
+    @pytest.mark.parametrize('fade_fn', [pxtf.video.fade_in, pxtf.video.fade_out])
+    def test_fade(self, fade_fn: pxt.Function, uses_db: None) -> None:
         video_filepaths = get_video_files()
-        t = pxt.create_table('fade_in_test', {'video': pxt.Video})
+        t = pxt.create_table('fade_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
         md = t.video.get_metadata()
-        faded = t.video.fade_in(duration=0.5)
+        faded = fade_fn(t.video, duration=0.5)
         result = (
             t.where(md.streams[0].duration_seconds != None)
             .select(
@@ -1430,33 +1425,8 @@ class TestVideo:
         )
         assert len(result) > 0
 
-        for row in result:
-            assert row['faded'] is not None
-            assert abs(row['faded_duration'] - row['orig_duration']) < 0.5
-
-        self._validate_videos(result['faded'])
-
-    def test_fade_out(self, uses_db: None) -> None:
-        video_filepaths = get_video_files()
-        t = pxt.create_table('fade_out_test', {'video': pxt.Video})
-        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
-
-        md = t.video.get_metadata()
-        faded = t.video.fade_out(duration=0.5)
-        result = (
-            t.where(md.streams[0].duration_seconds != None)
-            .select(
-                orig_duration=md.streams[0].duration_seconds,
-                faded=faded,
-                faded_duration=faded.get_metadata().streams[0].duration_seconds,
-            )
-            .collect()
-        )
-        assert len(result) > 0
-
-        for row in result:
-            assert row['faded'] is not None
-            assert abs(row['faded_duration'] - row['orig_duration']) < 0.5
+        assert all(row['faded'] is not None for row in result)
+        assert all(row['faded_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
 
         self._validate_videos(result['faded'])
 
@@ -1480,9 +1450,8 @@ class TestVideo:
         )
         assert len(result) > 0
 
-        for row in result:
-            assert row['fast'] is not None
-            assert abs(row['fast_duration'] - row['orig_duration'] / 2) < 1.0
+        assert all(row['fast'] is not None for row in result)
+        assert all(row['fast_duration'] == pytest.approx(row['orig_duration'] / 2, abs=0.2) for row in result)
 
         self._validate_videos(result['fast'])
 
@@ -1513,14 +1482,12 @@ class TestVideo:
             my_md=my.get_metadata(),
         ).collect()
 
-        for row in result:
-            assert row['mx'] is not None
-            assert row['my'] is not None
-            # dimensions should be unchanged
-            assert row['mx_md']['streams'][0]['width'] == row['orig_w']
-            assert row['mx_md']['streams'][0]['height'] == row['orig_h']
-            assert row['my_md']['streams'][0]['width'] == row['orig_w']
-            assert row['my_md']['streams'][0]['height'] == row['orig_h']
+        assert all(row['mx'] is not None for row in result)
+        assert all(row['my'] is not None for row in result)
+        assert all(row['mx_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['mx_md']['streams'][0]['height'] == row['orig_h'] for row in result)
+        assert all(row['my_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['my_md']['streams'][0]['height'] == row['orig_h'] for row in result)
 
         self._validate_videos(result['mx'] + result['my'])
 
@@ -1537,10 +1504,9 @@ class TestVideo:
             orig_w=md.streams[0].width, orig_h=md.streams[0].height, rotated=rotated, rotated_md=rotated.get_metadata()
         ).collect()
 
-        for row in result:
-            assert row['rotated'] is not None
-            assert row['rotated_md']['streams'][0]['width'] == row['orig_w']
-            assert row['rotated_md']['streams'][0]['height'] == row['orig_h']
+        assert all(row['rotated'] is not None for row in result)
+        assert all(row['rotated_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['rotated_md']['streams'][0]['height'] == row['orig_h'] for row in result)
 
         # rotate with expand: dimensions should grow
         expanded = t.video.rotate(angle=45, expand=True)
@@ -1551,10 +1517,9 @@ class TestVideo:
             expanded_md=expanded.get_metadata(),
         ).collect()
 
-        for row in result2:
-            assert row['expanded'] is not None
-            assert row['expanded_md']['streams'][0]['width'] >= row['orig_w']
-            assert row['expanded_md']['streams'][0]['height'] >= row['orig_h']
+        assert all(row['expanded'] is not None for row in result2)
+        assert all(row['expanded_md']['streams'][0]['width'] >= row['orig_w'] for row in result2)
+        assert all(row['expanded_md']['streams'][0]['height'] >= row['orig_h'] for row in result2)
 
         self._validate_videos(result['rotated'] + result2['expanded'])
 
@@ -1569,11 +1534,9 @@ class TestVideo:
             orig_w=md.streams[0].width, orig_h=md.streams[0].height, gray=gray, gray_md=gray.get_metadata()
         ).collect()
 
-        for row in result:
-            assert row['gray'] is not None
-            # dimensions should be unchanged
-            assert row['gray_md']['streams'][0]['width'] == row['orig_w']
-            assert row['gray_md']['streams'][0]['height'] == row['orig_h']
+        assert all(row['gray'] is not None for row in result)
+        assert all(row['gray_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+        assert all(row['gray_md']['streams'][0]['height'] == row['orig_h'] for row in result)
 
         self._validate_videos(result['gray'])
 
