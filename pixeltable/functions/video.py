@@ -1372,19 +1372,19 @@ def scroll(
         A new video with the scrolling effect applied. Output dimensions are `w` x `h`.
 
     Examples:
-        Pan rightward across a video with a viewport 80% of the original width:
+        Pan rightward across a 1920x1080 video using a 1280-pixel-wide viewport, scrolling at 50 px/s:
 
-        >>> tbl.select(tbl.video.scroll(w=512, x_speed=50)).collect()
+        >>> tbl.select(tbl.video.scroll(w=1280, x_speed=50)).collect()
 
-        Pan diagonally (right and down):
+        Pan rightward across the full range of a 1920x1080 video in exactly its duration. The viewport is
+        1280 px wide, so the pan range is 1920 - 1280 = 640 px. For a 10-second video, set
+        `x_speed = 640 / 10 = 64`:
 
-        >>> tbl.select(
-        ...     tbl.video.scroll(w=512, h=288, x_speed=30, y_speed=20)
-        ... ).collect()
+        >>> tbl.select(tbl.video.scroll(w=1280, x_speed=64)).collect()
 
-        Pan leftward, starting from the right edge:
+        Pan leftward across a 1920x1080 video, starting from the right edge:
 
-        >>> tbl.select(tbl.video.scroll(w=512, x_start=128, x_speed=-50)).collect()
+        >>> tbl.select(tbl.video.scroll(w=1280, x_start=640, x_speed=-64)).collect()
     """
     pass
 
