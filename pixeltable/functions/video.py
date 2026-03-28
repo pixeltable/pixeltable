@@ -274,10 +274,11 @@ def _handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
 def _append_video_encoder(
     cmd: list[str], video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
 ) -> None:
-    """ "Append video encoder-related args to ffmpeg cmdline"""
+    """Append video encoder-related args to ffmpeg cmdline."""
     if video_encoder is None:
         video_encoder = Env.get().default_video_encoder
-    cmd.extend(['-c:v', video_encoder])
+    if video_encoder is not None:
+        cmd.extend(['-c:v', video_encoder])
     if video_encoder_args is not None:
         for k, v in video_encoder_args.items():
             cmd.extend([f'-{k}', str(v)])
@@ -1059,15 +1060,10 @@ def crop(
     else:
         raise pxt.Error(f"bbox_format must be one of ['xyxy', 'xywh', 'cxcywh'], got {bbox_format!r}")
 
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
-
     output_path = str(TempStore.create_path(extension='.mp4'))
 
-    cmd = ['ffmpeg', '-i', str(video), '-vf', f'crop={w}:{h}:{x}:{y}', '-c:a', 'copy', '-c:v', video_encoder]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
+    cmd = ['ffmpeg', '-i', str(video), '-vf', f'crop={w}:{h}:{x}:{y}', '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'crop(): {" ".join(cmd)}')
 
@@ -1146,13 +1142,8 @@ def resize(
         raise pxt.Error('At least one of `width`, `height`, or `scale` must be specified')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
-
-    cmd = ['ffmpeg', '-i', str(video), '-vf', scale_filter, '-c:a', 'copy', '-c:v', video_encoder]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
+    cmd = ['ffmpeg', '-i', str(video), '-vf', scale_filter, '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'resize(): {" ".join(cmd)}')
 
@@ -1254,7 +1245,7 @@ def reverse(
     filtergraph = '; '.join(filter_parts)
 
     # Example commandline (audio='reverse'):
-    #   ffmpeg -i input.mp4 -filter_complex "<filtergraph>" -map [v] -c:v libx264 -map [a] -loglevel error out.mp4
+    #   ffmpeg -i input.mp4 -filter_complex "<filtergraph>" -map [v] -map [a] -loglevel error out.mp4
     # audio='keep': -map 0:a -c:a copy (passes original audio through without the filtergraph)
     # audio='drop': no audio mapping, so ffmpeg omits audio from the output
     cmd = ['ffmpeg', '-i', str(video), '-filter_complex', filtergraph, '-map', '[v]']
@@ -1321,28 +1312,11 @@ def fade_in(
         raise pxt.Error(f'duration must be positive, got {duration}')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
-
     # fade=in:st=0:d=<duration>:color=<color>
     fade_filter = f'fade=in:st=0:d={duration}:color={color}'
-    cmd = [
-        'ffmpeg',
-        '-i',
-        str(video),
-        '-vf',
-        fade_filter,
-        '-c:a',
-        'copy',
-        '-c:v',
-        video_encoder,
-        '-loglevel',
-        'error',
-        output_path,
-    ]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
+    cmd = ['ffmpeg', '-i', str(video), '-vf', fade_filter, '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
+    cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'fade_in(): {" ".join(cmd)}')
 
     try:
@@ -1403,28 +1377,11 @@ def fade_out(
 
     start_time = max(0, video_duration - duration)
     output_path = str(TempStore.create_path(extension='.mp4'))
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
-
     # fade=out:st=<start>:d=<duration>:color=<color>
     fade_filter = f'fade=out:st={start_time}:d={duration}:color={color}'
-    cmd = [
-        'ffmpeg',
-        '-i',
-        str(video),
-        '-vf',
-        fade_filter,
-        '-c:a',
-        'copy',
-        '-c:v',
-        video_encoder,
-        '-loglevel',
-        'error',
-        output_path,
-    ]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
+    cmd = ['ffmpeg', '-i', str(video), '-vf', fade_filter, '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
+    cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'fade_out(): {" ".join(cmd)}')
 
     try:
@@ -1479,15 +1436,13 @@ def speed(
         raise pxt.Error(f'factor must be positive, got {factor}')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
-
     # setpts=PTS/<factor> adjusts video timing; atempo=<factor> adjusts audio speed (preserving pitch).
     # atempo only accepts values in [0.5, 100.0]; for slower speeds, chain multiple atempo filters.
     video_filter = f'setpts=PTS/{factor}'
     has_audio = av_utils.has_audio_stream(video)
 
-    cmd = ['ffmpeg', '-i', str(video), '-vf', video_filter, '-c:v', video_encoder]
+    cmd = ['ffmpeg', '-i', str(video), '-vf', video_filter]
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
 
     if has_audio:
         # Chain atempo filters for factors outside [0.5, 100.0]
@@ -1505,9 +1460,6 @@ def speed(
         cmd.extend(['-an'])
 
     cmd.extend(['-loglevel', 'error', output_path])
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
     _logger.debug(f'speed(): {" ".join(cmd)}')
 
     try:
@@ -1546,26 +1498,10 @@ def mirror_x(
     Env.get().require_binary('ffmpeg')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
 
-    cmd = [
-        'ffmpeg',
-        '-i',
-        str(video),
-        '-vf',
-        'hflip',
-        '-c:a',
-        'copy',
-        '-c:v',
-        video_encoder,
-        '-loglevel',
-        'error',
-        output_path,
-    ]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
+    cmd = ['ffmpeg', '-i', str(video), '-vf', 'hflip', '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
+    cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'mirror_x(): {" ".join(cmd)}')
 
     try:
@@ -1604,26 +1540,10 @@ def mirror_y(
     Env.get().require_binary('ffmpeg')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
 
-    cmd = [
-        'ffmpeg',
-        '-i',
-        str(video),
-        '-vf',
-        'vflip',
-        '-c:a',
-        'copy',
-        '-c:v',
-        video_encoder,
-        '-loglevel',
-        'error',
-        output_path,
-    ]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
+    cmd = ['ffmpeg', '-i', str(video), '-vf', 'vflip', '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
+    cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'mirror_y(): {" ".join(cmd)}')
 
     try:
@@ -1685,9 +1605,6 @@ def rotate(
     angle_rad = angle if unit == 'rad' else angle * math.pi / 180
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
-
     if expand:
         # Expand output to fit the rotated frame: compute new dimensions from the rotation angle
         # For a WxH frame rotated by A: new_w = W*|cos(A)| + H*|sin(A)|, new_h = W*|sin(A)| + H*|cos(A)|
@@ -1701,23 +1618,9 @@ def rotate(
     else:
         rotate_filter = f'rotate={angle_rad}:fillcolor=black'
 
-    cmd = [
-        'ffmpeg',
-        '-i',
-        str(video),
-        '-vf',
-        rotate_filter,
-        '-c:a',
-        'copy',
-        '-c:v',
-        video_encoder,
-        '-loglevel',
-        'error',
-        output_path,
-    ]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
+    cmd = ['ffmpeg', '-i', str(video), '-vf', rotate_filter, '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
+    cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'rotate(): {" ".join(cmd)}')
 
     try:
@@ -1756,29 +1659,13 @@ def grayscale(
     Env.get().require_binary('ffmpeg')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
 
     # Convert to grayscale via hue filter (set saturation to 0), which keeps the yuv420p pixel format
     # compatible with most encoders. Using format=gray would produce a single-channel output that
     # many players and encoders don't handle well.
-    cmd = [
-        'ffmpeg',
-        '-i',
-        str(video),
-        '-vf',
-        'hue=s=0',
-        '-c:a',
-        'copy',
-        '-c:v',
-        video_encoder,
-        '-loglevel',
-        'error',
-        output_path,
-    ]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
+    cmd = ['ffmpeg', '-i', str(video), '-vf', 'hue=s=0', '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
+    cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'grayscale(): {" ".join(cmd)}')
 
     try:
@@ -1960,26 +1847,9 @@ def scroll(
     crop_filter = f'crop={out_w}:{out_h}:{x_expr}:{y_expr}'
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
-
-    cmd = [
-        'ffmpeg',
-        '-i',
-        str(video),
-        '-vf',
-        crop_filter,
-        '-c:a',
-        'copy',
-        '-c:v',
-        video_encoder,
-        '-loglevel',
-        'error',
-        output_path,
-    ]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
+    cmd = ['ffmpeg', '-i', str(video), '-vf', crop_filter, '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
+    cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'scroll(): {" ".join(cmd)}')
 
     try:
@@ -2086,26 +1956,9 @@ def zoom(
     zoompan_filter = f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d=1:s={in_w}x{in_h}:fps={fps}"
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    if video_encoder is None:
-        video_encoder = Env.get().default_video_encoder
-
-    cmd = [
-        'ffmpeg',
-        '-i',
-        str(video),
-        '-vf',
-        zoompan_filter,
-        '-c:a',
-        'copy',
-        '-c:v',
-        video_encoder,
-        '-loglevel',
-        'error',
-        output_path,
-    ]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
+    cmd = ['ffmpeg', '-i', str(video), '-vf', zoompan_filter, '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
+    cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'zoom(): {" ".join(cmd)}')
 
     try:
