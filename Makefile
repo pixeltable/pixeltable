@@ -5,7 +5,8 @@ WORKERS := 12
 
 # Common test args
 PYTEST_COMMON_ARGS := -v -n auto --dist loadgroup --maxprocesses 6 --reruns 2 \
-	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with'
+	--only-rerun 'That Pixeltable operation could not be completed because it conflicted with' \
+	--benchmark-disable
 
 # Needed for LLaMA build to work correctly on some Linux systems
 CMAKE_ARGS := -DLLAVA_BUILD=OFF
