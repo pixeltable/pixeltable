@@ -1495,6 +1495,32 @@ def speed(
         _handle_ffmpeg_error(e)
 
 
+def _flip(
+    video: str,
+    orientation: Literal['h', 'v'],
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> str:
+    Env.get().require_binary('ffmpeg')
+    flip_filter = 'hflip' if orientation == 'h' else 'vflip'
+    output_path = str(TempStore.create_path(extension='.mp4'))
+
+    cmd = ['ffmpeg', '-i', str(video), '-vf', flip_filter, '-c:a', 'copy']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
+    cmd.extend(['-loglevel', 'error', output_path])
+    _logger.debug(f'_flip({orientation}): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
 @pxt.udf(is_method=True)
 def mirror_x(
     video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
@@ -1517,24 +1543,7 @@ def mirror_x(
     Examples:
         >>> tbl.select(tbl.video.mirror_x()).collect()
     """
-    Env.get().require_binary('ffmpeg')
-
-    output_path = str(TempStore.create_path(extension='.mp4'))
-
-    cmd = ['ffmpeg', '-i', str(video), '-vf', 'hflip', '-c:a', 'copy']
-    _append_video_encoder(cmd, video_encoder, video_encoder_args)
-    cmd.extend(['-loglevel', 'error', output_path])
-    _logger.debug(f'mirror_x(): {" ".join(cmd)}')
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _flip(video, 'h', video_encoder, video_encoder_args)
 
 
 @pxt.udf(is_method=True)
@@ -1559,24 +1568,7 @@ def mirror_y(
     Examples:
         >>> tbl.select(tbl.video.mirror_y()).collect()
     """
-    Env.get().require_binary('ffmpeg')
-
-    output_path = str(TempStore.create_path(extension='.mp4'))
-
-    cmd = ['ffmpeg', '-i', str(video), '-vf', 'vflip', '-c:a', 'copy']
-    _append_video_encoder(cmd, video_encoder, video_encoder_args)
-    cmd.extend(['-loglevel', 'error', output_path])
-    _logger.debug(f'mirror_y(): {" ".join(cmd)}')
-
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _flip(video, 'v', video_encoder, video_encoder_args)
 
 
 @pxt.udf(is_method=True)
