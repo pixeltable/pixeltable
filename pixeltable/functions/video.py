@@ -645,6 +645,10 @@ class concat_videos_agg(pxt.Aggregator):
     - `ffmpeg` needs to be installed and in PATH
     - All videos must have the same resolution
 
+    Args:
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
+
     Returns:
         A new video containing all input videos concatenated in order, or None if all inputs are None.
 
@@ -655,17 +659,26 @@ class concat_videos_agg(pxt.Aggregator):
     """
 
     videos: list[str]
+    video_encoder: str | None
+    video_encoder_args: dict[str, Any] | None
 
-    def __init__(self) -> None:
+    def __init__(self, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None) -> None:
         Env.get().require_binary('ffmpeg')
         self.videos = []
+        self.video_encoder = video_encoder
+        self.video_encoder_args = video_encoder_args
 
     def update(self, video: pxt.Video) -> None:
         if video is not None:
             self.videos.append(str(video))
 
     def value(self) -> pxt.Video | None:
-        return _concat_videos(self.videos, error_prefix='concat_videos_agg()')
+        return _concat_videos(
+            self.videos,
+            error_prefix='concat_videos_agg()',
+            video_encoder=self.video_encoder,
+            video_encoder_args=self.video_encoder_args,
+        )
 
 
 @pxt.udf
@@ -1290,8 +1303,8 @@ def fade_in(
     video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
-    Apply a fade-in effect from a solid color at the start of a video. The video transitions from a solid `color` to
-    the full video content over `duration` seconds.
+    Apply a fade-in effect from a solid color at the start of a video using ffmpeg's fade filter.
+    The video transitions from a solid `color` to the full video content over `duration` seconds.
 
     __Requirements:__
 
@@ -1349,8 +1362,8 @@ def fade_out(
     video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
-    Apply a fade-out effect to a solid color at the end of a video. The video transitions from the full video content
-    to a solid `color` over the final `duration` seconds.
+    Apply a fade-out effect to a solid color at the end of a video using ffmpeg's fade filter.
+    The video transitions from the full video content to a solid `color` over the final `duration` seconds.
 
     __Requirements:__
 
@@ -1413,7 +1426,7 @@ def speed(
     video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
-    Change the playback speed of a video.
+    Change the playback speed of a video using ffmpeg's setpts filter.
 
     A factor of 2.0 doubles the speed (halves the duration); a factor of 0.5 halves the speed (doubles the duration).
     Audio pitch is preserved using ffmpeg's `atempo` filter.
@@ -1487,7 +1500,7 @@ def mirror_x(
     video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
 ) -> pxt.Video:
     """
-    Flip a video horizontally.
+    Flip a video horizontally using ffmpeg's hflip filter.
 
     __Requirements:__
 
@@ -1529,7 +1542,7 @@ def mirror_y(
     video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
 ) -> pxt.Video:
     """
-    Flip a video vertically.
+    Flip a video vertically using ffmpeg's vflip filter.
 
     __Requirements:__
 
@@ -1577,7 +1590,7 @@ def rotate(
     video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
-    Rotate a video by a fixed angle.
+    Rotate a video by a fixed angle using ffmpeg's rotate filter.
 
     __Requirements:__
 
@@ -1648,7 +1661,7 @@ def grayscale(
     video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
 ) -> pxt.Video:
     """
-    Convert a video to grayscale.
+    Convert a video to grayscale
 
     __Requirements:__
 
@@ -1768,7 +1781,7 @@ def scroll(
     video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
-    Apply a scrolling viewport effect to a video.
+    Apply a scrolling viewport effect to a video using ffmpeg's crop filter.
 
     Extracts a viewport of size `w` x `h` from each frame, starting at position (`x_start`, `y_start`) and moving
     at (`x_speed`, `y_speed`) pixels per second. The viewport clamps at the frame edges: once it reaches a boundary,
@@ -1883,7 +1896,7 @@ def zoom(
     video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
-    Apply a smooth zoom effect over the duration of a video.
+    Apply a smooth zoom effect over the duration of a video using ffmpeg's zoompan filter.
 
     The zoom factor interpolates linearly from `start_scale` to `end_scale`. The effect works by computing a crop
     region at each frame (centered on `center`) and scaling it back to the original resolution. Output dimensions
