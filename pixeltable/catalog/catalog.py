@@ -445,16 +445,17 @@ class Catalog:
                     )
                 )
 
-            if for_write and not locked_ids:
-                # didn't get the write lock (table is a snapshot or doesn't exist)
-                for_write = False
-            elif for_write:
-                self._x_locked_tbl_ids = locked_ids
-                if lock_mutable_tree:
-                    self._compute_column_dependents(locked_ids)
-                if _logger.isEnabledFor(logging.DEBUG):
-                    # validate only when we don't see errors
-                    self.validate()
+            if for_write:
+                if locked_ids:
+                    self._x_locked_tbl_ids = locked_ids
+                    if lock_mutable_tree:
+                        self._compute_column_dependents(locked_ids)
+                    if _logger.isEnabledFor(logging.DEBUG):
+                        # validate only when we don't see errors
+                        self.validate()
+                else:
+                    # didn't get the write lock (table is a snapshot or doesn't exist)
+                    for_write = False
 
         except sql_exc.DBAPIError as e:
             if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)) and (
