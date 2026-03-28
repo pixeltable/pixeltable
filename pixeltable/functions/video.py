@@ -1263,19 +1263,131 @@ def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop'
         _handle_ffmpeg_error(e)
 
 
-def zoom_in(video: pxt.Video, max_scale: float = 1.3) -> pxt.Video:
+@pxt.udf(is_method=True)
+def zoom_in(video: pxt.Video, *, max_scale: float = 1.3) -> pxt.Video:
+    """
+    Apply a gradual zoom-in effect to a video, smoothly scaling from 1.0x to `max_scale` over its duration.
+
+    The zoom is centered on the middle of the frame. The output resolution matches the input; the effect is
+    achieved by progressively cropping a shrinking region and scaling it back to the original size.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        max_scale: Maximum zoom factor at the end of the video. Must be greater than 1.0.
+
+    Returns:
+        A new video with the zoom-in effect applied.
+
+    Examples:
+        Apply a gentle zoom-in effect:
+
+        >>> tbl.select(tbl.video.zoom_in()).collect()
+
+        Apply a more dramatic zoom:
+
+        >>> tbl.select(tbl.video.zoom_in(max_scale=2.0)).collect()
+    """
     pass
 
 
-def zoom_out(video: pxt.Video, max_scale: float = 1.3) -> pxt.Video:
+@pxt.udf(is_method=True)
+def zoom_out(video: pxt.Video, *, max_scale: float = 1.3) -> pxt.Video:
+    """
+    Apply a gradual zoom-out effect to a video, smoothly scaling from `max_scale` down to 1.0x over its duration.
+
+    The zoom is centered on the middle of the frame. The output resolution matches the input; the effect starts
+    with a cropped (zoomed) view and progressively widens back to the full frame.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        max_scale: Initial zoom factor at the start of the video. Must be greater than 1.0.
+
+    Returns:
+        A new video with the zoom-out effect applied.
+
+    Examples:
+        Apply a gentle zoom-out effect:
+
+        >>> tbl.select(tbl.video.zoom_out()).collect()
+
+        Apply a more dramatic zoom-out:
+
+        >>> tbl.select(tbl.video.zoom_out(max_scale=2.0)).collect()
+    """
     pass
 
 
-def pan_left(video: pxt.Video, crop_pct: float = 0.2) -> pxt.Video:
+@pxt.udf(is_method=True)
+def pan_left(video: pxt.Video, *, crop_pct: float = 0.2) -> pxt.Video:
+    """
+    Apply a horizontal pan effect that moves from right to left across the video.
+
+    The effect works by cropping a region that is `(1 - crop_pct)` of the original width and smoothly sliding it
+    from the right edge to the left edge over the video's duration. The output height matches the input; the
+    output width is the cropped width.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        crop_pct: Fraction of the width used as panning range, between 0.0 and 1.0. Larger values give more
+            pronounced panning but a narrower output.
+
+    Returns:
+        A new video with the pan-left effect applied.
+
+    Examples:
+        Apply a subtle left pan:
+
+        >>> tbl.select(tbl.video.pan_left()).collect()
+
+        Apply a wider pan:
+
+        >>> tbl.select(tbl.video.pan_left(crop_pct=0.4)).collect()
+    """
     pass
 
 
-def pan_right(video: pxt.Video, crop_pct: float = 0.2) -> pxt.Video:
+@pxt.udf(is_method=True)
+def pan_right(video: pxt.Video, *, crop_pct: float = 0.2) -> pxt.Video:
+    """
+    Apply a horizontal pan effect that moves from left to right across the video.
+
+    The effect works by cropping a region that is `(1 - crop_pct)` of the original width and smoothly sliding it
+    from the left edge to the right edge over the video's duration. The output height matches the input; the
+    output width is the cropped width.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        crop_pct: Fraction of the width used as panning range, between 0.0 and 1.0. Larger values give more
+            pronounced panning but a narrower output.
+
+    Returns:
+        A new video with the pan-right effect applied.
+
+    Examples:
+        Apply a subtle right pan:
+
+        >>> tbl.select(tbl.video.pan_right()).collect()
+
+        Apply a wider pan:
+
+        >>> tbl.select(tbl.video.pan_right(crop_pct=0.4)).collect()
+    """
     pass
 
 
