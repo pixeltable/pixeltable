@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import enum
-import logging
 import time
+from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any, Literal, Sequence, cast, overload
 from uuid import UUID
 
@@ -30,8 +30,6 @@ if TYPE_CHECKING:
     from pixeltable import exprs
     from pixeltable.globals import TableDataSource
     from pixeltable.io.table_data_conduit import TableDataConduit
-
-_logger = logging.getLogger('pixeltable')
 
 
 class OnErrorParameter(enum.Enum):
@@ -141,11 +139,21 @@ class InsertableTable(Table):
     ) -> UpdateStatus:
         from pixeltable.io.table_data_conduit import UnkTableDataConduit
 
+        if isinstance(source, Iterator):
+            # Iterator is the only supported non-replayable source. Materialize it to a list so that the insert can be
+            # retried correctly.
+            source = list(source)
         if source is not None and isinstance(source, Sequence) and len(source) == 0:
             raise excs.Error('Cannot insert an empty sequence.')
+        if source is None:
+            source = [kwargs]
+            kwargs = None
         fail_on_exception = OnErrorParameter.fail_on_exception(on_error)
 
-        with get_runtime().catalog.begin_xact(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True):
+        from pixeltable.catalog import retry_loop
+
+        @retry_loop(tbl=self._tbl_version_path, for_write=True, lock_mutable_tree=True)
+        def do_insert() -> UpdateStatus:
             table = self
             start_ts = time.monotonic()
 
@@ -159,10 +167,6 @@ class InsertableTable(Table):
                 Env.get().console_logger.info(status.insert_msg(start_ts))
                 FileCache.get().emit_eviction_warnings()
                 return status
-
-            if source is None:
-                source = [kwargs]
-                kwargs = None
 
             tds = UnkTableDataConduit(
                 source, source_format=source_format, src_schema_overrides=schema_overrides, extra_fields=kwargs
@@ -178,6 +182,8 @@ class InsertableTable(Table):
             return table.insert_table_data_source(
                 data_source=data_source, fail_on_exception=fail_on_exception, print_stats=print_stats
             )
+
+        return do_insert()
 
     def insert_table_data_source(
         self, data_source: TableDataConduit, fail_on_exception: bool, print_stats: bool = False

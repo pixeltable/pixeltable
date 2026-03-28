@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Mapping, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Mapping, TypedDict, Union
 
 import pandas as pd
 import pydantic
@@ -29,6 +29,7 @@ if TYPE_CHECKING:
         Path,  # OS paths, filenames, URLs
         Iterable[dict[str, Any]],  # dictionaries of values
         Iterable[pydantic.BaseModel],  # Pydantic model instances
+        Iterator,
         catalog.Table,  # Pixeltable Table
         Query,  # Pixeltable Query
         pd.DataFrame,  # pandas DataFrame
@@ -835,7 +836,7 @@ def drop_dir(path: str, force: bool = False, if_not_exists: Literal['error', 'ig
             - is invalid, or
             - does not exist and `if_not_exists='error'`, or
             - is not designate a directory, or
-            - is a direcotory but is not empty and `force=False`.
+            - is a directory but is not empty and `force=False`.
 
     Examples:
         Remove a directory, if it exists and is empty:
