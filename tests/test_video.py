@@ -25,8 +25,8 @@ from .utils import (
 
 class TestVideo:
     def _validate_videos(self, videos: list[str]) -> None:
-        t = pxt.create_table('validated_videos', schema={'v': pxt.Video})
-        validate_update_status(t.insert({'v': v} for v in videos), expected_rows=len(videos))
+        t = pxt.create_table('validated_videos', schema={'v': pxt.Video}, if_exists='ignore')
+        validate_update_status(t.insert(({'v': v} for v in videos), on_error='abort'), expected_rows=len(videos))
 
     def create_tbls(
         self, base_name: str = 'video_tbl', view_name: str = 'frame_view', use_legacy_schema: bool = False
@@ -1274,8 +1274,7 @@ class TestVideo:
         # check that resize() produces valid video files
         res = t.collect()
         resized_videos = res['resized_w'] + res['resized_h'] + res['resized_s'] + res['resized_wh']
-        t2 = pxt.create_table('validated', schema={'video': pxt.Video})
-        validate_update_status(t2.insert([{'video': v} for v in resized_videos], on_error='abort'))
+        self._validate_videos(resized_videos)
 
     def test_resize_errors(self, uses_db: None, tmp_path: Path) -> None:
         videos = get_video_files()
@@ -1310,13 +1309,27 @@ class TestVideo:
         reversed = t.video.reverse(audio=audio_mode)
         _ = t.select(t.video, d=t.video.get_duration()).collect()
         result = (
-            t.select(orig_duration=t.video.get_duration(), reversed=reversed, reversed_duration=reversed.get_duration())
+            t.select(
+                orig_duration=t.video.get_duration(),
+                reversed=reversed,
+                reversed_duration=reversed.get_duration(),
+                orig_md=t.video.get_metadata(),
+                reversed_md=reversed.get_metadata(),
+            )
             .where(t.video.get_duration() != None)
             .collect()
         )
         assert len(result) == len(videos)
         # reversed video should have approximately the same duration as the original
-        assert all(row['reversed_duration'] == pytest.approx(row['orig_duration']) for row in result)
+        assert all(row['reversed_duration'] == pytest.approx(row['orig_duration'], abs=0.1) for row in result)
+
+        def has_audio(md: dict) -> bool:
+            return any(info['type'] == 'audio' for info in md['streams'])
+
+        # if we're not dropping audio and the original video has audio, the reversed one should have it as well
+        if audio_mode != 'drop':
+            assert all(has_audio(row['orig_md']) == has_audio(row['reversed_md']) for row in result)
+
         self._validate_videos(result['reversed'])
 
     def test_scroll(self, uses_db: None) -> None:

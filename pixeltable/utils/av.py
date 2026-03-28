@@ -114,7 +114,7 @@ def get_video_duration(path: str) -> float | None:
         if max_pts is not None:
             end_pts = max_pts + (max_pts_duration or 0)
             result = float(end_pts * video_stream.time_base)
-            # the video stream can't be longer than the container, but some demuxers
+            # the vdeo stream can't be longer than the container, but some demuxers
             # (e.g. MPEG) emit trailing packets past the real end
             if container.duration is not None:
                 result = min(result, container.duration / 1_000_000)

@@ -280,7 +280,7 @@ def _append_video_encoder(
     cmd.extend(['-c:v', video_encoder])
     if video_encoder_args is not None:
         for k, v in video_encoder_args.items():
-            cmd.append(f'-{k}', str(v))
+            cmd.extend([f'-{k}', str(v)])
 
 
 @pxt.udf(is_method=True)
