@@ -271,6 +271,19 @@ def _handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
     raise pxt.Error(error_msg) from e
 
 
+def _run_ffmpeg(cmd: list[str], output_path: str) -> str:
+    """Run an ffmpeg command, verify the output file, and return its path."""
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
 def _append_video_encoder(
     cmd: list[str], video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
 ) -> None:
@@ -355,15 +368,7 @@ def clip(
         video_encoder_args=video_encoder_args,
     )
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 @pxt.udf(is_method=True)
@@ -787,15 +792,7 @@ def with_audio(
 
     _logger.debug(f'with_audio(): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 @pxt.udf(is_method=True)
@@ -936,15 +933,7 @@ def overlay_text(
     ]
     _logger.debug(f'overlay_text(): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 def _create_drawtext_params(
@@ -1089,15 +1078,7 @@ def crop(
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'crop(): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 @pxt.udf(is_method=True)
@@ -1169,15 +1150,7 @@ def resize(
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'resize(): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 @pxt.udf(is_method=True)
@@ -1282,15 +1255,7 @@ def reverse(
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'reverse(): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 def _fade(
@@ -1319,15 +1284,7 @@ def _fade(
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'fade_{direction}(): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 @pxt.udf(is_method=True)
@@ -1486,15 +1443,7 @@ def speed(
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'speed(): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 def _flip(
@@ -1512,15 +1461,7 @@ def _flip(
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'_flip({orientation}): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 @pxt.udf(is_method=True)
@@ -1639,15 +1580,7 @@ def rotate(
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'rotate(): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 @pxt.udf(is_method=True)
@@ -1684,15 +1617,7 @@ def grayscale(
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'grayscale(): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 def pan(video: Any, *, direction: Literal['left', 'right', 'up', 'down'] = 'right', crop_pct: float = 0.2) -> Any:
@@ -1868,15 +1793,7 @@ def scroll(
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'scroll(): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 @pxt.udf(is_method=True)
@@ -1977,15 +1894,7 @@ def zoom(
     cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'zoom(): {" ".join(cmd)}')
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output_file = Path(output_path)
-        if not output_file.exists() or output_file.stat().st_size == 0:
-            stderr_output = result.stderr.strip() if result.stderr is not None else ''
-            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
-        return output_path
-    except subprocess.CalledProcessError as e:
-        _handle_ffmpeg_error(e)
+    return _run_ffmpeg(cmd, output_path)
 
 
 @pxt.udf(is_method=True)
