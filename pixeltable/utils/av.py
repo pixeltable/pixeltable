@@ -134,7 +134,7 @@ def get_segment_duration(path: str, approx_decoded_bytes: int) -> float | None:
     Return the length of a segment for which the combined in-memory size of all its decoded frames is roughly
     approx_decoded_bytes.
 
-    If the frame rate or dimensions cannot be determined, returns a conservative fallback (1 second).
+    Returns None f the frame rate or dimensions cannot be determined.
     """
     # bytes of memory per pixel of decoded frames, by pixel format
     bytes_per_pixel = {
