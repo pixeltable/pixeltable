@@ -118,6 +118,7 @@ class RowBuilder:
         input_exprs: Iterable[Expr],
         tbl: catalog.TableVersion | None = None,
         for_view_load: bool = False,
+        for_insert: bool = False,
     ):
         from .column_property_ref import ColumnPropertyRef
         from .column_ref import ColumnRef
@@ -165,7 +166,7 @@ class RowBuilder:
                     if not col.col_type.is_media_type()
                     else col.media_validation == catalog.MediaValidation.ON_WRITE
                 )
-                expr = ColumnRef(col, perform_validation=perform_validation)
+                expr = ColumnRef(col, perform_validation=perform_validation, for_insert=for_insert)
                 # recursive=True: needed for validating ColumnRef
                 expr = self._record_unique_expr(expr, recursive=True)
 

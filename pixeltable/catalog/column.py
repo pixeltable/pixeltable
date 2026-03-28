@@ -257,10 +257,10 @@ class Column:
                     )
                 # Ensure the column type is one that Literal supports
                 if not (
-                        col_type.is_scalar_type()
-                        or col_type.is_json_type()
-                        or col_type.is_array_type()
-                        or col_type.is_binary_type()
+                    col_type.is_scalar_type()
+                    or col_type.is_json_type()
+                    or col_type.is_array_type()
+                    or col_type.is_binary_type()
                 ):
                     raise excs.Error(
                         f'Column {name!r}: Default values are only supported for scalar types '

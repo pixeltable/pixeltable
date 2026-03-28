@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import dataclasses
 import enum
 from textwrap import dedent
@@ -404,20 +405,77 @@ class Planner:
         cls, tbl: catalog.TableVersion, query: 'pxt.Query', ignore_errors: bool
     ) -> exec.ExecNode:
         assert not tbl.is_view
-        plan = query._create_query_plan()  # ExecNode constructed by the Query
 
-        # Modify the plan RowBuilder to register the output columns
+        query_col_names = set(query.schema.keys())
+
+        # map ColumnRef(dst.col) -> query expr for cols covered by the query
+        # needed so btree val cols can resolve dst.col -> query slot
+        substitution: dict[exprs.Expr, exprs.Expr] = {
+            exprs.ColumnRef(tbl.cols_by_name[col_name]): expr
+            for col_name, expr in zip(query.schema.keys(), query._select_list_exprs)
+            if col_name in tbl.cols_by_name
+        }
+
+        # all stored cols not covered by the query by name
+        # for computed cols: substitute value_expr so btree val cols resolve dst.col -> query slot
+        # for non-computed cols: for_insert=True ColumnRef will write default or None
+        extra_cols: list[catalog.Column] = []
+        for col in tbl.cols_by_id.values():
+            if not col.is_stored or col.name in query_col_names:
+                continue
+            if col.is_computed and col.value_expr is not None:
+                extra_col = copy.copy(col)
+                extra_col.set_value_expr(col.value_expr.copy().substitute(substitution))
+                extra_cols.append(extra_col)
+            else:
+                extra_cols.append(col)
+
+        # build analyzer from query components
+        analyzer = Analyzer(
+            query._from_clause,
+            query._select_list_exprs,
+            where_clause=query.where_clause,
+            group_by_clause=query.group_by_clause,
+            order_by_clause=query.order_by_clause,
+            sample_clause=query.sample_clause,
+        )
+
+        # build row builder with all exprs; analyzer exprs + extra cols
+        row_builder = exprs.RowBuilder(
+            output_exprs=analyzer.all_exprs, columns=extra_cols, input_exprs=[], tbl=tbl, for_insert=True
+        )
+        analyzer.finalize(row_builder)
+
+        query_eval_ctx = row_builder.create_eval_ctx(analyzer.select_list)
+        plan = cls._create_query_plan(row_builder=row_builder, analyzer=analyzer, eval_ctx=query_eval_ctx, with_pk=True)
+
+        # extra cols are in default_eval_ctx but not handled by the query plan
+        query_target_set = exprs.ExprSet(query_eval_ctx.target_exprs)
+        extra_col_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if e not in query_target_set]
+        if extra_col_exprs:
+            plan = exec.ExprEvalNode(
+                row_builder,
+                output_exprs=extra_col_exprs,
+                input_exprs=row_builder.input_exprs,
+                input=plan,
+                maintain_input_order=False,
+            )
+
+        # register query columns in table_columns so create_store_table_row knows which slot to read for each dst column
         needs_cell_materialization = False
         for col_name, expr in zip(query.schema.keys(), query._select_list_exprs):
-            assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
             needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
+
+        # extra cols were registered by RowBuilder.__init__ via add_table_column
+        for col in extra_cols:
+            needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
+
         if needs_cell_materialization:
             plan = exec.CellMaterializationNode(plan)
 
         plan.set_ctx(exec.ExecContext(plan.row_builder, batch_size=0, ignore_errors=ignore_errors))
-
         return plan
 
     @classmethod
@@ -845,8 +903,7 @@ class Planner:
         if len(view_output_exprs) > 0:
             if propagates_insert:
                 view_additional_with_defaults = {
-                    c for c in stored_cols
-                    if c.get_tbl().id == target.id and not c.is_computed and c.has_default_value
+                    c for c in stored_cols if c.get_tbl().id == target.id and not c.is_computed and c.has_default_value
                 }
                 for e in view_output_exprs:
                     if isinstance(e, exprs.ColumnRef) and e.col in view_additional_with_defaults:

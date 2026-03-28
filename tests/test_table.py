@@ -3437,3 +3437,62 @@ class TestTable:
         # check that raw object JSON comments are rejected for columns
         with pytest.raises(pxt.Error, match="'comment' must be a string"):
             pxt.create_table('tbl_invalid', {'c': {'type': pxt.Int, 'comment': {'comment': 'This is a test column.'}}})  # type: ignore[dict-item]
+
+    def test_insert_query_btree_existing(self, uses_db: None) -> None:
+        """Verify btree index works after query insert when query covers all columns."""
+        src = pxt.create_table('src', {'c1': pxt.Required[pxt.Int], 'c2': pxt.Required[pxt.String]})
+        src.insert([{'c1': i, 'c2': str(i)} for i in range(10)])
+
+        dst = pxt.create_table('dst', {'c1': pxt.Required[pxt.Int], 'c2': pxt.Required[pxt.String]})
+        dst.insert(src.select(src.c1, src.c2))
+
+        result = dst.where(dst.c1 == 5).collect()
+        assert len(result) == 1
+        assert result[0]['c1'] == 5
+
+        dst.insert(src.select(src.c1, src.c2))
+        assert dst.count() == 20
+        result = dst.where(dst.c1 == 5).collect()
+        assert len(result) == 2
+
+    def test_insert_query_with_defaults(self, uses_db: None) -> None:
+        """Insert via query into a table that has columns with default values not covered by the query."""
+        src = pxt.create_table('src', {'c1': pxt.Required[pxt.Int], 'c2': pxt.Required[pxt.String]})
+        src.insert([{'c1': i, 'c2': str(i)} for i in range(5)])
+
+        dst = pxt.create_table(
+            'dst',
+            {
+                'c1': pxt.Required[pxt.Int],
+                'c2': pxt.Required[pxt.String],
+                'c3': {'type': pxt.Int, 'default': 99},
+                'c4': {'type': pxt.String, 'default': 'hello'},
+            },
+        )
+
+        query = src.select(src.c1, src.c2)
+        dst.insert(query)
+
+        result = dst.order_by(dst.c1).collect()
+        assert len(result) == 5
+        for row in result:
+            assert row['c2'] == str(row['c1'])
+            assert row['c3'] == 99
+            assert row['c4'] == 'hello'
+
+        dst.insert(query)
+        assert dst.count() == 10
+        assert dst.where(dst.c3 != 99).count() == 0
+        assert dst.where(dst.c4 != 'hello').count() == 0
+
+        # insert covering c1, c2, c3 — c3 explicitly None, c4 should still get default
+        src2 = pxt.create_table('src2', {'c1': pxt.Required[pxt.Int], 'c2': pxt.Required[pxt.String], 'c3': pxt.Int})
+        src2.insert([{'c1': 10, 'c2': 'ten', 'c3': None}])
+        status = dst.insert(src2.select(src2.c1, src2.c2, src2.c3))
+        assert status.num_rows == 1
+        assert status.num_excs == 0
+        assert dst.count() == 11
+        result2 = dst.where(dst.c1 == 10).collect()
+        assert len(result2) == 1
+        assert result2[0]['c3'] is None
+        assert result2[0]['c4'] == 'hello'

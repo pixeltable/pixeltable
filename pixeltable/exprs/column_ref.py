@@ -66,7 +66,7 @@ class ColumnRef(Expr):
     base_rowid: Sequence[Any | None]
     iterator: Iterator
     pos_idx: int
-    
+
     for_insert: bool  # if True, this column is being inserted into a table
 
     def __init__(
@@ -105,9 +105,7 @@ class ColumnRef(Expr):
         self.for_insert = for_insert if for_insert is not None else False
 
         if self.perform_validation:
-            non_validating_col_ref = ColumnRef(
-                col, perform_validation=False, for_insert=for_insert
-            )
+            non_validating_col_ref = ColumnRef(col, perform_validation=False, for_insert=for_insert)
             self.components = [non_validating_col_ref]
         self.id = self._create_id()
 
@@ -452,11 +450,7 @@ class ColumnRef(Expr):
         if not self.is_unstored_iter_col:
             # Only fill default when the slot has no value and this ref is used in insert/view propagation
             if not data_row.has_val[self.slot_idx]:
-                if (
-                    self.for_insert
-                    and self.col.has_default_value
-                    and self.col.default_value_expr is not None
-                ):
+                if self.for_insert and self.col.has_default_value and self.col.default_value_expr is not None:
                     data_row[self.slot_idx] = self.col.default_value_expr.val
                 else:
                     data_row[self.slot_idx] = None

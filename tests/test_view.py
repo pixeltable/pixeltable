@@ -1291,6 +1291,25 @@ class TestView:
         assert_row_subset(new_row, {**base_defaults, **v1_defaults})
         assert new_row['v1_computed'] == 1003
 
+        # computed column in view that depends on base_val (which has default 10)
+        # must see 10, not None — defaults must be materialized before expr evaluation
+        v1.add_computed_column(col1_plus_base=v1.v1_int + t.base_int)
+        row = v1.where(v1.c1 == 3).collect()[0]
+        assert row['base_int'] == 10, f'Expected base_int=10, got {row["base_int"]}'
+        assert row['v1_int'] == 100, f'Expected v1_int=100, got {row["v1_int"]}'
+        assert row['col1_plus_base'] == 110, (
+            f'Expected col1_plus_base=110 (v1_int+base_int=100+10), got {row["col1_plus_base"]}'
+        )
+
+        # view propagation must apply defaults before evaluating col1_plus_base
+        t.insert([{'c1': 4}])
+        row = v1.where(v1.c1 == 4).collect()[0]
+        assert row['base_int'] == 10
+        assert row['v1_int'] == 100
+        assert row['col1_plus_base'] == 110, (
+            f'Expected 110 via propagation, got {row["col1_plus_base"]} — defaults not applied before expr eval'
+        )
+
         reload_tester.run_query(v1.select())
         reload_tester.run_query(v2.select())
         reload_tester.run_reload_test()

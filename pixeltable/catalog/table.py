@@ -32,7 +32,6 @@ from ..exprs import ColumnRef
 from ..utils.description_helper import DescriptionHelper
 from ..utils.filecache import FileCache
 from .column import Column
-
 from .globals import _ROWID_COLUMN_NAME, IfExistsParam, IfNotExistsParam, MediaValidation, is_valid_identifier
 from .schema_object import SchemaObject
 from .table_version_handle import TableVersionHandle
