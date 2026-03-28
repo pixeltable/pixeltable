@@ -11,6 +11,16 @@ from ..utils import ensure_s3_pytest_resources_access
 EXPECTED_SCHEMA = {
     'name': ts.StringType(nullable=True),
     'human': ts.BoolType(nullable=True),
+    'parents': ts.JsonType(nullable=True),
+    'age': ts.FloatType(nullable=True),
+    'metadata': ts.JsonType(nullable=True),
+    'children': ts.IntType(nullable=True),
+}
+
+
+EXPECTED_SCHEMA_WITH_JSON_INFERENCE = {
+    'name': ts.StringType(nullable=True),
+    'human': ts.BoolType(nullable=True),
     'parents': ts.JsonType(ts.JsonType.TypeSchema([ts.StringType(), ts.StringType()]), nullable=True),
     'age': ts.FloatType(nullable=True),
     'metadata': ts.JsonType(ts.JsonType.TypeSchema({'first_appearance': ts.StringType()}), nullable=True),
