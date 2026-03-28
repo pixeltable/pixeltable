@@ -379,10 +379,8 @@ class TestVideo:
         assert df['clip_5_10_duration'].between(5.0, 6.0).all()
         assert df['clip_0_5_duration'].between(5.0, 6.0).all()
 
-        # insert generated clips into video_t to verify that they are valid videos
-        t.insert({'video': row['clip_5_10']} for row in result)
-        t.insert({'video': row['clip_0_5']} for row in result)
-        t.insert({'video': row['clip_10_end']} for row in result)
+        # validate generated clips
+        self._validate_videos(result['clip_5_10'] + result['clip_0_5'] + result['clip_10_end'])
 
         # requesting a time range past the end of the video returns None
         duration = t.video.get_metadata().streams[0].duration_seconds
@@ -1116,8 +1114,8 @@ class TestVideo:
         assert all(md['streams'][0]['width'] == 160 for md in result['cropped_md'])
         assert all(md['streams'][0]['height'] == 80 for md in result['cropped_md'])
 
-        # insert cropped videos to verify they're valid
-        t.insert(({'video': row['cropped']} for row in result), on_error='abort')
+        # validate output videos
+        self._validate_videos(result['cropped'])
 
     def test_crop_with_column(self, uses_db: None) -> None:
         """Test crop() with bbox values from a table column."""
@@ -1351,8 +1349,8 @@ class TestVideo:
             # output height should be unchanged
             assert out_h == row['orig_h']
 
-        # verify scrolled videos are valid by inserting them back
-        t.insert(({'video': row['scrolled']} for row in result), on_error='abort')
+        # validate output videos
+        self._validate_videos(result['scrolled'])
 
     def test_scroll_errors(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
@@ -1397,10 +1395,8 @@ class TestVideo:
             assert row['zoomed_in_md']['streams'][0]['width'] == row['orig_w']
             assert row['zoomed_in_md']['streams'][0]['height'] == row['orig_h']
 
-        # verify zoomed videos are valid by inserting them back
-        t.insert(({'video': row['zoomed_in']} for row in result), on_error='abort')
-        t.insert(({'video': row['zoomed_out']} for row in result), on_error='abort')
-        t.insert(({'video': row['zoomed_corner']} for row in result), on_error='abort')
+        # validate output videos
+        self._validate_videos(result['zoomed_in'] + result['zoomed_out'] + result['zoomed_corner'])
 
     def test_zoom_errors(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
@@ -1438,7 +1434,7 @@ class TestVideo:
             assert row['faded'] is not None
             assert abs(row['faded_duration'] - row['orig_duration']) < 0.5
 
-        t.insert(({'video': row['faded']} for row in result), on_error='abort')
+        self._validate_videos(result['faded'])
 
     def test_fade_out(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
@@ -1462,7 +1458,7 @@ class TestVideo:
             assert row['faded'] is not None
             assert abs(row['faded_duration'] - row['orig_duration']) < 0.5
 
-        t.insert(({'video': row['faded']} for row in result), on_error='abort')
+        self._validate_videos(result['faded'])
 
     def test_speed(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
@@ -1488,7 +1484,7 @@ class TestVideo:
             assert row['fast'] is not None
             assert abs(row['fast_duration'] - row['orig_duration'] / 2) < 1.0
 
-        t.insert(({'video': row['fast']} for row in result), on_error='abort')
+        self._validate_videos(result['fast'])
 
     def test_speed_errors(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
@@ -1526,8 +1522,7 @@ class TestVideo:
             assert row['my_md']['streams'][0]['width'] == row['orig_w']
             assert row['my_md']['streams'][0]['height'] == row['orig_h']
 
-        t.insert(({'video': row['mx']} for row in result), on_error='abort')
-        t.insert(({'video': row['my']} for row in result), on_error='abort')
+        self._validate_videos(result['mx'] + result['my'])
 
     def test_rotate(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
@@ -1561,8 +1556,7 @@ class TestVideo:
             assert row['expanded_md']['streams'][0]['width'] >= row['orig_w']
             assert row['expanded_md']['streams'][0]['height'] >= row['orig_h']
 
-        t.insert(({'video': row['rotated']} for row in result), on_error='abort')
-        t.insert(({'video': row['expanded']} for row in result2), on_error='abort')
+        self._validate_videos(result['rotated'] + result2['expanded'])
 
     def test_grayscale(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
@@ -1581,7 +1575,7 @@ class TestVideo:
             assert row['gray_md']['streams'][0]['width'] == row['orig_w']
             assert row['gray_md']['streams'][0]['height'] == row['orig_h']
 
-        t.insert(({'video': row['gray']} for row in result), on_error='abort')
+        self._validate_videos(result['gray'])
 
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')
