@@ -4,7 +4,7 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 
 ## Stack
 
-**Backend:** stdlib `ThreadingHTTPServer` — one thread per request, no async, no deps. Binds `127.0.0.1:8080`.
+**Backend:** stdlib `ThreadingHTTPServer` — one thread per request, no async, no deps. Binds `127.0.0.1:22089`.
 **Frontend:** React 18 + Vite + TypeScript + Tailwind. `@xyflow/react` + `dagre` for DAGs. No state library.
 
 ## Backend (`pixeltable/dashboard/`)
@@ -36,7 +36,7 @@ Read-only local UI for inspecting Pixeltable databases. No writes, no auth.
 
 | Endpoint | Returns | Params |
 |----------|---------|--------|
-| `/api/health` | `{status, version}` | — |
+| `/api/pixeltable-health` | `{status, version}` | — |
 | `/api/dirs` | Directory tree + error counts | — |
 | `/api/status` | Version, config, total_tables, total_errors | — |
 | `/api/search` | Matching dirs, tables, columns | `q`, `limit` (50, max 100) |
@@ -79,7 +79,7 @@ Port conflicts auto-detected. If the configured port is taken by a non-Pixeltabl
 ## Dev & Release
 
 ```
-cd dashboard && npm run dev   # :5173 hot reload → :8080 backend
+cd dashboard && npm run dev   # :5173 hot reload → :22089 backend
 npm run build                 # → pixeltable/dashboard/static/
 ```
 
