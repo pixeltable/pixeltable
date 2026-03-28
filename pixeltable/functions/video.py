@@ -1156,6 +1156,96 @@ def resize(
 
 
 @pxt.udf(is_method=True)
+def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop') -> pxt.Video:
+    """
+    Reverse a video using ffmpeg's scale filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        audio: what to do with audio streams
+
+            - `'drop'`: drop the audio streams
+            - `'reverse'`: also reverse the audio streams
+            - `'keep'`: keep the audio streams
+
+    Returns:
+        The reversed video.
+
+    Examples:
+        Reverse a video, dropping audio:
+
+        >>> tbl.select(tbl.video.reverse()).collect()
+
+        Reverse a video along with its audio:
+
+        >>> tbl.select(tbl.video.reverse(audio='reverse')).collect()
+    """
+
+    Env.get().require_binary('ffmpeg')
+
+    SEG_BYTES = 2**30
+    seg_len = av_utils.get_segment_duration(video, SEG_BYTES)
+
+    with av.open(video) as container:
+        stream = next(s for s in container.streams if s.type == 'video')
+        duration = float(stream.duration * stream.time_base)
+        has_audio = any(s.type == 'audio' for s in container.streams)
+
+    starts: list[float] = []
+    t = 0.0
+    while t < duration:
+        starts.append(t)
+        t += seg_len
+
+    n = len(starts)
+    filter_parts: list[str] = []
+
+    for i, start in enumerate(starts):
+        is_last = i == n - 1
+        end_clause = '' if is_last else f':end={start + seg_len}'
+
+        filter_parts.append(f'[0:v]trim=start={start}{end_clause},setpts=PTS-STARTPTS,reverse[v{i}]')
+        if audio == 'reverse' and has_audio:
+            filter_parts.append(f'[0:a]atrim=start={start}{end_clause},asetpts=PTS-STARTPTS,areverse[a{i}]')
+
+    v_inputs = ''.join(f'[v{i}]' for i in range(n - 1, -1, -1))
+    filter_parts.append(f'{v_inputs}concat=n={n}:v=1:a=0[v]')
+
+    if audio == 'reverse' and has_audio:
+        a_inputs = ''.join(f'[a{i}]' for i in range(n - 1, -1, -1))
+        filter_parts.append(f'{a_inputs}concat=n={n}:v=0:a=1[a]')
+
+    filtergraph = '; '.join(filter_parts)
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    video_encoder = Env.get().default_video_encoder
+
+    cmd = ['ffmpeg', '-i', str(video), '-filter_complex', filtergraph, '-map', '[v]', '-c:v', video_encoder]
+
+    if audio == 'reverse' and has_audio:
+        cmd.extend(['-map', '[a]'])
+    elif audio == 'keep' and has_audio:
+        cmd.extend(['-map', '0:a', '-c:a', 'copy'])
+
+    cmd.extend(['-loglevel', 'error', output_path])
+    _logger.debug(f'reverse(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
+
+
+@pxt.udf(is_method=True)
 def scene_detect_adaptive(
     video: pxt.Video,
     *,

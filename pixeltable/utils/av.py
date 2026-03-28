@@ -107,6 +107,51 @@ def has_audio_stream(path: str) -> bool:
     return any(stream['type'] == 'audio' for stream in md['streams'])
 
 
+def get_segment_duration(path: str, approx_decoded_bytes: int) -> float | None:
+    """
+    Return the length of a segment for which the combined in-memory size of all its decoded frames is roughly
+    approx_decoded_bytes
+    """
+    # bytes of memory per pixel of decoded frames, by pixel format
+    bytes_per_pixel = {
+        # 4:2:0: chroma planes are quarter size
+        'yuv420p': 1.5,
+        'yuvj420p': 1.5,
+        # 4:2:2: chroma planes are half size
+        'yuv422p': 2.0,
+        'yuvj422p': 2.0,
+        # 4:4:4: all planes full size
+        'yuv444p': 3.0,
+        'yuvj444p': 3.0,
+        # packed 4:2:0 variants (Android/camera common)
+        'nv12': 1.5,
+        'nv21': 1.5,
+        #
+        'rgb24': 3.0,
+        'bgr24': 3.0,
+        'rgba': 4.0,
+        'bgra': 4.0,
+    }
+
+    with av.open(path) as container:
+        stream = next(s for s in container.streams if s.type == 'video')
+        codec_ctx = stream.codec_context
+
+        width = codec_ctx.width
+        height = codec_ctx.height
+        pix_fmt = codec_ctx.pix_fmt
+
+        # average_rate is the right choice for VFR content:
+        # we want mean frame density to estimate buffer size, not the timebase rate (base_rate / r_frame_rate), which
+        # can be much higher.
+        fps = float(stream.average_rate)
+
+    bpp = bytes_per_pixel.get(pix_fmt, 1.5)  # fall back to yuv420p; most web/camera content
+    bytes_per_frame = width * height * bpp
+    frames_per_segment = approx_decoded_bytes / bytes_per_frame
+    return frames_per_segment / fps
+
+
 def ffmpeg_clip_cmd(
     input_path: str,
     output_path: str,
