@@ -1389,7 +1389,13 @@ def scroll(
     Env.get().require_binary('ffmpeg')
 
     if x_speed == 0 and y_speed == 0:
-        raise pxt.Error('at least one of x_speed or y_speed must be non-zero')
+        raise pxt.Error('at least one of `x_speed` or `y_speed` must be non-zero')
+    if w is None and h is None:
+        raise pxt.Error('at least one of `w` or `h` must be specified')
+    if w is not None and w <= 0:
+        raise pxt.Error(f'`w` must be positive, got {w}')
+    if h is not None and h <= 0:
+        raise pxt.Error(f'`h` must be positive, got {h}')
 
     # Read input dimensions to fill in defaults and validate
     with av.open(video) as container:
@@ -1400,8 +1406,6 @@ def scroll(
     out_w = w if w is not None else in_w
     out_h = h if h is not None else in_h
 
-    if out_w <= 0 or out_h <= 0:
-        raise pxt.Error(f'viewport dimensions must be positive, got w={out_w}, h={out_h}')
     if out_w > in_w or out_h > in_h:
         raise pxt.Error(f'viewport ({out_w}x{out_h}) must not exceed input dimensions ({in_w}x{in_h})')
     if out_w == in_w and out_h == in_h:
@@ -1418,9 +1422,9 @@ def scroll(
 
     # Build the crop filter with time-dependent x/y expressions and edge clamping.
     # Example for w=1280 on a 1920-wide input, x_start=0, x_speed=64:
-    #   crop=1280:1080:min(640\,max(0\,0+64*t)):0
-    x_expr = f'min({x_max}\,max(0\,{x_start}+{x_speed}*t))'
-    y_expr = f'min({y_max}\,max(0\,{y_start}+{y_speed}*t))'
+    # crop=1280:1080:min(640\,max(0\,0+64*t)):0
+    x_expr = f'min({x_max}\\,max(0\\,{x_start}+{x_speed}*t))'
+    y_expr = f'min({y_max}\\,max(0\\,{y_start}+{y_speed}*t))'
     crop_filter = f'crop={out_w}:{out_h}:{x_expr}:{y_expr}'
 
     output_path = str(TempStore.create_path(extension='.mp4'))
@@ -1505,23 +1509,20 @@ def zoom(
         raise pxt.Error(f'start_scale must be >= 1.0, got {start_scale}')
     if end_scale < 1.0:
         raise pxt.Error(f'end_scale must be >= 1.0, got {end_scale}')
-    if center is not None:
-        if len(center) != 2 or not all(0.0 <= c <= 1.0 for c in center):
-            raise pxt.Error(f'center must be [x, y] with values in [0.0, 1.0], got {center}')
+    if center is not None and (len(center) != 2 or not all(0.0 <= c <= 1.0 for c in center)):
+        raise pxt.Error(f'center must be [x, y] with values in [0.0, 1.0], got {center}')
     cx, cy = center if center is not None else [0.5, 0.5]
 
-    # Read input dimensions and fps for zoompan configuration
     with av.open(video) as container:
         video_stream = container.streams.video[0]
         in_w = video_stream.width
         in_h = video_stream.height
         fps = float(video_stream.average_rate)
 
-    # The zoompan filter evaluates z/x/y expressions per frame.
+    # zoompan evaluates z/x/y expressions per frame.
     # 'on' is the output frame number (0-based); we use it to interpolate the zoom factor linearly.
-    # 'd=1' means each input frame produces exactly 1 output frame (important for video input;
-    # zoompan was originally designed for still images, where d controls how many frames to generate).
-    #
+    # 'd=1' means each input frame produces exactly 1 output frame
+
     # Example for start_scale=1.0, end_scale=1.3, center=(0.5, 0.5), fps=25, 10s 1920x1080 video:
     #   zoompan=z='1.0+(1.3-1.0)*on/249':x='iw*0.5*(1-1/zoom)':y='ih*0.5*(1-1/zoom)'
     #           :d=1:s=1920x1080:fps=25

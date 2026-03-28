@@ -134,17 +134,16 @@ def get_segment_duration(path: str, approx_decoded_bytes: int) -> float | None:
     }
 
     with av.open(path) as container:
-        stream = next(s for s in container.streams if s.type == 'video')
-        codec_ctx = stream.codec_context
+        video_stream = container.streams.video[0]
 
-        width = codec_ctx.width
-        height = codec_ctx.height
-        pix_fmt = codec_ctx.pix_fmt
+        width = video_stream.width
+        height = video_stream.height
+        pix_fmt = video_stream.codec_context.pix_fmt
 
         # average_rate is the right choice for VFR content:
         # we want mean frame density to estimate buffer size, not the timebase rate (base_rate / r_frame_rate), which
         # can be much higher.
-        fps = float(stream.average_rate)
+        fps = float(video_stream.average_rate)
 
     bpp = bytes_per_pixel.get(pix_fmt, 1.5)  # fall back to yuv420p; most web/camera content
     bytes_per_frame = width * height * bpp
