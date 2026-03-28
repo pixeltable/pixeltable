@@ -1213,11 +1213,11 @@ def reverse(
     segment_bytes = 2**30
     segment_duration = av_utils.get_segment_duration(video, segment_bytes)
 
+    duration = av_utils.get_video_duration(video)
+    if duration is None:
+        raise excs.Error(f'reverse(): could not determine video duration: {video}')
+
     with av.open(video) as container:
-        stream = next(s for s in container.streams if s.type == 'video')
-        if stream.duration is None:
-            raise excs.Error(f'reverse(): video is missing duration: {video}')
-        duration = float(stream.duration * stream.time_base)
         has_audio = any(s.type == 'audio' for s in container.streams)
 
     starts = [segment_duration * i for i in range(math.ceil(duration / segment_duration))]

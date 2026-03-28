@@ -1309,9 +1309,11 @@ class TestVideo:
 
         reversed = t.video.reverse(audio=audio_mode)
         _ = t.select(t.video, d=t.video.get_duration()).collect()
-        result = t.select(
-            orig_duration=t.video.get_duration(), reversed=reversed, reversed_duration=reversed.get_duration()
-        ).where(t.video.get_duration() != None).collect()
+        result = (
+            t.select(orig_duration=t.video.get_duration(), reversed=reversed, reversed_duration=reversed.get_duration())
+            .where(t.video.get_duration() != None)
+            .collect()
+        )
         assert len(result) == len(videos)
         # reversed video should have approximately the same duration as the original
         assert all(row['reversed_duration'] == pytest.approx(row['orig_duration']) for row in result)

@@ -97,17 +97,19 @@ def get_video_duration(path: str) -> float | None:
         if video_stream.duration is not None:
             return float(video_stream.duration * video_stream.time_base)
 
-        # Fall back to scanning packets to find the end of the last one.
-        # We intentionally skip container.duration here because it may reflect the audio stream
-        # duration, which can differ from the video stream duration.
-        last_pts: int | None = None
-        last_duration: int | None = None
+        # Fall back to scanning packets to find the latest presentation timestamp.
+        # We track the maximum PTS rather than the last packet's PTS because B-frame reordering
+        # (common in h264/h265) means packets are demuxed in decode order, not presentation order.
+        # The last demuxed packet may be a B-frame that presents before the final I/P frame.
+        # We intentionally skip container.duration because it may reflect the audio stream duration.
+        max_pts: int | None = None  # max observed packet.pts
+        max_pts_duration: int | None = None  # duration of that packet
         for packet in container.demux(video_stream):
-            if packet.pts is not None:
-                last_pts = packet.pts
-                last_duration = packet.duration
-        if last_pts is not None:
-            end_pts = last_pts + (last_duration or 0)
+            if packet.pts is not None and (max_pts is None or packet.pts > max_pts):
+                max_pts = packet.pts
+                max_pts_duration = packet.duration
+        if max_pts is not None:
+            end_pts = max_pts + (max_pts_duration or 0)
             return float(end_pts * video_stream.time_base)
 
         return None
