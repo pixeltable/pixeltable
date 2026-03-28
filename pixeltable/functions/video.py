@@ -1187,8 +1187,11 @@ def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop'
 
     Env.get().require_binary('ffmpeg')
 
-    SEG_BYTES = 2**30
-    seg_len = av_utils.get_segment_duration(video, SEG_BYTES)
+    # ffmpeg's reverse filter requires all frames to be decoded into memory at once, which can exhaust RAM on
+    # long or high-resolution videos. To avoid this, we split the video into segments whose decoded frames fit
+    # within ~1 GB, reverse each segment independently, then concatenate the reversed segments in reverse order.
+    segment_bytes = 2**30
+    segment_duration = av_utils.get_segment_duration(video, segment_bytes)
 
     with av.open(video) as container:
         stream = next(s for s in container.streams if s.type == 'video')
@@ -1199,14 +1202,25 @@ def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop'
     t = 0.0
     while t < duration:
         starts.append(t)
-        t += seg_len
+        t += segment_duration
 
+    # Build the filtergraph. For a 25s video with seg_len=10, starts=[0, 10, 20] and the filtergraph is:
+    #
+    #   [0:v]trim=start=0:end=10,setpts=PTS-STARTPTS,reverse[v0];
+    #   [0:v]trim=start=10:end=20,setpts=PTS-STARTPTS,reverse[v1];
+    #   [0:v]trim=start=20,setpts=PTS-STARTPTS,reverse[v2];
+    #   [v2][v1][v0]concat=n=3:v=1:a=0[v]
+    #
+    # Each segment is: trim to time range -> reset timestamps -> reverse.
+    # The last segment omits :end= so it runs to the end of the stream.
+    # The concat inputs are listed in reverse order ([v2][v1][v0]) so the last segment of the original
+    # video becomes the first segment of the output.
     n = len(starts)
     filter_parts: list[str] = []
 
     for i, start in enumerate(starts):
         is_last = i == n - 1
-        end_clause = '' if is_last else f':end={start + seg_len}'
+        end_clause = '' if is_last else f':end={start + segment_duration}'
 
         filter_parts.append(f'[0:v]trim=start={start}{end_clause},setpts=PTS-STARTPTS,reverse[v{i}]')
         if audio == 'reverse' and has_audio:
@@ -1221,6 +1235,10 @@ def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop'
 
     filtergraph = '; '.join(filter_parts)
 
+    # Example commandline (audio='reverse'):
+    #   ffmpeg -i input.mp4 -filter_complex "<filtergraph>" -map [v] -c:v libx264 -map [a] -loglevel error out.mp4
+    # audio='keep': -map 0:a -c:a copy (passes original audio through without the filtergraph)
+    # audio='drop': no audio mapping, so ffmpeg omits audio from the output
     output_path = str(TempStore.create_path(extension='.mp4'))
     video_encoder = Env.get().default_video_encoder
 
@@ -1243,6 +1261,22 @@ def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop'
         return output_path
     except subprocess.CalledProcessError as e:
         _handle_ffmpeg_error(e)
+
+
+def zoom_in(video: pxt.Video, max_scale: float = 1.3) -> pxt.Video:
+    pass
+
+
+def zoom_out(video: pxt.Video, max_scale: float = 1.3) -> pxt.Video:
+    pass
+
+
+def pan_left(video: pxt.Video, crop_pct: float = 0.2) -> pxt.Video:
+    pass
+
+
+def pan_right(video: pxt.Video, crop_pct: float = 0.2) -> pxt.Video:
+    pass
 
 
 @pxt.udf(is_method=True)

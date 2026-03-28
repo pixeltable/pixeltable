@@ -126,7 +126,7 @@ def get_segment_duration(path: str, approx_decoded_bytes: int) -> float | None:
         # packed 4:2:0 variants (Android/camera common)
         'nv12': 1.5,
         'nv21': 1.5,
-        #
+        # others
         'rgb24': 3.0,
         'bgr24': 3.0,
         'rgba': 4.0,

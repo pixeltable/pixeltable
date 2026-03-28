@@ -1297,6 +1297,28 @@ class TestVideo:
         with pytest.raises(pxt.Error, match='At least one of `width`, `height`, or `scale` must be specified'):
             t.select(t.video.resize()).collect()
 
+    @pytest.mark.parametrize('audio_mode', ['drop', 'reverse', 'keep'])
+    def test_reverse(self, audio_mode: Literal['drop', 'reverse', 'keep'], uses_db: None, tmp_path: Path) -> None:
+        video_path = generate_test_video(tmp_path, duration=2.0, has_audio=(audio_mode != 'drop'))
+        t = pxt.create_table('reverse_test', {'video': pxt.Video})
+        validate_update_status(t.insert([{'video': video_path}]))
+
+        reversed_vid = t.video.reverse(audio=audio_mode)
+        result = t.select(
+            orig_duration=t.video.get_metadata().streams[0].duration_seconds,
+            reversed=reversed_vid,
+            reversed_duration=reversed_vid.get_metadata().streams[0].duration_seconds,
+        ).collect()
+
+        assert len(result) == 1
+        row = result[0]
+        assert row['reversed'] is not None
+        # reversed video should have approximately the same duration as the original
+        assert abs(row['reversed_duration'] - row['orig_duration']) < 0.5
+
+        # verify the reversed video is a valid video file by inserting it back
+        validate_update_status(t.insert([{'video': row['reversed']}]))
+
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')
         video_filepaths = get_video_files()
