@@ -454,7 +454,7 @@ class Catalog:
                         # validate only when we don't see errors
                         self.validate()
                 else:
-                    # didn't get the write lock (table is a snapshot or doesn't exist)
+                    # didn't get the write lock (e.g. table is a snapshot)
                     for_write = False
 
         except sql_exc.DBAPIError as e:
