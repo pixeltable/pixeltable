@@ -1,5 +1,5 @@
 # mypy: disable-error-code="misc"
-# ruff:  noqa: RUF031
+# ruff: noqa: RUF031
 
 import datetime
 import uuid

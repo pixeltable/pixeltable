@@ -1,3 +1,6 @@
+# mypy: disable-error-code="misc"
+# ruff: noqa: RUF031
+
 import base64
 import datetime
 import json
@@ -694,7 +697,7 @@ class TestExprs:
             ),
         }
         t = pxt.create_table('test', {'col': pxt.Json[spec]})
-        cases: tuple[tuple[Expr, ts._PxtType], ...] = (
+        cases: tuple[tuple[Expr, type], ...] = (
             (t.col.f1, pxt.String),
             (t.col.not_a_field, pxt.Json),  # "invalid" field defaults to untyped json
             (t.col[3], pxt.Json),  # index access on non-array defaults to untyped json
@@ -817,7 +820,7 @@ class TestExprs:
         # _ = t[t.c6.f2].show()
         # _ = t[t.c6.f5].show()
         _ = t.select(t.c6.f6.f8).show()
-        _ = t.select(cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])).show()  # type: ignore[misc]
+        _ = t.select(cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])).show()
 
         # top-level is array
         # _ = t[t.c7['*'].f1].show()
@@ -827,7 +830,7 @@ class TestExprs:
         _ = t.select(t.c7[0].f6.f8).show()
         _ = t.select(t.c7[:2].f6.f8).show()
         _ = t.select(t.c7[::-1].f6.f8).show()
-        _ = t.select(cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])).show()  # type: ignore[misc]
+        _ = t.select(cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])).show()
         print(_)
 
     def test_arrays(self, test_tbl: pxt.Table) -> None:
