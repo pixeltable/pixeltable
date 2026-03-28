@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Iterator
+from typing import Any, Iterator, cast
 
 import av
 import av.stream
@@ -46,13 +46,19 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
         'codec_tag': codec_context.codec_tag.encode('unicode-escape').decode('utf-8'),
         'profile': codec_context.profile,
     }
+
+    # Compute duration_seconds from stream-level duration.
+    # We intentionally don't fall back to container.duration here because it's ambiguous —
+    # it may reflect a different stream's duration (e.g. audio vs video).
+    duration_seconds: float | None = None
+    if stream.duration is not None and stream.time_base is not None:
+        duration_seconds = float(stream.duration * stream.time_base)
+
     metadata = {
         'type': stream.type,
         'duration': stream.duration,
         'time_base': float(stream.time_base) if stream.time_base is not None else None,
-        'duration_seconds': float(stream.duration * stream.time_base)
-        if stream.duration is not None and stream.time_base is not None
-        else None,
+        'duration_seconds': duration_seconds,
         'frames': stream.frames,
         'metadata': stream.metadata,
         'codec_context': codec_context_md,
@@ -60,7 +66,7 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
 
     if stream.type == 'audio':
         # Additional metadata for audio
-        channels = getattr(stream.codec_context, 'channels', None)
+        channels = cast(av.AudioCodecContext, stream.codec_context).channels
         codec_context_md['channels'] = int(channels) if channels is not None else None
     else:
         assert stream.type == 'video'
@@ -71,7 +77,6 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
             **{
                 'width': stream.width,
                 'height': stream.height,
-                'frames': stream.frames,
                 'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
                 'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
                 'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
@@ -84,19 +89,26 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
 def get_video_duration(path: str) -> float | None:
     """Return video duration in seconds."""
     with av.open(path) as container:
-        video_stream = container.streams.video[0]
-        if video_stream is None:
+        if len(container.streams.video) == 0:
             return None
+        video_stream = container.streams.video[0]
+
+        # Prefer stream-level duration from the header
         if video_stream.duration is not None:
             return float(video_stream.duration * video_stream.time_base)
 
-        # if duration is not in the header, look for it in the last packet
+        # Fall back to scanning packets to find the end of the last one.
+        # We intentionally skip container.duration here because it may reflect the audio stream
+        # duration, which can differ from the video stream duration.
         last_pts: int | None = None
+        last_duration: int | None = None
         for packet in container.demux(video_stream):
             if packet.pts is not None:
                 last_pts = packet.pts
+                last_duration = packet.duration
         if last_pts is not None:
-            return float(last_pts * video_stream.time_base)
+            end_pts = last_pts + (last_duration or 0)
+            return float(end_pts * video_stream.time_base)
 
         return None
 

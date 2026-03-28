@@ -24,6 +24,10 @@ from .utils import (
 
 
 class TestVideo:
+    def _validate_videos(self, videos: list[str]) -> None:
+        t = pxt.create_table('validated_videos', schema={'v': pxt.Video})
+        validate_update_status(t.insert({'v': v} for v in videos), expected_rows=len(videos))
+
     def create_tbls(
         self, base_name: str = 'video_tbl', view_name: str = 'frame_view', use_legacy_schema: bool = False
     ) -> tuple[pxt.Table, pxt.Table]:
@@ -1299,28 +1303,22 @@ class TestVideo:
 
     @pytest.mark.parametrize('audio_mode', ['drop', 'reverse', 'keep'])
     def test_reverse(self, audio_mode: Literal['drop', 'reverse', 'keep'], uses_db: None, tmp_path: Path) -> None:
-        video_path = generate_test_video(tmp_path, duration=2.0, has_audio=(audio_mode != 'drop'))
+        videos = get_video_files()
         t = pxt.create_table('reverse_test', {'video': pxt.Video})
-        validate_update_status(t.insert([{'video': video_path}]))
+        validate_update_status(t.insert([{'video': v} for v in videos]))
 
-        reversed_vid = t.video.reverse(audio=audio_mode)
+        reversed = t.video.reverse(audio=audio_mode)
+        _ = t.select(t.video, d=t.video.get_duration()).collect()
         result = t.select(
-            orig_duration=t.video.get_metadata().streams[0].duration_seconds,
-            reversed=reversed_vid,
-            reversed_duration=reversed_vid.get_metadata().streams[0].duration_seconds,
-        ).collect()
-
-        assert len(result) == 1
-        row = result[0]
-        assert row['reversed'] is not None
+            orig_duration=t.video.get_duration(), reversed=reversed, reversed_duration=reversed.get_duration()
+        ).where(t.video.get_duration() != None).collect()
+        assert len(result) == len(videos)
         # reversed video should have approximately the same duration as the original
-        assert abs(row['reversed_duration'] - row['orig_duration']) < 0.5
-
-        # verify the reversed video is a valid video file by inserting it back
-        validate_update_status(t.insert([{'video': row['reversed']}]))
+        assert all(row['reversed_duration'] == pytest.approx(row['orig_duration']) for row in result)
+        self._validate_videos(result['reversed'])
 
     def test_scroll(self, uses_db: None) -> None:
-        video_filepaths = get_video_files(include_vfr=False, include_mpgs=False)
+        video_filepaths = get_video_files()
         t = pxt.create_table('scroll_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
@@ -1354,7 +1352,7 @@ class TestVideo:
             t.select(t.video.scroll(x_speed=10)).collect()
 
     def test_zoom(self, uses_db: None) -> None:
-        video_filepaths = get_video_files(include_vfr=False, include_mpgs=False)
+        video_filepaths = get_video_files()
         t = pxt.create_table('zoom_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
@@ -1402,6 +1400,173 @@ class TestVideo:
             t.select(t.video.zoom(center=[0.5])).collect()
         with pytest.raises(pxt.Error, match=r'center must be'):
             t.select(t.video.zoom(center=[0.5, 1.5])).collect()
+
+    def test_fade_in(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('fade_in_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        md = t.video.get_metadata()
+        faded = t.video.fade_in(duration=0.5)
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select(
+                orig_duration=md.streams[0].duration_seconds,
+                faded=faded,
+                faded_duration=faded.get_metadata().streams[0].duration_seconds,
+            )
+            .collect()
+        )
+        assert len(result) > 0
+
+        for row in result:
+            assert row['faded'] is not None
+            assert abs(row['faded_duration'] - row['orig_duration']) < 0.5
+
+        t.insert(({'video': row['faded']} for row in result), on_error='abort')
+
+    def test_fade_out(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('fade_out_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        md = t.video.get_metadata()
+        faded = t.video.fade_out(duration=0.5)
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select(
+                orig_duration=md.streams[0].duration_seconds,
+                faded=faded,
+                faded_duration=faded.get_metadata().streams[0].duration_seconds,
+            )
+            .collect()
+        )
+        assert len(result) > 0
+
+        for row in result:
+            assert row['faded'] is not None
+            assert abs(row['faded_duration'] - row['orig_duration']) < 0.5
+
+        t.insert(({'video': row['faded']} for row in result), on_error='abort')
+
+    def test_speed(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('speed_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        md = t.video.get_metadata()
+
+        # 2x speed: duration should halve
+        fast = t.video.speed(factor=2.0)
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select(
+                orig_duration=md.streams[0].duration_seconds,
+                fast=fast,
+                fast_duration=fast.get_metadata().streams[0].duration_seconds,
+            )
+            .collect()
+        )
+        assert len(result) > 0
+
+        for row in result:
+            assert row['fast'] is not None
+            assert abs(row['fast_duration'] - row['orig_duration'] / 2) < 1.0
+
+        t.insert(({'video': row['fast']} for row in result), on_error='abort')
+
+    def test_speed_errors(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('speed_err_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        with pytest.raises(pxt.Error, match=r'factor must be positive'):
+            t.select(t.video.speed(factor=0)).collect()
+        with pytest.raises(pxt.Error, match=r'factor must be positive'):
+            t.select(t.video.speed(factor=-1.0)).collect()
+
+    def test_mirror(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('mirror_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        md = t.video.get_metadata()
+        mx = t.video.mirror_x()
+        my = t.video.mirror_y()
+        result = t.select(
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            mx=mx,
+            mx_md=mx.get_metadata(),
+            my=my,
+            my_md=my.get_metadata(),
+        ).collect()
+
+        for row in result:
+            assert row['mx'] is not None
+            assert row['my'] is not None
+            # dimensions should be unchanged
+            assert row['mx_md']['streams'][0]['width'] == row['orig_w']
+            assert row['mx_md']['streams'][0]['height'] == row['orig_h']
+            assert row['my_md']['streams'][0]['width'] == row['orig_w']
+            assert row['my_md']['streams'][0]['height'] == row['orig_h']
+
+        t.insert(({'video': row['mx']} for row in result), on_error='abort')
+        t.insert(({'video': row['my']} for row in result), on_error='abort')
+
+    def test_rotate(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('rotate_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        md = t.video.get_metadata()
+
+        # rotate without expand: dimensions unchanged
+        rotated = t.video.rotate(angle=45)
+        result = t.select(
+            orig_w=md.streams[0].width, orig_h=md.streams[0].height, rotated=rotated, rotated_md=rotated.get_metadata()
+        ).collect()
+
+        for row in result:
+            assert row['rotated'] is not None
+            assert row['rotated_md']['streams'][0]['width'] == row['orig_w']
+            assert row['rotated_md']['streams'][0]['height'] == row['orig_h']
+
+        # rotate with expand: dimensions should grow
+        expanded = t.video.rotate(angle=45, expand=True)
+        result2 = t.select(
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            expanded=expanded,
+            expanded_md=expanded.get_metadata(),
+        ).collect()
+
+        for row in result2:
+            assert row['expanded'] is not None
+            assert row['expanded_md']['streams'][0]['width'] >= row['orig_w']
+            assert row['expanded_md']['streams'][0]['height'] >= row['orig_h']
+
+        t.insert(({'video': row['rotated']} for row in result), on_error='abort')
+        t.insert(({'video': row['expanded']} for row in result2), on_error='abort')
+
+    def test_grayscale(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('grayscale_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        md = t.video.get_metadata()
+        gray = t.video.grayscale()
+        result = t.select(
+            orig_w=md.streams[0].width, orig_h=md.streams[0].height, gray=gray, gray_md=gray.get_metadata()
+        ).collect()
+
+        for row in result:
+            assert row['gray'] is not None
+            # dimensions should be unchanged
+            assert row['gray_md']['streams'][0]['width'] == row['orig_w']
+            assert row['gray_md']['streams'][0]['height'] == row['orig_h']
+
+        t.insert(({'video': row['gray']} for row in result), on_error='abort')
 
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')

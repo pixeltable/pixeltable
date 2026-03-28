@@ -271,6 +271,18 @@ def _handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
     raise pxt.Error(error_msg) from e
 
 
+def _append_video_encoder(
+    cmd: list[str], video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
+) -> None:
+    """ "Append video encoder-related args to ffmpeg cmdline"""
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
+    cmd.extend(['-c:v', video_encoder])
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.append(f'-{k}', str(v))
+
+
 @pxt.udf(is_method=True)
 def clip(
     video: pxt.Video,
@@ -1164,7 +1176,7 @@ def reverse(
     video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
-    Reverse a video using ffmpeg's scale filter.
+    Reverse a video using ffmpeg's reverse filter.
 
     __Requirements:__
 
@@ -1203,16 +1215,14 @@ def reverse(
 
     with av.open(video) as container:
         stream = next(s for s in container.streams if s.type == 'video')
+        if stream.duration is None:
+            raise excs.Error(f'reverse(): video is missing duration: {video}')
         duration = float(stream.duration * stream.time_base)
         has_audio = any(s.type == 'audio' for s in container.streams)
 
-    starts: list[float] = []
-    t = 0.0
-    while t < duration:
-        starts.append(t)
-        t += segment_duration
+    starts = [segment_duration * i for i in range(math.ceil(duration / segment_duration))]
 
-    # Build the filtergraph. For a 25s video with seg_len=10, starts=[0, 10, 20] and the filtergraph is:
+    # Build the filtergraph. For a 25s video with segment_duration=10, starts=[0, 10, 20] and the filtergraph is:
     #
     #   [0:v]trim=start=0:end=10,setpts=PTS-STARTPTS,reverse[v0];
     #   [0:v]trim=start=10:end=20,setpts=PTS-STARTPTS,reverse[v1];
@@ -1251,10 +1261,8 @@ def reverse(
     if video_encoder is None:
         video_encoder = Env.get().default_video_encoder
 
-    cmd = ['ffmpeg', '-i', str(video), '-filter_complex', filtergraph, '-map', '[v]', '-c:v', video_encoder]
-    if video_encoder_args is not None:
-        for k, v in video_encoder_args.items():
-            cmd.extend([f'-{k}', str(v)])
+    cmd = ['ffmpeg', '-i', str(video), '-filter_complex', filtergraph, '-map', '[v]']
+    _append_video_encoder(cmd, video_encoder, video_encoder_args)
 
     if audio == 'reverse' and has_audio:
         cmd.extend(['-map', '[a]'])
