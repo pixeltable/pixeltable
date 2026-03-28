@@ -1096,84 +1096,12 @@ class JsonType(ColumnType):
         if not isinstance(other, JsonType):
             return None
 
-        return JsonType(
-            type_schema=self.__superschema(self.type_schema, other.type_schema),
-            nullable=(self.nullable or other.nullable),
+        superschema = (
+            None
+            if self.type_schema is None or other.type_schema is None
+            else self.type_schema.superschema(other.type_schema)
         )
-
-    @classmethod
-    def __superschema(cls, a: TypeSchema | None, b: TypeSchema | None) -> TypeSchema | None:
-        if a == b:
-            return a
-        if a is None or b is None:
-            return None
-
-        if isinstance(a.type_spec, list) and isinstance(b.type_spec, list):
-            variadic_type: ColumnType | None = None
-            if a.variadic_type is not None:
-                variadic_type = a.variadic_type
-                if b.variadic_type is not None:
-                    variadic_type = variadic_type.supertype(b.variadic_type)
-                    if variadic_type is None:
-                        return None  # incompatible variadic types
-            else:
-                variadic_type = b.variadic_type
-
-            joined_list: list[ColumnType] = []
-            for item_a, item_b in itertools.zip_longest(a.type_spec, b.type_spec):
-                if item_a is None:
-                    assert isinstance(item_b, ColumnType)
-                    # We're past the end of a's type args. The supertype will still be valid as long as the type of
-                    # item_b can be incorporated into the variadic type. This may result in a variadic parameter in
-                    # the supertype where none exists in either subtype.
-                    if variadic_type is None:
-                        variadic_type = item_b
-                    else:
-                        variadic_type = variadic_type.supertype(item_b)
-                        if variadic_type is None:
-                            return None  # existing variadic type is incompatible with the extra item_b
-                elif item_b is None:
-                    assert isinstance(item_a, ColumnType)
-                    # Same thing in reverse
-                    if variadic_type is None:
-                        variadic_type = item_a
-                    else:
-                        variadic_type = variadic_type.supertype(item_a)
-                        if variadic_type is None:
-                            return None  # existing variadic type is incompatible with the extra item_a
-                else:
-                    item_supertype = item_a.supertype(item_b)
-                    if item_supertype is None:
-                        return None  # incompatible types in this position
-                    joined_list.append(item_supertype)
-
-            return JsonType.TypeSchema(type_spec=joined_list, variadic_type=variadic_type)
-
-        if isinstance(a.type_spec, dict) and isinstance(b.type_spec, dict):
-            joined_dict: dict[str, ColumnType] = {}
-            optional_keys: list[str] = []
-            for key, item_a in a.type_spec.items():
-                if key in b.type_spec:
-                    item_supertype = item_a.supertype(b.type_spec[key])
-                    if item_supertype is None:
-                        return None  # incompatible types for this key
-                    else:
-                        joined_dict[key] = item_supertype
-                        # key is in both a and b, so optionality is derived from a and b
-                        if key in a.optional_keys or key in b.optional_keys:
-                            optional_keys.append(key)
-                else:
-                    joined_dict[key] = item_a
-                    # key is only in a, so it's optional in the supertype, regardless of its status in a
-                    optional_keys.append(key)
-            for key, item_b in b.type_spec.items():
-                if key not in a.type_spec:
-                    joined_dict[key] = item_b
-                    optional_keys.append(key)
-
-            return JsonType.TypeSchema(type_spec=joined_dict, optional_keys=optional_keys)
-
-        return None
+        return JsonType(type_schema=superschema, nullable=(self.nullable or other.nullable))
 
     def _to_base_str(self) -> str:
         if self.type_schema is None:
@@ -1183,6 +1111,18 @@ class JsonType(ColumnType):
 
     @dataclasses.dataclass(frozen=True)
     class TypeSchema:
+        """
+        A type schema for a JsonType instance. If this appears in a JsonType, it indicates one of three things:
+
+        - A fixed-length tuple; in this case, type_spec is a list of the types in the tuple.
+        - A variadic tuple; in this case, variadic_type is not None, and represents the type of the variadic elements.
+            Mixed tuples are allowed, in which case type_spec will be a list of the initial fixed types.
+            Example: `Json[(str, int, float, ...)]` would have type_spec = [StringType(), IntType()] and
+                variadic_type = FloatType(). (All nullable.)
+        - A typed dictionary; in this case, type_spec is a dict mapping keys to their types, and optional_keys may
+            have elements indicating which keys are optional.
+        """
+
         type_spec: list[ColumnType] | dict[str, ColumnType]
         variadic_type: ColumnType | None = None
         optional_keys: list[str] = dataclasses.field(default_factory=list)
@@ -1284,6 +1224,84 @@ class JsonType(ColumnType):
                 'variadic_type': self.variadic_type.as_dict() if self.variadic_type is not None else None,
                 'optional_keys': self.optional_keys,
             }
+
+        def superschema(self, other: JsonType.TypeSchema) -> JsonType.TypeSchema | None:
+            if self == other:
+                return self
+
+            if isinstance(self.type_spec, list) and isinstance(other.type_spec, list):
+                variadic_type: ColumnType | None = None
+                if self.variadic_type is not None:
+                    variadic_type = self.variadic_type
+                    if other.variadic_type is not None:
+                        variadic_type = variadic_type.supertype(other.variadic_type)
+                        if variadic_type is None:
+                            return None  # incompatible variadic types
+                else:
+                    variadic_type = other.variadic_type
+
+                joined_list: list[ColumnType] = []
+                for item_self, item_other in itertools.zip_longest(self.type_spec, other.type_spec):
+                    if item_self is None:
+                        assert isinstance(item_other, ColumnType)
+                        # We're past the end of self's type args. The supertype will still be valid as long as
+                        # the type of item_other can be incorporated into the variadic type. This may result in a
+                        # variadic parameter in the supertype where none exists in either subtype.
+                        # Example:
+                        #     schema of a: (int, int)
+                        #     schema of b: (int, int, int, int)
+                        #     supertype:   (int, int, int, ...)  (i.e., variadic int of minimum length 2)
+                        #     there is no fixed-type schema that is a supertype of both a and b, but the variadic
+                        #     schema (int, int, int, ...) matches both, and is the most specific schema that does so.
+                        if variadic_type is None:
+                            variadic_type = item_other
+                        else:
+                            variadic_type = variadic_type.supertype(item_other)
+                            if variadic_type is None:
+                                return None  # existing variadic type is incompatible with the extra item_other
+                    elif item_other is None:
+                        assert isinstance(item_self, ColumnType)
+                        # Same thing in reverse
+                        if variadic_type is None:
+                            variadic_type = item_self
+                        else:
+                            variadic_type = variadic_type.supertype(item_self)
+                            if variadic_type is None:
+                                return None  # existing variadic type is incompatible with the extra item_self
+                    else:
+                        item_supertype = item_self.supertype(item_other)
+                        if item_supertype is None:
+                            return None  # incompatible types in this position
+                        joined_list.append(item_supertype)
+
+                return JsonType.TypeSchema(type_spec=joined_list, variadic_type=variadic_type)
+
+            if isinstance(self.type_spec, dict) and isinstance(other.type_spec, dict):
+                joined_dict: dict[str, ColumnType] = {}
+                optional_keys: list[str] = []
+                for key, item_self in self.type_spec.items():
+                    if key in other.type_spec:
+                        item_supertype = item_self.supertype(other.type_spec[key])
+                        if item_supertype is None:
+                            return None  # incompatible types for this key
+                        else:
+                            joined_dict[key] = item_supertype
+                            # key is in both self and other, so optionality is derived from self and other
+                            if key in self.optional_keys or key in other.optional_keys:
+                                optional_keys.append(key)
+                    else:
+                        joined_dict[key] = item_self
+                        # key is only in self, so it's optional in the supertype, regardless of its status in self
+                        optional_keys.append(key)
+                for key, item_other in other.type_spec.items():
+                    if key not in self.type_spec:
+                        joined_dict[key] = item_other
+                        # key is only in other
+                        optional_keys.append(key)
+
+                return JsonType.TypeSchema(type_spec=joined_dict, optional_keys=optional_keys)
+
+            return None
 
         @classmethod
         def from_dict(cls, d: dict[str, Any]) -> JsonType.TypeSchema:
