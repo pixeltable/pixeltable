@@ -513,7 +513,12 @@ def segment_video(
             _handle_ffmpeg_error(e)
 
 
-def _concat_videos(videos: list[str], error_prefix: str) -> str | None:
+def _concat_videos(
+    videos: list[str],
+    error_prefix: str,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> str | None:
     """Concatenate videos and return the path to the output video, or None for an empty list"""
     Env.get().require_binary('ffmpeg')
     if len(videos) == 0:
@@ -590,9 +595,7 @@ def _concat_videos(videos: list[str], error_prefix: str) -> str | None:
         if all_have_audio:
             cmd.extend(['-map', '[outa]'])
 
-        video_encoder = Env.get().default_video_encoder
-        if video_encoder is not None:
-            cmd.extend(['-c:v', video_encoder])
+        _append_video_encoder(cmd, video_encoder, video_encoder_args)
         if all_have_audio:
             cmd.extend(['-c:a', 'aac'])
         cmd.extend(['-pix_fmt', 'yuv420p', str(output_path)])
@@ -607,7 +610,9 @@ def _concat_videos(videos: list[str], error_prefix: str) -> str | None:
 
 
 @pxt.udf(is_method=True)
-def concat_videos(videos: list[pxt.Video]) -> pxt.Video | None:
+def concat_videos(
+    videos: list[pxt.Video], *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
+) -> pxt.Video | None:
     """
     Merge multiple videos into a single video.
 
@@ -617,13 +622,17 @@ def concat_videos(videos: list[pxt.Video]) -> pxt.Video | None:
 
     Args:
         videos: List of videos to merge.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         A new video containing the merged videos, or None if the input list is empty.
     """
     Env.get().require_binary('ffmpeg')
     videos = [v for v in videos if v is not None]
-    return _concat_videos(videos, error_prefix='concat_videos()')
+    return _concat_videos(
+        videos, error_prefix='concat_videos()', video_encoder=video_encoder, video_encoder_args=video_encoder_args
+    )
 
 
 @pxt.uda(requires_order_by=True)
