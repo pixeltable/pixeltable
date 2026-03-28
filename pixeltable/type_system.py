@@ -460,7 +460,7 @@ class ColumnType:
     def __from_python_type_or_exc(cls, t: type | _GenericAlias | None) -> ColumnType:
         col_type = cls.from_python_type(t)
         if col_type is None:
-            raise excs.Error(f'Python type found in type argument is not a valid Pixeltable type: {t.__name__}')
+            raise excs.Error(f'Python type found in type argument is not a valid Pixeltable type: {t!r}')
         return col_type
 
     @classmethod
@@ -473,7 +473,7 @@ class ColumnType:
                 raise excs.Error(f'Field {key!r} in TypedDict `{t.__name__}` is not a valid Pixeltable type: {value!r}')
             type_spec[key] = col_type
         return JsonType(
-            JsonType.TypeSchema(type_spec=type_spec, optional_keys=list(getattr(t, '__optional_keys__', []))),
+            JsonType.TypeSchema(type_spec=type_spec, optional_keys=sorted(getattr(t, '__optional_keys__', []))),
             nullable=nullable_default,
         )
 
