@@ -1244,9 +1244,9 @@ class JsonType(ColumnType):
                 a, b = self.type_spec, other.type_spec
                 if len(a) > len(b):
                     a, b = b, a  # ensure that `a` is always the shorter type_spec
-                for item_a, item_b in itertools.zip_longest(a, b):
+                for type_, item_b in itertools.zip_longest(a, b):
                     assert item_b is not None  # since `a` was chosen to be the shorter type_spec
-                    if item_a is None:
+                    if type_ is None:
                         assert isinstance(item_b, ColumnType)
                         # We're past the end of a's type args. The supertype will still be valid as long as
                         # the type of item_b can be incorporated into the variadic type. This may result in a
@@ -1264,7 +1264,7 @@ class JsonType(ColumnType):
                             if variadic_type is None:
                                 return None  # existing variadic type is incompatible with the extra item_other
                     else:
-                        item_supertype = item_a.supertype(item_b)
+                        item_supertype = type_.supertype(item_b)
                         if item_supertype is None:
                             return None  # incompatible types in this position
                         joined_list.append(item_supertype)
@@ -1272,26 +1272,26 @@ class JsonType(ColumnType):
                 return JsonType.TypeSchema(type_spec=joined_list, variadic_type=variadic_type)
 
             if isinstance(self.type_spec, dict) and isinstance(other.type_spec, dict):
-                joined_dict: dict[str, ColumnType] = {}
-                optional_keys: list[str] = []
-                for key, item_a in self.type_spec.items():
-                    if key in other.type_spec:
-                        item_supertype = item_a.supertype(other.type_spec[key])
-                        if item_supertype is None:
-                            return None  # incompatible types for this key
-                        else:
-                            joined_dict[key] = item_supertype
-                            # key is in both self and other, so optionality is derived from self and other
-                            if key in self.optional_keys or key in other.optional_keys:
-                                optional_keys.append(key)
-                    else:
-                        joined_dict[key] = item_a
+                # Start with self.type_spec.
+                joined_dict = self.type_spec.copy()
+                optional_keys = self.optional_keys.copy()
+                for key in self.type_spec:
+                    if key not in other.type_spec and key not in optional_keys:
                         # key is only in self, so it's optional in the supertype, regardless of its status in self
                         optional_keys.append(key)
-                for key, item_b in other.type_spec.items():
-                    if key not in self.type_spec:
-                        joined_dict[key] = item_b
+
+                # Merge in the keys from other.type_spec.
+                for key, type_ in other.type_spec.items():
+                    if key in joined_dict:
+                        supertype = type_.supertype(joined_dict[key])
+                        if supertype is None:
+                            return None  # incompatible types for this key
+                        joined_dict[key] = supertype
+                        if key in other.optional_keys and key not in optional_keys:
+                            optional_keys.append(key)
+                    else:
                         # key is only in other
+                        joined_dict[key] = type_
                         optional_keys.append(key)
 
                 return JsonType.TypeSchema(type_spec=joined_dict, optional_keys=optional_keys)
