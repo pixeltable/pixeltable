@@ -1346,9 +1346,9 @@ class TestVideo:
         t = pxt.create_table('scroll_err_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
-        with pytest.raises(pxt.Error, match='at least one of .x_speed. or .y_speed. must be non-zero'):
+        with pytest.raises(pxt.Error, match=r'at least one of .x_speed. or .y_speed. must be non-zero'):
             t.select(t.video.scroll(w=160)).collect()
-        with pytest.raises(pxt.Error, match='viewport.*must not exceed input dimensions'):
+        with pytest.raises(pxt.Error, match=r'viewport.*must not exceed input dimensions'):
             t.select(t.video.scroll(w=99999, x_speed=10)).collect()
         with pytest.raises(pxt.Error):
             t.select(t.video.scroll(x_speed=10)).collect()
@@ -1394,13 +1394,13 @@ class TestVideo:
         t = pxt.create_table('zoom_err_test', {'video': pxt.Video})
         validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
 
-        with pytest.raises(pxt.Error, match='start_scale must be >= 1.0'):
+        with pytest.raises(pxt.Error, match=r'start_scale must be >= 1\.0'):
             t.select(t.video.zoom(start_scale=0.5)).collect()
-        with pytest.raises(pxt.Error, match='end_scale must be >= 1.0'):
+        with pytest.raises(pxt.Error, match=r'end_scale must be >= 1\.0'):
             t.select(t.video.zoom(end_scale=0.5)).collect()
-        with pytest.raises(pxt.Error, match='center must be'):
+        with pytest.raises(pxt.Error, match=r'center must be'):
             t.select(t.video.zoom(center=[0.5])).collect()
-        with pytest.raises(pxt.Error, match='center must be'):
+        with pytest.raises(pxt.Error, match=r'center must be'):
             t.select(t.video.zoom(center=[0.5, 1.5])).collect()
 
     def test_scene_detect(self, uses_db: None) -> None:

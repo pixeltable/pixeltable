@@ -1264,13 +1264,10 @@ def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop'
 
 
 @pxt.udf(is_method=True)
-def pan_left(video: pxt.Video, *, crop_pct: float = 0.2) -> pxt.Video:
+def fade_in(video: pxt.Video, *, duration: float = 1.0, color: str = 'black') -> pxt.Video:
     """
-    Apply a horizontal pan effect that moves from right to left across the video.
-
-    The effect works by cropping a region that is `(1 - crop_pct)` of the original width and smoothly sliding it
-    from the right edge to the left edge over the video's duration. The output height matches the input; the
-    output width is the cropped width.
+    Apply a fade-in effect from a solid color at the start of a video. The video transitions from a solid `color` to
+    the full video content over `duration` seconds.
 
     __Requirements:__
 
@@ -1278,32 +1275,29 @@ def pan_left(video: pxt.Video, *, crop_pct: float = 0.2) -> pxt.Video:
 
     Args:
         video: Input video.
-        crop_pct: Fraction of the width used as panning range, between 0.0 and 1.0. Larger values give more
-            pronounced panning but a narrower output.
+        duration: Duration of the fade-in effect in seconds.
+        color: Color to fade from (e.g., `'black'`, `'white'`, `'#FF0000'`).
 
     Returns:
-        A new video with the pan-left effect applied.
+        A new video with the fade-in effect applied.
 
     Examples:
-        Apply a subtle left pan:
+        Apply a 1-second fade from black (default):
 
-        >>> tbl.select(tbl.video.pan_left()).collect()
+        >>> tbl.select(tbl.video.fade_in()).collect()
 
-        Apply a wider pan:
+        Apply a 2-second fade from white:
 
-        >>> tbl.select(tbl.video.pan_left(crop_pct=0.4)).collect()
+        >>> tbl.select(tbl.video.fade_in(duration=2.0, color='white')).collect()
     """
     pass
 
 
 @pxt.udf(is_method=True)
-def pan_right(video: pxt.Video, *, crop_pct: float = 0.2) -> pxt.Video:
+def fade_out(video: pxt.Video, *, duration: float = 1.0, color: str = 'black') -> pxt.Video:
     """
-    Apply a horizontal pan effect that moves from left to right across the video.
-
-    The effect works by cropping a region that is `(1 - crop_pct)` of the original width and smoothly sliding it
-    from the left edge to the right edge over the video's duration. The output height matches the input; the
-    output width is the cropped width.
+    Apply a fade-out effect to a solid color at the end of a video. The video transitions from the full video content
+    to a solid `color` over the final `duration` seconds.
 
     __Requirements:__
 
@@ -1311,22 +1305,222 @@ def pan_right(video: pxt.Video, *, crop_pct: float = 0.2) -> pxt.Video:
 
     Args:
         video: Input video.
-        crop_pct: Fraction of the width used as panning range, between 0.0 and 1.0. Larger values give more
-            pronounced panning but a narrower output.
+        duration: Duration of the fade-out effect in seconds.
+        color: Color to fade to (e.g., `'black'`, `'white'`, `'#FF0000'`).
 
     Returns:
-        A new video with the pan-right effect applied.
+        A new video with the fade-out effect applied.
 
     Examples:
-        Apply a subtle right pan:
+        Apply a 1-second fade to black (default):
 
-        >>> tbl.select(tbl.video.pan_right()).collect()
+        >>> tbl.select(tbl.video.fade_out()).collect()
 
-        Apply a wider pan:
+        Apply a 3-second fade to white:
 
-        >>> tbl.select(tbl.video.pan_right(crop_pct=0.4)).collect()
+        >>> tbl.select(tbl.video.fade_out(duration=3.0, color='white')).collect()
     """
     pass
+
+
+@pxt.udf(is_method=True)
+def speed(video: pxt.Video, *, factor: float) -> pxt.Video:
+    """
+    Change the playback speed of a video, matching MoviePy's
+    [MultiplySpeed](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.MultiplySpeed.html) effect.
+
+    A factor of 2.0 doubles the speed (halves the duration); a factor of 0.5 halves the speed (doubles the duration).
+    Audio pitch is preserved using ffmpeg's `atempo` filter.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        factor: Speed multiplier. Must be positive. Values > 1.0 speed up, values < 1.0 slow down.
+
+    Returns:
+        A new video with the adjusted playback speed.
+
+    Examples:
+        Double the speed:
+
+        >>> tbl.select(tbl.video.speed(factor=2.0)).collect()
+
+        Half speed (slow motion):
+
+        >>> tbl.select(tbl.video.speed(factor=0.5)).collect()
+    """
+    pass
+
+
+@pxt.udf(is_method=True)
+def mirror_x(video: pxt.Video) -> pxt.Video:
+    """
+    Flip a video horizontally, matching MoviePy's
+    [MirrorX](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.MirrorX.html) effect.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+
+    Returns:
+        A horizontally flipped video.
+
+    Examples:
+        >>> tbl.select(tbl.video.mirror_x()).collect()
+    """
+    pass
+
+
+@pxt.udf(is_method=True)
+def mirror_y(video: pxt.Video) -> pxt.Video:
+    """
+    Flip a video vertically, matching MoviePy's
+    [MirrorY](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.MirrorY.html) effect.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+
+    Returns:
+        A vertically flipped video.
+
+    Examples:
+        >>> tbl.select(tbl.video.mirror_y()).collect()
+    """
+    pass
+
+
+@pxt.udf(is_method=True)
+def rotate(video: pxt.Video, *, angle: float, unit: Literal['deg', 'rad'] = 'deg', expand: bool = False) -> pxt.Video:
+    """
+    Rotate a video by a fixed angle, matching MoviePy's
+    [Rotate](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.Rotate.html) effect.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        angle: Rotation angle. Positive values rotate counter-clockwise.
+        unit: Unit of the angle: `'deg'` for degrees or `'rad'` for radians.
+        expand: If True, the output frame is enlarged to contain the entire rotated frame (no cropping).
+            If False (default), the output frame keeps the original dimensions, cropping corners.
+
+    Returns:
+        A new video rotated by the specified angle.
+
+    Examples:
+        Rotate 90 degrees counter-clockwise:
+
+        >>> tbl.select(tbl.video.rotate(angle=90)).collect()
+
+        Rotate 45 degrees with frame expansion to avoid cropping:
+
+        >>> tbl.select(tbl.video.rotate(angle=45, expand=True)).collect()
+
+        Rotate by pi/2 radians:
+
+        >>> tbl.select(tbl.video.rotate(angle=1.5708, unit='rad')).collect()
+    """
+    pass
+
+
+@pxt.udf(is_method=True)
+def grayscale(video: pxt.Video) -> pxt.Video:
+    """
+    Convert a video to grayscale, matching MoviePy's
+    [BlackAndWhite](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.BlackAndWhite.html) effect.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+
+    Returns:
+        A grayscale version of the video.
+
+    Examples:
+        >>> tbl.select(tbl.video.grayscale()).collect()
+    """
+    pass
+
+
+def pan(video: Any, *, direction: Literal['left', 'right', 'up', 'down'] = 'right', crop_pct: float = 0.2) -> Any:
+    """
+    Apply a smooth pan effect across a video. Convenience function for
+    [`scroll()`][pixeltable.functions.video.scroll] that automatically computes viewport size and speed from the
+    video's dimensions and duration, panning across the full available range.
+
+    The effect crops a viewport that is `(1 - crop_pct)` of the original dimension in the pan direction and smoothly
+    slides it across the full available range over the video's duration.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: A pixeltable Video expression (e.g., `tbl.video`).
+        direction: Pan direction: `'left'`, `'right'`, `'up'`, or `'down'`.
+        crop_pct: Fraction of the dimension (width for left/right, height for up/down) used as panning range,
+            between 0.0 (exclusive) and 1.0 (exclusive). Larger values produce more pronounced panning but a
+            narrower output. Default is 0.2 (viewport is 80% of the original dimension).
+
+    Returns:
+        A panned video.
+
+    Examples:
+        Pan rightward (default):
+
+        >>> tbl.select(pan(tbl.video)).collect()
+
+        Pan leftward with a wider range:
+
+        >>> tbl.select(pan(tbl.video, direction='left', crop_pct=0.4)).collect()
+
+        Pan downward:
+
+        >>> tbl.select(pan(tbl.video, direction='down')).collect()
+    """
+    import pixeltable.functions.math as pxtmath
+
+    if crop_pct <= 0.0 or crop_pct >= 1.0:
+        raise pxt.Error(f'crop_pct must be between 0.0 and 1.0 (exclusive), got {crop_pct}')
+
+    md = video.get_metadata()
+    w = md.streams[0].width
+    h = md.streams[0].height
+    duration = video.get_duration()
+
+    if direction in ('left', 'right'):
+        viewport_w = pxtmath.floor(w * (1 - crop_pct)).to_int()
+        pan_range = w - viewport_w
+        speed = pan_range / duration
+        if direction == 'right':
+            return video.scroll(w=viewport_w, x_speed=speed)
+        else:
+            return video.scroll(w=viewport_w, x_start=pan_range.to_int(), x_speed=-speed)
+    elif direction in ('up', 'down'):
+        viewport_h = pxtmath.floor(h * (1 - crop_pct)).to_int()
+        pan_range = h - viewport_h
+        speed = pan_range / duration
+        if direction == 'down':
+            return video.scroll(h=viewport_h, y_speed=speed)
+        else:
+            return video.scroll(h=viewport_h, y_start=pan_range.to_int(), y_speed=-speed)
+    else:
+        raise pxt.Error(f"direction must be one of 'left', 'right', 'up', 'down', got {direction!r}")
 
 
 @pxt.udf(is_method=True)
