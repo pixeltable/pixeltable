@@ -1,3 +1,4 @@
+import errno
 import json
 import logging
 import threading
@@ -37,8 +38,8 @@ class DashboardHarness:
     def _probe_port(self) -> Literal['pixeltable', 'other', 'none']:
         """Check if a Pixeltable dashboard is already listening on `self.port`."""
         try:
-            resp = urllib.request.urlopen(f'http://localhost:{self.port}/api/pixeltable-health', timeout=1)
-            data = json.loads(resp.read().decode())
+            with urllib.request.urlopen(f'http://localhost:{self.port}/api/pixeltable-health', timeout=1) as resp:
+                data = json.loads(resp.read().decode())
             if data.get('status') == 'ok':
                 return 'pixeltable'
             return 'other'
@@ -63,9 +64,9 @@ class DashboardHarness:
             try:
                 run_server(port=self.port)
             except OSError as e:
-                # EADDRINUSE (Address already in use) can happen despite the earlier probe, if we lost a race
-                # condition with another process starting on the same port in parallel.
-                if 'Address already in use' in str(e):
+                # EADDRINUSE can happen despite the earlier probe, if we lost a race condition with
+                # another process starting on the same port in parallel.
+                if e.errno == errno.EADDRINUSE:
                     self.dashboard_thread = None
                     self._start_watchdog()
                 else:
