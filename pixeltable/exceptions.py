@@ -35,19 +35,21 @@ CancellationError         499   CANCELLED
 Error Code Ranges
 =================
 
-Each error code group is assigned a stable numeric range with room for future additions:
+Each error code group is assigned a stable numeric range with room for future
+additions.  Ranges start at multiples of 1000 to avoid any confusion with HTTP
+status codes.
 
-    0xx  — General / internal
-    1xx  — Not found
-    2xx  — Already exists
-    3xx  — Schema / validation
-    4xx  — Operation
-    5xx  — Authorization
-    6xx  — External service
-    7xx  — Service unavailable
-    8xx  — Concurrency
-    9xx  — Configuration
-    10xx — Cancellation
+    0xxx  — General / internal
+    1xxx  — Not found
+    2xxx  — Already exists
+    3xxx  — Schema / validation
+    4xxx  — Operation
+    5xxx  — Authorization
+    6xxx  — External service
+    7xxx  — Service unavailable
+    8xxx  — Concurrency
+    9xxx  — Configuration
+    10xxx — Cancellation
 """
 
 from __future__ import annotations
@@ -68,62 +70,62 @@ class ErrorCode(enum.Enum):
     existing values.
     """
 
-    # General (0xx)
+    # General (0xxx)
     INTERNAL_ERROR = 0
 
-    # NotFoundError (1xx)
-    COLUMN_NOT_FOUND = 100
-    PATH_NOT_FOUND = 101
-    DIRECTORY_NOT_FOUND = 102
-    INDEX_NOT_FOUND = 103
-    FUNCTION_NOT_FOUND = 104
-    ROW_NOT_FOUND = 105
-    STORAGE_NOT_FOUND = 106
+    # NotFoundError (1xxx)
+    COLUMN_NOT_FOUND = 1000
+    PATH_NOT_FOUND = 1001
+    DIRECTORY_NOT_FOUND = 1002
+    INDEX_NOT_FOUND = 1003
+    FUNCTION_NOT_FOUND = 1004
+    ROW_NOT_FOUND = 1005
+    STORAGE_NOT_FOUND = 1006
 
-    # AlreadyExistsError (2xx)
-    COLUMN_ALREADY_EXISTS = 200
-    PATH_ALREADY_EXISTS = 201
-    INDEX_ALREADY_EXISTS = 202
-    FUNCTION_ALREADY_EXISTS = 203
+    # AlreadyExistsError (2xxx)
+    COLUMN_ALREADY_EXISTS = 2000
+    PATH_ALREADY_EXISTS = 2001
+    INDEX_ALREADY_EXISTS = 2002
+    FUNCTION_ALREADY_EXISTS = 2003
 
-    # SchemaError (3xx)
-    INVALID_COLUMN_NAME = 300
-    INVALID_PATH = 301
-    INVALID_EXPRESSION = 302
-    INVALID_TYPE = 303
-    INVALID_SCHEMA = 304
-    INVALID_ARGUMENT = 305
-    INVALID_DATA_FORMAT = 306
-    MISSING_REQUIRED = 307
-    TYPE_MISMATCH = 308
-    CONSTRAINT_VIOLATION = 309
+    # SchemaError (3xxx)
+    INVALID_COLUMN_NAME = 3000
+    INVALID_PATH = 3001
+    INVALID_EXPRESSION = 3002
+    INVALID_TYPE = 3003
+    INVALID_SCHEMA = 3004
+    INVALID_ARGUMENT = 3005
+    INVALID_DATA_FORMAT = 3006
+    MISSING_REQUIRED = 3007
+    TYPE_MISMATCH = 3008
+    CONSTRAINT_VIOLATION = 3009
 
-    # OperationError (4xx)
-    UNSUPPORTED_OPERATION = 400
-    INVALID_STATE = 401
-    IMMUTABLE = 402
+    # OperationError (4xxx)
+    UNSUPPORTED_OPERATION = 4000
+    INVALID_STATE = 4001
+    IMMUTABLE = 4002
 
-    # AuthorizationError (5xx)
-    INSUFFICIENT_PRIVILEGES = 500
+    # AuthorizationError (5xxx)
+    INSUFFICIENT_PRIVILEGES = 5000
 
-    # ExternalServiceError (6xx)
-    PROVIDER_ERROR = 600
-    RATE_LIMITED = 601
+    # ExternalServiceError (6xxx)
+    PROVIDER_ERROR = 6000
+    RATE_LIMITED = 6001
 
-    # ServiceUnavailableError (7xx)
-    DATABASE_UNAVAILABLE = 700
-    STORE_UNAVAILABLE = 701
+    # ServiceUnavailableError (7xxx)
+    DATABASE_UNAVAILABLE = 7000
+    STORE_UNAVAILABLE = 7001
 
-    # ConcurrencyError (8xx)
-    SERIALIZATION_FAILURE = 800
-    CONCURRENT_MODIFICATION = 801
+    # ConcurrencyError (8xxx)
+    SERIALIZATION_FAILURE = 8000
+    CONCURRENT_MODIFICATION = 8001
 
-    # Configuration (9xx) — used with base Error
-    MISSING_CREDENTIALS = 900
-    INVALID_CONFIGURATION = 901
+    # Configuration (9xxx) — used with base Error
+    MISSING_CREDENTIALS = 9000
+    INVALID_CONFIGURATION = 9001
 
-    # CancellationError (10xx)
-    CANCELLED = 1000
+    # CancellationError (10xxx)
+    CANCELLED = 10000
 
 
 class Error(Exception):
@@ -153,11 +155,7 @@ class Error(Exception):
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable representation for REST error responses."""
-        return {
-            'error_code': self.error_code.name,
-            'message': str(self),
-            'retryable': self.retryable,
-        }
+        return {'error_code': self.error_code.name, 'message': str(self), 'retryable': self.retryable}
 
 
 class NotFoundError(Error):
