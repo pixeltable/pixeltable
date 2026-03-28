@@ -1072,7 +1072,13 @@ def crop(
 
 @pxt.udf(is_method=True)
 def resize(
-    video: pxt.Video, *, width: int | None = None, height: int | None = None, scale: float | None = None
+    video: pxt.Video,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+    scale: float | None = None,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
     Resize a video using ffmpeg's scale filter.
@@ -1086,6 +1092,8 @@ def resize(
         width: Width of the output video. Maintains the existing aspect ratio if no `height` is provided.
         height: Height of the output video. Maintains the existing aspect ratio if no `width` is provided.
         scale: Scale factor. Mutually exclusive with `width` and `height`.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         The resized video.
@@ -1126,22 +1134,14 @@ def resize(
         raise pxt.Error('At least one of `width`, `height`, or `scale` must be specified')
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    video_encoder = Env.get().default_video_encoder
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
 
-    cmd = [
-        'ffmpeg',
-        '-i',
-        str(video),
-        '-vf',
-        scale_filter,
-        '-c:a',
-        'copy',
-        '-c:v',
-        video_encoder,
-        '-loglevel',
-        'error',
-        output_path,
-    ]
+    cmd = ['ffmpeg', '-i', str(video), '-vf', scale_filter, '-c:a', 'copy', '-c:v', video_encoder]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+    cmd.extend(['-loglevel', 'error', output_path])
     _logger.debug(f'resize(): {" ".join(cmd)}')
 
     try:
@@ -1156,7 +1156,13 @@ def resize(
 
 
 @pxt.udf(is_method=True)
-def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop') -> pxt.Video:
+def reverse(
+    video: pxt.Video,
+    audio: Literal['reverse', 'drop', 'keep'] = 'drop',
+    *,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
     """
     Reverse a video using ffmpeg's scale filter.
 
@@ -1171,6 +1177,8 @@ def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop'
             - `'drop'`: drop the audio streams
             - `'reverse'`: also reverse the audio streams
             - `'keep'`: keep the audio streams
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         The reversed video.
@@ -1240,9 +1248,13 @@ def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop'
     # audio='keep': -map 0:a -c:a copy (passes original audio through without the filtergraph)
     # audio='drop': no audio mapping, so ffmpeg omits audio from the output
     output_path = str(TempStore.create_path(extension='.mp4'))
-    video_encoder = Env.get().default_video_encoder
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
 
     cmd = ['ffmpeg', '-i', str(video), '-filter_complex', filtergraph, '-map', '[v]', '-c:v', video_encoder]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
 
     if audio == 'reverse' and has_audio:
         cmd.extend(['-map', '[a]'])
@@ -1264,7 +1276,14 @@ def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop'
 
 
 @pxt.udf(is_method=True)
-def fade_in(video: pxt.Video, *, duration: float = 1.0, color: str = 'black') -> pxt.Video:
+def fade_in(
+    video: pxt.Video,
+    *,
+    duration: float = 1.0,
+    color: str = 'black',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
     """
     Apply a fade-in effect from a solid color at the start of a video. The video transitions from a solid `color` to
     the full video content over `duration` seconds.
@@ -1277,6 +1296,8 @@ def fade_in(video: pxt.Video, *, duration: float = 1.0, color: str = 'black') ->
         video: Input video.
         duration: Duration of the fade-in effect in seconds.
         color: Color to fade from (e.g., `'black'`, `'white'`, `'#FF0000'`).
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         A new video with the fade-in effect applied.
@@ -1290,11 +1311,55 @@ def fade_in(video: pxt.Video, *, duration: float = 1.0, color: str = 'black') ->
 
         >>> tbl.select(tbl.video.fade_in(duration=2.0, color='white')).collect()
     """
-    pass
+    Env.get().require_binary('ffmpeg')
+    if duration <= 0:
+        raise pxt.Error(f'duration must be positive, got {duration}')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
+
+    # fade=in:st=0:d=<duration>:color=<color>
+    fade_filter = f'fade=in:st=0:d={duration}:color={color}'
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-vf',
+        fade_filter,
+        '-c:a',
+        'copy',
+        '-c:v',
+        video_encoder,
+        '-loglevel',
+        'error',
+        output_path,
+    ]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+    _logger.debug(f'fade_in(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
 
 
 @pxt.udf(is_method=True)
-def fade_out(video: pxt.Video, *, duration: float = 1.0, color: str = 'black') -> pxt.Video:
+def fade_out(
+    video: pxt.Video,
+    *,
+    duration: float = 1.0,
+    color: str = 'black',
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
     """
     Apply a fade-out effect to a solid color at the end of a video. The video transitions from the full video content
     to a solid `color` over the final `duration` seconds.
@@ -1307,6 +1372,8 @@ def fade_out(video: pxt.Video, *, duration: float = 1.0, color: str = 'black') -
         video: Input video.
         duration: Duration of the fade-out effect in seconds.
         color: Color to fade to (e.g., `'black'`, `'white'`, `'#FF0000'`).
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         A new video with the fade-out effect applied.
@@ -1320,14 +1387,62 @@ def fade_out(video: pxt.Video, *, duration: float = 1.0, color: str = 'black') -
 
         >>> tbl.select(tbl.video.fade_out(duration=3.0, color='white')).collect()
     """
-    pass
+    Env.get().require_binary('ffmpeg')
+    if duration <= 0:
+        raise pxt.Error(f'duration must be positive, got {duration}')
+
+    # Need video duration to compute fade start time
+    video_duration = av_utils.get_video_duration(video)
+    if video_duration is None:
+        raise pxt.Error('fade_out(): could not determine video duration')
+
+    start_time = max(0, video_duration - duration)
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
+
+    # fade=out:st=<start>:d=<duration>:color=<color>
+    fade_filter = f'fade=out:st={start_time}:d={duration}:color={color}'
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-vf',
+        fade_filter,
+        '-c:a',
+        'copy',
+        '-c:v',
+        video_encoder,
+        '-loglevel',
+        'error',
+        output_path,
+    ]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+    _logger.debug(f'fade_out(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
 
 
 @pxt.udf(is_method=True)
-def speed(video: pxt.Video, *, factor: float) -> pxt.Video:
+def speed(
+    video: pxt.Video,
+    *,
+    factor: float,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
     """
-    Change the playback speed of a video, matching MoviePy's
-    [MultiplySpeed](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.MultiplySpeed.html) effect.
+    Change the playback speed of a video.
 
     A factor of 2.0 doubles the speed (halves the duration); a factor of 0.5 halves the speed (doubles the duration).
     Audio pitch is preserved using ffmpeg's `atempo` filter.
@@ -1339,6 +1454,8 @@ def speed(video: pxt.Video, *, factor: float) -> pxt.Video:
     Args:
         video: Input video.
         factor: Speed multiplier. Must be positive. Values > 1.0 speed up, values < 1.0 slow down.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         A new video with the adjusted playback speed.
@@ -1352,14 +1469,59 @@ def speed(video: pxt.Video, *, factor: float) -> pxt.Video:
 
         >>> tbl.select(tbl.video.speed(factor=0.5)).collect()
     """
-    pass
+    Env.get().require_binary('ffmpeg')
+    if factor <= 0:
+        raise pxt.Error(f'factor must be positive, got {factor}')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
+
+    # setpts=PTS/<factor> adjusts video timing; atempo=<factor> adjusts audio speed (preserving pitch).
+    # atempo only accepts values in [0.5, 100.0]; for slower speeds, chain multiple atempo filters.
+    video_filter = f'setpts=PTS/{factor}'
+    has_audio = av_utils.has_audio_stream(video)
+
+    cmd = ['ffmpeg', '-i', str(video), '-vf', video_filter, '-c:v', video_encoder]
+
+    if has_audio:
+        # Chain atempo filters for factors outside [0.5, 100.0]
+        atempo_parts = []
+        remaining = factor
+        while remaining < 0.5:
+            atempo_parts.append('atempo=0.5')
+            remaining /= 0.5
+        while remaining > 100.0:
+            atempo_parts.append('atempo=100.0')
+            remaining /= 100.0
+        atempo_parts.append(f'atempo={remaining}')
+        cmd.extend(['-af', ','.join(atempo_parts)])
+    else:
+        cmd.extend(['-an'])
+
+    cmd.extend(['-loglevel', 'error', output_path])
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+    _logger.debug(f'speed(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
 
 
 @pxt.udf(is_method=True)
-def mirror_x(video: pxt.Video) -> pxt.Video:
+def mirror_x(
+    video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
+) -> pxt.Video:
     """
-    Flip a video horizontally, matching MoviePy's
-    [MirrorX](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.MirrorX.html) effect.
+    Flip a video horizontally.
 
     __Requirements:__
 
@@ -1367,6 +1529,8 @@ def mirror_x(video: pxt.Video) -> pxt.Video:
 
     Args:
         video: Input video.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         A horizontally flipped video.
@@ -1374,14 +1538,48 @@ def mirror_x(video: pxt.Video) -> pxt.Video:
     Examples:
         >>> tbl.select(tbl.video.mirror_x()).collect()
     """
-    pass
+    Env.get().require_binary('ffmpeg')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
+
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-vf',
+        'hflip',
+        '-c:a',
+        'copy',
+        '-c:v',
+        video_encoder,
+        '-loglevel',
+        'error',
+        output_path,
+    ]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+    _logger.debug(f'mirror_x(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
 
 
 @pxt.udf(is_method=True)
-def mirror_y(video: pxt.Video) -> pxt.Video:
+def mirror_y(
+    video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
+) -> pxt.Video:
     """
-    Flip a video vertically, matching MoviePy's
-    [MirrorY](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.MirrorY.html) effect.
+    Flip a video vertically.
 
     __Requirements:__
 
@@ -1389,6 +1587,8 @@ def mirror_y(video: pxt.Video) -> pxt.Video:
 
     Args:
         video: Input video.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         A vertically flipped video.
@@ -1396,14 +1596,54 @@ def mirror_y(video: pxt.Video) -> pxt.Video:
     Examples:
         >>> tbl.select(tbl.video.mirror_y()).collect()
     """
-    pass
+    Env.get().require_binary('ffmpeg')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
+
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-vf',
+        'vflip',
+        '-c:a',
+        'copy',
+        '-c:v',
+        video_encoder,
+        '-loglevel',
+        'error',
+        output_path,
+    ]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+    _logger.debug(f'mirror_y(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
 
 
 @pxt.udf(is_method=True)
-def rotate(video: pxt.Video, *, angle: float, unit: Literal['deg', 'rad'] = 'deg', expand: bool = False) -> pxt.Video:
+def rotate(
+    video: pxt.Video,
+    *,
+    angle: float,
+    unit: Literal['deg', 'rad'] = 'deg',
+    expand: bool = False,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> pxt.Video:
     """
-    Rotate a video by a fixed angle, matching MoviePy's
-    [Rotate](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.Rotate.html) effect.
+    Rotate a video by a fixed angle.
 
     __Requirements:__
 
@@ -1415,6 +1655,8 @@ def rotate(video: pxt.Video, *, angle: float, unit: Literal['deg', 'rad'] = 'deg
         unit: Unit of the angle: `'deg'` for degrees or `'rad'` for radians.
         expand: If True, the output frame is enlarged to contain the entire rotated frame (no cropping).
             If False (default), the output frame keeps the original dimensions, cropping corners.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         A new video rotated by the specified angle.
@@ -1432,14 +1674,64 @@ def rotate(video: pxt.Video, *, angle: float, unit: Literal['deg', 'rad'] = 'deg
 
         >>> tbl.select(tbl.video.rotate(angle=1.5708, unit='rad')).collect()
     """
-    pass
+    Env.get().require_binary('ffmpeg')
+
+    # Convert to radians for ffmpeg's rotate filter
+    angle_rad = angle if unit == 'rad' else angle * math.pi / 180
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
+
+    if expand:
+        # Expand output to fit the rotated frame: compute new dimensions from the rotation angle
+        # For a WxH frame rotated by A: new_w = W*|cos(A)| + H*|sin(A)|, new_h = W*|sin(A)| + H*|cos(A)|
+        # Use ffmpeg's rotate filter with out_w/out_h expressions
+        rotate_filter = (
+            f'rotate={angle_rad}'
+            f":ow='ceil((iw*abs(cos({angle_rad}))+ih*abs(sin({angle_rad})))/2)*2'"
+            f":oh='ceil((iw*abs(sin({angle_rad}))+ih*abs(cos({angle_rad})))/2)*2'"
+            f':fillcolor=black'
+        )
+    else:
+        rotate_filter = f'rotate={angle_rad}:fillcolor=black'
+
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-vf',
+        rotate_filter,
+        '-c:a',
+        'copy',
+        '-c:v',
+        video_encoder,
+        '-loglevel',
+        'error',
+        output_path,
+    ]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+    _logger.debug(f'rotate(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
 
 
 @pxt.udf(is_method=True)
-def grayscale(video: pxt.Video) -> pxt.Video:
+def grayscale(
+    video: pxt.Video, *, video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
+) -> pxt.Video:
     """
-    Convert a video to grayscale, matching MoviePy's
-    [BlackAndWhite](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.BlackAndWhite.html) effect.
+    Convert a video to grayscale.
 
     __Requirements:__
 
@@ -1447,6 +1739,8 @@ def grayscale(video: pxt.Video) -> pxt.Video:
 
     Args:
         video: Input video.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         A grayscale version of the video.
@@ -1454,7 +1748,43 @@ def grayscale(video: pxt.Video) -> pxt.Video:
     Examples:
         >>> tbl.select(tbl.video.grayscale()).collect()
     """
-    pass
+    Env.get().require_binary('ffmpeg')
+
+    output_path = str(TempStore.create_path(extension='.mp4'))
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
+
+    # Convert to grayscale via hue filter (set saturation to 0), which keeps the yuv420p pixel format
+    # compatible with most encoders. Using format=gray would produce a single-channel output that
+    # many players and encoders don't handle well.
+    cmd = [
+        'ffmpeg',
+        '-i',
+        str(video),
+        '-vf',
+        'hue=s=0',
+        '-c:a',
+        'copy',
+        '-c:v',
+        video_encoder,
+        '-loglevel',
+        'error',
+        output_path,
+    ]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+    _logger.debug(f'grayscale(): {" ".join(cmd)}')
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        _handle_ffmpeg_error(e)
 
 
 def pan(video: Any, *, direction: Literal['left', 'right', 'up', 'down'] = 'right', crop_pct: float = 0.2) -> Any:
@@ -1533,10 +1863,11 @@ def scroll(
     y_speed: float = 0,
     x_start: int = 0,
     y_start: int = 0,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
-    Apply a scrolling viewport effect, matching MoviePy's
-    [Scroll](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.Scroll.html) effect.
+    Apply a scrolling viewport effect to a video.
 
     Extracts a viewport of size `w` x `h` from each frame, starting at position (`x_start`, `y_start`) and moving
     at (`x_speed`, `y_speed`) pixels per second. The viewport clamps at the frame edges: once it reaches a boundary,
@@ -1561,6 +1892,8 @@ def scroll(
             upward.
         x_start: Initial horizontal offset of the viewport in pixels.
         y_start: Initial vertical offset of the viewport in pixels.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         A new video with the scrolling effect applied. Output dimensions are `w` x `h`.
@@ -1622,7 +1955,8 @@ def scroll(
     crop_filter = f'crop={out_w}:{out_h}:{x_expr}:{y_expr}'
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    video_encoder = Env.get().default_video_encoder
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
 
     cmd = [
         'ffmpeg',
@@ -1638,6 +1972,9 @@ def scroll(
         'error',
         output_path,
     ]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
     _logger.debug(f'scroll(): {" ".join(cmd)}')
 
     try:
@@ -1653,7 +1990,13 @@ def scroll(
 
 @pxt.udf(is_method=True)
 def zoom(
-    video: pxt.Video, *, start_scale: float = 1.0, end_scale: float = 1.3, center: list[float] | None = None
+    video: pxt.Video,
+    *,
+    start_scale: float = 1.0,
+    end_scale: float = 1.3,
+    center: list[float] | None = None,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
 ) -> pxt.Video:
     """
     Apply a smooth zoom effect over the duration of a video.
@@ -1676,6 +2019,8 @@ def zoom(
         end_scale: Zoom factor at the end of the video. Must be >= 1.0.
         center: Zoom center as `[x, y]` in normalized coordinates (0.0 to 1.0), where `[0.5, 0.5]` is the frame
             center. If None, defaults to `[0.5, 0.5]`.
+        video_encoder: Video encoder to use. If not specified, uses the default encoder for the current platform.
+        video_encoder_args: Additional arguments to pass to the video encoder.
 
     Returns:
         A new video with the zoom effect applied. Output resolution matches the input.
@@ -1736,7 +2081,8 @@ def zoom(
     zoompan_filter = f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d=1:s={in_w}x{in_h}:fps={fps}"
 
     output_path = str(TempStore.create_path(extension='.mp4'))
-    video_encoder = Env.get().default_video_encoder
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
 
     cmd = [
         'ffmpeg',
@@ -1752,6 +2098,9 @@ def zoom(
         'error',
         output_path,
     ]
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
     _logger.debug(f'zoom(): {" ".join(cmd)}')
 
     try:
