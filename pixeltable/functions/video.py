@@ -1264,68 +1264,6 @@ def reverse(video: pxt.Video, audio: Literal['reverse', 'drop', 'keep'] = 'drop'
 
 
 @pxt.udf(is_method=True)
-def zoom_in(video: pxt.Video, *, max_scale: float = 1.3) -> pxt.Video:
-    """
-    Apply a gradual zoom-in effect to a video, smoothly scaling from 1.0x to `max_scale` over its duration.
-
-    The zoom is centered on the middle of the frame. The output resolution matches the input; the effect is
-    achieved by progressively cropping a shrinking region and scaling it back to the original size.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        video: Input video.
-        max_scale: Maximum zoom factor at the end of the video. Must be greater than 1.0.
-
-    Returns:
-        A new video with the zoom-in effect applied.
-
-    Examples:
-        Apply a gentle zoom-in effect:
-
-        >>> tbl.select(tbl.video.zoom_in()).collect()
-
-        Apply a more dramatic zoom:
-
-        >>> tbl.select(tbl.video.zoom_in(max_scale=2.0)).collect()
-    """
-    pass
-
-
-@pxt.udf(is_method=True)
-def zoom_out(video: pxt.Video, *, max_scale: float = 1.3) -> pxt.Video:
-    """
-    Apply a gradual zoom-out effect to a video, smoothly scaling from `max_scale` down to 1.0x over its duration.
-
-    The zoom is centered on the middle of the frame. The output resolution matches the input; the effect starts
-    with a cropped (zoomed) view and progressively widens back to the full frame.
-
-    __Requirements:__
-
-    - `ffmpeg` needs to be installed and in PATH
-
-    Args:
-        video: Input video.
-        max_scale: Initial zoom factor at the start of the video. Must be greater than 1.0.
-
-    Returns:
-        A new video with the zoom-out effect applied.
-
-    Examples:
-        Apply a gentle zoom-out effect:
-
-        >>> tbl.select(tbl.video.zoom_out()).collect()
-
-        Apply a more dramatic zoom-out:
-
-        >>> tbl.select(tbl.video.zoom_out(max_scale=2.0)).collect()
-    """
-    pass
-
-
-@pxt.udf(is_method=True)
 def pan_left(video: pxt.Video, *, crop_pct: float = 0.2) -> pxt.Video:
     """
     Apply a horizontal pan effect that moves from right to left across the video.
@@ -1387,6 +1325,115 @@ def pan_right(video: pxt.Video, *, crop_pct: float = 0.2) -> pxt.Video:
         Apply a wider pan:
 
         >>> tbl.select(tbl.video.pan_right(crop_pct=0.4)).collect()
+    """
+    pass
+
+
+@pxt.udf(is_method=True)
+def scroll(
+    video: pxt.Video,
+    *,
+    w: int | None = None,
+    h: int | None = None,
+    x_speed: float = 0,
+    y_speed: float = 0,
+    x_start: int = 0,
+    y_start: int = 0,
+) -> pxt.Video:
+    """
+    Apply a scrolling viewport effect, matching MoviePy's
+    [Scroll](https://zulko.github.io/moviepy/reference/reference/moviepy.video.fx.Scroll.html) effect.
+
+    Extracts a viewport of size `w` x `h` from each frame, starting at position (`x_start`, `y_start`) and moving
+    at (`x_speed`, `y_speed`) pixels per second. The viewport clamps at the frame edges: once it reaches a boundary,
+    it stops moving and the remaining frames show a static crop.
+
+    At least one of `w` or `h` must be smaller than the input dimensions for the effect to be visible.
+
+    The clip duration is unchanged. To pan across the full available range, set
+    `x_speed = (input_width - w) / duration`.
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        w: Width of the output viewport in pixels. If None, uses the input width.
+        h: Height of the output viewport in pixels. If None, uses the input height.
+        x_speed: Horizontal scroll speed in pixels per second. Positive values scroll rightward (the viewport moves
+            right, revealing content to the right). Negative values scroll leftward.
+        y_speed: Vertical scroll speed in pixels per second. Positive values scroll downward. Negative values scroll
+            upward.
+        x_start: Initial horizontal offset of the viewport in pixels.
+        y_start: Initial vertical offset of the viewport in pixels.
+
+    Returns:
+        A new video with the scrolling effect applied. Output dimensions are `w` x `h`.
+
+    Examples:
+        Pan rightward across a video with a viewport 80% of the original width:
+
+        >>> tbl.select(tbl.video.scroll(w=512, x_speed=50)).collect()
+
+        Pan diagonally (right and down):
+
+        >>> tbl.select(
+        ...     tbl.video.scroll(w=512, h=288, x_speed=30, y_speed=20)
+        ... ).collect()
+
+        Pan leftward, starting from the right edge:
+
+        >>> tbl.select(tbl.video.scroll(w=512, x_start=128, x_speed=-50)).collect()
+    """
+    pass
+
+
+@pxt.udf(is_method=True)
+def zoom(
+    video: pxt.Video, *, start_scale: float = 1.0, end_scale: float = 1.3, center: list[float] | None = None
+) -> pxt.Video:
+    """
+    Apply a smooth zoom effect over the duration of a video.
+
+    The zoom factor interpolates linearly from `start_scale` to `end_scale`. The effect works by computing a crop
+    region at each frame (centered on `center`) and scaling it back to the original resolution. Output dimensions
+    match the input.
+
+    - `start_scale < end_scale`: zoom in (frame progressively tightens)
+    - `start_scale > end_scale`: zoom out (frame progressively widens)
+    - `start_scale == end_scale`: static zoom (constant crop, no animation)
+
+    __Requirements:__
+
+    - `ffmpeg` needs to be installed and in PATH
+
+    Args:
+        video: Input video.
+        start_scale: Zoom factor at the start of the video. Must be >= 1.0.
+        end_scale: Zoom factor at the end of the video. Must be >= 1.0.
+        center: Zoom center as `[x, y]` in normalized coordinates (0.0 to 1.0), where `[0.5, 0.5]` is the frame
+            center. If None, defaults to `[0.5, 0.5]`.
+
+    Returns:
+        A new video with the zoom effect applied. Output resolution matches the input.
+
+    Examples:
+        Zoom in (default, 1.0x to 1.3x centered):
+
+        >>> tbl.select(tbl.video.zoom()).collect()
+
+        Zoom out from 2x to 1x:
+
+        >>> tbl.select(tbl.video.zoom(start_scale=2.0, end_scale=1.0)).collect()
+
+        Zoom in toward the upper-left quadrant:
+
+        >>> tbl.select(tbl.video.zoom(end_scale=1.5, center=[0.25, 0.25])).collect()
+
+        Static 1.5x zoom (no animation):
+
+        >>> tbl.select(tbl.video.zoom(start_scale=1.5, end_scale=1.5)).collect()
     """
     pass
 
