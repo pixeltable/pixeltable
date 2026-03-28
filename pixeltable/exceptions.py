@@ -31,6 +31,23 @@ ServiceUnavailableError   503   DATABASE_UNAVAILABLE, STORE_UNAVAILABLE
 ConcurrencyError          409   SERIALIZATION_FAILURE,
                                 CONCURRENT_MODIFICATION
 CancellationError         499   CANCELLED
+
+Error Code Ranges
+=================
+
+Each error code group is assigned a stable numeric range with room for future additions:
+
+    0xx  — General / internal
+    1xx  — Not found
+    2xx  — Already exists
+    3xx  — Schema / validation
+    4xx  — Operation
+    5xx  — Authorization
+    6xx  — External service
+    7xx  — Service unavailable
+    8xx  — Concurrency
+    9xx  — Configuration
+    10xx — Cancellation
 """
 
 from __future__ import annotations
@@ -44,63 +61,69 @@ if TYPE_CHECKING:
 
 
 class ErrorCode(enum.Enum):
-    """Machine-readable error codes for Pixeltable exceptions."""
+    """Machine-readable error codes for Pixeltable exceptions.
 
-    INTERNAL_ERROR = enum.auto()
+    Codes are assigned explicit stable values in grouped ranges.  New codes
+    MUST be added at the end of their group and MUST NOT reuse or shift
+    existing values.
+    """
 
-    # NotFoundError codes
-    COLUMN_NOT_FOUND = enum.auto()
-    PATH_NOT_FOUND = enum.auto()
-    DIRECTORY_NOT_FOUND = enum.auto()
-    INDEX_NOT_FOUND = enum.auto()
-    FUNCTION_NOT_FOUND = enum.auto()
-    ROW_NOT_FOUND = enum.auto()
-    STORAGE_NOT_FOUND = enum.auto()
+    # General (0xx)
+    INTERNAL_ERROR = 0
 
-    # AlreadyExistsError codes
-    COLUMN_ALREADY_EXISTS = enum.auto()
-    PATH_ALREADY_EXISTS = enum.auto()
-    INDEX_ALREADY_EXISTS = enum.auto()
-    FUNCTION_ALREADY_EXISTS = enum.auto()
+    # NotFoundError (1xx)
+    COLUMN_NOT_FOUND = 100
+    PATH_NOT_FOUND = 101
+    DIRECTORY_NOT_FOUND = 102
+    INDEX_NOT_FOUND = 103
+    FUNCTION_NOT_FOUND = 104
+    ROW_NOT_FOUND = 105
+    STORAGE_NOT_FOUND = 106
 
-    # SchemaError codes
-    INVALID_COLUMN_NAME = enum.auto()
-    INVALID_PATH = enum.auto()
-    INVALID_EXPRESSION = enum.auto()
-    INVALID_TYPE = enum.auto()
-    INVALID_SCHEMA = enum.auto()
-    INVALID_ARGUMENT = enum.auto()
-    INVALID_DATA_FORMAT = enum.auto()
-    MISSING_REQUIRED = enum.auto()
-    TYPE_MISMATCH = enum.auto()
-    CONSTRAINT_VIOLATION = enum.auto()
+    # AlreadyExistsError (2xx)
+    COLUMN_ALREADY_EXISTS = 200
+    PATH_ALREADY_EXISTS = 201
+    INDEX_ALREADY_EXISTS = 202
+    FUNCTION_ALREADY_EXISTS = 203
 
-    # OperationError codes
-    UNSUPPORTED_OPERATION = enum.auto()
-    INVALID_STATE = enum.auto()
-    IMMUTABLE = enum.auto()
+    # SchemaError (3xx)
+    INVALID_COLUMN_NAME = 300
+    INVALID_PATH = 301
+    INVALID_EXPRESSION = 302
+    INVALID_TYPE = 303
+    INVALID_SCHEMA = 304
+    INVALID_ARGUMENT = 305
+    INVALID_DATA_FORMAT = 306
+    MISSING_REQUIRED = 307
+    TYPE_MISMATCH = 308
+    CONSTRAINT_VIOLATION = 309
 
-    # AuthorizationError codes
-    INSUFFICIENT_PRIVILEGES = enum.auto()
+    # OperationError (4xx)
+    UNSUPPORTED_OPERATION = 400
+    INVALID_STATE = 401
+    IMMUTABLE = 402
 
-    # ExternalServiceError codes
-    PROVIDER_ERROR = enum.auto()
-    RATE_LIMITED = enum.auto()
+    # AuthorizationError (5xx)
+    INSUFFICIENT_PRIVILEGES = 500
 
-    # ServiceUnavailableError codes
-    DATABASE_UNAVAILABLE = enum.auto()
-    STORE_UNAVAILABLE = enum.auto()
+    # ExternalServiceError (6xx)
+    PROVIDER_ERROR = 600
+    RATE_LIMITED = 601
 
-    # ConcurrencyError codes
-    SERIALIZATION_FAILURE = enum.auto()
-    CONCURRENT_MODIFICATION = enum.auto()
+    # ServiceUnavailableError (7xx)
+    DATABASE_UNAVAILABLE = 700
+    STORE_UNAVAILABLE = 701
 
-    # Configuration codes (used with base Error)
-    MISSING_CREDENTIALS = enum.auto()
-    INVALID_CONFIGURATION = enum.auto()
+    # ConcurrencyError (8xx)
+    SERIALIZATION_FAILURE = 800
+    CONCURRENT_MODIFICATION = 801
 
-    # CancellationError codes
-    CANCELLED = enum.auto()
+    # Configuration (9xx) — used with base Error
+    MISSING_CREDENTIALS = 900
+    INVALID_CONFIGURATION = 901
+
+    # CancellationError (10xx)
+    CANCELLED = 1000
 
 
 class Error(Exception):
