@@ -95,7 +95,8 @@ endif
 	done
 	@touch .make-install/env
 
-DASHBOARD_SOURCES := $(shell find dashboard -type f)
+# Get dashboard sources; exclude node_modules and build artifacts
+DASHBOARD_SOURCES := $(shell find dashboard -type f -not -path '*/node_modules/*')
 .make-install/dashboard: $(DASHBOARD_SOURCES)
 	@echo 'Building dashboard assets ...'
 	@(cd dashboard && npm install --silent && npm run build)

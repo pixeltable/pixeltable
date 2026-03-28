@@ -110,7 +110,9 @@ def _(path: str, query: dict) -> _RawResponse:
 
 
 class _DashboardHandler(BaseHTTPRequestHandler):
-    """Handles GET requests: API routes + SPA static files."""
+    """Handles GET/HEAD requests: API routes + SPA static files."""
+
+    _head_only: bool
 
     # Silence per-request log lines from BaseHTTPRequestHandler
     def log_message(self, fmt: str, *args: Any) -> None:
@@ -134,6 +136,14 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self) -> None:
+        self._head_only = False
+        self.__route_request()
+
+    def do_HEAD(self) -> None:
+        self._head_only = True
+        self.__route_request()
+
+    def __route_request(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path
 
@@ -142,9 +152,6 @@ class _DashboardHandler(BaseHTTPRequestHandler):
             return
 
         self.__serve_static(path)
-
-    def do_HEAD(self) -> None:
-        self.do_GET()
 
     # Block all other methods
     def do_POST(self) -> None:
@@ -245,6 +252,8 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         self.__safe_write(body)
 
     def __safe_write(self, data: bytes) -> None:
+        if self._head_only:
+            return
         try:
             self.wfile.write(data)
         except (BrokenPipeError, ConnectionResetError):
@@ -267,11 +276,7 @@ def run_server(port: int) -> None:
     Uses `ThreadingHTTPServer` — each request is handled in its own
     thread, so synchronous Pixeltable calls never block other requests.
 
-    Called from a daemon thread spawned by `_start_dashboard_background`
-    in `globals.py`.
-
     Args:
-        host: Address to bind to (default `127.0.0.1`; never use `0.0.0.0`).
         port: Port number.
     """
     assert DASHBOARD_DIST_PATH.exists(), f'Static site distribution not found at: {DASHBOARD_DIST_PATH}'

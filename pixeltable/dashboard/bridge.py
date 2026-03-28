@@ -189,7 +189,7 @@ def get_table_data(
                 combined |= pred
             query = query.where(combined)
 
-    if order_by and hasattr(tbl, order_by):
+    if order_by is not None and order_by in tbl.columns():
         col = getattr(tbl, order_by)
         query = query.order_by(col, asc=not order_desc)
 
