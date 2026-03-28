@@ -1359,6 +1359,10 @@ class TestVideo:
             t.select(t.video.scroll(w=99999, x_speed=10)).collect()
         with pytest.raises(pxt.Error):
             t.select(t.video.scroll(x_speed=10)).collect()
+        with pytest.raises(pxt.Error, match=r'x_start must be between'):
+            t.select(t.video.scroll(w=160, x_speed=10, x_start=9999)).collect()
+        with pytest.raises(pxt.Error, match=r'y_start must be between'):
+            t.select(t.video.scroll(w=160, x_speed=10, y_start=9999)).collect()
 
     def test_zoom(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
@@ -1429,6 +1433,18 @@ class TestVideo:
         assert all(row['faded_duration'] == pytest.approx(row['orig_duration'], abs=0.2) for row in result)
 
         self._validate_videos(result['faded'])
+
+    def test_fade_errors(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('fade_err_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+            t.select(t.video.fade_in(duration=0)).collect()
+        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+            t.select(t.video.fade_in(duration=-1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'duration must be positive'):
+            t.select(t.video.fade_out(duration=0)).collect()
 
     def test_speed(self, uses_db: None) -> None:
         video_filepaths = get_video_files()
@@ -1539,6 +1555,20 @@ class TestVideo:
         assert all(row['gray_md']['streams'][0]['height'] == row['orig_h'] for row in result)
 
         self._validate_videos(result['gray'])
+
+    def test_pan_errors(self, uses_db: None) -> None:
+        from pixeltable.functions.video import pan
+
+        video_filepaths = get_video_files()
+        t = pxt.create_table('pan_err_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        with pytest.raises(pxt.Error, match=r'crop_pct must be between'):
+            t.select(pan(t.video, crop_pct=0.0)).collect()
+        with pytest.raises(pxt.Error, match=r'crop_pct must be between'):
+            t.select(pan(t.video, crop_pct=1.0)).collect()
+        with pytest.raises(pxt.Error, match=r'direction must be one of'):
+            t.select(pan(t.video, direction='diagonal')).collect()
 
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')
