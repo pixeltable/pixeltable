@@ -473,14 +473,13 @@ class ColumnType:
                 raise excs.Error(f'Field {key!r} in TypedDict `{t.__name__}` is not a valid Pixeltable type: {value!r}')
             type_spec[key] = col_type
         return JsonType(
-            JsonType.TypeSchema(type_spec=type_spec, optional_keys=sorted(getattr(t, '__optional_keys__', []))),
+            JsonType.TypeSchema(type_spec=type_spec, optional_keys=getattr(t, '__optional_keys__', frozenset())),
             nullable=nullable_default,
         )
 
     @classmethod
     def __from_pydantic_model_type(cls, nullable_default: bool, t: type[pydantic.BaseModel]) -> JsonType:
         fields: dict[str, ColumnType] = {}
-        optional_keys: list[str] = []
         for name, info in t.model_fields.items():
             col_type = cls.from_python_type(info.annotation)
             if col_type is None:
@@ -489,8 +488,7 @@ class ColumnType:
                     f'is not a valid Pixeltable type: {info.annotation!r}'
                 )
             fields[name] = col_type
-            if not info.is_required():
-                optional_keys.append(name)
+        optional_keys = frozenset(name for name, info in t.model_fields.items() if not info.is_required())
         return JsonType(JsonType.TypeSchema(type_spec=fields, optional_keys=optional_keys), nullable=nullable_default)
 
     @classmethod
@@ -1125,7 +1123,7 @@ class JsonType(ColumnType):
 
         type_spec: list[ColumnType] | dict[str, ColumnType]
         variadic_type: ColumnType | None = None
-        optional_keys: list[str] = dataclasses.field(default_factory=list)
+        optional_keys: frozenset[str] = frozenset()
 
         def __post_init__(self) -> None:
             if isinstance(self.type_spec, list):
@@ -1133,6 +1131,7 @@ class JsonType(ColumnType):
             else:
                 assert all(col_type is not None for col_type in self.type_spec.values()), self.type_spec
             assert self.variadic_type is None or isinstance(self.variadic_type, ColumnType), self.variadic_type
+            assert self.optional_keys is None or isinstance(self.optional_keys, frozenset), self.optional_keys
 
         def validate_literal(self, val: Any) -> None:
             if isinstance(self.type_spec, list):
@@ -1186,7 +1185,7 @@ class JsonType(ColumnType):
                 isinstance(other, JsonType.TypeSchema)
                 and self.type_spec == other.type_spec
                 and self.variadic_type == other.variadic_type
-                and set(self.optional_keys) == set(other.optional_keys)
+                and self.optional_keys == other.optional_keys
             )
 
         def __hash__(self) -> int:
@@ -1195,7 +1194,7 @@ class JsonType(ColumnType):
                 if isinstance(self.type_spec, list)
                 else hash(frozenset(self.type_spec.items()))
             )
-            return hash((type_spec_hash, self.variadic_type, frozenset(self.optional_keys)))
+            return hash((type_spec_hash, self.variadic_type, self.optional_keys))
 
         def __repr__(self) -> str:
             if isinstance(self.type_spec, list):
@@ -1210,20 +1209,8 @@ class JsonType(ColumnType):
             else:
                 r = repr(self.type_spec)
                 if len(self.optional_keys) > 0:
-                    r += f', optional_keys={self.optional_keys}'
+                    r += f', optional_keys={sorted(self.optional_keys)}'
                 return r
-
-        def as_dict(self) -> dict[str, Any]:
-            type_spec_d: list | dict
-            if isinstance(self.type_spec, list):
-                type_spec_d = [t.as_dict() for t in self.type_spec]
-            else:
-                type_spec_d = {k: t.as_dict() for k, t in self.type_spec.items()}
-            return {
-                'type_spec': type_spec_d,
-                'variadic_type': self.variadic_type.as_dict() if self.variadic_type is not None else None,
-                'optional_keys': self.optional_keys,
-            }
 
         def superschema(self, other: JsonType.TypeSchema) -> JsonType.TypeSchema | None:
             if self == other:
@@ -1244,9 +1231,9 @@ class JsonType(ColumnType):
                 a, b = self.type_spec, other.type_spec
                 if len(a) > len(b):
                     a, b = b, a  # ensure that `a` is always the shorter type_spec
-                for type_, item_b in itertools.zip_longest(a, b):
+                for item_a, item_b in itertools.zip_longest(a, b):
                     assert item_b is not None  # since `a` was chosen to be the shorter type_spec
-                    if type_ is None:
+                    if item_a is None:
                         assert isinstance(item_b, ColumnType)
                         # We're past the end of a's type args. The supertype will still be valid as long as
                         # the type of item_b can be incorporated into the variadic type. This may result in a
@@ -1264,7 +1251,7 @@ class JsonType(ColumnType):
                             if variadic_type is None:
                                 return None  # existing variadic type is incompatible with the extra item_other
                     else:
-                        item_supertype = type_.supertype(item_b)
+                        item_supertype = item_a.supertype(item_b)
                         if item_supertype is None:
                             return None  # incompatible types in this position
                         joined_list.append(item_supertype)
@@ -1274,29 +1261,40 @@ class JsonType(ColumnType):
             if isinstance(self.type_spec, dict) and isinstance(other.type_spec, dict):
                 # Start with self.type_spec.
                 joined_dict = self.type_spec.copy()
-                optional_keys = self.optional_keys.copy()
-                for key in self.type_spec:
-                    if key not in other.type_spec and key not in optional_keys:
-                        # key is only in self, so it's optional in the supertype, regardless of its status in self
-                        optional_keys.append(key)
 
                 # Merge in the keys from other.type_spec.
                 for key, type_ in other.type_spec.items():
                     if key in joined_dict:
+                        # key is in both type specs; form the supertype
                         supertype = type_.supertype(joined_dict[key])
                         if supertype is None:
                             return None  # incompatible types for this key
                         joined_dict[key] = supertype
-                        if key in other.optional_keys and key not in optional_keys:
-                            optional_keys.append(key)
                     else:
                         # key is only in other
                         joined_dict[key] = type_
-                        optional_keys.append(key)
 
-                return JsonType.TypeSchema(type_spec=joined_dict, optional_keys=optional_keys)
+                # If a key is optional in either self or other, it's optional in the supertype.
+                optional_keys = self.optional_keys | other.optional_keys
+                # Moreover, if it appears in one type_spec but not the other,
+                # it must also be optional in the supertype.
+                optional_keys |= frozenset(self.type_spec.keys()) ^ frozenset(other.type_spec.keys())
+
+                return JsonType.TypeSchema(type_spec=joined_dict, optional_keys=frozenset(optional_keys))
 
             return None
+
+        def as_dict(self) -> dict[str, Any]:
+            type_spec_d: list | dict
+            if isinstance(self.type_spec, list):
+                type_spec_d = [t.as_dict() for t in self.type_spec]
+            else:
+                type_spec_d = {k: t.as_dict() for k, t in self.type_spec.items()}
+            return {
+                'type_spec': type_spec_d,
+                'variadic_type': self.variadic_type.as_dict() if self.variadic_type is not None else None,
+                'optional_keys': sorted(self.optional_keys),
+            }
 
         @classmethod
         def from_dict(cls, d: dict[str, Any]) -> JsonType.TypeSchema:
@@ -1311,7 +1309,7 @@ class JsonType(ColumnType):
             return cls(
                 type_spec=type_spec,
                 variadic_type=ColumnType.from_dict(variadic_type_d) if variadic_type_d is not None else None,
-                optional_keys=d['optional_keys'],
+                optional_keys=frozenset(d['optional_keys']),
             )
 
 

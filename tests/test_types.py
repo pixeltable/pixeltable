@@ -171,7 +171,7 @@ class TestTypes:
                 JsonType(
                     JsonType.TypeSchema(
                         {'a': StringType(), 'b': IntType(nullable=True), 'c': ArrayType((None,), dtype=FloatType())},
-                        optional_keys=['a', 'b', 'c'],
+                        optional_keys=frozenset(('a', 'b', 'c')),
                     )
                 ),
                 "Json[{'a': String, 'b': Int | None, 'c': Array[(None,), float32]}, optional_keys=['a', 'b', 'c']]",
@@ -212,7 +212,7 @@ class TestTypes:
                             'c': JsonType(JsonType.TypeSchema([], variadic_type=StringType())),
                             'd': IntType(nullable=True),
                         },
-                        optional_keys=['d'],
+                        optional_keys=frozenset(('d',)),
                     )
                 ),
                 "Json[{'a': String, 'b': Json[(Int, ...)] | None, 'c': Json[(String, ...)], 'd': Int | None}, "
@@ -344,7 +344,7 @@ class TestTypes:
                 JsonType(
                     JsonType.TypeSchema(
                         {'a': StringType(), 'b': IntType(), 'c': ArrayType((None,), dtype=FLOAT32)},
-                        optional_keys=['a', 'b'],
+                        optional_keys=frozenset(('a', 'b')),
                     )
                 ),
             ),
@@ -424,7 +424,7 @@ class TestTypes:
                 },
             ),
             (
-                JsonType(JsonType.TypeSchema({'a': StringType(), 'b': IntType()}, optional_keys=['a'])),
+                JsonType(JsonType.TypeSchema({'a': StringType(), 'b': IntType()}, optional_keys=frozenset(('a',)))),
                 {
                     'type': 'object',
                     'properties': {'a': {'type': 'string'}, 'b': {'type': 'integer'}},
@@ -440,8 +440,8 @@ class TestTypes:
         invalid_type_args = (
             (int, r"Invalid type schema: type argument does not represent a valid JSON type: <class 'int'>"),
             (list[int, str], r'Invalid type schema: `list` or `Sequence` must have at most one type argument'),
-            (list[set], r'Python type found in type argument is not a valid Pixeltable type: set'),
-            (tuple[int, str, set], r'Python type found in type argument is not a valid Pixeltable type: set'),
+            (list[set], r"Python type found in type argument is not a valid Pixeltable type: <class 'set'>"),
+            (tuple[int, str, set], r"Python type found in type argument is not a valid Pixeltable type: <class 'set'>"),
             ([int, str], r'Invalid type schema: expected a single-item list; got a list of length 2'),
             ([set], r"Invalid type schema: type argument contains an invalid Pixeltable type: <class 'set'>"),
             ((int, str, set), r"Invalid type schema: type argument contains an invalid Pixeltable type: <class 'set'>"),

@@ -24,7 +24,8 @@ EXPECTED_SCHEMA = {
     'uuid_col': ts.UUIDType(nullable=True),
     'json_col_1': ts.JsonType(ts.JsonType.TypeSchema([ts.IntType(), ts.IntType()]), nullable=True),
     'json_col_2': ts.JsonType(
-        ts.JsonType.TypeSchema({'a': ts.IntType(), 'b': ts.IntType()}, optional_keys=['a', 'b']), nullable=True
+        ts.JsonType.TypeSchema({'a': ts.IntType(), 'b': ts.IntType()}, optional_keys=frozenset(('a', 'b'))),
+        nullable=True,
     ),
     'array_col_1': ts.ArrayType(shape=(None, 2), dtype=np.dtype('int64'), nullable=True),
     'array_col_2': ts.ArrayType(shape=(None, None), dtype=np.dtype('int64'), nullable=True),
