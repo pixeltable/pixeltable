@@ -25,10 +25,10 @@ class ColumnMetadata(TypedDict):
     """Name of the table where this column was originally defined.
 
     If the current table is a view, then `defined_in` may differ from the current table name."""
+    comment: str | None
+    """User-provided column comment."""
     custom_metadata: Any
     """User-defined JSON metadata for this column, if any."""
-    comment: str
-    """User-provided column comment."""
     is_iterator_col: bool
     """`True` if this column is produced by an iterator (only applicable to views)."""
     destination: str | None

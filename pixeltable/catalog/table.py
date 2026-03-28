@@ -127,8 +127,8 @@ class Table(SchemaObject):
                 is_computed=col.is_computed,
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
                 defined_in=col.get_tbl().name,
-                custom_metadata=col.custom_metadata,
                 comment=col.comment,
+                custom_metadata=col.custom_metadata,
                 is_iterator_col=False,
                 destination=col._explicit_destination,
             )

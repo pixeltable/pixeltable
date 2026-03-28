@@ -129,10 +129,13 @@ class _DashboardHandler(BaseHTTPRequestHandler):
             pass
 
     def do_OPTIONS(self) -> None:
+        allowed = self._cors_origin()
         self.send_response(HTTPStatus.NO_CONTENT)
-        self.send_header('Access-Control-Allow-Origin', self._cors_origin())
-        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        if allowed:
+            self.send_header('Access-Control-Allow-Origin', allowed)
+            self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+            self.send_header('Vary', 'Origin')
         self.end_headers()
 
     def do_GET(self) -> None:
@@ -208,6 +211,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         self.send_header('Referrer-Policy', 'strict-origin-when-cross-origin')
         if allowed:
             self.send_header('Access-Control-Allow-Origin', allowed)
+            self.send_header('Vary', 'Origin')
         self.end_headers()
         self.__safe_write(body)
 
@@ -221,6 +225,7 @@ class _DashboardHandler(BaseHTTPRequestHandler):
         self.send_header('Cache-Control', 'no-store')
         if allowed:
             self.send_header('Access-Control-Allow-Origin', allowed)
+            self.send_header('Vary', 'Origin')
         self.end_headers()
         self.__safe_write(resp.body)
 
