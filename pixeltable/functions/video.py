@@ -1198,6 +1198,8 @@ def reverse(
     # within ~1 GB, reverse each segment independently, then concatenate the reversed segments in reverse order.
     segment_bytes = 2**30
     segment_duration = av_utils.get_segment_duration(video, segment_bytes)
+    if segment_duration is None:
+        raise pxt.Error(f'not a valid video: {video}')
 
     duration = av_utils.get_video_duration(video)
     if duration is None:

@@ -114,7 +114,7 @@ def get_video_duration(path: str) -> float | None:
         if max_pts is not None:
             end_pts = max_pts + (max_pts_duration or 0)
             result = float(end_pts * video_stream.time_base)
-            # the vdeo stream can't be longer than the container, but some demuxers
+            # the video stream can't be longer than the container, but some demuxers
             # (e.g. MPEG) emit trailing packets past the real end
             if container.duration is not None:
                 result = min(result, container.duration / 1_000_000)
@@ -132,42 +132,67 @@ def has_audio_stream(path: str) -> bool:
 def get_segment_duration(path: str, approx_decoded_bytes: int) -> float | None:
     """
     Return the length of a segment for which the combined in-memory size of all its decoded frames is roughly
-    approx_decoded_bytes
+    approx_decoded_bytes.
+
+    If the frame rate or dimensions cannot be determined, returns a conservative fallback (1 second).
     """
     # bytes of memory per pixel of decoded frames, by pixel format
     bytes_per_pixel = {
-        # 4:2:0: chroma planes are quarter size
+        # 8-bit 4:2:0: chroma planes are quarter size
         'yuv420p': 1.5,
         'yuvj420p': 1.5,
-        # 4:2:2: chroma planes are half size
+        # 8-bit 4:2:2: chroma planes are half size
         'yuv422p': 2.0,
         'yuvj422p': 2.0,
-        # 4:4:4: all planes full size
+        # 8-bit 4:4:4: all planes full size
         'yuv444p': 3.0,
         'yuvj444p': 3.0,
         # packed 4:2:0 variants (Android/camera common)
         'nv12': 1.5,
         'nv21': 1.5,
-        # others
+        # 10-bit variants (HDR content)
+        'yuv420p10le': 3.0,
+        'yuv420p10be': 3.0,
+        'yuv422p10le': 4.0,
+        'yuv422p10be': 4.0,
+        'yuv444p10le': 6.0,
+        'yuv444p10be': 6.0,
+        'p010le': 3.0,
+        'p010be': 3.0,
+        # 12-bit variants
+        'yuv420p12le': 3.0,
+        'yuv420p12be': 3.0,
+        'yuv422p12le': 4.0,
+        'yuv422p12be': 4.0,
+        'yuv444p12le': 6.0,
+        'yuv444p12be': 6.0,
+        # RGB/RGBA
         'rgb24': 3.0,
         'bgr24': 3.0,
         'rgba': 4.0,
         'bgra': 4.0,
+        'rgb48le': 6.0,
+        'rgb48be': 6.0,
+        'rgba64le': 8.0,
+        'rgba64be': 8.0,
     }
 
     with av.open(path) as container:
+        if len(container.streams.video) == 0:
+            return None
         video_stream = container.streams.video[0]
-
         width = video_stream.width
         height = video_stream.height
         pix_fmt = video_stream.codec_context.pix_fmt
 
-        # average_rate is the right choice for VFR content:
-        # we want mean frame density to estimate buffer size, not the timebase rate (base_rate / r_frame_rate), which
-        # can be much higher.
+        if width <= 0 or height <= 0:
+            return None
+
+        if video_stream.average_rate is None or video_stream.average_rate == 0:
+            return None
         fps = float(video_stream.average_rate)
 
-    bpp = bytes_per_pixel.get(pix_fmt, 1.5)  # fall back to yuv420p; most web/camera content
+    bpp = bytes_per_pixel.get(pix_fmt, 3.0)  # conservative fallback for unknown formats
     bytes_per_frame = width * height * bpp
     frames_per_segment = approx_decoded_bytes / bytes_per_frame
     return frames_per_segment / fps

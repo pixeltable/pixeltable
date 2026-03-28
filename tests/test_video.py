@@ -1357,7 +1357,7 @@ class TestVideo:
             t.select(t.video.scroll(w=160)).collect()
         with pytest.raises(pxt.Error, match=r'viewport.*must not exceed input dimensions'):
             t.select(t.video.scroll(w=99999, x_speed=10)).collect()
-        with pytest.raises(pxt.Error):
+        with pytest.raises(pxt.Error, match='at least one of `w` or `h`'):
             t.select(t.video.scroll(x_speed=10)).collect()
         with pytest.raises(pxt.Error, match=r'x_start must be between'):
             t.select(t.video.scroll(w=160, x_speed=10, x_start=9999)).collect()
@@ -1556,6 +1556,37 @@ class TestVideo:
 
         self._validate_videos(result['gray'])
 
+    @pytest.mark.parametrize('direction', ['left', 'right', 'up', 'down'])
+    def test_pan(self, direction: str, uses_db: None) -> None:
+        from pixeltable.functions.video import pan
+
+        video_filepaths = get_video_files()
+        t = pxt.create_table('pan_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        md = t.video.get_metadata()
+        panned = pan(t.video, direction=direction, crop_pct=0.2)  # type: ignore[arg-type]
+        result = (
+            t.where(md.streams[0].duration_seconds != None)
+            .select(
+                orig_w=md.streams[0].width, orig_h=md.streams[0].height, panned=panned, panned_md=panned.get_metadata()
+            )
+            .collect()
+        )
+        assert len(result) > 0
+
+        assert all(row['panned'] is not None for row in result)
+        if direction in ('left', 'right'):
+            # width should be ~80% of original, height unchanged
+            assert all(row['panned_md']['streams'][0]['height'] == row['orig_h'] for row in result)
+            assert all(row['panned_md']['streams'][0]['width'] < row['orig_w'] for row in result)
+        else:
+            # height should be ~80% of original, width unchanged
+            assert all(row['panned_md']['streams'][0]['width'] == row['orig_w'] for row in result)
+            assert all(row['panned_md']['streams'][0]['height'] < row['orig_h'] for row in result)
+
+        self._validate_videos(result['panned'])
+
     def test_pan_errors(self, uses_db: None) -> None:
         from pixeltable.functions.video import pan
 
@@ -1568,7 +1599,7 @@ class TestVideo:
         with pytest.raises(pxt.Error, match=r'crop_pct must be between'):
             t.select(pan(t.video, crop_pct=1.0)).collect()
         with pytest.raises(pxt.Error, match=r'direction must be one of'):
-            t.select(pan(t.video, direction='diagonal')).collect()
+            t.select(pan(t.video, direction='diagonal')).collect()  # type: ignore[arg-type]
 
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')
