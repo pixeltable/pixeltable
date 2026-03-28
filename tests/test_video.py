@@ -1319,6 +1319,90 @@ class TestVideo:
         # verify the reversed video is a valid video file by inserting it back
         validate_update_status(t.insert([{'video': row['reversed']}]))
 
+    def test_scroll(self, uses_db: None) -> None:
+        video_filepaths = get_video_files(include_vfr=False, include_mpgs=False)
+        t = pxt.create_table('scroll_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        md = t.video.get_metadata()
+
+        # scroll rightward with a 160px-wide viewport
+        scrolled = t.video.scroll(w=160, x_speed=50)
+        result = t.select(orig_h=md.streams[0].height, scrolled=scrolled, scrolled_md=scrolled.get_metadata()).collect()
+
+        for row in result:
+            assert row['scrolled'] is not None
+            out_w = row['scrolled_md']['streams'][0]['width']
+            out_h = row['scrolled_md']['streams'][0]['height']
+            assert out_w == 160
+            # output height should be unchanged
+            assert out_h == row['orig_h']
+
+        # verify scrolled videos are valid by inserting them back
+        t.insert(({'video': row['scrolled']} for row in result), on_error='abort')
+
+    def test_scroll_errors(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('scroll_err_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        with pytest.raises(pxt.Error, match='at least one of .x_speed. or .y_speed. must be non-zero'):
+            t.select(t.video.scroll(w=160)).collect()
+        with pytest.raises(pxt.Error, match='viewport.*must not exceed input dimensions'):
+            t.select(t.video.scroll(w=99999, x_speed=10)).collect()
+        with pytest.raises(pxt.Error):
+            t.select(t.video.scroll(x_speed=10)).collect()
+
+    def test_zoom(self, uses_db: None) -> None:
+        video_filepaths = get_video_files(include_vfr=False, include_mpgs=False)
+        t = pxt.create_table('zoom_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        md = t.video.get_metadata()
+
+        # zoom in (default)
+        zoomed_in = t.video.zoom()
+        # zoom out
+        zoomed_out = t.video.zoom(start_scale=1.3, end_scale=1.0)
+        # zoom with custom center
+        zoomed_corner = t.video.zoom(end_scale=1.5, center=[0.25, 0.25])
+
+        result = t.select(
+            orig_w=md.streams[0].width,
+            orig_h=md.streams[0].height,
+            zoomed_in=zoomed_in,
+            zoomed_in_md=zoomed_in.get_metadata(),
+            zoomed_out=zoomed_out,
+            zoomed_corner=zoomed_corner,
+        ).collect()
+
+        for row in result:
+            assert row['zoomed_in'] is not None
+            assert row['zoomed_out'] is not None
+            assert row['zoomed_corner'] is not None
+            # output resolution should match input
+            assert row['zoomed_in_md']['streams'][0]['width'] == row['orig_w']
+            assert row['zoomed_in_md']['streams'][0]['height'] == row['orig_h']
+
+        # verify zoomed videos are valid by inserting them back
+        t.insert(({'video': row['zoomed_in']} for row in result), on_error='abort')
+        t.insert(({'video': row['zoomed_out']} for row in result), on_error='abort')
+        t.insert(({'video': row['zoomed_corner']} for row in result), on_error='abort')
+
+    def test_zoom_errors(self, uses_db: None) -> None:
+        video_filepaths = get_video_files()
+        t = pxt.create_table('zoom_err_test', {'video': pxt.Video})
+        validate_update_status(t.insert({'video': f} for f in video_filepaths), expected_rows=len(video_filepaths))
+
+        with pytest.raises(pxt.Error, match='start_scale must be >= 1.0'):
+            t.select(t.video.zoom(start_scale=0.5)).collect()
+        with pytest.raises(pxt.Error, match='end_scale must be >= 1.0'):
+            t.select(t.video.zoom(end_scale=0.5)).collect()
+        with pytest.raises(pxt.Error, match='center must be'):
+            t.select(t.video.zoom(center=[0.5])).collect()
+        with pytest.raises(pxt.Error, match='center must be'):
+            t.select(t.video.zoom(center=[0.5, 1.5])).collect()
+
     def test_scene_detect(self, uses_db: None) -> None:
         skip_test_if_not_installed('scenedetect')
         video_filepaths = get_video_files()
