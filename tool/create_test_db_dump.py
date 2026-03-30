@@ -14,12 +14,15 @@ import numpy as np
 import pixeltable_pgserver
 import toml
 
+import sqlalchemy as sql
+
 import pixeltable as pxt
 from pixeltable import functions as pxtf, metadata, type_system as ts
 from pixeltable.env import Env
 from pixeltable.func import Batch
 from pixeltable.io.external_store import Project
 from pixeltable.iterators.base import ComponentIterator
+from pixeltable.metadata.schema import Table
 from tool.udfs_for_db_dump import test_array_udf, test_binary_udf, test_date_udf, test_timestamp_udf, test_uuid_udf
 
 _logger = logging.getLogger('pixeltable')
@@ -332,6 +335,27 @@ class Dumper:
             iterator=pxtf.video.video_splitter(t.c10, segment_times=[3.0, 6.0], mode='accurate'),
         )
 
+        # Primary key migration test tables: created WITHOUT the primary_key parameter (so no PK
+        # index exists in PostgreSQL), then metadata is patched to simulate PK declarations. This
+        # allows the v48→v49 migration converter to test creating PK indexes retroactively.
+        self._create_pk_test_tables()
+
+    def _create_pk_test_tables(self) -> None:
+        """Create tables for testing primary key migration (v48->v49 converter).
+
+        Both tables get PK metadata injected without an actual PK index, so the converter can
+        attempt to create one. ``pk_test_good`` has unique data (succeeds) and ``pk_test_bad``
+        has duplicates (fails, PK metadata erased).
+        """
+        pk_good = pxt.create_table('pk_test_good', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]})
+        pk_good.insert([{'id': 1, 'name': 'Alice'}, {'id': 2, 'name': 'Bob'}, {'id': 3, 'name': 'Charlie'}])
+
+        pk_bad = pxt.create_table('pk_test_bad', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]})
+        pk_bad.insert([{'id': 1, 'name': 'Alice'}, {'id': 1, 'name': 'Bob'}, {'id': 2, 'name': 'Charlie'}])
+
+        _inject_pk_metadata('pk_test_good', 'id')
+        _inject_pk_metadata('pk_test_bad', 'id')
+
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:
         def add_computed_column(col_name: str, col_expr: Any, stored: bool = True) -> None:
             t.add_computed_column(**{f'{col_prefix}_{col_name}': col_expr}, stored=stored)
@@ -462,6 +486,46 @@ def test_udf_stored(n: int) -> int:
 @pxt.udf(batch_size=4, _force_stored=True)
 def test_udf_stored_batched(strings: Batch[str], *, upper: bool = True) -> Batch[str]:
     return [string.upper() if upper else string.lower() for string in strings]
+
+
+def _inject_pk_metadata(table_name: str, pk_col_name: str) -> None:
+    """Inject primary key metadata into a table that was created without a PK.
+
+    This patches the Table.md JSONB directly so the table *appears* to have a PK declaration
+    in its metadata, but no corresponding PostgreSQL unique index exists. Used to create test
+    fixtures for the v48→v49 migration converter.
+    """
+    engine = Env.get().engine
+    with engine.begin() as conn:
+        for row in conn.execute(sql.select(Table.id, Table.md)):
+            tbl_id, table_md = row[0], row[1]
+            if table_md['name'] != table_name:
+                continue
+
+            target_col_id: int | None = None
+            t = pxt.get_table(table_name)
+            for col in t._tbl_version.get().cols:
+                if col.name == pk_col_name:
+                    target_col_id = col.id
+                    break
+
+            if target_col_id is None:
+                raise RuntimeError(f'Column {pk_col_name!r} not found in table {table_name!r}')
+
+            table_md['column_md'][str(target_col_id)]['is_pk'] = True
+            next_id = max((int(k) for k in table_md.get('index_md', {})), default=-1) + 1
+            table_md['primary_index_md'] = {
+                'id': next_id,
+                'name': f'pk{tbl_id.hex}',
+                'indexed_col_tbl_id': str(tbl_id),
+                'indexed_col_ids': [target_col_id],
+            }
+
+            conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=table_md))
+            _logger.info(f'Injected PK metadata for column {pk_col_name!r} in table {table_name!r}')
+            return
+
+    raise RuntimeError(f'Table {table_name!r} not found in metadata')
 
 
 def main() -> None:
