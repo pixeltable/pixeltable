@@ -342,6 +342,8 @@ class Catalog:
                                 finalize_pending_ops=finalize_pending_ops,
                                 num_retries=num_retries,
                             )
+                            if success and lock_mutable_tree:
+                                self._compute_column_dependents(x_locked_ids)
                             if not success:
                                 assert not self._undo_actions  # We should not have any undo actions at this point
                                 has_exc = True
@@ -450,8 +452,6 @@ class Catalog:
             if for_write and len(x_locked_ids) > 0:
                 is_x_locked = True
                 self._x_locked_tbl_ids = x_locked_ids
-                if lock_mutable_tree:
-                    self._compute_column_dependents(x_locked_ids)
                 if _logger.isEnabledFor(logging.DEBUG):
                     # validate only when we don't see errors
                     self.validate()
