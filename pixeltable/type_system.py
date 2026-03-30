@@ -1147,9 +1147,7 @@ class JsonType(ColumnType):
                         f'Too few items in list: expected {qualifier} {len(self.type_spec)}; got {len(val)}'
                     )
                 if len(val) > len(self.type_spec) and self.variadic_type is None:
-                    raise TypeError(
-                        f'Too many items in list: expected exactly {len(self.type_spec)}; got {len(val)}'
-                    )
+                    raise TypeError(f'Too many items in list: expected exactly {len(self.type_spec)}; got {len(val)}')
                 for i, item in enumerate(val):
                     if i < len(self.type_spec):
                         expected_type = self.type_spec[i]
