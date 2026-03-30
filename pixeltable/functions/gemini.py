@@ -290,7 +290,7 @@ async def _generate_videos_impl(
         operation = await _genai_client().aio.operations.get(operation)
 
     if operation.error:
-        raise Exception(f'Video generation failed: {operation.error}')
+        raise excs.Error(f'Video generation failed: {operation.error}')
 
     video = operation.response.generated_videos[0]
 
