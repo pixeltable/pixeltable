@@ -458,6 +458,7 @@ class Catalog:
                     for_write = False
 
         except sql_exc.DBAPIError as e:
+            # Handle retriable errors
             if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)) and (
                 num_retries < _MAX_RETRIES or _MAX_RETRIES == -1
             ):
