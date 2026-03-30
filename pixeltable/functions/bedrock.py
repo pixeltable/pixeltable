@@ -70,6 +70,7 @@ _embedding_dimensions: dict[str, int] = {
     'amazon.nova-2-multimodal-embeddings-v1:0': 3072,
 }
 
+
 def _to_base64(media: PIL.Image.Image | str) -> str:
     """Convert a PIL image or video/audio file path to a base64 encoded string."""
     if isinstance(media, PIL.Image.Image):
