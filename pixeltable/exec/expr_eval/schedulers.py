@@ -9,7 +9,7 @@ import sys
 import time
 from typing import Awaitable, Collection
 
-from pixeltable import env, func
+from pixeltable import env, exceptions as excs, func
 from pixeltable.config import Config
 from pixeltable.utils.http import exponential_backoff, is_retriable_error
 
@@ -143,6 +143,14 @@ class RateLimitsScheduler(Scheduler):
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
         estimator = request.fn_call.fn._resource_estimator
         param_names = [p.name for p in inspect.signature(estimator).parameters.values()]
+        if len(param_names) > 0:
+            fn_params = set(request.fn_call.fn.signature.parameters.keys())
+            estimator_params = set(param_names)
+            if not estimator_params.issubset(fn_params):
+                raise excs.Error(
+                    f'resource_estimator for {request.fn_call.fn.self_path or request.fn_call.fn} has parameters '
+                    f'{estimator_params - fn_params} that are not in the resolved function signature'
+                )
         if len(param_names) == 0:
             result = estimator()
         else:

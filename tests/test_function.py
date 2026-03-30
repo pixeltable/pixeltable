@@ -1341,12 +1341,12 @@ class TestFunction:
             def _(x: int, unknown_param: int) -> dict[str, int]:
                 return {'requests': 1}
 
-        # Invalid: polymorphic function
-        with pytest.raises(pxt.Error, match='polymorphic'):
+        # Valid: polymorphic function with zero-arg estimator
+        @self.overloaded_udf.resource_estimator
+        def _() -> dict[str, int]:
+            return {'requests': 1}
 
-            @self.overloaded_udf.resource_estimator
-            def _() -> dict[str, int]:
-                return {'requests': 1}
+        assert self.overloaded_udf._resource_estimator() == {'requests': 1}
 
 
 @pxt.udf
