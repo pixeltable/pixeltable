@@ -5,13 +5,15 @@ import json
 import logging
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, cast
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal, Sequence, cast
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.types as pat
+import pydantic
+import pydantic_core
 from pyarrow.parquet import ParquetDataset
 
 import pixeltable as pxt
@@ -19,6 +21,7 @@ import pixeltable.exceptions as excs
 import pixeltable.type_system as ts
 from pixeltable.io.pandas import _df_check_primary_key_values, _df_row_to_pxt_row, df_infer_schema
 from pixeltable.utils.http import fetch_url
+from pixeltable.utils.pydantic import is_json_convertible
 
 from .utils import normalize_schema_names
 
@@ -59,6 +62,7 @@ class TableDataConduit:
     src_pk: list[str] | None = None
     valid_rows: RowData | None = None
     extra_fields: dict[str, Any] = field(default_factory=dict)
+    tbl_name: str | None = None
 
     reqd_col_names: set[str] = field(default_factory=set)
     computed_col_names: set[str] = field(default_factory=set)
@@ -67,8 +71,43 @@ class TableDataConduit:
 
     _K_BATCH_SIZE_BYTES = 256 * 2**20
 
-    def check_source_format(self) -> None:
-        assert self.source_format is None or TableDataConduitFormat.is_valid(self.source_format)
+    @staticmethod
+    def create(
+        source: 'TableDataSource',
+        *,
+        source_format: str | None = None,
+        src_schema_overrides: dict[str, ts.ColumnType] | None = None,
+        extra_fields: dict[str, Any] | None = None,
+    ) -> 'TableDataConduit':
+        """Factory that returns a concrete TableDataConduit subclass based on the source type."""
+        assert source_format is None or TableDataConduitFormat.is_valid(source_format), (
+            f'Invalid source_format {source_format}'
+        )
+        if isinstance(source, Sequence) and len(source) > 0 and isinstance(source[0], pydantic.BaseModel):
+            return PydanticTableDataConduit(source)
+
+        tds = TableDataConduit(
+            source, source_format=source_format, src_schema_overrides=src_schema_overrides, extra_fields=extra_fields
+        )
+        if isinstance(tds.source, (pxt.Table, pxt.Query)):
+            return QueryTableDataConduit.from_tds(tds)
+        if isinstance(tds.source, pd.DataFrame):
+            return PandasTableDataConduit.from_tds(tds)
+        if HFTableDataConduit.is_applicable(tds):
+            return HFTableDataConduit.from_tds(tds)
+        if tds.source_format == 'csv' or (isinstance(tds.source, str) and '.csv' in tds.source.lower()):
+            return CSVTableDataConduit.from_tds(tds)
+        if tds.source_format == 'excel' or (isinstance(tds.source, str) and '.xls' in tds.source.lower()):
+            return ExcelTableDataConduit.from_tds(tds)
+        if tds.source_format == 'json' or (isinstance(tds.source, str) and '.json' in tds.source.lower()):
+            return JsonTableDataConduit.from_tds(tds)
+        if tds.source_format == 'parquet' or (
+            isinstance(tds.source, str) and any(s in tds.source.lower() for s in ['.parquet', '.pq', '.parq'])
+        ):
+            return ParquetTableDataConduit.from_tds(tds)
+        if tds.is_rowdata_structure(tds.source) or isinstance(tds.source, Iterator):
+            return RowDataTableDataConduit.from_tds(tds)
+        raise excs.Error(f'Unsupported data source type: {type(tds.source)}')
 
     def __post_init__(self) -> None:
         """If no extra_fields were provided, initialize to empty dict"""
@@ -110,6 +149,7 @@ class TableDataConduit:
             if col.is_computed:
                 self.computed_col_names.add(col.name)
         self.src_pk = []
+        self.tbl_name = table._name
 
     # Check source columns : required, computed, unknown
     def check_source_columns_are_insertable(self, columns: Iterable[str]) -> None:
@@ -687,31 +727,102 @@ class ParquetTableDataConduit(TableDataConduit):
             raise e
 
 
-class UnkTableDataConduit(TableDataConduit):
-    """Source type is not known at the time of creation"""
+@dataclass
+class PydanticTableDataConduit(TableDataConduit):
+    pxt_rows: list[dict[str, Any]] = field(default_factory=list)
 
-    def specialize(self) -> TableDataConduit:
-        if isinstance(self.source, (pxt.Table, pxt.Query)):
-            return QueryTableDataConduit.from_tds(self)
-        if isinstance(self.source, pd.DataFrame):
-            return PandasTableDataConduit.from_tds(self)
-        if HFTableDataConduit.is_applicable(self):
-            return HFTableDataConduit.from_tds(self)
-        if self.source_format == 'csv' or (isinstance(self.source, str) and '.csv' in self.source.lower()):
-            return CSVTableDataConduit.from_tds(self)
-        if self.source_format == 'excel' or (isinstance(self.source, str) and '.xls' in self.source.lower()):
-            return ExcelTableDataConduit.from_tds(self)
-        if self.source_format == 'json' or (isinstance(self.source, str) and '.json' in self.source.lower()):
-            return JsonTableDataConduit.from_tds(self)
-        if self.source_format == 'parquet' or (
-            isinstance(self.source, str) and any(s in self.source.lower() for s in ['.parquet', '.pq', '.parq'])
-        ):
-            return ParquetTableDataConduit.from_tds(self)
-        if (
-            self.is_rowdata_structure(self.source)
-            # An Iterator as a source is assumed to produce rows
-            or isinstance(self.source, Iterator)
-        ):
-            return RowDataTableDataConduit.from_tds(self)
+    def prepare_for_insert_into_table(self) -> None:
+        """Validates and converts the Pydantic models to dicts that can be inserted into the table"""
+        rows = cast(Sequence[pydantic.BaseModel], self.source)
+        assert len(rows) > 0, 'No rows to insert'
+        assert len(self.pxt_rows) == 0, 'prepare_for_insert_into_table should only be called once'
+        model_class = type(rows[0])
+        self._validate_pydantic_model(model_class)
+        # convert rows one-by-one in order to be able to print meaningful error messages
+        for i, row in enumerate(rows):
+            if type(row) is not model_class:
+                raise excs.Error(
+                    f'Expected an instance of `{model_class.__name__}`; got `{type(row).__name__}` (in row {i})'
+                )
+            try:
+                pxt_row = row.model_dump(mode='json')
+            except pydantic_core.PydanticSerializationError as e:
+                raise excs.Error(f'Row {i}: error serializing pydantic model to JSON:\n{e}') from e
+            # explicitly check that all required columns are present and non-None in the rows,
+            # because we ignore nullability when validating the pydantic model
+            for col_name in self.reqd_col_names:
+                if pxt_row.get(col_name) is None:
+                    raise excs.Error(f'Missing required column {col_name!r} in row {i}')
+            self.pxt_rows.append(pxt_row)
 
-        raise excs.Error(f'Unsupported data source type: {type(self.source)}')
+    def _validate_pydantic_model(self, model: type[pydantic.BaseModel]) -> None:
+        """
+        Check if a Pydantic model is compatible with the destination table for insert operations.
+
+        A model is compatible if:
+        - All required table columns have corresponding model fields with compatible types
+        - Model does not define fields for computed columns
+        - Model field types are compatible with table column types
+        """
+        assert isinstance(model, type) and issubclass(model, pydantic.BaseModel)
+
+        model_field_names = set(model.model_fields.keys())
+
+        missing_required = self.reqd_col_names - model_field_names
+        if missing_required:
+            raise excs.Error(
+                f'Pydantic model `{model.__name__}` is missing required columns: ' + ', '.join(missing_required)
+            )
+
+        computed_in_model = self.computed_col_names & model_field_names
+        if computed_in_model:
+            raise excs.Error(
+                f'Pydantic model `{model.__name__}` has fields for computed columns: ' + ', '.join(computed_in_model)
+            )
+
+        # validate type compatibility
+        assert self.pxt_schema is not None, 'add_table_info must be called first'
+        common_fields = model_field_names & set(self.pxt_schema.keys())
+        if len(common_fields) == 0:
+            raise excs.Error(
+                f'Pydantic model `{model.__name__}` has no fields that map to columns in table {self.tbl_name!r}'
+            )
+        for field_name in common_fields:
+            pxt_col_type = self.pxt_schema[field_name]
+            model_type = model.model_fields[field_name].annotation
+
+            # we ignore nullability: we want to accept optional model fields for required table columns, as long as
+            # the model instances provide a non-null value
+            # allow_enum=True: model_dump(mode='json') converts enums to their values
+            inferred_pxt_type = ts.ColumnType.from_python_type(model_type, infer_pydantic_json=True)
+            if inferred_pxt_type is None:
+                raise excs.Error(
+                    f'Pydantic model `{model.__name__}`: cannot infer Pixeltable type for column {field_name!r}'
+                )
+
+            if pxt_col_type.is_media_type():
+                # media types require file paths, either as str or Path
+                if not inferred_pxt_type.is_string_type():
+                    raise excs.Error(
+                        f'Column {field_name!r} requires a `str` or `Path` field in `{model.__name__}`, but it is '
+                        f'`{model_type.__name__}`'
+                    )
+            else:
+                if not pxt_col_type.is_supertype_of(inferred_pxt_type, ignore_nullable=True):
+                    raise excs.Error(
+                        f'Pydantic model `{model.__name__}` has incompatible type `{model_type.__name__}` '
+                        f'for column {field_name!r} (of Pixeltable type `{pxt_col_type}`)'
+                    )
+
+                if (
+                    isinstance(model_type, type)
+                    and issubclass(model_type, pydantic.BaseModel)
+                    and not is_json_convertible(model_type)
+                ):
+                    raise excs.Error(
+                        f'Pydantic model `{model.__name__}` has field {field_name!r} with nested model '
+                        f'`{model_type.__name__}`, which is not JSON-convertible'
+                    )
+
+    def valid_row_batch(self) -> Iterator[RowData]:
+        yield self.pxt_rows
