@@ -426,9 +426,9 @@ class Catalog:
         """
         is_x_locked: bool = False
         try:
-            locked_ids: set[UUID] = set()
+            x_locked_ids: set[UUID] = set()
             if tbl is not None:
-                locked_ids.update(
+                x_locked_ids.update(
                     self._acquire_path_locks(
                         tbl=tbl,
                         for_write=for_write,
@@ -437,7 +437,7 @@ class Catalog:
                     )
                 )
             if tbl_id is not None:
-                locked_ids.update(
+                x_locked_ids.update(
                     self._acquire_tbl_lock(
                         tbl_id=tbl_id,
                         for_write=for_write,
@@ -447,11 +447,11 @@ class Catalog:
                     )
                 )
 
-            if for_write and locked_ids:
+            if for_write and len(x_locked_ids) > 0:
                 is_x_locked = True
-                self._x_locked_tbl_ids = locked_ids
+                self._x_locked_tbl_ids = x_locked_ids
                 if lock_mutable_tree:
-                    self._compute_column_dependents(locked_ids)
+                    self._compute_column_dependents(x_locked_ids)
                 if _logger.isEnabledFor(logging.DEBUG):
                     # validate only when we don't see errors
                     self.validate()
