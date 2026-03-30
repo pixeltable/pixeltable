@@ -550,7 +550,10 @@ async def transcribe(
         mime_type, _ = mimetypes.guess_type(audio, strict=False)
         if mime_type is None:
             raise excs.Error(f'Could not identify mime type of file: {audio}')
-        audio_data = Path(audio).read_bytes()
+        try:
+            audio_data = Path(audio).read_bytes()
+        except (OSError, ValueError) as exc:
+            raise excs.Error(f'Failed to read audio file: {audio}') from exc
         audio_part = types.Part.from_bytes(data=audio_data, mime_type=mime_type)
         response = await client.aio.models.generate_content(
             model=model,
