@@ -38,7 +38,7 @@ class JsonPath(Expr):
             path_elements = []
 
         super().__init__(
-            self.__infer_type(anchor.col_type, path_elements) if anchor is not None else ts.JsonType(nullable=True)
+            self.__resolve_type(anchor.col_type, path_elements) if anchor is not None else ts.JsonType(nullable=True)
         )
         self.path_elements = path_elements
         self.compiled_path = jmespath.compile(self._json_path()) if len(path_elements) > 0 else None
@@ -51,7 +51,7 @@ class JsonPath(Expr):
         self.file_handles = {}
 
     @classmethod
-    def __infer_type(cls, col_type: ts.ColumnType, path_elements: list[str | int | slice]) -> ts.ColumnType:
+    def __resolve_type(cls, col_type: ts.ColumnType, path_elements: list[str | int | slice]) -> ts.ColumnType:
         if len(path_elements) == 0:
             return col_type.copy(nullable=True)
 
@@ -72,32 +72,32 @@ class JsonPath(Expr):
         el = path_elements[0]
         if isinstance(el, str) and isinstance(schema.type_spec, dict) and el in schema.type_spec:
             # Dict key resolution.
-            return cls.__infer_type(schema.type_spec[el], path_elements[1:])
+            return cls.__resolve_type(schema.type_spec[el], path_elements[1:])
 
         if isinstance(el, int) and isinstance(schema.type_spec, list):
             if el >= 0:
                 # Positive index on tuple
                 if el < len(schema.type_spec):
-                    return cls.__infer_type(schema.type_spec[el], path_elements[1:])
+                    return cls.__resolve_type(schema.type_spec[el], path_elements[1:])
                 elif schema.variadic_type is not None:
-                    return cls.__infer_type(schema.variadic_type, path_elements[1:])
+                    return cls.__resolve_type(schema.variadic_type, path_elements[1:])
             elif schema.variadic_type is None:
                 # Negative index on fixed-length tuple
                 if -el <= len(schema.type_spec):
-                    return cls.__infer_type(schema.type_spec[el], path_elements[1:])
+                    return cls.__resolve_type(schema.type_spec[el], path_elements[1:])
             else:
                 # Negative index on variadic tuple: we don't know which element it will reference, so we need to
                 # find the supertype of all possible types it could reference
                 relevant_types = [*schema.type_spec[el:], schema.variadic_type]
                 supertype = ts.ColumnType.common_supertype(relevant_types)
                 if supertype is not None:
-                    return cls.__infer_type(supertype, path_elements[1:])
+                    return cls.__resolve_type(supertype, path_elements[1:])
 
         if isinstance(el, slice) and isinstance(schema.type_spec, list):
             if schema.variadic_type is None:
                 # Slice on fixed-length tuple
                 new_type = ts.JsonType(ts.JsonType.TypeSchema(type_spec=schema.type_spec[el]), nullable=True)
-                return cls.__infer_type(new_type, path_elements[1:])
+                return cls.__resolve_type(new_type, path_elements[1:])
             elif (el.start is None or el.start >= 0) and (el.stop is None or el.stop >= 0):
                 # Slice with positive indices on variadic tuple.
                 type_spec = schema.type_spec[el]
@@ -107,7 +107,7 @@ class JsonPath(Expr):
                 new_type = ts.JsonType(
                     ts.JsonType.TypeSchema(type_spec=type_spec, variadic_type=variadic_type), nullable=True
                 )
-                return cls.__infer_type(new_type, path_elements[1:])
+                return cls.__resolve_type(new_type, path_elements[1:])
             else:
                 # Slice with negative indices on variadic tuple: just make this a variadic tuple of the supertype.
                 # We could try to do something more clever in certain cases, but it's such an edge case that it's
@@ -116,7 +116,7 @@ class JsonPath(Expr):
                 supertype = ts.ColumnType.common_supertype([*schema.type_spec, schema.variadic_type])
                 if supertype is not None:
                     new_type = ts.JsonType(ts.JsonType.TypeSchema([], variadic_type=supertype), nullable=True)
-                    return cls.__infer_type(new_type, path_elements[1:])
+                    return cls.__resolve_type(new_type, path_elements[1:])
 
         return ts.JsonType(nullable=True)
 
