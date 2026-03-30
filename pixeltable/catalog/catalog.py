@@ -418,11 +418,13 @@ class Catalog:
         """
         Acquires transactional locks on the specified tables, and updates self._x_locked_tbl_ids accordingly.
 
-        Returns (success, for_write). Success is False if a retriable error happened. When success is True, for_write
-        can be False if the table is not mutable.
+        Returns (success, is_x_locked). Success is False if a retriable error happened. When success is True,
+        is_x_locked indicates whether or not the requested locks were actually acquired (for non-mutable tables, we
+        don't acquire locks, but still consider the operation successful).
 
         Raises an error if a non-retriable error happened, or if the number of attempts exceeded the limit.
         """
+        is_x_locked: bool = False
         try:
             locked_ids: set[UUID] = set()
             if tbl is not None:
@@ -445,17 +447,14 @@ class Catalog:
                     )
                 )
 
-            if for_write:
-                if locked_ids:
-                    self._x_locked_tbl_ids = locked_ids
-                    if lock_mutable_tree:
-                        self._compute_column_dependents(locked_ids)
-                    if _logger.isEnabledFor(logging.DEBUG):
-                        # validate only when we don't see errors
-                        self.validate()
-                else:
-                    # didn't get the write lock (e.g. table is a snapshot)
-                    for_write = False
+            if for_write and locked_ids:
+                is_x_locked = True
+                self._x_locked_tbl_ids = locked_ids
+                if lock_mutable_tree:
+                    self._compute_column_dependents(locked_ids)
+                if _logger.isEnabledFor(logging.DEBUG):
+                    # validate only when we don't see errors
+                    self.validate()
 
         except sql_exc.DBAPIError as e:
             # Handle retriable errors
@@ -463,9 +462,10 @@ class Catalog:
                 num_retries < _MAX_RETRIES or _MAX_RETRIES == -1
             ):
                 _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
-                return (False, for_write)
+                return (False, False)
             raise
-        return (True, for_write)
+
+        return (True, is_x_locked)
 
     def register_undo_action(self, func: Callable[[], None]) -> Callable[[], None]:
         """Registers a function to be called if the current transaction fails.
