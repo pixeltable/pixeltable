@@ -537,7 +537,10 @@ async def transcribe(
     config_ = types.GenerateContentConfig(**config) if config else None
     client = _genai_client()
 
-    size_bytes = os.stat(audio).st_size
+    try:
+        size_bytes = os.stat(audio).st_size
+    except OSError as exc:
+        raise excs.Error(f"Error accessing audio file '{audio}': {exc.strerror or exc}") from exc
     if size_bytes > GEMINI_INLINE_LIMIT_BYTES:
         async with _gemini_file_uploads([audio]) as uploaded:
             audio_part = types.Part.from_uri(file_uri=uploaded[0].uri, mime_type=uploaded[0].mime_type)
