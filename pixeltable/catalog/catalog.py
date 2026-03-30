@@ -334,7 +334,7 @@ class Catalog:
                 with get_runtime().begin_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
                         try:
-                            success, for_write = self._acquire_tbl_locks(
+                            success, for_write = self._acquire_locks(
                                 tbl=tbl,
                                 tbl_id=tbl_id,
                                 for_write=for_write,
@@ -406,7 +406,7 @@ class Catalog:
                 self._undo_actions.clear()
                 self._modified_tvs.clear()
 
-    def _acquire_tbl_locks(
+    def _acquire_locks(
         self,
         tbl: TableVersionPath | None,
         tbl_id: UUID | None,
