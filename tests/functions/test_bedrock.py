@@ -3,12 +3,13 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import get_image_files, rerun, skip_test_if_no_aws_credentials, skip_test_if_not_installed
+from ..utils import (get_audio_files, get_image_files, get_video_files, rerun, skip_test_if_no_aws_credentials, skip_test_if_not_installed,
+                     validate_update_status)
 from .tool_utils import run_tool_invocations_test
 
 
-@pytest.mark.remote_api
-@rerun(reruns=3, reruns_delay=8)
+#@pytest.mark.remote_api
+#@rerun(reruns=3, reruns_delay=8)
 class TestBedrock:
     def test_converse(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')
@@ -56,6 +57,71 @@ class TestBedrock:
         assert 'response' in results
         assert 'embedding' in results['response']
         assert len(results['response']['embedding']) == 256
+
+    def test_invoke_model_twelvelabs(self, uses_db: None) -> None:
+        skip_test_if_not_installed('boto3')
+        skip_test_if_no_aws_credentials()
+        from pixeltable.functions.bedrock import invoke_model
+
+        # image
+        image_filepaths = get_image_files()[:2]
+        t = pxt.create_table('image_tbl', {'image': pxt.Image})
+        body = {
+            'inputType': 'image',
+            'image': {'mediaSource': {'base64String': t.image}},
+        }
+        t.add_computed_column(response=invoke_model(body, model_id='twelvelabs.marengo-embed-3-0-v1:0'))
+        validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
+        results = t.select(t.response).collect()
+        assert 'response' in results[0]
+        assert results[0]['response']['data'][0]['embedding'][0] is not None
+        assert len(results[0]['response']['data'][0]['embedding']) == 512
+
+        # audio
+        audio_filepaths = get_audio_files()[:2]
+        t = pxt.create_table('audio_tbl', {'audio': pxt.Audio})
+        body = {
+            'inputType': 'audio',
+            'audio': {'mediaSource': {'base64String': t.audio}},
+        }
+        t.add_computed_column(response=invoke_model(body, model_id='twelvelabs.marengo-embed-3-0-v1:0'))
+        validate_update_status(t.insert({'audio': p} for p in audio_filepaths), expected_rows=len(audio_filepaths))
+        results = t.select(t.response).collect()
+        assert 'response' in results[0]
+        assert results[0]['response']['data'][0]['embedding'][0] is not None
+        assert len(results[0]['response']['data'][0]['embedding']) == 512
+
+        # video
+        video_filepaths = get_video_files()[:1]
+        t = pxt.create_table('video_tbl', {'video': pxt.Video})
+        body = {
+            'inputType': 'video',
+            'video': {'mediaSource': {'base64String': t.video}},
+        }
+        t.add_computed_column(response=invoke_model(body, model_id='twelvelabs.marengo-embed-3-0-v1:0'))
+        validate_update_status(t.insert({'video': p} for p in video_filepaths), expected_rows=len(video_filepaths))
+        results = t.select(t.response).collect()
+        assert 'response' in results[0]
+        assert results[0]['response']['data'][0]['embedding'][0] is not None
+        assert len(results[0]['response']['data'][0]['embedding']) == 512
+
+        # text_image
+        image_filepaths = get_image_files()[:2]
+        t = pxt.create_table('text_image_tbl', {'image': pxt.Image})
+        body = {
+            'inputType': 'text_image',
+            'text_image': {
+                'inputText': 'man walking a dog',
+                'mediaSource': {'base64String': t.image},
+            },
+        }
+        t.add_computed_column(response=invoke_model(body, model_id='twelvelabs.marengo-embed-3-0-v1:0'))
+        validate_update_status(t.insert({'image': p} for p in image_filepaths), expected_rows=len(image_filepaths))
+        results = t.select(t.response).collect()
+        assert 'response' in results[0]
+        assert results[0]['response']['data'][0]['embedding'][0] is not None
+        assert len(results[0]['response']['data'][0]['embedding']) == 512
+
 
     def test_tool_invocations(self, uses_db: None) -> None:
         skip_test_if_not_installed('boto3')

@@ -8,7 +8,8 @@ including Anthropic Claude, Amazon Titan, and other providers.
 import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING, Any, Literal
+from base64 import b64encode
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 import numpy as np
 import PIL.Image
@@ -58,6 +59,9 @@ def _bedrock_client() -> Any:
     return get_runtime().get_client('bedrock')
 
 
+_MEDIA_INPUT_TYPES = frozenset({'image', 'audio', 'video', 'text_image'})
+
+
 # Default embedding dimensions for models
 _embedding_dimensions: dict[str, int] = {
     'amazon.titan-embed-text-v1': 1536,
@@ -65,6 +69,13 @@ _embedding_dimensions: dict[str, int] = {
     'amazon.titan-embed-image-v1': 1024,
     'amazon.nova-2-multimodal-embeddings-v1:0': 3072,
 }
+
+def _to_base64(media: PIL.Image.Image | str) -> str:
+    """Convert a PIL image or video/audio file path to a base64 encoded string."""
+    if isinstance(media, PIL.Image.Image):
+        return to_base64(media)
+    with open(media, 'rb') as fp:
+        return b64encode(fp.read()).decode('utf-8')
 
 
 @pxt.udf(is_deterministic=False)
@@ -186,6 +197,12 @@ async def invoke_model(
         ... )
     """
     import json
+
+    input_type = body.get('inputType')
+    if input_type in _MEDIA_INPUT_TYPES:
+        pxt_media = body.get(input_type, {}).get('mediaSource', {}).get('base64String')
+        if pxt_media is not None:
+            body[input_type]['mediaSource']['base64String'] = _to_base64(pxt_media)
 
     kwargs: dict[str, Any] = {
         'body': json.dumps(body),
