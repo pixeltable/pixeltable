@@ -1319,6 +1319,57 @@ class TestFunction:
         assert process.returncode != 0  # The script should fail with an appropriate error message
         assert "Defining the UDF 'inline_udf' directly in the global namespace of a Python script" in process.stderr
 
+    # Polymorphic UDF: overloads share 'model' param
+    @pxt.udf
+    def poly_common(model: str, text: str) -> str:  # noqa: N805
+        return text
+
+    @staticmethod
+    @poly_common.overload
+    def _(model: str, count: int) -> int:
+        return count
+
+    # Polymorphic UDF: overloads share 'x' param
+    @pxt.udf
+    def poly_specific(x: str, y: str) -> str:  # noqa: N805
+        return x + y
+
+    @staticmethod
+    @poly_specific.overload
+    def _(x: int, y: int) -> int:
+        return x + y
+
+    # Non-polymorphic UDFs for backward-compat tests
+    @staticmethod
+    @pxt.udf
+    def simple_est_fn(a: int, b: str) -> str:
+        return str(a) + b
+
+    @staticmethod
+    @pxt.udf
+    def simple_est_fn2(a: int) -> int:
+        return a
+
+    # Polymorphic UDF for testing invalid estimator params (not in any overload)
+    @pxt.udf
+    def poly_bad(model: str, text: str) -> str:  # noqa: N805
+        return text
+
+    @staticmethod
+    @poly_bad.overload
+    def _(model: str, count: int) -> int:
+        return count
+
+    # Polymorphic UDF for testing late estimator registration (after resolution)
+    @pxt.udf
+    def poly_late(x: str) -> str:  # noqa: N805
+        return x
+
+    @staticmethod
+    @poly_late.overload
+    def _(x: int) -> int:
+        return x
+
     def test_resource_estimator_validation(self) -> None:
         # Valid: estimator params are a subset of function params
         @self.f1.resource_estimator
@@ -1347,6 +1398,52 @@ class TestFunction:
             return {'requests': 1}
 
         assert self.overloaded_udf._resource_estimator() == {'requests': 1}
+
+        # Test: Polymorphic function with estimator using common params
+        @self.poly_common.resource_estimator
+        def _(model: str) -> dict[str, int]:
+            return {'requests': 1, 'tokens': len(model) * 10}
+
+        assert self.poly_common._resource_estimator(model='gpt-4') == {'requests': 1, 'tokens': 50}
+
+        # Test: Polymorphic function with estimator using param present in all overloads
+        @self.poly_specific.resource_estimator
+        def _(x: str) -> dict[str, int]:
+            return {'requests': 1}
+
+        assert self.poly_specific._resource_estimator(x='hello') == {'requests': 1}
+
+        # Test: Backward compatibility -- non-polymorphic functions still get decoration-time validation
+        # Valid subset of params
+        @self.simple_est_fn.resource_estimator
+        def _(a: int) -> dict[str, int]:
+            return {'requests': a}
+
+        assert self.simple_est_fn._resource_estimator(a=3) == {'requests': 3}
+
+        # Invalid: param not in function signature for non-polymorphic
+        with pytest.raises(pxt.Error, match='not in the function signature'):
+
+            @self.simple_est_fn2.resource_estimator
+            def _(a: int, bad_param: str) -> dict[str, int]:
+                return {'requests': 1}
+
+        # Invalid: estimator param not in ANY overload of polymorphic function
+        with pytest.raises(pxt.Error, match='not in any function signature'):
+
+            @self.poly_bad.resource_estimator
+            def _(model: str, nonexistent: int) -> dict[str, int]:
+                return {'requests': 1}
+
+        # Invalid: resource_estimator set after function has been called
+        # Trigger overload resolution by accessing _resolved_fns
+        _ = self.poly_late._resolved_fns
+
+        with pytest.raises(pxt.Error, match='cannot be set after the function has already been called'):
+
+            @self.poly_late.resource_estimator
+            def _() -> dict[str, int]:
+                return {'requests': 1}
 
 
 @pxt.udf

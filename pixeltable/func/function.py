@@ -440,16 +440,29 @@ class Function(ABC):
         The decorated function accepts a subset of this function's parameters and returns a dict mapping
         resource names to estimated costs for a single request.
 
-        For polymorphic functions, parameter validation is deferred to runtime, where the estimator's
-        parameters are checked against the resolved overload's parameters.
+        For polymorphic functions, the estimator's parameters are validated at decoration time against the
+        union of all overload parameters, and again at runtime against the resolved overload's parameters.
         """
+        if self.is_polymorphic and self._has_resolved_fns:
+            raise excs.Error(
+                f'resource_estimator for {self.self_path or self} cannot be set after the function has already '
+                f'been called'
+            )
         estimator_params = set(inspect.signature(fn).parameters.keys())
-        if not self.is_polymorphic:
-            fn_params = set(self.signature.parameters.keys())
-            if not estimator_params.issubset(fn_params):
+        if self.is_polymorphic:
+            all_params = {name for sig in self.signatures for name in sig.parameters}
+            extra = estimator_params - all_params
+            if extra:
                 raise excs.Error(
                     f'resource_estimator for {self.self_path or self} has parameters '
-                    f'{estimator_params - fn_params} that are not in the function signature'
+                    f'{extra} that are not in any function signature'
+                )
+        else:
+            extra = estimator_params - set(self.signature.parameters.keys())
+            if extra:
+                raise excs.Error(
+                    f'resource_estimator for {self.self_path or self} has parameters '
+                    f'{extra} that are not in the function signature'
                 )
         self._resource_estimator = fn
         return fn

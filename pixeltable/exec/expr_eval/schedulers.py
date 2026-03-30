@@ -142,18 +142,15 @@ class RateLimitsScheduler(Scheduler):
 
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
         estimator = request.fn_call.fn._resource_estimator
-        param_names = [p.name for p in inspect.signature(estimator).parameters.values()]
-        if len(param_names) > 0:
-            fn_params = set(request.fn_call.fn.signature.parameters.keys())
-            estimator_params = set(param_names)
-            if not estimator_params.issubset(fn_params):
+        param_names = list(inspect.signature(estimator).parameters.keys())
+        if param_names:
+            extra = set(param_names) - set(request.fn_call.fn.signature.parameters.keys())
+            if extra:
+                fn = request.fn_call.fn
                 raise excs.Error(
-                    f'resource_estimator for {request.fn_call.fn.self_path or request.fn_call.fn} has parameters '
-                    f'{estimator_params - fn_params} that are not in the resolved function signature'
+                    f'resource_estimator for {fn.self_path or fn} has parameters '
+                    f'{extra} that are not in the resolved function signature'
                 )
-        if len(param_names) == 0:
-            result = estimator()
-        else:
             kwargs_batch = request.fn_call.get_param_values(param_names, request.rows)
             if not request.is_batched:
                 result = estimator(**kwargs_batch[0])
@@ -161,6 +158,8 @@ class RateLimitsScheduler(Scheduler):
                 batch_kwargs = {k: [d[k] for d in kwargs_batch] for k in kwargs_batch[0]}
                 constant_kwargs, batch_kwargs = request.pxt_fn.create_batch_kwargs(batch_kwargs)
                 result = estimator(**constant_kwargs, **batch_kwargs)
+        else:
+            result = estimator()
         # Filter to resources known to the pool to avoid KeyError in _resource_delay()
         known = self._resources
         return {k: v for k, v in result.items() if k in known}
