@@ -959,11 +959,15 @@ class Table(SchemaObject):
         Add an embedding index to the table. Once the index is created, it will be automatically kept up-to-date as new
         rows are inserted into the table.
 
-        To add an embedding index, one must specify, at minimum, the column to be indexed and an embedding UDF.
-        Only `String` and `Image` columns are currently supported.
+        To add an embedding index, specify the column to be indexed and, if the column is not an `Array` column, an
+        embedding UDF. `String`, `Image`, `Video`, `Audio` and `Array` columns are currently supported.
+
+        For `Array` columns, which are assumed to contain precomputed embeddings, an embedding function is optional;
+        if provided, it will be used to convert query values into embeddings for similarity search.
 
         Args:
-            column: The name of, or reference to, the column to be indexed; must be a `String` or `Image` column.
+            column: The name of, or reference to, the column to be indexed; must be a `String`, `Image` or
+                `Array` column.
             idx_name: An optional name for the index. If not specified, a name such as `'idx0'` will be generated
                 automatically. If specified, the name must be unique for this table and a valid pixeltable column name.
             embedding: The UDF to use for the embedding. Must be a UDF that accepts a single argument of type `String`
@@ -1062,7 +1066,12 @@ class Table(SchemaObject):
 
             # validate EmbeddingIndex args
             idx = EmbeddingIndex(
-                metric=metric, precision=precision, embed=embedding, string_embed=string_embed, image_embed=image_embed
+                metric=metric,
+                precision=precision,
+                embed=embedding,
+                string_embed=string_embed,
+                image_embed=image_embed,
+                column=col,  # Pass column for shape validation
             )
             _ = idx.create_value_expr(col)
             _ = self._tbl_version.get().add_index(col, idx_name=idx_name, idx=idx)
