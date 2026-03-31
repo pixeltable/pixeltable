@@ -36,7 +36,6 @@ class _ProviderSimulator:
     locking is needed.
     """
 
-
     def __init__(self, max_requests: int, refill_seconds: float = 1.0) -> None:
         # Scale into a larger window while preserving the effective rate.
         # E.g. 20 req/1s becomes 300 req/15s -- same 20 req/s rate.
@@ -70,9 +69,7 @@ class _ProviderSimulator:
         if self._available < 1.0:
             self.rejections += 1
             remaining = max(0, int(self._available))
-            raise DummyError(
-                f'simulated 429: no requests available (remaining={remaining}, limit={self.max_requests})'
-            )
+            raise DummyError(f'simulated 429: no requests available (remaining={remaining}, limit={self.max_requests})')
         self._available -= 1.0
         self._used_since_refill += 1
         self.peak = max(self.peak, self._used_since_refill)
@@ -116,9 +113,7 @@ async def _scheduler_test_udf(text: str) -> str:
     and reports resource usage back to the scheduler via record(), the same way real
     provider UDFs (e.g. openai.chat_completions) do.
     """
-    pool_info = env.Env.get().get_resource_pool_info(
-        _POOL_NAME, lambda: _TestRateLimitsInfo(_get_request_resources)
-    )
+    pool_info = env.Env.get().get_resource_pool_info(_POOL_NAME, lambda: _TestRateLimitsInfo(_get_request_resources))
 
     # Token bucket check -- raises DummyError on rejection (simulated 429)
     request_limit, request_count = _provider.enter()
@@ -133,11 +128,7 @@ async def _scheduler_test_udf(text: str) -> str:
     now = datetime.datetime.now(tz=datetime.timezone.utc)
     time_to_full = request_count * _provider.refill_seconds / request_limit if request_count > 0 else 0.0
     reset_at = now + datetime.timedelta(seconds=time_to_full)
-    pool_info.record(
-        request_ts=now,
-        reset_exc=True,
-        requests=(request_limit, request_limit - request_count, reset_at),
-    )
+    pool_info.record(request_ts=now, reset_exc=True, requests=(request_limit, request_limit - request_count, reset_at))
     return f'ok:{text}'
 
 
