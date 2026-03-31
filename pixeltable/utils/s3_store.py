@@ -93,10 +93,10 @@ class S3Store(ObjectStoreBase):
 
     soa: StorageObjectAddress
 
-    def __init__(self, soa: StorageObjectAddress) -> None:
+    def __init__(self, soa: StorageObjectAddress):
         self.soa = soa
-        self.__prefix_name = self.soa.prefix
         self.__bucket_name = self.soa.container
+        self.__prefix_name = self.soa.prefix
         assert self.soa.storage_target in {
             StorageTarget.R2_STORE,
             StorageTarget.S3_STORE,
