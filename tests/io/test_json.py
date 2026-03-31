@@ -6,7 +6,7 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import create_all_datatypes_tbl, get_json_file, validate_update_status
+from ..utils import create_all_datatypes_tbl, get_json_file, skip_test_if_not_installed, validate_update_status
 
 
 class TestJson:
@@ -152,6 +152,7 @@ class TestJson:
 
     def test_export_remote_urls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Verify that remote URLs (S3, HTTPS) are exported as-is."""
+        skip_test_if_not_installed('boto3')
         urls = {
             'c_video': 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4',
             'c_audio': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/audio/sample.flac',
