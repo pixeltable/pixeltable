@@ -5,6 +5,7 @@ import base64
 import datetime
 import json
 import math
+import re
 import urllib.parse
 import urllib.request
 import uuid
@@ -699,17 +700,9 @@ class TestExprs:
         t = pxt.create_table('test', {'col': pxt.Json[spec]})
         cases: tuple[tuple[Expr, type], ...] = (
             (t.col.f1, pxt.String),
-            (t.col.not_a_field, pxt.Json),  # "invalid" field defaults to untyped json
-            (t.col[3], pxt.Json),  # index access on non-array defaults to untyped json
-            (t.col[3:10], pxt.Json),  # slice access on non-array defaults to untyped json
-            (t.col.f1.cannot_be_a_field, pxt.Json),  # also test attempts to deference a primitive type
-            (t.col.f1[3], pxt.Json),
-            (t.col.not_a_field[19][3:44].another_non_field, pxt.Json),  # once untyped, always untyped
             (t.col.f2.f2a, pxt.Int),
             (t.col.f2.f2b[1], pxt.String),
-            (t.col.f2.f2b[93], pxt.Json),  # out-of-range index defaults to untyped json
             (t.col.f2.f2b[-2], pxt.Video),  # negative index on fixed-shape array
-            (t.col.f2.f2b[-93], pxt.Json),  # out-of-range negative index
             (t.col.f2.f2b[3].f2b1, pxt.String),  # chained field/index access
             (t.col.f2.f2c, pxt.Json[(int, bool, float, ...)]),
             (t.col.f2.f2c[0], pxt.Int),
@@ -733,6 +726,27 @@ class TestExprs:
             print(expr)
             col_type = ts.ColumnType.from_python_type(expected_type, nullable_default=True, allow_builtin_types=False)
             assert expr.col_type == col_type, f'{expr!r}: expected `{col_type}`; got `{expr.col_type}`'
+
+        error_cases: tuple[tuple[Expr, str | int | slice, str], ...] = (
+            (t.col.f1, 'cannot_be_a_field', "'cannot_be_a_field'"),  # field access on primitive type
+            (t.col.f1, 3, '[3]'),  # index access on primitive type
+            (t.col.f1, slice(3, 10), '[3:10]'),  # slice access on primitive type
+            (t.col, 'not_a_field', "'not_a_field'"),  # invalid field name in dict
+            (t.col, 3, '[3]'),  # index access on dict
+            (t.col, slice(3, 10), '[3:10]'),  # slice access on dict
+            (t.col.f2.f2b, 'not_an_index', "'not_an_index'"),  # field access on tuple
+            (t.col.f2.f2b, 93, '[93]'),  # out-of-range index
+            (t.col.f2.f2b, -93, '[-93]'),  # out-of-range negative index
+        )
+        for expr, el, errstring in error_cases:
+            regex = rf'Invalid JsonPath: cannot resolve {re.escape(errstring)}'
+            typestr = re.escape(str(expr.col_type.copy(nullable=False)))
+            if expr.col_type.is_json_type():
+                regex += f', because it does not match the expected type schema:\n{typestr}'
+            else:
+                regex += f' on primitive type `{typestr}`'
+            with pytest.raises(pxt.Error, match=regex):
+                _ = expr[el]
 
     def test_json_mapper(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl

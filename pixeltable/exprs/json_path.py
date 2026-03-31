@@ -51,6 +51,20 @@ class JsonPath(Expr):
         self.file_handles = {}
 
     @classmethod
+    def __errstr(cls, el: str | int | slice) -> str:
+        if isinstance(el, str):
+            return repr(el)
+        elif isinstance(el, int):
+            return f'[{el}]'
+        elif isinstance(el, slice):
+            start_str = '' if el.start is None else str(el.start)
+            stop_str = '' if el.stop is None else str(el.stop)
+            step_str = '' if el.step is None else f':{el.step}'
+            return f'[{start_str}:{stop_str}{step_str}]'
+        else:
+            raise AssertionError(f'Invalid JsonPath element: {el}')
+
+    @classmethod
     def __resolve_type(cls, col_type: ts.ColumnType, path_elements: list[str | int | slice]) -> ts.ColumnType:
         if len(path_elements) == 0:
             # JsonPath expressions always have `nullable=True`, regardless of the schema. This is because
@@ -58,10 +72,12 @@ class JsonPath(Expr):
             # possible to encounter data at runtime that doesn't match the schema.
             return col_type.copy(nullable=True)
 
+        el = path_elements[0]
+
         if not isinstance(col_type, ts.JsonType):
             # There are more path elements, but we've arrived at something other than JsonType;
             # fall back on general JsonType.
-            return ts.JsonType(nullable=True)
+            raise excs.Error(f'Invalid JsonPath: cannot resolve {cls.__errstr(el)} on primitive type `{col_type}`')
 
         schema = col_type.type_schema
         if schema is None:
@@ -72,7 +88,6 @@ class JsonPath(Expr):
         # Try various ways of resolving the next path element based on the schema. If none of them succeed,
         # then fall back on general JsonType.
 
-        el = path_elements[0]
         if isinstance(el, str) and isinstance(schema.type_spec, dict) and el in schema.type_spec:
             # Dict key resolution.
             return cls.__resolve_type(schema.type_spec[el], path_elements[1:])
@@ -121,7 +136,10 @@ class JsonPath(Expr):
                     new_type = ts.JsonType(ts.JsonType.TypeSchema([], variadic_type=supertype), nullable=True)
                     return cls.__resolve_type(new_type, path_elements[1:])
 
-        return ts.JsonType(nullable=True)
+        raise excs.Error(
+            f'Invalid JsonPath: cannot resolve {cls.__errstr(el)}, '
+            f'because it does not match the expected type schema:\n{col_type}'
+        )
 
     def release(self) -> None:
         for fh in self.file_handles.values():
