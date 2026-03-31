@@ -343,7 +343,7 @@ class Catalog:
                                 num_retries=num_retries,
                             )
                             if success and lock_mutable_tree:
-                                self._compute_column_dependents(x_locked_ids)
+                                self._compute_column_dependents(self._x_locked_tbl_ids)
                             if not success:
                                 assert not self._undo_actions  # We should not have any undo actions at this point
                                 has_exc = True
