@@ -148,7 +148,7 @@ class TestPxtStore:
 
         soa = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/refresh_test', allow_obj_name=False)
         store = PxtStore(soa)
-        refreshable_creds = store.client()._get_credentials()
+        refreshable_creds = store.client()._get_credentials()  # type: ignore[attr-defined]
         initial_access_key = refreshable_creds.access_key
         initial_token = refreshable_creds.token
 
