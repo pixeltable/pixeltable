@@ -13,7 +13,7 @@ from .utils import skip_test_if_no_pxt_credentials, skip_test_if_not_installed, 
 PXT_DEST_URI = 'pxt://pixeltable:main/home/pytest'
 
 
-@pytest.skip('Skip tests until pxt store changes are in the cloud')
+@pytest.mark.skip('Skip tests until pxt store changes are in the cloud')
 class TestPxtStore:
     """Tests for Pixeltable-managed storage (pxt:// home buckets)."""
 
