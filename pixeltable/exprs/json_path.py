@@ -68,8 +68,8 @@ class JsonPath(Expr):
     def __resolve_type(cls, col_type: ts.ColumnType, path_elements: list[str | int | slice]) -> ts.ColumnType:
         if len(path_elements) == 0:
             # JsonPath expressions always have `nullable=True`, regardless of the schema. This is because
-            # schema validation is optional in some runtime contexts (such as data import), so it's
-            # possible to encounter data at runtime that doesn't match the schema.
+            # schema validation is optional in some runtime contexts, so it's possible to encounter data
+            # at runtime that doesn't match the schema.
             return col_type.copy(nullable=True)
 
         el = path_elements[0]

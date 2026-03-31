@@ -670,7 +670,12 @@ class TestExprs:
         t.add_computed_column(slice_range=t.c6.f5[3:7])
         t.add_computed_column(slice_range_step=t.c6.f5[3:7:2])
         t.add_computed_column(slice_range_step_item=t['c6'].f5[3:7:2])
-        res = t.collect()
+        t.add_computed_column(
+            list_of_dicts=[{'a': t.c2, 'b': t.c2}, {'a': t.c2 + 1, 'b': t.c1}, {'a': t.c2 + 2, 'b': t.c3}]
+        )
+        t.add_computed_column(item_of_list=t.list_of_dicts[:].a)
+        t.add_computed_column(item_of_vartype_list=t.list_of_dicts[:].b)
+        res = t.order_by(t.c2).collect()
         orig = res['attr']
         assert all(res['item'][i] == orig[i] for i in range(len(res)))
         assert all(res['index'][i] == orig[i][2] for i in range(len(res)))
@@ -680,6 +685,10 @@ class TestExprs:
         assert all(res['slice_range'][i] == orig[i][3:7] for i in range(len(orig)))
         assert all(res['slice_range_step'][i] == orig[i][3:7:2] for i in range(len(orig)))
         assert all(res['slice_range_step_item'][i] == orig[i][3:7:2] for i in range(len(orig)))
+        assert all(res['item_of_list'][i] == [i, i + 1, i + 2] for i in range(len(res)))
+        assert all(
+            res['item_of_vartype_list'][i] == [res['c2'][i], res['c1'][i], res['c3'][i]] for i in range(len(res))
+        )
 
     def test_json_path_types(self, uses_db: None) -> None:
         spec = {
@@ -697,6 +706,7 @@ class TestExprs:
                 ...,
             ),
             'f4': ({'f4a': int, 'f4b': str}, ...),
+            'f5': ({'f5a': int}, {'f5a': str}, {'f5a': float}, ...),
         }
         t = pxt.create_table('test', {'col': pxt.Json[spec]})
         cases: tuple[tuple[Expr, type], ...] = (
@@ -723,6 +733,8 @@ class TestExprs:
             # negative slice on variadic tuple
             (t.col.f3[-9:], pxt.Json[[pxt.Array[(2, None, None, None), np.float32]]]),
             (t.col.f4[7:14].f4a, pxt.Json[[int | None]]),  # dict resolution applied to list
+            # dict resolution applied to heterogeneous tuple
+            (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)]),
             (t.col.f4['*'].f4b, pxt.Json[[str | None]]),  # special '*' operator
         )
         for expr, expected_type in cases:
