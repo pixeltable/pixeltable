@@ -6,7 +6,8 @@ import pytest
 
 import pixeltable as pxt
 from pixeltable.utils import pxt_store
-from pixeltable.utils.object_stores import ObjectOps
+from pixeltable.utils.object_stores import ObjectOps, ObjectPath
+from pixeltable.utils.pxt_store import PxtStore
 
 from .utils import skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status
 
@@ -21,6 +22,7 @@ class TestPxtStore:
         """Insert a local file with a pxt:// destination, then verify it can be read back."""
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
+
         dest_uri = f'{PXT_DEST_URI}/bucket1'
 
         t = pxt.create_table('test_pxt_store', schema={'img': pxt.Image})
@@ -39,6 +41,7 @@ class TestPxtStore:
         """Upload a file to the pxt store, then insert its pxt:// URL into a new table and read it."""
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
+
         dest_uri = f'{PXT_DEST_URI}/src'
 
         src_table = pxt.create_table('pxt_src', schema={'img': pxt.Image})
@@ -61,6 +64,7 @@ class TestPxtStore:
         """Verify objects in pxt store are cleaned up when the table is dropped."""
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
+
         dest_uri = f'{PXT_DEST_URI}/drop_test'
 
         t = pxt.create_table('test_pxt_drop', schema={'img': pxt.Image})
@@ -78,6 +82,7 @@ class TestPxtStore:
         """Verify that writes are blocked and reads/deletes still work when no_space_left is set."""
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
+
         dest_uri = f'{PXT_DEST_URI}/quota_test'
 
         t = pxt.create_table('test_pxt_quota', schema={'img': pxt.Image})
@@ -109,3 +114,28 @@ class TestPxtStore:
             t.insert([{'img': 'tests/data/imagenette2-160/ILSVRC2012_val_00000557.JPEG'}]), expected_rows=1
         )
         assert ObjectOps.count(t._id, dest=dest_uri) == 2
+
+    def test_separate_prefixes_get_separate_credentials(self, uses_db: None) -> None:
+        """Verify that two columns with different prefixes under the same org:db get separate credentials."""
+        skip_test_if_not_installed('boto3')
+        skip_test_if_no_pxt_credentials()
+
+        soa1 = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/dir1', allow_obj_name=False)
+        soa2 = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/dir2', allow_obj_name=False)
+
+        store1 = PxtStore(soa1)
+        store2 = PxtStore(soa2)
+        assert store1._pxt_store_entry is not store2._pxt_store_entry
+        assert store1.client() is not store2.client()
+
+    def test_same_prefix_shares_credentials(self, uses_db: None) -> None:
+        """Verify that two columns with the same pxt:// destination share a single cached credential entry."""
+        skip_test_if_not_installed('boto3')
+        skip_test_if_no_pxt_credentials()
+
+        soa = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/shared', allow_obj_name=False)
+
+        store1 = PxtStore(soa)
+        store2 = PxtStore(soa)
+        assert store1._pxt_store_entry is store2._pxt_store_entry
+        assert store1.client() is store2.client()

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Literal, Optional
+from typing import Literal
 
 import requests
 
@@ -36,7 +36,7 @@ def _api_headers() -> dict[str, str]:
     return headers
 
 
-def get_home_bucket_credentials(org: str, db: str, prefix: Optional[str] = None) -> GetHomeBucketCredentialsResponse:
+def get_home_bucket_credentials(org: str, db: str, prefix: str) -> GetHomeBucketCredentialsResponse:
     """
     Fetch temporary R2 credentials for a home bucket from the cloud control plane.
 

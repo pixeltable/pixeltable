@@ -161,6 +161,10 @@ class S3Store(ObjectStoreBase):
 
         return cd.clients[region_key]
 
+    @property
+    def base_uri(self) -> str:
+        return self.__base_uri
+
     def client(self) -> Any:
         """Return a boto3 client to access the store.
 
@@ -247,7 +251,7 @@ class S3Store(ObjectStoreBase):
         Checks if the URI exists.
 
         Returns:
-            bool: True if the S3 URI exists and is accessible, False otherwise.
+            The base URI if the bucket is accessible, or None if not.
         """
         try:
             self.client().head_bucket(Bucket=self.bucket_name)

@@ -265,7 +265,9 @@ class ObjectPath:
             storage_target = StorageTarget.PIXELTABLE_STORE
             netloc_parts = parsed.netloc.split(':')
             if len(netloc_parts) != 2 or not netloc_parts[0] or not netloc_parts[1]:
-                raise ValueError(f"Invalid pxt:// store URI '{parsed}': netloc must be 'org:db', got '{src_addr}'")
+                raise ValueError(
+                    f"Invalid pxt:// store URI '{parsed.geturl()}': netloc must be 'org:db', got '{src_addr}'"
+                )
             account_name, account_extension = netloc_parts  # org slug, db slug
             container = 'home'  # logical bucket segment from URI (not the physical R2 bucket name)
             raw_path = parsed.path.lstrip('/')
@@ -275,7 +277,7 @@ class ObjectPath:
                 key = raw_path[len('home/') :]
             else:
                 raise ValueError(
-                    f"Invalid pxt:// store URI '{parsed}': path must be '/home' or start with '/home/', "
+                    f"Invalid pxt:// store URI '{parsed.geturl()}': path must be '/home' or start with '/home/', "
                     f"got '{src_addr}'"
                 )
         else:

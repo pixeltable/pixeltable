@@ -75,9 +75,9 @@ def _handle_no_space_warning(no_space_left: bool, entry: _PxtStoreCacheEntry, or
         entry.no_space_warned = False
 
 
-def _refresh_credentials(org: str, db: str, entry: _PxtStoreCacheEntry) -> dict[str, str]:
+def _refresh_credentials(org: str, db: str, prefix: str, entry: _PxtStoreCacheEntry) -> dict[str, str]:
     """Fetch fresh credentials and update the cache entry"""
-    creds = get_home_bucket_credentials(org, db)
+    creds = get_home_bucket_credentials(org, db, prefix)
     expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
 
     entry.no_space_left = creds.no_space_left
@@ -101,9 +101,9 @@ def _refresh_credentials(org: str, db: str, entry: _PxtStoreCacheEntry) -> dict[
     }
 
 
-def _build_pxt_store_entry(org: str, db: str) -> _PxtStoreCacheEntry:
+def _build_pxt_store_entry(org: str, db: str, prefix: str) -> _PxtStoreCacheEntry:
     """Fetch credentials and build a boto3 session for the home bucket."""
-    creds = get_home_bucket_credentials(org, db)
+    creds = get_home_bucket_credentials(org, db, prefix)
 
     entry = _PxtStoreCacheEntry(
         client=None,
@@ -128,7 +128,7 @@ def _build_pxt_store_entry(org: str, db: str) -> _PxtStoreCacheEntry:
     # keeps credentials fresh without triggering botocore's immediate-refresh behavior.
     refreshable_creds = RefreshableCredentials.create_from_metadata(
         metadata=initial_metadata,
-        refresh_using=lambda: _refresh_credentials(org, db, entry),
+        refresh_using=lambda: _refresh_credentials(org, db, prefix, entry),
         method='pxt-store',
         advisory_timeout=60,  # start refreshing 60s before expiry (non-blocking, best-effort)
         mandatory_timeout=30,  # block and force refresh if credentials expire within 30s
@@ -161,14 +161,14 @@ def _build_pxt_store_entry(org: str, db: str) -> _PxtStoreCacheEntry:
     return entry
 
 
-def _get_or_create_pxt_store_entry(org: str, db: str) -> _PxtStoreCacheEntry:
-    """Return the home bucket entry for org:db, building it on first use per thread."""
-    cache_key = f'{org}:{db}'
+def _get_or_create_pxt_store_entry(org: str, db: str, prefix: str) -> _PxtStoreCacheEntry:
+    """Return the home bucket entry for org:db:prefix, building it on first use per thread."""
+    cache_key = f'{org}:{db}:{prefix}'
     # pxt_store_client is thread-local (Runtime is thread-local), so no lock is needed here.
     pxt_store_client_dict = get_runtime().get_client('pxt_store')
     entry = pxt_store_client_dict.clients.get(cache_key)
     if entry is None:
-        entry = _build_pxt_store_entry(org, db)
+        entry = _build_pxt_store_entry(org, db, prefix)
         pxt_store_client_dict.clients[cache_key] = entry
     return entry
 
@@ -184,7 +184,7 @@ class PxtStore(S3Store):
                 f'Invalid storage target for PxtStore: expected PIXELTABLE_STORE, got {soa.storage_target!s}.'
             )
         org, db = soa.account, soa.account_extension
-        self._pxt_store_entry = _get_or_create_pxt_store_entry(org, db)
+        self._pxt_store_entry = _get_or_create_pxt_store_entry(org, db, soa.prefix)
         super().__init__(soa._replace(container=self._pxt_store_entry.bucket_name))
 
     @property
@@ -217,3 +217,7 @@ class PxtStore(S3Store):
             method='get',
             expiration=expiration_seconds,
         )
+
+    def validate(self, error_col_name: str) -> str | None:
+        """Skip bucket-level validation; temp credentials are prefix-scoped and don't allow HeadBucket."""
+        return self.base_uri
