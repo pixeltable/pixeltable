@@ -422,7 +422,7 @@ class Catalog:
 
         Returns True if the locks were successfully acquired, False if a retriable error happened.
 
-        Raises an error if a non-retriable error happened, or if the number of attempts exceeded the limit.
+        Raises an error if a non-retriable error happened, or if the number of retries exceeded the limit.
         """
         try:
             x_locked_ids: set[UUID] = set()
