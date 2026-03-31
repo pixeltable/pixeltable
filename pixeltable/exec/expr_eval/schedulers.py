@@ -149,8 +149,6 @@ class RateLimitsScheduler(Scheduler):
             # If the estimator declares '_param_types', inject a dict mapping param names to Pixeltable
             # ColumnTypes for the resolved overload. This lets a shared estimator on a polymorphic function
             # distinguish overloads that share the same Python types (e.g., str for Document vs Video).
-            if '_param_types' in param_names:
-                param_names = [n for n in param_names if n != '_param_types']
             extra = set(param_names) - set(request.fn_call.fn.signature.parameters.keys())
             if extra:
                 fn = request.fn_call.fn
