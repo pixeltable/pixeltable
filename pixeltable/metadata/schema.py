@@ -208,10 +208,13 @@ class TableMd:
     tbl_id: str  # uuid.UUID
     name: str
     is_replica: bool
+    # Versioned tables keep their full schema and row history, and support time travel and rollback.
+    is_versioned: bool
 
     user: str | None
 
-    # monotonically increasing w/in Table for both data and schema changes, starting at 0
+    # for versioned tables, current_version monotonically increases for both data and schema changes, starting at 0
+    # not used for unversioned tables
     current_version: int
     # each version has a corresponding schema version (current_version >= current_schema_version)
     current_schema_version: int
@@ -316,7 +319,7 @@ class TableVersion(Base):
         UUID(as_uuid=True), ForeignKey('tables.id'), primary_key=True, nullable=False
     )
     version: orm.Mapped[int] = orm.mapped_column(BigInteger, primary_key=True, nullable=False)
-    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)
+    md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False)  # VersionMd
     additional_md: orm.Mapped[dict[str, Any]] = orm.mapped_column(JSONB, nullable=False, default=dict)
 
 

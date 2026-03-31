@@ -235,12 +235,15 @@ class Catalog:
         for (tbl_id, effective_version, anchor_tbl_id), tbl_version in self._tbl_versions.items():
             assert tbl_id == tbl_version.id, f'{tbl_id} != {tbl_version.id}'
             assert effective_version is None or anchor_tbl_id is None
-            assert tbl_version.effective_version == tbl_version.version or tbl_version.effective_version is None, (
-                f'{tbl_version.effective_version} != {tbl_version.version} for id {tbl_id}'
-            )
-            assert effective_version == tbl_version.effective_version, (
-                f'{effective_version} != {tbl_version.effective_version} for id {tbl_id}'
-            )
+            assert (
+                not tbl_version.is_versioned
+                or tbl_version.effective_version == tbl_version.version
+                or tbl_version.effective_version is None
+            ), f'{tbl_version.effective_version} != {tbl_version.version} for id {tbl_id}'
+            if tbl_version.is_versioned:
+                assert effective_version == tbl_version.effective_version, (
+                    f'{effective_version} != {tbl_version.effective_version} for id {tbl_id}'
+                )
             assert len(tbl_version.mutable_views) == 0 or tbl_version.is_mutable, (
                 f'snapshot_id={tbl_version.id} mutable_views={tbl_version.mutable_views}'
             )
@@ -424,7 +427,7 @@ class Catalog:
 
                 # invalidate cached current TableVersion instances
                 for tv in self._tbl_versions.values():
-                    if tv.effective_version is None:
+                    if tv.is_versioned and tv.effective_version is None:
                         _logger.debug(f'invalidating table version {tv} (0x{id(tv):x})')
                         tv.is_validated = False
 
@@ -1171,6 +1174,7 @@ class Catalog:
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
+        versioned: bool,
     ) -> tuple[Table, bool]:
         """
         Creates a new InsertableTable at the given path.
@@ -1201,6 +1205,7 @@ class Catalog:
                 custom_metadata=custom_metadata,
                 media_validation=media_validation,
                 create_default_idxs=create_default_idxs,
+                versioned=versioned,
             )
             tbl_id = UUID(md.tbl_md.tbl_id)
             md.tbl_md.pending_stmt = pixeltable.metadata.schema.TableStatement.CREATE_TABLE
@@ -1833,7 +1838,6 @@ class Catalog:
             elif not tv.is_validated:
                 # only live instances are invalidated
                 assert key.effective_version is None
-                # _logger.debug(f'validating metadata for table {tbl_id}:{tv.version} ({id(tv):x})')
                 where_clause: sql.ColumnElement[bool]
                 if check_pending_ops:
                     # if we don't want to see pending ops, we also don't want to see dropped tables
@@ -1849,8 +1853,12 @@ class Catalog:
 
                 if tv.anchor_tbl_id is None:
                     # live non-replica table; compare our cached TableMd.current_version/view_sn to what's stored
-                    current_version, view_sn = row.md['current_version'], row.md['view_sn']
-                    if current_version != tv.version or view_sn != tv.tbl_md.view_sn:
+                    versioned, current_version, view_sn = (
+                        row.md['is_versioned'],
+                        row.md['current_version'],
+                        row.md['view_sn'],
+                    )
+                    if (versioned and current_version != tv.version) or view_sn != tv.tbl_md.view_sn:
                         _logger.debug(
                             f'reloading metadata for live table {key.tbl_id} '
                             f'(cached/current version: {tv.version}/{current_version}, '
@@ -2708,7 +2716,7 @@ class Catalog:
             stmt = (
                 sql.select(*select_list)
                 .select_from(sa_tbl)
-                .where(sa_tbl.c.v_max > tv.version)
+                .where((sa_tbl.c.v_max > tv.version) if tv.is_versioned else sql.true())
                 .where(sql.or_(*conditions))
                 .limit(1)
             )
@@ -2721,50 +2729,51 @@ class Catalog:
                     f'{stmt}'
                 )
 
-        # Validate that the index values are NULL for non-latest version rows
-        # Example query:
-        # SELECT *,
-        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_3 IS NOT NULL  AS
-        #        idx_not_null_idx0,
-        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_5 IS NOT NULL  AS
-        #        idx_not_null_idx1,
-        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_7 IS NOT NULL  AS
-        #        idx_not_null_idx2,
-        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_11 IS NOT NULL AS
-        #        idx_not_null_img_idx2,
-        #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_13 IS NOT NULL AS
-        #        idx_not_null_img_idx1
-        # FROM   tbl_1d7bb633b5be4c57bd9070707ca4c552
-        # WHERE  tbl_1d7bb633b5be4c57bd9070707ca4c552.v_max <= 22
-        #        AND ( tbl_1d7bb633b5be4c57bd9070707ca4c552.col_3 IS NOT NULL
-        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_5 IS NOT NULL
-        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_7 IS NOT NULL
-        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_11 IS NOT NULL
-        #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_13 IS NOT NULL )
-        # LIMIT 1;
-        select_list.clear()
-        select_list.append('*')
-        conditions.clear()
-        for idx_info in tv.idxs.values():
-            # condition is the invariant violation that we are checking for
-            # add it to where clause, and also to select clause for easier debugging
-            condition = idx_info.val_col.sa_col != None
-            conditions.append(condition)
-            select_label = f'idx_not_null_{idx_info.name}'
-            select_list.append(condition.label(select_label))
-        if len(conditions) > 0:
-            stmt = (
-                sql.select(*select_list)
-                .select_from(sa_tbl)
-                .where(sa_tbl.c.v_max <= tv.version)
-                .where(sql.or_(*conditions))
-                .limit(1)
-            )
-            _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
-            for row in get_runtime().conn.execute(stmt).all():
-                raise AssertionError(
-                    'The table validation query should have returned nothing, but it returned row: '
-                    f'{row._asdict()}.\nThis means that one of the indexes in {tbl._display_str()} is corrupted, i.e. '
-                    'the index value is not NULL for a non-latest version row. Look for idx_not_null_*. '
-                    f'The query was:\n{stmt}'
+        if tv.is_versioned:
+            # Validate that the index values are NULL for non-latest version rows
+            # Example query:
+            # SELECT *,
+            #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_3 IS NOT NULL  AS
+            #        idx_not_null_idx0,
+            #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_5 IS NOT NULL  AS
+            #        idx_not_null_idx1,
+            #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_7 IS NOT NULL  AS
+            #        idx_not_null_idx2,
+            #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_11 IS NOT NULL AS
+            #        idx_not_null_img_idx2,
+            #        tbl_1d7bb633b5be4c57bd9070707ca4c552.col_13 IS NOT NULL AS
+            #        idx_not_null_img_idx1
+            # FROM   tbl_1d7bb633b5be4c57bd9070707ca4c552
+            # WHERE  tbl_1d7bb633b5be4c57bd9070707ca4c552.v_max <= 22
+            #        AND ( tbl_1d7bb633b5be4c57bd9070707ca4c552.col_3 IS NOT NULL
+            #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_5 IS NOT NULL
+            #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_7 IS NOT NULL
+            #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_11 IS NOT NULL
+            #               OR tbl_1d7bb633b5be4c57bd9070707ca4c552.col_13 IS NOT NULL )
+            # LIMIT 1;
+            select_list.clear()
+            select_list.append('*')
+            conditions.clear()
+            for idx_info in tv.idxs.values():
+                # condition is the invariant violation that we are checking for
+                # add it to where clause, and also to select clause for easier debugging
+                condition = idx_info.val_col.sa_col != None
+                conditions.append(condition)
+                select_label = f'idx_not_null_{idx_info.name}'
+                select_list.append(condition.label(select_label))
+            if len(conditions) > 0:
+                stmt = (
+                    sql.select(*select_list)
+                    .select_from(sa_tbl)
+                    .where(sa_tbl.c.v_max <= tv.version)
+                    .where(sql.or_(*conditions))
+                    .limit(1)
                 )
+                _logger.info(f'Running index value column validation query on {tbl._display_str()}: {stmt}')
+                for row in get_runtime().conn.execute(stmt).all():
+                    raise AssertionError(
+                        f'The table validation query should have returned nothing, but it returned row: '
+                        f'{row._asdict()}.\nThis means that one of the indexes in {tbl._display_str()} is corrupted, '
+                        f'i.e. the index value is not NULL for a non-latest version row. Look for idx_not_null_*. '
+                        f'The query was:\n{stmt}'
+                    )

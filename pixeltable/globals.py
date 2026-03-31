@@ -65,6 +65,7 @@ def create_table(
     media_validation: Literal['on_read', 'on_write'] = 'on_write',
     if_exists: Literal['error', 'ignore', 'replace', 'replace_force'] = 'error',
     extra_args: dict[str, Any] | None = None,  # Additional arguments to data source provider
+    _versioned: bool = True,
 ) -> catalog.Table:
     """Create a new base table. Exactly one of `schema` or `source` must be provided.
 
@@ -232,6 +233,7 @@ def create_table(
         media_validation=media_validation_,
         num_retained_versions=num_retained_versions,
         create_default_idxs=create_default_idxs,
+        versioned=_versioned,
     )
 
     # TODO: combine data loading with table creation into a single transaction
@@ -350,6 +352,7 @@ def create_view(
 
     if tbl_version_path.is_replica():
         raise excs.Error('Cannot create a view or snapshot on top of a replica')
+    assert tbl_version_path.is_versioned(), 'PXT-975 not implemented for unversioned tables'
 
     path_obj = catalog.Path.parse(path)
     if_exists_ = catalog.IfExistsParam.validated(if_exists, 'if_exists')

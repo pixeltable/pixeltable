@@ -74,6 +74,7 @@ class InsertableTable(Table):
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
+        versioned: bool,
     ) -> tuple[TableVersionMd, list[TableOp]]:
         columns = [Column.create(name, spec) for name, spec in schema.items()]
         cls._verify_schema(columns)
@@ -98,6 +99,7 @@ class InsertableTable(Table):
             media_validation,
             create_default_idxs=create_default_idxs,
             view_md=None,
+            versioned=versioned,
         )
 
         ops = [

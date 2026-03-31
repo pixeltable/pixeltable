@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import abc
 import logging
+import random
 import time
 from typing import Any, Iterable, Iterator
 from uuid import UUID
@@ -35,8 +36,9 @@ class StoreBase:
     sa_md: sql.MetaData
     sa_tbl: sql.Table | None
     _pk_cols: list[sql.Column]
-    v_min_col: sql.Column
-    v_max_col: sql.Column
+    # v_min_col and v_max_col exist only on versioned tables
+    v_min_col: sql.Column | None
+    v_max_col: sql.Column | None
 
     # We need to declare a `base` variable here, even though it's only defined for instances of `StoreView`,
     # since it's referenced by various methods of `StoreBase`
@@ -72,12 +74,16 @@ class StoreBase:
         return f'{"view" if is_view else "tbl"}_{tbl_id.hex}'
 
     def system_columns(self) -> list[sql.Column]:
-        return [*self._pk_cols, self.v_max_col]
+        if self.tbl_version.get().is_versioned:
+            return [*self._pk_cols, self.v_max_col]
+        else:
+            return self._pk_cols
 
     def pk_columns(self) -> list[sql.Column]:
         return self._pk_cols
 
     def rowid_columns(self) -> list[sql.Column]:
+        assert self.tbl_version.get().is_versioned, 'PXT-975 not implemented for unversioned tables'
         return self._pk_cols[:-1]
 
     @abc.abstractmethod
@@ -96,19 +102,33 @@ class StoreBase:
                     f'SELECT column_name FROM information_schema.columns WHERE table_name = {self._storage_name()!r} '
                     'ORDER BY ordinal_position'
                 )
+                # System columns on a versioned table: rowid, [pos_0, pos_1, ...], v_min, v_max
+                # System columns on an unversioned table: rowid, [pos_0, pos_1, ...]
+                # System columns are always followed by at least one user column
                 col_names = [row[0] for row in conn.execute(sql.text(q)).fetchall()]
-                num_rowid_cols = col_names.index('v_min')
+                assert len(col_names) > 1, col_names
+                assert col_names[0] == 'rowid', col_names
+                assert not col_names[-1].startswith('pos_'), col_names
+                num_rowid_cols: int  # counts rowid and any pos_X columns
+                for i in range(1, len(col_names)):
+                    if not col_names[i].startswith('pos_'):
+                        num_rowid_cols = i
+                        break
                 rowid_cols = [
                     sql.Column(col_name, sql.BigInteger, nullable=False) for col_name in col_names[:num_rowid_cols]
                 ]
         else:
             rowid_cols = self._create_rowid_columns()
-        self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
-        self.v_max_col = sql.Column(
-            'v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION)
-        )
-        self._pk_cols = [*rowid_cols, self.v_min_col]
-        return [*rowid_cols, self.v_min_col, self.v_max_col]
+        if self.tbl_version.get().is_versioned:
+            self.v_min_col = sql.Column('v_min', sql.BigInteger, nullable=False)
+            self.v_max_col = sql.Column(
+                'v_max', sql.BigInteger, nullable=False, server_default=str(schema.Table.MAX_VERSION)
+            )
+            self._pk_cols = [*rowid_cols, self.v_min_col]
+            return [*rowid_cols, self.v_min_col, self.v_max_col]
+        else:
+            self._pk_cols = rowid_cols
+            return rowid_cols
 
     def create_sa_tbl(self, tbl_version: catalog.TableVersion | None = None) -> None:
         """Create self.sa_tbl from self.tbl_version."""
@@ -137,11 +157,12 @@ class StoreBase:
         idx_name = f'sys_cols_idx_{tbl_version.id.hex}'
         idxs.append(sql.Index(idx_name, *system_cols))
 
-        # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
-        idx_name = f'vmin_idx_{tbl_version.id.hex}'
-        idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms.version_index_type))
-        idx_name = f'vmax_idx_{tbl_version.id.hex}'
-        idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
+        if tbl_version.is_versioned:
+            # v_min/v_max indices: speeds up base table scans needed to propagate a base table insert or delete
+            idx_name = f'vmin_idx_{tbl_version.id.hex}'
+            idxs.append(sql.Index(idx_name, self.v_min_col, postgresql_using=Env.get().dbms.version_index_type))
+            idx_name = f'vmax_idx_{tbl_version.id.hex}'
+            idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
         self.sa_tbl = sql.Table(self._storage_name(), self.sa_md, *all_cols, *idxs)
         # _logger.debug(f'created sa tbl for {tbl_version.id!s} (sa_tbl={id(self.sa_tbl):x}, tv={id(tbl_version):x})')
@@ -156,12 +177,11 @@ class StoreBase:
 
     def count(self) -> int:
         """Return the number of rows visible in self.tbl_version"""
-        stmt = (
-            sql.select(sql.func.count('*'))
-            .select_from(self.sa_tbl)
-            .where(self.v_min_col <= self.tbl_version.get().version)
-            .where(self.v_max_col > self.tbl_version.get().version)
-        )
+        stmt = sql.select(sql.func.count('*')).select_from(self.sa_tbl)
+        if self.tbl_version.get().is_versioned:
+            stmt = stmt.where(self.v_min_col <= self.tbl_version.get().version).where(
+                self.v_max_col > self.tbl_version.get().version
+            )
         conn = get_runtime().conn
         result = conn.execute(stmt).scalar_one()
         assert isinstance(result, int)
@@ -414,13 +434,16 @@ class StoreBase:
         return num_excs
 
     def insert_rows(
-        self, exec_plan: ExecNode, v_min: int, rowids: Iterator[int] | None = None, abort_on_exc: bool = False
+        self, exec_plan: ExecNode, v_min: int | None, rowids: Iterator[int] | None = None, abort_on_exc: bool = False
     ) -> tuple[set[int], RowCountStats]:
         """Insert rows into the store table and update the catalog table's md
         Returns:
             number of inserted rows, number of exceptions, set of column ids that have exceptions
         """
-        assert v_min is not None
+        versioned = self.tbl_version.get().is_versioned
+        assert (v_min is not None) == versioned
+        if not versioned:
+            assert rowids is None
         # TODO: total?
         num_excs = 0
         num_rows = 0
@@ -447,8 +470,15 @@ class StoreBase:
                         exc = row.get_first_exc()
                         raise exc
 
-                    rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
-                    pk = (*rowid, v_min)
+                    if versioned:
+                        rowid = (next(rowids),) if rowids is not None else row.pk[:-1]
+                        pk = (*rowid, v_min)
+                    else:
+                        # pick a random rowid between 1 and max bigint
+                        # bigint range is [-9223372036854775808, 9223372036854775807], but negative rowids can be
+                        # confusing and difficult to work with.
+                        # For 100M rows, the probability of a collision is ~0.05%
+                        pk = (random.randrange(1, 9223372036854775807),)
                     assert len(pk) == len(self._pk_cols)
                     table_row, num_row_exc = row_builder.create_store_table_row(row, cols_with_excs, pk)
                     num_excs += num_row_exc
@@ -490,6 +520,7 @@ class StoreBase:
 
     def _versions_clause(self, versions: list[int | None], match_on_vmin: bool) -> sql.ColumnElement[bool]:
         """Return filter for base versions"""
+        assert self.tbl_version.get().is_versioned, 'PXT-975 not implemented for unversioned tables'
         v = versions[0]
         if v is None:
             # we're looking at live rows
@@ -505,10 +536,36 @@ class StoreBase:
 
     def delete_rows(
         self,
-        current_version: int,
+        current_version: int | None,
+        base_versions: list[int | None],
+        match_on_vmin: bool | None,
+        where_clause: sql.ColumnElement[bool] | None,
+    ) -> int:
+        where_clause = sql.true() if where_clause is None else where_clause
+        if self.tbl_version.get().is_versioned:
+            assert current_version is not None
+            assert match_on_vmin is not None
+            return self._delete_rows_versioned(current_version, base_versions, match_on_vmin, where_clause)
+        assert current_version is None
+        assert match_on_vmin is None
+        assert len(base_versions) == 0, 'PXT-975 not implemented for unversioned tables'
+        return self._delete_rows_unversioned(where_clause)
+
+    def _delete_rows_unversioned(self, where_clause: sql.ColumnElement[bool]) -> int:
+        rowid_join_clause = self._rowid_join_predicate()
+        assert rowid_join_clause.compare(sql.true()), 'PXT-975 not implemented for unversioned tables'
+        conn = get_runtime().conn
+        stmt = sql.delete(self.sa_tbl).where(where_clause)
+        log_explain(_logger, stmt, conn)
+        status = conn.execute(stmt)
+        return status.rowcount
+
+    def _delete_rows_versioned(
+        self,
+        current_version: int | None,
         base_versions: list[int | None],
         match_on_vmin: bool,
-        where_clause: sql.ColumnElement[bool] | None,
+        where_clause: sql.ColumnElement[bool],
     ) -> int:
         """Mark rows as deleted that are live and were created prior to current_version.
         Also: populate the undo columns
@@ -548,6 +605,7 @@ class StoreBase:
         return status.rowcount
 
     def dump_rows(self, version: int, filter_view: StoreBase, filter_view_version: int) -> Iterator[dict[str, Any]]:
+        assert self.tbl_version.get().is_versioned, 'PXT-975 not implemented for unversioned tables'
         filter_predicate = sql.and_(
             filter_view.v_min_col <= filter_view_version,
             filter_view.v_max_col > filter_view_version,

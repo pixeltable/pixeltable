@@ -255,8 +255,10 @@ class TableVersion:
         self.idxs = {}
         self.idxs_by_name = {}
         self.idxs_by_col = {}
-        self.supports_idxs = self.effective_version is None or (
-            self.is_replica and self.effective_version == self.tbl_md.current_version
+        self.supports_idxs = (
+            not self.is_versioned
+            or self.effective_version is None
+            or (self.is_replica and self.effective_version == self.tbl_md.current_version)
         )
         self.external_stores = {}
 
@@ -272,8 +274,10 @@ class TableVersion:
 
     def __repr__(self) -> str:
         return (
-            f'TableVersion(id={self.id!r}, name={self.name!r}, effective_version={self.effective_version}, '
-            f'anchor_tbl_id={self.anchor_tbl_id}; version={self.version})'
+            f'TableVersion(id={self.id!r}, name={self.name!r}, '
+            f'effective_version={self.effective_version if self.is_versioned else None}, '
+            f'anchor_tbl_id={self.anchor_tbl_id}; '
+            f'versioned={self.is_versioned}, version={self.version if self.is_versioned else None})'
         )
 
     @property
@@ -292,7 +296,8 @@ class TableVersion:
         custom_metadata: Any,
         media_validation: MediaValidation,
         create_default_idxs: bool,
-        view_md: schema.ViewMd | None = None,
+        view_md: schema.ViewMd | None,
+        versioned: bool,
     ) -> TableVersionMd:
         from .table_version_handle import TableVersionHandle
 
@@ -370,6 +375,7 @@ class TableVersion:
             external_stores=[],
             view_md=view_md,
             additional_md={},
+            is_versioned=versioned,
         )
 
         table_version_md = schema.VersionMd(
@@ -401,6 +407,7 @@ class TableVersion:
 
         assert get_runtime().in_xact
         assert md.tbl_md.is_replica
+        assert md.tbl_md.is_versioned, 'PXT-975 not implemented for unversioned tables'
         tbl_id = UUID(md.tbl_md.tbl_id)
         _logger.info(f'Creating replica table version {tbl_id}:{md.version_md.version}.')
         view_md = md.tbl_md.view_md
@@ -504,7 +511,7 @@ class TableVersion:
 
         # create value exprs, now that we have all lookup structures in place
         tvp: TableVersionPath | None = None
-        if self.effective_version is not None:
+        if self.is_versioned and self.effective_version is not None:
             # for snapshot TableVersion instances, we need to retarget the column value_exprs to the snapshot;
             # otherwise they'll incorrectly refer to the live table. So, construct a full TableVersionPath to
             # use for retargeting.
@@ -606,6 +613,7 @@ class TableVersion:
         return f'idx_{self.id.hex}_{idx_id}'
 
     def add_index(self, col: Column, idx_name: str | None, idx: index.IndexBase) -> UpdateStatus:
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         status = self._add_index(col, idx_name, idx)
@@ -692,6 +700,7 @@ class TableVersion:
     def drop_index(self, idx_id: int) -> None:
         assert self.is_mutable
         assert idx_id in self._tbl_md.index_md
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
 
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
@@ -718,6 +727,7 @@ class TableVersion:
 
     def add_columns_ops(self, cols: Iterable[Column]) -> tuple[TableVersionMd, list[TableOp]]:
         """Adds columns to the table."""
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
         assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
@@ -798,6 +808,7 @@ class TableVersion:
         self, cols: Iterable[Column], print_stats: bool, on_error: Literal['abort', 'ignore']
     ) -> UpdateStatus:
         """Adds columns to the table."""
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
         assert self.is_mutable
         assert all(is_valid_identifier(col.name) for col in cols if col.name is not None)
         assert all(col.stored is not None for col in cols)
@@ -916,6 +927,7 @@ class TableVersion:
         """Drop a column from the table."""
 
         assert self.is_mutable
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
 
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
@@ -968,6 +980,7 @@ class TableVersion:
 
     def rename_column(self, old_name: str, new_name: str) -> None:
         """Rename a column."""
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
         if not self.is_mutable:
             raise excs.Error(f'Cannot rename column for immutable table {self.name!r}')
         col = self.path.get_column(old_name)
@@ -996,6 +1009,7 @@ class TableVersion:
         self._create_schema_version()
 
     def set_num_retained_versions(self, new_num_retained_versions: int) -> None:
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
         _logger.info(
             f'[{self.name}] Updating num_retained_versions: {new_num_retained_versions} '
             f'(was {self.num_retained_versions})'
@@ -1004,6 +1018,7 @@ class TableVersion:
         self._create_schema_version()
 
     def _create_schema_version(self) -> None:
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
         # we're creating a new schema version
         self.bump_version(bump_schema_version=True)
         self._write_md(new_version=True, new_schema_version=True)
@@ -1029,16 +1044,20 @@ class TableVersion:
         else:
             plan = Planner.create_query_insert_plan(self, query, ignore_errors=not fail_on_exception)
 
-        # this is a base table; we generate rowids during the insert
-        def rowids() -> Iterator[int]:
-            while True:
-                rowid = self.next_row_id
-                self.next_row_id += 1
-                yield rowid
+        rowids_gen = None
+        if self.is_versioned:
+            # this is a versioned base table; we generate rowids during the insert
+            def rowids() -> Iterator[int]:
+                while True:
+                    rowid = self.next_row_id
+                    self.next_row_id += 1
+                    yield rowid
+
+            rowids_gen = rowids()
 
         with get_runtime().report_progress():
             result = self._insert(
-                plan, time.time(), print_stats=print_stats, rowids=rowids(), abort_on_exc=fail_on_exception
+                plan, time.time(), print_stats=print_stats, rowids=rowids_gen, abort_on_exc=fail_on_exception
             )
             return result
 
@@ -1052,11 +1071,12 @@ class TableVersion:
         abort_on_exc: bool = False,
     ) -> UpdateStatus:
         """Insert rows produced by exec_plan and propagate to views"""
-        # we're creating a new version
-        self.bump_version(timestamp, bump_schema_version=False)
+        if self.is_versioned:
+            # we're creating a new version
+            self.bump_version(timestamp, bump_schema_version=False)
         exec_plan.ctx.title = self.display_str()
         cols_with_excs, row_counts = self.store_tbl.insert_rows(
-            exec_plan, v_min=self.version, rowids=rowids, abort_on_exc=abort_on_exc
+            exec_plan, v_min=self.version if self.is_versioned else None, rowids=rowids, abort_on_exc=abort_on_exc
         )
         result = UpdateStatus(
             cols_with_excs=[f'{self.name}.{self.cols_by_id[cid].name}' for cid in cols_with_excs],
@@ -1072,11 +1092,12 @@ class TableVersion:
             result += status.to_cascade()
 
         # Use the net status after all propagations
-        self.update_status = result
-        self._write_md(new_version=True, new_schema_version=False)
+        if self.is_versioned:
+            self.update_status = result
+            self._write_md(new_version=True, new_schema_version=False)
+            _logger.info(f'TableVersion {self.name}: new version {self.version}')
         if print_stats:
             exec_plan.ctx.profile.print(num_rows=result.num_rows)
-        _logger.info(f'TableVersion {self.name}: new version {self.version}')
         return result
 
     def update(self, value_spec: dict[str, Any], where: exprs.Expr | None = None, cascade: bool = True) -> UpdateStatus:
@@ -1091,6 +1112,7 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         assert self.is_mutable
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
 
         update_spec = self._validate_update_spec(value_spec, allow_pk=False, allow_exprs=True, allow_media=True)
         if where is not None:
@@ -1131,6 +1153,7 @@ class TableVersion:
 
         # if we do lookups of rowids, we must have one for each row in the batch
         assert len(rowids) == 0 or len(rowids) == len(batch)
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
 
         plan, row_update_node, delete_where_clause, updated_cols, recomputed_cols = Planner.create_batch_update_plan(
             self.path, batch, rowids, cascade=cascade
@@ -1207,6 +1230,7 @@ class TableVersion:
         from pixeltable.plan import Planner
 
         assert self.is_mutable
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
         assert all(name in self.cols_by_name for name in col_names)
         assert len(col_names) > 0
         assert len(col_names) == 1 or not errors_only
@@ -1248,6 +1272,7 @@ class TableVersion:
     ) -> UpdateStatus:
         from pixeltable.plan import Planner
 
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
         get_runtime().catalog.mark_modified_tvs(self.handle)
         result = UpdateStatus()
         create_new_table_version = plan is not None
@@ -1305,21 +1330,16 @@ class TableVersion:
         """Delete rows in this table and propagate to views"""
         get_runtime().catalog.mark_modified_tvs(self.handle)
 
-        # print(f'calling sql_expr()')
         sql_where_clause = where.sql_expr(exprs.SqlElementCache()) if where is not None else None
-        # #print(f'sql_where_clause={str(sql_where_clause) if sql_where_clause is not None else None}')
-        # sql_cols: list[sql.Column] = []
-        # def collect_cols(col) -> None:
-        #     sql_cols.append(col)
-        # sql.sql.visitors.traverse(sql_where_clause, {}, {'column': collect_cols})
-        # x = [f'{str(c)}:{hash(c)}:{id(c.table)}' for c in sql_cols]
-        # print(f'where_clause cols: {x}')
         del_rows = self.store_tbl.delete_rows(
-            self.version + 1, base_versions=base_versions, match_on_vmin=False, where_clause=sql_where_clause
+            self.version + 1 if self.is_versioned else None,
+            base_versions=base_versions,
+            match_on_vmin=False if self.is_versioned else None,
+            where_clause=sql_where_clause,
         )
         row_counts = RowCountStats(del_rows=del_rows)  # delete
         result = UpdateStatus(row_count_stats=row_counts)
-        if del_rows > 0:
+        if del_rows > 0 and self.is_versioned:
             # we're creating a new version
             self.bump_version(timestamp, bump_schema_version=False)
         for view in self.mutable_views:
@@ -1327,15 +1347,16 @@ class TableVersion:
                 where=None, base_versions=[self.version, *base_versions], timestamp=timestamp
             )
             result += status.to_cascade()
-        self.update_status = result
 
-        if del_rows > 0:
+        if del_rows > 0 and self.is_versioned:
+            self.update_status = result
             self._write_md(new_version=True, new_schema_version=False)
         return result
 
     def revert(self) -> None:
         """Reverts the table to the previous version."""
         assert self.is_mutable
+        assert self.is_versioned
         if self.version == 0:
             raise excs.Error('Cannot revert version 0')
         self._revert()
@@ -1456,6 +1477,7 @@ class TableVersion:
             self.external_stores[store.name] = store
 
     def link_external_store(self, store: ExternalStore) -> None:
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
         self.bump_version(bump_schema_version=True)
 
         self.external_stores[store.name] = store
@@ -1465,6 +1487,7 @@ class TableVersion:
         self._write_md(new_version=True, new_schema_version=True)
 
     def unlink_external_store(self, store: ExternalStore) -> None:
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
         del self.external_stores[store.name]
         self.bump_version(bump_schema_version=True)
         idx = next(i for i, store_md in enumerate(self._tbl_md.external_stores) if store_md['md']['name'] == store.name)
@@ -1477,6 +1500,7 @@ class TableVersion:
 
     @property
     def effective_version(self) -> int | None:
+        assert self.is_versioned, 'PXT-975 not implemented for unversioned tables'
         return self.key.effective_version
 
     @property
@@ -1535,6 +1559,7 @@ class TableVersion:
 
     @property
     def version(self) -> int:
+        assert self.is_versioned
         return self._version_md.version
 
     @property
@@ -1544,6 +1569,10 @@ class TableVersion:
     @property
     def schema_version(self) -> int:
         return self._schema_version_md.schema_version
+
+    @property
+    def is_versioned(self) -> bool:
+        return self._tbl_md.is_versioned
 
     def bump_version(self, timestamp: float | None = None, *, bump_schema_version: bool) -> None:
         """
@@ -1556,6 +1585,7 @@ class TableVersion:
             bump_schema_version: if True, also adjusts the schema version (setting it equal to the new version)
                 and associated metadata.
         """
+        assert self.is_versioned
         assert self.effective_version is None
 
         if timestamp is None:
@@ -1589,6 +1619,7 @@ class TableVersion:
 
     @update_status.setter
     def update_status(self, status: UpdateStatus) -> None:
+        assert self.is_versioned
         assert self.effective_version is None
         self._version_md.update_status = status
 
@@ -1612,16 +1643,18 @@ class TableVersion:
 
     @property
     def next_row_id(self) -> int:
+        assert self.is_versioned
         return self._tbl_md.next_row_id
 
     @next_row_id.setter
     def next_row_id(self, id: int) -> None:
+        assert self.is_versioned
         assert self.effective_version is None
         self._tbl_md.next_row_id = id
 
     @property
     def is_snapshot(self) -> bool:
-        return self.effective_version is not None
+        return self.is_versioned and self.effective_version is not None
 
     @property
     def is_mutable(self) -> bool:
