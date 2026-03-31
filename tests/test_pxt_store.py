@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -139,3 +140,27 @@ class TestPxtStore:
         store2 = PxtStore(soa)
         assert store1._pxt_store_entry is store2._pxt_store_entry
         assert store1.client() is store2.client()
+
+    def test_credentials_refresh(self, uses_db: None) -> None:
+        """Verify that botocore automatically refreshes credentials when they expire."""
+        skip_test_if_not_installed('boto3')
+        skip_test_if_no_pxt_credentials()
+
+        soa = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/refresh_test', allow_obj_name=False)
+        store = PxtStore(soa)
+        refreshable_creds = store.client()._get_credentials()
+        initial_access_key = refreshable_creds.access_key
+        initial_token = refreshable_creds.token
+
+        # Backdate expiry to force refresh on next API call
+        refreshable_creds._expiry_time = datetime.now(tz=timezone.utc) - timedelta(seconds=1)
+
+        # Trigger home bucket access key refresh
+        store.list_objects(return_uri=False)
+
+        assert refreshable_creds._expiry_time > datetime.now(tz=timezone.utc), (
+            'Expected expiry_time to be in the future after credential refresh'
+        )
+        assert refreshable_creds.access_key != initial_access_key or refreshable_creds.token != initial_token, (
+            'Expected access key or session token to change after credential refresh'
+        )
