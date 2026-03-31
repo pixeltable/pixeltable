@@ -150,16 +150,10 @@ class RowBuilder:
         self.table_columns = {}
         self.input_exprs = ExprSet()
         validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
+        expr: Expr
 
         for col in columns:
-            expr: Expr
-            if col.is_computed:
-                assert col.value_expr is not None
-                # create a copy here so we don't reuse execution state and resolve references to computed columns
-                expr = col.value_expr.copy().resolve_computed_cols(resolve_cols=resolve_cols)
-                expr = expr.substitute(validating_colrefs)
-                expr = self._record_unique_expr(expr, recursive=True)
-            else:
+            if not col.is_computed:
                 # record a ColumnRef so that references to this column resolve to the same slot idx
                 perform_validation = (
                     None
@@ -178,8 +172,19 @@ class RowBuilder:
                 else:
                     self.input_exprs.add(expr)
 
-            self.add_table_column(col, expr.slot_idx)
-            self.output_exprs.add(expr)
+                self.add_table_column(col, expr.slot_idx)
+                self.output_exprs.add(expr)
+
+        for col in columns:
+            if col.is_computed:
+                assert col.value_expr is not None
+                # create a copy here so we don't reuse execution state and resolve references to computed columns
+                expr = col.value_expr.copy().resolve_computed_cols(resolve_cols=resolve_cols)
+                expr = expr.substitute(validating_colrefs)
+                expr = self._record_unique_expr(expr, recursive=True)
+
+                self.add_table_column(col, expr.slot_idx)
+                self.output_exprs.add(expr)
 
         # default eval ctx: all output exprs
         self.default_eval_ctx = self.create_eval_ctx(list(self.output_exprs), exclude=unique_input_exprs)

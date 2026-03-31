@@ -872,7 +872,9 @@ class Planner:
         base_analyzer = Analyzer(
             from_clause, iterator_args, where_clause=target.predicate, sample_clause=target.sample_clause
         )
-        row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [], target, for_view_load=True)
+        row_builder = exprs.RowBuilder(
+            base_analyzer.all_exprs, stored_cols, [], target, for_view_load=True, for_insert=propagates_insert
+        )
 
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
         # execution plan:
@@ -902,18 +904,6 @@ class Planner:
         if target.is_component_view:
             plan = exec.ComponentIterationNode(view.tbl_version, plan)
         if len(view_output_exprs) > 0:
-            if propagates_insert:
-                # Set for_insert=True on ColumnRefs for view's non-computed columns with defaults,
-                # so ColumnRef.eval() writes the default value into the slot before any computed cols
-                # that depend on them are evaluated.
-                # We mutate after RowBuilder construction because value_expr copies always produce
-                # ColumnRef with for_insert=False.
-                view_additional_with_defaults = {
-                    c for c in stored_cols if c.get_tbl().id == target.id and not c.is_computed and c.has_default_value
-                }
-                for e in view_output_exprs:
-                    if isinstance(e, exprs.ColumnRef) and e.col in view_additional_with_defaults:
-                        e.for_insert = True
             plan = exec.ExprEvalNode(
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )
