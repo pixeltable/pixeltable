@@ -77,10 +77,14 @@ def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path, *,
         indent: Number of spaces for pretty-printing indentation. Default `None` (compact output).
     """
 
+    from pixeltable.io.utils import replace_media_with_fileurl
+
     if isinstance(table_or_query, pxt.catalog.Table):
         query = table_or_query.select()
     else:
         query = table_or_query
+
+    replace_media_with_fileurl(query._select_list_exprs)
 
     col_types: dict[str, ts.ColumnType] = {name: ct for name, ct in query.schema.items() if not ct.is_binary_type()}
 
@@ -97,8 +101,6 @@ def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path, *,
 
             if val is None:
                 row_dict[col_name] = None
-            elif col_type.is_image_type():
-                row_dict[col_name] = str(val.filename) if hasattr(val, 'filename') and val.filename else None
             elif col_type.is_timestamp_type() or col_type.is_date_type():
                 row_dict[col_name] = val.isoformat()
             elif col_type.is_uuid_type():

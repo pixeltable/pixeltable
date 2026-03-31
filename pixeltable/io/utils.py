@@ -1,9 +1,14 @@
+from __future__ import annotations
+
 from keyword import iskeyword as is_python_keyword
 from typing import Any
 
 import pixeltable as pxt
 import pixeltable.exceptions as excs
 from pixeltable.catalog.globals import is_system_column_name
+from pixeltable.exprs.column_property_ref import ColumnPropertyRef
+from pixeltable.exprs.column_ref import ColumnRef
+from pixeltable.exprs.expr import Expr
 
 
 def normalize_pxt_col_name(name: str) -> str:
@@ -98,3 +103,16 @@ def normalize_schema_names(
     pxt_pk = [col_mapping[pk] for pk in primary_key] if col_mapping is not None else primary_key
 
     return schema, pxt_pk, col_mapping
+
+
+def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> None:
+    """Mutate select list in-place, replacing media ColumnRefs with their .fileurl property.
+
+    This avoids Pixeltable's file caching pipeline and instead returns the authoritative
+    URL stored in the database for each media column.
+    """
+    for i, expr in enumerate(select_list_exprs):
+        if isinstance(expr, ColumnRef) and expr.col_type.is_media_type():
+            if expr.col.is_computed and not expr.col.is_stored:
+                continue
+            select_list_exprs[i] = ColumnPropertyRef(expr, ColumnPropertyRef.Property.FILEURL)

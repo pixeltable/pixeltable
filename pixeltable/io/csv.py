@@ -69,10 +69,14 @@ def export_csv(
         delimiter: Field delimiter character. Default `','`.
         quoting: CSV quoting style (a `csv.QUOTE_*` constant). Default `csv.QUOTE_MINIMAL`.
     """
+    from pixeltable.io.utils import replace_media_with_fileurl
+
     if isinstance(table_or_query, pxt.catalog.Table):
         query = table_or_query.select()
     else:
         query = table_or_query
+
+    replace_media_with_fileurl(query._select_list_exprs)
 
     col_types: dict[str, ts.ColumnType] = {name: ct for name, ct in query.schema.items() if not ct.is_binary_type()}
 
@@ -91,8 +95,6 @@ def export_csv(
                 val = row[col_name]
                 if val is None:
                     csv_row.append('')
-                elif col_type.is_image_type():
-                    csv_row.append(str(val.filename) if hasattr(val, 'filename') and val.filename else '')
                 elif col_type.is_timestamp_type() or col_type.is_date_type():
                     csv_row.append(val.isoformat())
                 elif col_type.is_json_type():
