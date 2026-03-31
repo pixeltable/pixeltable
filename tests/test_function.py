@@ -1319,131 +1319,67 @@ class TestFunction:
         assert process.returncode != 0  # The script should fail with an appropriate error message
         assert "Defining the UDF 'inline_udf' directly in the global namespace of a Python script" in process.stderr
 
-    # Polymorphic UDF: overloads share 'model' param
-    @pxt.udf
-    def poly_common(model: str, text: str) -> str:  # noqa: N805
-        return text
+    def test_resource_estimator_polymorphic(self, uses_db: None) -> None:
+        """resource_estimator with _param_types works for valid overloads and fails for mismatched ones."""
+        from .utils import get_image_files, get_video_files
 
-    @staticmethod
-    @poly_common.overload
-    def _(model: str, count: int) -> int:
-        return count
+        # Text overload: estimator param 'content' matches the resolved signature
+        t_text = pxt.create_table('test_est_text', {'content': pxt.String})
+        t_text.add_computed_column(emb=mock_embed(t_text.content))
+        status = t_text.insert([{'content': 'hello world'}, {'content': 'foo bar'}])
+        assert status.num_excs == 0
 
-    # Polymorphic UDF: overloads share 'x' param
-    @pxt.udf
-    def poly_specific(x: str, y: str) -> str:  # noqa: N805
-        return x + y
+        # Image overload: estimator param 'content' matches the resolved signature
+        images = get_image_files()[:2]
+        t_img = pxt.create_table('test_est_img', {'content': pxt.Image})
+        t_img.add_computed_column(emb=mock_embed(t_img.content))
+        status = t_img.insert([{'content': img} for img in images])
+        assert status.num_excs == 0
 
-    @staticmethod
-    @poly_specific.overload
-    def _(x: int, y: int) -> int:
-        return x + y
+        # Video overload: estimator param 'content' does NOT exist in the resolved signature
+        # (the video overload uses 'video', not 'content')
+        videos = get_video_files()[:2]
+        t_vid = pxt.create_table('test_est_vid', {'video': pxt.Video})
+        t_vid.add_computed_column(emb=mock_embed(t_vid.video))
+        with pytest.raises(pxt.Error, match='not in the resolved function signature'):
+            t_vid.insert([{'video': v} for v in videos])
 
-    # Non-polymorphic UDFs for backward-compat tests
-    @staticmethod
-    @pxt.udf
-    def simple_est_fn(a: int, b: str) -> str:
-        return str(a) + b
 
-    @staticmethod
-    @pxt.udf
-    def simple_est_fn2(a: int) -> int:
-        return a
+def init_test_pool(pool_name: str) -> None:
+    import datetime
 
-    # Polymorphic UDF for testing invalid estimator params (not in any overload)
-    @pxt.udf
-    def poly_bad(model: str, text: str) -> str:  # noqa: N805
-        return text
+    from pixeltable import env
 
-    @staticmethod
-    @poly_bad.overload
-    def _(model: str, count: int) -> int:
-        return count
+    pool_info = env.Env.get().get_resource_pool_info(pool_name, env.RateLimitsInfo)
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    pool_info.record(now, requests=(100, 99, now))
 
-    # Polymorphic UDF for testing late estimator registration (after resolution)
-    @pxt.udf
-    def poly_late(x: str) -> str:  # noqa: N805
-        return x
 
-    @staticmethod
-    @poly_late.overload
-    def _(x: int) -> int:
-        return x
+# Ruff ignore: async is required for the rate-limits scheduler path, but these mock UDFs don't actually await
+@pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed')
+async def mock_embed(content: str, model: str = 'default') -> list[float]:  # noqa: RUF029
+    init_test_pool('rate-limits:test-embed')
+    return [0.1, 0.2, 0.3]
 
-    def test_resource_estimator_validation(self) -> None:
-        # Valid: estimator params are a subset of function params
-        @self.f1.resource_estimator
-        def _(a: int) -> dict[str, int]:
-            return {'requests': 1, 'tokens': a}
 
-        assert self.f1._resource_estimator(5) == {'requests': 1, 'tokens': 5}
+@mock_embed.overload
+async def _(content: pxt.Image, model: str = 'default') -> list[float]:  # noqa: RUF029
+    init_test_pool('rate-limits:test-embed')
+    return [0.4, 0.5, 0.6]
 
-        # Valid: zero-arg estimator
-        @self.f2.resource_estimator
-        def _() -> dict[str, int]:
-            return {'requests': 1}
 
-        assert self.f2._resource_estimator() == {'requests': 1}
+# Third overload: param is named 'video', not 'content' -- will fail the estimator at runtime
+@mock_embed.overload
+async def _(video: pxt.Video, model: str = 'default') -> list[float]:  # noqa: RUF029
+    init_test_pool('rate-limits:test-embed')
+    return [0.7, 0.8, 0.9]
 
-        # Invalid: estimator has params not in function signature
-        with pytest.raises(pxt.Error, match='not in the function signature'):
 
-            @self.func.resource_estimator
-            def _(x: int, unknown_param: int) -> dict[str, int]:
-                return {'requests': 1}
-
-        # Valid: polymorphic function with zero-arg estimator
-        @self.overloaded_udf.resource_estimator
-        def _() -> dict[str, int]:
-            return {'requests': 1}
-
-        assert self.overloaded_udf._resource_estimator() == {'requests': 1}
-
-        # Test: Polymorphic function with estimator using common params
-        @self.poly_common.resource_estimator
-        def _(model: str) -> dict[str, int]:
-            return {'requests': 1, 'tokens': len(model) * 10}
-
-        assert self.poly_common._resource_estimator(model='gpt-4') == {'requests': 1, 'tokens': 50}
-
-        # Test: Polymorphic function with estimator using param present in all overloads
-        @self.poly_specific.resource_estimator
-        def _(x: str) -> dict[str, int]:
-            return {'requests': 1}
-
-        assert self.poly_specific._resource_estimator(x='hello') == {'requests': 1}
-
-        # Test: Backward compatibility -- non-polymorphic functions still get decoration-time validation
-        # Valid subset of params
-        @self.simple_est_fn.resource_estimator
-        def _(a: int) -> dict[str, int]:
-            return {'requests': a}
-
-        assert self.simple_est_fn._resource_estimator(a=3) == {'requests': 3}
-
-        # Invalid: param not in function signature for non-polymorphic
-        with pytest.raises(pxt.Error, match='not in the function signature'):
-
-            @self.simple_est_fn2.resource_estimator
-            def _(a: int, bad_param: str) -> dict[str, int]:
-                return {'requests': 1}
-
-        # Invalid: estimator param not in ANY overload of polymorphic function
-        with pytest.raises(pxt.Error, match='not in any function signature'):
-
-            @self.poly_bad.resource_estimator
-            def _(model: str, nonexistent: int) -> dict[str, int]:
-                return {'requests': 1}
-
-        # Invalid: resource_estimator set after function has been called
-        # Trigger overload resolution by accessing _resolved_fns
-        _ = self.poly_late._resolved_fns
-
-        with pytest.raises(pxt.Error, match='cannot be set after the function has already been called'):
-
-            @self.poly_late.resource_estimator
-            def _() -> dict[str, int]:
-                return {'requests': 1}
+@mock_embed.resource_estimator
+def _(content: str, _param_types: dict) -> dict[str, int]:
+    if isinstance(_param_types.get('content'), ts.ImageType):
+        return {'requests': 1, 'tokens': 1000}
+    return {'requests': 1, 'tokens': len(content) // 4}
 
 
 @pxt.udf

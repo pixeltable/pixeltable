@@ -142,8 +142,15 @@ class RateLimitsScheduler(Scheduler):
 
     def _get_request_resources(self, request: FnCallArgs) -> dict[str, int]:
         estimator = request.fn_call.fn._resource_estimator
-        param_names = list(inspect.signature(estimator).parameters.keys())
-        if param_names:
+        param_names = [p.name for p in inspect.signature(estimator).parameters.values() if p.name != '_param_types']
+        if len(param_names) == 0:
+            result = estimator()
+        else:
+            # If the estimator declares '_param_types', inject a dict mapping param names to Pixeltable
+            # ColumnTypes for the resolved overload. This lets a shared estimator on a polymorphic function
+            # distinguish overloads that share the same Python types (e.g., str for Document vs Video).
+            if '_param_types' in param_names:
+                param_names = [n for n in param_names if n != '_param_types']
             extra = set(param_names) - set(request.fn_call.fn.signature.parameters.keys())
             if extra:
                 fn = request.fn_call.fn
@@ -152,14 +159,16 @@ class RateLimitsScheduler(Scheduler):
                     f'{extra} that are not in the resolved function signature'
                 )
             kwargs_batch = request.fn_call.get_param_values(param_names, request.rows)
+            if '_param_types' in inspect.signature(estimator).parameters:
+                param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
+                for d in kwargs_batch:
+                    d['_param_types'] = param_types
             if not request.is_batched:
                 result = estimator(**kwargs_batch[0])
             else:
                 batch_kwargs = {k: [d[k] for d in kwargs_batch] for k in kwargs_batch[0]}
                 constant_kwargs, batch_kwargs = request.pxt_fn.create_batch_kwargs(batch_kwargs)
                 result = estimator(**constant_kwargs, **batch_kwargs)
-        else:
-            result = estimator()
         # Filter to resources known to the pool to avoid KeyError in _resource_delay()
         known = self._resources
         return {k: v for k, v in result.items() if k in known}
