@@ -39,6 +39,13 @@ class TestJson:
                 assert isinstance(exp_row[col], str), f'{col} should be a string'
                 assert exp_row[col] != '', f'{col} should not be empty'
 
+        # Verify media columns export the authoritative file URL, not a cached path
+        media_cols = {'c_image': t.c_image, 'c_video': t.c_video, 'c_audio': t.c_audio, 'c_document': t.c_document}
+        fileurls = t.select(*[col.fileurl for col in media_cols.values()]).collect()
+        for exp_row, url_row in zip(exported, fileurls):
+            for col_name in media_cols:
+                assert exp_row[col_name] == url_row[f'{col_name}_fileurl']
+
     def test_export_with_nulls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Verify null handling across multiple types."""
         t = pxt.create_table(
@@ -120,5 +127,23 @@ class TestJson:
 
         original = t.order_by(t.name).collect()
         reimported = t2.order_by(t2.name).collect()
+
+        assert original == reimported
+
+    def test_round_trip_media(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Export JSON with media columns, re-import, and verify file URLs survive the round-trip."""
+        t = create_all_datatypes_tbl()
+
+        json_path = tmp_path / 'round_trip_media.json'
+        pxt.io.export_json(t, json_path, indent=2)
+
+        # Build schema overrides from the original table, excluding binary (not exportable to JSON)
+        schema_overrides = {name: ct for name, ct in t._get_schema().items() if not ct.is_binary_type()}
+        t2 = pxt.io.import_json('test_json_rt_media', str(json_path), schema_overrides=schema_overrides)
+
+        # Select only columns that survive JSON export (binary is excluded)
+        exportable_cols = [getattr(t, name) for name in t2.columns()]
+        original = t.select(*exportable_cols).order_by(t.row_id).collect()
+        reimported = t2.order_by(t2.row_id).collect()
 
         assert original == reimported
