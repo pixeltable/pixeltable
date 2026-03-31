@@ -464,6 +464,7 @@ class Planner:
         # register query columns in table_columns so create_store_table_row knows which slot to read for each dst column
         needs_cell_materialization = False
         for col_name, expr in zip(query.schema.keys(), query._select_list_exprs):
+            assert col_name in tbl.cols_by_name
             col = tbl.cols_by_name[col_name]
             plan.row_builder.add_table_column(col, expr.slot_idx)
             needs_cell_materialization = needs_cell_materialization or col.col_type.supports_file_offloading()
@@ -871,7 +872,9 @@ class Planner:
         base_analyzer = Analyzer(
             from_clause, iterator_args, where_clause=target.predicate, sample_clause=target.sample_clause
         )
-        row_builder = exprs.RowBuilder(base_analyzer.all_exprs, stored_cols, [], target, for_view_load=True)
+        row_builder = exprs.RowBuilder(
+            base_analyzer.all_exprs, stored_cols, [], target, for_view_load=True, for_insert=propagates_insert
+        )
 
         # if we're propagating an insert, we only want to see those base rows that were created for the current version
         # execution plan:
@@ -901,13 +904,6 @@ class Planner:
         if target.is_component_view:
             plan = exec.ComponentIterationNode(view.tbl_version, plan)
         if len(view_output_exprs) > 0:
-            if propagates_insert:
-                view_additional_with_defaults = {
-                    c for c in stored_cols if c.get_tbl().id == target.id and not c.is_computed and c.has_default_value
-                }
-                for e in view_output_exprs:
-                    if isinstance(e, exprs.ColumnRef) and e.col in view_additional_with_defaults:
-                        e.for_insert = True
             plan = exec.ExprEvalNode(
                 row_builder, output_exprs=view_output_exprs, input_exprs=base_output_exprs, input=plan
             )

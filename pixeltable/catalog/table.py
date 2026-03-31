@@ -586,8 +586,8 @@ class Table(SchemaObject):
             ...         'media_validation': 'on_write',
             ...     },
             ...     'new_col_2': {
-            ...		    'type': pxt.String,
-            ...		    'default': 'empty'
+            ...	        'type': pxt.String,
+            ...	        'default': 'empty'
             ...     }
             ... }
             ... tbl.add_columns(schema)
@@ -693,10 +693,18 @@ class Table(SchemaObject):
                 f'got {len(kwargs)} arguments instead ({", ".join(kwargs.keys())})'
             )
         col_name, col_spec = next(iter(kwargs.items()))
+        schema: dict[str, type | ColumnSpec]
 
         if isinstance(col_spec, dict):
             # Dict format (for options like 'stored', 'media_validation', etc.)
-            schema = kwargs
+            if default is not None and 'default' in col_spec:
+                raise excs.Error(
+                    f'Column {col_name!r}: cannot specify `default` both in the column spec dict and '
+                    f'as a keyword argument'
+                )
+            if default is not None:
+                col_spec = {**col_spec, 'default': default}
+            schema = {col_name: col_spec}
         elif isinstance(col_spec, (ts.ColumnType, type, _GenericAlias)):
             # Type format - with or without default
             if default is not None:

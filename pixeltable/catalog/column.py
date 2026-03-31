@@ -345,6 +345,8 @@ class Column:
             # Only constant defaults are supported
             if not isinstance(default_expr, exprs.Literal):
                 raise excs.Error(f'Column {name!r}: Default values must be constants.')
+            if default_expr.val is None:
+                raise excs.Error(f'Column {name!r}: Default value cannot be None.')
 
         if 'media_validation' in spec:
             _ = catalog.MediaValidation.validated(spec['media_validation'], f'Column {name!r}: media_validation')
