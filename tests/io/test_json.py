@@ -186,5 +186,5 @@ class TestJson:
         t.add_computed_column(rotated=t.img.rotate(90))
         t.insert([{'img': get_image_files()[0]}])
 
-        with pytest.raises(pxt.exceptions.Error, match='without a destination'):
+        with pytest.raises(pxt.Error, match='without a destination'):
             pxt.io.export_json(t, tmp_path / 'should_fail.json')
