@@ -1,9 +1,22 @@
+from typing import Iterator
+
+import pytest
+
 import pixeltable as pxt
 
 from ..utils import rerun, skip_test_if_not_installed, validate_update_status
+from .tool_utils import stock_price, weather
 
 
-@rerun(reruns=3, reruns_delay=15)  # Since it involes a HF model download
+@pytest.fixture(autouse=True)
+def cleanup_llama_cpp() -> Iterator[None]:
+    yield
+    from pixeltable.functions import llama_cpp
+
+    llama_cpp.cleanup()
+
+
+@rerun(reruns=3, reruns_delay=15)  # Since it involves a HF model download
 class TestLlamaCpp:
     def test_create_chat_completions(self, uses_db: None) -> None:
         skip_test_if_not_installed('llama_cpp')
@@ -40,4 +53,57 @@ class TestLlamaCpp:
         assert len(result['choices'][0]['message']['content']) > 0
         assert len(result2['choices'][0]['message']['content']) > 0
 
-        llama_cpp.cleanup()  # Clean up the model cache after the test
+    @pytest.mark.expensive  # downloads large models
+    @pytest.mark.parametrize('model', ['mistral', 'gemma', 'qwen'])
+    def test_tool_invocations(self, uses_db: None, model: str) -> None:
+        skip_test_if_not_installed('llama_cpp')
+        from pixeltable.functions import llama_cpp
+        from pixeltable.functions.openai import invoke_tools
+
+        tools = pxt.tools(stock_price, weather)
+
+        match model:
+            case 'qwen':
+                # file size: 397MB
+                repo_id = 'unsloth/Qwen3-0.6B-GGUF'
+                repo_filename = '*Q4_K_M.gguf'
+                # The 'chatml-function-calling' chat format results in an extremely verbose prompt from this model
+                chat_format = None
+                # 'auto' tool choice causes Qwen to generate the tool call in its own native XML format, so specify
+                # the tool choice explicitly instead.
+                # If this limitation is unacceptable, we can implement a special case in the UDF that parses Qwen's
+                # XML output to a dict.
+                tool_choice = tools.choice(tool=weather)
+            case 'mistral':
+                # file size: 2.5GB
+                repo_id = 'mistralai/Ministral-3-3B-Instruct-2512-GGUF'
+                repo_filename = '*Q5_K_M.gguf'
+                chat_format = 'chatml-function-calling'
+                tool_choice = tools.choice(auto=True)
+            case 'gemma':
+                # file size: 2.2GB
+                repo_id = 'lmstudio-community/gemma-3-4b-it-GGUF'
+                repo_filename = '*Q3_K_L.gguf'
+                chat_format = 'chatml-function-calling'
+                tool_choice = tools.choice(auto=True)
+            case _:
+                raise AssertionError(f'Not implemented: {model}')
+
+        t = pxt.create_table('test_tbl', {'prompt': pxt.String})
+        messages = [{'role': 'user', 'content': t.prompt}]
+        t.add_computed_column(
+            response=llama_cpp.create_chat_completion(
+                messages,
+                repo_id=repo_id,
+                repo_filename=repo_filename,
+                tools=tools,
+                tool_choice=tool_choice,
+                chat_format=chat_format,
+            )
+        )
+        t.add_computed_column(tool_calls=invoke_tools(tools, t.response))
+        validate_update_status(t.insert(prompt='What is the weather in San Francisco?'), 1)
+        res = t.collect()
+        assert res[0]['tool_calls'] == {'weather': ['Cloudy with a chance of meatballs'], 'stock_price': None}, (
+            f'Actual row: {res[0]}'
+        )
