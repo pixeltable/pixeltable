@@ -8,7 +8,6 @@ import pytest
 import pixeltable as pxt
 from pixeltable.utils import pxt_store
 from pixeltable.utils.object_stores import ObjectOps, ObjectPath
-from pixeltable.utils.pxt_store import PxtStore
 
 from .utils import skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status
 
@@ -120,6 +119,7 @@ class TestPxtStore:
         """Verify that two columns with different prefixes under the same org:db get separate credentials."""
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
+        from pixeltable.utils.pxt_store import PxtStore
 
         soa1 = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/dir1', allow_obj_name=False)
         soa2 = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/dir2', allow_obj_name=False)
@@ -133,6 +133,7 @@ class TestPxtStore:
         """Verify that two columns with the same pxt:// destination share a single cached credential entry."""
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
+        from pixeltable.utils.pxt_store import PxtStore
 
         soa = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/shared', allow_obj_name=False)
 
@@ -145,6 +146,7 @@ class TestPxtStore:
         """Verify that botocore automatically refreshes credentials when they expire."""
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
+        from pixeltable.utils.pxt_store import PxtStore
 
         soa = ObjectPath.parse_object_storage_addr(f'{PXT_DEST_URI}/refresh_test', allow_obj_name=False)
         store = PxtStore(soa)
