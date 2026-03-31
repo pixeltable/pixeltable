@@ -102,7 +102,7 @@ class S3Store(ObjectStoreBase):
             StorageTarget.S3_STORE,
             StorageTarget.B2_STORE,
             StorageTarget.TIGRIS_STORE,
-            StorageTarget.PIXELTABLE_STORE
+            StorageTarget.PIXELTABLE_STORE,
         }, f'Expected storage_target "s3", "r2", "b2", "tigris" or "pxt" but got: {self.soa.storage_target}'
         self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
