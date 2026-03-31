@@ -19,6 +19,7 @@ from botocore.session import get_session as get_botocore_session
 
 from pixeltable import env, exceptions as excs
 from pixeltable.runtime import get_runtime
+from pixeltable.utils.cloud_utils import get_home_bucket_credentials, get_presigned_url_from_cloud
 from pixeltable.utils.object_stores import StorageObjectAddress, StorageTarget
 from pixeltable.utils.s3_store import S3CompatClientDict, S3Store
 
@@ -74,45 +75,34 @@ def _handle_no_space_warning(no_space_left: bool, entry: _PxtStoreCacheEntry, or
         entry.no_space_warned = False
 
 
-def _make_credential_refresher(org: str, db: str, entry: _PxtStoreCacheEntry) -> Callable[[], dict[str, str]]:
-    """Return a credential refresher for use with RefreshableCredentials.
+def _refresh_credentials(org: str, db: str, entry: _PxtStoreCacheEntry) -> dict[str, str]:
+    """Fetch fresh credentials and update the cache entry"""
+    creds = get_home_bucket_credentials(org, db)
+    expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
 
-    Updates the cache entry's no_space_left and bucket_name on each refresh.
-    """
+    entry.no_space_left = creds.no_space_left
+    if creds.bucket_name:
+        entry.bucket_name = creds.bucket_name
 
-    def _refresh() -> dict[str, str]:
-        from pixeltable.utils.cloud_utils import get_home_bucket_credentials
+    _handle_no_space_warning(creds.no_space_left, entry, org, db)
 
-        creds = get_home_bucket_credentials(org, db)
-        expiry_time = datetime.now(tz=timezone.utc) + timedelta(seconds=creds.ttl_seconds)
-
-        entry.no_space_left = creds.no_space_left
-        if creds.bucket_name:
-            entry.bucket_name = creds.bucket_name
-
-        _handle_no_space_warning(creds.no_space_left, entry, org, db)
-
-        _logger.info(
-            'Refreshed home bucket credentials for %s:%s (ttl=%ds, no_space_left=%s)',
-            org,
-            db,
-            creds.ttl_seconds,
-            creds.no_space_left,
-        )
-        return {
-            'access_key': creds.access_key_id,
-            'secret_key': creds.secret_access_key,
-            'token': creds.session_token,
-            'expiry_time': expiry_time.isoformat(),
-        }
-
-    return _refresh
+    _logger.info(
+        'Refreshed home bucket credentials for %s:%s (ttl=%ds, no_space_left=%s)',
+        org,
+        db,
+        creds.ttl_seconds,
+        creds.no_space_left,
+    )
+    return {
+        'access_key': creds.access_key_id,
+        'secret_key': creds.secret_access_key,
+        'token': creds.session_token,
+        'expiry_time': expiry_time.isoformat(),
+    }
 
 
 def _build_pxt_store_entry(org: str, db: str) -> _PxtStoreCacheEntry:
     """Fetch credentials and build a boto3 session for the home bucket."""
-    from pixeltable.utils.cloud_utils import get_home_bucket_credentials
-
     creds = get_home_bucket_credentials(org, db)
 
     entry = _PxtStoreCacheEntry(
@@ -134,12 +124,11 @@ def _build_pxt_store_entry(org: str, db: str) -> _PxtStoreCacheEntry:
         'token': creds.session_token,
         'expiry_time': expiry_time.isoformat(),
     }
-    refresher = _make_credential_refresher(org, db, entry)
 
-    # keeps credentials fresh without triggering botocore's immediate-refresh behaviour.
+    # keeps credentials fresh without triggering botocore's immediate-refresh behavior.
     refreshable_creds = RefreshableCredentials.create_from_metadata(
         metadata=initial_metadata,
-        refresh_using=refresher,
+        refresh_using=lambda: _refresh_credentials(org, db, entry),
         method='pxt-store',
         advisory_timeout=60,  # start refreshing 60s before expiry (non-blocking, best-effort)
         mandatory_timeout=30,  # block and force refresh if credentials expire within 30s
@@ -196,7 +185,7 @@ class PxtStore(S3Store):
             )
         org, db = soa.account, soa.account_extension
         self._pxt_store_entry = _get_or_create_pxt_store_entry(org, db)
-        super().__init__(soa, resolved_physical_bucket_name=self._pxt_store_entry.bucket_name)
+        super().__init__(soa._replace(container=self._pxt_store_entry.bucket_name))
 
     @property
     def bucket_name(self) -> str:
@@ -220,7 +209,6 @@ class PxtStore(S3Store):
         """Request a presigned GET URL from the control plane (lifetime independent of temp credentials)."""
         if not soa.has_object:
             raise excs.Error(f'StorageObjectAddress does not contain an object name: {soa}')
-        from pixeltable.utils.cloud_utils import get_presigned_url_from_cloud
 
         return get_presigned_url_from_cloud(
             org_slug=soa.account,

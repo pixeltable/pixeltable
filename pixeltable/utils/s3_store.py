@@ -93,22 +93,17 @@ class S3Store(ObjectStoreBase):
 
     soa: StorageObjectAddress
 
-    def __init__(self, soa: StorageObjectAddress, *, resolved_physical_bucket_name: str | None = None) -> None:
+    def __init__(self, soa: StorageObjectAddress) -> None:
         self.soa = soa
         self.__prefix_name = self.soa.prefix
-        if resolved_physical_bucket_name is None:
-            self.__bucket_name = self.soa.container
-            assert self.soa.storage_target in {
-                StorageTarget.R2_STORE,
-                StorageTarget.S3_STORE,
-                StorageTarget.B2_STORE,
-                StorageTarget.TIGRIS_STORE,
-            }, f'Expected storage_target "s3", "r2", "b2", or "tigris", but got: {self.soa.storage_target}'
-        else:
-            assert self.soa.storage_target == StorageTarget.PIXELTABLE_STORE, (
-                'resolved_physical_bucket_name is only used with PIXELTABLE_STORE'
-            )
-            self.__bucket_name = resolved_physical_bucket_name
+        self.__bucket_name = self.soa.container
+        assert self.soa.storage_target in {
+            StorageTarget.R2_STORE,
+            StorageTarget.S3_STORE,
+            StorageTarget.B2_STORE,
+            StorageTarget.TIGRIS_STORE,
+            StorageTarget.PIXELTABLE_STORE
+        }, f'Expected storage_target "s3", "r2", "b2", "tigris" or "pxt" but got: {self.soa.storage_target}'
         self.__base_uri = self.soa.prefix_free_uri + self.soa.prefix
 
     def _get_s3_compat_client(self, client_name: str) -> Any:

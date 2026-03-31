@@ -78,7 +78,7 @@ class StorageObjectAddress(NamedTuple):
     def prefix_free_uri(self) -> str:
         """Return the URI without any prefixes."""
         if self.storage_target == StorageTarget.PIXELTABLE_STORE:
-            return f'{self.scheme}://{self.account}:{self.account_extension}/{self.container}/'
+            return f'{self.scheme}://{self.account}:{self.account_extension}/home/'
         if self.is_azure_scheme:
             return f'{self.scheme}://{self.container}@{self.account}.{self.account_extension}/'
         if self.account and self.account_extension:

@@ -1,12 +1,13 @@
 """
 Cloud API utilities for pixeltable core.
 
-Provides functions for communicating with the Pixeltable cloud control plane,
+Provides functions for communicating with the Pixeltable Cloud control plane,
 such as obtaining temporary credentials for home buckets.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Literal, Optional
 
@@ -54,12 +55,10 @@ def get_home_bucket_credentials(org: str, db: str, prefix: Optional[str] = None)
             raise excs.Error(f'Failed to get home bucket credentials: {response.text}')
         body = response.json()
         if isinstance(body, dict) and 'body' in body:
-            import json
-
             body = json.loads(body['body'])
         return GetHomeBucketCredentialsResponse.model_validate(body)
     except requests.exceptions.RequestException as e:
-        raise excs.Error(f'Failed to connect to Pixeltable cloud for home bucket credentials: {e}') from e
+        raise excs.Error(f'Failed to connect to Pixeltable Cloud for home bucket credentials: {e}') from e
 
 
 def get_presigned_url_from_cloud(

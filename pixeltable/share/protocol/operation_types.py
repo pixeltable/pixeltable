@@ -18,10 +18,6 @@ class ReplicaOperationType(str, Enum):
     CLONE_REPLICA = 'clone_replica'
     DELETE_REPLICA = 'delete_replica'
 
-    def is_replica_operation(self) -> bool:
-        """Check if operation is a replica operation."""
-        return self in REPLICA_OPERATIONS
-
 
 class PixeltableStoreOperationType(str, Enum):
     """Operation types for Pixeltable-managed storage (home buckets)."""
@@ -30,14 +26,5 @@ class PixeltableStoreOperationType(str, Enum):
     GET_PRESIGNED_URL = 'get_presigned_url'
 
 
-REPLICA_OPERATIONS: set[ReplicaOperationType] = {
-    ReplicaOperationType.PUBLISH_REPLICA,
-    ReplicaOperationType.FINALIZE_REPLICA,
-    ReplicaOperationType.CLONE_REPLICA,
-    ReplicaOperationType.DELETE_REPLICA,
-}
-
-PIXELTABLE_STORE_OPERATIONS: set[PixeltableStoreOperationType] = {
-    PixeltableStoreOperationType.GET_HOME_BUCKET_CREDENTIALS,
-    PixeltableStoreOperationType.GET_PRESIGNED_URL,
-}
+REPLICA_OPERATIONS: frozenset[ReplicaOperationType] = frozenset(ReplicaOperationType)
+PIXELTABLE_STORE_OPERATIONS: frozenset[PixeltableStoreOperationType] = frozenset(PixeltableStoreOperationType)
