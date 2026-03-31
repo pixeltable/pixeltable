@@ -124,7 +124,6 @@ class ColumnRef(Expr):
             ('tbl_id', self.col.tbl_handle.id),
             ('col_id', self.col.id),
             ('perform_validation', self.perform_validation),
-            ('for_insert', self.for_insert),
         ]
 
     # override
