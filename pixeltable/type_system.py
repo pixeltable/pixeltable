@@ -1044,7 +1044,7 @@ class JsonType(ColumnType):
         if isinstance(val, pydantic.BaseModel):
             val = val.model_dump()
 
-        if not cls.__is_valid_json(val):
+        if not cls.__is_valid_json_literal(val):
             return None
 
         type_schema: JsonType.TypeSchema
@@ -1062,21 +1062,21 @@ class JsonType(ColumnType):
             val = list(val)
         if isinstance(val, pydantic.BaseModel):
             val = val.model_dump()
-        if not self.__is_valid_json(val):
+        if not self.__is_valid_json_literal(val):
             raise TypeError(f'That literal is not a valid Pixeltable JSON object: {val}')
         if self.type_schema is not None:
             self.type_schema.validate_literal(val)
 
     @classmethod
-    def __is_valid_json(cls, val: Any) -> bool:
+    def __is_valid_json_literal(cls, val: Any) -> bool:
         if val is None or isinstance(val, (str, int, float, bool, PIL.Image.Image, bytes)):
             return True
         if isinstance(val, np.ndarray):
             return val.dtype.type in ARRAY_SUPPORTED_NUMPY_DTYPES
         if isinstance(val, (list, tuple)):
-            return all(cls.__is_valid_json(v) for v in val)
+            return all(cls.__is_valid_json_literal(v) for v in val)
         if isinstance(val, dict):
-            return all(isinstance(k, str) and cls.__is_valid_json(v) for k, v in val.items())
+            return all(isinstance(k, str) and cls.__is_valid_json_literal(v) for k, v in val.items())
         return False
 
     def _create_literal(self, val: Any) -> Any:
@@ -1295,6 +1295,8 @@ class JsonType(ColumnType):
             return {
                 'type_spec': type_spec_d,
                 'variadic_type': self.variadic_type.as_dict() if self.variadic_type is not None else None,
+                # there is no functional need for optional_keys to be sorted in the dict; it's purely to ensure a
+                # canonical dict representation (i.e., list(self.optional_keys) would be functionally equivalent here)
                 'optional_keys': sorted(self.optional_keys),
             }
 

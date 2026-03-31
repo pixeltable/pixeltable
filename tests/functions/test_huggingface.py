@@ -2,6 +2,7 @@ import sys
 import sysconfig
 from typing import Any
 
+import numpy as np
 import pytest
 
 import pixeltable as pxt
@@ -176,12 +177,10 @@ class TestHuggingface:
         assert 'bowl' in label_text
         assert 'broccoli' in label_text
         # Test appropriate typing
-        assert t.featured_object.col_type.is_string_type()
+        assert t.get_metadata()['columns']['featured_object']['type_'] == 'String'
 
     def test_detr_for_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
-        import numpy as np
-
         from pixeltable.functions.huggingface import detr_for_segmentation
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
