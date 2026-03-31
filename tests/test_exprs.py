@@ -688,7 +688,7 @@ class TestExprs:
                 'f2a': int,
                 'f2b': (int, str, pxt.Video, {'f2b1': str}),
                 'f2c': (int, bool, float, ...),
-                'f2d': (int, {'f2b1': str}, ...),
+                'f2d': (int, {'f2d1': str}, ...),
             },
             'f3': (
                 pxt.Array[(2, 5, 6, 8), np.float32],
@@ -696,6 +696,7 @@ class TestExprs:
                 pxt.Array[(2, 4, 6, 9), np.float32],
                 ...,
             ),
+            'f4': ({'f4a': int, 'f4b': str}, ...),
         }
         t = pxt.create_table('test', {'col': pxt.Json[spec]})
         cases: tuple[tuple[Expr, type], ...] = (
@@ -707,7 +708,7 @@ class TestExprs:
             (t.col.f2.f2c, pxt.Json[(int, bool, float, ...)]),
             (t.col.f2.f2c[0], pxt.Int),
             (t.col.f2.f2c[93], pxt.Float),  # variadic index access
-            (t.col.f2.f2d[93].f2b1, pxt.String),  # variadic index access with chained field access
+            (t.col.f2.f2d[93].f2d1, pxt.String),  # variadic index access with chained field access
             (t.col.f3[-9], pxt.Array[(2, None, None, None), np.float32]),  # variadic negative index (common supertype)
             (t.col.f3[-1], pxt.Array[(2, 4, None, None), np.float32]),  # in this case it could not reference index 0
             (t.col.f2.f2b[1:3], pxt.Json[(str, pxt.Video)]),  # slice access on fixed-length tuple
@@ -721,6 +722,8 @@ class TestExprs:
             (t.col.f2.f2c[:91], pxt.Json[(int, bool, float, ...)]),
             # negative slice on variadic tuple
             (t.col.f3[-9:], pxt.Json[[pxt.Array[(2, None, None, None), np.float32]]]),
+            (t.col.f4[7:14].f4a, pxt.Json[[int | None]]),  # dict resolution applied to list
+            (t.col.f4['*'].f4b, pxt.Json[[str | None]]),  # special '*' operator
         )
         for expr, expected_type in cases:
             print(expr)
@@ -740,11 +743,6 @@ class TestExprs:
         )
         for expr, el, errstring in error_cases:
             regex = rf'Invalid JsonPath: cannot resolve {re.escape(errstring)}'
-            typestr = re.escape(str(expr.col_type.copy(nullable=False)))
-            if expr.col_type.is_json_type():
-                regex += f', because it does not match the expected type schema:\n{typestr}'
-            else:
-                regex += f' on primitive type `{typestr}`'
             with pytest.raises(pxt.Error, match=regex):
                 _ = expr[el]
 

@@ -85,12 +85,26 @@ class JsonPath(Expr):
             return ts.JsonType(nullable=True)
 
         # We're still a JsonType, and we have a schema, and there are more path elements to resolve.
-        # Try various ways of resolving the next path element based on the schema. If none of them succeed,
-        # then fall back on general JsonType.
+        # Try various ways of resolving the next path element based on the schema.
+
+        if el == '*' and isinstance(schema.type_spec, list):
+            # '*' is a no-op for type resolution purposes; it simply confirms that the type schema is a list and
+            # selects all elements.
+            return cls.__resolve_type(col_type, path_elements[1:])
 
         if isinstance(el, str) and isinstance(schema.type_spec, dict) and el in schema.type_spec:
             # Dict key resolution.
             return cls.__resolve_type(schema.type_spec[el], path_elements[1:])
+
+        if isinstance(el, str) and isinstance(schema.type_spec, list):
+            # Key resolution on a list: acts transitively on all elements of the list. This corresponds to
+            # expressions like `col.f1[0:3].f2` where f1 is a list of dicts, extracting `f2` from each dict in the
+            # list.
+            type_spec = [cls.__resolve_type(t, path_elements) for t in schema.type_spec]
+            variadic_type = (
+                cls.__resolve_type(schema.variadic_type, path_elements) if schema.variadic_type is not None else None
+            )
+            return ts.JsonType(ts.JsonType.TypeSchema(type_spec, variadic_type=variadic_type), nullable=True)
 
         if isinstance(el, int) and isinstance(schema.type_spec, list):
             if el >= 0:
