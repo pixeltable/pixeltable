@@ -6,7 +6,13 @@ import pytest
 
 import pixeltable as pxt
 
-from ..utils import create_all_datatypes_tbl, get_json_file, skip_test_if_not_installed, validate_update_status
+from ..utils import (
+    create_all_datatypes_tbl,
+    get_image_files,
+    get_json_file,
+    skip_test_if_not_installed,
+    validate_update_status,
+)
 
 
 class TestJson:
@@ -175,7 +181,6 @@ class TestJson:
 
     def test_export_computed_media_without_destination_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Exporting a computed media column without a destination should raise an error."""
-        from tests.utils import get_image_files
 
         t = pxt.create_table('test_json_no_dest', {'img': pxt.Image})
         t.add_computed_column(rotated=t.img.rotate(90))
