@@ -24,8 +24,9 @@ def import_json(
 ) -> pxt.Table:
     """
     Creates a new base table from a JSON file. This is a convenience method and is
-    equivalent to calling `import_data(table_path, json.loads(file_contents, **kwargs), ...)`, where `file_contents`
-    is the contents of the specified `filepath_or_url`.
+    equivalent to calling [`create_table()`][pixeltable.create_table] with
+    `pxt.create_table(tbl_path, source=filepath_or_url, extra_args=kwargs, ...)`.
+    The contents of `filepath_or_url` are read and parsed as JSON internally (using `json.loads(**kwargs)`).
 
     Args:
         tbl_path: The name of the table to create.
