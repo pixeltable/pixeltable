@@ -13,7 +13,7 @@ from pixeltable.exec.expr_eval.globals import Dispatcher, ExprEvalCtx, FnCallArg
 from pixeltable.exec.expr_eval.schedulers import RateLimitsScheduler
 
 _POOL_NAME = 'rate-limits:test-scheduler:default'
-_REQUEST_LIMIT = 20
+_REQUEST_LIMIT = 40
 
 
 class DummyError(Exception):
