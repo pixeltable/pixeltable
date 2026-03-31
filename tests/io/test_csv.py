@@ -24,33 +24,12 @@ class TestCsv:
 
     def test_export_exact_output(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Verify exported CSV matches an expected file exactly."""
-        t = pxt.create_table(
-            'test_csv_exact',
-            {
-                'c_int': pxt.Required[pxt.Int],
-                'c_string': pxt.Required[pxt.String],
-                'c_float': pxt.Required[pxt.Float],
-                'c_bool': pxt.Required[pxt.Bool],
-            },
-            primary_key='c_int',
-        )
-        t.insert(
-            [
-                {
-                    'c_int': 1,
-                    'c_string': 'What is the airspeed velocity of an unladen swallow?',
-                    'c_float': 24.0,
-                    'c_bool': True,
-                },
-                {'c_int': 2, 'c_string': 'African or European?', 'c_float': 11.0, 'c_bool': False},
-                {'c_int': 3, 'c_string': "I don't know that", 'c_float': 0.5, 'c_bool': True},
-            ]
-        )
+        expected_path = get_csv_file('expected_export.csv')
+        t = pxt.io.import_csv('test_csv_exact', expected_path, primary_key='c_int')
 
         csv_path = tmp_path / 'exact.csv'
         pxt.io.export_csv(t.order_by(t.c_int), csv_path)
 
-        expected_path = get_csv_file('expected_export.csv')
         assert csv_path.read_text(encoding='utf-8') == pathlib.Path(expected_path).read_text(encoding='utf-8')
 
     def test_export_with_nulls(self, uses_db: None, tmp_path: pathlib.Path) -> None:

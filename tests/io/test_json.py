@@ -2,6 +2,8 @@ import datetime
 import json
 import pathlib
 
+import pytest
+
 import pixeltable as pxt
 
 from ..utils import create_all_datatypes_tbl, get_json_file, validate_update_status
@@ -169,3 +171,14 @@ class TestJson:
 
         for col, expected_url in urls.items():
             assert exported[0][col] == expected_url, f'{col}: expected {expected_url}, got {exported[0][col]}'
+
+    def test_export_computed_media_without_destination_errors(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Exporting a computed media column without a destination should raise an error."""
+        from tests.utils import get_image_files
+
+        t = pxt.create_table('test_json_no_dest', {'img': pxt.Image})
+        t.add_computed_column(rotated=t.img.rotate(90))
+        t.insert([{'img': get_image_files()[0]}])
+
+        with pytest.raises(pxt.exceptions.Error, match='without a destination'):
+            pxt.io.export_json(t, tmp_path / 'should_fail.json')

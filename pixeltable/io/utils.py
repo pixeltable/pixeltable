@@ -113,6 +113,9 @@ def replace_media_with_fileurl(select_list_exprs: list[Expr]) -> None:
     """
     for i, expr in enumerate(select_list_exprs):
         if isinstance(expr, ColumnRef) and expr.col_type.is_media_type():
-            if expr.col.is_computed and not expr.col.is_stored:
-                continue
+            if expr.col.is_computed and expr.col.destination is None:
+                raise excs.Error(
+                    f'Cannot export computed media column {expr.col.name!r} without a destination. '
+                    f'Set a destination on the column or select specific non-media columns instead.'
+                )
             select_list_exprs[i] = ColumnPropertyRef(expr, ColumnPropertyRef.Property.FILEURL)
