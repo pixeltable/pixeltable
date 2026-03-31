@@ -439,16 +439,14 @@ class Function(ABC):
 
         The decorated function accepts a subset of this function's parameters and returns a dict mapping
         resource names to estimated costs for a single request.
+
+        Parameters are validated at runtime, requiring the resource estimator contain a subset of the
+        parameters of the resolved function type.
+
+        If the estimator declares a parameter named '_param_types', it will receive a dict mapping
+        parameter names to their Pixeltable ColumnTypes for the resolved overload. This allows a shared
+        estimator on a polymorphic function to distinguish overloads that share the same Python types.
         """
-        if self.is_polymorphic:
-            raise excs.Error(f'resource_estimator cannot be used with polymorphic function {self.self_path or self}')
-        estimator_params = set(inspect.signature(fn).parameters.keys())
-        fn_params = set(self.signature.parameters.keys())
-        if not estimator_params.issubset(fn_params):
-            raise excs.Error(
-                f'resource_estimator for {self.self_path or self} has parameters '
-                f'{estimator_params - fn_params} that are not in the function signature'
-            )
         self._resource_estimator = fn
         return fn
 

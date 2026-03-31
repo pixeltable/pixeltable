@@ -1319,34 +1319,67 @@ class TestFunction:
         assert process.returncode != 0  # The script should fail with an appropriate error message
         assert "Defining the UDF 'inline_udf' directly in the global namespace of a Python script" in process.stderr
 
-    def test_resource_estimator_validation(self) -> None:
-        # Valid: estimator params are a subset of function params
-        @self.f1.resource_estimator
-        def _(a: int) -> dict[str, int]:
-            return {'requests': 1, 'tokens': a}
+    def test_resource_estimator_polymorphic(self, uses_db: None) -> None:
+        """resource_estimator with _param_types works for valid overloads and fails for mismatched ones."""
+        from .utils import get_image_files, get_video_files
 
-        assert self.f1._resource_estimator(5) == {'requests': 1, 'tokens': 5}
+        # Text overload: estimator param 'content' matches the resolved signature
+        t_text = pxt.create_table('test_est_text', {'content': pxt.String})
+        t_text.add_computed_column(emb=mock_embed(t_text.content))
+        status = t_text.insert([{'content': 'hello world'}, {'content': 'foo bar'}])
+        assert status.num_excs == 0
 
-        # Valid: zero-arg estimator
-        @self.f2.resource_estimator
-        def _() -> dict[str, int]:
-            return {'requests': 1}
+        # Image overload: estimator param 'content' matches the resolved signature
+        images = get_image_files()[:2]
+        t_img = pxt.create_table('test_est_img', {'content': pxt.Image})
+        t_img.add_computed_column(emb=mock_embed(t_img.content))
+        status = t_img.insert([{'content': img} for img in images])
+        assert status.num_excs == 0
 
-        assert self.f2._resource_estimator() == {'requests': 1}
+        # Video overload: estimator param 'content' does NOT exist in the resolved signature
+        # (the video overload uses 'video', not 'content')
+        videos = get_video_files()[:2]
+        t_vid = pxt.create_table('test_est_vid', {'video': pxt.Video})
+        t_vid.add_computed_column(emb=mock_embed(t_vid.video))
+        with pytest.raises(pxt.Error, match='not in the resolved function signature'):
+            t_vid.insert([{'video': v} for v in videos])
 
-        # Invalid: estimator has params not in function signature
-        with pytest.raises(pxt.Error, match='not in the function signature'):
 
-            @self.func.resource_estimator
-            def _(x: int, unknown_param: int) -> dict[str, int]:
-                return {'requests': 1}
+def init_test_pool(pool_name: str) -> None:
+    import datetime
 
-        # Invalid: polymorphic function
-        with pytest.raises(pxt.Error, match='polymorphic'):
+    from pixeltable import env
 
-            @self.overloaded_udf.resource_estimator
-            def _() -> dict[str, int]:
-                return {'requests': 1}
+    pool_info = env.Env.get().get_resource_pool_info(pool_name, env.RateLimitsInfo)
+    now = datetime.datetime.now(tz=datetime.timezone.utc)
+    pool_info.record(now, requests=(100, 99, now))
+
+
+# Ruff ignore: async is required for the rate-limits scheduler path, but these mock UDFs don't actually await
+@pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed')
+async def mock_embed(content: str, model: str = 'default') -> list[float]:  # noqa: RUF029
+    init_test_pool('rate-limits:test-embed')
+    return [0.1, 0.2, 0.3]
+
+
+@mock_embed.overload
+async def _(content: pxt.Image, model: str = 'default') -> list[float]:  # noqa: RUF029
+    init_test_pool('rate-limits:test-embed')
+    return [0.4, 0.5, 0.6]
+
+
+# Third overload: param is named 'video', not 'content' -- will fail the estimator at runtime
+@mock_embed.overload
+async def _(video: pxt.Video, model: str = 'default') -> list[float]:  # noqa: RUF029
+    init_test_pool('rate-limits:test-embed')
+    return [0.7, 0.8, 0.9]
+
+
+@mock_embed.resource_estimator
+def _(content: str, _param_types: dict) -> dict[str, int]:
+    if isinstance(_param_types.get('content'), ts.ImageType):
+        return {'requests': 1, 'tokens': 1000}
+    return {'requests': 1, 'tokens': len(content) // 4}
 
 
 @pxt.udf
