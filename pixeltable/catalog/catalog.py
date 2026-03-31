@@ -344,6 +344,9 @@ class Catalog:
                             )
                             if success and lock_mutable_tree:
                                 self._compute_column_dependents(self._x_locked_tbl_ids)
+                            if success and _logger.isEnabledFor(logging.DEBUG):
+                                # validate only when we don't see errors
+                                self.validate()
                             if not success:
                                 assert not self._undo_actions  # We should not have any undo actions at this point
                                 has_exc = True
@@ -448,9 +451,6 @@ class Catalog:
 
             if for_write and len(x_locked_ids) > 0:
                 self._x_locked_tbl_ids = x_locked_ids
-                if _logger.isEnabledFor(logging.DEBUG):
-                    # validate only when we don't see errors
-                    self.validate()
 
             return True
 
