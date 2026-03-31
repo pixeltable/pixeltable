@@ -1101,8 +1101,8 @@ class RateLimitInfo:
             return 0
         if self.request_start_ts >= self.reset_at:
             return 0
-        if self.limit < target_remaining:
-            return None
+        if self.remaining >= self.limit:
+            return None  # nothing consumed yet; can't estimate refill rate
 
         # Estimate resource refill rate based on the recorded state and timestamps. Assumes linear refill.
         refill_rate = (self.limit - self.remaining) / (self.reset_at - self.request_start_ts).total_seconds()

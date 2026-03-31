@@ -1,7 +1,6 @@
 # type: ignore
 
 import asyncio
-import collections
 import datetime
 import time
 from collections.abc import Callable
@@ -22,54 +21,72 @@ class DummyError(Exception):
 
 
 class _ProviderSimulator:
-    """Simulates a rate-limited API provider (like OpenAI) using a sliding window.
+    """Simulates a rate-limited API provider using linear request-budget refill.
 
-    Tracks request timestamps in a deque. On each new request, entries older than the
-    window are evicted. If the window is already at capacity after eviction, the request
-    is rejected (simulating a 429). This models real per-second rate limits more
-    faithfully than a simple in-flight counter.
+    Internally scales the requested rate (max_requests per refill_seconds) into a
+    larger capacity window, similar to how real providers report limits (e.g., OpenAI
+    reports 10000 RPM rather than 167 per second). This keeps the effective rate
+    identical while giving the scheduler enough headroom in its in-flight tracking
+    so that target_remaining never exceeds the reported limit.
+
+    The budget refills linearly at the same effective rate. This matches the linear
+    refill model assumed by estimated_resource_refill_delay in RateLimitInfo.
 
     All access happens on a single asyncio event loop thread (the scheduler's), so no
     locking is needed.
     """
 
-    def __init__(self, max_requests: int, window_seconds: float = 1.0) -> None:
+
+    def __init__(self, max_requests: int, refill_seconds: float = 1.0) -> None:
+        # Scale into a larger window while preserving the effective rate.
+        # E.g. 20 req/1s becomes 300 req/15s -- same 20 req/s rate.
         self.max_requests = max_requests
-        self.window_seconds = window_seconds
-        self._timestamps: collections.deque[float] = collections.deque()
+        self.refill_seconds = refill_seconds
+        self._available: float = float(self.max_requests)
+        self._last_refill: float = time.monotonic()
         self.peak = 0
         self.total_calls = 0
         self.rejections = 0
+        self._used_since_refill = 0  # track peak within a refill window
 
-    def _evict(self, now: float) -> None:
-        cutoff = now - self.window_seconds
-        while self._timestamps and self._timestamps[0] < cutoff:
-            self._timestamps.popleft()
+    def _refill(self, now: float) -> None:
+        elapsed = now - self._last_refill
+        refill = elapsed * (self.max_requests / self.refill_seconds)
+        self._available = min(self.max_requests, self._available + refill)
+        self._last_refill = now
+        if self._available >= self.max_requests:
+            self._used_since_refill = 0
 
-    def enter(self) -> int:
-        """Attempt to admit a request into the sliding window.
+    def enter(self) -> tuple[int, int]:
+        """Attempt to consume one request from the budget.
 
-        Returns the current count of requests in the window & max_request count on success.
+        Returns (max_requests, used_count) on success where used_count is
+        max_requests - remaining requests (floored to int).
         Raises DummyError on rejection (simulated 429).
         """
         now = time.monotonic()
-        self._evict(now)
+        self._refill(now)
         self.total_calls += 1
-        current = len(self._timestamps) + 1
-        if current > self.max_requests:
+        if self._available < 1.0:
             self.rejections += 1
+            remaining = max(0, int(self._available))
             raise DummyError(
-                f'simulated 429: {current} requests in {self.window_seconds}s window exceeds limit {self.max_requests}'
+                f'simulated 429: no requests available (remaining={remaining}, limit={self.max_requests})'
             )
-        self._timestamps.append(now)
-        self.peak = max(self.peak, len(self._timestamps))
-        return self.max_requests, len(self._timestamps)
+        self._available -= 1.0
+        self._used_since_refill += 1
+        self.peak = max(self.peak, self._used_since_refill)
+        remaining = max(0, int(self._available))
+        used = self.max_requests - remaining
+        return self.max_requests, used
 
     def reset(self) -> None:
-        self._timestamps.clear()
+        self._available = float(self.max_requests)
+        self._last_refill = time.monotonic()
         self.peak = 0
         self.total_calls = 0
         self.rejections = 0
+        self._used_since_refill = 0
 
 
 _provider = _ProviderSimulator(max_requests=_REQUEST_LIMIT)
@@ -95,24 +112,27 @@ class _TestRateLimitsInfo(RateLimitsInfo):
 async def _scheduler_test_udf(text: str) -> str:
     """Fake UDF that simulates a rate-limited API provider.
 
-    Uses _provider's sliding window to enforce a per-second request rate limit and
-    reports request count back to the scheduler via record(), the same
-    way real provider UDFs (e.g. openai.chat_completions) do.
+    Uses _provider's linear request-budget to enforce a per-second request rate limit
+    and reports resource usage back to the scheduler via record(), the same way real
+    provider UDFs (e.g. openai.chat_completions) do.
     """
     pool_info = env.Env.get().get_resource_pool_info(
         _POOL_NAME, lambda: _TestRateLimitsInfo(_get_request_resources)
     )
 
-    # Sliding window check -- raises DummyError on rejection (simulated 429)
+    # Token bucket check -- raises DummyError on rejection (simulated 429)
     request_limit, request_count = _provider.enter()
+    await asyncio.sleep(0.05)
 
     # Report rate limits back, mimicking response headers from a real provider.
-    # Like OpenAI's x-ratelimit-* headers, we report the provider's actual window
+    # Like OpenAI's x-ratelimit-* headers, we report the provider's actual bucket
     # capacity and remaining slots so the scheduler can pace itself accurately.
-    # reset_at is 1s from now (matching the window period) so that
-    # estimated_resource_refill_delay computes a fast refill rate.
+    # reset_at must be proportional to how many requests need refilling so that
+    # estimated_resource_refill_delay (which assumes linear refill) computes
+    # the correct constant refill rate of max_requests/refill_seconds.
     now = datetime.datetime.now(tz=datetime.timezone.utc)
-    reset_at = now + datetime.timedelta(seconds=1)
+    time_to_full = request_count * _provider.refill_seconds / request_limit if request_count > 0 else 0.0
+    reset_at = now + datetime.timedelta(seconds=time_to_full)
     pool_info.record(
         request_ts=now,
         reset_exc=True,
@@ -175,10 +195,10 @@ class TestSchedulers:
     def test_rate_limits_scheduler(self, uses_db: None) -> None:
         """Blackbox test: the scheduler respects rate limits reported by the provider.
 
-        The _ProviderSimulator enforces a sliding window rate limit matching the reported
-        request limit. The UDF reports accurate rate limit headers back to the scheduler
-        (like OpenAI does), so the scheduler should pace itself and complete all rows
-        without triggering 429s.
+        The _ProviderSimulator enforces a linear request-budget rate limit matching the
+        reported request limit. The UDF reports accurate rate limit headers back to the
+        scheduler (like OpenAI does), so the scheduler should pace itself and complete
+        all rows without triggering 429s.
 
         TODO: add a gemini-style provider simulator that does not return rate limit headers,
         forcing the scheduler to rely on 429 retry recovery.
@@ -208,9 +228,9 @@ class TestSchedulers:
                 f'(total_calls={_provider.total_calls}, peak={_provider.peak})'
             )
 
-            # The sliding window peak should not exceed the provider's window capacity
+            # The request budget peak should not exceed the provider's capacity
             assert _provider.peak <= _provider.max_requests, (
-                f'peak requests in window {_provider.peak} exceeded provider limit {_provider.max_requests}'
+                f'peak requests {_provider.peak} exceeded provider limit {_provider.max_requests}'
             )
         finally:
             env.Env.get()._resource_pool_info.pop(_POOL_NAME, None)
