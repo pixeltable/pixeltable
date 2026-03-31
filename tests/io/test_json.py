@@ -4,7 +4,7 @@ import pathlib
 
 import pixeltable as pxt
 
-from ..utils import create_all_datatypes_tbl, validate_update_status
+from ..utils import create_all_datatypes_tbl, get_json_file, validate_update_status
 
 
 class TestJson:
@@ -92,7 +92,7 @@ class TestJson:
 
     def test_export_indent_and_encoding(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Test compact vs pretty output and non-ASCII preservation."""
-        source_path = str(pathlib.Path(__file__).parents[1] / 'data' / 'json' / 'example.json')
+        source_path = get_json_file('example.json')
         t = pxt.io.import_json('test_json_fmt', source_path)
 
         # Compact
@@ -110,7 +110,7 @@ class TestJson:
 
     def test_round_trip(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Export JSON, re-import, and verify data matches."""
-        source_path = str(pathlib.Path(__file__).parents[1] / 'data' / 'json' / 'example.json')
+        source_path = get_json_file('example.json')
         t = pxt.io.import_json('test_json_rt', source_path)
 
         json_path = tmp_path / 'round_trip.json'

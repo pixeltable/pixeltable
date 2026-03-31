@@ -1,9 +1,11 @@
 import csv
 import pathlib
 
+import pytest
+
 import pixeltable as pxt
 
-from ..utils import create_test_tbl, validate_update_status
+from ..utils import create_test_tbl, get_csv_file, validate_update_status
 
 
 class TestCsv:
@@ -19,6 +21,37 @@ class TestCsv:
         t2 = pxt.io.import_csv('test_csv_rt_reimported', str(csv_path))
 
         assert query.collect() == t2.collect()
+
+    def test_export_exact_output(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Verify exported CSV matches an expected file exactly."""
+        t = pxt.create_table(
+            'test_csv_exact',
+            {
+                'c_int': pxt.Required[pxt.Int],
+                'c_string': pxt.Required[pxt.String],
+                'c_float': pxt.Required[pxt.Float],
+                'c_bool': pxt.Required[pxt.Bool],
+            },
+            primary_key='c_int',
+        )
+        t.insert(
+            [
+                {
+                    'c_int': 1,
+                    'c_string': 'What is the airspeed velocity of an unladen swallow?',
+                    'c_float': 24.0,
+                    'c_bool': True,
+                },
+                {'c_int': 2, 'c_string': 'African or European?', 'c_float': 11.0, 'c_bool': False},
+                {'c_int': 3, 'c_string': "I don't know that", 'c_float': 0.5, 'c_bool': True},
+            ]
+        )
+
+        csv_path = tmp_path / 'exact.csv'
+        pxt.io.export_csv(t.order_by(t.c_int), csv_path)
+
+        expected_path = get_csv_file('expected_export.csv')
+        assert csv_path.read_text(encoding='utf-8') == pathlib.Path(expected_path).read_text(encoding='utf-8')
 
     def test_export_with_nulls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Nulls become empty strings in CSV."""
@@ -60,16 +93,17 @@ class TestCsv:
         assert len(exported) == 10
         assert list(exported[0].keys()) == ['c_string']
 
-    def test_export_custom_delimiter(self, uses_db: None, tmp_path: pathlib.Path) -> None:
-        """Test CSV export with a tab delimiter."""
+    @pytest.mark.parametrize('delimiter', ['\t', ';', '|'])
+    def test_export_custom_delimiter(self, uses_db: None, tmp_path: pathlib.Path, delimiter: str) -> None:
+        """Test CSV export with custom delimiters."""
         t = pxt.create_table('test_csv_delim', {'c_int': pxt.Int, 'c_string': pxt.String})
         t.insert([{'c_int': 1, 'c_string': 'hello'}, {'c_int': 2, 'c_string': 'world'}])
 
-        csv_path = tmp_path / 'tab.csv'
-        pxt.io.export_csv(t, csv_path, delimiter='\t')
+        csv_path = tmp_path / 'delimited.csv'
+        pxt.io.export_csv(t, csv_path, delimiter=delimiter)
 
         with open(csv_path, encoding='utf-8') as f:
-            exported = list(csv.DictReader(f, delimiter='\t'))
+            exported = list(csv.DictReader(f, delimiter=delimiter))
         assert len(exported) == 2
         assert int(exported[0]['c_int']) == 1
         assert exported[1]['c_string'] == 'world'

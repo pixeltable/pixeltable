@@ -454,6 +454,30 @@ def get_documents() -> list[str]:
     return glob.glob(f'{docs_dir}/*', recursive=True)
 
 
+def get_csv_files() -> list[str]:
+    csv_dir = TESTS_DIR / 'data' / 'csv'
+    return glob.glob(f'{csv_dir}/*', recursive=True)
+
+
+def get_csv_file(name: str) -> str | None:
+    csv_dir = TESTS_DIR / 'data' / 'csv'
+    file_path = csv_dir / name
+    glob_result = glob.glob(f'{file_path}', recursive=True)
+    return glob_result.pop(0) if len(glob_result) > 0 else None
+
+
+def get_json_files() -> list[str]:
+    json_dir = TESTS_DIR / 'data' / 'json'
+    return glob.glob(f'{json_dir}/*', recursive=True)
+
+
+def get_json_file(name: str) -> str | None:
+    json_dir = TESTS_DIR / 'data' / 'json'
+    file_path = json_dir / name
+    glob_result = glob.glob(f'{file_path}', recursive=True)
+    return glob_result.pop(0) if len(glob_result) > 0 else None
+
+
 def get_sentences(n: int = 100) -> list[str]:
     path = glob.glob(f'{TESTS_DIR}/**/jeopardy.json', recursive=True)[0]
     with open(path, 'r', encoding='utf8') as f:

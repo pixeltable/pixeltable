@@ -112,4 +112,6 @@ def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path, *,
         rows.append(row_dict)
 
     with open(file_path, 'w', encoding='utf-8') as f:
+        # Python's json module allows NaN by default, which is non-compliant with RFC 8259
+        # and would produce output that JavaScript's JSON.parse() rejects.
         json.dump(rows, f, indent=indent, default=str, ensure_ascii=False, allow_nan=False)
