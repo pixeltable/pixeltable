@@ -452,6 +452,8 @@ class Catalog:
                     # validate only when we don't see errors
                     self.validate()
 
+            return True
+
         except sql_exc.DBAPIError as e:
             # Handle retriable errors
             if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)) and (
@@ -460,8 +462,6 @@ class Catalog:
                 _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
                 return False
             raise
-
-        return True
 
     def register_undo_action(self, func: Callable[[], None]) -> Callable[[], None]:
         """Registers a function to be called if the current transaction fails.
