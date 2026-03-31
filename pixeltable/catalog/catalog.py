@@ -449,9 +449,7 @@ class Catalog:
                     )
                 )
 
-            if for_write and len(x_locked_ids) > 0:
-                self._x_locked_tbl_ids = x_locked_ids
-
+            self._x_locked_tbl_ids = x_locked_ids if for_write else set()
             return True
 
         except sql_exc.DBAPIError as e:
