@@ -334,7 +334,7 @@ class Catalog:
                 with get_runtime().begin_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
                         try:
-                            success, for_write = self._acquire_locks(
+                            success = self._acquire_locks(
                                 tbl=tbl,
                                 tbl_id=tbl_id,
                                 for_write=for_write,
@@ -416,17 +416,14 @@ class Catalog:
         lock_mutable_tree: bool,
         finalize_pending_ops: bool,
         num_retries: int,
-    ) -> tuple[bool, bool]:
+    ) -> bool:
         """
         Acquires transactional locks on the specified tables, and updates self._x_locked_tbl_ids accordingly.
 
-        Returns (success, is_x_locked). Success is False if a retriable error happened. When success is True,
-        is_x_locked indicates whether or not the requested locks were actually acquired (for non-mutable tables, we
-        don't acquire locks, but still consider the operation successful).
+        Returns True if the locks were successfully acquired, False if a retriable error happened.
 
         Raises an error if a non-retriable error happened, or if the number of attempts exceeded the limit.
         """
-        is_x_locked: bool = False
         try:
             x_locked_ids: set[UUID] = set()
             if tbl is not None:
@@ -450,7 +447,6 @@ class Catalog:
                 )
 
             if for_write and len(x_locked_ids) > 0:
-                is_x_locked = True
                 self._x_locked_tbl_ids = x_locked_ids
                 if _logger.isEnabledFor(logging.DEBUG):
                     # validate only when we don't see errors
@@ -462,10 +458,10 @@ class Catalog:
                 num_retries < _MAX_RETRIES or _MAX_RETRIES == -1
             ):
                 _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
-                return (False, False)
+                return False
             raise
 
-        return (True, is_x_locked)
+        return True
 
     def register_undo_action(self, func: Callable[[], None]) -> Callable[[], None]:
         """Registers a function to be called if the current transaction fails.
