@@ -147,3 +147,25 @@ class TestJson:
         reimported = t2.order_by(t2.row_id).collect()
 
         assert original == reimported
+
+    def test_export_remote_urls(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Verify that remote URLs (S3, HTTPS) are exported as-is."""
+        urls = {
+            'c_video': 's3://multimedia-commons/data/videos/mp4/ffe/ff3/ffeff3c6bf57504e7a6cecaff6aefbc9.mp4',
+            'c_audio': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/audio/sample.flac',
+            'c_document': 'https://raw.githubusercontent.com/pixeltable/pixeltable/main/tests/data/documents/1706.03762.pdf',
+        }
+
+        t = pxt.create_table(
+            'test_json_remote', {'c_video': pxt.Video, 'c_audio': pxt.Audio, 'c_document': pxt.Document}
+        )
+        t.insert([urls])
+
+        json_path = tmp_path / 'remote.json'
+        pxt.io.export_json(t, json_path)
+
+        with open(json_path, encoding='utf-8') as f:
+            exported = json.load(f)
+
+        for col, expected_url in urls.items():
+            assert exported[0][col] == expected_url, f'{col}: expected {expected_url}, got {exported[0][col]}'
