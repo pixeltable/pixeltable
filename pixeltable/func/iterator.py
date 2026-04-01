@@ -441,7 +441,7 @@ class GeneratingFunctionCall:
             }
             outputs.update(
                 {
-                    name: IteratorOutput(orig_name=name, is_stored=(name in unstored_cols), col_type=col_type)
+                    name: IteratorOutput(orig_name=name, is_stored=(name not in unstored_cols), col_type=col_type)
                     for name, col_type in output_schema.items()
                 }
             )
