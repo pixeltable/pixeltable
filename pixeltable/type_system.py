@@ -425,10 +425,7 @@ class ColumnType:
         # doesn't allow that syntax.
         if len(type_args) == 0:
             # treat unparameterized tuple as Json[(Json, ...)]
-            return JsonType(
-                JsonType.TypeSchema([], variadic_type=JsonType()),
-                nullable=nullable_default
-            )
+            return JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=nullable_default)
         variadic_type = None
         if len(type_args) > 0 and type_args[-1] is Ellipsis:
             if len(type_args) == 1:
@@ -453,10 +450,7 @@ class ColumnType:
             raise excs.Error('Invalid type schema: `list` or `Sequence` must have at most one type argument')
         if len(type_args) == 0 or type_args[0] is Any:
             # treat unparameterized list or list[Any] as Json[(Json, ...)]
-            return JsonType(
-                JsonType.TypeSchema([], variadic_type=JsonType()),
-                nullable=nullable_default
-            )
+            return JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=nullable_default)
         return JsonType(
             JsonType.TypeSchema([], variadic_type=cls.__from_python_type_or_exc(type_args[0])),
             nullable=nullable_default,

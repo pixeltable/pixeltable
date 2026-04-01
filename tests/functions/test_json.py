@@ -1,3 +1,5 @@
+# mypy: disable-error-code="misc"
+
 import pytest
 
 import pixeltable as pxt

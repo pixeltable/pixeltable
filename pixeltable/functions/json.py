@@ -101,17 +101,17 @@ def list_iterator(
     else:
         # TODO: Clean up the way kwargs are passed to the iterator (this works, but it's a bit clunk with
         #     unnecessary indirection)
-        kwargs = kwargs['kwargs']
+        kwargs_: dict[str, list] = kwargs['kwargs']  # type: ignore[assignment]
         zipped: Iterator[tuple]
         match mode:
             case 'strict':
-                zipped = zip(*kwargs.values(), strict=True)
+                zipped = zip(*kwargs_.values(), strict=True)
             case 'truncated':
-                zipped = zip(*kwargs.values(), strict=False)
+                zipped = zip(*kwargs_.values(), strict=False)
             case 'padded':
-                zipped = itertools.zip_longest(*kwargs.values(), fillvalue=None)
+                zipped = itertools.zip_longest(*kwargs_.values(), fillvalue=None)
         for el in zipped:
-            yield dict(zip(kwargs.keys(), el, strict=True))
+            yield dict(zip(kwargs_.keys(), el, strict=True))
 
 
 @list_iterator.conditional_output_schema
@@ -145,7 +145,7 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
 
     else:  # bound_args.get('element') is None
         mode = bound_args.get('mode')
-        kwargs = bound_args.get('kwargs', {})
+        kwargs = bound_args.get('kwargs', {})  # type: ignore[var-annotated]
         if len(kwargs) == 0:
             raise excs.Error('list_iterator(): No inputs provided')
         type_schema: dict[str, ts.ColumnType] = {}
