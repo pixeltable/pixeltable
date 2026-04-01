@@ -1344,6 +1344,20 @@ class TestFunction:
         with pytest.raises(pxt.Error, match='not in the resolved function signature'):
             t_vid.insert([{'video': v} for v in videos])
 
+    def test_resource_estimator_non_polymorphic(self, uses_db: None) -> None:
+        """resource_estimator works for a plain (non-polymorphic) UDF."""
+        t = pxt.create_table('test_est_plain', {'content': pxt.String})
+        t.add_computed_column(emb=mock_embed_plain(t.content))
+        status = t.insert([{'content': 'hello world'}, {'content': 'foo bar'}])
+        assert status.num_excs == 0
+
+    def test_resource_estimator_batch(self, uses_db: None) -> None:
+        """resource_estimator works for a batched UDF."""
+        t = pxt.create_table('test_est_batch', {'content': pxt.String})
+        t.add_computed_column(emb=mock_embed_batch(t.content))
+        status = t.insert([{'content': 'hello world'}, {'content': 'foo bar'}])
+        assert status.num_excs == 0
+
 
 def init_test_pool(pool_name: str) -> None:
     import datetime
@@ -1381,6 +1395,33 @@ def _(content: str, _param_types: dict) -> dict[str, int]:
         return {'requests': 1, 'tokens': 1000}
     assert isinstance(_param_types.get('content'), ts.StringType)
     return {'requests': 1, 'tokens': len(content) // 4}
+
+
+# Non-polymorphic UDF with resource estimator
+@pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed-plain')
+async def mock_embed_plain(content: str, model: str = 'default') -> list[float]:  # noqa: RUF029
+    init_test_pool('rate-limits:test-embed-plain')
+    return [0.1, 0.2, 0.3]
+
+
+@mock_embed_plain.resource_estimator
+def _(content: str) -> dict[str, int]:
+    assert isinstance(content, str), f'expected str, got {type(content)}'
+    return {'requests': 1, 'tokens': len(content) // 4}
+
+
+# Batch UDF with resource estimator
+@pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed-batch', batch_size=2)
+async def mock_embed_batch(content: Batch[str], model: str = 'default') -> Batch[list[float]]:  # noqa: RUF029
+    init_test_pool('rate-limits:test-embed-batch')
+    return [[0.1, 0.2, 0.3] for _ in content]
+
+
+@mock_embed_batch.resource_estimator
+def _(content: list[str]) -> dict[str, int]:
+    assert isinstance(content, list), f'expected list, got {type(content)}'
+    assert all(isinstance(c, str) for c in content), f'expected list[str], got types {[type(c) for c in content]}'
+    return {'requests': len(content), 'tokens': sum(len(c) // 4 for c in content)}
 
 
 @pxt.udf
