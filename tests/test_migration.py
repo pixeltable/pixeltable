@@ -131,6 +131,8 @@ class TestMigration:
                     self._verify_v45()
                 if old_version >= 48:
                     self._verify_v48()
+                if old_version >= 49:
+                    self._verify_v49()
                 # self._verify_v24(old_version)
 
                 pxt.drop_table('sample_table', force=True)
@@ -335,18 +337,6 @@ class TestMigration:
                     assert col_md['is_pk'] is not None
 
     @classmethod
-    def _verify_v48(cls) -> None:
-        """Verify that every table with is_pk columns has a primary_index_md."""
-        with Env.get().engine.begin() as conn:
-            for row in conn.execute(sql.select(Table.id, Table.md)):
-                table_md = row[1]
-                pk_col_ids = [col_id for col_id, col_md in table_md['column_md'].items() if col_md.get('is_pk') is True]
-                if pk_col_ids:
-                    assert table_md.get('primary_index_md') is not None, (
-                        f'Table {table_md["name"]} has is_pk columns {pk_col_ids} but no primary_index_md'
-                    )
-
-    @classmethod
     def _verify_v45(cls) -> None:
         t = pxt.get_table('base_table')
         v = pxt.get_table('views.view')
@@ -397,6 +387,18 @@ class TestMigration:
                 assert not has_column_ref_in_similarity(table_md), (
                     'Table metadata still contains SimilarityExpr with ColumnRef after v49 migration'
                 )
+
+    @classmethod
+    def _verify_v49(cls) -> None:
+        """Verify that every table with is_pk columns has a primary_index_md."""
+        with Env.get().engine.begin() as conn:
+            for row in conn.execute(sql.select(Table.id, Table.md)):
+                table_md = row[1]
+                pk_col_ids = [col_id for col_id, col_md in table_md['column_md'].items() if col_md.get('is_pk') is True]
+                if pk_col_ids:
+                    assert table_md.get('primary_index_md') is not None, (
+                        f'Table {table_md["name"]} has is_pk columns {pk_col_ids} but no primary_index_md'
+                    )
 
 
 @pxt.udf(batch_size=4)
