@@ -241,13 +241,6 @@ class Column:
                     value_expr.bind_rel_paths()
             elif 'default' in spec:
                 # Column with default value
-                default_expr_obj = spec['default']
-                default_value_expr = exprs.Expr.from_object(default_expr_obj)
-                default_value_expr = default_value_expr.copy()
-                default_value_expr.bind_rel_paths()
-
-                assert isinstance(default_value_expr, exprs.Literal)
-
                 assert col_type is not None
                 if col_type.is_media_type():
                     raise excs.Error(
@@ -255,6 +248,7 @@ class Column:
                         f'(Image, Video, Audio, Document). Only supported for scalar types, '
                         f'simple JSON, Array, and Binary.'
                     )
+
                 # Ensure the column type is one that Literal supports
                 if not (
                     col_type.is_scalar_type()
@@ -267,14 +261,7 @@ class Column:
                         f'(String, Int, Float, Bool, Timestamp, Date, UUID), simple JSON, '
                         f'Array, and Binary.'
                     )
-                # Ensure the default value's type is compatible with the column type
-                default_type = default_value_expr.col_type
-                if not col_type.is_supertype_of(default_type, ignore_nullable=True):
-                    raise excs.Error(
-                        f'Column {name!r}: Default value type {default_type} is not compatible '
-                        f'with column type {col_type}.'
-                    )
-
+                default_value_expr = exprs.Literal(spec['default'], col_type=col_type)
                 cls._validate_json_default_value_expr(default_value_expr, name, MAX_DEFAULT_VALUE_SIZE)
                 default_value_expr_dict = default_value_expr.as_dict()
 

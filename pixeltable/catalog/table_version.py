@@ -938,11 +938,7 @@ class TableVersion:
         )
 
     def _populate_default_values(self, cols: Iterable[Column]) -> None:
-        """Populate default values for columns that were just added to existing rows.
-
-        Uses direct SQL UPDATE since default values are constants. This is called
-        synchronously at the end of add_columns() and does not create a pending op.
-        """
+        """Populate default values for columns that were just added to existing rows."""
         # Collect column IDs from the passed columns
         col_ids = {col.id for col in cols if col.id is not None}
 

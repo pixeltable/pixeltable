@@ -447,7 +447,14 @@ class Planner:
         analyzer.finalize(row_builder)
 
         query_eval_ctx = row_builder.create_eval_ctx(analyzer.select_list)
-        plan = cls._create_query_plan(row_builder=row_builder, analyzer=analyzer, eval_ctx=query_eval_ctx, with_pk=True)
+        plan = cls._create_query_plan(
+            row_builder=row_builder,
+            analyzer=analyzer,
+            eval_ctx=query_eval_ctx,
+            with_pk=True,
+            limit=query.limit_val,
+            offset=query.offset_val,
+        )
 
         # extra cols are in default_eval_ctx but not handled by the query plan
         query_target_set = exprs.ExprSet(query_eval_ctx.target_exprs)
