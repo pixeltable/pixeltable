@@ -80,3 +80,5 @@ def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, upd
         for col_id in pk_col_ids:
             updated_table_md['column_md'][str(col_id)]['is_pk'] = False
         updated_table_md['primary_index_md'] = None
+
+    conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=updated_table_md))
