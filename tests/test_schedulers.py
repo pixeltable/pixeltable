@@ -21,24 +21,22 @@ class DummyError(Exception):
 
 
 class _ProviderSimulator:
-    """Simulates a rate-limited API provider using linear request-budget refill.
+    """Simulates a rate-limited API provider using a linear request-budget refill model.
 
-    Internally scales the requested rate (max_requests per refill_seconds) into a
-    larger capacity window, similar to how real providers report limits (e.g., OpenAI
-    reports 10000 RPM rather than 167 per second). This keeps the effective rate
-    identical while giving the scheduler enough headroom in its in-flight tracking
-    so that target_remaining never exceeds the reported limit.
+    The provider is configured with a maximum number of requests (`max_requests`) that can be
+    made within a given window length (`refill_seconds`). The effective request rate is therefore
+    `max_requests / refill_seconds`, and the budget refills linearly over time at this rate.
 
-    The budget refills linearly at the same effective rate. This matches the linear
-    refill model assumed by estimated_resource_refill_delay in RateLimitInfo.
+    This matches the linear refill model assumed by `estimated_resource_refill_delay` in
+    `RateLimitInfo` and is sufficient for exercising the `RateLimitsScheduler` logic in tests.
 
-    All access happens on a single asyncio event loop thread (the scheduler's), so no
-    locking is needed.
+    All access happens on a single asyncio event loop thread (the scheduler's), so no locking is
+    needed.
     """
 
     def __init__(self, max_requests: int, refill_seconds: float = 1.0) -> None:
-        # Scale into a larger window while preserving the effective rate.
-        # E.g. 20 req/1s becomes 300 req/15s -- same 20 req/s rate.
+        # Use a simple linear budget: at most `max_requests` per `refill_seconds`,
+        # refilled continuously at `max_requests / refill_seconds`.
         self.max_requests = max_requests
         self.refill_seconds = refill_seconds
         self._available: float = float(self.max_requests)
