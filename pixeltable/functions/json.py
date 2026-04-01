@@ -18,7 +18,7 @@ from typing import Any, Iterator, Literal
 import sqlalchemy as sql
 
 import pixeltable as pxt
-from pixeltable import exprs, type_system as ts
+from pixeltable import exceptions as excs, exprs, type_system as ts
 from pixeltable.utils.code import local_public_names
 
 
@@ -85,24 +85,52 @@ def list_iterator(
 
 @list_iterator.conditional_output_schema
 def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
-    elements = bound_args['elements']
-    el_col_type = elements.col_type
-    if (
-        not isinstance(el_col_type, ts.JsonType)
-        or el_col_type.type_schema is None
-        or not isinstance(el_col_type.type_schema.type_spec, list)
-        or len(el_col_type.type_schema.type_spec) != 0
-    ):
-        raise TypeError(f'Expected a type for `elements` matching `list[dict]`; got {el_col_type}')
-    dict_type = el_col_type.type_schema.variadic_type
-    if (
-        not isinstance(dict_type, ts.JsonType)
-        or dict_type.type_schema is None
-        or not isinstance(dict_type.type_schema.type_spec, dict)
-    ):
-        raise TypeError(f'Expected a type for `elements` matching `list[dict]`; got {el_col_type}')
+    if bound_args.get('elements') is not None:
+        if len(bound_args) > 1:
+            raise excs.Error('list_iterator(): Cannot specify both `elements` and keyword arguments')
+        elements = bound_args['elements']
+        el_col_type = elements.col_type
+        if (
+            not isinstance(el_col_type, ts.JsonType)
+            or el_col_type.type_schema is None
+            or not isinstance(el_col_type.type_schema.type_spec, list)
+            or len(el_col_type.type_schema.type_spec) != 0
+        ):
+            raise excs.Error(
+                f'list_iterator(): Expected a type for `elements` matching `list[dict]`; got `{el_col_type}`'
+            )
+        dict_type = el_col_type.type_schema.variadic_type
+        if (
+            not isinstance(dict_type, ts.JsonType)
+            or dict_type.type_schema is None
+            or not isinstance(dict_type.type_schema.type_spec, dict)
+        ):
+            raise excs.Error(
+                f'list_iterator(): Expected a type for `elements` matching `list[dict]`; got `{el_col_type}`'
+            )
+        return dict_type.type_schema.type_spec  # type: ignore[return-value]
 
-    return dict_type.type_schema.type_spec  # type: ignore[return-value]
+    else:  # bound_args.get('element') is None
+        method = bound_args.get('method', 'strict')
+        kwargs = bound_args['kwargs']
+        if len(kwargs) == 0:
+            raise excs.Error('list_iterator(): No inputs provided')
+        type_schema: dict[str, ts.ColumnType] = {}
+        for name, expr in kwargs.items():
+            if (
+                not isinstance(expr.col_type, ts.JsonType)
+                or expr.col_type.type_schema is None
+                or not isinstance(expr.col_type.type_schema.type_spec, list)
+            ):
+                raise excs.Error(
+                    f'list_iterator(): Expected a type for `{name}` matching `list`; got `{expr.col_type}`'
+                )
+            common_supertype = ts.ColumnType.common_supertype(
+                [*expr.col_type.type_schema.type_spec, expr.col_type.type_schema.variadic_type]
+            )
+            assert common_supertype is not None  # at worst it is `Json`
+            type_schema[name] = common_supertype
+        return type_schema  # type: ignore[return-value]
 
 
 __all__ = local_public_names(__name__)

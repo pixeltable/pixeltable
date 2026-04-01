@@ -38,3 +38,16 @@ class TestJson:
         assert res['a'] == [j for i in range(50) for j in range(i)]
         assert res['b'] == [f'string_{j}' for i in range(50) for j in range(i)]
         assert res['c'] == [list(range(j)) for i in range(50) for j in range(i)]
+
+        # Type 2: Iterate over keyword arguments of lists
+        v2 = pxt.create_view('test_view_2', t, iterator=pxtf.json.list_iterator(my_int=t.col_2, my_str=t.col_3))
+        schema = {col: col_md['type_'] for col, col_md in v2.get_metadata()['columns'].items()}
+        assert schema == {
+            'pos': 'Required[Int]',
+            'my_int': 'Required[Int]',
+            'my_str': 'Required[String]',
+            'id': 'Int',
+            'col_1': "Json[(Json[{'a': Int, 'b': String, 'c': Json[(Int, ...)]}], ...)]",
+            'col_2': 'Json[(Int, ...)]',
+            'col_3': 'Json[(String, ...)]',
+        }
