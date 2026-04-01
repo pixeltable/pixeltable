@@ -288,7 +288,7 @@ class View(Table):
                     md['columns'][col.name]['is_iterator_col'] = True
             # Build the iterator expression string: "IteratorName(arg1=expr1, arg2=expr2)"
             args_str = ', '.join(f'{k}={v.display_str(inline=False)}' for k, v in tv.iterator_call.bound_args.items())
-            md['iterator_expr'] = f'{tv.iterator_call.it.name}({args_str})'
+            md['iterator_call'] = f'{tv.iterator_call.it.name}({args_str})'
 
         return md
 

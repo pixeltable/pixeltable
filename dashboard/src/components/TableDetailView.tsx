@@ -1066,9 +1066,9 @@ function TableHeader({ metadata, onTableClick, totalErrors }: { metadata: TableM
         {metadata.comment && (
           <span className="text-muted-foreground/60 font-sans ml-1">— {metadata.comment}</span>
         )}
-        {metadata.iterator_expr && (
+        {metadata.iterator_call && (
           <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-violet-400/10 text-violet-400 font-medium border border-violet-400/20">
-            {metadata.iterator_expr}
+            {metadata.iterator_call}
           </span>
         )}
       </div>

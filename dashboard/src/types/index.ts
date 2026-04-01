@@ -58,7 +58,7 @@ export interface TableMetadata {
   media_validation: 'on_read' | 'on_write';
   kind: 'table' | 'view' | 'snapshot' | 'replica';
   base: string | null;
-  iterator_expr: string | null;
+  iterator_call: string | null;
 }
 
 export interface DataColumn {

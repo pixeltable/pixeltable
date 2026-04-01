@@ -54,7 +54,7 @@ class TestBridge:
         assert result['is_view'] is False
         assert result['is_snapshot'] is False
         assert result['base'] is None
-        assert result['iterator_expr'] is None
+        assert result['iterator_call'] is None
         assert isinstance(result['version'], int)
 
         # columns is a dict keyed by column name
