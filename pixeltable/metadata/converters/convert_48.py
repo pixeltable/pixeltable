@@ -3,14 +3,12 @@ from uuid import UUID
 
 import sqlalchemy as sql
 
+from pixeltable.index.btree import BtreeIndex
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.converters.util import convert_table_md
 from pixeltable.metadata.schema import Table
 
 _logger = logging.getLogger('pixeltable')
-
-MAX_VERSION = 9223372036854775807  # 2^63 - 1
-MAX_STRING_LEN = 256  # Must match BtreeIndex.MAX_STRING_LEN
 
 
 @register_converter(version=48)
@@ -55,14 +53,14 @@ def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, upd
             return
         col_name = f'col_{col_id}'
         if col_md['col_type'].get('_classname') == 'StringType':
-            idx_exprs.append(f'left({col_name}, {MAX_STRING_LEN})')
+            idx_exprs.append(f'left({col_name}, {BtreeIndex.MAX_STRING_LEN})')
         else:
             idx_exprs.append(col_name)
 
     create_idx_sql = (
         f'CREATE UNIQUE INDEX {idx_name} ON {store_name} '
         f'USING btree ({", ".join(idx_exprs)}) '
-        f'WHERE v_max = {MAX_VERSION}'
+        f'WHERE v_max = {Table.MAX_VERSION}'
     )
 
     conn.execute(sql.text('SAVEPOINT pk_index_attempt'))
