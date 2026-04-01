@@ -1379,6 +1379,7 @@ async def _(video: pxt.Video, model: str = 'default') -> list[float]:  # noqa: R
 def _(content: str, _param_types: dict) -> dict[str, int]:
     if isinstance(_param_types.get('content'), ts.ImageType):
         return {'requests': 1, 'tokens': 1000}
+    assert isinstance(_param_types.get('content'), ts.StringType)
     return {'requests': 1, 'tokens': len(content) // 4}
 
 
