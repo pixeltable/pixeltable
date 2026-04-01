@@ -229,14 +229,7 @@ def run_ffmpeg_cmdline(
     """
     cmd = ['ffmpeg', *ffmpeg_args]
     if encode_video:
-        # append video encoder-related args
-        if video_encoder is None:
-            video_encoder = Env.get().default_video_encoder
-        if video_encoder is not None:
-            cmd.extend(('-c:v', video_encoder))
-        if video_encoder_args is not None:
-            for k, v in video_encoder_args.items():
-                cmd.extend((f'-{k}', str(v)))
+        append_video_encoder(cmd, video_encoder, video_encoder_args)
     # loglevel=error: avoid excessive logging
     cmd += ['-loglevel', 'error', output_path]
 
