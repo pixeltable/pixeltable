@@ -577,7 +577,7 @@ class Catalog:
         If lock_mutable_tree, recursively locks all mutable views of the table.
 
         Returns the set of table IDs that were X-locked (empty if the lock couldn't be acquired,
-        e.g., tbl is a non-mutable table, or table not found).
+        e.g., tbl is a non-mutable table).
         """
         assert (tbl_id is not None) != (dir_id is not None and tbl_name is not None)
         assert (dir_id is None) == (tbl_name is None)
