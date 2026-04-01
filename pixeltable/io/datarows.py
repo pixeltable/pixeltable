@@ -29,7 +29,11 @@ def _infer_schema_from_rows(
             elif value is not None:
                 # If `key` is not in `schema_overrides`, then we infer its type from the data.
                 # The column type will always be nullable by default.
-                col_type = ts.ColumnType.infer_literal_type(value, nullable=col_name not in primary_key)
+                # To avoid making presumptions about JSON type schemas, and also for performance reasons,
+                #     JSON type schema inference is disabled when importing data.
+                col_type = ts.ColumnType.infer_literal_type(
+                    value, nullable=col_name not in primary_key, infer_json_type_schema=False
+                )
                 if col_type is None:
                     raise excs.Error(
                         f'Could not infer type for column `{col_name}`; the value in row {n} '
