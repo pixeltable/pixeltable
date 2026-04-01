@@ -158,9 +158,10 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
                 raise excs.Error(
                     f'list_iterator(): Expected a type for `{name}` matching `list`; got `{expr.col_type}`'
                 )
-            common_supertype = ts.ColumnType.common_supertype(
-                [*expr.col_type.type_schema.type_spec, expr.col_type.type_schema.variadic_type]
-            )
+            relevant_types = expr.col_type.type_schema.type_spec
+            if expr.col_type.type_schema.variadic_type is not None:
+                relevant_types = [*relevant_types, expr.col_type.type_schema.variadic_type]
+            common_supertype = ts.ColumnType.common_supertype(relevant_types)
             assert common_supertype is not None  # at worst it is `Json`
             if mode is not None and (not isinstance(mode, exprs.Literal) or mode.val == 'padded'):
                 # If `mode` is 'padded' or a non-constant expression, then it's possible we may get a None value in the
