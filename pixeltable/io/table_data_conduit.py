@@ -778,7 +778,8 @@ class PydanticTableDataConduit(TableDataConduit):
         computed_in_model = self.computed_col_names & model_field_names
         if computed_in_model:
             raise excs.Error(
-                f'Pydantic model `{model.__name__}` has fields for computed columns: ' + ', '.join(sorted(computed_in_model))
+                f'Pydantic model `{model.__name__}` has fields for computed columns: '
+                + ', '.join(sorted(computed_in_model))
             )
 
         # validate type compatibility
