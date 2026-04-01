@@ -146,9 +146,6 @@ class RateLimitsScheduler(Scheduler):
         if len(param_names) == 0:
             result = estimator()
         else:
-            # If the estimator declares '_param_types', inject a dict mapping param names to Pixeltable
-            # ColumnTypes for the resolved overload. This lets a shared estimator on a polymorphic function
-            # distinguish overloads that share the same Python types (e.g., str for Document vs Video).
             extra = set(param_names) - set(request.fn_call.fn.signature.parameters.keys())
             if extra:
                 fn = request.fn_call.fn
@@ -157,6 +154,9 @@ class RateLimitsScheduler(Scheduler):
                     f'{extra} that are not in the resolved function signature'
                 )
             kwargs_batch = request.fn_call.get_param_values(param_names, request.rows)
+            # If the estimator declares '_param_types', inject a dict mapping param names to Pixeltable
+            # ColumnTypes for the resolved overload. This lets a shared estimator on a polymorphic function
+            # distinguish overloads that share the same Python types (e.g., str for Document vs Video).
             if '_param_types' in inspect.signature(estimator).parameters:
                 param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
                 for d in kwargs_batch:
