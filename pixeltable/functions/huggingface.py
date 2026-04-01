@@ -7,7 +7,7 @@ first `pip install transformers` (or in some cases, `sentence-transformers`, as 
 UDFs).
 """
 
-from typing import Any, Callable, Literal, TypeVar
+from typing import Any, Callable, Literal, TypedDict, TypeVar
 
 import av
 import numpy as np
@@ -204,10 +204,17 @@ def _(model_id: str) -> ts.ArrayType:
     return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
 
 
+class DetrForObjectDetectionResponse(TypedDict):
+    scores: list[float]
+    labels: list[int]
+    label_text: list[str]
+    boxes: list[list[float]]
+
+
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(
     image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str = 'no_timm'
-) -> Batch[dict]:
+) -> Batch[DetrForObjectDetectionResponse]:
     """
     Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
     [DETR Model](https://huggingface.co/docs/transformers/model_doc/detr).
@@ -268,12 +275,12 @@ def detr_for_object_detection(
         )
 
     return [
-        {
-            'scores': [score.item() for score in result['scores']],
-            'labels': [label.item() for label in result['labels']],
-            'label_text': [model.config.id2label[label.item()] for label in result['labels']],
-            'boxes': [box.tolist() for box in result['boxes']],
-        }
+        DetrForObjectDetectionResponse(
+            scores=[score.item() for score in result['scores']],
+            labels=[label.item() for label in result['labels']],
+            label_text=[model.config.id2label[label.item()] for label in result['labels']],
+            boxes=[box.tolist() for box in result['boxes']],
+        )
         for result in results
     ]
 
