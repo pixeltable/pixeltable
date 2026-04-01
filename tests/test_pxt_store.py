@@ -11,15 +11,15 @@ from pixeltable.utils.object_stores import ObjectOps, ObjectPath
 
 from .utils import skip_test_if_no_pxt_credentials, skip_test_if_not_installed, validate_update_status
 
-PXT_DEST_URI = 'pxt://pixeltable:main/home/pytest'
+PXT_DEST_URI = 'pxtfs://pixeltable:main/home/pytest'
 
 
 @pytest.mark.skip('Skip tests until pxt store changes are in the cloud')
 class TestPxtStore:
-    """Tests for Pixeltable-managed storage (pxt:// home buckets)."""
+    """Tests for Pixeltable-managed storage (pxtfs:// home buckets)."""
 
     def test_insert_and_select(self, uses_db: None) -> None:
-        """Insert a local file with a pxt:// destination, then verify it can be read back."""
+        """Insert a local file with a pxtfs:// destination, then verify it can be read back."""
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
@@ -34,11 +34,11 @@ class TestPxtStore:
         result = t.select(t.img_rot.fileurl).collect()
         assert len(result) == 1
         file_url = result['img_rot_fileurl'][0]
-        assert file_url.startswith('pxt://'), f'Expected pxt:// URL, got: {file_url}'
+        assert file_url.startswith('pxtfs://'), f'Expected pxtfs:// URL, got: {file_url}'
         assert ObjectOps.count(t._id, dest=dest_uri) == 1
 
     def test_select_from_pxt_url(self, uses_db: None) -> None:
-        """Upload a file to the pxt store, then insert its pxt:// URL into a new table and read it."""
+        """Upload a file to the pxt store, then insert its pxtfs:// URL into a new table and read it."""
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
 
@@ -51,7 +51,7 @@ class TestPxtStore:
         )
 
         pxt_url = src_table.select(src_table.img_stored.fileurl).collect()['img_stored_fileurl'][0]
-        assert pxt_url.startswith('pxt://')
+        assert pxt_url.startswith('pxtfs://')
 
         reader_table = pxt.create_table('pxt_reader', schema={'img': pxt.Image})
         validate_update_status(reader_table.insert([{'img': pxt_url}]), expected_rows=1)
@@ -130,7 +130,7 @@ class TestPxtStore:
         assert store1.client() is not store2.client()
 
     def test_same_prefix_shares_credentials(self, uses_db: None) -> None:
-        """Verify that two columns with the same pxt:// destination share a single cached credential entry."""
+        """Verify that two columns with the same pxtfs:// destination share a single cached credential entry."""
         skip_test_if_not_installed('boto3')
         skip_test_if_no_pxt_credentials()
         from pixeltable.utils.pxt_store import PxtStore

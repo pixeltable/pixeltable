@@ -1,4 +1,4 @@
-"""Pixeltable Cloud home storage (``pxt://org:db/home/...``) backed by S3-compatible APIs."""
+"""Pixeltable Cloud home storage (``pxtfs://org:db/<bucket>/...``)"""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def _handle_no_space_warning(no_space_left: bool, entry: _PxtStoreCacheEntry, or
         if entry.no_space_warned:
             return
         warnings.warn(
-            f'Pixeltable store for pxt://{org}:{db}/home has no space left. '
+            f'Pixeltable store for pxtfs://{org}:{db}/home has no space left. '
             'Only read and delete operations are allowed.',
             category=excs.PixeltableWarning,
             stacklevel=3,
@@ -185,6 +185,7 @@ class PxtStore(S3Store):
             )
         org, db = soa.account, soa.account_extension
         self._pxt_store_entry = _get_or_create_pxt_store_entry(org, db, soa.prefix)
+        # Replace the logical 'home' container with the physical bucket name resolved from the control plane.
         super().__init__(soa._replace(container=self._pxt_store_entry.bucket_name))
 
     @property

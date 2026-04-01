@@ -27,7 +27,7 @@ class StorageTarget(enum.Enum):
     GCS_STORE = 'gs'  # Google Cloud Storage
     AZURE_STORE = 'az'  # Azure Blob Storage
     HTTP_STORE = 'http'  # HTTP/HTTPS
-    PIXELTABLE_STORE = 'pxt'  # Pixeltable storage
+    PIXELTABLE_STORE = 'pxtfs'  # Pixeltable storage
 
     def __str__(self) -> str:
         return self.value
@@ -260,26 +260,29 @@ class ObjectPath:
             else:
                 account_extension = parsed.netloc
             key = key.lstrip('/')
-        elif scheme == 'pxt':
-            # pxt://org:db/home[/optional/prefix]
+        elif scheme == 'pxtfs':
+            # pxtfs://org:db/<bucket>[/optional/prefix]
+            # Currently only 'home' bucket is supported.
+            # 'home' is a logical name resolved to a physical R2 bucket name at runtime via the control plane.
             storage_target = StorageTarget.PIXELTABLE_STORE
             netloc_parts = parsed.netloc.split(':')
             if len(netloc_parts) != 2 or not netloc_parts[0] or not netloc_parts[1]:
                 raise ValueError(
-                    f"Invalid pxt:// store URI '{parsed.geturl()}': netloc must be 'org:db', got '{src_addr}'"
+                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': netloc must be 'org:db', got '{src_addr}'"
                 )
             account_name, account_extension = netloc_parts  # org slug, db slug
-            container = 'home'  # logical bucket segment from URI (not the physical R2 bucket name)
             raw_path = parsed.path.lstrip('/')
-            if raw_path == 'home':
-                key = ''
-            elif raw_path.startswith('home/'):
-                key = raw_path[len('home/') :]
-            else:
+            path_parts = raw_path.split('/', 1)
+            container = path_parts[0]
+            if not container:
                 raise ValueError(
-                    f"Invalid pxt:// store URI '{parsed.geturl()}': path must be '/home' or start with '/home/', "
-                    f"got '{src_addr}'"
+                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': bucket segment is required, got '{src_addr}'"
                 )
+            if container != 'home':
+                raise ValueError(
+                    f"Invalid pxtfs:// store URI '{parsed.geturl()}': only 'home' bucket is supported, got '{container}'"
+                )
+            key = path_parts[1] if len(path_parts) > 1 else ''
         else:
             raise ValueError(f'Unsupported URI scheme: {parsed.scheme}')
 
