@@ -335,8 +335,7 @@ class Catalog:
                     if tbl is not None or tbl_id is not None:
                         try:
                             success = self._acquire_locks(
-                                tbl=tbl,
-                                tbl_id=tbl_id,
+                                lock_target=tbl_id if tbl_id is not None else tbl,
                                 for_write=for_write,
                                 lock_mutable_tree=lock_mutable_tree,
                                 finalize_pending_ops=finalize_pending_ops,
@@ -413,8 +412,7 @@ class Catalog:
 
     def _acquire_locks(
         self,
-        tbl: TableVersionPath | None,
-        tbl_id: UUID | None,
+        lock_target: TableVersionPath | UUID,
         for_write: bool,
         lock_mutable_tree: bool,
         finalize_pending_ops: bool,
@@ -429,19 +427,19 @@ class Catalog:
         """
         try:
             x_locked_ids: set[UUID] = set()
-            if tbl is not None:
+            if isinstance(lock_target, TableVersionPath):
                 x_locked_ids.update(
                     self._acquire_path_locks(
-                        tbl=tbl,
+                        tbl=lock_target,
                         for_write=for_write,
                         lock_mutable_tree=lock_mutable_tree,
                         check_pending_ops=finalize_pending_ops,
                     )
                 )
-            if tbl_id is not None:
+            if isinstance(lock_target, UUID):
                 x_locked_ids.update(
                     self._acquire_tbl_lock(
-                        tbl_id=tbl_id,
+                        tbl_id=lock_target,
                         for_write=for_write,
                         lock_mutable_tree=lock_mutable_tree,
                         raise_if_not_exists=True,
