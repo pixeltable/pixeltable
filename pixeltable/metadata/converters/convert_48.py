@@ -15,20 +15,23 @@ def _(engine: sql.engine.Engine) -> None:
 
 
 def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, updated_table_md: dict) -> None:
-    """Attempt to create primary key indexes for tables that have PK metadata.
+    """Create primary key indexes for tables that have is_pk columns but no index yet.
 
-    Uses a savepoint so that failure (e.g. due to duplicate values) does not abort the
-    enclosing transaction. On failure the PK metadata is removed from the table.
+    Old tables only have is_pk on individual columns in column_md; primary_index_md didn't
+    exist before this migration. This converter builds the primary_index_md and creates the
+    corresponding PostgreSQL unique index. On failure (e.g. duplicates), the PK metadata is
+    removed.
     """
     from pixeltable.index.btree import BtreeIndex
     from pixeltable.metadata.schema import Table
 
-    primary_index_md = updated_table_md.get('primary_index_md')
-    if primary_index_md is None:
-        return
+    # Find columns marked as PK in the old metadata
+    pk_col_ids: list[int] = []
+    for col_id_str, col_md in updated_table_md['column_md'].items():
+        if col_md.get('is_pk') is True and col_md.get('schema_version_drop') is None:
+            pk_col_ids.append(int(col_id_str))
 
-    indexed_col_ids = primary_index_md.get('indexed_col_ids', [])
-    if not indexed_col_ids:
+    if not pk_col_ids:
         return
 
     store_prefix = 'view' if updated_table_md.get('view_md') is not None else 'tbl'
@@ -44,14 +47,8 @@ def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, upd
         return
 
     idx_exprs: list[str] = []
-    for col_id in indexed_col_ids:
-        col_md = updated_table_md['column_md'].get(str(col_id))
-        if col_md is None:
-            _logger.warning(f'Column {col_id} not found in table metadata for {store_name}, skipping PK index')
-            return
-        if col_md.get('schema_version_drop') is not None:
-            _logger.warning(f'PK column {col_id} was dropped in {store_name}, skipping PK index')
-            return
+    for col_id in pk_col_ids:
+        col_md = updated_table_md['column_md'][str(col_id)]
         col_name = f'col_{col_id}'
         if col_md['col_type'].get('_classname') == 'StringType':
             idx_exprs.append(f'left({col_name}, {BtreeIndex.MAX_STRING_LEN})')
@@ -68,14 +65,18 @@ def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, upd
     try:
         conn.execute(sql.text(create_idx_sql))
         conn.execute(sql.text('RELEASE SAVEPOINT pk_index_attempt'))
+        # Build the primary_index_md that didn't exist before this migration
+        next_id = max((int(k) for k in updated_table_md.get('index_md', {})), default=-1) + 1
+        updated_table_md['primary_index_md'] = {
+            'id': next_id,
+            'name': idx_name,
+            'indexed_col_tbl_id': str(tbl_id),
+            'indexed_col_ids': pk_col_ids,
+        }
         _logger.info(f'Created primary key index {idx_name} on {store_name}')
     except (sql.exc.IntegrityError, sql.exc.InternalError) as e:
         _logger.warning(f'Failed to create PK index on {store_name}: {e}. Removing PK metadata.')
         conn.execute(sql.text('ROLLBACK TO SAVEPOINT pk_index_attempt'))
-
-        for col_id in indexed_col_ids:
-            col_key = str(col_id)
-            if col_key in updated_table_md['column_md']:
-                updated_table_md['column_md'][col_key]['is_pk'] = False
+        for col_id in pk_col_ids:
+            updated_table_md['column_md'][str(col_id)]['is_pk'] = False
         updated_table_md['primary_index_md'] = None
-        conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=updated_table_md))

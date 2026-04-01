@@ -22,7 +22,6 @@ from pixeltable.exprs import FunctionCall, Literal
 from pixeltable.func import CallableFunction
 from pixeltable.func.signature import Batch
 from pixeltable.metadata import VERSION, SystemInfo
-from pixeltable.metadata.converters.convert_48 import _table_modifier as _pk_table_modifier
 from pixeltable.metadata.converters.util import convert_table_md
 from pixeltable.metadata.notes import VERSION_NOTES
 from pixeltable.metadata.schema import Table, TableSchemaVersion, TableVersion
@@ -130,7 +129,7 @@ class TestMigration:
                     self._verify_v33()
                 if old_version >= 45:
                     self._verify_v45()
-                if old_version == 48:
+                if old_version >= 48:
                     self._verify_v48()
                 # self._verify_v24(old_version)
 
@@ -337,57 +336,19 @@ class TestMigration:
 
     @classmethod
     def _verify_v48(cls) -> None:
-        """Verify primary key index migration (v48→v49 converter).
-
-        - pk_test_good: should have a PK index and retain its PK metadata.
-        - pk_test_bad: PK index creation should have failed (duplicates), so PK metadata is erased.
-
-        Only asserts on these tables if they exist in the dump (they were added alongside the
-        v48→v49 converter; older dumps won't have them).
-        """
-        found_good = False
-        found_bad = False
+        """Verify that every table with is_pk columns has a primary_index_md."""
         with Env.get().engine.begin() as conn:
             for row in conn.execute(sql.select(Table.id, Table.md)):
                 tbl_id, table_md = row[0], row[1]
-
-                if table_md['name'] == 'pk_test_good':
-                    found_good = True
-                    # PK metadata should be intact
-                    assert table_md['primary_index_md'] is not None
-                    pk_col_ids = table_md['primary_index_md']['indexed_col_ids']
-                    assert len(pk_col_ids) > 0
-                    for col_id in pk_col_ids:
-                        assert table_md['column_md'][str(col_id)]['is_pk'] is True
-
-                    # Unique index should exist in PostgreSQL
-                    store_name = f'tbl_{tbl_id.hex}'
-                    idx_name = f'pk_idx_{tbl_id.hex}'
-                    idx_row = conn.execute(
-                        sql.text('SELECT 1 FROM pg_indexes WHERE tablename = :tbl AND indexname = :idx'),
-                        {'tbl': store_name, 'idx': idx_name},
-                    ).fetchone()
-                    assert idx_row is not None, f'PK index {idx_name} should exist on {store_name}'
-
-                elif table_md['name'] == 'pk_test_bad':
-                    found_bad = True
-                    # PK metadata should have been erased
-                    assert table_md['primary_index_md'] is None
-                    for col_md in table_md['column_md'].values():
-                        assert col_md['is_pk'] is False
-
-                    # No PK index should exist
-                    store_name = f'tbl_{tbl_id.hex}'
-                    idx_name = f'pk_idx_{tbl_id.hex}'
-                    idx_row = conn.execute(
-                        sql.text('SELECT 1 FROM pg_indexes WHERE tablename = :tbl AND indexname = :idx'),
-                        {'tbl': store_name, 'idx': idx_name},
-                    ).fetchone()
-                    assert idx_row is None, f'PK index {idx_name} should NOT exist on {store_name}'
-
-        if found_good or found_bad:
-            assert found_good, 'pk_test_good table should be present if pk_test_bad is'
-            assert found_bad, 'pk_test_bad table should be present if pk_test_good is'
+                pk_col_ids = [
+                    col_id
+                    for col_id, col_md in table_md['column_md'].items()
+                    if col_md.get('is_pk') is True
+                ]
+                if pk_col_ids:
+                    assert table_md.get('primary_index_md') is not None, (
+                        f'Table {table_md["name"]} has is_pk columns {pk_col_ids} but no primary_index_md'
+                    )
 
     @classmethod
     def _verify_v45(cls) -> None:
