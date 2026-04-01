@@ -118,3 +118,51 @@ jobs:
       - name: Report failure
         if: failure()
         run: echo "Performance test failed. Check the logs for details."
+
+  benchmark-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up tmate session
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.enable_tmate }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          detached: true
+
+      - name: Install conda
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          miniconda-version: latest
+          activate-environment: pxt
+
+      - name: Install python
+        run: |
+          conda install -y python=3.10 pip=25.0
+          conda info
+
+      - name: Install uv
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "uv==$UV_VERSION"
+
+      - name: Install the project dependencies
+        run: |
+          export VIRTUAL_ENV="$CONDA_PREFIX"
+          ./scripts/retry.sh 3 60 uv sync --active --group test
+
+      - name: Run benchmark tests
+        run: |
+          pytest -m benchmark --benchmark-json=benchmark-results.json tests/
+
+      - name: Report benchmark results to Grafana
+        env:
+          GRAFANA_INSTANCE_ID: ${{ env.GRAFANA_INSTANCE_ID }}
+          GRAFANA_SERVICE_ACCOUNT_TOKEN: ${{ secrets.GRAFANA_SERVICE_ACCOUNT_TOKEN }}
+        run: python tool/benchmark_reporter.py benchmark-results.json

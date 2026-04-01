@@ -7,7 +7,7 @@ first `pip install transformers` (or in some cases, `sentence-transformers`, as 
 UDFs).
 """
 
-from typing import Any, Callable, Literal, TypeVar
+from typing import Any, Callable, Literal, TypedDict, TypeVar
 
 import av
 import numpy as np
@@ -204,10 +204,17 @@ def _(model_id: str) -> ts.ArrayType:
     return ts.ArrayType((model.config.projection_dim,), dtype=ts.FloatType(), nullable=False)
 
 
+class DetrForObjectDetectionResponse(TypedDict):
+    scores: list[float]
+    labels: list[int]
+    label_text: list[str]
+    boxes: list[list[float]]
+
+
 @pxt.udf(batch_size=4)
 def detr_for_object_detection(
     image: Batch[PIL.Image.Image], *, model_id: str, threshold: float = 0.5, revision: str = 'no_timm'
-) -> Batch[dict]:
+) -> Batch[DetrForObjectDetectionResponse]:
     """
     Computes DETR object detections for the specified image. `model_id` should be a reference to a pretrained
     [DETR Model](https://huggingface.co/docs/transformers/model_doc/detr).
@@ -268,12 +275,12 @@ def detr_for_object_detection(
         )
 
     return [
-        {
-            'scores': [score.item() for score in result['scores']],
-            'labels': [label.item() for label in result['labels']],
-            'label_text': [model.config.id2label[label.item()] for label in result['labels']],
-            'boxes': [box.tolist() for box in result['boxes']],
-        }
+        DetrForObjectDetectionResponse(
+            scores=[score.item() for score in result['scores']],
+            labels=[label.item() for label in result['labels']],
+            label_text=[model.config.id2label[label.item()] for label in result['labels']],
+            boxes=[box.tolist() for box in result['boxes']],
+        )
         for result in results
     ]
 
@@ -427,7 +434,7 @@ def vit_for_image_classification(
         {
             'scores': [top_k_probs[n, k].item() for k in range(top_k_probs.shape[1])],
             'labels': [top_k_indices[n, k].item() for k in range(top_k_probs.shape[1])],
-            'label_text': [model.config.id2label[top_k_indices[n, k].item()] for k in range(top_k_probs.shape[1])],
+            'label_text': [model.config.id2label[int(top_k_indices[n, k].item())] for k in range(top_k_probs.shape[1])],
         }
         for n in range(top_k_probs.shape[0])
     ]
@@ -484,8 +491,8 @@ def speech2text_for_conditional_generation(audio: pxt.Audio, *, model_id: str, l
 
     model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)
     processor = _lookup_processor(model_id, Speech2TextProcessor.from_pretrained)
-    tokenizer = processor.tokenizer
     assert isinstance(processor, Speech2TextProcessor)
+    tokenizer = processor.tokenizer  # type: ignore[attr-defined]
     assert isinstance(tokenizer, Speech2TextTokenizer)
 
     if language is not None and language not in tokenizer.lang_code_to_id:
@@ -1402,19 +1409,19 @@ def automatic_speech_recognition(
     import torch
     import torchaudio
 
-    # Try to load model and processor using direct model loading - following speech2text pattern
-    # Handle different ASR model types
+    model: Any
+    processor: Any
+
     if 'whisper' in model_id.lower():
         from transformers import WhisperForConditionalGeneration, WhisperProcessor
 
         model = _lookup_model(model_id, WhisperForConditionalGeneration.from_pretrained, device=device)
         processor = _lookup_processor(model_id, WhisperProcessor.from_pretrained)
 
-        # Language validation for Whisper - following speech2text pattern
-        if language is not None and hasattr(processor.tokenizer, 'get_decoder_prompt_ids'):
+        tokenizer = processor.tokenizer
+        if language is not None and hasattr(tokenizer, 'get_decoder_prompt_ids'):
             try:
-                # Test if language is supported
-                _ = processor.tokenizer.get_decoder_prompt_ids(language=language)
+                _ = tokenizer.get_decoder_prompt_ids(language=language)
             except Exception:
                 raise excs.Error(
                     f"Language code '{language}' is not supported by Whisper model '{model_id}'. "
@@ -1428,7 +1435,6 @@ def automatic_speech_recognition(
         processor = _lookup_processor(model_id, Wav2Vec2Processor.from_pretrained)
 
     elif 'speech_to_text' in model_id.lower() or 's2t' in model_id.lower():
-        # Use the existing speech2text function for these models
         from transformers import Speech2TextForConditionalGeneration, Speech2TextProcessor
 
         model = _lookup_model(model_id, Speech2TextForConditionalGeneration.from_pretrained, device=device)

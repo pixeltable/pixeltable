@@ -6,9 +6,11 @@
 .mypy_cache
 .venv
 .vscode
+.benchmarks
 __pycache__
 *.iml
 
+/admin/
 /dist/
 /docs/local/
 /local/

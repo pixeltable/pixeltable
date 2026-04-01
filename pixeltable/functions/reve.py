@@ -7,6 +7,7 @@ or as `api_key` in the `reve` section of the Pixeltable config file.
 import logging
 import re
 from io import BytesIO
+from typing import Any
 
 import aiohttp
 import PIL.Image
@@ -108,8 +109,13 @@ class _ReveClient:
                     )
                 case _:
                     _logger.info(
-                        f'Reve request {request_id} failed with status code {resp.status} and error code {error_code}'
+                        f'Reve request {request_id} failed with status code {resp.status} and error code {error_code}: '
+                        f'{resp}'
                     )
+                    if resp.content_type == 'application/json':
+                        json_body = await resp.text(errors='replace')
+                        json_body = json_body if len(json_body) <= 1024 else json_body[:1024] + '...'
+                        _logger.info(f'Response body: {json_body}')
                     raise ReveUnexpectedError(
                         f'Reve request failed with status code {resp.status} and error code {error_code}'
                     )
@@ -131,7 +137,9 @@ def _client() -> _ReveClient:
 # strategies is a perfect match, but "request-rate" is the closest. Reve does not currently enforce the rate limits,
 # but when it does, we can revisit this choice.
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
-async def create(prompt: str, *, aspect_ratio: str | None = None, version: str | None = None) -> PIL.Image.Image:
+async def create(
+    prompt: str, *, aspect_ratio: str | None = None, version: str | None = None, model_kwargs: dict | None = None
+) -> PIL.Image.Image:
     """
     Creates an image from a text prompt.
 
@@ -142,6 +150,7 @@ async def create(prompt: str, *, aspect_ratio: str | None = None, version: str |
         prompt: prompt describing the desired image
         aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
         version: specific model version to use. Latest if not specified.
+        model_kwargs: additional keyword arguments to pass to the Reve API.
 
     Returns:
         A generated image
@@ -151,18 +160,22 @@ async def create(prompt: str, *, aspect_ratio: str | None = None, version: str |
 
         >>> t.add_computed_column(img=reve.create(t.prompt, aspect_ratio='1:1'))
     """
-    payload = {'prompt': prompt}
+    payload: dict[str, Any] = {'prompt': prompt}
     if aspect_ratio is not None:
         payload['aspect_ratio'] = aspect_ratio
     if version is not None:
         payload['version'] = version
+    if model_kwargs is not None:
+        payload.update(model_kwargs)
 
     result = await _client()._post('/v1/image/create', payload=payload)
     return result
 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
-async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | None = None) -> PIL.Image.Image:
+async def edit(
+    image: PIL.Image.Image, edit_instruction: str, *, version: str | None = None, model_kwargs: dict | None = None
+) -> PIL.Image.Image:
     """
     Edits images based on a text prompt.
 
@@ -173,6 +186,7 @@ async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | 
         image: image to edit
         edit_instruction: text prompt describing the desired edit
         version: specific model version to use. Latest if not specified.
+        model_kwargs: additional keyword arguments to pass to the Reve API.
 
     Returns:
         A generated image
@@ -187,9 +201,11 @@ async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | 
         ...     )
         ... )
     """
-    payload = {'edit_instruction': edit_instruction, 'reference_image': to_base64(image)}
+    payload: dict[str, Any] = {'edit_instruction': edit_instruction, 'reference_image': to_base64(image)}
     if version is not None:
         payload['version'] = version
+    if model_kwargs is not None:
+        payload.update(model_kwargs)
 
     result = await _client()._post('/v1/image/edit', payload=payload)
     return result
@@ -197,7 +213,12 @@ async def edit(image: PIL.Image.Image, edit_instruction: str, *, version: str | 
 
 @pxt.udf(is_deterministic=False, resource_pool='request-rate:reve')
 async def remix(
-    prompt: str, images: list[PIL.Image.Image], *, aspect_ratio: str | None = None, version: str | None = None
+    prompt: str,
+    images: list[PIL.Image.Image],
+    *,
+    aspect_ratio: str | None = None,
+    version: str | None = None,
+    model_kwargs: dict | None = None,
 ) -> PIL.Image.Image:
     """
     Creates images based on a text prompt and reference images.
@@ -212,6 +233,7 @@ async def remix(
         images: list of reference images
         aspect_ratio: desired image aspect ratio, e.g. '3:2', '16:9', '1:1', etc.
         version: specific model version to use. Latest by default.
+        model_kwargs: additional keyword arguments to pass to the Reve API.
 
     Returns:
         A generated image
@@ -233,11 +255,13 @@ async def remix(
     if len(images) == 0:
         raise pxt.Error('Must include at least 1 reference image')
 
-    payload = {'prompt': prompt, 'reference_images': [to_base64(img) for img in images]}
+    payload: dict[str, Any] = {'prompt': prompt, 'reference_images': [to_base64(img) for img in images]}
     if version is not None:
         payload['version'] = version
     if aspect_ratio is not None:
         payload['aspect_ratio'] = aspect_ratio
+    if model_kwargs is not None:
+        payload.update(model_kwargs)
     result = await _client()._post('/v1/image/remix', payload=payload)
     return result
 
