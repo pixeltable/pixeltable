@@ -3,10 +3,8 @@ from uuid import UUID
 
 import sqlalchemy as sql
 
-from pixeltable.index.btree import BtreeIndex
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.converters.util import convert_table_md
-from pixeltable.metadata.schema import Table
 
 _logger = logging.getLogger('pixeltable')
 
@@ -22,6 +20,9 @@ def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, upd
     Uses a savepoint so that failure (e.g. due to duplicate values) does not abort the
     enclosing transaction. On failure the PK metadata is removed from the table.
     """
+    from pixeltable.index.btree import BtreeIndex
+    from pixeltable.metadata.schema import Table
+
     primary_index_md = updated_table_md.get('primary_index_md')
     if primary_index_md is None:
         return
