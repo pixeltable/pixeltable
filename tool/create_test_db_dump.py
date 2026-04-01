@@ -335,11 +335,15 @@ class Dumper:
         self._create_pk_test_tables()
 
     def _create_pk_test_tables(self) -> None:
-        pk_good = pxt.create_table('pk_test_good', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]})
+        pk_good = pxt.create_table(
+            'pk_test_good', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]}, primary_key='id'
+        )
         pk_good.insert([{'id': 1, 'name': 'Alice'}, {'id': 2, 'name': 'Bob'}, {'id': 3, 'name': 'Charlie'}])
 
-        pk_bad = pxt.create_table('pk_test_bad', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]})
-        pk_bad.insert([{'id': 1, 'name': 'Alice'}, {'id': 1, 'name': 'Bob'}, {'id': 2, 'name': 'Charlie'}])
+        pk_bad = pxt.create_table(
+            'pk_test_bad', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]}, primary_key='id'
+        )
+        pk_bad.insert([{'id': 1, 'name': 'Alice'}, {'id': 2, 'name': 'Bob'}, {'id': 3, 'name': 'Charlie'}])
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:
         def add_computed_column(col_name: str, col_expr: Any, stored: bool = True) -> None:

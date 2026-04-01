@@ -188,6 +188,9 @@ class TestPandas:
 
         t2 = import_csv('ibm', 'tests/data/datasets/classeurIBM.csv', primary_key='Date')
         assert t2.count() == 4263
+        with pytest.raises(pxt.Error, match='Duplicate primary key'):
+            t2.insert('tests/data/datasets/classeurIBM.csv')
+        assert t2.count() == 4263
 
         t3 = import_csv('edge_cases', 'tests/data/datasets/edge-cases.csv', parse_dates=['ts', 'ts_n'])
         assert t3.count() == 4

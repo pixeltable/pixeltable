@@ -399,7 +399,7 @@ class TestView:
         status = t.update(
             {'c4': True, 'c3': t.c3 + 1, 'c10': t.c10 - 1.0}, where=(t.c2 >= 5) & (t.c2 < 15), cascade=True
         )
-        assert status.num_rows == 10 * 2  # *2: rows affected in both base table and view
+        assert status.num_rows == 10 * 2  # 10 base rows + 5 in v1 + 5 in v2
         assert t.count() == 120
         assert v1.count() == 10
         assert v2.count() == 10
@@ -408,7 +408,7 @@ class TestView:
 
         # base table delete is reflected in view
         status = t.delete(where=(t.c2 >= 5) & (t.c2 < 15))
-        assert status.num_rows == 10 * 2  # *2: rows affected in both base table and view
+        assert status.num_rows == 10 * 2  # 10 base rows + 5 in v1 + 5 in v2
         assert t.count() == 110
         assert v1.count() == 5
         assert v2.count() == 5

@@ -3,6 +3,7 @@
 import pytest
 
 import pixeltable as pxt
+from pixeltable.index.btree import BtreeIndex
 from tests.utils import reload_catalog, validate_update_status
 
 
@@ -57,18 +58,18 @@ class TestPrimaryKeyIndex:
         assert t.where((t.a == 1) & (t.b == 'x')).collect()['val'] == [99]
 
     def test_string_pk_truncation(self, uses_db: None) -> None:
-        """String PK index uses left(col, 256). Strings identical in first 256 chars collide."""
+        """String PK index uses left(col, MAX_STRING_LEN). Strings identical in first MAX_STRING_LEN chars collide."""
         t = pxt.create_table('test_pk', {'key': pxt.Required[pxt.String], 'val': pxt.Int}, primary_key='key')
-        base = 'a' * 256
+        base = 'a' * BtreeIndex.MAX_STRING_LEN
 
         validate_update_status(t.insert([{'key': base + '_suffix1', 'val': 1}]), expected_rows=1)
 
-        # Different string, but first 256 chars are identical — index treats them as duplicates
+        # Different string, but first MAX_STRING_LEN chars are identical -- index treats them as duplicates
         with pytest.raises(pxt.Error, match='Duplicate primary key'):
             t.insert([{'key': base + '_suffix2', 'val': 2}])
 
-        # String that differs within the first 256 chars is fine
-        different_prefix = 'b' + 'a' * 255
+        # String that differs within the first MAX_STRING_LEN chars is fine
+        different_prefix = 'b' + 'a' * (BtreeIndex.MAX_STRING_LEN - 1)
         validate_update_status(t.insert([{'key': different_prefix + '_suffix1', 'val': 3}]), expected_rows=1)
         assert t.count() == 2
 
