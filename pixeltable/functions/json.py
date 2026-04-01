@@ -11,12 +11,14 @@ t.select(pxtf.json.make_list(t.json_col)).collect()
 ```
 """
 
+import itertools
 import json
-from typing import Any
+from typing import Any, Iterator, Literal
 
 import sqlalchemy as sql
 
 import pixeltable as pxt
+from pixeltable import exprs, type_system as ts
 from pixeltable.utils.code import local_public_names
 
 
@@ -57,6 +59,54 @@ class make_list(pxt.Aggregator):
 
     def value(self) -> list[Any]:
         return self.output
+
+
+@pxt.iterator
+def list_iterator(
+    elements: list[dict] | None = None,
+    /,
+    *,
+    method: Literal['strict', 'truncated', 'padded'] = 'strict',
+    **kwargs: list,
+) -> Iterator[dict]:
+    assert elements is None != len(kwargs) == 0
+
+    if elements is not None:
+        yield from elements
+
+    else:
+        zipped: Iterator[tuple]
+        match method:
+            case 'strict':
+                zipped = zip(*kwargs.values(), strict=True)
+            case 'truncated':
+                zipped = zip(*kwargs.values(), strict=False)
+            case 'padded':
+                zipped = itertools.zip_longest(*kwargs.values(), fillvalue=None)
+        for el in zipped:
+            yield dict(zip(kwargs.keys(), el))
+
+
+@list_iterator.conditional_output_schema
+def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
+    elements = bound_args['elements']
+    el_col_type = elements.col_type
+    if (
+        not isinstance(el_col_type, ts.JsonType)
+        or el_col_type.type_schema is None
+        or not isinstance(el_col_type.type_schema.type_spec, list)
+        or len(el_col_type.type_schema.type_spec) != 1
+    ):
+        raise TypeError(f'Expected a type for `elements` matching `list[dict]`; got {el_col_type}')
+    dict_type = el_col_type.type_schema.type_spec[0]
+    if (
+        not isinstance(dict_type, ts.JsonType)
+        or dict_type.type_schema is None
+        or not isinstance(dict_type.type_schema.type_spec, dict)
+    ):
+        raise TypeError(f'Expected a type for `elements` matching `list[dict]`; got {el_col_type}')
+
+    return dict_type.type_schema.type_spec  # type: ignore[return-value]
 
 
 __all__ = local_public_names(__name__)
