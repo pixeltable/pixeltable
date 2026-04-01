@@ -358,7 +358,7 @@ class TableVersion:
         if any(col.is_pk for col in cols):
             primary_index_md = schema.PrimaryIndexMd(
                 id=next(index_ids),
-                name=f'pk{tbl_id.hex}',
+                name=f'pk_idx_{tbl_id.hex}',
                 indexed_col_tbl_id=tbl_id_str,
                 indexed_col_ids=[col.id for col in cols if col.is_pk],
             )
