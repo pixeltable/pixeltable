@@ -1,7 +1,11 @@
+# mypy: disable-error-code="misc"
+# ruff: noqa: RUF031
+
 import base64
 import datetime
 import json
 import math
+import re
 import urllib.parse
 import urllib.request
 import uuid
@@ -666,7 +670,12 @@ class TestExprs:
         t.add_computed_column(slice_range=t.c6.f5[3:7])
         t.add_computed_column(slice_range_step=t.c6.f5[3:7:2])
         t.add_computed_column(slice_range_step_item=t['c6'].f5[3:7:2])
-        res = t.collect()
+        t.add_computed_column(
+            list_of_dicts=[{'a': t.c2, 'b': t.c2}, {'a': t.c2 + 1, 'b': t.c1}, {'a': t.c2 + 2, 'b': t.c3}]
+        )
+        t.add_computed_column(item_of_list=t.list_of_dicts[:].a)
+        t.add_computed_column(item_of_vartype_list=t.list_of_dicts[:].b)
+        res = t.order_by(t.c2).collect()
         orig = res['attr']
         assert all(res['item'][i] == orig[i] for i in range(len(res)))
         assert all(res['index'][i] == orig[i][2] for i in range(len(res)))
@@ -676,6 +685,78 @@ class TestExprs:
         assert all(res['slice_range'][i] == orig[i][3:7] for i in range(len(orig)))
         assert all(res['slice_range_step'][i] == orig[i][3:7:2] for i in range(len(orig)))
         assert all(res['slice_range_step_item'][i] == orig[i][3:7:2] for i in range(len(orig)))
+        assert all(res['item_of_list'][i] == [i, i + 1, i + 2] for i in range(len(res)))
+        assert all(
+            res['item_of_vartype_list'][i] == [res['c2'][i], res['c1'][i], res['c3'][i]] for i in range(len(res))
+        )
+
+    def test_json_path_types(self, uses_db: None) -> None:
+        spec = {
+            'f1': str,
+            'f2': {
+                'f2a': int,
+                'f2b': (int, str, pxt.Video, {'f2b1': str}),
+                'f2c': (int, bool, float, ...),
+                'f2d': (int, {'f2d1': str}, ...),
+            },
+            'f3': (
+                pxt.Array[(2, 5, 6, 8), np.float32],
+                pxt.Array[(2, 4, 7, 8), np.float32],
+                pxt.Array[(2, 4, 6, 9), np.float32],
+                ...,
+            ),
+            'f4': ({'f4a': int, 'f4b': str}, ...),
+            'f5': ({'f5a': int}, {'f5a': str}, {'f5a': float}, ...),
+        }
+        t = pxt.create_table('test', {'col': pxt.Json[spec]})
+        cases: tuple[tuple[Expr, type], ...] = (
+            (t.col.f1, pxt.String),
+            (t.col.f2.f2a, pxt.Int),
+            (t.col.f2.f2b[1], pxt.String),
+            (t.col.f2.f2b[-2], pxt.Video),  # negative index on fixed-shape array
+            (t.col.f2.f2b[3].f2b1, pxt.String),  # chained field/index access
+            (t.col.f2.f2c, pxt.Json[(int, bool, float, ...)]),
+            (t.col.f2.f2c[0], pxt.Int),
+            (t.col.f2.f2c[93], pxt.Float),  # variadic index access
+            (t.col.f2.f2d[93].f2d1, pxt.String),  # variadic index access with chained field access
+            (t.col.f3[-9], pxt.Array[(2, None, None, None), np.float32]),  # variadic negative index (common supertype)
+            (t.col.f3[-1], pxt.Array[(2, 4, None, None), np.float32]),  # in this case it could not reference index 0
+            (t.col.f2.f2b[1:3], pxt.Json[(str, pxt.Video)]),  # slice access on fixed-length tuple
+            (t.col.f2.f2b[1:], pxt.Json[(str, pxt.Video, {'f2b1': str})]),
+            (t.col.f2.f2b[:2], pxt.Json[(int, str)]),
+            (t.col.f2.f2b[1:][2].f2b1, pxt.String),  # chained slice access
+            (t.col.f2.f2c[1:], pxt.Json[(bool, float, ...)]),  # slice access on variadic tuple
+            (t.col.f2.f2c[91:], pxt.Json[(float, ...)]),
+            (t.col.f2.f2c[1:6], pxt.Json[(bool, float, ...)]),
+            (t.col.f2.f2c[:2], pxt.Json[(int, bool)]),
+            (t.col.f2.f2c[:91], pxt.Json[(int, bool, float, ...)]),
+            # negative slice on variadic tuple
+            (t.col.f3[-9:], pxt.Json[[pxt.Array[(2, None, None, None), np.float32]]]),
+            (t.col.f4[7:14].f4a, pxt.Json[[int | None]]),  # dict resolution applied to list
+            # dict resolution applied to heterogeneous tuple
+            (t.col.f5[:].f5a, pxt.Json[(int | None, str | None, float | None, ...)]),
+            (t.col.f4['*'].f4b, pxt.Json[[str | None]]),  # special '*' operator
+        )
+        for expr, expected_type in cases:
+            print(expr)
+            col_type = ts.ColumnType.from_python_type(expected_type, nullable_default=True, allow_builtin_types=False)
+            assert expr.col_type == col_type, f'{expr!r}: expected `{col_type}`; got `{expr.col_type}`'
+
+        error_cases: tuple[tuple[Expr, str | int | slice, str], ...] = (
+            (t.col.f1, 'cannot_be_a_field', "'cannot_be_a_field'"),  # field access on primitive type
+            (t.col.f1, 3, '[3]'),  # index access on primitive type
+            (t.col.f1, slice(3, 10), '[3:10]'),  # slice access on primitive type
+            (t.col, 'not_a_field', "'not_a_field'"),  # invalid field name in dict
+            (t.col, 3, '[3]'),  # index access on dict
+            (t.col, slice(3, 10), '[3:10]'),  # slice access on dict
+            (t.col.f2.f2b, 'not_an_index', "'not_an_index'"),  # field access on tuple
+            (t.col.f2.f2b, 93, '[93]'),  # out-of-range index
+            (t.col.f2.f2b, -93, '[-93]'),  # out-of-range negative index
+        )
+        for expr, el, errstring in error_cases:
+            regex = rf'Invalid JsonPath: cannot resolve {re.escape(errstring)}'
+            with pytest.raises(pxt.Error, match=regex):
+                _ = expr[el]
 
     def test_json_mapper(self, test_tbl: pxt.Table, reload_tester: ReloadTester) -> None:
         t = test_tbl
@@ -763,7 +844,7 @@ class TestExprs:
         # _ = t[t.c6.f2].show()
         # _ = t[t.c6.f5].show()
         _ = t.select(t.c6.f6.f8).show()
-        _ = t.select(cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])).show()  # type: ignore[misc]
+        _ = t.select(cast(t.c6.f6.f8, pxt.Array[(4,), pxt.Float])).show()
 
         # top-level is array
         # _ = t[t.c7['*'].f1].show()
@@ -773,7 +854,7 @@ class TestExprs:
         _ = t.select(t.c7[0].f6.f8).show()
         _ = t.select(t.c7[:2].f6.f8).show()
         _ = t.select(t.c7[::-1].f6.f8).show()
-        _ = t.select(cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])).show()  # type: ignore[misc]
+        _ = t.select(cast(t.c7['*'].f6.f8, pxt.Array[(2, 4), pxt.Float])).show()
         print(_)
 
     def test_arrays(self, test_tbl: pxt.Table) -> None:
