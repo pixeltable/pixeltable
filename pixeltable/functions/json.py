@@ -63,13 +63,9 @@ class make_list(pxt.Aggregator):
 
 @pxt.iterator
 def list_iterator(
-    elements: list[dict] | None = None,
-    /,
-    *,
-    method: Literal['strict', 'truncated', 'padded'] = 'strict',
-    **kwargs: list,
+    elements: list[dict] | None = None, *, method: Literal['strict', 'truncated', 'padded'] = 'strict', **kwargs: list
 ) -> Iterator[dict]:
-    assert elements is None != len(kwargs) == 0
+    assert (elements is None) != (len(kwargs) == 0)
 
     if elements is not None:
         yield from elements
@@ -95,10 +91,10 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
         not isinstance(el_col_type, ts.JsonType)
         or el_col_type.type_schema is None
         or not isinstance(el_col_type.type_schema.type_spec, list)
-        or len(el_col_type.type_schema.type_spec) != 1
+        or len(el_col_type.type_schema.type_spec) != 0
     ):
         raise TypeError(f'Expected a type for `elements` matching `list[dict]`; got {el_col_type}')
-    dict_type = el_col_type.type_schema.type_spec[0]
+    dict_type = el_col_type.type_schema.variadic_type
     if (
         not isinstance(dict_type, ts.JsonType)
         or dict_type.type_schema is None
