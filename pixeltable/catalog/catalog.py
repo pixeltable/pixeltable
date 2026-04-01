@@ -341,7 +341,7 @@ class Catalog:
                                 finalize_pending_ops=finalize_pending_ops,
                                 num_retries=num_retries,
                             )
-                            if success and lock_mutable_tree:
+                            if success and for_write and lock_mutable_tree:
                                 self._compute_column_dependents(self._x_locked_tbl_ids)
                             if success and _logger.isEnabledFor(logging.DEBUG):
                                 # validate only when we don't see errors
