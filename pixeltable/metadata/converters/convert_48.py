@@ -34,8 +34,10 @@ def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, upd
     if not pk_col_ids:
         return
 
-    store_prefix = 'view' if updated_table_md.get('view_md') is not None else 'tbl'
-    store_name = f'{store_prefix}_{tbl_id.hex}'
+    if updated_table_md.get('view_md') is not None:
+        return
+
+    store_name = f'tbl_{tbl_id.hex}'
     idx_name = f'pk_idx_{tbl_id.hex}'
 
     result = conn.execute(

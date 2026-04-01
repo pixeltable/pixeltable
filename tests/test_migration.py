@@ -339,12 +339,8 @@ class TestMigration:
         """Verify that every table with is_pk columns has a primary_index_md."""
         with Env.get().engine.begin() as conn:
             for row in conn.execute(sql.select(Table.id, Table.md)):
-                tbl_id, table_md = row[0], row[1]
-                pk_col_ids = [
-                    col_id
-                    for col_id, col_md in table_md['column_md'].items()
-                    if col_md.get('is_pk') is True
-                ]
+                table_md = row[1]
+                pk_col_ids = [col_id for col_id, col_md in table_md['column_md'].items() if col_md.get('is_pk') is True]
                 if pk_col_ids:
                     assert table_md.get('primary_index_md') is not None, (
                         f'Table {table_md["name"]} has is_pk columns {pk_col_ids} but no primary_index_md'

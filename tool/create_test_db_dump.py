@@ -12,9 +12,8 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pixeltable_pgserver
-import toml
-
 import sqlalchemy as sql
+import toml
 
 import pixeltable as pxt
 from pixeltable import functions as pxtf, metadata, type_system as ts
