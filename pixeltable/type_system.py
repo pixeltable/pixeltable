@@ -424,7 +424,11 @@ class ColumnType:
         # Technically this logic will also work for semi-variadic tuples (`tuple[T1, T2, ...]`) but Python
         # doesn't allow that syntax.
         if len(type_args) == 0:
-            return JsonType(nullable=nullable_default)  # treat unparameterized tuple as untyped JSON
+            # treat unparameterized tuple as Json[(Json, ...)]
+            return JsonType(
+                JsonType.TypeSchema([], variadic_type=JsonType()),
+                nullable=nullable_default
+            )
         variadic_type = None
         if len(type_args) > 0 and type_args[-1] is Ellipsis:
             if len(type_args) == 1:
@@ -445,14 +449,16 @@ class ColumnType:
 
     @classmethod
     def __from_list_type(cls, nullable_default: bool, type_args: tuple) -> JsonType:
-        if len(type_args) == 0:
-            return JsonType(nullable=nullable_default)  # treat unparameterized list as untyped JSON
         if len(type_args) > 1:
             raise excs.Error('Invalid type schema: `list` or `Sequence` must have at most one type argument')
-        if type_args[0] is Any:
-            return JsonType(nullable=nullable_default)  # treat list[Any] as untyped JSON
+        if len(type_args) == 0 or type_args[0] is Any:
+            # treat unparameterized list or list[Any] as Json[(Json, ...)]
+            return JsonType(
+                JsonType.TypeSchema([], variadic_type=JsonType()),
+                nullable=nullable_default
+            )
         return JsonType(
-            JsonType.TypeSchema(type_spec=[], variadic_type=cls.__from_python_type_or_exc(type_args[0])),
+            JsonType.TypeSchema([], variadic_type=cls.__from_python_type_or_exc(type_args[0])),
             nullable=nullable_default,
         )
 

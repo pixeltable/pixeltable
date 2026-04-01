@@ -63,7 +63,7 @@ class make_list(pxt.Aggregator):
 
 @pxt.iterator
 def list_iterator(
-    elements: list[dict] | None = None, *, method: Literal['strict', 'truncated', 'padded'] = 'strict', **kwargs: list
+    elements: list[dict] | None = None, *, mode: Literal['strict', 'truncated', 'padded'] = 'strict', **kwargs: list
 ) -> Iterator[dict]:
     """
     Iterator over elements of a list or lists. There are two distinct call patterns: either a single positional
@@ -83,7 +83,7 @@ def list_iterator(
     Args:
         elements: A list of dictionaries to iterate over. The dictionary keys will be used as column names in the
             output. Cannot be specified together with keyword arguments.
-        method: Only applies when called with keyword arguments. Determines how to handle lists of different lengths:
+        mode: Only applies when called with keyword arguments. Determines how to handle lists of different lengths:
 
             - `'strict'`: Raises an error if the input lists have different lengths.
             - `'truncated'`: Iterates until the shortest input list is exhausted, ignoring any remaining elements in
@@ -99,8 +99,9 @@ def list_iterator(
         yield from elements
 
     else:
+        kwargs = kwargs['kwargs']
         zipped: Iterator[tuple]
-        match method:
+        match mode:
             case 'strict':
                 zipped = zip(*kwargs.values(), strict=True)
             case 'truncated':
@@ -108,12 +109,14 @@ def list_iterator(
             case 'padded':
                 zipped = itertools.zip_longest(*kwargs.values(), fillvalue=None)
         for el in zipped:
-            yield dict(zip(kwargs.keys(), el))
+            yield dict(zip(kwargs.keys(), el, strict=True))
 
 
 @list_iterator.conditional_output_schema
 def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
     if bound_args.get('elements') is not None:
+        if 'mode' in bound_args:
+            raise excs.Error('list_iterator(): `mode` argument cannot be used with `elements`')
         if len(bound_args) > 1:
             raise excs.Error('list_iterator(): Cannot specify both `elements` and keyword arguments')
         elements = bound_args['elements']
@@ -139,8 +142,8 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
         return dict_type.type_schema.type_spec  # type: ignore[return-value]
 
     else:  # bound_args.get('element') is None
-        method = bound_args.get('method', 'strict')
-        kwargs = bound_args['kwargs']
+        mode = bound_args.get('mode')
+        kwargs = bound_args.get('kwargs', {})
         if len(kwargs) == 0:
             raise excs.Error('list_iterator(): No inputs provided')
         type_schema: dict[str, ts.ColumnType] = {}
@@ -157,6 +160,10 @@ def _(bound_args: dict[str, exprs.Expr]) -> dict[str, type]:
                 [*expr.col_type.type_schema.type_spec, expr.col_type.type_schema.variadic_type]
             )
             assert common_supertype is not None  # at worst it is `Json`
+            if mode is not None and (not isinstance(mode, exprs.Literal) or mode.val == 'padded'):
+                # If `mode` is 'padded' or a non-constant expression, then it's possible we may get a None value in the
+                # output, so we need to make the type nullable.
+                common_supertype = common_supertype.copy(nullable=True)
             type_schema[name] = common_supertype
         return type_schema  # type: ignore[return-value]
 

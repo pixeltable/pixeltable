@@ -106,7 +106,8 @@ class TestTypes:
             (datetime.date, DateType(nullable=False), 'Date'),
             (uuid.UUID, UUIDType(nullable=False), 'UUID'),
             (bytes, BinaryType(nullable=False), 'Binary'),
-            (list, JsonType(nullable=False), 'Json'),
+            (list, JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=False), 'Json[(Json, ...)]'),
+            (tuple, JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=False), 'Json[(Json, ...)]'),
             (dict, JsonType(nullable=False), 'Json'),
             (list[int], JsonType(JsonType.TypeSchema([], variadic_type=IntType()), nullable=False), 'Json[(Int, ...)]'),
             (
@@ -116,7 +117,8 @@ class TestTypes:
             ),
             (dict[int, str], JsonType(nullable=False), 'Json'),
             (dict[dict[str, int], list[int]], JsonType(nullable=False), 'Json'),
-            (List, JsonType(nullable=False), 'Json'),
+            (List, JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=False), 'Json[(Json, ...)]'),
+            (Tuple, JsonType(JsonType.TypeSchema([], variadic_type=JsonType()), nullable=False), 'Json[(Json, ...)]'),
             (Dict, JsonType(nullable=False), 'Json'),
             (List[int], JsonType(JsonType.TypeSchema([], variadic_type=IntType()), nullable=False), 'Json[(Int, ...)]'),
             (
