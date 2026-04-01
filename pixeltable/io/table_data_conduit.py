@@ -738,6 +738,7 @@ class PydanticTableDataConduit(TableDataConduit):
         assert len(self.pxt_rows) == 0, 'prepare_for_insert_into_table should only be called once'
         model_class = type(rows[0])
         self._validate_pydantic_model(model_class)
+        sorted_reqd_cols = sorted(self.reqd_col_names)
         # convert rows one-by-one in order to be able to print meaningful error messages
         for i, row in enumerate(rows):
             if type(row) is not model_class:
@@ -750,7 +751,7 @@ class PydanticTableDataConduit(TableDataConduit):
                 raise excs.Error(f'Row {i}: error serializing pydantic model to JSON:\n{e}') from e
             # explicitly check that all required columns are present and non-None in the rows,
             # because we ignore nullability when validating the pydantic model
-            for col_name in self.reqd_col_names:
+            for col_name in sorted_reqd_cols:
                 if pxt_row.get(col_name) is None:
                     raise excs.Error(f'Missing required column {col_name!r} in row {i}')
             self.pxt_rows.append(pxt_row)
@@ -771,13 +772,13 @@ class PydanticTableDataConduit(TableDataConduit):
         missing_required = self.reqd_col_names - model_field_names
         if missing_required:
             raise excs.Error(
-                f'Pydantic model `{model.__name__}` is missing required columns: ' + ', '.join(missing_required)
+                f'Pydantic model `{model.__name__}` is missing required columns: ' + ', '.join(sorted(missing_required))
             )
 
         computed_in_model = self.computed_col_names & model_field_names
         if computed_in_model:
             raise excs.Error(
-                f'Pydantic model `{model.__name__}` has fields for computed columns: ' + ', '.join(computed_in_model)
+                f'Pydantic model `{model.__name__}` has fields for computed columns: ' + ', '.join(sorted(computed_in_model))
             )
 
         # validate type compatibility
@@ -787,7 +788,7 @@ class PydanticTableDataConduit(TableDataConduit):
             raise excs.Error(
                 f'Pydantic model `{model.__name__}` has no fields that map to columns in table {self.tbl_name!r}'
             )
-        for field_name in common_fields:
+        for field_name in sorted(common_fields):
             pxt_col_type = self.pxt_schema[field_name]
             model_type = model.model_fields[field_name].annotation
 
