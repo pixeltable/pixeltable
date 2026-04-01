@@ -90,8 +90,8 @@ class TableMetadata(TypedDict):
     """The media validation policy for this table."""
     base: str | None
     """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
-    iterator_expr: str | None
-    """The iterator expression for views that use an iterator; otherwise `None`."""
+    iterator_call: str | None
+    """The iterator call for views that use an iterator; otherwise `None`."""
 
 
 class VersionMetadata(TypedDict):

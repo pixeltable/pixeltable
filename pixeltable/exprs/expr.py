@@ -127,12 +127,12 @@ class Expr(abc.ABC):
         """
         return None
 
-    def salient_udf(self) -> func.Function | None:
+    def get_first_udf(self) -> func.Function | None:
         """
         Returns the topmost UDF in the expression tree, or None if there is no UDF call.
         """
         for expr in self.components:
-            fn = expr.salient_udf()
+            fn = expr.get_first_udf()
             if fn is not None:
                 return fn
 

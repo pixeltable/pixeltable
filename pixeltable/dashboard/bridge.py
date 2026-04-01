@@ -329,7 +329,7 @@ def _classify_udf(value_expr: exprs.Expr | None) -> str | None:
     """
     if value_expr is None:
         return None
-    fn = value_expr.salient_udf()
+    fn = value_expr.get_first_udf()
     if fn is None:
         return None
     path = fn.self_path
@@ -402,7 +402,7 @@ def get_pipeline() -> dict[str, Any]:
                 defined_in = info['defined_in']
 
                 cw_str = str(cw)[:200] if cw else None
-                salient_fn = col.value_expr.salient_udf() if col.value_expr is not None else None
+                salient_fn = col.value_expr.get_first_udf() if col.value_expr is not None else None
                 func_name = salient_fn.display_name if salient_fn is not None else None
 
                 col_entry: dict[str, Any] = {
