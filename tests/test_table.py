@@ -670,7 +670,7 @@ class TestTable:
         assert t.where(t.i < 50).count() == 100
 
         # missing required keys in input
-        with pytest.raises(pxt.Error, match="Missing required column 's'"):
+        with pytest.raises(pxt.Error, match="Missing required column 'en'"):
             rows3 = [TestModel2(i=i, f=i * 1.0, b=i % 2 == 0, t=now) for i in range(100)]
             _ = t.insert(rows3)
 
