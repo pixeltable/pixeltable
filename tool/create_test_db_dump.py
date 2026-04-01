@@ -340,10 +340,12 @@ class Dumper:
         )
         pk_good.insert([{'id': 1, 'name': 'Alice'}, {'id': 2, 'name': 'Bob'}, {'id': 3, 'name': 'Charlie'}])
 
-        pk_bad = pxt.create_table(
-            'pk_test_bad', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]}, primary_key='id'
-        )
-        pk_bad.insert([{'id': 1, 'name': 'Alice'}, {'id': 1, 'name': 'Bob'}, {'id': 1, 'name': 'Charlie'}])
+        # Used to create table with invalid PK to test 49 -> 50 migration. This table can't be created on versions > 49
+        # as it will raise an error.
+        # pk_bad = pxt.create_table(
+        #     'pk_test_bad', {'id': pxt.Required[pxt.Int], 'name': pxt.Required[pxt.String]}, primary_key='id'
+        # )
+        # pk_bad.insert([{'id': 1, 'name': 'Alice'}, {'id': 1, 'name': 'Bob'}, {'id': 1, 'name': 'Charlie'}])
 
     def __add_expr_columns(self, t: pxt.Table, col_prefix: str, include_expensive_functions: bool = False) -> None:
         def add_computed_column(col_name: str, col_expr: Any, stored: bool = True) -> None:

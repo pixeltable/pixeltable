@@ -131,7 +131,9 @@ class TestMigration:
                     self._verify_v45()
                 if old_version >= 48:
                     self._verify_v48()
-                if old_version >= 49:
+                # For version 49, the test can only be run on the exact version since creating tables with invalid
+                # primary keys fails post version 49. Therefore the dump cannot have invalid primary keys.
+                if old_version == 49:
                     self._verify_v49()
                 # self._verify_v24(old_version)
 
