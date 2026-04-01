@@ -1355,13 +1355,7 @@ class TestFunction:
         """resource_estimator works for a batched UDF."""
         t = pxt.create_table('test_est_batch', {'content': pxt.String})
         t.add_computed_column(emb=mock_embed_batch(t.content))
-        status = t.insert(
-            [
-                {'content': 'hello world'},
-                {'content': 'foo bar'},
-                {'content': 'baz qux'},
-            ]
-        )
+        status = t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz qux'}])
         assert status.num_excs == 0
 
 
