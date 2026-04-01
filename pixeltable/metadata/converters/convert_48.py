@@ -1,86 +1,42 @@
-import logging
-from uuid import UUID
+"""Convert SimilarityExpr from legacy 'indexed_col' (serialized ColumnRef) to 'table_version_key' + 'idx_name'."""
+
+from typing import Any
 
 import sqlalchemy as sql
 
 from pixeltable.metadata import register_converter
 from pixeltable.metadata.converters.util import convert_table_md
 
-_logger = logging.getLogger('pixeltable')
+
+def _substitute_md(k: str | None, v: Any) -> tuple[str | None, Any] | None:
+    if not isinstance(v, dict):
+        return None
+    if v.get('_classname') != 'SimilarityExpr':
+        return None
+    if 'table_version_key' in v:  # already migrated
+        return None
+    assert 'components' in v
+    components = v['components']
+    assert len(components) == 2
+    col_ref_dict = components[0]
+    from pixeltable.exprs import ColumnRef
+
+    qcol_id = ColumnRef.get_column_id(d=col_ref_dict)
+    tbl_id = qcol_id.tbl_id
+    tbl_version = col_ref_dict['tbl_version']
+    table_version_key = {'id': str(tbl_id), 'effective_version': tbl_version, 'anchor_tbl_id': None}
+    # copy index name, class name etc
+    new_d: dict[str, Any] = {kk: vv for kk, vv in v.items() if kk != 'components'}
+    # Skip column ref from components
+    new_d['components'] = [components[1]]
+    new_d['table_version_key'] = table_version_key
+    new_d['idx_name'] = v.get('idx_name')
+    new_d['qcol_id'] = {'tbl_id': str(qcol_id.tbl_id), 'col_id': qcol_id.col_id}
+    new_d['_classname'] = v['_classname']
+    return (k, new_d)
 
 
 @register_converter(version=48)
 def _(engine: sql.engine.Engine) -> None:
-    convert_table_md(engine, table_modifier=_table_modifier)
-
-
-def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, updated_table_md: dict) -> None:
-    """Create primary key indexes for tables that have is_pk columns but no index yet.
-
-    Old tables only have is_pk on individual columns in column_md; primary_index_md didn't
-    exist before this migration. This converter builds the primary_index_md and creates the
-    corresponding PostgreSQL unique index. On failure (e.g. duplicates), the PK metadata is
-    removed.
-    """
-    from pixeltable.index.btree import BtreeIndex
-    from pixeltable.metadata.schema import Table
-
-    # Find columns marked as PK in the old metadata
-    pk_col_ids: list[int] = []
-    for col_id_str, col_md in updated_table_md['column_md'].items():
-        if col_md.get('is_pk') is True and col_md.get('schema_version_drop') is None:
-            pk_col_ids.append(int(col_id_str))
-
-    if not pk_col_ids:
-        return
-
-    if updated_table_md.get('view_md') is not None:
-        return
-
-    store_name = f'tbl_{tbl_id.hex}'
-    idx_name = f'pk_idx_{tbl_id.hex}'
-
-    result = conn.execute(
-        sql.text('SELECT 1 FROM pg_indexes WHERE tablename = :tbl AND indexname = :idx'),
-        {'tbl': store_name, 'idx': idx_name},
-    )
-    if result.fetchone() is not None:
-        _logger.info(f'Primary key index {idx_name} already exists on {store_name}, skipping')
-        return
-
-    idx_exprs: list[str] = []
-    for col_id in pk_col_ids:
-        col_md = updated_table_md['column_md'][str(col_id)]
-        col_name = f'col_{col_id}'
-        if col_md['col_type'].get('_classname') == 'StringType':
-            idx_exprs.append(f'left({col_name}, {BtreeIndex.MAX_STRING_LEN})')
-        else:
-            idx_exprs.append(col_name)
-
-    create_idx_sql = (
-        f'CREATE UNIQUE INDEX {idx_name} ON {store_name} '
-        f'USING btree ({", ".join(idx_exprs)}) '
-        f'WHERE v_max = {Table.MAX_VERSION}'
-    )
-
-    conn.execute(sql.text('SAVEPOINT pk_index_attempt'))
-    try:
-        conn.execute(sql.text(create_idx_sql))
-        conn.execute(sql.text('RELEASE SAVEPOINT pk_index_attempt'))
-        # Build the primary_index_md that didn't exist before this migration
-        next_id = max((int(k) for k in updated_table_md.get('index_md', {})), default=-1) + 1
-        updated_table_md['primary_index_md'] = {
-            'id': next_id,
-            'name': idx_name,
-            'indexed_col_tbl_id': str(tbl_id),
-            'indexed_col_ids': pk_col_ids,
-        }
-        _logger.info(f'Created primary key index {idx_name} on {store_name}')
-    except (sql.exc.IntegrityError, sql.exc.InternalError) as e:
-        _logger.warning(f'Failed to create PK index on {store_name}: {e}. Removing PK metadata.')
-        conn.execute(sql.text('ROLLBACK TO SAVEPOINT pk_index_attempt'))
-        for col_id in pk_col_ids:
-            updated_table_md['column_md'][str(col_id)]['is_pk'] = False
-        updated_table_md['primary_index_md'] = None
-
-    conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=updated_table_md))
+    """Migrate SimilarityExpr from serialized col_ref (indexed_col) to tbl_version_key + idx_name."""
+    convert_table_md(engine, substitution_fn=_substitute_md)

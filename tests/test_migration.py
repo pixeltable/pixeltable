@@ -380,6 +380,24 @@ class TestMigration:
         assert no_comment.get_metadata()['comment'] in (None, '')
         assert no_comment.get_metadata()['custom_metadata'] in (None, '')
 
+    @classmethod
+    def _verify_v48(cls) -> None:
+        def has_column_ref_in_similarity(value: Any) -> bool:
+            if isinstance(value, dict):
+                if value.get('_classname') == 'SimilarityExpr' and 'table_version_key' not in value:
+                    return True
+                return any(has_column_ref_in_similarity(v) for v in value.values())
+            if isinstance(value, list):
+                return any(has_column_ref_in_similarity(v) for v in value)
+            return False
+
+        with Env.get().engine.begin() as conn:
+            for row in conn.execute(sql.select(Table.md)):
+                table_md = row[0]
+                assert not has_column_ref_in_similarity(table_md), (
+                    'Table metadata still contains SimilarityExpr with ColumnRef after v49 migration'
+                )
+
 
 @pxt.udf(batch_size=4)
 def replacement_batched_udf(strings: Batch[str], *, upper: bool = True) -> Batch[pxt.String]:

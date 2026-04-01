@@ -35,7 +35,8 @@ class Parameter:
                 raise excs.Error(f'Default value for parameter {self.name!r} is not a constant')
             if not self.col_type.is_supertype_of(self.default.col_type):
                 raise excs.Error(
-                    f'Default value for parameter {self.name!r} is not of type {self.col_type!r}: {self.default}'
+                    f'Default value for parameter {self.name!r} has type `{self.default.col_type}`, '
+                    f'which is not of type `{self.col_type!r}`: {self.default}'
                 )
 
     def has_default(self) -> bool:
@@ -191,7 +192,7 @@ class Signature:
             # non-nullable parameters can still accept nullable arguments (since in that event, FunctionCall.eval()
             # detects the Nones and skips evaluation).
             if not (
-                param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True)
+                param.col_type.is_supertype_of(arg.col_type, ignore_nullable=True, strict_json=False)
                 # TODO: this is a hack to allow JSON columns to be passed to functions that accept scalar
                 # types. It's necessary to avoid littering notebooks with `apply(str)` calls or equivalent.
                 # (Previously, this wasn't necessary because `is_supertype_of()` was improperly implemented.)

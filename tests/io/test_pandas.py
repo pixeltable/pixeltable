@@ -13,6 +13,26 @@ from pixeltable.env import Env
 
 from ..utils import ensure_s3_pytest_resources_access, skip_test_if_not_installed
 
+EXPECTED_SCHEMA = {
+    'int_col': ts.IntType(nullable=True),
+    'float_col': ts.FloatType(nullable=True),
+    'bool_col': ts.BoolType(nullable=True),
+    'str_col': ts.StringType(nullable=True),
+    'dt_col': ts.TimestampType(nullable=True),
+    'aware_dt_col': ts.TimestampType(nullable=True),
+    'date_col': ts.DateType(nullable=True),
+    'uuid_col': ts.UUIDType(nullable=True),
+    'json_col_1': ts.JsonType(ts.JsonType.TypeSchema([ts.IntType(), ts.IntType()]), nullable=True),
+    'json_col_2': ts.JsonType(
+        ts.JsonType.TypeSchema({'a': ts.IntType(), 'b': ts.IntType()}, optional_keys=frozenset(('a', 'b'))),
+        nullable=True,
+    ),
+    'array_col_1': ts.ArrayType(shape=(None, 2), dtype=np.dtype('int64'), nullable=True),
+    'array_col_2': ts.ArrayType(shape=(None, None), dtype=np.dtype('int64'), nullable=True),
+    'array_col_3': ts.ArrayType(shape=(None, None), dtype=np.dtype('float32'), nullable=True),
+    'image_col': ts.ImageType(width=100, nullable=True),
+}
+
 
 class TestPandas:
     def make_src_data(self) -> dict[str, object]:
@@ -44,22 +64,7 @@ class TestPandas:
         df = pd.DataFrame(src_data)
 
         t = pxt.io.import_pandas('test_types', df)
-        assert t._get_schema() == {
-            'int_col': ts.IntType(nullable=True),
-            'float_col': ts.FloatType(nullable=True),
-            'bool_col': ts.BoolType(nullable=True),
-            'str_col': ts.StringType(nullable=True),
-            'dt_col': ts.TimestampType(nullable=True),
-            'aware_dt_col': ts.TimestampType(nullable=True),
-            'date_col': ts.DateType(nullable=True),
-            'uuid_col': ts.UUIDType(nullable=True),
-            'json_col_1': ts.JsonType(nullable=True),
-            'json_col_2': ts.JsonType(nullable=True),
-            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=np.dtype('int64'), nullable=True),
-            'array_col_2': ts.ArrayType(shape=(None, None), dtype=np.dtype('int64'), nullable=True),
-            'array_col_3': ts.ArrayType(shape=(None, None), dtype=np.dtype('float32'), nullable=True),
-            'image_col': ts.ImageType(width=100, nullable=True),
-        }
+        assert t._get_schema() == EXPECTED_SCHEMA
         res = t.select().order_by(t.int_col).collect()
         assert res['int_col'] == src_data['int_col']
         assert res['float_col'] == src_data['float_col']
@@ -83,22 +88,8 @@ class TestPandas:
         src_data = self.make_src_data()
         df = pd.DataFrame(src_data)
         t = pxt.io.import_pandas('test_types', df)
-        assert t._get_schema() == {
-            'int_col': ts.IntType(nullable=True),
-            'float_col': ts.FloatType(nullable=True),
-            'bool_col': ts.BoolType(nullable=True),
-            'str_col': ts.StringType(nullable=True),
-            'dt_col': ts.TimestampType(nullable=True),
-            'aware_dt_col': ts.TimestampType(nullable=True),
-            'date_col': ts.DateType(nullable=True),
-            'uuid_col': ts.UUIDType(nullable=True),
-            'json_col_1': ts.JsonType(nullable=True),
-            'json_col_2': ts.JsonType(nullable=True),
-            'array_col_1': ts.ArrayType(shape=(None, 2), dtype=np.dtype('int64'), nullable=True),
-            'array_col_2': ts.ArrayType(shape=(None, None), dtype=np.dtype('int64'), nullable=True),
-            'array_col_3': ts.ArrayType(shape=(None, None), dtype=np.dtype('float32'), nullable=True),
-            'image_col': ts.ImageType(width=100, nullable=True),
-        }
+        assert t._get_schema() == EXPECTED_SCHEMA
+
         assert t.count() == len(df)
         t.insert(df)
         assert t.count() == 2 * len(df)
