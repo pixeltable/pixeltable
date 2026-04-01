@@ -3224,7 +3224,7 @@ class TestTable:
             ) == default_timestamp.replace(tzinfo=None)
 
         # array default as Python list — should be coerced to np.ndarray
-        t.add_column(c_array_from_list={'type': pxt.Array[(3,), pxt.Int], 'default': [1, 2, 3]})
+        t.add_column(c_array_from_list={'type': pxt.Array[(3,), pxt.Int], 'default': [1, 2, 3]})  # type: ignore[misc]
         t.insert([{'c1': 99}])
         result = t.where(t.c1 == 99).collect()
         assert np.array_equal(result[0]['c_array_from_list'], np.array([1, 2, 3]))
