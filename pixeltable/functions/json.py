@@ -65,6 +65,34 @@ class make_list(pxt.Aggregator):
 def list_iterator(
     elements: list[dict] | None = None, *, method: Literal['strict', 'truncated', 'padded'] = 'strict', **kwargs: list
 ) -> Iterator[dict]:
+    """
+    Iterator over elements of a list or lists. There are two distinct call patterns: either a single positional
+    argument; or one or more keyword arguments.
+
+    - If a single positional argument is specified, as in `list_iterator(t.col)`, then the elements of `t.col` must
+        contain lists of dictionaries with matching signatures (identical keys and compatible value types). The
+        iterator will yield one new column for each key in the dictionaries, and one output row per element in the
+        lists.
+    - If multiple keyword arguments are specified, as in `list_iterator(val_1=t.col_1, val_2=t.col_2)`, then the
+        elements of each input column must contain lists, but not necessarily lists of dictionaries. The iterator
+        will yield one new column for each keyword argument, zipping together the individual lists.
+
+    All of the inputs must be *typed* `Json` expressions. Untyped Json will be rejected (the type schema is
+    necessary in order for Pixeltable to determine the types of the output columns).
+
+    Args:
+        elements: A list of dictionaries to iterate over. The dictionary keys will be used as column names in the
+            output. Cannot be specified together with keyword arguments.
+        method: Only applies when called with keyword arguments. Determines how to handle lists of different lengths:
+
+            - `'strict'`: Raises an error if the input lists have different lengths.
+            - `'truncated'`: Iterates until the shortest input list is exhausted, ignoring any remaining elements in
+                longer lists.
+            - `'padded'`: Iterates until the longest input list is exhausted, yielding `None` for any missing
+                elements from shorter lists.
+        **kwargs: One or more lists to iterate over. The kwarg names will be used as column names in the output.
+            Cannot be specified together with `elements`.
+    """
     assert (elements is None) != (len(kwargs) == 0)
 
     if elements is not None:

@@ -297,7 +297,7 @@ def clip(
         start_time: Start time in seconds
         end_time: End time in seconds
         duration: Duration of the clip in seconds
-        mode:
+        mode: Clip mode:
 
             - `'fast'`: avoids re-encoding but starts the clip at the nearest keyframes and as a result, the clip
                 duration will be slightly longer than requested
