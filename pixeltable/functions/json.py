@@ -99,6 +99,8 @@ def list_iterator(
         yield from elements
 
     else:
+        # TODO: Clean up the way kwargs are passed to the iterator (this works, but it's a bit clunk with
+        #     unnecessary indirection)
         kwargs = kwargs['kwargs']
         zipped: Iterator[tuple]
         match mode:
