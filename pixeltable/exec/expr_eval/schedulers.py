@@ -153,20 +153,20 @@ class RateLimitsScheduler(Scheduler):
                     f'resource_estimator for {fn.self_path or fn} has parameters '
                     f'{extra} that are not in the resolved function signature'
                 )
-            kwargs_batch = request.fn_call.get_param_values(param_names, request.rows)
+            per_row_kwargs = request.fn_call.get_param_values(param_names, request.rows)
             # If the estimator declares '_param_types', inject a dict mapping param names to Pixeltable
             # ColumnTypes for the resolved overload. This lets a shared estimator on a polymorphic function
             # distinguish overloads that share the same Python types (e.g., str for Document vs Video).
             if '_param_types' in inspect.signature(estimator).parameters:
                 param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
-                for d in kwargs_batch:
+                for d in per_row_kwargs:
                     d['_param_types'] = param_types
             if not request.is_batched:
-                result = estimator(**kwargs_batch[0])
+                result = estimator(**per_row_kwargs[0])
             else:
-                batch_kwargs = {k: [d[k] for d in kwargs_batch] for k in kwargs_batch[0]}
-                constant_kwargs, batch_kwargs = request.pxt_fn.create_batch_kwargs(batch_kwargs)
-                result = estimator(**constant_kwargs, **batch_kwargs)
+                columnar_kwargs = {k: [d[k] for d in per_row_kwargs] for k in per_row_kwargs[0]}
+                constant_kwargs, batched_kwargs = request.pxt_fn.create_batch_kwargs(columnar_kwargs)
+                result = estimator(**constant_kwargs, **batched_kwargs)
         # Filter to resources known to the pool to avoid KeyError in _resource_delay()
         known = self._resources
         return {k: v for k, v in result.items() if k in known}
