@@ -78,7 +78,7 @@ def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, upd
         }
         _logger.info(f'Created primary key index {idx_name} on {store_name}')
     except (sql.exc.IntegrityError, sql.exc.InternalError) as e:
-        _logger.warning(f'Failed to create PK index on {store_name}: {e}. Removing PK metadata.')
+        _logger.info(f'Failed to create PK index on {store_name}: {e}. Removing PK metadata.')
         conn.execute(sql.text('ROLLBACK TO SAVEPOINT pk_index_attempt'))
         conn.execute(sql.text('RELEASE SAVEPOINT pk_index_attempt'))
         for col_id in pk_col_ids:

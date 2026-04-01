@@ -400,6 +400,14 @@ class TestMigration:
                         f'Table {table_md["name"]} has is_pk columns {pk_col_ids} but no primary_index_md'
                     )
 
+        pk_good_md = pxt.get_table('pk_test_good').get_metadata()
+        assert pk_good_md['columns']['id']['is_primary_key'] == True
+        assert pk_good_md['primary_key'] == ['id']
+
+        pk_bad_md = pxt.get_table('pk_test_bad').get_metadata()
+        assert pk_bad_md['columns']['id']['is_primary_key'] == False
+        assert pk_bad_md['primary_key'] is None
+
 
 @pxt.udf(batch_size=4)
 def replacement_batched_udf(strings: Batch[str], *, upper: bool = True) -> Batch[pxt.String]:

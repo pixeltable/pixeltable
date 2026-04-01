@@ -147,6 +147,12 @@ class Table(SchemaObject):
                     ),
                 )
 
+        primary_key: list[str] | None = None
+        primary_index_md = tv.tbl_md.primary_index_md
+        if primary_index_md is not None:
+            cols_by_id = {col.id: col for col in columns}
+            primary_key = [cols_by_id[col_id].name for col_id in primary_index_md.indexed_col_ids]
+
         return TableMetadata(
             name=self._name,
             path=self._path(),
@@ -161,6 +167,7 @@ class Table(SchemaObject):
             comment=self._get_comment(),
             custom_metadata=self._get_custom_metadata(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
+            primary_key=primary_key,
             base=None,
         )
 
