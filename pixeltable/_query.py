@@ -265,6 +265,15 @@ class Query:
     def _first_tbl(self) -> catalog.TableVersionPath:
         return self._from_clause._first_tbl
 
+    def _effective_group_by_clause(self) -> list[exprs.Expr] | None:
+        if self.grouping_tbl is not None:
+            assert self.group_by_clause is None
+            num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
+            # the grouping table must be a base of self.tbl
+            assert num_rowid_cols <= len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
+            return self.__rowid_columns(num_rowid_cols)
+        return self.group_by_clause
+
     def _vars(self) -> dict[str, exprs.Variable]:
         """
         Return a dict mapping variable name to Variable for all Variables contained in any component of the Query
@@ -354,15 +363,7 @@ class Query:
 
     def _create_query_plan(self) -> exec.ExecNode:
         # construct a group-by clause if we're grouping by a table
-        group_by_clause: list[exprs.Expr] | None = None
-        if self.grouping_tbl is not None:
-            assert self.group_by_clause is None
-            num_rowid_cols = len(self.grouping_tbl.store_tbl.rowid_columns())
-            # the grouping table must be a base of self.tbl
-            assert num_rowid_cols <= len(self._first_tbl.tbl_version.get().store_tbl.rowid_columns())
-            group_by_clause = self.__rowid_columns(num_rowid_cols)
-        elif self.group_by_clause is not None:
-            group_by_clause = self.group_by_clause
+        group_by_clause = self._effective_group_by_clause()
 
         for item in self._select_list_exprs:
             item.bind_rel_paths()
