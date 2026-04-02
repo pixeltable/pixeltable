@@ -1,7 +1,7 @@
 import csv
-import pathlib
 import datetime
 import json
+import pathlib
 
 import pandas as pd
 import pytest
