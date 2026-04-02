@@ -456,9 +456,8 @@ class Planner:
             offset=query.offset_val,
         )
 
-        # extra cols are in default_eval_ctx but not handled by the query plan
-        query_target_set = exprs.ExprSet(query_eval_ctx.target_exprs)
-        extra_col_exprs = [e for e in row_builder.default_eval_ctx.target_exprs if e not in query_target_set]
+        # extra cols are not handled by the query plan; evaluate only the expressions needed to materialize them
+        extra_col_exprs = [row_builder.unique_exprs[row_builder.table_columns[col]] for col in extra_cols]
         if extra_col_exprs:
             plan = exec.ExprEvalNode(
                 row_builder,

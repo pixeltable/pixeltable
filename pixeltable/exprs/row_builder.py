@@ -152,6 +152,8 @@ class RowBuilder:
         validating_colrefs: dict[Expr, Expr] = {}  # key: non-validating colref, value: corresp. validating colref
         expr: Expr
 
+        # First pass: register non-computed columns as ColumnRefs; computed columns (second pass)
+        # resolve their expressions against these slot idxs.
         for col in columns:
             if not col.is_computed:
                 # record a ColumnRef so that references to this column resolve to the same slot idx
@@ -175,6 +177,8 @@ class RowBuilder:
                 self.add_table_column(col, expr.slot_idx)
                 self.output_exprs.add(expr)
 
+        # Second pass: register computed columns, resolving their expressions against the ColumnRefs
+        # and validating wrappers established in the first pass.
         for col in columns:
             if col.is_computed:
                 assert col.value_expr is not None
