@@ -436,7 +436,7 @@ class Function(ABC):
         return None
 
     def resource_estimator(self, fn: Callable[..., dict[str, int]]) -> Callable[..., dict[str, int]]:
-        """Instance decorator for specifying the resource estimator of this function.
+        """Decorator for specifying the resource estimator of this function.
 
         The decorated function accepts a subset of this function's parameters and returns a dict mapping
         resource names to estimated costs for a single or set of requests.
