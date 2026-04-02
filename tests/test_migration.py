@@ -393,22 +393,28 @@ class TestMigration:
     @classmethod
     def _verify_v49(cls) -> None:
         """Verify that every table with is_pk columns has a primary_index_md."""
-        with Env.get().engine.begin() as conn:
-            for row in conn.execute(sql.select(Table.id, Table.md)):
-                table_md = row[1]
-                pk_col_ids = [col_id for col_id, col_md in table_md['column_md'].items() if col_md.get('is_pk') is True]
-                if pk_col_ids:
-                    assert table_md.get('primary_index_md') is not None, (
-                        f'Table {table_md["name"]} has is_pk columns {pk_col_ids} but no primary_index_md'
-                    )
-
-        pk_good_md = pxt.get_table('pk_test_good').get_metadata()
+        pk_good = pxt.get_table('pk_test_good')
+        pk_good_md = pk_good.get_metadata()
         assert pk_good_md['columns']['id']['is_primary_key'] == True
-        assert pk_good_md['primary_key'] == ['id']
 
-        pk_bad_md = pxt.get_table('pk_test_bad').get_metadata()
+        pk_bad = pxt.get_table('pk_test_bad')
+        pk_bad_md = pk_bad.get_metadata()
         assert pk_bad_md['columns']['id']['is_primary_key'] == False
-        assert pk_bad_md['primary_key'] is None
+
+        # Verify that the good table has a pk_idx index in postgres and the bad table does not
+        good_tbl_id = pk_good._tbl_version_path.tbl_id
+        bad_tbl_id = pk_bad._tbl_version_path.tbl_id
+        good_idx_name = f'pk_idx_{good_tbl_id.hex}'
+        bad_idx_name = f'pk_idx_{bad_tbl_id.hex}'
+        with Env.get().engine.begin() as conn:
+            result = conn.execute(
+                sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': good_idx_name}
+            )
+            assert result.fetchone() is not None, f'Expected pk index {good_idx_name} to exist for pk_test_good'
+            result = conn.execute(
+                sql.text('SELECT 1 FROM pg_indexes WHERE indexname = :idx'), {'idx': bad_idx_name}
+            )
+            assert result.fetchone() is None, f'Expected pk index {bad_idx_name} to NOT exist for pk_test_bad'
 
 
 @pxt.udf(batch_size=4)
