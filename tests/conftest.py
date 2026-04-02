@@ -100,6 +100,9 @@ def init_env(tmp_path_factory: pytest.TempPathFactory, worker_id: int) -> None: 
     os.environ['PIXELTABLE_DB'] = f'test_{worker_id}'
     os.environ['PIXELTABLE_PGDATA'] = str(shared_home / 'pgdata')
     os.environ['PIXELTABLE_API_URL'] = 'https://preprod-internal-api.pixeltable.com'
+    # Disable dashboard thread during tests
+    # TODO: Find a way to test the dashboard server?
+    os.environ['PIXELTABLE_START_DASHBOARD'] = 'false'
     os.environ['FIFTYONE_DATABASE_DIR'] = f'{home_dir}/.fiftyone'
     reinit_db = True
     schema_name = None

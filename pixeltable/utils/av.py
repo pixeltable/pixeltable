@@ -1,17 +1,22 @@
 from __future__ import annotations
 
+import logging
+import subprocess
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 from types import TracebackType
-from typing import Any, Iterator
+from typing import Any, Iterator, NoReturn
 
 import av
 import av.stream
 import PIL.Image
 from typing_extensions import Self
 
+import pixeltable as pxt
 from pixeltable.env import Env
+
+_logger = logging.getLogger('pixeltable')
 
 # format -> (codec, extension)
 AUDIO_FORMATS: dict[str, tuple[str, str]] = {
@@ -46,13 +51,19 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
         'codec_tag': codec_context.codec_tag.encode('unicode-escape').decode('utf-8'),
         'profile': codec_context.profile,
     }
+
+    # Compute duration_seconds from stream-level duration.
+    # We intentionally don't fall back to container.duration here because it's ambiguous —
+    # it may reflect a different stream's duration (e.g. audio vs video).
+    duration_seconds: float | None = None
+    if stream.duration is not None and stream.time_base is not None:
+        duration_seconds = float(stream.duration * stream.time_base)
+
     metadata = {
         'type': stream.type,
         'duration': stream.duration,
         'time_base': float(stream.time_base) if stream.time_base is not None else None,
-        'duration_seconds': float(stream.duration * stream.time_base)
-        if stream.duration is not None and stream.time_base is not None
-        else None,
+        'duration_seconds': duration_seconds,
         'frames': stream.frames,
         'metadata': stream.metadata,
         'codec_context': codec_context_md,
@@ -60,7 +71,8 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
 
     if stream.type == 'audio':
         # Additional metadata for audio
-        channels = getattr(stream.codec_context, 'channels', None)
+        assert isinstance(stream.codec_context, av.AudioCodecContext)
+        channels = stream.codec_context.channels
         codec_context_md['channels'] = int(channels) if channels is not None else None
     else:
         assert stream.type == 'video'
@@ -71,7 +83,6 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
             **{
                 'width': stream.width,
                 'height': stream.height,
-                'frames': stream.frames,
                 'average_rate': float(stream.average_rate) if stream.average_rate is not None else None,
                 'base_rate': float(stream.base_rate) if stream.base_rate is not None else None,
                 'guessed_rate': float(stream.guessed_rate) if stream.guessed_rate is not None else None,
@@ -84,19 +95,36 @@ def __get_stream_metadata(stream: av.stream.Stream) -> dict:
 def get_video_duration(path: str) -> float | None:
     """Return video duration in seconds."""
     with av.open(path) as container:
-        video_stream = container.streams.video[0]
-        if video_stream is None:
+        if len(container.streams.video) == 0:
             return None
+        video_stream = container.streams.video[0]
+
+        # Prefer stream-level duration from the header
         if video_stream.duration is not None:
             return float(video_stream.duration * video_stream.time_base)
 
-        # if duration is not in the header, look for it in the last packet
-        last_pts: int | None = None
+        # use container duration if we don't have audio streams (which might be longer than the video stream)
+        if len(container.streams.audio) == 0 and container.duration is not None:
+            return container.duration / 1_000_000
+
+        # Fall back to scanning packets to find the latest presentation timestamp.
+        # We track the maximum PTS rather than the last packet's PTS because B-frame reordering
+        # (common in h264/h265) means packets are demuxed in decode order, not presentation order.
+        # The last demuxed packet may be a B-frame that presents before the final I/P frame.
+        max_pts: int | None = None  # max observed packet.pts
+        max_pts_duration: int | None = None  # duration of that packet
         for packet in container.demux(video_stream):
-            if packet.pts is not None:
-                last_pts = packet.pts
-        if last_pts is not None:
-            return float(last_pts * video_stream.time_base)
+            if packet.pts is not None and (max_pts is None or packet.pts > max_pts):
+                max_pts = packet.pts
+                max_pts_duration = packet.duration
+        if max_pts is not None:
+            end_pts = max_pts + (max_pts_duration or 0)
+            result = float(end_pts * video_stream.time_base)
+            # the video stream can't be longer than the container, but some demuxers
+            # (e.g. MPEG) emit trailing packets past the real end
+            if container.duration is not None:
+                result = min(result, container.duration / 1_000_000)
+            return result
 
         return None
 
@@ -107,16 +135,139 @@ def has_audio_stream(path: str) -> bool:
     return any(stream['type'] == 'audio' for stream in md['streams'])
 
 
-def ffmpeg_clip_cmd(
-    input_path: str,
+# bytes of memory per pixel of decoded frames, by pixel format
+BYTES_PER_PIXEL = {
+    # 8-bit 4:2:0: chroma planes are quarter size
+    'yuv420p': 1.5,
+    'yuvj420p': 1.5,
+    # 8-bit 4:2:2: chroma planes are half size
+    'yuv422p': 2.0,
+    'yuvj422p': 2.0,
+    # 8-bit 4:4:4: all planes full size
+    'yuv444p': 3.0,
+    'yuvj444p': 3.0,
+    # packed 4:2:0 variants (Android/camera common)
+    'nv12': 1.5,
+    'nv21': 1.5,
+    # 10-bit variants (HDR content)
+    'yuv420p10le': 3.0,
+    'yuv420p10be': 3.0,
+    'yuv422p10le': 4.0,
+    'yuv422p10be': 4.0,
+    'yuv444p10le': 6.0,
+    'yuv444p10be': 6.0,
+    'p010le': 3.0,
+    'p010be': 3.0,
+    # 12-bit variants
+    'yuv420p12le': 3.0,
+    'yuv420p12be': 3.0,
+    'yuv422p12le': 4.0,
+    'yuv422p12be': 4.0,
+    'yuv444p12le': 6.0,
+    'yuv444p12be': 6.0,
+    # RGB/RGBA
+    'rgb24': 3.0,
+    'bgr24': 3.0,
+    'rgba': 4.0,
+    'bgra': 4.0,
+    'rgb48le': 6.0,
+    'rgb48be': 6.0,
+    'rgba64le': 8.0,
+    'rgba64be': 8.0,
+}
+
+DEFAULT_BYTES_PER_PIXEL = 3.0  # a conservative fallback for unknown formats
+
+
+def estimate_segment_duration(path: str, approx_decoded_bytes: int) -> float | None:
+    """
+    Return the length of a segment for which the combined in-memory size of all its decoded frames is roughly
+    approx_decoded_bytes.
+
+    Returns None f the frame rate or dimensions cannot be determined.
+    """
+
+    with av.open(path) as container:
+        if len(container.streams.video) == 0:
+            return None
+        video_stream = container.streams.video[0]
+        width = video_stream.width
+        height = video_stream.height
+        pix_fmt = video_stream.codec_context.pix_fmt
+
+        if width <= 0 or height <= 0:
+            return None
+
+        if video_stream.average_rate is None or video_stream.average_rate == 0:
+            return None
+        fps = float(video_stream.average_rate)
+
+    bpp = BYTES_PER_PIXEL.get(pix_fmt, DEFAULT_BYTES_PER_PIXEL)
+    bytes_per_frame = width * height * bpp
+    frames_per_segment = approx_decoded_bytes / bytes_per_frame
+    return frames_per_segment / fps
+
+
+def handle_ffmpeg_error(e: subprocess.CalledProcessError) -> NoReturn:
+    error_msg = f'ffmpeg failed with return code {e.returncode}'
+    if e.stderr is not None:
+        error_msg += f':\n{e.stderr.strip()}'
+    raise pxt.Error(error_msg) from e
+
+
+def run_ffmpeg_cmdline(
+    ffmpeg_args: list[str],
     output_path: str,
+    encode_video: bool = False,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> str:
+    """
+    Create and run an ffmpeg commandline, verify the output file, and return its path.
+
+    If encode_video==True, command is expected to encode video and requires video encoder args
+    """
+    cmd = ['ffmpeg', *ffmpeg_args]
+    if encode_video:
+        append_video_encoder(cmd, video_encoder, video_encoder_args)
+    # loglevel=error: avoid excessive logging
+    cmd += ['-loglevel', 'error', output_path]
+
+    try:
+        _logger.debug(f'running ffmpeg commandline: {" ".join(cmd)}')
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        output_file = Path(output_path)
+        if not output_file.exists() or output_file.stat().st_size == 0:
+            stderr_output = result.stderr.strip() if result.stderr is not None else ''
+            raise pxt.Error(f'ffmpeg failed to create output file for commandline: {" ".join(cmd)}\n{stderr_output}')
+        return output_path
+    except subprocess.CalledProcessError as e:
+        handle_ffmpeg_error(e)
+
+
+def append_video_encoder(
+    cmd: list[str], video_encoder: str | None = None, video_encoder_args: dict[str, Any] | None = None
+) -> None:
+    """Append video encoder-related args to ffmpeg cmdline."""
+    if video_encoder is None:
+        video_encoder = Env.get().default_video_encoder
+    if video_encoder is not None:
+        cmd.extend(['-c:v', video_encoder])
+    if video_encoder_args is not None:
+        for k, v in video_encoder_args.items():
+            cmd.extend([f'-{k}', str(v)])
+
+
+def ffmpeg_clip_args(
+    input_path: str,
     start_time: float,
     duration: float | None = None,
     fast: bool = True,
     video_encoder: str | None = None,
     video_encoder_args: dict[str, Any] | None = None,
 ) -> list[str]:
-    cmd = ['ffmpeg']
+    """Construct args for an ffmpeg commandline that creates a clip."""
+    cmd: list[str] = []
     if fast:
         # fast: -ss before -i
         cmd.extend(
@@ -156,10 +307,28 @@ def ffmpeg_clip_cmd(
             for k, v in video_encoder_args.items():
                 cmd.extend([f'-{k}', str(v)])
 
+    # critical: duration is added *after* encoding flags
     if duration is not None:
         cmd.extend(['-t', str(duration)])
-    cmd.extend(['-loglevel', 'error', output_path])
     return cmd
+
+
+def ffmpeg_clip_cmd(
+    input_path: str,
+    output_path: str,
+    start_time: float,
+    duration: float | None = None,
+    fast: bool = True,
+    video_encoder: str | None = None,
+    video_encoder_args: dict[str, Any] | None = None,
+) -> list[str]:
+    return [
+        'ffmpeg',
+        *ffmpeg_clip_args(input_path, start_time, duration, fast, video_encoder, video_encoder_args),
+        '-loglevel',
+        'error',
+        output_path,
+    ]
 
 
 def ffmpeg_segment_cmd(

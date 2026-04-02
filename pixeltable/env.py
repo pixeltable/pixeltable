@@ -31,6 +31,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential_jitter
 
 from pixeltable import exceptions as excs
 from pixeltable.config import Config
+from pixeltable.dashboard.harness import DashboardHarness
 from pixeltable.utils.console_output import ConsoleLogger, ConsoleMessageFilter, ConsoleOutputHandler, map_level
 from pixeltable.utils.dbms import CockroachDbms, Dbms, PostgresqlDbms
 from pixeltable.utils.http_server import make_server
@@ -72,6 +73,7 @@ class Env:
 
     _httpd: http.server.HTTPServer | None
     _http_address: str | None
+    _dashboard_harness: DashboardHarness | None
     _logger: logging.Logger
     _sql_logger: logging.Logger
     # List of loggers and file handlers to cleanup in the end. File handlers can repeat.
@@ -168,6 +170,11 @@ class Env:
     def http_address(self) -> str:
         assert self._http_address is not None
         return self._http_address
+
+    @property
+    def dashboard_harness(self) -> DashboardHarness:
+        assert self._dashboard_harness is not None
+        return self._dashboard_harness
 
     @property
     def user(self) -> str | None:
@@ -675,6 +682,13 @@ class Env:
         self._start_web_server()
         self.__register_packages()
 
+        dashboard_port = Config.get().get_int_value('dashboard_port') or 22089
+        self._dashboard_harness = DashboardHarness(dashboard_port)
+
+        start_dashboard = Config.get().get_bool_value('start_dashboard')
+        if start_dashboard is not False:  # this curious conditional ensures we interpret `None` (default) as `True`
+            self._dashboard_harness.start()
+
     @property
     def default_video_encoder(self) -> str | None:
         if self._default_video_encoder is None:
@@ -1101,8 +1115,8 @@ class RateLimitInfo:
             return 0
         if self.request_start_ts >= self.reset_at:
             return 0
-        if self.limit < target_remaining:
-            return None
+        if self.remaining >= self.limit:
+            return None  # nothing consumed yet; can't estimate refill rate
 
         # Estimate resource refill rate based on the recorded state and timestamps. Assumes linear refill.
         refill_rate = (self.limit - self.remaining) / (self.reset_at - self.request_start_ts).total_seconds()
