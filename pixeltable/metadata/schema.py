@@ -240,8 +240,6 @@ class TableMd:
     #     column in all cases)
     additional_md: dict[str, Any]  # deprecated
 
-    primary_index_md: PrimaryIndexMd | None = None
-
     # deprecated
     has_pending_ops: bool = False
 
