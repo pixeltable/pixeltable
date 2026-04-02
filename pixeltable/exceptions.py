@@ -200,6 +200,7 @@ class ExternalServiceError(Error):
     error_code: ErrorCode = ErrorCode.PROVIDER_ERROR
     provider: str | None = None
     status_code: int | None = None
+    retry_after: float | None = None
 
     def __init__(
         self,
@@ -226,43 +227,6 @@ class ExternalServiceError(Error):
         return d
 
 
-class RateLimitError(ExternalServiceError):
-    """Rate-limited by an upstream provider. Always retryable."""
-
-    http_status: int = 429
-    error_code: ErrorCode = ErrorCode.RATE_LIMITED
-    retryable: bool = True
-    retry_after: float | None = None
-
-    def __init__(
-        self,
-        message: str = '',
-        *args: Any,
-        error_code: ErrorCode | None = None,
-        retryable: bool | None = None,
-        cause: Exception | None = None,
-        provider: str | None = None,
-        status_code: int | None = None,
-        retry_after: float | None = None,
-    ) -> None:
-        super().__init__(
-            message,
-            *args,
-            error_code=error_code,
-            retryable=retryable,
-            cause=cause,
-            provider=provider,
-            status_code=status_code,
-        )
-        if retry_after is not None:
-            self.retry_after = retry_after
-
-    def to_dict(self) -> dict[str, Any]:
-        d = super().to_dict()
-        if self.retry_after is not None:
-            d['retry_after'] = self.retry_after
-        return d
-
 
 class ServiceUnavailableError(Error):
     """Database, store, or other infrastructure is unreachable."""
@@ -278,13 +242,6 @@ class ConcurrencyError(Error):
     http_status: int = 409
     error_code: ErrorCode = ErrorCode.SERIALIZATION_FAILURE
     retryable: bool = True
-
-
-class CancellationError(Error):
-    """Operation was cancelled."""
-
-    http_status: int = 499
-    error_code: ErrorCode = ErrorCode.CANCELLED
 
 
 class ExprEvalError(Exception):
