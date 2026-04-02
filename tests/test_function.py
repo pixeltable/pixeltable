@@ -1358,6 +1358,26 @@ class TestFunction:
         status = t.insert([{'content': 'hello world'}, {'content': 'foo bar'}, {'content': 'baz qux'}])
         assert status.num_excs == 0
 
+    def test_sync_udf_with_resource_pool(self, uses_db: None) -> None:
+        """A sync UDF with a resource_pool must raise an error (scalar, batched, and polymorphic)."""
+        # scalar
+        t1 = pxt.create_table('test_sync_rp', {'text': pxt.String})
+        t1.add_computed_column(result=sync_udf_with_rp(t1.text))
+        with pytest.raises(pxt.Error, match='resource_pool requires an async function'):
+            t1.insert([{'text': 'hello'}])
+
+        # batched
+        t2 = pxt.create_table('test_sync_batch_rp', {'text': pxt.String})
+        t2.add_computed_column(result=sync_batched_udf_with_rp(t2.text))
+        with pytest.raises(pxt.Error, match='resource_pool requires an async function'):
+            t2.insert([{'text': f'hello {i}'} for i in range(8)])
+
+        # polymorphic resolved to a sync overload
+        t3 = pxt.create_table('test_sync_poly_rp', {'num': pxt.Int})
+        t3.add_computed_column(result=sync_poly_udf_with_rp(t3.num))
+        with pytest.raises(pxt.Error, match='resource_pool requires an async function'):
+            t3.insert([{'num': 1}])
+
 
 def init_test_pool(pool_name: str) -> None:
     import datetime
@@ -1428,6 +1448,26 @@ def _(content: list[str]) -> dict[str, int]:
 @pxt.udf
 def udf6(name: str) -> str:
     return ''
+
+
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:test-sync')
+def sync_udf_with_rp(text: str) -> str:
+    return text.upper()
+
+
+@pxt.udf(batch_size=4, resource_pool='request-rate:test-sync-batch')
+def sync_batched_udf_with_rp(texts: Batch[str]) -> Batch[str]:
+    return [t.upper() for t in texts]
+
+
+@pxt.udf(is_deterministic=False, resource_pool='request-rate:test-sync-poly')
+async def sync_poly_udf_with_rp(x: str) -> str:  # noqa: RUF029
+    return x.upper()
+
+
+@sync_poly_udf_with_rp.overload
+def _(x: int) -> int:
+    return x + 1
 
 
 evolving_udf: func.CallableFunction | None = None
