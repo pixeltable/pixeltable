@@ -7,6 +7,7 @@ from typing import Any
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.io.utils import replace_media_with_fileurl
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
@@ -78,8 +79,7 @@ def export_json(table_or_query: pxt.Table | pxt.Query, file_path: str | Path, *,
         indent: Number of spaces for pretty-printing indentation. Default `None` (compact output).
     """
 
-    from pixeltable.io.utils import replace_media_with_fileurl
-
+    query: pxt.Query
     if isinstance(table_or_query, pxt.catalog.Table):
         query = table_or_query.select()
     else:

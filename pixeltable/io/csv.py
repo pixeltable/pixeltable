@@ -71,6 +71,7 @@ def export_csv(
         quoting: CSV quoting style (a `csv.QUOTE_*` constant). Default `csv.QUOTE_MINIMAL`.
     """
 
+    query: pxt.Query
     if isinstance(table_or_query, pxt.catalog.Table):
         query = table_or_query.select()
     else:
