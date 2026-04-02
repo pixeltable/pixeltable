@@ -1,14 +1,55 @@
 import csv
 import pathlib
+import datetime
+import json
 
+import pandas as pd
 import pytest
 
 import pixeltable as pxt
 
-from ..utils import create_test_tbl, get_csv_file, validate_update_status
+from ..utils import create_all_datatypes_tbl, create_test_tbl, get_csv_file, validate_update_status
 
 
 class TestCsv:
+    def test_export_all_types(self, uses_db: None, tmp_path: pathlib.Path) -> None:
+        """Export a table with every supported type and verify the CSV output."""
+        t = create_all_datatypes_tbl()
+        rows = t.collect()
+
+        csv_path = tmp_path / 'all_types.csv'
+        pxt.io.export_csv(t, csv_path)
+
+        df = pd.read_csv(csv_path)
+        exported = df.to_dict(orient='records')
+
+        assert len(exported) == len(rows)
+
+        for exp_row, orig_row in zip(exported, rows):
+            assert exp_row['c_string'] == orig_row['c_string']
+            assert exp_row['c_int'] == orig_row['c_int']
+            assert exp_row['c_float'] == pytest.approx(orig_row['c_float'])
+            assert exp_row['c_bool'] == orig_row['c_bool']
+
+            assert isinstance(exp_row['c_timestamp'], str)
+            assert isinstance(exp_row['c_date'], str)
+            assert datetime.date.fromisoformat(exp_row['c_date']) == orig_row['c_date']
+
+            assert exp_row['c_uuid'] == str(orig_row['c_uuid'])
+            assert json.loads(exp_row['c_json']) == orig_row['c_json']
+            assert json.loads(exp_row['c_array']) == orig_row['c_array'].tolist()
+
+            for col in ['c_image', 'c_video', 'c_audio', 'c_document']:
+                assert isinstance(exp_row[col], str), f'{col} should be a string'
+                assert exp_row[col] != '', f'{col} should not be empty'
+
+        # Verify media columns export the authoritative file URL, not a cached path
+        media_cols = {'c_image': t.c_image, 'c_video': t.c_video, 'c_audio': t.c_audio, 'c_document': t.c_document}
+        fileurls = t.select(*[col.fileurl for col in media_cols.values()]).collect()
+        for exp_row, url_row in zip(exported, fileurls):
+            for col_name in media_cols:
+                assert exp_row[col_name] == url_row[f'{col_name}_fileurl']
+
     def test_export_round_trip(self, uses_db: None, tmp_path: pathlib.Path) -> None:
         """Export a table to CSV, re-import, and verify equality."""
         t = create_test_tbl('test_csv_rt')
