@@ -127,11 +127,12 @@ class Column:
             self.value_expr_dict = self._value_expr.as_dict()
 
         if default_value_expr_dict is not None:
-            self._default_value_expr = exprs.Expr.from_dict(self.default_value_expr_dict).as_literal()
+            default_expr = exprs.Expr.from_dict(default_value_expr_dict)
+            if default_expr is None:
+                raise excs.Error(f'Column {self.name!r}: invalid default value expression: {default_value_expr_dict}')
+            self._default_value_expr = default_expr.as_literal()
             if self._default_value_expr is None:
-                raise excs.Error(
-                    f'Column {self.name!r}: Default values must be constants, but it is: {self._default_value_expr}'
-                )
+                raise excs.Error(f'Column {self.name!r}: default value must be a constant, got {default_expr}')
 
         if col_type is not None:
             self.col_type = col_type
