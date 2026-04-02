@@ -1369,7 +1369,7 @@ def init_test_pool(pool_name: str) -> None:
     pool_info.record(now, requests=(100, 99, now))
 
 
-# Ruff ignore: async is required for the rate-limits scheduler path we could put some trival 
+# Ruff ignore: async is required for the rate-limits scheduler path we could put some trival
 # await, but regardless it would be a hack to trigger the rate limited path.
 @pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed')
 async def mock_embed(content: str, model: str = 'default') -> list[float]:  # noqa: RUF029
