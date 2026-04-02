@@ -109,6 +109,8 @@ async def chat_completions(
         d = chunk.dict()
         if 'usage' in d and d['usage'] is not None:
             res['usage'] = d['usage']
+        if not chunk.choices:
+            continue
         if chunk.choices[0].finish_reason is not None:
             res['choices'][0]['finish_reason'] = chunk.choices[0].finish_reason
         if chunk.choices[0].delta.role is not None:
