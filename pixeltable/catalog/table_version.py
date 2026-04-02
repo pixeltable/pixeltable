@@ -965,14 +965,16 @@ class TableVersion:
         update_stmt = update_stmt.where(self.store_tbl.v_max_col == schema.Table.MAX_VERSION)
 
         # Set all default value columns
+        update_values: dict[sql.schema.Column, Any] = {}
         for col in default_value_cols:
             assert col.has_default_value, f'Column {col.name!r} should have default value'
             assert col.default_value_expr is not None, f'Column {col.name!r} default_value_expr should be set'
             # sa_col should be initialized by create_sa_tbl() called above
             assert col.sa_col is not None, f'Column {col.name!r} sa_col should be initialized'
             default_val = col.col_type.to_stored_value(col.default_value_expr.val)
-            update_stmt = update_stmt.values({col.sa_col: default_val})
+            update_values[col.sa_col] = default_val
 
+        update_stmt = update_stmt.values(update_values)
         conn.execute(update_stmt)
 
     def drop_column(self, col: Column) -> None:

@@ -14,7 +14,7 @@ _logger = logging.getLogger('pixeltable')
 _POS_COLUMN_NAME = 'pos'
 _ROWID_COLUMN_NAME = '_rowid'
 
-# Maximum size for default values in bytes
+# Maximum JSON-serialized size (in bytes) for default values
 MAX_DEFAULT_VALUE_SIZE = 512
 
 # Set of symbols that are predefined in the `InsertableTable` class (and are therefore not allowed as column names).

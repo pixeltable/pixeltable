@@ -3325,7 +3325,7 @@ class TestTable:
                 np.ones((MAX_DEFAULT_VALUE_SIZE // 2,), dtype=np.int64),
             ),
         ]:
-            with pytest.raises(pxt.Error, match='too large'):
+            with pytest.raises(pxt.Error, match='default value exceeds the maximum allowed size'):
                 t.add_column(**{col: {'type': typ, 'default': val}})
 
     @pytest.mark.parametrize('do_reload_catalog', [False, True], ids=['no_reload_catalog', 'reload_catalog'])

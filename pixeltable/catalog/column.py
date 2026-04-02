@@ -407,8 +407,8 @@ class Column:
             serialized_size = len(json.dumps(value_expr_dict))
             if serialized_size > max_size:
                 raise excs.Error(
-                    f'Column {name!r}: Default value is too large ({serialized_size} bytes). '
-                    f'Maximum size is {max_size} bytes.'
+                    f'Column {name!r}: default value exceeds the maximum allowed size '
+                    f'({serialized_size} bytes serialized, limit is {max_size} bytes).'
                 )
         except (TypeError, ValueError) as e:
             raise excs.Error(f'Column {name!r}: Default value given is not JSON serializable: {e}') from e
