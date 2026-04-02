@@ -75,7 +75,6 @@ class View(Table):
     @classmethod
     def _create(
         cls,
-        dir_id: UUID,
         name: str,
         base: TableVersionPath,
         select_list: list[tuple[exprs.Expr, str | None]] | None,

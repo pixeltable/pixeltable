@@ -9,7 +9,6 @@ import uuid
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 from uuid import UUID
 
-import jsonschema.exceptions
 import sqlalchemy as sql
 from sqlalchemy import exc as sql_exc
 
@@ -1244,7 +1243,7 @@ class TableVersion:
             try:
                 # check if this is a literal
                 value_expr = exprs.Literal(val, col_type=col.col_type)
-            except (TypeError, jsonschema.exceptions.ValidationError) as exc:
+            except TypeError as exc:
                 if not allow_exprs:
                     raise excs.Error(
                         f'Column {col_name!r}: value is not a valid literal for this column '
@@ -1258,7 +1257,7 @@ class TableVersion:
                     ) from exc
                 if not col.col_type.is_supertype_of(value_expr.col_type, ignore_nullable=True):
                     raise excs.Error(
-                        f'Type `{value_expr.col_type}` of value {val!r} is not compatible with the type '
+                        f'The literal value {val!r} is not compatible with the type '
                         f'`{col.col_type}` of column {col_name!r}'
                     ) from exc
             update_targets[col] = value_expr

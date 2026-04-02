@@ -2,6 +2,7 @@ import sys
 import sysconfig
 from typing import Any
 
+import numpy as np
 import pytest
 
 import pixeltable as pxt
@@ -163,6 +164,7 @@ class TestHuggingface:
         t.add_computed_column(
             detect=detr_for_object_detection(t.img, model_id='facebook/detr-resnet-50', threshold=0.8)
         )
+        t.add_computed_column(featured_object=t.detect.label_text[0])
         status = t.insert(img=SAMPLE_IMAGE_URL)
         assert status.num_rows == 1
         assert status.num_excs == 0
@@ -174,11 +176,11 @@ class TestHuggingface:
         assert 'orange' in label_text
         assert 'bowl' in label_text
         assert 'broccoli' in label_text
+        # Test appropriate typing
+        assert t.get_metadata()['columns']['featured_object']['type_'] == 'String'
 
     def test_detr_for_segmentation(self, uses_db: None) -> None:
         skip_test_if_not_installed('transformers')
-        import numpy as np
-
         from pixeltable.functions.huggingface import detr_for_segmentation
 
         t = pxt.create_table('test_tbl', {'img': pxt.Image})
