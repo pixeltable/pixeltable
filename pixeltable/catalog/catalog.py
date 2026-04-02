@@ -1256,7 +1256,6 @@ class Catalog:
             dir = self._get_schema_object(path.parent, expected=Dir, raise_if_not_exists=True)
             assert dir is not None
             md, ops = View._create(
-                dir._id,
                 path.name,
                 base=base,
                 select_list=select_list,
