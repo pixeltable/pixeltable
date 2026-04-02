@@ -9,6 +9,7 @@ from typing import Any
 
 import pixeltable as pxt
 import pixeltable.type_system as ts
+from pixeltable.io.utils import replace_media_with_fileurl
 
 if typing.TYPE_CHECKING:
     import pixeltable as pxt
@@ -69,7 +70,6 @@ def export_csv(
         delimiter: Field delimiter character. Default `','`.
         quoting: CSV quoting style (a `csv.QUOTE_*` constant). Default `csv.QUOTE_MINIMAL`.
     """
-    from pixeltable.io.utils import replace_media_with_fileurl
 
     if isinstance(table_or_query, pxt.catalog.Table):
         query = table_or_query.select()
