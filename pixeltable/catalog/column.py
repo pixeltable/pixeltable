@@ -404,7 +404,7 @@ class Column:
 
         try:
             value_expr_dict = value_expr.as_dict()
-            serialized_size = len(json.dumps(value_expr_dict))
+            serialized_size = len(json.dumps(value_expr_dict, separators=(',', ':')).encode('utf-8'))
             if serialized_size > max_size:
                 raise excs.Error(
                     f'Column {name!r}: default value exceeds the maximum allowed size '
