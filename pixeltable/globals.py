@@ -38,7 +38,11 @@ if TYPE_CHECKING:
 
 
 def init(config_overrides: dict[str, Any] | None = None) -> None:
-    """Initializes the Pixeltable environment."""
+    """Initializes the Pixeltable environment.
+
+    Args:
+        config_overrides: Optional dictionary of configuration overrides.
+    """
     if config_overrides is None:
         config_overrides = {}
     Config.init(config_overrides)
