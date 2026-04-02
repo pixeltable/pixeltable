@@ -430,12 +430,17 @@ class Planner:
             else:
                 extra_cols.append(col)
 
+        # mirror Query._create_query_plan()'s handling of grouping_tbl
+        group_by_clause = query.group_by_clause
+        if query.grouping_tbl is not None and group_by_clause is None:
+            group_by_clause = [exprs.ColumnRef(col) for col in query.grouping_tbl.primary_key_columns()]
+
         # build analyzer from query components
         analyzer = Analyzer(
             query._from_clause,
             query._select_list_exprs,
             where_clause=query.where_clause,
-            group_by_clause=query.group_by_clause,
+            group_by_clause=group_by_clause,
             order_by_clause=query.order_by_clause,
             sample_clause=query.sample_clause,
         )
