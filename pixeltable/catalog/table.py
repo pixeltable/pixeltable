@@ -124,10 +124,13 @@ class Table(SchemaObject):
                 is_stored=col.is_stored,
                 is_primary_key=col.is_pk,
                 media_validation=col.media_validation.name.lower() if col.media_validation is not None else None,  # type: ignore[typeddict-item]
+                is_computed=col.is_computed,
                 computed_with=col.value_expr.display_str(inline=False) if col.value_expr is not None else None,
                 defined_in=col.get_tbl().name,
-                custom_metadata=col.custom_metadata,
                 comment=col.comment,
+                custom_metadata=col.custom_metadata,
+                is_iterator_col=False,
+                destination=col._explicit_destination,
             )
 
         indices = tv.idxs_by_name.values()
@@ -166,7 +169,9 @@ class Table(SchemaObject):
             custom_metadata=self._get_custom_metadata(),
             media_validation=self._get_media_validation().name.lower(),  # type: ignore[typeddict-item]
             primary_key=primary_key,
+            kind=self._display_name(),  # type: ignore[typeddict-item]
             base=None,
+            iterator_call=None,
         )
 
     def _get_version(self) -> int:

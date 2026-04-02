@@ -17,16 +17,22 @@ class ColumnMetadata(TypedDict):
     """`True` if this column is part of the table's primary key."""
     media_validation: Literal['on_read', 'on_write'] | None
     """The media validation policy for this column."""
+    is_computed: bool
+    """`True` if this column is a computed column."""
     computed_with: str | None
     """Expression used to compute this column; `None` if this is not a computed column."""
     defined_in: str | None
     """Name of the table where this column was originally defined.
 
     If the current table is a view, then `defined_in` may differ from the current table name."""
+    comment: str | None
+    """User-provided column comment."""
     custom_metadata: Any
     """User-defined JSON metadata for this column, if any."""
-    comment: str
-    """User-provided column comment."""
+    is_iterator_col: bool
+    """`True` if this column is produced by an iterator (only applicable to views)."""
+    destination: str | None
+    """An object store reference for computed files, if one is configured."""
 
 
 class EmbeddingIndexParams(TypedDict):
@@ -58,6 +64,8 @@ class TableMetadata(TypedDict):
     """The name of the table (ex: `'my_table'`)."""
     path: str
     """The full path of the table (ex: `'my_dir.my_subdir.my_table'`)."""
+    kind: Literal['table', 'view', 'snapshot', 'replica']
+    """The kind of table: `'table'`, `'view'`, `'snapshot'`, or `'replica'`."""
     columns: dict[str, ColumnMetadata]
     """Column metadata for all of the visible columns of the table."""
     indices: dict[str, IndexMetadata]
@@ -84,6 +92,8 @@ class TableMetadata(TypedDict):
     """List of primary key column names, or `None` if this table has no primary key."""
     base: str | None
     """If this table is a view or snapshot, the full path of its base table; otherwise `None`."""
+    iterator_call: str | None
+    """The iterator call for views that use an iterator; otherwise `None`."""
 
 
 class VersionMetadata(TypedDict):
