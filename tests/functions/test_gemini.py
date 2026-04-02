@@ -291,6 +291,10 @@ class TestGemini:
         """
         Scheduler stress test: 30 rows on gemini-2.5-flash free tier (~10 RPM) triggers 429s
         and verifies that retry logic recovers all rows.
+
+        Meant to be used in conjunction with a free tier gemini api key, to manually verify that
+        the retry logic in RateLimitsScheduler is working properly. If the test fails with a non-zero
+        number of exceptions, check the logs to see if they were 429 errors and if retries were attempted.
         """
         skip_test_if_not_installed('google.genai')
         skip_test_if_no_client('gemini')

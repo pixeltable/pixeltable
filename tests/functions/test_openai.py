@@ -17,14 +17,6 @@ from .tool_utils import run_tool_invocations_test, server_state, stock_price, we
 _logger = logging.getLogger('pixeltable')
 
 
-@pxt.udf
-def _throughput_test_prompt(word1: str, word2: str) -> list[dict[str, str]]:
-    return [
-        {'role': 'system', 'content': 'You are a helpful assistant. Be concise.'},
-        {'role': 'user', 'content': f'Use "{word1}" and "{word2}" in one short sentence.'},
-    ]
-
-
 @pytest.mark.remote_api
 @rerun(reruns=3, reruns_delay=8)
 class TestOpenai:
@@ -625,8 +617,14 @@ class TestOpenai:
 
     @pytest.mark.expensive
     def test_chat_completions_scheduler(self, uses_db: None) -> None:
-        """Scheduler throughput test: 20 rows through gpt-4o-mini to verify the rate-limit
-        scheduler dispatches and completes requests without errors."""
+        """
+        Scheduler throughput test: 20 rows through gpt-4o-mini to verify the rate-limit
+        scheduler dispatches and completes requests without errors.
+
+        Meant to be used in conjunction with a rate limit enabled openai api key, to manually verify that
+        the retry logic in RateLimitsScheduler is working properly. If the test fails with a non-zero
+        number of exceptions, check the logs to see if they were 429 errors and if retries were attempted.
+        """
         skip_test_if_not_installed('openai')
         skip_test_if_no_client('openai')
         from pixeltable.functions.openai import chat_completions
@@ -638,7 +636,12 @@ class TestOpenai:
         model = 'gpt-4o-mini'
 
         t = pxt.create_table('scheduler_tbl', {'word1': pxt.String, 'word2': pxt.String})
-        t.add_computed_column(prompt=_throughput_test_prompt(t.word1, t.word2))
+        t.add_computed_column(
+            prompt=[
+                {'role': 'system', 'content': 'You are a helpful assistant. Be concise.'},
+                {'role': 'user', 'content': 'Use ' + t.word1 + ' and ' + t.word2 + ' in one short sentence.'},
+            ]
+        )
         t.add_computed_column(response=chat_completions(t.prompt, model=model))
 
         rows = [{'word1': w1, 'word2': w2} for w1, w2 in (random.sample(wordlist, k=2) for _ in range(num_rows))]
