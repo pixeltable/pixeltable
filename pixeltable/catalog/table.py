@@ -150,7 +150,7 @@ class Table(SchemaObject):
         primary_key: list[str] | None = None
         if any(col.is_pk for col in columns):
             primary_key = [col.name for col in columns if col.is_pk]
-            
+
         return TableMetadata(
             name=self._name,
             path=self._path(),
