@@ -1369,7 +1369,8 @@ def init_test_pool(pool_name: str) -> None:
     pool_info.record(now, requests=(100, 99, now))
 
 
-# Ruff ignore: async is required for the rate-limits scheduler path, but these mock UDFs don't actually await
+# Ruff ignore: async is required for the rate-limits scheduler path we could put some trival 
+# await, but regardless it would be a hack to trigger the rate limited path.
 @pxt.udf(is_deterministic=False, resource_pool='rate-limits:test-embed')
 async def mock_embed(content: str, model: str = 'default') -> list[float]:  # noqa: RUF029
     init_test_pool('rate-limits:test-embed')
@@ -1382,7 +1383,7 @@ async def _(content: pxt.Image, model: str = 'default') -> list[float]:  # noqa:
     return [0.4, 0.5, 0.6]
 
 
-# Third overload: param is named 'video', not 'content' -- will fail the estimator at runtime
+# Third overload: param is named 'video', not 'content' thus will fail the estimator at runtime
 @mock_embed.overload
 async def _(video: pxt.Video, model: str = 'default') -> list[float]:  # noqa: RUF029
     init_test_pool('rate-limits:test-embed')

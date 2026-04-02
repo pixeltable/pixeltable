@@ -170,7 +170,8 @@ class RateLimitsScheduler(Scheduler):
                     param_types = {name: p.col_type for name, p in request.fn_call.fn.signature.parameters.items()}
                     constant_kwargs['_param_types'] = param_types
                 result = estimator(**constant_kwargs, **batched_kwargs)
-        # Filter to resources known to the pool to avoid KeyError in _resource_delay()
+        # Filter to resources known to the pool to avoid KeyError in _resource_delay(), this is done
+        # because some providers do not report resources so rate limiting can only be done off of config
         known = self._resources
         return {k: v for k, v in result.items() if k in known}
 
