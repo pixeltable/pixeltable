@@ -145,12 +145,10 @@ class StoreBase:
         idxs.append(sql.Index(idx_name, self.v_max_col, postgresql_using=Env.get().dbms.version_index_type))
 
         # primary key index: partial unique btree on PK columns where v_max = MAX_VERSION (live rows only)
-        primary_index_md = tbl_version.tbl_md.primary_index_md
-        if primary_index_md is not None and len(primary_index_md.indexed_col_ids) > 0:
+        primary_index = [col for col in tbl_version.cols if col.is_pk]
+        if len(primary_index) > 0:
             pk_idx_exprs: list[sql.ColumnElement] = []
-            for col in tbl_version.cols:
-                if col.id not in primary_index_md.indexed_col_ids:
-                    continue
+            for col in primary_index:
                 if col.col_type.is_string_type():
                     pk_idx_exprs.append(sql.func.left(col.sa_col, BtreeIndex.MAX_STRING_LEN))
                 else:

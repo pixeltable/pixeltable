@@ -152,18 +152,6 @@ class IndexMd:
     init_args: dict[str, Any]
 
 
-@dataclasses.dataclass
-class PrimaryIndexMd:
-    """
-    Metadata for a primary index; there is at most one per table.
-    """
-
-    id: int
-    name: str
-    indexed_col_tbl_id: str  # UUID of the table (as string) that contains columns being indexed
-    indexed_col_ids: list[int]  # columns being indexed
-
-
 # a stored table version path is a list of (table id as str, effective table version)
 TableVersionPath = list[tuple[str, int | None]]
 

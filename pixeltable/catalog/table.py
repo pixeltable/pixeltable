@@ -148,11 +148,9 @@ class Table(SchemaObject):
                 )
 
         primary_key: list[str] | None = None
-        primary_index_md = tv.tbl_md.primary_index_md
-        if primary_index_md is not None:
-            cols_by_id = {col.id: col for col in columns}
-            primary_key = [cols_by_id[col_id].name for col_id in primary_index_md.indexed_col_ids]
-
+        if any(col.is_pk for col in columns):
+            primary_key = [col.name for col in columns if col.is_pk]
+            
         return TableMetadata(
             name=self._name,
             path=self._path(),

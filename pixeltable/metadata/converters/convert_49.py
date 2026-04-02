@@ -67,15 +67,6 @@ def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, upd
     try:
         conn.execute(sql.text(create_idx_sql))
         conn.execute(sql.text('RELEASE SAVEPOINT pk_index_attempt'))
-        # Build the primary_index_md that didn't exist before this migration
-        next_id = updated_table_md.get('next_idx_id', 0)
-        updated_table_md['next_idx_id'] = next_id + 1
-        updated_table_md['primary_index_md'] = {
-            'id': next_id,
-            'name': idx_name,
-            'indexed_col_tbl_id': str(tbl_id),
-            'indexed_col_ids': pk_col_ids,
-        }
         _logger.info(f'Created primary key index {idx_name} on {store_name}')
     except (sql.exc.IntegrityError, sql.exc.InternalError) as e:
         _logger.info(f'Failed to create PK index on {store_name}: {e}. Removing PK metadata.')
@@ -83,6 +74,5 @@ def _table_modifier(conn: sql.Connection, tbl_id: UUID, orig_table_md: dict, upd
         conn.execute(sql.text('RELEASE SAVEPOINT pk_index_attempt'))
         for col_id in pk_col_ids:
             updated_table_md['column_md'][str(col_id)]['is_pk'] = False
-        updated_table_md['primary_index_md'] = None
 
     conn.execute(sql.update(Table).where(Table.id == tbl_id).values(md=updated_table_md))
