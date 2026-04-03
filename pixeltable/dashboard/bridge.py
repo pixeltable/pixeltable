@@ -58,13 +58,13 @@ def _build_select(
     media_url_cols: dict[str, str] = {}
     error_cols: dict[str, tuple[str, str]] = {}
 
-    for col_name in tbl.columns():
-        col_ref = getattr(tbl, col_name)
-        col_type_str = col_ref.col_type._to_str(as_schema=True)
-        is_media = col_ref.col_type.is_media_type()
-        is_computed = col_ref.col.is_computed
-        columns.append({'name': col_name, 'type': col_type_str, 'is_media': is_media, 'is_computed': is_computed})
+    md = tbl.get_metadata()
+    for col_name, col_info in md['columns'].items():
+        is_media = col_info['media_validation'] is not None
+        is_computed = col_info['is_computed']
+        columns.append({'name': col_name, 'type': col_info['type_'], 'is_media': is_media, 'is_computed': is_computed})
 
+        col_ref = getattr(tbl, col_name)
         if is_media:
             # Only fetch the URL — never download the actual media file
             url_key = f'{col_name}__url'
