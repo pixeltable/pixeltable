@@ -334,31 +334,36 @@ class Catalog:
                 with get_runtime().begin_xact(for_write=for_write) as conn:
                     if tbl is not None or tbl_id is not None:
                         try:
-                            success = self._acquire_locks(
+                            self._acquire_locks(
                                 lock_target=tbl_id if tbl_id is not None else tbl,
                                 for_write=for_write,
                                 lock_mutable_tree=lock_mutable_tree,
                                 finalize_pending_ops=finalize_pending_ops,
-                                num_retries=num_retries,
                             )
-                            if success and for_write and lock_mutable_tree:
+                            if for_write and lock_mutable_tree:
                                 self._compute_column_dependents(self._x_locked_tbl_ids)
-                            if success and _logger.isEnabledFor(logging.DEBUG):
+                            if _logger.isEnabledFor(logging.DEBUG):
                                 # validate only when we don't see errors
                                 self.validate()
-                            if not success:
-                                assert not self._undo_actions  # We should not have any undo actions at this point
-                                has_exc = True
-                                num_retries += 1
-                                time.sleep(random.uniform(0.1, 0.5))
-                                conn.rollback()  # attempt failed -- don't try to commit the transaction before retrying
-                                continue
                         except PendingTableOpsError as e:
                             has_exc = True
                             if finalize_pending_ops:
                                 # we remember which table id to finalize
                                 pending_ops_tbl_id = e.tbl_id
                             # raise to abort the transaction
+                            raise
+                        except sql_exc.DBAPIError as e:
+                            # Handle retriable errors
+                            if isinstance(
+                                e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)
+                            ) and (num_retries < _MAX_RETRIES or _MAX_RETRIES == -1):
+                                _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
+                                assert not self._undo_actions  # We should not have any undo actions at this point
+                                has_exc = True
+                                num_retries += 1
+                                time.sleep(random.uniform(0.1, 0.5))
+                                conn.rollback()  # attempt failed -- don't try to commit the transaction before retrying
+                                continue
                             raise
 
                     assert not self._undo_actions
@@ -411,54 +416,34 @@ class Catalog:
                 self._modified_tvs.clear()
 
     def _acquire_locks(
-        self,
-        lock_target: TableVersionPath | UUID,
-        for_write: bool,
-        lock_mutable_tree: bool,
-        finalize_pending_ops: bool,
-        num_retries: int,
-    ) -> bool:
+        self, lock_target: TableVersionPath | UUID, for_write: bool, lock_mutable_tree: bool, finalize_pending_ops: bool
+    ) -> None:
         """
         Acquires transactional locks on the specified tables, and updates self._x_locked_tbl_ids accordingly.
-
-        Returns True if the locks were successfully acquired, False if a retriable error happened.
-
-        Raises an error if a non-retriable error happened, or if the number of retries exceeded the limit.
         """
-        try:
-            x_locked_ids: set[UUID] = set()
-            if isinstance(lock_target, TableVersionPath):
-                x_locked_ids.update(
-                    self._acquire_path_locks(
-                        tbl=lock_target,
-                        for_write=for_write,
-                        lock_mutable_tree=lock_mutable_tree,
-                        check_pending_ops=finalize_pending_ops,
-                    )
+        x_locked_ids: set[UUID] = set()
+        if isinstance(lock_target, TableVersionPath):
+            x_locked_ids.update(
+                self._acquire_path_locks(
+                    tbl=lock_target,
+                    for_write=for_write,
+                    lock_mutable_tree=lock_mutable_tree,
+                    check_pending_ops=finalize_pending_ops,
                 )
-            else:
-                assert isinstance(lock_target, UUID)
-                x_locked_ids.update(
-                    self._acquire_tbl_lock(
-                        tbl_id=lock_target,
-                        for_write=for_write,
-                        lock_mutable_tree=lock_mutable_tree,
-                        raise_if_not_exists=True,
-                        check_pending_ops=finalize_pending_ops,
-                    )
+            )
+        else:
+            assert isinstance(lock_target, UUID)
+            x_locked_ids.update(
+                self._acquire_tbl_lock(
+                    tbl_id=lock_target,
+                    for_write=for_write,
+                    lock_mutable_tree=lock_mutable_tree,
+                    raise_if_not_exists=True,
+                    check_pending_ops=finalize_pending_ops,
                 )
+            )
 
-            self._x_locked_tbl_ids = x_locked_ids
-            return True
-
-        except sql_exc.DBAPIError as e:
-            # Handle retriable errors
-            if isinstance(e.orig, (psycopg.errors.SerializationFailure, psycopg.errors.LockNotAvailable)) and (
-                num_retries < _MAX_RETRIES or _MAX_RETRIES == -1
-            ):
-                _logger.debug(f'Retriable error {type(e.orig)} on attempt {num_retries}')
-                return False
-            raise
+        self._x_locked_tbl_ids = x_locked_ids
 
     def register_undo_action(self, func: Callable[[], None]) -> Callable[[], None]:
         """Registers a function to be called if the current transaction fails.
