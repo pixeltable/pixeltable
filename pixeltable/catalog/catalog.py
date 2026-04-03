@@ -436,7 +436,8 @@ class Catalog:
                         check_pending_ops=finalize_pending_ops,
                     )
                 )
-            if isinstance(lock_target, UUID):
+            else:
+                assert isinstance(lock_target, UUID)
                 x_locked_ids.update(
                     self._acquire_tbl_lock(
                         tbl_id=lock_target,
